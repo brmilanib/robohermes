@@ -1,0 +1,18 @@
+; HERMES PIVOS2.00 | SOMENTE TESTADOR | XAUUSD M30
+; Somente InpCase selecionado para otimizacao. Use agentes LOCAIS.
+; Datas, deposito, alavancagem, timeframe e modelagem NAO sao definidos por .set.
+; Todos os casos: lote fixo1.00, alvo5R, sem parcial/BE/adicoes/reinvestimento.
+; InpMaxMarginPct/InpMaxLot mantidos por compatibilidade; nao usados no lote fixo.
+InpCase=1||1||1||3||Y
+InpMaxMarginPct=20.0||20.0||0.01||20.0||N
+InpMaxLot=1.0||1.0||0.01||1.0||N
+InpFixedLot=1.0||1.0||0.01||1.0||N
+InpMinEntryATR=0.5||0.5||0.01||0.5||N
+InpMaxSpreadPoints=0||0||1||0||N
+InpDeviationPoints=20||20||1||20||N
+InpMagic=26120200||26120200||1||26120200||N
+InpExportCSV=true||false||0||true||N
+InpShowIndicators=false||false||0||true||N
+InpExportOptimizationDetails=true||false||0||true||N
+InpExportAllBars=true||false||0||true||N
+InpRunTag=R200_01

@@ -1,0 +1,426 @@
+{
+  "audit_version": "1.0",
+  "release": "R200",
+  "date": "2026-09-13",
+  "scope": "Inspeção estática independente de todos os módulos do fonte ativo e leitura dos quatro exports agregados. Sem alteração do EA, compilação nativa, novo backtest ou otimização.",
+  "source_sha256": "69a4e02bfaaea2619aad1dea364e8e5c0d03c768ef46f5eeddd2ca7f1235ec9f",
+  "native_executable_hash_received": false,
+  "findings": [
+    {
+      "id": "A01",
+      "severity": "ALTA",
+      "classification": "LIMITE_DE_PROVENIENCIA",
+      "title": "O fonte está identificado; o executável efetivamente usado não está vinculado por hash.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "WriteParameters",
+          "line": 547
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "WriteParameters",
+          "line": 557
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/Reports.mqh",
+          "function": "StatNames",
+          "line": 5
+        }
+      ],
+      "observation": "Os exports identificam nomes/casos e o parameters.txt registra o SHA do controle antigo. Não exportam SHA do fonte atual, SHA do EX5, build do MetaEditor/terminal ou configuração completa do teste. A reprodução agregada do controle é evidência de consistência, não autenticação criptográfica do binário.",
+      "impact": "Outra compilação ou histórico/configuração diferente pode conservar o mesmo nome de arquivo; o resultado não fica totalmente reproduzível apenas com os quatro CSV.",
+      "proposal": "Na próxima release registrar um identificador de build imutável no EA e guardar externamente hashes do MQ5, EX5, preset e relatório nativo junto dos resultados. Não reescrever a proveniência desta rodada como se já existisse."
+    },
+    {
+      "id": "A02",
+      "severity": "ALTA",
+      "classification": "LIMITE_DE_VALIDACAO",
+      "title": "valid_run não atesta custos, ticks ou qualidade de execução real.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/Reports.mqh",
+          "function": "OnTester",
+          "line": 197
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OpenCycle",
+          "line": 449
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OnTick",
+          "line": 534
+        }
+      ],
+      "observation": "A validade exige reconciliação financeira e ausência de erros internos. Os resultados recebidos indicam comissão/taxas zero, swap negativo e ausência de filtro extra de spread pelo valor padrão 0. Não há nos quatro CSV a configuração nativa de modelagem e latência.",
+      "impact": "Reconciliação aritmética correta não demonstra que todos os custos de uma conta futura estejam representados. A contagem de observações de preço não prova modelagem por ticks reais.",
+      "proposal": "Anexar relatório nativo e especificação do contrato/conta e repetir depois, em amostra não usada no ajuste, com custos e latência explicitamente registrados. Não subtrair spread novamente dos resultados: as ordens já usam ask/bid."
+    },
+    {
+      "id": "A03",
+      "severity": "MEDIA",
+      "classification": "DESENHO_FINANCEIRO_CONFIRMADO",
+      "title": "Lote exato não é limite percentual de risco ou margem.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "inputs",
+          "line": 15
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OpenCycle",
+          "line": 408
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OpenCycle",
+          "line": 441
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/HermesCore.mqh",
+          "function": "HermesExactLot",
+          "line": 26
+        }
+      ],
+      "observation": "Nos três casos, InpFixedLot é utilizado diretamente. InpMaxMarginPct e InpMaxLot permanecem na interface, mas não limitam estas entradas. Só volume mínimo/máximo/passo e margem livre nativa limitam o lote. O risco nominal é medido pelo stop, sem orçamento percentual prévio.",
+      "impact": "O risco por operação varia com ATR e saldo. Os CSV registram máximos de risco de stop sobre saldo de 14,6184%, 16,9772%, 12,2083% nos casos 1/2/3. O campo de margem 20 não significa limite de 20% ativo.",
+      "proposal": "Documentar claramente os inputs inativos e manter lote 1 nesta comparação. Qualquer versão com orçamento percentual precisa receber novo caso e não ser apresentada como simples correção do mesmo resultado."
+    },
+    {
+      "id": "A04",
+      "severity": "MEDIA",
+      "classification": "LIMITACAO_OPERACIONAL_OBSERVAVEL",
+      "title": "Uma falha ou rejeição pode consumir a oportunidade daquela vela.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OnTick",
+          "line": 501
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OnTick",
+          "line": 514
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OpenCycle",
+          "line": 451
+        }
+      ],
+      "observation": "lastBar é avançado antes de ler indicadores e enviar a entrada. O EA não tenta novamente na mesma vela após G_NO_DATA, spread, stop ou rejeição de ordem. A rodada tem 0 G_NO_DATA e 8/11/13 G_REJECTED; o último retcode de cada caso é 10018, mercado fechado. Não se pode inferir que todas as rejeições tiveram essa causa sem events.csv.",
+      "impact": "Parte das oportunidades perdidas pode ser execução/horário, não padrão ruim. Nenhuma tentativa atrasada foi introduzida nesta análise.",
+      "proposal": "Analisar cada ENTRY_REJECTED por horário e retorno usando events.csv. Se houver justificativa, testar uma janela limitada e idempotente de retentativa apenas para rejeições definitivas e snapshot ainda válido, em caso separado."
+    },
+    {
+      "id": "A05",
+      "severity": "MEDIA",
+      "classification": "EFEITO_DE_CARTEIRA_CONFIRMADO",
+      "title": "Os casos com pivô substituem parte das entradas originais.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/PivotEntryCore.mqh",
+          "function": "HPRouteEntry",
+          "line": 46
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OnTick",
+          "line": 532
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "SymbolExposure",
+          "line": 199
+        }
+      ],
+      "observation": "O original tem prioridade quando ambos passam na mesma vela, mas uma posição extra aberta antes impede entradas futuras. Pelos agregados, as entradas BASE são 261/241/231 e as PIVOT 0/58/111. Os sinais originais selecionados seguem 1070 em todos. As reduções 20/30 de BASE são diferenças de contagem, não identificação individual dos trades substituídos.",
+      "impact": "A diferença de lucro entre casos não é o lucro isolado dos pivôs. Pode incluir pivôs, originais perdidos/recuperados e mudanças na trajetória de saldo.",
+      "proposal": "Conciliar cycles.csv de cada caso por signal_time e selected_entry_path para separar BASE comum, BASE exclusivo e PIVOT. Medir contribuição e custo de ocupação antes de sugerir filtros."
+    },
+    {
+      "id": "A06",
+      "severity": "BAIXA",
+      "classification": "AMBIGUIDADE_DE_INSTRUMENTACAO",
+      "title": "Candidatos elegíveis são medidos antes de stop, posição e envio.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OnTick",
+          "line": 522
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "Record",
+          "line": 269
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/Reports.mqh",
+          "function": "StatNames",
+          "line": 5
+        }
+      ],
+      "observation": "hp_extra_eligible conta o filtro técnico extra antes de validar o stop. hp_pivot_selected exclui o original vencedor da prioridade; hp_pivot_fills conta fills. Os antigos pivot_buy_candidates/pivot_sell_candidates usam outro detector legado PEPivotSignal e não descrevem o gatilho ativo HPStep.",
+      "impact": "234/320 elegíveis não podem ser comparados diretamente aos 175/242 do estudo anterior, que incluía stop. Tampouco as colunas legadas devem ser somadas aos 761 candidatos ativos.",
+      "proposal": "No relatório usar funil explícito: geométrico → extra técnico → original não selecionado → disponível → stop/margem/execução → preenchido. Prefixar documentação do detector antigo como diagnóstico legado."
+    },
+    {
+      "id": "A07",
+      "severity": "MEDIA",
+      "classification": "LIMITE_DA_HIPOTESE",
+      "title": "Entrada Início ainda exige tendência local; não busca qualquer reversão.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/PivotEntryCore.mqh",
+          "function": "HPExtraGate",
+          "line": 31
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/ProtectCore.mqh",
+          "function": "PEDistance",
+          "line": 39
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OpenCycle",
+          "line": 384
+        }
+      ],
+      "observation": "Caso 3 retira só preço > SMA200 e SMA200 subindo da entrada extra. Continua exigindo EMA21 > SMA50, SMA50 subindo, ADX ≥ 20, +DI > −DI, candle altista acima da EMA, oscilador crescente e ask ≥ EMA + 0,5 ATR. Usa stop das 3 velas recentes, não o fundo F1 do pivô. Não exige distância máxima da EMA além das restrições indiretas do stop.",
+      "impact": "Pivôs precoces contra a tendência local continuarão bloqueados. O rótulo Início pode sugerir abrangência maior que a efetiva. Geometria e stop são hipóteses distintas.",
+      "proposal": "Pedir ao revisor análise da coerência entre geometria, atraso do gatilho e stop, preservando uma única alteração por futura hipótese. Nenhum relaxamento foi feito nesta rodada."
+    },
+    {
+      "id": "A08",
+      "severity": "BAIXA",
+      "classification": "LIMITACAO_DE_REPRODUCAO",
+      "title": "A origem do histórico e a ausência de expiração temporal afetam o catálogo.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/PivotRuntime.mqh",
+          "function": "HPSyncClosedBars",
+          "line": 13
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/PivotCore.mqh",
+          "function": "HPExposePivot",
+          "line": 155
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/PivotCore.mqh",
+          "function": "HPStep",
+          "line": 195
+        }
+      ],
+      "observation": "O detector inicia com 210 velas fechadas e processa continuamente. Não existe expiração fixa de um padrão por número de velas: ele permanece até invalidação, rompimento ou substituição estrutural. Referências na borda de inicialização podem variar em relação a replay iniciado em outra data.",
+      "impact": "Replays com origem diferente podem divergir perto do começo. Candidatos antigos não são automaticamente candidatos melhores ou piores; a idade precisa ser medida.",
+      "proposal": "Registrar origem e idade dos três pivôs em qualquer reprodução; avaliar idade como hipótese prospectiva somente depois de medir distribuição, sem escolher retrospectivamente a idade que elimina perdas."
+    },
+    {
+      "id": "A09",
+      "severity": "BAIXA",
+      "classification": "LIMITE_DE_METRICA",
+      "title": "5R é alvo nominal sobre a cotação anterior ao fill, não ganho líquido garantido.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/XAU_H1_Core.mqh",
+          "function": "H1Levels",
+          "line": 60
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "OpenCycle",
+          "line": 467
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/Execution.mqh",
+          "function": "EnforceTargetCap",
+          "line": 50
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/Reports.mqh",
+          "function": "ExportDetails",
+          "line": 87
+        }
+      ],
+      "observation": "SL/TP são enviados juntos: stop estrutural arredondado e TP arredondado para fora em torno de 5 distâncias do entry cotado. O fill pode diferir. A correção de alvo pós-fill só executa em targetMode > 0; todos R200 usam 0. Custos e gaps também alteram R realizado.",
+      "impact": "O lucro líquido de um vencedor não precisa ser exatamente 5 vezes o risco inicial do fill; pequenas diferenças por tick são esperadas. Não chamar isso automaticamente de stop ou alvo adulterado.",
+      "proposal": "Conservar no dossiê quoted_entry, actual entry, quoted_target e actual_target_R; analisar distribuição quando os cycles nativos dos casos novos forem anexados."
+    },
+    {
+      "id": "A10",
+      "severity": "MEDIA",
+      "classification": "LIMITACAO_DE_VALIDACAO_TEMPORAL",
+      "title": "O período foi usado repetidamente para escolher hipóteses.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/PLANO_RODADA_200.json",
+          "function": "dates_note",
+          "line": 15
+        }
+      ],
+      "observation": "A própria declaração da rodada identifica 2022–2026 como janela já examinada. Esta auditoria recebeu comparação agregada, não um novo período intocado. Mais lucro nessa janela, se surgisse, não provaria repetibilidade; nesta rodada as extras pioraram lucro e meses negativos.",
+      "impact": "Selecionar somente vencedores históricos e eliminar padrões perdedores aumenta risco de ajustar ruído e regime específico. A auditoria não certifica robô pronto para conta real nem capacidade de zerar meses negativos.",
+      "proposal": "Manter a versão Referência como controle; pré-declarar poucas hipóteses motivadas por decomposição dos trades e medir em janelas cronológicas separadas e posteriormente forward DEMO."
+    },
+    {
+      "id": "A11",
+      "severity": "BAIXA",
+      "classification": "LIMITE_DE_METRICA_MENSAL",
+      "title": "DD mensal reinicia o pico no mês e não equivale ao DD global.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/ProtectCore.mqh",
+          "function": "PEStartEquity",
+          "line": 129
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/EA.mq5",
+          "function": "TrackEquity",
+          "line": 211
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/Reports.mqh",
+          "function": "MonthValues",
+          "line": 11
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/Reports.mqh",
+          "function": "OnTester",
+          "line": 151
+        }
+      ],
+      "observation": "Cada mês começa na última equity observada do anterior e reinicia o pico para o DD intramês. O DD global relativo vem de TesterStatistics. equity_change, booked_net e cycle_net_by_exit são conceitos diferentes.",
+      "impact": "Somar apenas saídas desloca lucro entre meses de posições carregadas. Máximo de DDs mensais não reproduz necessariamente DD global; percentual no maior DD monetário também é outra estatística.",
+      "proposal": "Apresentar consistência por equity_change, com saldo realizado como coluna auxiliar. Gráfico de fechamentos mensais deve ser rotulado para não sugerir trajetória intramês ou DD por ticks."
+    },
+    {
+      "id": "A12",
+      "severity": "BAIXA",
+      "classification": "LIMITACAO_DE_METRICA_BE",
+      "title": "Flags de breakeven não constituem simulação contrafactual completa.",
+      "evidence": [
+        {
+          "file": "Hermes_Pivos_Lab_200/src/ProtectCore.mqh",
+          "function": "PEObserve",
+          "line": 110
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/Reports.mqh",
+          "function": "ExportDetails",
+          "line": 97
+        },
+        {
+          "file": "Hermes_Pivos_Lab_200/src/Reports.mqh",
+          "function": "DrainFrames",
+          "line": 261
+        }
+      ],
+      "observation": "Os thresholds 1/1,5/2/2,5/3R guardam atingiu/retornou e primeira cotação de retorno; não guardam o instante do retorno. O agregado de otimização publica esses flags somente para o caso 1. Nenhum BE está ativado.",
+      "impact": "Não é possível deduzir PnL mensal, swap recalculado ou novas entradas liberadas por um BE apenas desse CSV. MFE após entrada não pode ser filtro disponível antes de entrar.",
+      "proposal": "Solicitar ao Claude distinguir flags observados, proxies e backtests de gestão reais. Qualquer BE proposto requer execução temporal completa em caso próprio."
+    }
+  ],
+  "observed_aggregate": [
+    {
+      "case": "1",
+      "name": "HERMES_REFERENCIA",
+      "profit": "204912.54000000",
+      "mt5_trades": "261.00000000",
+      "negative_equity_months": "17.00000000",
+      "equity_dd_relative_percent": "42.76052644",
+      "hp_candidates": "761.00000000",
+      "hp_extra_eligible": "0.00000000",
+      "hp_base_selected": "1070.00000000",
+      "hp_pivot_selected": "0.00000000",
+      "hp_pivot_fills": "0.00000000",
+      "hp_extra_position_blocks": "0.00000000",
+      "G_REJECTED": "8.00000000",
+      "last_retcode": "10018.00000000",
+      "max_stop_risk_percent": "14.61839633"
+    },
+    {
+      "case": "2",
+      "name": "HERMES_PIVO_CONTINUIDADE",
+      "profit": "191523.99000000",
+      "mt5_trades": "299.00000000",
+      "negative_equity_months": "22.00000000",
+      "equity_dd_relative_percent": "43.57800074",
+      "hp_candidates": "761.00000000",
+      "hp_extra_eligible": "234.00000000",
+      "hp_base_selected": "1070.00000000",
+      "hp_pivot_selected": "172.00000000",
+      "hp_pivot_fills": "58.00000000",
+      "hp_extra_position_blocks": "87.00000000",
+      "G_REJECTED": "11.00000000",
+      "last_retcode": "10018.00000000",
+      "max_stop_risk_percent": "16.97722805"
+    },
+    {
+      "case": "3",
+      "name": "HERMES_PIVO_INICIO",
+      "profit": "169116.06000000",
+      "mt5_trades": "342.00000000",
+      "negative_equity_months": "19.00000000",
+      "equity_dd_relative_percent": "36.85409276",
+      "hp_candidates": "761.00000000",
+      "hp_extra_eligible": "320.00000000",
+      "hp_base_selected": "1070.00000000",
+      "hp_pivot_selected": "258.00000000",
+      "hp_pivot_fills": "111.00000000",
+      "hp_extra_position_blocks": "100.00000000",
+      "G_REJECTED": "13.00000000",
+      "last_retcode": "10018.00000000",
+      "max_stop_risk_percent": "12.20829109"
+    }
+  ],
+  "source_hashes": {
+    "Hermes_Pivos_Lab_200/Hermes_Pivos_Lab_200.mq5": "69a4e02bfaaea2619aad1dea364e8e5c0d03c768ef46f5eeddd2ca7f1235ec9f",
+    "Hermes_Pivos_Lab_200/src/DonchianCore.mqh": "f1c2376154fad71b12ed64f573a322834ed83cc52a4da484f92a767d17b17dd3",
+    "Hermes_Pivos_Lab_200/src/EA.mq5": "4ed198cc003e92cc87bbdee36faf8f03d48f45eaccff08af7705ff6c5a73c28f",
+    "Hermes_Pivos_Lab_200/src/EntryCore.mqh": "6d3b94e8455dda1cd85be54316ae7762c1bbfc36fd1deeb53947c88ec53e0166",
+    "Hermes_Pivos_Lab_200/src/Execution.mqh": "810038be7a6ccc583bb99e8d5cec046d687c7608095f399ed083652ed49da8a5",
+    "Hermes_Pivos_Lab_200/src/HermesCore.mqh": "1468270123b44ce77d37516802a996fafc035a3b28f133d22509bcee0c3cfa50",
+    "Hermes_Pivos_Lab_200/src/PivotCore.mqh": "b44977e36b54319eeabf1144fdd82619dc74ad1868192187544098e408506986",
+    "Hermes_Pivos_Lab_200/src/PivotEntryCore.mqh": "ab887a0c10c7f9f66556231f31099f89e19f680ca6134e177449f321fb5d5f5f",
+    "Hermes_Pivos_Lab_200/src/PivotRuntime.mqh": "9f568b16b988060227d843d51f2b45fa739ce2992b28bf7744ba31699937a5a1",
+    "Hermes_Pivos_Lab_200/src/ProtectCore.mqh": "daf651a2972d52461bee3778401bd99b465087450ff51679558aebac00adc277",
+    "Hermes_Pivos_Lab_200/src/Reports.mqh": "797f0ce393c2f1975e20bcf91b01e86f6c4df1f5f3bb1c44a48dfe9e7c6557b4",
+    "Hermes_Pivos_Lab_200/src/XAU_H1_Core.mqh": "974756ed9aaa9932bc84dedc692d3f72a3b5344d2de296cebc4074c346c0d029",
+    "upload/comparacao(7).csv": "75a650459ad237b6603bfc66cfc1807e532359a48adb7bb9d1c2f2f798eea68d",
+    "upload/meses_comparacao(5).csv": "c8ff4ffa3d51308f6d68abaf0e3fe7db4a981e9b2f15b1d651f729fa645033fc"
+  },
+  "official_sources": [
+    {
+      "title": "iADX",
+      "url": "https://www.mql5.com/en/docs/indicators/iadx"
+    },
+    {
+      "title": "iADXWilder",
+      "url": "https://www.mql5.com/en/docs/indicators/iadxwilder"
+    },
+    {
+      "title": "Retornos do servidor",
+      "url": "https://www.mql5.com/en/docs/constants/errorswarnings/enum_trade_return_codes"
+    },
+    {
+      "title": "Strategy testing",
+      "url": "https://www.metatrader5.com/en/terminal/help/algotrading/testing"
+    }
+  ],
+  "monthly_period_interpretation": {
+    "complete_months": 56,
+    "complete_period": "2022-01 through 2026-08",
+    "negative_complete_months_by_case": {
+      "1": 17,
+      "2": 22,
+      "3": 18
+    },
+    "partial_month": "2026-09",
+    "partial_negative_case3": true,
+    "native_negative_month_counts_in_summary_include_partial": true
+  }
+}

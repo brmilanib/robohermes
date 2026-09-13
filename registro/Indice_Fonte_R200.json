@@ -1,0 +1,18 @@
+{
+  "artifact": "Hermes_Pivos_Lab_200.mq5",
+  "relative_path": "Hermes_Pivos_Lab_200/Hermes_Pivos_Lab_200.mq5",
+  "sha256": "69a4e02bfaaea2619aad1dea364e8e5c0d03c768ef46f5eeddd2ca7f1235ec9f",
+  "bytes": 124730,
+  "lines": 2075,
+  "database_sources": [
+    {
+      "id": "a21d9e73ed35f7382dde7d72e573dfbf671de2e6792e6ea15abcf71ee4d81ca1",
+      "path": "Hermes_Pivos_Lab_200/Hermes_Pivos_Lab_200.mq5",
+      "sha256": "69a4e02bfaaea2619aad1dea364e8e5c0d03c768ef46f5eeddd2ca7f1235ec9f",
+      "kind": "HERMES_DETAIL_STUDY_AND_R200_PLANNED_SOURCE"
+    }
+  ],
+  "source_unchanged": true,
+  "executed_EX5_sha256": null,
+  "actual_native_source_binary_correspondence": "not verified from comparison CSVs"
+}

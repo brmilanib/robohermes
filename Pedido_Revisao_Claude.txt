@@ -1,0 +1,14 @@
+Você é o revisor independente do projeto Hermes. Analise o dossiê, o fonte MQL5 da versão 2.00, a auditoria e os quatro CSVs originais. Não execute ordens nem altere o fonte de referência antes de apresentar seu parecer.
+
+Objetivo do proprietário: aumentar lucro com maior consistência mensal. A meta de nenhum mês negativo é aspiracional e não foi atingida. A amostra foi reutilizada diversas vezes; não a trate como validação inédita.
+
+Confirme primeiro os três casos: Referência, Pivô Continuidade e Pivô Início. Todos são XAUUSD M30, BUY-only, lote fixo 1,00, alvo nominal 5R e stop estrutural. As únicas mudanças planejadas são nas entradas extras. Não substituir iADX por iADXWilder nem SMA3−SMA10 por MACD EMA sem tratar como mudança de estratégia.
+
+1. Recalcule totais e meses completos. Separe setembro/2026 parcial e equity de saldo realizado. Compare retorno anual em moedas iguais com Selic.
+2. Audite causalidade: confirmação dos pivôs, disponibilidade temporal, sequência do rompimento, leitura de candles fechados, consumo de sinais, stop e priorização BASE/PIVOT. Cite função e trecho para cada falha concreta.
+3. Explique o que podemos concluir com os agregados e o que exige cycles/deals/events/bars individuais. Não atribua a diferença total de lucro aos pivôs isoladamente: a ocupação alterou as entradas BASE.
+4. Avalie custos, rejeições, lote, margem e diferenças entre DD relativo e DD máximo em dinheiro. Não interprete redução percentual isolada como redução de todo risco.
+5. Proponha no máximo três hipóteses novas e diferentes, com mecanismo, regras exatas, informação disponível no momento da entrada, previsão falsificável e critério de rejeição. Evite grandes grades de otimização e filtros escolhidos só por coincidirem com meses negativos conhecidos.
+6. Priorize teste isolado de cada alteração, comparador preservado e validação posterior não usada na escolha. Qualquer análise de padrões deve separar características anteriores à entrada de MFE/MAE e demais resultados conhecidos depois.
+
+Entregue: parecer objetivo; falhas reproduzíveis versus hipóteses; tabela de evidência/impacto; dados faltantes estritamente necessários; três experiências priorizadas. Não invente backtest, execução nativa, lucro, causalidade ou garantia de rentabilidade.

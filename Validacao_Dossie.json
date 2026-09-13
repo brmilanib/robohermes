@@ -1,0 +1,20 @@
+{
+  "pages": 56,
+  "source_lines": 2075,
+  "source_sha256": "69a4e02bfaaea2619aad1dea364e8e5c0d03c768ef46f5eeddd2ca7f1235ec9f",
+  "all_pages_have_text": true,
+  "full_code_in_markdown": true,
+  "native_results_source": "user CSV exports",
+  "monthly_rows": 171,
+  "negative_complete": {
+    "1": 17,
+    "2": 22,
+    "3": 18
+  },
+  "annual_rows": 15,
+  "visual_QA": "PASS: páginas renderizadas, tabelas/gráficos/código revisados; limites de texto de todas as páginas conferidos.",
+  "PDF_sha256": "2fbf9a4906581970f4e03bd762eb191b0dce630001ca5318fdb622af3880087b",
+  "all_source_line_numbers_present_once": true,
+  "all_page_text_bounds_ok": true,
+  "independent_numeric_reconciliation_checks": 2199
+}

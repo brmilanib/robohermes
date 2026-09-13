@@ -1,0 +1,81 @@
+{
+  "version": "2.00",
+  "source_sha256": "69a4e02bfaaea2619aad1dea364e8e5c0d03c768ef46f5eeddd2ca7f1235ec9f",
+  "profiles": 3,
+  "presets": 4,
+  "statistics_fields": 116,
+  "local_tests": [
+    {
+      "test": "test_core",
+      "passed": true,
+      "output": "Core: profile matrix, lot/risk boundaries, BE paths, causal pivots, original entry and monthly DD passed."
+    },
+    {
+      "test": "test_execution",
+      "passed": true,
+      "output": "Target cap: quote-price/native-point units; fill correction; no widening; SL preserved; idempotency; uncertain reply close path passed.\nExecution: confirmed half+BE, idempotency, session deferral, ambiguous replies, stop freeze, two-step pyramid, bounded averaging, short risk passed."
+    },
+    {
+      "test": "test_donchian",
+      "passed": true,
+      "output": "Donchian:6profiles;closed-window cutoff;weeklyADX/pullback;3871sizing boundaries;4096original control scenarios passed."
+    },
+    {
+      "test": "test_hermes",
+      "passed": true,
+      "output": "Hermes: 9000target-rounding boundaries, native units, exact lot, margin refusal passed."
+    },
+    {
+      "test": "test_entry",
+      "passed": true,
+      "output": "OpenCycle production body: exact1lot; 20price/20points/5R; native margin refusal; no20pct hidden cap; risk controls; tick/stops rejection; structuralSL; fill adjustment passed."
+    },
+    {
+      "test": "test_pivot",
+      "passed": true,
+      "output": "UNIT_PASS: causal_confirmation, prefix, same_bar_invalidation, persistent_invalidation, no_retroactive_break, one_event, ties, double_extreme_reset, same_side_replacement, invalid_input, gaps"
+    },
+    {
+      "test": "test_pivot_entry",
+      "passed": true,
+      "output": "Production pivot routing: 1944 invariant checks, case1 parity, original priority, causal-data fallback, SMA200-only difference, strict/inclusive thresholds passed."
+    },
+    {
+      "test": "test_pivot_adapter",
+      "passed": true,
+      "output": "Production MT5 history adapter: closed210 seed, no open OHLC, ordered catch-up, observed gaps, transactional copy failures and latest-only signal passed."
+    }
+  ],
+  "original_core_libraries_unchanged": true,
+  "original_execution_library_unchanged": true,
+  "baseline190_source_unchanged": true,
+  "pivot_core_sha256": "b44977e36b54319eeabf1144fdd82619dc74ad1868192187544098e408506986",
+  "native_MQL5_compilation": false,
+  "native_MT5_backtests": false,
+  "note": "Tests exercise causal pivot core, production entry routing, exact MT5 adapter body and inherited execution/accounting with deterministic API mocks. No MQL5 compilation or market/PnL simulation. New profit and monthly outcomes unknown until native MT5.",
+  "closed_snapshot_gate_replay": {
+    "kind": "PRODUCTION_GATE_REPLAY_NOT_MARKET_BACKTEST",
+    "source_bars_sha256": "6d5ea1def514fe13521b1988886e4d9718e6cd6581b4372149fff458811ec117",
+    "source_candidates_sha256": "a7575b5de485a1bd0bd9c776b43aa18a5b5b5d387a708ffdbf3bdf5cda1e0941",
+    "production_gate_sha256": "ab887a0c10c7f9f66556231f31099f89e19f680ca6134e177449f321fb5d5f5f",
+    "production_stop_core_sha256": "974756ed9aaa9932bc84dedc692d3f72a3b5344d2de296cebc4074c346c0d029",
+    "candidates": 761,
+    "comparisons": 1522,
+    "all_match": true,
+    "counts": {
+      "2": {
+        "combined_extra_gate_and_structural_stop": 175,
+        "extra_not_original": 138,
+        "baseline_flat": 76,
+        "baseline_occupied": 62
+      },
+      "3": {
+        "combined_extra_gate_and_structural_stop": 242,
+        "extra_not_original": 205,
+        "baseline_flat": 142,
+        "baseline_occupied": 63
+      }
+    },
+    "limits": "Reference stop supplied from independent study; broker constraints, changed position occupancy, fills and PnL are not simulated. Native MT5 pending."
+  }
+}

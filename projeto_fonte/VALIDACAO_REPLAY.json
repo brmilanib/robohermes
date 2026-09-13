@@ -1,0 +1,25 @@
+{
+  "kind": "PRODUCTION_GATE_REPLAY_NOT_MARKET_BACKTEST",
+  "source_bars_sha256": "6d5ea1def514fe13521b1988886e4d9718e6cd6581b4372149fff458811ec117",
+  "source_candidates_sha256": "a7575b5de485a1bd0bd9c776b43aa18a5b5b5d387a708ffdbf3bdf5cda1e0941",
+  "production_gate_sha256": "ab887a0c10c7f9f66556231f31099f89e19f680ca6134e177449f321fb5d5f5f",
+  "production_stop_core_sha256": "974756ed9aaa9932bc84dedc692d3f72a3b5344d2de296cebc4074c346c0d029",
+  "candidates": 761,
+  "comparisons": 1522,
+  "all_match": true,
+  "counts": {
+    "2": {
+      "combined_extra_gate_and_structural_stop": 175,
+      "extra_not_original": 138,
+      "baseline_flat": 76,
+      "baseline_occupied": 62
+    },
+    "3": {
+      "combined_extra_gate_and_structural_stop": 242,
+      "extra_not_original": 205,
+      "baseline_flat": 142,
+      "baseline_occupied": 63
+    }
+  },
+  "limits": "Reference stop supplied from independent study; broker constraints, changed position occupancy, fills and PnL are not simulated. Native MT5 pending."
+}
