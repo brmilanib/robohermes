@@ -32,11 +32,28 @@ referência.
 
 | Caminho | Conteúdo |
 | --- | --- |
+| **`hermes_r210/`** | **Versão nova (R210)** — Caso 4 (Referência + sizing por risco) e Caso 5 (Colheita Rápida). Comece por `hermes_r210/MUDANCAS_R210.md`. |
 | `docs/PARECER_CLAUDE_R200.md` | **Parecer independente** — reprodução dos números, auditoria de causalidade (com função/linha), análise de risco/regime, resposta às 8 perguntas prioritárias, tabela evidência×impacto, dados faltantes. |
 | `docs/PLANO_EXPERIMENTOS.md` | **Três experimentos priorizados** (falsificáveis, isolados) + protocolo de validação + **especificação de implementação do Caso 4** (sizing por risco) para o ChatGPT. |
-| `projeto_fonte/` | Fonte completo do EA (módulos `src/`, presets, testes), como entregue. |
+| `projeto_fonte/` | Fonte R200 **congelado** (comparador auditado; módulos `src/`, presets, testes), como entregue. |
 | `analise/`, `auditoria_codigo/`, `dados_originais/` | Tabelas derivadas, auditoria de código e os CSVs originais da rodada. |
 | `Dossie_Hermes_R200.md` / `.pdf` | Dossiê original do proprietário/ChatGPT. |
+
+## Versão nova — R210 (implementada nesta rodada)
+
+`hermes_r210/` é a evolução pedida: **não depender de o ouro subir**. O R200 fica **congelado**
+como comparador; o R210 acrescenta, isolados:
+
+- **Caso 4 — Referência + sizing por risco:** mesmas entradas do Caso 1, mas arriscando uma
+  fração fixa do patrimônio (`InpRiskPercent`, padrão 1%). Ataca o drawdown de frente.
+- **Caso 5 — Colheita Rápida:** entra num **surto de volume/range** dentro da tendência curta,
+  mira um **alvo pequeno** (`InpQHTargetR`, padrão 1R) e sai — ganhos menores e mais frequentes.
+
+Os **cores auditados do R200 permanecem byte-idênticos** e toda a lógica de decisão passa em
+9/9 testes portáveis (`cd hermes_r210 && python3 verificar.py`). **Rentabilidade ainda NÃO
+validada:** exige backtest no MT5 **com custos realistas** e validação fora da amostra — em
+especial o Caso 5, cujo alvo curto é muito sensível a spread/comissão. Detalhes e o passo a
+passo de compilação em `hermes_r210/MUDANCAS_R210.md`.
 
 ## Achado central de engenharia
 

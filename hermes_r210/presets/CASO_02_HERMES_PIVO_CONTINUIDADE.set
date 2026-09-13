@@ -1,0 +1,25 @@
+; HERMES R210 | SOMENTE TESTADOR | XAUUSD M30
+; Casos 1-3: congelados do R200 (lote fixo 1.00, alvo 5R).
+; Caso 4: Referencia + sizing por risco (InpRiskPercent).
+; Caso 5: Colheita Rapida (surto de volume, alvo curto InpQHTargetR, risco).
+; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.
+InpCase=2||2||1||2||N
+InpMaxMarginPct=20.0||20.0||0.01||20.0||N
+InpMaxLot=1.0||1.0||0.01||1.0||N
+InpFixedLot=1.0||1.0||0.01||1.0||N
+InpMinEntryATR=0.5||0.5||0.01||0.5||N
+InpMaxSpreadPoints=0||0||1||0||N
+InpDeviationPoints=20||20||1||20||N
+InpMagic=26120200||26120200||1||26120200||N
+InpExportCSV=true||false||0||true||N
+InpShowIndicators=false||false||0||true||N
+InpExportOptimizationDetails=true||false||0||true||N
+InpExportAllBars=true||false||0||true||N
+InpRunTag=R210_01
+InpRiskPercent=1.0||1.0||0.01||1.0||N
+InpQHTargetR=1.0||1.0||0.01||1.0||N
+InpQHVolFactor=1.5||1.5||0.01||1.5||N
+InpQHRangeFactor=1.0||1.0||0.01||1.0||N
+InpQHMinCloseLoc=0.6||0.6||0.01||0.6||N
+InpQHMinADX=20.0||20.0||0.01||20.0||N
+InpQHMaxSpreadATR=0.1||0.1||0.01||0.1||N

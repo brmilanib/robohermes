@@ -1,0 +1,65 @@
+{
+  "version": "2.10",
+  "source_sha256": "f9991004433a1772e3a5e3efaceca7c5e9d7dc499a5aaea8a88276e37c5a2528",
+  "cases": 5,
+  "presets": 6,
+  "statistics_fields": 116,
+  "frozen_cores_identical_to_r200": true,
+  "changed_files": [
+    "EA.mq5",
+    "PivotEntryCore.mqh"
+  ],
+  "added_files": [
+    "QuickHarvestCore.mqh"
+  ],
+  "local_tests": [
+    {
+      "test": "test_core",
+      "passed": true,
+      "output": "Core: profile matrix, lot/risk boundaries, BE paths, causal pivots, original entry and monthly DD passed."
+    },
+    {
+      "test": "test_execution",
+      "passed": true,
+      "output": "Target cap: quote-price/native-point units; fill correction; no widening; SL preserved; idempotency; uncertain reply close path passed.\nExecution: confirmed half+BE, idempotency, session deferral, ambiguous replies, stop freeze, two-step pyramid, bounded averaging, short risk passed."
+    },
+    {
+      "test": "test_donchian",
+      "passed": true,
+      "output": "Donchian:6profiles;closed-window cutoff;weeklyADX/pullback;3871sizing boundaries;4096original control scenarios passed."
+    },
+    {
+      "test": "test_hermes",
+      "passed": true,
+      "output": "Hermes: 9000target-rounding boundaries, native units, exact lot, margin refusal passed."
+    },
+    {
+      "test": "test_entry",
+      "passed": true,
+      "output": "OpenCycle production body: exact1lot; 20price/20points/5R; native margin refusal; no20pct hidden cap; risk controls; tick/stops rejection; structuralSL; fill adjustment passed."
+    },
+    {
+      "test": "test_pivot",
+      "passed": true,
+      "output": "UNIT_PASS: causal_confirmation, prefix, same_bar_invalidation, persistent_invalidation, no_retroactive_break, one_event, ties, double_extreme_reset, same_side_replacement, invalid_input, gaps"
+    },
+    {
+      "test": "test_pivot_entry",
+      "passed": true,
+      "output": "Production pivot routing: 1944 invariant checks, case1 parity, original priority, causal-data fallback, SMA200-only difference, strict/inclusive thresholds passed."
+    },
+    {
+      "test": "test_pivot_adapter",
+      "passed": true,
+      "output": "Production MT5 history adapter: closed210 seed, no open OHLC, ordered catch-up, observed gaps, transactional copy failures and latest-only signal passed."
+    },
+    {
+      "test": "test_quickharvest",
+      "passed": true,
+      "output": "QuickHarvest (Caso 5): pronto, 10 rejeicoes isoladas, guarda de custo, dados invalidos e limiares inclusivos passaram."
+    }
+  ],
+  "native_MQL5_compilation": false,
+  "native_MT5_backtests": false,
+  "note": "Casos 4/5 sao hipoteses NAO validadas. Exigem backtest MT5 com custos realistas e validacao fora da amostra antes de qualquer conclusao de lucro. Sem simulacao de PnL aqui."
+}
