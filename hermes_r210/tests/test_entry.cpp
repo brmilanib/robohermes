@@ -12,7 +12,12 @@ HPDecision hpRoute{}; HPSignal hpSignal{}; long hpPivotFills=0;
 void ObserveOpenPath(){}
 #include "Open_Runtime.inc"
 H1Signal prepare(int id){
- reset(1);DCSelectProfile(id,dc,evo,profile);InpCase=id;active=-1;positions.clear();cycles.clear();
+ // 'id' aqui indexa o espaco interno do DCSelectProfile (1-6, perfis Donchian
+ // legados), NAO o Caso Hermes. InpCase fica travado em 1 (fora do ramo novo
+ // InpCase>=4) para nao colidir com o sizing de risco dos Casos 4/5; os
+ // chamadores que testam roteamento real (HPSelectProfile) sobrescrevem
+ // InpCase explicitamente logo em seguida.
+ reset(1);DCSelectProfile(id,dc,evo,profile);InpCase=1;active=-1;positions.clear();cycles.clear();
  targetRejects=fixedVolumeRejects=0;sizedLot=plannedTargetDistance=plannedTargetRiskRatio=plannedTargetProfit=0;
  sizingRiskBudget=sizingMarginBudget=0;quote={4000,4000.2,100000};mockFreeMargin=10000;mockMarginPerLot=8000;
  H1Signal s{};s.open=3990;s.close=4000;s.lowest=3988;s.highest=4001;s.atr=10;s.ema=3990;s.sma200=3901;s.adx=26;s.oldADX=25;
@@ -40,6 +45,19 @@ int main(){
  s=prepare(1);assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
  assert(integrity&&near(cycles[0].volume,.14)&&risk<=200&&near(tp,4071.2));
  for(int id:{5,6}){s=prepare(id);assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);assert(integrity&&near(cycles[0].volume,.14)&&risk<=200);}
+ // R210: Casos 4/5 usam a mesma formula do DCRiskLot, mas SEM o teto interno
+ // de riskPercent<=2 (DCRiskLot recusa >2% com volume=0/G_RISK; e' assim que
+ // os Casos 1-3 continuam protegidos). Em 2% o novo ramo bate exatamente com
+ // o DCRiskLot original; acima de 2% (so' liberado para InpCase>=4) o volume
+ // cresce proporcionalmente em vez de ser recusado.
+ s=prepare(1);InpCase=4;dc.riskPercent=2.0;
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(cycles[0].volume,.14)&&near(risk,198.8)); // igual ao teto antigo de 2%
+ s=prepare(1);InpCase=4;dc.riskPercent=3.0;
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(cycles[0].volume,.21)&&near(risk,298.2)); // 3%: acima do teto do DCRiskLot original
+ s=prepare(1);InpCase=1;dc.riskPercent=3.0; // Casos 1-3 continuam via DCRiskLot: >2% e' recusado, nao alargado.
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_RISK&&volumeRequests==0);
  s=prepare(3);mockFillOffset=-.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
  assert(integrity&&near(cycles[0].target-cycles[0].entry,20)&&targetAdjustments==1&&slRequests==1&&volumeRequests==1);
  s=prepare(3);mockFillOffset=.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);

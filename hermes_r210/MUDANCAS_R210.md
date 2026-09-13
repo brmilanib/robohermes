@@ -68,6 +68,39 @@ pelo regime do ouro. **As entradas são idênticas às do Caso 1** — muda só 
 retorno passa a **compor** (CAGR pode ficar menor — é esperado). **Rejeite** se o DD não cair
 de forma material.
 
+**Resultado real (backtest do proprietário, mesma janela do R200):**
+
+| `InpRiskPercent` | Lucro líquido | DD relativo | Trades / acerto |
+| --- | --- | --- | --- |
+| 1% | 20.986 | 16,63% | 261 / 26,05% (idênticos ao Caso 1) |
+| 2% | 76.920 | 30,22% (31,91% no capital líquido) | 261 / 26,05% |
+
+Confirma a previsão: **mesmas entradas, drawdown 2,6× menor que o Caso 1** (42,76%) a 1% de
+risco. O lucro em dólar é menor que o Caso 1 (204.912) **de propósito** — o Caso 1 chegava a
+arriscar 14,6% da conta num único trade (13 perdas seguidas observadas); aquele resultado
+inclui alavancagem que teria risco real de ruína numa ordem diferente dos trades.
+
+### 3.1 Ajuste: teto de risco liberado até 5% (antes era travado em 2%)
+
+O `DCRiskLot` original (usado pelos Casos 1–3) **recusa** (`G_RISK`, volume 0) qualquer
+`riskPercent > 2%` — é uma proteção de fábrica do motor herdado. Para o proprietário poder
+**medir a fronteira risco×retorno** conscientemente, os Casos 4/5 agora usam um cálculo próprio
+(mesma fórmula do `DCRiskLot`, sem esse teto) que aceita `InpRiskPercent` até **5%**. Acima de
+2% o EA imprime um aviso no log (`Print`), mas não bloqueia — é uma escolha deliberada, não
+um "vale tudo" silencioso. **Os Casos 1–3 continuam recusando >2% exatamente como antes**
+(prova disso em `tests/test_entry.cpp`, que testa os dois comportamentos lado a lado).
+
+**Preset novo:** `presets/CASO_04_RISCO_2a5pct.set` — varre `InpRiskPercent` em {2, 3, 4, 5}
+num único teste de otimização (Caso 4, entradas idênticas ao Caso 1). Use-o para desenhar a
+curva DD×retorno e escolher o seu ponto de equilíbrio — **não** para "achar o risco que dá
+mais lucro" (isso é ajuste na amostra, o mesmo erro do R200 com os pivôs).
+
+> **⚠️ Risco de ruína cresce rápido acima de 2–3%.** O sistema já teve 13 perdas seguidas.
+> A 5% de risco por trade, 13 perdas seguidas somam uma perda composta de
+> `1 − (0,95)^13 ≈ 49%` do patrimônio **só nessa sequência** — e o histórico não garante que a
+> próxima pior sequência não será mais longa. Trate os valores de 3–5% como **medição da
+> fronteira**, não como recomendação de uso.
+
 ---
 
 ## 4. Caso 5 — Colheita Rápida (a nova filosofia)
@@ -151,7 +184,51 @@ Detalhe do raciocínio e das previsões em `../docs/PLANO_EXPERIMENTOS.md` e no 
 
 ---
 
-## 8. Mapa de mudanças
+## 8. Reinvestir 50% do lucro e aumentar o lote proporcionalmente — vale a pena?
+
+Pergunta do proprietário. Resposta curta: **o Caso 4 já reinveste** (é isso que "sizing por
+risco" significa); a ideia de "reinvestir 50% e crescer o lote" é um mecanismo **diferente e
+mais arriscado**, e ele **já existe, pronto, no motor** — só nunca foi ligado nos casos
+Hermes. Não ativei nada sozinho; aqui está o raciocínio para decidir.
+
+**O Caso 4 (risco %) já é reinvestimento.** `volume = (risco% × Equity) / perda-por-lote`. Se o
+patrimônio dobra, o lote dobra — automaticamente, todo trade, sem outro mecanismo. É a forma
+de reinvestimento matematicamente mais estudada em gestão de risco (fixed-fractional / aparentado
+a Kelly): o risco **por trade** fica constante, medido pela distância do stop (ATR), não pelo
+tamanho da conta sozinho.
+
+**O que você descreveu é outra coisa: escalar o lote pelo LUCRO acumulado, não pelo risco do
+trade.** Isso já está implementado — código legado, testado, **nunca ativado** em nenhum
+Caso Hermes (`p.reinvest` é sempre `false` nos 5 casos R210):
+
+- `src/ProtectCore.mqh:144` · `PEReinvestLot(base, deposit, balance, cap, step)` — usa
+  **exatamente 50%** fixo: `efetivo = base × (1 + 0,5 × max(0, balance−deposit)/deposit)`.
+- `src/EntryCore.mqh:45` · `EVOCapitalLot(base, deposit, balance, fraction, cap, step)` — a
+  mesma ideia, com `fraction` configurável (0%, 50%, 75% ou 100% nos perfis legados).
+
+**Por que eu NÃO ligaria isso junto com o Caso 4 (os dois ao mesmo tempo):**
+
+1. **Dupla composição = risco real maior que o configurado.** No Caso 4, o risco por trade já
+   cresce com o patrimônio (via `Equity`). Se você *também* multiplica o lote pelo lucro
+   acumulado, está compondo **duas vezes** — o risco efetivo por trade sobe silenciosamente
+   acima do `InpRiskPercent` que você escolheu, sem um número claro te avisando disso.
+2. **Amplia exatamente onde o sistema é mais frágil.** O robô já teve **13 perdas seguidas**.
+   Reinvestir sobre o pico de lucro significa que o lote fica **maior** logo depois de uma
+   sequência boa — que é precisamente quando, estatisticamente, uma sequência ruim tem mais
+   chance de vir a seguir (reversão à média). É compor exposição no pior momento relativo.
+3. **Fica mais difícil de raciocinar sobre risco.** Com o Caso 4 sozinho, "quanto posso
+   perder numa sequência de N perdas" é uma conta simples (`1-(1-risco%)^N`). Somando um
+   segundo fator de crescimento por lucro acumulado, essa conta deixa de ser direta — você
+   perde a legibilidade que é o ponto principal do sizing por risco.
+
+**Minha recomendação:** fique com o Caso 4 (risco % puro) como o mecanismo de "reinvestimento".
+Se mesmo assim você quiser **medir** a ideia do lucro-acumulado como hipótese separada — nunca
+empilhada com o Caso 4 —, eu implemento um **Caso 6 isolado** (`PEReinvestLot`/`EVOCapitalLot`,
+já testados no motor) com **sizing fixo simples** (sem risco%), seguindo o mesmo protocolo:
+comparador preservado, previsão falsificável, validação fora da amostra. Me avise se quiser
+que eu construa esse Caso 6.
+
+## 9. Mapa de mudanças
 
 | Arquivo | Estado | O quê |
 | --- | --- | --- |

@@ -36,7 +36,7 @@ assert all(x not in ea for x in ['WebRequest(','ShellExecute','OnTimer('])
 assert manifest['source_sha256']==hashlib.sha256(ea.encode()).hexdigest()
 
 # Presets: mesmo conjunto de inputs; InpCase varia dentro de 1..5.
-assert len(list((ROOT/'presets').glob('*.set')))==6
+assert len(list((ROOT/'presets').glob('*.set')))==7
 inputs=set(re.findall(r'^input\s+\w+\s+(Inp\w+)',source,re.M))
 for path in (ROOT/'presets').glob('*.set'):
     params=dict(line.split('=',1) for line in path.read_text().splitlines() if line and not line.startswith(';'))

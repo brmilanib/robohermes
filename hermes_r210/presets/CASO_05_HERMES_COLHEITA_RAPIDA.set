@@ -1,6 +1,6 @@
 ; HERMES R210 | SOMENTE TESTADOR | XAUUSD M30
 ; Casos 1-3: congelados do R200 (lote fixo 1.00, alvo 5R).
-; Caso 4: Referencia + sizing por risco (InpRiskPercent).
+; Caso 4: Referencia + sizing por risco (InpRiskPercent, ate 5%).
 ; Caso 5: Colheita Rapida (surto de volume, alvo curto InpQHTargetR, risco).
 ; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.
 InpCase=5||5||1||5||N

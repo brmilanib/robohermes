@@ -3,7 +3,7 @@
 ; Caso 4: Referencia + sizing por risco (InpRiskPercent, ate 5%).
 ; Caso 5: Colheita Rapida (surto de volume, alvo curto InpQHTargetR, risco).
 ; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.
-InpCase=1||1||1||1||N
+InpCase=4||4||1||4||N
 InpMaxMarginPct=20.0||20.0||0.01||20.0||N
 InpMaxLot=1.0||1.0||0.01||1.0||N
 InpFixedLot=1.0||1.0||0.01||1.0||N
@@ -16,7 +16,7 @@ InpShowIndicators=false||false||0||true||N
 InpExportOptimizationDetails=true||false||0||true||N
 InpExportAllBars=true||false||0||true||N
 InpRunTag=R210_01
-InpRiskPercent=1.0||1.0||0.01||1.0||N
+InpRiskPercent=2.0||2.0||1.0||5.0||Y
 InpQHTargetR=1.0||1.0||0.01||1.0||N
 InpQHVolFactor=1.5||1.5||0.01||1.5||N
 InpQHRangeFactor=1.0||1.0||0.01||1.0||N

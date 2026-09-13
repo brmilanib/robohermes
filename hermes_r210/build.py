@@ -71,16 +71,18 @@ base=dict(InpCase=1,InpMaxMarginPct=20.0,InpMaxLot=1.0,InpFixedLot=1.0,InpMinEnt
     InpQHMinCloseLoc=0.6,InpQHMinADX=20.0,InpQHMaxSpreadATR=0.10)
 assert set(re.findall(r'^input\s+\w+\s+(Inp\w+)',source,re.M))==set(base)
 
-def preset(filename,id,opt_start=None,opt_end=None):
-    optimize=opt_start is not None
+def preset(filename,id,sweep=None):
+    # sweep: {input: (start, step, end)} marca esses inputs para otimizacao (||Y).
+    sweep=sweep or {}
     lines=['; HERMES R210 | SOMENTE TESTADOR | XAUUSD M30',
            '; Casos 1-3: congelados do R200 (lote fixo 1.00, alvo 5R).',
-           '; Caso 4: Referencia + sizing por risco (InpRiskPercent).',
+           '; Caso 4: Referencia + sizing por risco (InpRiskPercent, ate 5%).',
            '; Caso 5: Colheita Rapida (surto de volume, alvo curto InpQHTargetR, risco).',
            '; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.']
     for key,value in (base|{'InpCase':id}).items():
-        if key=='InpCase' and optimize:
-            lines.append(f'{key}={id}||{opt_start}||1||{opt_end}||Y')
+        if key in sweep:
+            s,st,e=sweep[key]
+            lines.append(f'{key}={s}||{s}||{st}||{e}||Y')
         elif isinstance(value,bool):
             lines.append(f'{key}={str(value).lower()}||false||0||true||N')
         elif isinstance(value,str):
@@ -90,9 +92,11 @@ def preset(filename,id,opt_start=None,opt_end=None):
     (ROOT/'presets'/filename).write_text('\r\n'.join(lines)+'\r\n')
 
 for old in (ROOT/'presets').glob('*.set'): old.unlink()   # limpa presets herdados do R200
-preset('00_COMPARAR_5_CASOS.set',1,opt_start=1,opt_end=5)
+preset('00_COMPARAR_5_CASOS.set',1,sweep={'InpCase':(1,1,5)})
 for c in cases:
     preset(f"CASO_{c['case']:02d}_{c['name']}.set",c['case'])
+# Varredura de risco pedida: Caso 4 (Referencia) a 2%, 3%, 4% e 5% num unico teste.
+preset('CASO_04_RISCO_2a5pct.set',4,sweep={'InpRiskPercent':(2.0,1.0,5.0)})
 with (ROOT/'CASOS.csv').open('w',encoding='utf-8-sig',newline='') as f:
     writer=csv.DictWriter(f,list(cases[0]),delimiter=';');writer.writeheader();writer.writerows(cases)
 

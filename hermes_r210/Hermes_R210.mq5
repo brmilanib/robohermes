@@ -1693,8 +1693,21 @@ PE_GATE OpenCycle(const int origin,const int side,const H1Signal &s,const MqlTic
    minimumEquityForLot=MathMax((-referenceLoss)*100.0/dc.riskPercent,(used+referenceMargin)*100.0/InpMaxMarginPct);
    sizingRiskBudget=eq*dc.riskPercent/100.0;
    sizingMarginBudget=MathMin(free,MathMax(0,eq*InpMaxMarginPct/100.0-used));
-   // Casos 4/5 (risco): o teto e o volume maximo do simbolo; risco% e margem% governam. Fixo (1-3) mantem InpMaxLot.
-   volume=DCRiskLot(eq,free,used,dc.riskPercent,InpMaxMarginPct,-referenceLoss/mn,referenceMargin/mn,mn,mx,step,InpCase>=4 ? mx : InpMaxLot);
+   if(InpCase>=4) {
+    // Casos 4/5: sizing por risco SEM o teto de 2% do DCRiskLot (permite ate 5%
+    // conscientemente). Replica a mesma formula do DCRiskLot, reaproveitando os
+    // orcamentos ja calculados acima; margem% e volume maximo do simbolo
+    // continuam limitando. DonchianCore.mqh permanece intocado (core auditado
+    // do R200) — este ramo existe aqui, nao ali, porque so os Casos 4/5 podem
+    // ultrapassar o teto de 2% do DCRiskLot.
+    double lossPerLot=-referenceLoss/mn,marginPerLot=referenceMargin/mn;
+    double raw=(sizingMarginBudget>0 && lossPerLot>0) ? MathMin(mx,sizingRiskBudget/lossPerLot) : 0;
+    if(marginPerLot>0) raw=MathMin(raw,sizingMarginBudget/marginPerLot);
+    volume=MathFloor(raw/step+1e-9)*step;
+    if(sizingMarginBudget<=0 || volume<mn-1e-9 || volume*lossPerLot>sizingRiskBudget+1e-7 || volume*marginPerLot>sizingMarginBudget+1e-7) volume=0;
+   } else {
+    volume=DCRiskLot(eq,free,used,dc.riskPercent,InpMaxMarginPct,-referenceLoss/mn,referenceMargin/mn,mn,mx,step,InpMaxLot);
+   }
    if(volume<=0) { detail="Volume below broker minimum within risk/margin budgets; no forced minimum."; riskBlocks++; return G_RISK; }
    // Contract margin may be tiered. Revalue the proposed volume and step down using native values.
    for(int tries=0;tries<8;tries++) {
@@ -1877,7 +1890,8 @@ int OnInit()
   if(!HPSelectProfile(InpCase,dc,evo,profile) || !ValidRunTag()) return INIT_PARAMETERS_INCORRECT;
   // R210: Casos 4 e 5 usam sizing por risco; o percentual vem do input.
   if(InpCase>=4) {
-   if(!MathIsValidNumber(InpRiskPercent) || InpRiskPercent<=0 || InpRiskPercent>2.0) return INIT_PARAMETERS_INCORRECT;
+   if(!MathIsValidNumber(InpRiskPercent) || InpRiskPercent<=0 || InpRiskPercent>5.0) return INIT_PARAMETERS_INCORRECT;
+   if(InpRiskPercent>2.0) Print("AVISO: risco por trade ",DoubleToString(InpRiskPercent,2),"% acima de 2%. O risco de ruina cresce rapido; use conscientemente.");
    dc.riskPercent=InpRiskPercent;
   }
   if(InpCase==5) {
