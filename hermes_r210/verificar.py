@@ -16,7 +16,7 @@ subprocess.run(['python3',str(ROOT/'build.py')],check=True)
 
 results=[]
 tests=['test_core','test_execution','test_donchian','test_hermes','test_entry',
-       'test_pivot','test_pivot_entry','test_pivot_adapter','test_quickharvest']
+       'test_pivot','test_pivot_entry','test_pivot_adapter','test_quickharvest','test_dd_throttle']
 with tempfile.TemporaryDirectory() as directory:
     for name in tests:
         binary=str(Path(directory)/name)
@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory() as directory:
 
 source=(ROOT/'src/EA.mq5').read_text();ea=(ROOT/'Hermes_R210.mq5').read_text()
 manifest=json.loads((ROOT/'MANIFESTO_R210.json').read_text())
-assert len(manifest['cases'])==5 and len({c['name'] for c in manifest['cases']})==5
+assert len(manifest['cases'])==6 and len({c['name'] for c in manifest['cases']})==6
 assert '#include "' not in ea and 'if(!MQLInfoInteger(MQL_TESTER))' in ea
 assert 'if(_Period!=signalTF)' in ea and 'signalTF=PERIOD_M30;' in ea
 assert 'HPSelectProfile(InpCase,dc,evo,profile)' in ea
@@ -35,14 +35,14 @@ assert 'if(InpCase==5)' in ea and 'QHGate(' in ea and 'ReadQuickHarvest(' in ea
 assert all(x not in ea for x in ['WebRequest(','ShellExecute','OnTimer('])
 assert manifest['source_sha256']==hashlib.sha256(ea.encode()).hexdigest()
 
-# Presets: mesmo conjunto de inputs; InpCase varia dentro de 1..5.
-assert len(list((ROOT/'presets').glob('*.set')))==7
+# Presets: mesmo conjunto de inputs; InpCase varia dentro de 1..6.
+assert len(list((ROOT/'presets').glob('*.set')))==8
 inputs=set(re.findall(r'^input\s+\w+\s+(Inp\w+)',source,re.M))
 for path in (ROOT/'presets').glob('*.set'):
     params=dict(line.split('=',1) for line in path.read_text().splitlines() if line and not line.startswith(';'))
     assert set(params)==inputs,path.name
     value,start,step,end,opt=params['InpCase'].split('||')
-    assert 1<=int(start)<=int(end)<=5 and int(step)==1,path.name
+    assert 1<=int(start)<=int(end)<=6 and int(step)==1,path.name
     assert params['InpRunTag']=='R210_01'
 
 # Contagem de estatisticas inalterada (nao adicionei campos ao PE_STAT).
@@ -57,10 +57,10 @@ for name in frozen:
     assert (ROOT/'src'/name).read_bytes()==(R200/'src'/name).read_bytes(),f'core alterado: {name}'
 changed=[n for n in ['EA.mq5','PivotEntryCore.mqh'] if (ROOT/'src'/n).read_bytes()!=(R200/'src'/n).read_bytes()]
 
-validation=dict(version='2.10',source_sha256=manifest['source_sha256'],cases=5,presets=6,statistics_fields=116,
-    frozen_cores_identical_to_r200=True,changed_files=changed,added_files=['QuickHarvestCore.mqh'],
+validation=dict(version='2.10',source_sha256=manifest['source_sha256'],cases=6,presets=8,statistics_fields=116,
+    frozen_cores_identical_to_r200=True,changed_files=changed,added_files=['QuickHarvestCore.mqh','DDThrottleCore.mqh'],
     local_tests=results,native_MQL5_compilation=False,native_MT5_backtests=False,
-    note='Casos 4/5 sao hipoteses NAO validadas. Exigem backtest MT5 com custos realistas e '
+    note='Casos 4/5/6 sao hipoteses NAO validadas. Exigem backtest MT5 com custos realistas e '
          'validacao fora da amostra antes de qualquer conclusao de lucro. Sem simulacao de PnL aqui.')
 (ROOT/'VALIDACAO.json').write_text(json.dumps(validation,ensure_ascii=False,indent=2)+'\n')
 print(json.dumps(validation,ensure_ascii=False,indent=2))

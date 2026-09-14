@@ -177,6 +177,46 @@ int QHGate(const H1Signal &s,const QHFeatures &f,
 }
 #endif
 
+#ifndef HERMES_DD_THROTTLE_CORE_210
+#define HERMES_DD_THROTTLE_CORE_210
+// Caso 6 - freio de risco por rebaixamento (drawdown throttle).
+//
+// Motivacao: no Caso 4, subir o risco% aumenta o lucro muito mais rapido do
+// que aumenta a dor (2%->5% e so 2.5x de risco mas ~14.6x de lucro no sweep
+// testado) - mas o Fator de Recuperacao piora a cada degrau (3.87->1.51),
+// porque sizing por % do patrimonio compoe geometricamente nos dois sentidos.
+// Nao existe ajuste dentro da formula do Caso 4 que quebre esse acoplamento;
+// este e um mecanismo DIFERENTE, isolado como Caso 6, comparado contra o
+// Caso 4 no mesmo risco-base, nunca substituindo-o.
+//
+// Ideia: reduzir o risco% EFETIVO quando o patrimonio esta em rebaixamento
+// contra o maior pico ja visto, e restaurar o risco cheio assim que um novo
+// pico e feito. So muda o VOLUME; nenhuma entrada/saida e alterada.
+//
+// Funcao pura: (patrimonio atual, pico ja visto, duas bandas de rebaixamento
+// e seus multiplicadores) -> multiplicador em (0,1] a aplicar sobre o risco%
+// normal. Dados invalidos ou configuracao invalida (bandas fora de ordem,
+// multiplicadores fora de (0,1] ou nao-decrescentes) devolvem 0 - o chao de
+// seguranca e nao operar, nunca ampliar risco por engano de configuracao.
+double DDThrottleMultiplier(const double equity, const double peakEquity,
+                            const double band1Pct, const double mult1,
+                            const double band2Pct, const double mult2)
+{
+   if (!MathIsValidNumber(equity) || !MathIsValidNumber(peakEquity) || equity <= 0 || peakEquity <= 0)
+      return 0;
+   if (!MathIsValidNumber(band1Pct) || !MathIsValidNumber(band2Pct) ||
+       !MathIsValidNumber(mult1) || !MathIsValidNumber(mult2) ||
+       band1Pct < 0 || band2Pct <= band1Pct ||
+       mult1 <= 0 || mult1 > 1.0 || mult2 <= 0 || mult2 > mult1)
+      return 0;
+   if (equity >= peakEquity) return 1.0;
+   double ddPct = 100.0 * (peakEquity - equity) / peakEquity;
+   if (ddPct <= band1Pct) return 1.0;
+   if (ddPct <= band2Pct) return mult1;
+   return mult2;
+}
+#endif
+
 #ifndef XAU_PROTECT_CORE_150
 #define XAU_PROTECT_CORE_150
 // Platform-independent decisions, shared unchanged with the local C++ tests.
@@ -864,12 +904,13 @@ struct HPDecision
 };
 bool HPSelectProfile(const int id,DCProfile &d,EVOProfile &e,PEProfile &p)
 {
- if(id<1 || id>5 || !DCSelectProfile(2,d,e,p)) return false;
+ if(id<1 || id>6 || !DCSelectProfile(2,d,e,p)) return false;
  d.id=id; d.matchedControl=2; e.matchedControl=2;
- // Casos 4 (Referencia + risco) e 5 (Colheita Rapida): MESMO motor de execucao,
- // porem sizing por % do patrimonio em vez de lote fixo. O EA sobrescreve
- // d.riskPercent com InpRiskPercent logo apos esta selecao.
- const bool riskSized=(id==4 || id==5);
+ // Casos 4 (Referencia + risco), 5 (Colheita Rapida) e 6 (freio por
+ // rebaixamento sobre o Caso 4): MESMO motor de execucao, porem sizing por %
+ // do patrimonio em vez de lote fixo. O EA sobrescreve d.riskPercent com
+ // InpRiskPercent logo apos esta selecao.
+ const bool riskSized=(id==4 || id==5 || id==6);
  if(riskSized) { d.fixedLot=false; if(!(d.riskPercent>0.0 && d.riskPercent<=2.0)) d.riskPercent=1.0; }
  // A referencia herdada e volume (exato ou por risco), 5R, so compra, uma perna.
  return (riskSized ? !d.fixedLot : d.fixedLot) && !d.weekly && d.targetMode==0 && d.channelMode==0
@@ -880,8 +921,8 @@ int HPExtraGate(const int id,const H1Signal &s,const EVOFeatures &f,
                 const double ask,const double old200,const double minimumDistance,
                 const bool pivotDataReady,const HPSignal &pivot)
 {
- if(id<1 || id>5) return HP_INVALID_CASE;
- if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4 e 5 nao usam a rota de pivo
+ if(id<1 || id>6) return HP_INVALID_CASE;
+ if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5 e 6 nao usam a rota de pivo
  if(!pivotDataReady) return HP_DATA_PENDING;
  if(!pivot.buy) return HP_NO_CANDIDATE;
  if(!(s.ema>s.sma50 && s.sma50>s.oldSma50)) return HP_TREND50;
@@ -902,7 +943,7 @@ void HPRouteEntry(const int id,const EVOProfile &e,const H1Signal &s,const EVOFe
  out.original_gate=EVOEvaluate(e,s,f,ask,old200,minimumDistance,false,out.side);
  out.extra_gate=HPExtraGate(id,s,f,ask,old200,minimumDistance,pivotDataReady,pivot);
  out.setup=out.original_gate;
- if(id<1 || id>5) { out.setup=HP_INVALID_CASE; out.side=0; return; }
+ if(id<1 || id>6) { out.setup=HP_INVALID_CASE; out.side=0; return; }
  if(out.original_gate==0) { out.path=HP_BASE; return; }
  if(out.extra_gate==0) { out.setup=0; out.side=1; out.path=HP_PIVOT; }
 }
@@ -931,6 +972,11 @@ input double InpQHRangeFactor=1.00;  // Caso 5: barra ampla = range >= fator*ATR
 input double InpQHMinCloseLoc=0.60;  // Caso 5: fechamento minimo dentro do range [0..1]
 input double InpQHMinADX=20.0;       // Caso 5: ADX minimo
 input double InpQHMaxSpreadATR=0.10; // Caso 5: guarda de custo: spread <= fator*ATR
+// --- Caso 6: freio de risco por rebaixamento (aplicado sobre o Caso 4) ---
+input double InpDDBand1=15.0;  // Caso 6: rebaixamento (%) ate onde o risco fica cheio
+input double InpDDMult1=0.50;  // Caso 6: multiplicador do risco entre a banda 1 e a banda 2
+input double InpDDBand2=25.0;  // Caso 6: rebaixamento (%) a partir de onde o risco cai mais
+input double InpDDMult2=0.25;  // Caso 6: multiplicador do risco acima da banda 2
 
 enum PE_GATE { G_NO_DATA=0,G_BASE,G_DIRECTION,G_DISTANCE,G_REGIME,G_POSITION,
  G_SPREAD,G_STOP,G_BROKER_STOPS,G_RISK,G_MARGIN_ERROR,G_MARGIN_BLOCK,G_REJECTED,G_FILLED,G_HALTED,G_ENTRY_FILTER,G_TARGET,G_COUNT };
@@ -979,6 +1025,7 @@ bool channelReady=false; double channelUpper=0,channelLower=0;
 datetime channelOldest=0,channelNewest=0,channelClosedAt=0;
 int channelBars=0; string channelStatus="NOT_REQUESTED";
 double sizedLot=0,sizingRiskBudget=0,sizingMarginBudget=0,sizingMargin=0;
+double ddPeakEquity=0; // Caso 6: maior patrimonio ja observado desde o inicio do run
 long targetRejects=0,targetAdjustments=0,targetFailures=0,fixedVolumeRejects=0;
 double plannedTargetDistance=0,plannedTargetRiskRatio=0,plannedTargetProfit=0;
 double minimumLotRiskMoney=0,minimumLotRiskPercent=0,minimumEquityForLot=0,minimumLotMargin=0;
@@ -1016,7 +1063,7 @@ string EntryName(const int k)
  }
 string DCName(const int id)
  {
-  string names[5]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA"};
+  string names[6]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA","HERMES_DD_THROTTLE"};
   return id>=1 && id<=5 ? names[id-1] : "INVALID";
  }
 string ProfileName(const int id) { return DCName(id); }
@@ -1127,6 +1174,7 @@ void TrackEquity()
   double eq=AccountInfoDouble(ACCOUNT_EQUITY),bal=AccountInfoDouble(ACCOUNT_BALANCE);
   if(!PEObserveEquity(months[liveMonth].path,eq,bal)) { Invalid(101,"Invalid monthly equity value."); return; }
   months[liveMonth].lastTick=now; priorEquity=eq; priorBalance=bal;
+  if(MathIsValidNumber(eq) && eq>0) ddPeakEquity=MathMax(ddPeakEquity,eq); // Caso 6: pico p/ o freio de rebaixamento
  }
 bool ReadValue(const int h,const int buffer,const int shift,double &v)
  { double a[1]; if(shift<1 || CopyBuffer(h,buffer,shift,1,a)!=1 || a[0]==EMPTY_VALUE || !MathIsValidNumber(a[0])) return false; v=a[0]; return true; }
@@ -1691,14 +1739,21 @@ PE_GATE OpenCycle(const int origin,const int side,const H1Signal &s,const MqlTic
    minimumLotRiskMoney=-referenceLoss; minimumLotMargin=referenceMargin;
    minimumLotRiskPercent=eq>0 ? 100*(-referenceLoss)/eq : 0;
    minimumEquityForLot=MathMax((-referenceLoss)*100.0/dc.riskPercent,(used+referenceMargin)*100.0/InpMaxMarginPct);
-   sizingRiskBudget=eq*dc.riskPercent/100.0;
+   double effRiskPercent=dc.riskPercent;
+   // Caso 6 apenas: o mesmo risco% do Caso 4, modulado pelo freio de
+   // rebaixamento (DDThrottleCore.mqh). Casos 4/5 nunca entram aqui - o
+   // multiplicador so existe quando InpCase==6, preservando os dois
+   // byte-a-byte no comportamento de sizing.
+   if(InpCase==6) effRiskPercent*=DDThrottleMultiplier(eq,ddPeakEquity,InpDDBand1,InpDDMult1,InpDDBand2,InpDDMult2);
+   sizingRiskBudget=eq*effRiskPercent/100.0;
    sizingMarginBudget=MathMin(free,MathMax(0,eq*InpMaxMarginPct/100.0-used));
    if(InpCase>=4) {
-    // Casos 4/5: sizing por risco SEM o teto de 2% do DCRiskLot (permite ate 5%
-    // conscientemente). Replica a mesma formula do DCRiskLot, reaproveitando os
-    // orcamentos ja calculados acima; margem% e volume maximo do simbolo
+    // Casos 4/5/6: sizing por risco SEM o teto de 2% do DCRiskLot (permite ate
+    // 5% conscientemente). Replica a mesma formula do DCRiskLot, reaproveitando
+    // os orcamentos ja calculados acima (sizingRiskBudget ja vem com o freio do
+    // Caso 6 aplicado, se for o caso); margem% e volume maximo do simbolo
     // continuam limitando. DonchianCore.mqh permanece intocado (core auditado
-    // do R200) — este ramo existe aqui, nao ali, porque so os Casos 4/5 podem
+    // do R200) — este ramo existe aqui, nao ali, porque so os Casos 4/5/6 podem
     // ultrapassar o teto de 2% do DCRiskLot.
     double lossPerLot=-referenceLoss/mn,marginPerLot=referenceMargin/mn;
     double raw=(sizingMarginBudget>0 && lossPerLot>0) ? MathMin(mx,sizingRiskBudget/lossPerLot) : 0;
@@ -1894,6 +1949,11 @@ int OnInit()
    if(InpRiskPercent>2.0) Print("AVISO: risco por trade ",DoubleToString(InpRiskPercent,2),"% acima de 2%. O risco de ruina cresce rapido; use conscientemente.");
    dc.riskPercent=InpRiskPercent;
   }
+  if(InpCase==6) {
+   if(!MathIsValidNumber(InpDDBand1) || !MathIsValidNumber(InpDDBand2) || !MathIsValidNumber(InpDDMult1) || !MathIsValidNumber(InpDDMult2) ||
+      InpDDBand1<0 || InpDDBand2<=InpDDBand1 || InpDDMult1<=0 || InpDDMult1>1.0 || InpDDMult2<=0 || InpDDMult2>InpDDMult1)
+    return INIT_PARAMETERS_INCORRECT;
+  }
   if(InpCase==5) {
    if(!MathIsValidNumber(InpQHTargetR) || InpQHTargetR<=0 || InpQHTargetR>5 ||
       !MathIsValidNumber(InpQHVolFactor) || InpQHVolFactor<1.0 ||
@@ -1924,6 +1984,7 @@ int OnInit()
   if(hEMA==INVALID_HANDLE || (!dc.weekly && (h50==INVALID_HANDLE || h200==INVALID_HANDLE)) || hADX==INVALID_HANDLE || hATR==INVALID_HANDLE) return INIT_FAILED;
   trade.SetExpertMagicNumber(InpMagic); trade.SetDeviationInPoints(InpDeviationPoints); trade.SetAsyncMode(false); trade.SetTypeFillingBySymbol(_Symbol);
   ArrayInitialize(counters,0); priorEquity=AccountInfoDouble(ACCOUNT_EQUITY); priorBalance=AccountInfoDouble(ACCOUNT_BALANCE);
+  ddPeakEquity=priorEquity;
   MqlRates warmup[]; int required=dc.weekly ? 55 : 209;
   int count=CopyRates(_Symbol,signalTF,0,required,warmup);
   if(count<required) Print("Aquecimento incompleto ",count,"/",required,". Verifique G_NO_DATA.");

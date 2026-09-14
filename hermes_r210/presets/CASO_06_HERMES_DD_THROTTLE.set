@@ -2,8 +2,9 @@
 ; Casos 1-3: congelados do R200 (lote fixo 1.00, alvo 5R).
 ; Caso 4: Referencia + sizing por risco (InpRiskPercent, ate 5%).
 ; Caso 5: Colheita Rapida (surto de volume, alvo curto InpQHTargetR, risco).
+; Caso 6: Caso 4 + freio de risco por rebaixamento (InpDDBand1/2, InpDDMult1/2).
 ; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.
-InpCase=1||1||1||5||Y
+InpCase=6||6||1||6||N
 InpMaxMarginPct=20.0||20.0||0.01||20.0||N
 InpMaxLot=1.0||1.0||0.01||1.0||N
 InpFixedLot=1.0||1.0||0.01||1.0||N
@@ -16,10 +17,14 @@ InpShowIndicators=false||false||0||true||N
 InpExportOptimizationDetails=true||false||0||true||N
 InpExportAllBars=true||false||0||true||N
 InpRunTag=R210_01
-InpRiskPercent=1.0||1.0||0.01||1.0||N
+InpRiskPercent=5.0||5.0||0.01||5.0||N
 InpQHTargetR=1.0||1.0||0.01||1.0||N
 InpQHVolFactor=1.5||1.5||0.01||1.5||N
 InpQHRangeFactor=1.0||1.0||0.01||1.0||N
 InpQHMinCloseLoc=0.6||0.6||0.01||0.6||N
 InpQHMinADX=20.0||20.0||0.01||20.0||N
 InpQHMaxSpreadATR=0.1||0.1||0.01||0.1||N
+InpDDBand1=15.0||15.0||0.01||15.0||N
+InpDDMult1=0.5||0.5||0.01||0.5||N
+InpDDBand2=25.0||25.0||0.01||25.0||N
+InpDDMult2=0.25||0.25||0.01||0.25||N

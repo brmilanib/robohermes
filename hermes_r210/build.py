@@ -11,7 +11,9 @@ import csv,hashlib,json,re
 ROOT=Path(__file__).resolve().parent
 source=(ROOT/'src/EA.mq5').read_text()
 # QuickHarvestCore vem logo depois de XAU_H1_Core porque usa H1Signal.
-names=['XAU_H1_Core.mqh','QuickHarvestCore.mqh','ProtectCore.mqh','EntryCore.mqh',
+# DDThrottleCore nao depende de nada (funcao pura de equity/percentuais); fica
+# junto dos outros dois cores novos do R210, antes dos cores congelados do R200.
+names=['XAU_H1_Core.mqh','QuickHarvestCore.mqh','DDThrottleCore.mqh','ProtectCore.mqh','EntryCore.mqh',
        'DonchianCore.mqh','HermesCore.mqh','PivotCore.mqh','PivotEntryCore.mqh',
        'PivotRuntime.mqh','Execution.mqh','Reports.mqh']
 ea=source
@@ -23,8 +25,8 @@ assert '#include "' not in ea
 (ROOT/'Hermes_R210.mq5').write_text(ea)
 
 # Cores portaveis para os testes em C++ (mesmo tratamento do R200).
-# Agora sao 8 arquivos ate PivotEntryCore.mqh (7 originais + QuickHarvestCore).
-core='\n'.join((ROOT/'src'/n).read_text() for n in names[:8])
+# Agora sao 9 arquivos ate PivotEntryCore.mqh (7 originais + QuickHarvestCore + DDThrottleCore).
+core='\n'.join((ROOT/'src'/n).read_text() for n in names[:9])
 core=re.sub(r'const double &(\w+)\[\]',r'const std::vector<double> &\1',core)
 (ROOT/'tests/Core_Runtime.inc').write_text(core)
 structs='\n'.join(re.findall(r'struct (?:PECycle|PEMonth) \{.*?\};',source,re.S))
@@ -44,15 +46,15 @@ enums='\n'.join(re.findall(r'enum PE_(?:GATE|STAT) \{.*?\};',source,re.S))
 adapter=(ROOT/'src/PivotRuntime.mqh').read_text().replace('MqlRates observed[];', 'std::vector<MqlRates> observed;')
 (ROOT/'tests/PivotAdapter_Runtime.inc').write_text(adapter)
 
-# Nomes dos casos, agora 5 (DCName no EA).
-case_names=re.search(r'string names\[5\]=\{(.*?)\};',source,re.S)[1]
+# Nomes dos casos, agora 6 (DCName no EA).
+case_names=re.search(r'string names\[6\]=\{(.*?)\};',source,re.S)[1]
 case_names=re.findall(r'"([^"]+)"',case_names)
-assert len(case_names)==5,case_names
+assert len(case_names)==6,case_names
 
 def case_row(i,name):
     extra=i in (2,3)
     return dict(case=i,name=name,timeframe='M30',
-        entry='ORIGINAL' if i in (1,4) else ('ORIGINAL_OR_CAUSAL_LONG_123' if extra else 'QUICK_HARVEST_VOLUME_BURST'),
+        entry='ORIGINAL' if i in (1,4,6) else ('ORIGINAL_OR_CAUSAL_LONG_123' if extra else 'QUICK_HARVEST_VOLUME_BURST'),
         extra_enabled=extra,
         extra_requires_close_above_SMA200=i==2,extra_requires_rising_SMA200=i==2,
         EMA_period=21,SMA_middle=50,SMA_long=200,ATR_period=14,ADX_period=14,min_ADX=20,
@@ -61,6 +63,7 @@ def case_row(i,name):
         target_R=5 if i!=5 else 'InpQHTargetR',
         sizing='EXACT_FIXED_LOT' if i in (1,2,3) else 'RISK_PERCENT',
         partial=False,adds=0,breakeven=False,reinvest=False,
+        dd_throttle=i==6,
         status='CONGELADO_R200' if i in (1,2,3) else 'NOVO_R210_NAO_VALIDADO')
 cases=[case_row(i,name) for i,name in enumerate(case_names,1)]
 
@@ -68,18 +71,22 @@ base=dict(InpCase=1,InpMaxMarginPct=20.0,InpMaxLot=1.0,InpFixedLot=1.0,InpMinEnt
     InpMaxSpreadPoints=0,InpDeviationPoints=20,InpMagic=26120200,InpExportCSV=True,
     InpShowIndicators=False,InpExportOptimizationDetails=True,InpExportAllBars=True,InpRunTag='R210_01',
     InpRiskPercent=1.0,InpQHTargetR=1.0,InpQHVolFactor=1.5,InpQHRangeFactor=1.0,
-    InpQHMinCloseLoc=0.6,InpQHMinADX=20.0,InpQHMaxSpreadATR=0.10)
+    InpQHMinCloseLoc=0.6,InpQHMinADX=20.0,InpQHMaxSpreadATR=0.10,
+    InpDDBand1=15.0,InpDDMult1=0.50,InpDDBand2=25.0,InpDDMult2=0.25)
 assert set(re.findall(r'^input\s+\w+\s+(Inp\w+)',source,re.M))==set(base)
 
-def preset(filename,id,sweep=None):
+def preset(filename,id,sweep=None,overrides=None):
     # sweep: {input: (start, step, end)} marca esses inputs para otimizacao (||Y).
+    # overrides: {input: value} muda o valor fixo (||N) sem marcar p/ otimizar.
     sweep=sweep or {}
+    overrides=overrides or {}
     lines=['; HERMES R210 | SOMENTE TESTADOR | XAUUSD M30',
            '; Casos 1-3: congelados do R200 (lote fixo 1.00, alvo 5R).',
            '; Caso 4: Referencia + sizing por risco (InpRiskPercent, ate 5%).',
            '; Caso 5: Colheita Rapida (surto de volume, alvo curto InpQHTargetR, risco).',
+           '; Caso 6: Caso 4 + freio de risco por rebaixamento (InpDDBand1/2, InpDDMult1/2).',
            '; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.']
-    for key,value in (base|{'InpCase':id}).items():
+    for key,value in (base|{'InpCase':id}|overrides).items():
         if key in sweep:
             s,st,e=sweep[key]
             lines.append(f'{key}={s}||{s}||{st}||{e}||Y')
@@ -92,19 +99,23 @@ def preset(filename,id,sweep=None):
     (ROOT/'presets'/filename).write_text('\r\n'.join(lines)+'\r\n')
 
 for old in (ROOT/'presets').glob('*.set'): old.unlink()   # limpa presets herdados do R200
-preset('00_COMPARAR_5_CASOS.set',1,sweep={'InpCase':(1,1,5)})
+preset('00_COMPARAR_6_CASOS.set',1,sweep={'InpCase':(1,1,6)})
 for c in cases:
+    if c['case']==6: continue   # Caso 6 ganha preset proprio abaixo, no mesmo risco-base do teste ja feito no Caso 4
     preset(f"CASO_{c['case']:02d}_{c['name']}.set",c['case'])
 # Varredura de risco pedida: Caso 4 (Referencia) a 2%, 3%, 4% e 5% num unico teste.
 preset('CASO_04_RISCO_2a5pct.set',4,sweep={'InpRiskPercent':(2.0,1.0,5.0)})
+# Caso 6 a 5% de risco: mesmo risco-base do pior caso de drawdown do sweep acima
+# (Caso 4 @ 5% = 45.84% DD), so pra comparar o efeito isolado do freio.
+preset('CASO_06_HERMES_DD_THROTTLE.set',6,overrides={'InpRiskPercent':5.0})
 with (ROOT/'CASOS.csv').open('w',encoding='utf-8-sig',newline='') as f:
     writer=csv.DictWriter(f,list(cases[0]),delimiter=';');writer.writeheader();writer.writerows(cases)
 
 manifest=dict(version='2.10',batch='R210',parent='R200:1(projeto_fonte)',
     source_sha256=hashlib.sha256(ea.encode()).hexdigest(),native_compilation=False,native_backtests=False,
     frozen_from_r200=['XAU_H1_Core.mqh','ProtectCore.mqh','EntryCore.mqh','DonchianCore.mqh','HermesCore.mqh','Execution.mqh','PivotCore.mqh','PivotRuntime.mqh','Reports.mqh'],
-    changed=['EA.mq5','PivotEntryCore.mqh'],added=['QuickHarvestCore.mqh'],
+    changed=['EA.mq5','PivotEntryCore.mqh'],added=['QuickHarvestCore.mqh','DDThrottleCore.mqh'],
     cases=cases,
-    note='Casos 4 e 5 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Ver MUDANCAS_R210.md.')
+    note='Casos 4, 5 e 6 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Ver MUDANCAS_R210.md.')
 (ROOT/'MANIFESTO_R210.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
-print('R210: 5 casos, 6 presets, single-file Hermes_R210.mq5 gerado. Sem compilacao/backtest MQL5.')
+print('R210: 6 casos, 8 presets, single-file Hermes_R210.mq5 gerado. Sem compilacao/backtest MQL5.')

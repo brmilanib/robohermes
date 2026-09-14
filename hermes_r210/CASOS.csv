@@ -1,6 +1,7 @@
-﻿case;name;timeframe;entry;extra_enabled;extra_requires_close_above_SMA200;extra_requires_rising_SMA200;EMA_period;SMA_middle;SMA_long;ATR_period;ADX_period;min_ADX;minimum_entry_distance_ATR;minimum_structural_stop_ATR;maximum_structural_stop_ATR;stop_buffer_ATR;stop_lookback_closed_bars;target_R;sizing;partial;adds;breakeven;reinvest;status
-1;HERMES_REFERENCIA;M30;ORIGINAL;False;False;False;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;5;EXACT_FIXED_LOT;False;0;False;False;CONGELADO_R200
-2;HERMES_PIVO_CONTINUIDADE;M30;ORIGINAL_OR_CAUSAL_LONG_123;True;True;True;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;5;EXACT_FIXED_LOT;False;0;False;False;CONGELADO_R200
-3;HERMES_PIVO_INICIO;M30;ORIGINAL_OR_CAUSAL_LONG_123;True;False;False;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;5;EXACT_FIXED_LOT;False;0;False;False;CONGELADO_R200
-4;HERMES_RISCO_REF;M30;ORIGINAL;False;False;False;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;5;RISK_PERCENT;False;0;False;False;NOVO_R210_NAO_VALIDADO
-5;HERMES_COLHEITA_RAPIDA;M30;QUICK_HARVEST_VOLUME_BURST;False;False;False;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;InpQHTargetR;RISK_PERCENT;False;0;False;False;NOVO_R210_NAO_VALIDADO
+﻿case;name;timeframe;entry;extra_enabled;extra_requires_close_above_SMA200;extra_requires_rising_SMA200;EMA_period;SMA_middle;SMA_long;ATR_period;ADX_period;min_ADX;minimum_entry_distance_ATR;minimum_structural_stop_ATR;maximum_structural_stop_ATR;stop_buffer_ATR;stop_lookback_closed_bars;target_R;sizing;partial;adds;breakeven;reinvest;dd_throttle;status
+1;HERMES_REFERENCIA;M30;ORIGINAL;False;False;False;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;5;EXACT_FIXED_LOT;False;0;False;False;False;CONGELADO_R200
+2;HERMES_PIVO_CONTINUIDADE;M30;ORIGINAL_OR_CAUSAL_LONG_123;True;True;True;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;5;EXACT_FIXED_LOT;False;0;False;False;False;CONGELADO_R200
+3;HERMES_PIVO_INICIO;M30;ORIGINAL_OR_CAUSAL_LONG_123;True;False;False;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;5;EXACT_FIXED_LOT;False;0;False;False;False;CONGELADO_R200
+4;HERMES_RISCO_REF;M30;ORIGINAL;False;False;False;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;5;RISK_PERCENT;False;0;False;False;False;NOVO_R210_NAO_VALIDADO
+5;HERMES_COLHEITA_RAPIDA;M30;QUICK_HARVEST_VOLUME_BURST;False;False;False;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;InpQHTargetR;RISK_PERCENT;False;0;False;False;False;NOVO_R210_NAO_VALIDADO
+6;HERMES_DD_THROTTLE;M30;ORIGINAL;False;False;False;21;50;200;14;14;20;0.5;1.0;2.5;0.2;3;5;RISK_PERCENT;False;0;False;False;True;NOVO_R210_NAO_VALIDADO

@@ -173,6 +173,46 @@ int QHGate(const H1Signal &s,const QHFeatures &f,
 }
 #endif
 
+#ifndef HERMES_DD_THROTTLE_CORE_210
+#define HERMES_DD_THROTTLE_CORE_210
+// Caso 6 - freio de risco por rebaixamento (drawdown throttle).
+//
+// Motivacao: no Caso 4, subir o risco% aumenta o lucro muito mais rapido do
+// que aumenta a dor (2%->5% e so 2.5x de risco mas ~14.6x de lucro no sweep
+// testado) - mas o Fator de Recuperacao piora a cada degrau (3.87->1.51),
+// porque sizing por % do patrimonio compoe geometricamente nos dois sentidos.
+// Nao existe ajuste dentro da formula do Caso 4 que quebre esse acoplamento;
+// este e um mecanismo DIFERENTE, isolado como Caso 6, comparado contra o
+// Caso 4 no mesmo risco-base, nunca substituindo-o.
+//
+// Ideia: reduzir o risco% EFETIVO quando o patrimonio esta em rebaixamento
+// contra o maior pico ja visto, e restaurar o risco cheio assim que um novo
+// pico e feito. So muda o VOLUME; nenhuma entrada/saida e alterada.
+//
+// Funcao pura: (patrimonio atual, pico ja visto, duas bandas de rebaixamento
+// e seus multiplicadores) -> multiplicador em (0,1] a aplicar sobre o risco%
+// normal. Dados invalidos ou configuracao invalida (bandas fora de ordem,
+// multiplicadores fora de (0,1] ou nao-decrescentes) devolvem 0 - o chao de
+// seguranca e nao operar, nunca ampliar risco por engano de configuracao.
+double DDThrottleMultiplier(const double equity, const double peakEquity,
+                            const double band1Pct, const double mult1,
+                            const double band2Pct, const double mult2)
+{
+   if (!MathIsValidNumber(equity) || !MathIsValidNumber(peakEquity) || equity <= 0 || peakEquity <= 0)
+      return 0;
+   if (!MathIsValidNumber(band1Pct) || !MathIsValidNumber(band2Pct) ||
+       !MathIsValidNumber(mult1) || !MathIsValidNumber(mult2) ||
+       band1Pct < 0 || band2Pct <= band1Pct ||
+       mult1 <= 0 || mult1 > 1.0 || mult2 <= 0 || mult2 > mult1)
+      return 0;
+   if (equity >= peakEquity) return 1.0;
+   double ddPct = 100.0 * (peakEquity - equity) / peakEquity;
+   if (ddPct <= band1Pct) return 1.0;
+   if (ddPct <= band2Pct) return mult1;
+   return mult2;
+}
+#endif
+
 #ifndef XAU_PROTECT_CORE_150
 #define XAU_PROTECT_CORE_150
 // Platform-independent decisions, shared unchanged with the local C++ tests.
@@ -860,12 +900,13 @@ struct HPDecision
 };
 bool HPSelectProfile(const int id,DCProfile &d,EVOProfile &e,PEProfile &p)
 {
- if(id<1 || id>5 || !DCSelectProfile(2,d,e,p)) return false;
+ if(id<1 || id>6 || !DCSelectProfile(2,d,e,p)) return false;
  d.id=id; d.matchedControl=2; e.matchedControl=2;
- // Casos 4 (Referencia + risco) e 5 (Colheita Rapida): MESMO motor de execucao,
- // porem sizing por % do patrimonio em vez de lote fixo. O EA sobrescreve
- // d.riskPercent com InpRiskPercent logo apos esta selecao.
- const bool riskSized=(id==4 || id==5);
+ // Casos 4 (Referencia + risco), 5 (Colheita Rapida) e 6 (freio por
+ // rebaixamento sobre o Caso 4): MESMO motor de execucao, porem sizing por %
+ // do patrimonio em vez de lote fixo. O EA sobrescreve d.riskPercent com
+ // InpRiskPercent logo apos esta selecao.
+ const bool riskSized=(id==4 || id==5 || id==6);
  if(riskSized) { d.fixedLot=false; if(!(d.riskPercent>0.0 && d.riskPercent<=2.0)) d.riskPercent=1.0; }
  // A referencia herdada e volume (exato ou por risco), 5R, so compra, uma perna.
  return (riskSized ? !d.fixedLot : d.fixedLot) && !d.weekly && d.targetMode==0 && d.channelMode==0
@@ -876,8 +917,8 @@ int HPExtraGate(const int id,const H1Signal &s,const EVOFeatures &f,
                 const double ask,const double old200,const double minimumDistance,
                 const bool pivotDataReady,const HPSignal &pivot)
 {
- if(id<1 || id>5) return HP_INVALID_CASE;
- if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4 e 5 nao usam a rota de pivo
+ if(id<1 || id>6) return HP_INVALID_CASE;
+ if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5 e 6 nao usam a rota de pivo
  if(!pivotDataReady) return HP_DATA_PENDING;
  if(!pivot.buy) return HP_NO_CANDIDATE;
  if(!(s.ema>s.sma50 && s.sma50>s.oldSma50)) return HP_TREND50;
@@ -898,7 +939,7 @@ void HPRouteEntry(const int id,const EVOProfile &e,const H1Signal &s,const EVOFe
  out.original_gate=EVOEvaluate(e,s,f,ask,old200,minimumDistance,false,out.side);
  out.extra_gate=HPExtraGate(id,s,f,ask,old200,minimumDistance,pivotDataReady,pivot);
  out.setup=out.original_gate;
- if(id<1 || id>5) { out.setup=HP_INVALID_CASE; out.side=0; return; }
+ if(id<1 || id>6) { out.setup=HP_INVALID_CASE; out.side=0; return; }
  if(out.original_gate==0) { out.path=HP_BASE; return; }
  if(out.extra_gate==0) { out.setup=0; out.side=1; out.path=HP_PIVOT; }
 }

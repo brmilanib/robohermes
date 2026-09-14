@@ -2,7 +2,7 @@
   "version": "2.10",
   "batch": "R210",
   "parent": "R200:1(projeto_fonte)",
-  "source_sha256": "8bdf2b6895d0c410ea2b817e0599f1e04aeb0aac56aef8cbf2f867647bd9d352",
+  "source_sha256": "2b9ef50993e230f35a8a4628472e5f2b8588e014d1d4e67414640411ed2191ef",
   "native_compilation": false,
   "native_backtests": false,
   "frozen_from_r200": [
@@ -21,7 +21,8 @@
     "PivotEntryCore.mqh"
   ],
   "added": [
-    "QuickHarvestCore.mqh"
+    "QuickHarvestCore.mqh",
+    "DDThrottleCore.mqh"
   ],
   "cases": [
     {
@@ -49,6 +50,7 @@
       "adds": 0,
       "breakeven": false,
       "reinvest": false,
+      "dd_throttle": false,
       "status": "CONGELADO_R200"
     },
     {
@@ -76,6 +78,7 @@
       "adds": 0,
       "breakeven": false,
       "reinvest": false,
+      "dd_throttle": false,
       "status": "CONGELADO_R200"
     },
     {
@@ -103,6 +106,7 @@
       "adds": 0,
       "breakeven": false,
       "reinvest": false,
+      "dd_throttle": false,
       "status": "CONGELADO_R200"
     },
     {
@@ -130,6 +134,7 @@
       "adds": 0,
       "breakeven": false,
       "reinvest": false,
+      "dd_throttle": false,
       "status": "NOVO_R210_NAO_VALIDADO"
     },
     {
@@ -157,8 +162,37 @@
       "adds": 0,
       "breakeven": false,
       "reinvest": false,
+      "dd_throttle": false,
+      "status": "NOVO_R210_NAO_VALIDADO"
+    },
+    {
+      "case": 6,
+      "name": "HERMES_DD_THROTTLE",
+      "timeframe": "M30",
+      "entry": "ORIGINAL",
+      "extra_enabled": false,
+      "extra_requires_close_above_SMA200": false,
+      "extra_requires_rising_SMA200": false,
+      "EMA_period": 21,
+      "SMA_middle": 50,
+      "SMA_long": 200,
+      "ATR_period": 14,
+      "ADX_period": 14,
+      "min_ADX": 20,
+      "minimum_entry_distance_ATR": 0.5,
+      "minimum_structural_stop_ATR": 1.0,
+      "maximum_structural_stop_ATR": 2.5,
+      "stop_buffer_ATR": 0.2,
+      "stop_lookback_closed_bars": 3,
+      "target_R": 5,
+      "sizing": "RISK_PERCENT",
+      "partial": false,
+      "adds": 0,
+      "breakeven": false,
+      "reinvest": false,
+      "dd_throttle": true,
       "status": "NOVO_R210_NAO_VALIDADO"
     }
   ],
-  "note": "Casos 4 e 5 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Ver MUDANCAS_R210.md."
+  "note": "Casos 4, 5 e 6 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Ver MUDANCAS_R210.md."
 }

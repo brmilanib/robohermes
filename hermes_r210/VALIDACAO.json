@@ -1,8 +1,8 @@
 {
   "version": "2.10",
-  "source_sha256": "8bdf2b6895d0c410ea2b817e0599f1e04aeb0aac56aef8cbf2f867647bd9d352",
-  "cases": 5,
-  "presets": 6,
+  "source_sha256": "2b9ef50993e230f35a8a4628472e5f2b8588e014d1d4e67414640411ed2191ef",
+  "cases": 6,
+  "presets": 8,
   "statistics_fields": 116,
   "frozen_cores_identical_to_r200": true,
   "changed_files": [
@@ -10,7 +10,8 @@
     "PivotEntryCore.mqh"
   ],
   "added_files": [
-    "QuickHarvestCore.mqh"
+    "QuickHarvestCore.mqh",
+    "DDThrottleCore.mqh"
   ],
   "local_tests": [
     {
@@ -57,9 +58,14 @@
       "test": "test_quickharvest",
       "passed": true,
       "output": "QuickHarvest (Caso 5): pronto, 10 rejeicoes isoladas, guarda de custo, dados invalidos e limiares inclusivos passaram."
+    },
+    {
+      "test": "test_dd_throttle",
+      "passed": true,
+      "output": "DD Throttle (Caso 6): sem rebaixamento, limiares inclusivos das duas bandas, profundidade maxima, dados invalidos e configuracao invalida passaram."
     }
   ],
   "native_MQL5_compilation": false,
   "native_MT5_backtests": false,
-  "note": "Casos 4/5 sao hipoteses NAO validadas. Exigem backtest MT5 com custos realistas e validacao fora da amostra antes de qualquer conclusao de lucro. Sem simulacao de PnL aqui."
+  "note": "Casos 4/5/6 sao hipoteses NAO validadas. Exigem backtest MT5 com custos realistas e validacao fora da amostra antes de qualquer conclusao de lucro. Sem simulacao de PnL aqui."
 }

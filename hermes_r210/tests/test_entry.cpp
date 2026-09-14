@@ -7,6 +7,7 @@ EVOProfile evo{};EVOFeatures features{};
 double pivotSwing=0,oldSMA200=3900,plannedTargetDistance=0,plannedTargetRiskRatio=0,plannedTargetProfit=0;
 double sizedLot=0,sizingRiskBudget=0,sizingMarginBudget=0,sizingMargin=0,minimumLotRiskMoney=0,minimumLotMargin=0,minimumLotRiskPercent=0,minimumEquityForLot=0;
 double InpFixedLot=1,InpMaxMarginPct=20,InpMaxLot=1,maxLots=0,InpQHTargetR=1;
+double InpDDBand1=15.0,InpDDMult1=0.50,InpDDBand2=25.0,InpDDMult2=0.25,ddPeakEquity=0;
 long targetRejects=0,fixedVolumeRejects=0;datetime lastPivotUsed=0,pivotTime=0;int liveMonth=0;
 HPDecision hpRoute{}; HPSignal hpSignal{}; long hpPivotFills=0;
 void ObserveOpenPath(){}
@@ -58,6 +59,18 @@ int main(){
  assert(integrity&&near(cycles[0].volume,.21)&&near(risk,298.2)); // 3%: acima do teto do DCRiskLot original
  s=prepare(1);InpCase=1;dc.riskPercent=3.0; // Casos 1-3 continuam via DCRiskLot: >2% e' recusado, nao alargado.
  assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_RISK&&volumeRequests==0);
+ // R210: Caso 6 (Caso 4 + freio de risco por rebaixamento, DDThrottleCore.mqh).
+ // Caso 4 precisa ficar IMUNE a ddPeakEquity - so o Caso 6 le esse estado.
+ s=prepare(1);InpCase=4;dc.riskPercent=2.0;ddPeakEquity=999999; // "drawdown" gigante nao deve importar
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(cycles[0].volume,.14)&&near(risk,198.8)); // identico ao teste em 2% sem freio
+ // Caso 6: risco nominal 4% + pico de 12000 sobre equity mockada de 10000
+ // (DD=16.67%, entre banda1=15% e banda2=25%) -> multiplicador 0.5 -> risco
+ // efetivo 2%, EXATAMENTE igual ao teste do Caso 4 a 2% acima - prova que o
+ // freio de fato reduz o risco dentro do OpenCycle real, nao so na funcao pura.
+ s=prepare(1);InpCase=6;dc.riskPercent=4.0;ddPeakEquity=12000;
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(cycles[0].volume,.14)&&near(risk,198.8));
  s=prepare(3);mockFillOffset=-.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
  assert(integrity&&near(cycles[0].target-cycles[0].entry,20)&&targetAdjustments==1&&slRequests==1&&volumeRequests==1);
  s=prepare(3);mockFillOffset=.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);

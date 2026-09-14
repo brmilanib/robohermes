@@ -1,7 +1,7 @@
 # Hermes R210 — o que mudou e por quê (para o ChatGPT e o proprietário)
 
 Versão nova a partir do R200. **R200 (`../projeto_fonte/`) fica congelado** como
-comparador auditado; o R210 acrescenta dois casos novos **isolados**, reaproveitando o
+comparador auditado; o R210 acrescenta três casos novos **isolados**, reaproveitando o
 motor de execução já validado. Trabalho a 4 mãos: o Claude escreveu esta versão; o ChatGPT
 compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 
@@ -15,11 +15,13 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 ## 1. O que é honesto afirmar sobre esta versão
 
 - **Validado aqui (g++):** toda a lógica de decisão portável — roteamento dos casos, o
-  `QHGate` do Caso 5 e o corpo de produção do `OpenCycle` — compila e passa em 9/9 testes
-  unitários (`python3 verificar.py`). Os **cores auditados do R200 continuam byte-idênticos**
-  (a verificação prova isso).
+  `QHGate` do Caso 5, o `DDThrottleMultiplier` do Caso 6 e o corpo de produção do `OpenCycle`
+  — compila e passa em 10/10 testes unitários (`python3 verificar.py`). Os **cores auditados
+  do R200 continuam byte-idênticos** (a verificação prova isso).
 - **NÃO validado aqui:** rentabilidade. Não há MetaTrader neste ambiente — **nenhum backtest
-  foi executado**. Os Casos 4 e 5 são **hipóteses a testar**, não melhorias comprovadas.
+  nativo foi executado por mim**. Os Casos 4, 5 e 6 são **hipóteses a testar**, não melhorias
+  comprovadas — o Caso 4 já tem um primeiro resultado real do proprietário (§3), os outros dois
+  ainda não.
 - **Um passo que depende do ChatGPT:** o EA completo precisa ser **compilado no MetaEditor**.
   A cola de integração no EA (ex.: `ReadQuickHarvest`, o ramo do `OnTick`) segue os padrões do
   próprio projeto, mas não pôde ser compilada aqui. Se aparecer algum erro de compilação,
@@ -29,17 +31,18 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 
 ---
 
-## 2. Os cinco casos
+## 2. Os seis casos
 
 | Caso | Nome | Entrada | Sizing | Alvo | Situação |
 | --- | --- | --- | --- | --- | --- |
 | 1 | HERMES_REFERENCIA | original (pullback+tendência) | **lote fixo 1,00** | 5R | **congelado R200** |
 | 2 | HERMES_PIVO_CONTINUIDADE | original + pivô (com SMA200) | lote fixo 1,00 | 5R | congelado R200 |
 | 3 | HERMES_PIVO_INICIO | original + pivô (sem SMA200) | lote fixo 1,00 | 5R | congelado R200 |
-| 4 | **HERMES_RISCO_REF** | **igual ao Caso 1** | **risco % do patrimônio** | 5R | **novo — a testar** |
+| 4 | **HERMES_RISCO_REF** | **igual ao Caso 1** | **risco % do patrimônio** | 5R | **novo — testado pelo proprietário** |
 | 5 | **HERMES_COLHEITA_RAPIDA** | **surto de volume/range** | risco % do patrimônio | **curto (InpQHTargetR)** | **novo — a testar** |
+| 6 | **HERMES_DD_THROTTLE** | **igual ao Caso 1/4** | risco % **com freio por rebaixamento** | 5R | **novo — a testar (§3.2)** |
 
-Selecione o caso pelo input `InpCase` (1..5) ou pelos presets em `presets/`.
+Selecione o caso pelo input `InpCase` (1..6) ou pelos presets em `presets/`.
 
 ---
 
@@ -101,6 +104,63 @@ mais lucro" (isso é ajuste na amostra, o mesmo erro do R200 com os pivôs).
 > próxima pior sequência não será mais longa. Trate os valores de 3–5% como **medição da
 > fronteira**, não como recomendação de uso.
 
+**Resultado real do sweep 2/3/4/5% (backtest do proprietário, `CASO_04_RISCO_2a5pct.set`,
+mesma janela, 261 trades em todos):**
+
+| Risco | Lucro líquido | Fator de Lucro | DD máximo | Fator de Recuperação |
+| --- | --- | --- | --- | --- |
+| 2% | 76.920 | 1,64 | 25,38% | 3,87 |
+| 3% | 189.539 | 1,58 | 26,91% | 2,65 |
+| 4% | 493.187 | 1,52 | 38,50% | 1,95 |
+| 5% | 1.126.465 | 1,46 | 45,84% | 1,51 |
+
+O lucro cresce muito mais rápido que o risco (2%→5% é só 2,5× o risco, mas ~14,6× o lucro —
+composição geométrica do sizing por %), só que o Fator de Lucro e o Fator de Recuperação
+**pioram a cada degrau**. A 5%, o DD máximo já é 66% do lucro final (1/1,51); a 2%, é 26%
+(1/3,87). Isso **não é ajustável dentro da própria fórmula do Caso 4** — é a mesma composição
+geométrica operando nos dois sentidos (lucro e dor). Ver §3.2 para o mecanismo que ataca isso.
+
+### 3.2 Caso 6 — Caso 4 + freio de risco por rebaixamento
+
+**Por quê.** O proprietário pediu: dá pra manter o lucro alto do risco 5% reduzindo o
+drawdown? Não existe ajuste dentro da fórmula do Caso 4 que faça isso — sizing fixo-fracionário
+tem essa forma para um edge fixo, ponto. O que existe é um mecanismo **diferente**: reduzir o
+risco% **efetivo** quando o patrimônio está em rebaixamento contra o maior pico já visto, e
+restaurar o risco cheio assim que um novo pico é feito. Isolado como **Caso 6**, comparado
+contra o Caso 4 no mesmo risco-base (5%) — nunca substituindo o Caso 4.
+
+**Mecanismo (`src/DDThrottleCore.mqh`, função pura `DDThrottleMultiplier`):**
+- Rebaixamento até `InpDDBand1` (padrão 15%) do pico: risco cheio (multiplicador 1,0).
+- Entre `InpDDBand1` e `InpDDBand2` (padrão 25%): risco × `InpDDMult1` (padrão 0,50).
+- Acima de `InpDDBand2`: risco × `InpDDMult2` (padrão 0,25).
+- Patrimônio faz novo pico → volta a 1,0 imediatamente (o pico é reavaliado a cada tick em
+  `TrackEquity()`, `ddPeakEquity`).
+- Dados ou configuração inválidos (bandas fora de ordem, multiplicadores fora de `(0,1]` ou
+  crescentes com o rebaixamento) devolvem multiplicador **0** — chão de segurança, nunca
+  amplia risco por engano de configuração.
+
+**Só muda o volume — nenhuma entrada/saída é alterada.** `HPSelectProfile`/`HPRouteEntry`
+tratam o Caso 6 exatamente como o Caso 4 (mesma rota, `HP_DISABLED`, sem pivô); o multiplicador
+entra **só** dentro do cálculo de `sizingRiskBudget` em `OpenCycle`, e só quando `InpCase==6` —
+o Caso 4 fica **imune** a `ddPeakEquity` (testado explicitamente em `tests/test_entry.cpp`).
+
+**Preset:** `presets/CASO_06_HERMES_DD_THROTTLE.set` — `InpCase=6`, `InpRiskPercent=5.0` (mesmo
+risco-base do pior DD do sweep acima), bandas/multiplicadores nos padrões. Compare o relatório
+desse preset diretamente contra a linha "5%" da tabela acima: mesmas entradas, mesmo risco
+nominal, só o freio ligado.
+
+**Previsão falsificável.** DD máximo cai de forma material frente aos 45,84% do Caso 4 puro a
+5%, sem devolver todo o lucro adicional que o risco 5% trouxe sobre o risco 2%. **Rejeite** a
+hipótese se o freio não reduzir o DD, ou se reduzir o lucro de volta a algo próximo do que o
+próprio risco 2% já entregava sozinho (nesse caso o freio não valeu o mecanismo extra — seria
+mais simples só usar 2% direto).
+
+**Bandas e multiplicadores são a primeira hipótese, não um resultado provado.** Assim como o
+Caso 5, isso precisa validação fora da amostra antes de qualquer conclusão (§7). Se o primeiro
+teste não convencer, ajustar as bandas é experimento novo — uma variável de cada vez, contra o
+mesmo comparador (Caso 4 a 5%), nunca uma varredura cega de bandas×multiplicadores ao mesmo
+tempo.
+
 ---
 
 ## 4. Caso 5 — Colheita Rápida (a nova filosofia)
@@ -161,10 +221,11 @@ trade for ≤ 0 ou o fator de lucro < 1,2.
 2. Copie `Hermes_R210.mq5` para `MQL5/Experts/` e **compile no MetaEditor** (F7). O EA exige
    Testador (`OnInit` bloqueia uso fora do Strategy Tester).
 3. No Testador: XAUUSD, M30, período desejado, **modelagem por ticks reais**, **custos reais**.
-4. Carregue um preset de `presets/` (ex.: `CASO_04_...`, `CASO_05_...`) ou ajuste `InpCase`.
+4. Carregue um preset de `presets/` (ex.: `CASO_04_...`, `CASO_05_...`, `CASO_06_...`) ou ajuste
+   `InpCase`.
 5. Exporte os CSVs (bars/events + agregados) como no R200 para comparar.
 
-Checagem local sem MT5: `python3 verificar.py` (compila e roda os 9 testes portáveis em g++ e
+Checagem local sem MT5: `python3 verificar.py` (compila e roda os 10 testes portáveis em g++ e
 prova que os cores do R200 não foram tocados).
 
 ---
@@ -175,9 +236,12 @@ prova que os cores do R200 não foram tocados).
 2. **Caso 4 vs Caso 1** na mesma janela: comparar DD relativo, DD em dinheiro, fator de lucro
    e **desvio-padrão do retorno mensal**.
 3. **Caso 5 com custos realistas**: expectância por trade e fator de lucro **após custos**.
-4. **Fora da amostra:** walk-forward + uma janela final nunca usada na escolha + teste num
+4. **Caso 6 vs Caso 4 (mesmo risco-base, 5%)**: DD máximo precisa cair de forma material sem
+   devolver o lucro a algo próximo do risco 2% sozinho (§3.2). Testar bandas/multiplicadores
+   diferentes é experimento novo, um de cada vez — nunca uma varredura simultânea.
+5. **Fora da amostra:** walk-forward + uma janela final nunca usada na escolha + teste num
    período do ouro que **não** foi bull market (ex.: 2013–2019).
-5. **Forward em DEMO** antes de qualquer real. Depois, micro-real com risco baixo.
+6. **Forward em DEMO** antes de qualquer real. Depois, micro-real com risco baixo.
 
 Detalhe do raciocínio e das previsões em `../docs/PLANO_EXPERIMENTOS.md` e no parecer
 `../docs/PARECER_CLAUDE_R200.md`.
@@ -199,7 +263,7 @@ tamanho da conta sozinho.
 
 **O que você descreveu é outra coisa: escalar o lote pelo LUCRO acumulado, não pelo risco do
 trade.** Isso já está implementado — código legado, testado, **nunca ativado** em nenhum
-Caso Hermes (`p.reinvest` é sempre `false` nos 5 casos R210):
+Caso Hermes (`p.reinvest` é sempre `false` nos 6 casos R210):
 
 - `src/ProtectCore.mqh:144` · `PEReinvestLot(base, deposit, balance, cap, step)` — usa
   **exatamente 50%** fixo: `efetivo = base × (1 + 0,5 × max(0, balance−deposit)/deposit)`.
@@ -223,24 +287,33 @@ Caso Hermes (`p.reinvest` é sempre `false` nos 5 casos R210):
 
 **Minha recomendação:** fique com o Caso 4 (risco % puro) como o mecanismo de "reinvestimento".
 Se mesmo assim você quiser **medir** a ideia do lucro-acumulado como hipótese separada — nunca
-empilhada com o Caso 4 —, eu implemento um **Caso 6 isolado** (`PEReinvestLot`/`EVOCapitalLot`,
+empilhada com o Caso 4 —, eu implemento um **Caso 7 isolado** (`PEReinvestLot`/`EVOCapitalLot`,
 já testados no motor) com **sizing fixo simples** (sem risco%), seguindo o mesmo protocolo:
 comparador preservado, previsão falsificável, validação fora da amostra. Me avise se quiser
-que eu construa esse Caso 6.
+que eu construa esse Caso 7.
+
+> **Nota:** o número "Caso 6" citado numa versão anterior deste documento acabou sendo usado
+> para o freio de risco por rebaixamento (§3.2), pedido depois desta seção. Se a ideia de
+> lucro-acumulado acima for implementada, ela vira **Caso 7** — os números dos casos nunca são
+> reciclados depois de existirem presets/testes referenciando-os.
 
 ## 9. Mapa de mudanças
 
 | Arquivo | Estado | O quê |
 | --- | --- | --- |
 | `src/XAU_H1_Core.mqh`, `ProtectCore`, `EntryCore`, `DonchianCore`, `HermesCore`, `Execution`, `PivotCore`, `PivotRuntime`, `Reports` | **byte-idêntico ao R200** | motor auditado, intocado |
-| `src/PivotEntryCore.mqh` | alterado | roteamento aceita Casos 4/5 (sizing por risco) |
-| `src/EA.mq5` | alterado | inputs novos, `ReadQuickHarvest`, ramo do Caso 5, alvo curto, validações |
-| `src/QuickHarvestCore.mqh` | **novo** | decisão do Caso 5 (`QHGate`), pura e testada |
+| `src/PivotEntryCore.mqh` | alterado | roteamento aceita Casos 4/5/6 (sizing por risco) |
+| `src/EA.mq5` | alterado | inputs novos, `ReadQuickHarvest`, ramo do Caso 5, freio do Caso 6, alvo curto, validações |
+| `src/QuickHarvestCore.mqh` | novo | decisão do Caso 5 (`QHGate`), pura e testada |
+| `src/DDThrottleCore.mqh` | **novo** | freio do Caso 6 (`DDThrottleMultiplier`), pura e testada |
 | `tests/test_quickharvest.cpp` | novo | testa `QHGate` |
-| `tests/test_pivot_entry.cpp` | atualizado | agora valida Casos 4/5 |
-| `build.py`, `verificar.py` | adaptados | 5 casos; prova cores congelados |
-| `presets/CASO_04_*`, `CASO_05_*`, `00_COMPARAR_5_CASOS` | novos | presets dos casos novos |
+| `tests/test_dd_throttle.cpp` | **novo** | testa `DDThrottleMultiplier` (bandas, dados/config inválidos) |
+| `tests/test_entry.cpp` | atualizado | Caso 4 imune a `ddPeakEquity`; Caso 6 reduz o risco corretamente |
+| `tests/test_pivot_entry.cpp` | atualizado | agora valida Casos 4/5/6 |
+| `build.py`, `verificar.py` | adaptados | 6 casos, 8 presets; prova cores congelados |
+| `presets/CASO_04_*`, `CASO_05_*`, `CASO_06_*`, `00_COMPARAR_6_CASOS` | novos | presets dos casos novos |
 
 **Peço ao ChatGPT:** compilar no MetaEditor; confirmar que os Casos 1–3 reproduzem o R200;
-rodar Caso 4 (risco 1%) e Caso 5 (**com custos reais**); devolver os CSVs para eu analisar
-regime, custo de ocupação e a fronteira risco×retorno.
+rodar Caso 4 (risco 1%), Caso 5 (**com custos reais**) e Caso 6 (risco 5% + freio, comparando
+contra a linha "5%" da tabela em §3.1); devolver os CSVs para eu analisar regime, custo de
+ocupação e a fronteira risco×retorno.

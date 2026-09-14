@@ -41,14 +41,21 @@ PE_GATE OpenCycle(const int origin,const int side,const H1Signal &s,const MqlTic
    minimumLotRiskMoney=-referenceLoss; minimumLotMargin=referenceMargin;
    minimumLotRiskPercent=eq>0 ? 100*(-referenceLoss)/eq : 0;
    minimumEquityForLot=MathMax((-referenceLoss)*100.0/dc.riskPercent,(used+referenceMargin)*100.0/InpMaxMarginPct);
-   sizingRiskBudget=eq*dc.riskPercent/100.0;
+   double effRiskPercent=dc.riskPercent;
+   // Caso 6 apenas: o mesmo risco% do Caso 4, modulado pelo freio de
+   // rebaixamento (DDThrottleCore.mqh). Casos 4/5 nunca entram aqui - o
+   // multiplicador so existe quando InpCase==6, preservando os dois
+   // byte-a-byte no comportamento de sizing.
+   if(InpCase==6) effRiskPercent*=DDThrottleMultiplier(eq,ddPeakEquity,InpDDBand1,InpDDMult1,InpDDBand2,InpDDMult2);
+   sizingRiskBudget=eq*effRiskPercent/100.0;
    sizingMarginBudget=MathMin(free,MathMax(0,eq*InpMaxMarginPct/100.0-used));
    if(InpCase>=4) {
-    // Casos 4/5: sizing por risco SEM o teto de 2% do DCRiskLot (permite ate 5%
-    // conscientemente). Replica a mesma formula do DCRiskLot, reaproveitando os
-    // orcamentos ja calculados acima; margem% e volume maximo do simbolo
+    // Casos 4/5/6: sizing por risco SEM o teto de 2% do DCRiskLot (permite ate
+    // 5% conscientemente). Replica a mesma formula do DCRiskLot, reaproveitando
+    // os orcamentos ja calculados acima (sizingRiskBudget ja vem com o freio do
+    // Caso 6 aplicado, se for o caso); margem% e volume maximo do simbolo
     // continuam limitando. DonchianCore.mqh permanece intocado (core auditado
-    // do R200) — este ramo existe aqui, nao ali, porque so os Casos 4/5 podem
+    // do R200) — este ramo existe aqui, nao ali, porque so os Casos 4/5/6 podem
     // ultrapassar o teto de 2% do DCRiskLot.
     double lossPerLot=-referenceLoss/mn,marginPerLot=referenceMargin/mn;
     double raw=(sizingMarginBudget>0 && lossPerLot>0) ? MathMin(mx,sizingRiskBudget/lossPerLot) : 0;
