@@ -161,6 +161,21 @@ teste não convencer, ajustar as bandas é experimento novo — uma variável de
 mesmo comparador (Caso 4 a 5%), nunca uma varredura cega de bandas×multiplicadores ao mesmo
 tempo.
 
+**Resultado real da tentativa 1 (`CASO_06_HERMES_DD_THROTTLE.set`, bandas 15%/25%, corte
+50%/25%):** lucro 186.845 (devolveu 83% do lucro do Caso 4 @ 5% puro), DD do saldo caiu de
+45,84% para 34,34%, mas o DD do **capital líquido** (equity, flutuante) ficou praticamente
+igual (47,12%) — o freio só reduz o risco da *próxima* entrada, não encolhe uma posição já
+aberta, então um trade que abre logo após um pico ainda pode afundar bastante antes de bater o
+próprio stop. Pior: **o resultado ficou dominado pelo Caso 4 flat a 3%** (lucro quase igual,
+189.539, com DD menor — 26,91% — e Fator de Recuperação melhor — 2,65 vs 2,25). Bandas cedo e
+corte forte demais.
+
+**Tentativa 2 (`CASO_06B_HERMES_DD_THROTTLE_SUAVE.set`, pendente de teste):** mantém risco
+cheio por mais tempo (`InpDDBand1=25`, não 15) e corta mais leve (`InpDDMult1=0.65`, não 0,50);
+só entra na banda funda depois de 35% de DD (`InpDDBand2=35`, não 25), cortando pra 0,65→0,35
+em vez de 0,50→0,25. Mesmo risco-base (5%) do Caso 4 e da tentativa 1 — única variável mudada é
+a forma do freio. Comparar contra os dois pontos acima (Caso 4 @ 5% puro e tentativa 1).
+
 ---
 
 ## 4. Caso 5 — Colheita Rápida (a nova filosofia)

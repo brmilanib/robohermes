@@ -108,6 +108,15 @@ preset('CASO_04_RISCO_2a5pct.set',4,sweep={'InpRiskPercent':(2.0,1.0,5.0)})
 # Caso 6 a 5% de risco: mesmo risco-base do pior caso de drawdown do sweep acima
 # (Caso 4 @ 5% = 45.84% DD), so pra comparar o efeito isolado do freio.
 preset('CASO_06_HERMES_DD_THROTTLE.set',6,overrides={'InpRiskPercent':5.0})
+# Tentativa 2 (mais suave): resultado da tentativa 1 (bandas 15/25%, corte 50/25%)
+# devolveu 83% do lucro do Caso 4 @ 5% por uma reducao modesta de DD - throttle
+# cedo e forte demais. Mantem risco cheio por mais tempo (ate 25% de DD, nao 15%)
+# e corta mais leve (65%/35%, nao 50%/25%); so entra pesado na banda funda apos
+# 35% de DD, nao 25%. Mesmo risco-base (5%), unica variavel mudada e' a forma
+# do freio - comparar contra CASO_06_HERMES_DD_THROTTLE.set (tentativa 1) e
+# contra o Caso 4 @ 5% puro (sem freio).
+preset('CASO_06B_HERMES_DD_THROTTLE_SUAVE.set',6,overrides={
+    'InpRiskPercent':5.0,'InpDDBand1':25.0,'InpDDMult1':0.65,'InpDDBand2':35.0,'InpDDMult2':0.35})
 with (ROOT/'CASOS.csv').open('w',encoding='utf-8-sig',newline='') as f:
     writer=csv.DictWriter(f,list(cases[0]),delimiter=';');writer.writeheader();writer.writerows(cases)
 
