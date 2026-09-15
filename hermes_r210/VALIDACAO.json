@@ -1,8 +1,8 @@
 {
   "version": "2.10",
-  "source_sha256": "d901d29a4ac2d676e68be046ab84f35a9ed8e5f172aa980f72d269c53028b3e4",
-  "cases": 7,
-  "presets": 10,
+  "source_sha256": "8e293bfa6a6a2e5b84527bfdd3eb97b59386ea809004e79035d57d7ca7665954",
+  "cases": 8,
+  "presets": 11,
   "statistics_fields": 116,
   "frozen_cores_identical_to_r200": true,
   "changed_files": [
@@ -73,5 +73,5 @@
   ],
   "native_MQL5_compilation": false,
   "native_MT5_backtests": false,
-  "note": "Casos 4/5/6/7 sao hipoteses NAO validadas. Exigem backtest MT5 com custos realistas e validacao fora da amostra antes de qualquer conclusao de lucro. Sem simulacao de PnL aqui."
+  "note": "Casos 4/5/6/7/8 sao hipoteses NAO validadas. Exigem backtest MT5 com custos realistas e validacao fora da amostra antes de qualquer conclusao de lucro. Sem simulacao de PnL aqui."
 }

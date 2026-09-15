@@ -42,6 +42,9 @@ input double InpDDBand2=25.0;  // Caso 6: rebaixamento (%) a partir de onde o ri
 input double InpDDMult2=0.25;  // Caso 6: multiplicador do risco acima da banda 2
 // --- Caso 7: saque de lucro (fracao do novo recorde de saldo que "sai" do sizing) ---
 input double InpWithdrawFraction=0.50; // Caso 7: fracao (0..1) do novo pico de saldo sacada a cada recorde
+// --- Caso 8: breakeven em InpBETriggerR + alvo reduzido InpBETargetR (mesmo motor de BE do R200, so nunca ligado antes) ---
+input double InpBETriggerR=1.00; // Caso 8: quando o trade atinge esse R de lucro flutuante, stop move pro preco de entrada
+input double InpBETargetR=3.00;  // Caso 8: alvo fixo, multiplo do risco inicial (em vez do 5R padrao)
 
 enum PE_GATE { G_NO_DATA=0,G_BASE,G_DIRECTION,G_DISTANCE,G_REGIME,G_POSITION,
  G_SPREAD,G_STOP,G_BROKER_STOPS,G_RISK,G_MARGIN_ERROR,G_MARGIN_BLOCK,G_REJECTED,G_FILLED,G_HALTED,G_ENTRY_FILTER,G_TARGET,G_COUNT };
@@ -129,8 +132,8 @@ string EntryName(const int k)
  }
 string DCName(const int id)
  {
-  string names[7]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA","HERMES_DD_THROTTLE","HERMES_SAQUE_LUCRO"};
-  return id>=1 && id<=7 ? names[id-1] : "INVALID";
+  string names[8]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA","HERMES_DD_THROTTLE","HERMES_SAQUE_LUCRO","HERMES_BREAKEVEN_3R"};
+  return id>=1 && id<=8 ? names[id-1] : "INVALID";
  }
 string ProfileName(const int id) { return DCName(id); }
 string TFName(const int id) { return "M30"; }
@@ -418,7 +421,7 @@ PE_GATE OpenCycle(const int origin,const int side,const H1Signal &s,const MqlTic
  {
   double tick=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE),entry=side==1 ? q.ask : q.bid;
   H1Signal setup=s; if(evo.entryPolicy==8) { setup.lowest=pivotSwing; setup.highest=pivotSwing; }
-  double reward=(InpCase==5 ? InpQHTargetR : 5.0);   // Caso 5: alvo curto em R
+  double reward=(InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : 5.0));   // Caso 5: alvo curto em R; Caso 8: 3R padrao
   if(!H1Levels(side,entry,setup,.20,1.0,2.5,reward,tick,sl,tp)) return G_STOP;
   // Original structural stop is retained in every case.
   if(dc.minimumStopATR>1.0 && !DCStructuralStopAccepted(entry,sl,s.atr,dc.minimumStopATR)) {
@@ -679,6 +682,12 @@ int OnInit()
   if(InpCase==7) {
    if(!MathIsValidNumber(InpWithdrawFraction) || InpWithdrawFraction<0.0 || InpWithdrawFraction>1.0)
     return INIT_PARAMETERS_INCORRECT;
+  }
+  if(InpCase==8) {
+   if(!MathIsValidNumber(InpBETriggerR) || !MathIsValidNumber(InpBETargetR) ||
+      InpBETriggerR<=0 || InpBETargetR<=0 || InpBETargetR>10 || InpBETriggerR>=InpBETargetR)
+    return INIT_PARAMETERS_INCORRECT;
+   profile.be15=InpBETriggerR; // motor de breakeven ja existe (Execution.mqh); so faltava configurar isto
   }
   if(InpCase==5) {
    if(!MathIsValidNumber(InpQHTargetR) || InpQHTargetR<=0 || InpQHTargetR>5 ||

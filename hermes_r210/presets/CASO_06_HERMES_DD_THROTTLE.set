@@ -4,6 +4,7 @@
 ; Caso 5: Colheita Rapida (surto de volume, alvo curto InpQHTargetR, risco).
 ; Caso 6: Caso 4 + freio de risco por rebaixamento (InpDDBand1/2, InpDDMult1/2).
 ; Caso 7: Caso 4 + saque de lucro (InpWithdrawFraction do novo recorde de saldo).
+; Caso 8: Caso 4 + breakeven em InpBETriggerR + alvo InpBETargetR (em vez de 5R).
 ; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.
 InpCase=6||6||1||6||N
 InpMaxMarginPct=20.0||20.0||0.01||20.0||N
@@ -30,3 +31,5 @@ InpDDMult1=0.5||0.5||0.01||0.5||N
 InpDDBand2=25.0||25.0||0.01||25.0||N
 InpDDMult2=0.25||0.25||0.01||0.25||N
 InpWithdrawFraction=0.5||0.5||0.01||0.5||N
+InpBETriggerR=1.0||1.0||0.01||1.0||N
+InpBETargetR=3.0||3.0||0.01||3.0||N

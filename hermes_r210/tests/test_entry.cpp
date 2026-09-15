@@ -9,6 +9,7 @@ double sizedLot=0,sizingRiskBudget=0,sizingMarginBudget=0,sizingMargin=0,minimum
 double InpFixedLot=1,InpMaxMarginPct=20,InpMaxLot=1,maxLots=0,InpQHTargetR=1;
 double InpDDBand1=15.0,InpDDMult1=0.50,InpDDBand2=25.0,InpDDMult2=0.25,ddPeakEquity=0;
 double InpWithdrawFraction=0.50; WDState withdrawState{0,0};
+double InpBETriggerR=1.00,InpBETargetR=3.00;
 long targetRejects=0,fixedVolumeRejects=0;datetime lastPivotUsed=0,pivotTime=0;int liveMonth=0;
 HPDecision hpRoute{}; HPSignal hpSignal{}; long hpPivotFills=0;
 void ObserveOpenPath(){}
@@ -90,6 +91,20 @@ int main(){
  s=prepare(1);InpCase=7;dc.riskPercent=2.0;withdrawState.bankedWithdrawn=0;
  assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
  assert(integrity&&near(cycles[0].volume,.14)&&near(risk,198.8));
+ // R210: Caso 8 (Caso 4 + breakeven em InpBETriggerR + alvo InpBETargetR).
+ // O motor de BE (ManageProtection/MoveStops/PEArm) e' o mesmo ja testado do
+ // R200 (test_execution.cpp cobre "confirmed half+BE") - aqui so confirmamos
+ // que o OpenCycle usa o alvo certo (3R, nao 5R) e que profile.be15
+ // (configurado pelo EA a partir de InpBETriggerR) propaga corretamente para
+ // cycles[0].beTrigger, dentro do OpenCycle real.
+ s=prepare(1);InpCase=8;dc.riskPercent=1.0;InpBETargetR=3.0;profile.be15=1.0;
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(tp,4042.8)&&cycles[0].beTrigger==1.0); // 3R (nao 4071.2=5R) + gatilho propagado
+ // Casos 4/6/7 continuam com beTrigger=0 - profile.be15 nunca e' sobrescrito
+ // para eles, o gatilho de BE so existe quando InpCase==8.
+ s=prepare(1);InpCase=4;dc.riskPercent=1.0;profile.be15=0;
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(tp,4071.2)&&cycles[0].beTrigger==0); // 5R padrao, sem BE
  s=prepare(3);mockFillOffset=-.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
  assert(integrity&&near(cycles[0].target-cycles[0].entry,20)&&targetAdjustments==1&&slRequests==1&&volumeRequests==1);
  s=prepare(3);mockFillOffset=.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);

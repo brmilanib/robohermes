@@ -48,23 +48,23 @@ enums='\n'.join(re.findall(r'enum PE_(?:GATE|STAT) \{.*?\};',source,re.S))
 adapter=(ROOT/'src/PivotRuntime.mqh').read_text().replace('MqlRates observed[];', 'std::vector<MqlRates> observed;')
 (ROOT/'tests/PivotAdapter_Runtime.inc').write_text(adapter)
 
-# Nomes dos casos, agora 7 (DCName no EA).
-case_names=re.search(r'string names\[7\]=\{(.*?)\};',source,re.S)[1]
+# Nomes dos casos, agora 8 (DCName no EA).
+case_names=re.search(r'string names\[8\]=\{(.*?)\};',source,re.S)[1]
 case_names=re.findall(r'"([^"]+)"',case_names)
-assert len(case_names)==7,case_names
+assert len(case_names)==8,case_names
 
 def case_row(i,name):
     extra=i in (2,3)
     return dict(case=i,name=name,timeframe='M30',
-        entry='ORIGINAL' if i in (1,4,6,7) else ('ORIGINAL_OR_CAUSAL_LONG_123' if extra else 'QUICK_HARVEST_VOLUME_BURST'),
+        entry='ORIGINAL' if i in (1,4,6,7,8) else ('ORIGINAL_OR_CAUSAL_LONG_123' if extra else 'QUICK_HARVEST_VOLUME_BURST'),
         extra_enabled=extra,
         extra_requires_close_above_SMA200=i==2,extra_requires_rising_SMA200=i==2,
         EMA_period=21,SMA_middle=50,SMA_long=200,ATR_period=14,ADX_period=14,min_ADX=20,
         minimum_entry_distance_ATR=.5,minimum_structural_stop_ATR=1.0,maximum_structural_stop_ATR=2.5,
         stop_buffer_ATR=.2,stop_lookback_closed_bars=3,
-        target_R=5 if i!=5 else 'InpQHTargetR',
+        target_R=5 if i not in (5,8) else ('InpQHTargetR' if i==5 else 'InpBETargetR'),
         sizing='EXACT_FIXED_LOT' if i in (1,2,3) else 'RISK_PERCENT',
-        partial=False,adds=0,breakeven=False,reinvest=False,
+        partial=False,adds=0,breakeven=i==8,reinvest=False,
         dd_throttle=i==6,profit_withdrawal=i==7,
         status='CONGELADO_R200' if i in (1,2,3) else 'NOVO_R210_NAO_VALIDADO')
 cases=[case_row(i,name) for i,name in enumerate(case_names,1)]
@@ -75,7 +75,7 @@ base=dict(InpCase=1,InpMaxMarginPct=20.0,InpMaxLot=1.0,InpFixedLot=1.0,InpMinEnt
     InpRiskPercent=1.0,InpQHTargetR=1.0,InpQHVolFactor=1.5,InpQHRangeFactor=1.0,
     InpQHMinCloseLoc=0.6,InpQHMinADX=20.0,InpQHMaxSpreadATR=0.10,
     InpDDBand1=15.0,InpDDMult1=0.50,InpDDBand2=25.0,InpDDMult2=0.25,
-    InpWithdrawFraction=0.50)
+    InpWithdrawFraction=0.50,InpBETriggerR=1.00,InpBETargetR=3.00)
 assert set(re.findall(r'^input\s+\w+\s+(Inp\w+)',source,re.M))==set(base)
 
 def preset(filename,id,sweep=None,overrides=None):
@@ -89,6 +89,7 @@ def preset(filename,id,sweep=None,overrides=None):
            '; Caso 5: Colheita Rapida (surto de volume, alvo curto InpQHTargetR, risco).',
            '; Caso 6: Caso 4 + freio de risco por rebaixamento (InpDDBand1/2, InpDDMult1/2).',
            '; Caso 7: Caso 4 + saque de lucro (InpWithdrawFraction do novo recorde de saldo).',
+           '; Caso 8: Caso 4 + breakeven em InpBETriggerR + alvo InpBETargetR (em vez de 5R).',
            '; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.']
     for key,value in (base|{'InpCase':id}|overrides).items():
         if key in sweep:
@@ -103,9 +104,9 @@ def preset(filename,id,sweep=None,overrides=None):
     (ROOT/'presets'/filename).write_text('\r\n'.join(lines)+'\r\n')
 
 for old in (ROOT/'presets').glob('*.set'): old.unlink()   # limpa presets herdados do R200
-preset('00_COMPARAR_7_CASOS.set',1,sweep={'InpCase':(1,1,7)})
+preset('00_COMPARAR_8_CASOS.set',1,sweep={'InpCase':(1,1,8)})
 for c in cases:
-    if c['case'] in (6,7): continue   # Casos 6/7 ganham preset proprio abaixo, no mesmo risco-base do Caso 4
+    if c['case'] in (6,7,8): continue   # Casos 6/7/8 ganham preset proprio abaixo, no mesmo risco-base do Caso 4
     preset(f"CASO_{c['case']:02d}_{c['name']}.set",c['case'])
 # Varredura de risco pedida: Caso 4 (Referencia) a 2%, 3%, 4% e 5% num unico teste.
 preset('CASO_04_RISCO_2a5pct.set',4,sweep={'InpRiskPercent':(2.0,1.0,5.0)})
@@ -125,6 +126,10 @@ preset('CASO_06B_HERMES_DD_THROTTLE_SUAVE.set',6,overrides={
 # milhao (e do mesmo pico de 45,84%/56,68% de DD) - unica variavel mudada e'
 # o saque de 50% de cada novo recorde de saldo realizado.
 preset('CASO_07_HERMES_SAQUE_LUCRO.set',7,overrides={'InpRiskPercent':5.0})
+# Caso 8 a 5% de risco: mesma base do robo mais lucrativo (Caso 4 @ 5%, o do
+# US$1,1 milhao), agora com breakeven em 1R e alvo reduzido para 3R. Unica
+# variavel mudada e' a protecao/alvo - entradas e risco-base identicos.
+preset('CASO_08_HERMES_BREAKEVEN_3R.set',8,overrides={'InpRiskPercent':5.0})
 with (ROOT/'CASOS.csv').open('w',encoding='utf-8-sig',newline='') as f:
     writer=csv.DictWriter(f,list(cases[0]),delimiter=';');writer.writeheader();writer.writerows(cases)
 
@@ -133,6 +138,6 @@ manifest=dict(version='2.10',batch='R210',parent='R200:1(projeto_fonte)',
     frozen_from_r200=['XAU_H1_Core.mqh','ProtectCore.mqh','EntryCore.mqh','DonchianCore.mqh','HermesCore.mqh','Execution.mqh','PivotCore.mqh','PivotRuntime.mqh','Reports.mqh'],
     changed=['EA.mq5','PivotEntryCore.mqh'],added=['QuickHarvestCore.mqh','DDThrottleCore.mqh','WithdrawalCore.mqh'],
     cases=cases,
-    note='Casos 4, 5, 6 e 7 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Ver MUDANCAS_R210.md.')
+    note='Casos 4, 5, 6, 7 e 8 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Ver MUDANCAS_R210.md.')
 (ROOT/'MANIFESTO_R210.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
-print('R210: 7 casos, 10 presets, single-file Hermes_R210.mq5 gerado. Sem compilacao/backtest MQL5.')
+print('R210: 8 casos, 11 presets, single-file Hermes_R210.mq5 gerado. Sem compilacao/backtest MQL5.')

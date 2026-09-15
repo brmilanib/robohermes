@@ -16,13 +16,15 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 
 - **Validado aqui (g++):** toda a lógica de decisão portável — roteamento dos casos, o
   `QHGate` do Caso 5, o `DDThrottleMultiplier` do Caso 6, o `WDUpdate`/`WDTradingCapital` do
-  Caso 7 e o corpo de produção do `OpenCycle` — compila e passa em 11/11 testes unitários
-  (`python3 verificar.py`). Os **cores auditados do R200 continuam byte-idênticos** (a
-  verificação prova isso).
+  Caso 7, a propagação de `profile.be15`/alvo do Caso 8 e o corpo de produção do `OpenCycle` —
+  compila e passa em 11/11 testes unitários (`python3 verificar.py`). Os **cores auditados do
+  R200 continuam byte-idênticos** (a verificação prova isso). O motor de breakeven do Caso 8
+  (`ManageProtection`/`MoveStops`/`PEArm`) **não é código novo** — é o mesmo motor do R200,
+  já testado, só nunca configurado com `be15>0` em nenhum Caso até agora.
 - **NÃO validado aqui:** rentabilidade. Não há MetaTrader neste ambiente — **nenhum backtest
-  nativo foi executado por mim**. Os Casos 4, 5, 6 e 7 são **hipóteses a testar**, não melhorias
-  comprovadas — o Caso 4 e o Caso 6 já têm resultados reais do proprietário (§3), os outros
-  ainda não.
+  nativo foi executado por mim**. Os Casos 4, 5, 6, 7 e 8 são **hipóteses a testar**, não
+  melhorias comprovadas — os Casos 4, 6 e 7 já têm resultados reais do proprietário (§3), os
+  outros ainda não.
 - **Um passo que depende do ChatGPT:** o EA completo precisa ser **compilado no MetaEditor**.
   A cola de integração no EA (ex.: `ReadQuickHarvest`, o ramo do `OnTick`) segue os padrões do
   próprio projeto, mas não pôde ser compilada aqui. Se aparecer algum erro de compilação,
@@ -32,7 +34,7 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 
 ---
 
-## 2. Os sete casos
+## 2. Os oito casos
 
 | Caso | Nome | Entrada | Sizing | Alvo | Situação |
 | --- | --- | --- | --- | --- | --- |
@@ -42,9 +44,10 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 | 4 | **HERMES_RISCO_REF** | **igual ao Caso 1** | **risco % do patrimônio** | 5R | **novo — testado pelo proprietário** |
 | 5 | **HERMES_COLHEITA_RAPIDA** | **surto de volume/range** | risco % do patrimônio | **curto (InpQHTargetR)** | **novo — a testar** |
 | 6 | **HERMES_DD_THROTTLE** | **igual ao Caso 1/4** | risco % **com freio por rebaixamento** | 5R | **novo — testado pelo proprietário (§3.2)** |
-| 7 | **HERMES_SAQUE_LUCRO** | **igual ao Caso 1/4** | risco % **sobre capital com saque de lucro** | 5R | **novo — a testar (§3.3)** |
+| 7 | **HERMES_SAQUE_LUCRO** | **igual ao Caso 1/4** | risco % **sobre capital com saque de lucro** | 5R | **novo — testado pelo proprietário (§3.3)** |
+| 8 | **HERMES_BREAKEVEN_3R** | **igual ao Caso 1/4** | risco % do patrimônio | **3R + stop no breakeven em 1R** | **novo — a testar (§3.4)** |
 
-Selecione o caso pelo input `InpCase` (1..7) ou pelos presets em `presets/`.
+Selecione o caso pelo input `InpCase` (1..8) ou pelos presets em `presets/`.
 
 ---
 
@@ -240,7 +243,66 @@ rebaixamento, tentando evitar que ele fique tão fundo. O saque (Caso 7) não ev
 rebaixamento — ele **tira dinheiro da mesa antes**, então mesmo um tombo de 56% sobre o capital
 que restou em risco representa uma fatia menor da riqueza total do proprietário (parte já está
 sacada, fora do alcance daquele tombo). São mecanismos complementares, não concorrentes — dá
-pra imaginar um Caso 8 futuro combinando os dois, mas só depois de entender cada um isolado.
+pra imaginar um Caso 9 futuro combinando os dois, mas só depois de entender cada um isolado.
+
+**Resultado real (US$ 10.000, mesmo risco-base de 5% do Caso 4 puro):** lucro 186.878 (quase
+idêntico à tentativa 1 do Caso 6 — coincidência de caminho, não sinal de nada). O
+`equity_dd_relative_percent` reportado pelo Testador (48,10%) **não conta a história real**
+aqui: como o Testador não sabe que uma parte do lucro "sairia" da mesa, a conta real fica com
+100% do dinheiro, só em posições menores. Reconstruindo o saque mês a mês a partir do
+`months.csv` (mesma fórmula do `WDUpdate`) e somando ao patrimônio restante na conta, o
+**patrimônio total real chega a US$ 303.060** (30,3× o depósito) com um rebaixamento **real**
+de só **≈ 29,4%** (setembro/2023) — o melhor de tudo testado até aqui, mas **só vale se o saque
+for executado de verdade na vida real**; sem isso, a conta fica exposta aos 48,10% reportados,
+sem nenhuma reserva em lugar nenhum. `negative_booked_months` ficou em 20/57 — empatado com o
+Caso 4 puro em todos os níveis de risco, reforçando que sizing (incluindo o saque) não move
+esse número.
+
+### 3.4 Caso 8 — Caso 4 + breakeven em 1R + alvo 3R
+
+**Por quê.** Depois de confirmar, com dados reais de 3 mecanismos de sizing diferentes (Casos
+4, 6, 7), que **nenhum ajuste de tamanho de posição move `negative_booked_months`** (ficou
+sempre entre 20 e 25, nunca melhor que os 17 do Caso 1 original) — pedido do proprietário: virar
+a chave e mexer na **gestão do trade em si**, não mais no tamanho. Dois ajustes juntos: mover o
+stop para o preço de entrada assim que o trade atinge 1R de lucro flutuante (perdas que já
+estavam indo bem viram ~0 em vez de -1R cheio) e reduzir o alvo de 5R para 3R (mais fácil de
+alcançar, deveria subir a taxa de acerto).
+
+**O motor já existia — de novo.** `Execution.mqh` (congelado, auditado) já tem
+`ManageProtection()`/`MoveStops()`/`PEArm()` prontos e testados (`test_execution.cpp` já cobria
+"confirmed half+BE"); o próprio R200 original já tinha uma tabela de gatilhos candidatos
+pré-calculados (`PEThreshold`: 1,0R / 1,5R / 2,0R / 2,5R / 3,0R) para essa exata pergunta — só
+nunca foi configurada com um valor diferente de zero em nenhum Caso. Não foi escrita nenhuma
+lógica nova de proteção; só uma configuração (`profile.be15=InpBETriggerR`) que faltava.
+
+**Mudanças (arquivos/linhas):**
+- `src/EA.mq5` · novos inputs `InpBETriggerR` (padrão 1,0R) e `InpBETargetR` (padrão 3,0R).
+- `src/EA.mq5` · `OnInit`: `profile.be15=InpBETriggerR` logo após `HPSelectProfile`, só quando
+  `InpCase==8` (mesmo padrão de `dc.riskPercent=InpRiskPercent` para os Casos 4+). Validação:
+  `0 < InpBETriggerR < InpBETargetR <= 10`.
+- `src/EA.mq5` · `OpenCycle`: `reward=InpBETargetR` (em vez do 5,0 fixo) quando `InpCase==8`.
+- `src/PivotEntryCore.mqh`: roteamento aceita `id` até 8, mesmas entradas do Caso 1 (`HP_DISABLED`).
+
+**Só muda a proteção/alvo — nenhuma entrada é alterada**, mesma disciplina dos Casos 5/6/7.
+Casos 4/6/7 ficam **imunes**: `profile.be15` nunca é sobrescrito para eles, então
+`cycles[n].beTrigger` continua em zero (testado explicitamente em `tests/test_entry.cpp`).
+
+**Preset:** `presets/CASO_08_HERMES_BREAKEVEN_3R.set` — `InpCase=8`, `InpRiskPercent=5.0`
+(mesma base do Caso 4 puro que fez o US$ 1,1 milhão), `InpBETriggerR=1.0`, `InpBETargetR=3.0`.
+Comparar diretamente contra a linha "5%" do Caso 4 puro (§3.1) — mesma entrada, mesmo risco
+nominal, só a proteção/alvo mudados.
+
+**Previsão falsificável.** A taxa de acerto (`cycle_win_percent`) deve subir em relação aos
+26,05% de todos os Casos anteriores (alvo mais fácil de alcançar). O `average_net_R_initial`
+pode cair um pouco (alvo menor limita o R máximo por trade), mas menos perdas cheias (viram
+breakeven) deveria compensar — o teste real é se **`negative_booked_months` cai** de forma
+material. **Rejeite** a hipótese se a taxa de acerto não subir, ou se subir mas
+`negative_booked_months` não melhorar (sinal de que o alvo menor cortou ganhadores sem
+realmente evitar meses ruins).
+
+**Se quiser isolar as duas mudanças** (saber quanto vem do breakeven sozinho vs do alvo menor
+sozinho): rode de novo com `InpBETargetR=5.0` (mantém alvo original, só o breakeven ativo) —
+compara contra este resultado e contra o Caso 4 puro, uma variável de cada vez.
 
 ---
 
@@ -303,7 +365,7 @@ trade for ≤ 0 ou o fator de lucro < 1,2.
    Testador (`OnInit` bloqueia uso fora do Strategy Tester).
 3. No Testador: XAUUSD, M30, período desejado, **modelagem por ticks reais**, **custos reais**.
 4. Carregue um preset de `presets/` (ex.: `CASO_04_...`, `CASO_05_...`, `CASO_06_...`,
-   `CASO_07_...`) ou ajuste `InpCase`.
+   `CASO_07_...`, `CASO_08_...`) ou ajuste `InpCase`.
 5. Exporte os CSVs (bars/events + agregados) como no R200 para comparar.
 
 Checagem local sem MT5: `python3 verificar.py` (compila e roda os 11 testes portáveis em g++ e
@@ -323,9 +385,13 @@ prova que os cores do R200 não foram tocados).
 5. **Caso 7 vs Caso 4 (mesmo risco-base, 5%)**: o capital sacado acumulado precisa ser grande o
    suficiente para justificar o lucro menor, e o drawdown sobre o que resta em risco precisa
    melhorar de forma clara (§3.3).
-6. **Fora da amostra:** walk-forward + uma janela final nunca usada na escolha + teste num
+6. **Caso 8 vs Caso 4 (mesmo risco-base, 5%)**: `cycle_win_percent` precisa subir de forma clara
+   frente aos 26,05% históricos, e `negative_booked_months` precisa cair de forma material frente
+   aos 20/57 medidos em todo o resto da família (Casos 4/6/7) — senão o alvo menor só trocou
+   ganho por ganho, sem resolver o problema que motivou o caso (§3.4).
+7. **Fora da amostra:** walk-forward + uma janela final nunca usada na escolha + teste num
    período do ouro que **não** foi bull market (ex.: 2013–2019).
-7. **Forward em DEMO** antes de qualquer real. Depois, micro-real com risco baixo.
+8. **Forward em DEMO** antes de qualquer real. Depois, micro-real com risco baixo.
 
 Detalhe do raciocínio e das previsões em `../docs/PLANO_EXPERIMENTOS.md` e no parecer
 `../docs/PARECER_CLAUDE_R200.md`.
@@ -347,7 +413,7 @@ tamanho da conta sozinho.
 
 **O que você descreveu é outra coisa: escalar o lote pelo LUCRO acumulado, não pelo risco do
 trade.** Isso já está implementado — código legado, testado, **nunca ativado** em nenhum
-Caso Hermes (`p.reinvest` é sempre `false` nos 7 casos R210):
+Caso Hermes (`p.reinvest` é sempre `false` nos 8 casos R210):
 
 - `src/ProtectCore.mqh:144` · `PEReinvestLot(base, deposit, balance, cap, step)` — usa
   **exatamente 50%** fixo: `efetivo = base × (1 + 0,5 × max(0, balance−deposit)/deposit)`.
@@ -371,36 +437,37 @@ Caso Hermes (`p.reinvest` é sempre `false` nos 7 casos R210):
 
 **Minha recomendação:** fique com o Caso 4 (risco % puro) como o mecanismo de "reinvestimento".
 Se mesmo assim você quiser **medir** a ideia do lucro-acumulado como hipótese separada — nunca
-empilhada com o Caso 4 —, eu implemento um **Caso 8 isolado** (`PEReinvestLot`/`EVOCapitalLot`,
+empilhada com o Caso 4 —, eu implemento um **Caso 9 isolado** (`PEReinvestLot`/`EVOCapitalLot`,
 já testados no motor) com **sizing fixo simples** (sem risco%), seguindo o mesmo protocolo:
 comparador preservado, previsão falsificável, validação fora da amostra. Me avise se quiser
-que eu construa esse Caso 8.
+que eu construa esse Caso 9.
 
-> **Nota:** os números "Caso 6" e "Caso 7" citados em versões anteriores deste documento
-> acabaram sendo usados para o freio de risco por rebaixamento (§3.2) e o saque de lucro
-> (§3.3), pedidos depois desta seção. Se a ideia de lucro-acumulado acima for implementada, ela
-> vira **Caso 8** — os números dos casos nunca são reciclados depois de existirem
-> presets/testes referenciando-os.
+> **Nota:** os números "Caso 6", "Caso 7" e "Caso 8" citados em versões anteriores deste
+> documento acabaram sendo usados para o freio de risco por rebaixamento (§3.2), o saque de
+> lucro (§3.3) e o breakeven+alvo 3R (§3.4), todos pedidos depois desta seção. Se a ideia de
+> lucro-acumulado acima for implementada, ela vira **Caso 9** — os números dos casos nunca são
+> reciclados depois de existirem presets/testes referenciando-os.
 
 ## 9. Mapa de mudanças
 
 | Arquivo | Estado | O quê |
 | --- | --- | --- |
-| `src/XAU_H1_Core.mqh`, `ProtectCore`, `EntryCore`, `DonchianCore`, `HermesCore`, `Execution`, `PivotCore`, `PivotRuntime`, `Reports` | **byte-idêntico ao R200** | motor auditado, intocado |
-| `src/PivotEntryCore.mqh` | alterado | roteamento aceita Casos 4/5/6/7 (sizing por risco) |
-| `src/EA.mq5` | alterado | inputs novos, `ReadQuickHarvest`, ramo do Caso 5, freio do Caso 6, saque do Caso 7, alvo curto, validações |
+| `src/XAU_H1_Core.mqh`, `ProtectCore`, `EntryCore`, `DonchianCore`, `HermesCore`, `Execution`, `PivotCore`, `PivotRuntime`, `Reports` | **byte-idêntico ao R200** | motor auditado, intocado (inclui o motor de breakeven do Caso 8 — só configuração nova, zero linhas mudadas) |
+| `src/PivotEntryCore.mqh` | alterado | roteamento aceita Casos 4/5/6/7/8 (sizing por risco; Caso 8 usa a mesma rota do Caso 4) |
+| `src/EA.mq5` | alterado | inputs novos, `ReadQuickHarvest`, ramo do Caso 5, freio do Caso 6, saque do Caso 7, `profile.be15`+alvo curto do Caso 8, validações |
 | `src/QuickHarvestCore.mqh` | novo | decisão do Caso 5 (`QHGate`), pura e testada |
 | `src/DDThrottleCore.mqh` | novo | freio do Caso 6 (`DDThrottleMultiplier`), pura e testada |
-| `src/WithdrawalCore.mqh` | **novo** | saque do Caso 7 (`WDUpdate`/`WDTradingCapital`), pura e testada |
+| `src/WithdrawalCore.mqh` | novo | saque do Caso 7 (`WDUpdate`/`WDTradingCapital`), pura e testada |
 | `tests/test_quickharvest.cpp` | novo | testa `QHGate` |
 | `tests/test_dd_throttle.cpp` | novo | testa `DDThrottleMultiplier` (bandas, dados/config inválidos) |
-| `tests/test_withdrawal.cpp` | **novo** | testa `WDUpdate`/`WDTradingCapital` (recordes, acúmulo, frações-limite, piso em zero) |
-| `tests/test_entry.cpp` | atualizado | Caso 4 imune a `ddPeakEquity`/`withdrawState`; Casos 6/7 reduzem o risco corretamente |
-| `tests/test_pivot_entry.cpp` | atualizado | agora valida Casos 4/5/6/7 |
-| `build.py`, `verificar.py` | adaptados | 7 casos, 10 presets; prova cores congelados |
-| `presets/CASO_04_*`, `CASO_05_*`, `CASO_06_*`, `CASO_07_*`, `00_COMPARAR_7_CASOS` | novos | presets dos casos novos |
+| `tests/test_withdrawal.cpp` | novo | testa `WDUpdate`/`WDTradingCapital` (recordes, acúmulo, frações-limite, piso em zero) |
+| `tests/test_entry.cpp` | atualizado | Caso 4 imune a `ddPeakEquity`/`withdrawState`/`profile.be15`; Casos 6/7 reduzem o risco corretamente; Caso 8 confirma alvo 3R (`tp=4042,8`) e `beTrigger` propagado, vs. Caso 4 com alvo 5R e `beTrigger=0` |
+| `tests/test_pivot_entry.cpp` | atualizado | agora valida Casos 4/5/6/7/8 |
+| `build.py`, `verificar.py` | adaptados | 8 casos, 11 presets; prova cores congelados (Caso 8 não adiciona `.mqh` novo — reusa `Execution.mqh` congelado) |
+| `presets/CASO_04_*`, `CASO_05_*`, `CASO_06_*`, `CASO_06B_*`, `CASO_07_*`, `CASO_08_*`, `00_COMPARAR_8_CASOS` | novos | presets dos casos novos |
 
 **Peço ao ChatGPT:** compilar no MetaEditor; confirmar que os Casos 1–3 reproduzem o R200;
-rodar Caso 4 (risco 1%), Caso 5 (**com custos reais**), Caso 6 (risco 5% + freio) e Caso 7
-(risco 5% + saque), comparando os dois últimos contra a linha "5%" da tabela em §3.1; devolver
-os CSVs para eu analisar regime, custo de ocupação e a fronteira risco×retorno.
+rodar Caso 4 (risco 1%), Caso 5 (**com custos reais**), Caso 6 (risco 5% + freio), Caso 7
+(risco 5% + saque) e Caso 8 (risco 5% + breakeven em 1R + alvo 3R), comparando os três últimos
+contra a linha "5%" da tabela em §3.1; devolver os CSVs para eu analisar regime, custo de
+ocupação e a fronteira risco×retorno.

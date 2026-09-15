@@ -3,7 +3,7 @@ PE_GATE OpenCycle(const int origin,const int side,const H1Signal &s,const MqlTic
  {
   double tick=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE),entry=side==1 ? q.ask : q.bid;
   H1Signal setup=s; if(evo.entryPolicy==8) { setup.lowest=pivotSwing; setup.highest=pivotSwing; }
-  double reward=(InpCase==5 ? InpQHTargetR : 5.0);   // Caso 5: alvo curto em R
+  double reward=(InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : 5.0));   // Caso 5: alvo curto em R; Caso 8: 3R padrao
   if(!H1Levels(side,entry,setup,.20,1.0,2.5,reward,tick,sl,tp)) return G_STOP;
   // Original structural stop is retained in every case.
   if(dc.minimumStopATR>1.0 && !DCStructuralStopAccepted(entry,sl,s.atr,dc.minimumStopATR)) {

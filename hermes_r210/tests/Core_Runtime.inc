@@ -952,13 +952,14 @@ struct HPDecision
 };
 bool HPSelectProfile(const int id,DCProfile &d,EVOProfile &e,PEProfile &p)
 {
- if(id<1 || id>7 || !DCSelectProfile(2,d,e,p)) return false;
+ if(id<1 || id>8 || !DCSelectProfile(2,d,e,p)) return false;
  d.id=id; d.matchedControl=2; e.matchedControl=2;
  // Casos 4 (Referencia + risco), 5 (Colheita Rapida), 6 (freio por
- // rebaixamento) e 7 (saque de lucro), todos sobre o Caso 4: MESMO motor de
- // execucao, porem sizing por % do patrimonio em vez de lote fixo. O EA
- // sobrescreve d.riskPercent com InpRiskPercent logo apos esta selecao.
- const bool riskSized=(id==4 || id==5 || id==6 || id==7);
+ // rebaixamento), 7 (saque de lucro) e 8 (breakeven+alvo 3R), todos sobre o
+ // Caso 4: MESMO motor de execucao, porem sizing por % do patrimonio em vez
+ // de lote fixo. O EA sobrescreve d.riskPercent com InpRiskPercent (e, so no
+ // Caso 8, p.be15 com InpBETriggerR) logo apos esta selecao.
+ const bool riskSized=(id==4 || id==5 || id==6 || id==7 || id==8);
  if(riskSized) { d.fixedLot=false; if(!(d.riskPercent>0.0 && d.riskPercent<=2.0)) d.riskPercent=1.0; }
  // A referencia herdada e volume (exato ou por risco), 5R, so compra, uma perna.
  return (riskSized ? !d.fixedLot : d.fixedLot) && !d.weekly && d.targetMode==0 && d.channelMode==0
@@ -969,8 +970,8 @@ int HPExtraGate(const int id,const H1Signal &s,const EVOFeatures &f,
                 const double ask,const double old200,const double minimumDistance,
                 const bool pivotDataReady,const HPSignal &pivot)
 {
- if(id<1 || id>7) return HP_INVALID_CASE;
- if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5, 6 e 7 nao usam a rota de pivo
+ if(id<1 || id>8) return HP_INVALID_CASE;
+ if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5, 6, 7 e 8 nao usam a rota de pivo
  if(!pivotDataReady) return HP_DATA_PENDING;
  if(!pivot.buy) return HP_NO_CANDIDATE;
  if(!(s.ema>s.sma50 && s.sma50>s.oldSma50)) return HP_TREND50;
@@ -991,7 +992,7 @@ void HPRouteEntry(const int id,const EVOProfile &e,const H1Signal &s,const EVOFe
  out.original_gate=EVOEvaluate(e,s,f,ask,old200,minimumDistance,false,out.side);
  out.extra_gate=HPExtraGate(id,s,f,ask,old200,minimumDistance,pivotDataReady,pivot);
  out.setup=out.original_gate;
- if(id<1 || id>7) { out.setup=HP_INVALID_CASE; out.side=0; return; }
+ if(id<1 || id>8) { out.setup=HP_INVALID_CASE; out.side=0; return; }
  if(out.original_gate==0) { out.path=HP_BASE; return; }
  if(out.extra_gate==0) { out.setup=0; out.side=1; out.path=HP_PIVOT; }
 }
