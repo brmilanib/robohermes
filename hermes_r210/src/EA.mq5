@@ -5,6 +5,7 @@
 #include "XAU_H1_Core.mqh"
 #include "QuickHarvestCore.mqh"
 #include "DDThrottleCore.mqh"
+#include "WithdrawalCore.mqh"
 #include "ProtectCore.mqh"
 #include "EntryCore.mqh"
 #include "DonchianCore.mqh"
@@ -39,6 +40,8 @@ input double InpDDBand1=15.0;  // Caso 6: rebaixamento (%) ate onde o risco fica
 input double InpDDMult1=0.50;  // Caso 6: multiplicador do risco entre a banda 1 e a banda 2
 input double InpDDBand2=25.0;  // Caso 6: rebaixamento (%) a partir de onde o risco cai mais
 input double InpDDMult2=0.25;  // Caso 6: multiplicador do risco acima da banda 2
+// --- Caso 7: saque de lucro (fracao do novo recorde de saldo que "sai" do sizing) ---
+input double InpWithdrawFraction=0.50; // Caso 7: fracao (0..1) do novo pico de saldo sacada a cada recorde
 
 enum PE_GATE { G_NO_DATA=0,G_BASE,G_DIRECTION,G_DISTANCE,G_REGIME,G_POSITION,
  G_SPREAD,G_STOP,G_BROKER_STOPS,G_RISK,G_MARGIN_ERROR,G_MARGIN_BLOCK,G_REJECTED,G_FILLED,G_HALTED,G_ENTRY_FILTER,G_TARGET,G_COUNT };
@@ -88,6 +91,7 @@ datetime channelOldest=0,channelNewest=0,channelClosedAt=0;
 int channelBars=0; string channelStatus="NOT_REQUESTED";
 double sizedLot=0,sizingRiskBudget=0,sizingMarginBudget=0,sizingMargin=0;
 double ddPeakEquity=0; // Caso 6: maior patrimonio ja observado desde o inicio do run
+WDState withdrawState; // Caso 7: pico de saldo realizado + total sacado ate agora
 long targetRejects=0,targetAdjustments=0,targetFailures=0,fixedVolumeRejects=0;
 double plannedTargetDistance=0,plannedTargetRiskRatio=0,plannedTargetProfit=0;
 double minimumLotRiskMoney=0,minimumLotRiskPercent=0,minimumEquityForLot=0,minimumLotMargin=0;
@@ -125,8 +129,8 @@ string EntryName(const int k)
  }
 string DCName(const int id)
  {
-  string names[6]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA","HERMES_DD_THROTTLE"};
-  return id>=1 && id<=6 ? names[id-1] : "INVALID";
+  string names[7]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA","HERMES_DD_THROTTLE","HERMES_SAQUE_LUCRO"};
+  return id>=1 && id<=7 ? names[id-1] : "INVALID";
  }
 string ProfileName(const int id) { return DCName(id); }
 string TFName(const int id) { return "M30"; }
@@ -237,6 +241,7 @@ void TrackEquity()
   if(!PEObserveEquity(months[liveMonth].path,eq,bal)) { Invalid(101,"Invalid monthly equity value."); return; }
   months[liveMonth].lastTick=now; priorEquity=eq; priorBalance=bal;
   if(MathIsValidNumber(eq) && eq>0) ddPeakEquity=MathMax(ddPeakEquity,eq); // Caso 6: pico p/ o freio de rebaixamento
+  if(InpCase==7) WDUpdate(bal,InpWithdrawFraction,withdrawState); // Caso 7: saque sobre novo recorde de saldo REALIZADO
  }
 bool ReadValue(const int h,const int buffer,const int shift,double &v)
  { double a[1]; if(shift<1 || CopyBuffer(h,buffer,shift,1,a)!=1 || a[0]==EMPTY_VALUE || !MathIsValidNumber(a[0])) return false; v=a[0]; return true; }
@@ -453,11 +458,16 @@ PE_GATE OpenCycle(const int origin,const int side,const H1Signal &s,const MqlTic
    minimumEquityForLot=MathMax((-referenceLoss)*100.0/dc.riskPercent,(used+referenceMargin)*100.0/InpMaxMarginPct);
    double effRiskPercent=dc.riskPercent;
    // Caso 6 apenas: o mesmo risco% do Caso 4, modulado pelo freio de
-   // rebaixamento (DDThrottleCore.mqh). Casos 4/5 nunca entram aqui - o
-   // multiplicador so existe quando InpCase==6, preservando os dois
+   // rebaixamento (DDThrottleCore.mqh). Casos 4/5/7 nunca entram aqui - o
+   // multiplicador so existe quando InpCase==6, preservando os demais
    // byte-a-byte no comportamento de sizing.
    if(InpCase==6) effRiskPercent*=DDThrottleMultiplier(eq,ddPeakEquity,InpDDBand1,InpDDMult1,InpDDBand2,InpDDMult2);
-   sizingRiskBudget=eq*effRiskPercent/100.0;
+   // Caso 7 apenas: risco% calculado sobre o capital de risco (patrimonio
+   // menos o total ja "sacado" - WithdrawalCore.mqh), nao sobre o patrimonio
+   // real. A margem abaixo continua usando eq/free/used REAIS - o saque muda
+   // só quanto se arrisca por trade, nunca a margem de fato disponivel.
+   double sizingEquityBase=(InpCase==7) ? WDTradingCapital(eq,withdrawState.bankedWithdrawn) : eq;
+   sizingRiskBudget=sizingEquityBase*effRiskPercent/100.0;
    sizingMarginBudget=MathMin(free,MathMax(0,eq*InpMaxMarginPct/100.0-used));
    if(InpCase>=4) {
     // Casos 4/5/6: sizing por risco SEM o teto de 2% do DCRiskLot (permite ate
@@ -666,6 +676,10 @@ int OnInit()
       InpDDBand1<0 || InpDDBand2<=InpDDBand1 || InpDDMult1<=0 || InpDDMult1>1.0 || InpDDMult2<=0 || InpDDMult2>InpDDMult1)
     return INIT_PARAMETERS_INCORRECT;
   }
+  if(InpCase==7) {
+   if(!MathIsValidNumber(InpWithdrawFraction) || InpWithdrawFraction<0.0 || InpWithdrawFraction>1.0)
+    return INIT_PARAMETERS_INCORRECT;
+  }
   if(InpCase==5) {
    if(!MathIsValidNumber(InpQHTargetR) || InpQHTargetR<=0 || InpQHTargetR>5 ||
       !MathIsValidNumber(InpQHVolFactor) || InpQHVolFactor<1.0 ||
@@ -697,6 +711,7 @@ int OnInit()
   trade.SetExpertMagicNumber(InpMagic); trade.SetDeviationInPoints(InpDeviationPoints); trade.SetAsyncMode(false); trade.SetTypeFillingBySymbol(_Symbol);
   ArrayInitialize(counters,0); priorEquity=AccountInfoDouble(ACCOUNT_EQUITY); priorBalance=AccountInfoDouble(ACCOUNT_BALANCE);
   ddPeakEquity=priorEquity;
+  withdrawState.realizedPeak=priorBalance; withdrawState.bankedWithdrawn=0;
   MqlRates warmup[]; int required=dc.weekly ? 55 : 209;
   int count=CopyRates(_Symbol,signalTF,0,required,warmup);
   if(count<required) Print("Aquecimento incompleto ",count,"/",required,". Verifique G_NO_DATA.");

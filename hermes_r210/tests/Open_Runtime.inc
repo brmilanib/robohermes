@@ -43,11 +43,16 @@ PE_GATE OpenCycle(const int origin,const int side,const H1Signal &s,const MqlTic
    minimumEquityForLot=MathMax((-referenceLoss)*100.0/dc.riskPercent,(used+referenceMargin)*100.0/InpMaxMarginPct);
    double effRiskPercent=dc.riskPercent;
    // Caso 6 apenas: o mesmo risco% do Caso 4, modulado pelo freio de
-   // rebaixamento (DDThrottleCore.mqh). Casos 4/5 nunca entram aqui - o
-   // multiplicador so existe quando InpCase==6, preservando os dois
+   // rebaixamento (DDThrottleCore.mqh). Casos 4/5/7 nunca entram aqui - o
+   // multiplicador so existe quando InpCase==6, preservando os demais
    // byte-a-byte no comportamento de sizing.
    if(InpCase==6) effRiskPercent*=DDThrottleMultiplier(eq,ddPeakEquity,InpDDBand1,InpDDMult1,InpDDBand2,InpDDMult2);
-   sizingRiskBudget=eq*effRiskPercent/100.0;
+   // Caso 7 apenas: risco% calculado sobre o capital de risco (patrimonio
+   // menos o total ja "sacado" - WithdrawalCore.mqh), nao sobre o patrimonio
+   // real. A margem abaixo continua usando eq/free/used REAIS - o saque muda
+   // só quanto se arrisca por trade, nunca a margem de fato disponivel.
+   double sizingEquityBase=(InpCase==7) ? WDTradingCapital(eq,withdrawState.bankedWithdrawn) : eq;
+   sizingRiskBudget=sizingEquityBase*effRiskPercent/100.0;
    sizingMarginBudget=MathMin(free,MathMax(0,eq*InpMaxMarginPct/100.0-used));
    if(InpCase>=4) {
     // Casos 4/5/6: sizing por risco SEM o teto de 2% do DCRiskLot (permite ate

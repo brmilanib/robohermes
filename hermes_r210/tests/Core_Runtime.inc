@@ -213,6 +213,58 @@ double DDThrottleMultiplier(const double equity, const double peakEquity,
 }
 #endif
 
+#ifndef HERMES_WITHDRAWAL_CORE_210
+#define HERMES_WITHDRAWAL_CORE_210
+// Caso 7 - saque de lucro (trava de ganho).
+//
+// Motivacao: no Caso 4 a 5%, o pico de patrimonio chegou a ser ~136x o
+// deposito inicial antes de um unico tombo devolver ~54% dele. Tecnicamente
+// a maior parte do dinheiro em risco naquele momento era LUCRO do proprio
+// robo, nao capital original - mas o motor de risco% nao faz essa distincao:
+// ele sempre arrisca a mesma fracao do patrimonio ATUAL, para sempre, entao
+// o mesmo tombo proporcional se repete a cada novo pico, com o lucro que se
+// acumulou virando a nova base arriscada.
+//
+// Mecanismo: a cada novo recorde de SALDO REALIZADO (fechamento de trade,
+// nao patrimonio flutuante - saque so faz sentido sobre lucro ja
+// concretizado), uma fracao do incremento (InpWithdrawFraction, padrao 50%)
+// e contabilizada como "sacada" - deixa de contar para o calculo de risco%,
+// mesmo sem remover dinheiro de verdade da conta do Testador (isso seria uma
+// operacao de saque real, fora do escopo testavel aqui). A margem continua
+// calculada sobre o patrimonio REAL da conta - o saque so afeta o quanto e
+// arriscado por trade, nunca a margem disponivel de verdade.
+//
+// Duas funcoes puras, independentes:
+//   WDUpdate      - atualiza o estado (pico realizado, total sacado) a cada
+//                   saldo observado. So age em NOVO recorde; nunca desfaz um
+//                   saque ja contabilizado se o saldo cair depois.
+//   WDTradingCapital - devolve o capital efetivo para sizing (patrimonio
+//                   menos o total sacado, nunca negativo).
+struct WDState
+{
+   double realizedPeak;
+   double bankedWithdrawn;
+};
+
+void WDUpdate(const double balance, const double withdrawFraction, WDState &st)
+{
+   if (!MathIsValidNumber(balance) || !MathIsValidNumber(withdrawFraction) ||
+       withdrawFraction < 0.0 || withdrawFraction > 1.0 || !MathIsValidNumber(st.realizedPeak) ||
+       balance <= st.realizedPeak)
+      return;
+   double delta = balance - st.realizedPeak;
+   st.bankedWithdrawn += delta * withdrawFraction;
+   st.realizedPeak = balance;
+}
+
+double WDTradingCapital(const double equity, const double bankedWithdrawn)
+{
+   if (!MathIsValidNumber(equity) || !MathIsValidNumber(bankedWithdrawn))
+      return 0.0;
+   return MathMax(0.0, equity - bankedWithdrawn);
+}
+#endif
+
 #ifndef XAU_PROTECT_CORE_150
 #define XAU_PROTECT_CORE_150
 // Platform-independent decisions, shared unchanged with the local C++ tests.
@@ -900,13 +952,13 @@ struct HPDecision
 };
 bool HPSelectProfile(const int id,DCProfile &d,EVOProfile &e,PEProfile &p)
 {
- if(id<1 || id>6 || !DCSelectProfile(2,d,e,p)) return false;
+ if(id<1 || id>7 || !DCSelectProfile(2,d,e,p)) return false;
  d.id=id; d.matchedControl=2; e.matchedControl=2;
- // Casos 4 (Referencia + risco), 5 (Colheita Rapida) e 6 (freio por
- // rebaixamento sobre o Caso 4): MESMO motor de execucao, porem sizing por %
- // do patrimonio em vez de lote fixo. O EA sobrescreve d.riskPercent com
- // InpRiskPercent logo apos esta selecao.
- const bool riskSized=(id==4 || id==5 || id==6);
+ // Casos 4 (Referencia + risco), 5 (Colheita Rapida), 6 (freio por
+ // rebaixamento) e 7 (saque de lucro), todos sobre o Caso 4: MESMO motor de
+ // execucao, porem sizing por % do patrimonio em vez de lote fixo. O EA
+ // sobrescreve d.riskPercent com InpRiskPercent logo apos esta selecao.
+ const bool riskSized=(id==4 || id==5 || id==6 || id==7);
  if(riskSized) { d.fixedLot=false; if(!(d.riskPercent>0.0 && d.riskPercent<=2.0)) d.riskPercent=1.0; }
  // A referencia herdada e volume (exato ou por risco), 5R, so compra, uma perna.
  return (riskSized ? !d.fixedLot : d.fixedLot) && !d.weekly && d.targetMode==0 && d.channelMode==0
@@ -917,8 +969,8 @@ int HPExtraGate(const int id,const H1Signal &s,const EVOFeatures &f,
                 const double ask,const double old200,const double minimumDistance,
                 const bool pivotDataReady,const HPSignal &pivot)
 {
- if(id<1 || id>6) return HP_INVALID_CASE;
- if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5 e 6 nao usam a rota de pivo
+ if(id<1 || id>7) return HP_INVALID_CASE;
+ if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5, 6 e 7 nao usam a rota de pivo
  if(!pivotDataReady) return HP_DATA_PENDING;
  if(!pivot.buy) return HP_NO_CANDIDATE;
  if(!(s.ema>s.sma50 && s.sma50>s.oldSma50)) return HP_TREND50;
@@ -939,7 +991,7 @@ void HPRouteEntry(const int id,const EVOProfile &e,const H1Signal &s,const EVOFe
  out.original_gate=EVOEvaluate(e,s,f,ask,old200,minimumDistance,false,out.side);
  out.extra_gate=HPExtraGate(id,s,f,ask,old200,minimumDistance,pivotDataReady,pivot);
  out.setup=out.original_gate;
- if(id<1 || id>6) { out.setup=HP_INVALID_CASE; out.side=0; return; }
+ if(id<1 || id>7) { out.setup=HP_INVALID_CASE; out.side=0; return; }
  if(out.original_gate==0) { out.path=HP_BASE; return; }
  if(out.extra_gate==0) { out.setup=0; out.side=1; out.path=HP_PIVOT; }
 }

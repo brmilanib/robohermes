@@ -5,7 +5,7 @@
 ; Caso 6: Caso 4 + freio de risco por rebaixamento (InpDDBand1/2, InpDDMult1/2).
 ; Caso 7: Caso 4 + saque de lucro (InpWithdrawFraction do novo recorde de saldo).
 ; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.
-InpCase=2||2||1||2||N
+InpCase=1||1||1||7||Y
 InpMaxMarginPct=20.0||20.0||0.01||20.0||N
 InpMaxLot=1.0||1.0||0.01||1.0||N
 InpFixedLot=1.0||1.0||0.01||1.0||N

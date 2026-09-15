@@ -8,6 +8,7 @@ double pivotSwing=0,oldSMA200=3900,plannedTargetDistance=0,plannedTargetRiskRati
 double sizedLot=0,sizingRiskBudget=0,sizingMarginBudget=0,sizingMargin=0,minimumLotRiskMoney=0,minimumLotMargin=0,minimumLotRiskPercent=0,minimumEquityForLot=0;
 double InpFixedLot=1,InpMaxMarginPct=20,InpMaxLot=1,maxLots=0,InpQHTargetR=1;
 double InpDDBand1=15.0,InpDDMult1=0.50,InpDDBand2=25.0,InpDDMult2=0.25,ddPeakEquity=0;
+double InpWithdrawFraction=0.50; WDState withdrawState{0,0};
 long targetRejects=0,fixedVolumeRejects=0;datetime lastPivotUsed=0,pivotTime=0;int liveMonth=0;
 HPDecision hpRoute{}; HPSignal hpSignal{}; long hpPivotFills=0;
 void ObserveOpenPath(){}
@@ -69,6 +70,24 @@ int main(){
  // efetivo 2%, EXATAMENTE igual ao teste do Caso 4 a 2% acima - prova que o
  // freio de fato reduz o risco dentro do OpenCycle real, nao so na funcao pura.
  s=prepare(1);InpCase=6;dc.riskPercent=4.0;ddPeakEquity=12000;
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(cycles[0].volume,.14)&&near(risk,198.8));
+ // R210: Caso 7 (Caso 4 + saque de lucro, WithdrawalCore.mqh).
+ // Caso 4 e Caso 6 precisam ficar IMUNES a withdrawState - so o Caso 7 le.
+ s=prepare(1);InpCase=4;dc.riskPercent=2.0;withdrawState.bankedWithdrawn=999999; // nao deve importar
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(cycles[0].volume,.14)&&near(risk,198.8));
+ // Caso 7: risco nominal 4% sobre capital de risco reduzido (equity mockada
+ // 10000 menos 5000 ja "sacados" = 5000) -> orcamento de risco 200,
+ // EXATAMENTE igual ao teste do Caso 4 a 2% (sobre 10000 cheios) acima -
+ // prova que o saque de fato reduz a base do sizing dentro do OpenCycle real.
+ s=prepare(1);InpCase=7;dc.riskPercent=4.0;withdrawState.bankedWithdrawn=5000;
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(cycles[0].volume,.14)&&near(risk,198.8));
+ // Sem nada sacado (bankedWithdrawn=0), Caso 7 a 2% deve bater com o Caso 4 a
+ // 2% sem saque - confirma que o mecanismo degenera de forma limpa quando
+ // ainda nao houve nenhum novo recorde de saldo.
+ s=prepare(1);InpCase=7;dc.riskPercent=2.0;withdrawState.bankedWithdrawn=0;
  assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
  assert(integrity&&near(cycles[0].volume,.14)&&near(risk,198.8));
  s=prepare(3);mockFillOffset=-.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
