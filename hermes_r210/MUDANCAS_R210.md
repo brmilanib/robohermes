@@ -22,9 +22,10 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
   (`ManageProtection`/`MoveStops`/`PEArm`) **não é código novo** — é o mesmo motor do R200,
   já testado, só nunca configurado com `be15>0` em nenhum Caso até agora.
 - **NÃO validado aqui:** rentabilidade. Não há MetaTrader neste ambiente — **nenhum backtest
-  nativo foi executado por mim**. Os Casos 4, 5, 6, 7 e 8 são **hipóteses a testar**, não
-  melhorias comprovadas — os Casos 4, 6 e 7 já têm resultados reais do proprietário (§3), os
-  outros ainda não.
+  nativo foi executado por mim**. Os Casos 4, 5, 6, 7 e 8 são **hipóteses testadas ou a testar**,
+  não melhorias comprovadas por padrão — os Casos 4, 6 e 7 têm resultados reais do proprietário
+  (§3) que se sustentam; o Caso 8 também tem resultado real, mas foi **rejeitado** pelos
+  critérios pré-registrados (§3.4). O Caso 5 ainda não tem backtest nativo.
 - **Um passo que depende do ChatGPT:** o EA completo precisa ser **compilado no MetaEditor**.
   A cola de integração no EA (ex.: `ReadQuickHarvest`, o ramo do `OnTick`) segue os padrões do
   próprio projeto, mas não pôde ser compilada aqui. Se aparecer algum erro de compilação,
@@ -45,7 +46,7 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 | 5 | **HERMES_COLHEITA_RAPIDA** | **surto de volume/range** | risco % do patrimônio | **curto (InpQHTargetR)** | **novo — a testar** |
 | 6 | **HERMES_DD_THROTTLE** | **igual ao Caso 1/4** | risco % **com freio por rebaixamento** | 5R | **novo — testado pelo proprietário (§3.2)** |
 | 7 | **HERMES_SAQUE_LUCRO** | **igual ao Caso 1/4** | risco % **sobre capital com saque de lucro** | 5R | **novo — testado pelo proprietário (§3.3)** |
-| 8 | **HERMES_BREAKEVEN_3R** | **igual ao Caso 1/4** | risco % do patrimônio | **3R + stop no breakeven em 1R** | **novo — a testar (§3.4)** |
+| 8 | **HERMES_BREAKEVEN_3R** | **igual ao Caso 1/4** | risco % do patrimônio | **3R + stop no breakeven em 1R** | **testado — REJEITADO (§3.4)** |
 
 Selecione o caso pelo input `InpCase` (1..8) ou pelos presets em `presets/`.
 
@@ -303,6 +304,76 @@ realmente evitar meses ruins).
 **Se quiser isolar as duas mudanças** (saber quanto vem do breakeven sozinho vs do alvo menor
 sozinho): rode de novo com `InpBETargetR=5.0` (mantém alvo original, só o breakeven ativo) —
 compara contra este resultado e contra o Caso 4 puro, uma variável de cada vez.
+
+**Resultado real — tentativa 1, breakeven 1R + alvo 3R (`CASO_08_HERMES_BREAKEVEN_3R.set`,
+US$ 10.000):**
+
+| Métrica | Caso 4 @ 5% (sem BE, alvo 5R) | Caso 8, BE 1R + alvo 3R |
+| --- | --- | --- |
+| Lucro líquido | 1.126.465 | 121.313 |
+| Fator de Lucro | 1,46 | 1,46 |
+| Trades | 261 | 340 |
+| Taxa de acerto | 26,05% | **22,35%** |
+| `equity_dd_relative_percent` | 56,68% | 44,97% |
+| `negative_booked_months` | 20/57 | **23/57** |
+| Perdas seguidas (máx.) | 13 | 12 |
+
+**Hipótese REJEITADA pelos dois critérios pré-registrados.** A taxa de acerto **caiu** (não
+subiu) e `negative_booked_months` **piorou** (23 > 20). O DD relativo até melhorou de verdade
+(56,68%→44,97%), mas custou **89% do lucro** — muito mais caro que o Caso 6 ou o Caso 7 pagaram
+por uma redução de DD parecida.
+
+**A comparação não é tão "isolada" quanto parecia.** O sistema abre só uma posição por vez
+(trava `active<0` em `ManageProtection`). Ciclos mais curtos (alvo 3R + saídas antecipadas no
+breakeven) liberam essa trava mais cedo, deixando o EA aceitar sinais que no Caso 4 ficariam
+bloqueados por `G_POSITION` (posição já ativa) — por isso os trades subiram de 261 para 340. Não
+é o mesmo grupo de 261 trades com proteção extra; é uma **população diferente**, com quase 80
+ciclos adicionais que só existem porque o giro ficou mais rápido. Mudar a gestão de saída também
+muda quais entradas são aceitas depois — um efeito colateral que os Casos 6/7 (só mudam tamanho,
+não duração) não tinham.
+
+**O "0x0" quase não aconteceu.** O gatilho armou em 185/340 ciclos (54%) e confirmou o stop em
+184 — o mecanismo funcionou certinho — mas dos 108 ciclos que depois voltaram e bateram o stop
+no breakeven, só **5** fecharam em zero exato; o resto fechou como perda pequena (spread/swap
+corroem a saída "no preço de entrada" o suficiente pra não zerar). E mais da metade dos
+perdedores (151/259) nunca chegou perto do gatilho de 1R (MFE médio dos perdedores = 0,90R) —
+nenhum ajuste de breakeven com gatilho ≥1R protegeria essa maioria.
+
+**Resultado real — tentativa 2 (isolamento), breakeven 1R + alvo ORIGINAL 5R
+(`InpBETargetR=5.0`, mesmo preset, US$ 10.000):**
+
+| Métrica | Caso 4 @ 5% (sem BE) | Caso 8, BE 1R + alvo 3R | Caso 8, BE 1R + alvo 5R (isolado) |
+| --- | --- | --- | --- |
+| Lucro líquido | 1.126.465 | 121.313 | 295.147 |
+| Fator de Lucro | 1,46 | 1,46 | 1,60 |
+| Trades | 261 | 340 | 297 |
+| Taxa de acerto | 26,05% | 22,35% | **15,82%** |
+| `equity_dd_relative_percent` | 56,68% | 44,97% | **63,91%** |
+| `negative_booked_months` | 20/57 | 23/57 | **28/57** |
+| Perdas seguidas (máx.) | 13 | 12 | **24** |
+
+**O isolamento piora ainda mais — o breakeven sozinho é o pior dos três, não um meio-termo.**
+Tirando o alvo curto da equação (voltando a 5R), a taxa de acerto cai ainda mais (15,82%, a mais
+baixa de toda a família de casos), o DD relativo **passa a ser pior que o próprio Caso 4 sem
+proteção nenhuma** (63,91% > 56,68%), a sequência de perdas quase dobra (24 contra 13) e
+`negative_booked_months` vai a 28/57 — o pior número já medido neste projeto. Isso mostra que
+**mover o stop para breakeven, isolado, não é neutro aqui — é prejudicial**: com um alvo distante
+(5R), o preço tem mais tempo/espaço para passar de 1R e depois cair de volta, transformando
+trades que teriam sido ganhadores em saídas no breakeven — e o corte de alguns perdedores
+completos não compensa a perda de ganhadores nem a ampliação da sequência de perdas e do DD.
+
+**Conclusão do Caso 8: as duas variantes testadas (BE+3R e BE isolado) estão REJEITADAS.** Nem
+juntar breakeven com alvo curto, nem usar o breakeven sozinho, cumpriu qualquer um dos dois
+critérios pré-registrados. Combinado com os Casos 4/6/7 (nenhum mecanismo de **sizing** move
+`negative_booked_months`) e agora os dois mecanismos de **gestão do trade** testados aqui (ambos
+pioram esse número), a conclusão empírica até aqui é que os 20/57 meses negativos parecem ser
+uma característica estrutural das **entradas** do sistema (baixa frequência, ~4,6 trades/mês,
+26% de acerto nativo) — não algo resolvível só ajustando tamanho de posição ou proteção de stop.
+Próximo passo é decisão do proprietário: aceitar os 20 meses negativos como característica do
+sistema, arriscar mudar a própria lógica de entrada (descongelando o comparador, o que exige
+disciplina extra), ou finalmente rodar nativamente o Caso 5 (Colheita Rápida) — ainda nunca
+testado no MT5, apesar de ser a única ideia desta rodada que muda a **entrada**, não a saída ou
+o tamanho.
 
 ---
 
