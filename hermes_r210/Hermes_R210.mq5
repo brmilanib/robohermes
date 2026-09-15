@@ -1064,7 +1064,7 @@ string EntryName(const int k)
 string DCName(const int id)
  {
   string names[6]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA","HERMES_DD_THROTTLE"};
-  return id>=1 && id<=5 ? names[id-1] : "INVALID";
+  return id>=1 && id<=6 ? names[id-1] : "INVALID";
  }
 string ProfileName(const int id) { return DCName(id); }
 string TFName(const int id) { return "M30"; }
