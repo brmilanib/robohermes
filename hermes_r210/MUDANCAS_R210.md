@@ -22,10 +22,9 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
   (`ManageProtection`/`MoveStops`/`PEArm`) **não é código novo** — é o mesmo motor do R200,
   já testado, só nunca configurado com `be15>0` em nenhum Caso até agora.
 - **NÃO validado aqui:** rentabilidade. Não há MetaTrader neste ambiente — **nenhum backtest
-  nativo foi executado por mim**. Os Casos 4, 5, 6, 7 e 8 são **hipóteses testadas ou a testar**,
-  não melhorias comprovadas por padrão — os Casos 4, 6 e 7 têm resultados reais do proprietário
-  (§3) que se sustentam; o Caso 8 também tem resultado real, mas foi **rejeitado** pelos
-  critérios pré-registrados (§3.4). O Caso 5 ainda não tem backtest nativo.
+  nativo foi executado por mim**. Os Casos 4, 5, 6, 7 e 8 já rodaram no MT5 do proprietário — os
+  Casos 4, 6 e 7 têm resultados reais que se sustentam (§3); os Casos 5 e 8 também têm resultado
+  real, mas foram **rejeitados** pelos critérios pré-registrados (§3.4, §4).
 - **Um passo que depende do ChatGPT:** o EA completo precisa ser **compilado no MetaEditor**.
   A cola de integração no EA (ex.: `ReadQuickHarvest`, o ramo do `OnTick`) segue os padrões do
   próprio projeto, mas não pôde ser compilada aqui. Se aparecer algum erro de compilação,
@@ -43,7 +42,7 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 | 2 | HERMES_PIVO_CONTINUIDADE | original + pivô (com SMA200) | lote fixo 1,00 | 5R | congelado R200 |
 | 3 | HERMES_PIVO_INICIO | original + pivô (sem SMA200) | lote fixo 1,00 | 5R | congelado R200 |
 | 4 | **HERMES_RISCO_REF** | **igual ao Caso 1** | **risco % do patrimônio** | 5R | **novo — testado pelo proprietário** |
-| 5 | **HERMES_COLHEITA_RAPIDA** | **surto de volume/range** | risco % do patrimônio | **curto (InpQHTargetR)** | **novo — a testar** |
+| 5 | **HERMES_COLHEITA_RAPIDA** | **surto de volume/range** | risco % do patrimônio | **curto (InpQHTargetR)** | **testado — REJEITADO (§4)** |
 | 6 | **HERMES_DD_THROTTLE** | **igual ao Caso 1/4** | risco % **com freio por rebaixamento** | 5R | **novo — testado pelo proprietário (§3.2)** |
 | 7 | **HERMES_SAQUE_LUCRO** | **igual ao Caso 1/4** | risco % **sobre capital com saque de lucro** | 5R | **novo — testado pelo proprietário (§3.3)** |
 | 8 | **HERMES_BREAKEVEN_3R** | **igual ao Caso 1/4** | risco % do patrimônio | **3R + stop no breakeven em 1R** | **testado — REJEITADO (§3.4)** |
@@ -370,10 +369,10 @@ pioram esse número), a conclusão empírica até aqui é que os 20/57 meses neg
 uma característica estrutural das **entradas** do sistema (baixa frequência, ~4,6 trades/mês,
 26% de acerto nativo) — não algo resolvível só ajustando tamanho de posição ou proteção de stop.
 Próximo passo é decisão do proprietário: aceitar os 20 meses negativos como característica do
-sistema, arriscar mudar a própria lógica de entrada (descongelando o comparador, o que exige
-disciplina extra), ou finalmente rodar nativamente o Caso 5 (Colheita Rápida) — ainda nunca
-testado no MT5, apesar de ser a única ideia desta rodada que muda a **entrada**, não a saída ou
-o tamanho.
+sistema, ou arriscar mudar a própria lógica de entrada (descongelando o comparador, o que exige
+disciplina extra) — o Caso 5 (Colheita Rápida), a única ideia desta rodada que mudava a
+**entrada** em vez da saída ou do tamanho, também rodou nativamente e também foi **rejeitado**
+(§4): piorou ainda mais esse número (32/57).
 
 ---
 
@@ -412,6 +411,38 @@ curto = `InpQHTargetR` × risco (padrão **1R**). Sizing por risco (`InpRiskPerc
 dependência de tendência longa. **Rejeite** se, **com custos realistas**, a expectância por
 trade for ≤ 0 ou o fator de lucro < 1,2.
 
+**Resultado real (backtest do proprietário, mesmo preset, US$ 10.000, XAUUSD M30):**
+
+| Métrica | Previsto | Real |
+| --- | --- | --- |
+| Taxa de acerto | maior que 26,05% | **50,80%** — confirmado |
+| Tempo em posição | menor | **6,76h em média** — confirmado (dezenas/centenas de horas no resto da família) |
+| Fator de Lucro (custos reais) | ≥ 1,2 para aceitar | **0,98** |
+| Lucro líquido | — | **-357,58** (prejuízo) |
+| `average_net_R_initial` | — | **0,00051** (expectância ≈ zero) |
+| `negative_booked_months` | — | **32/57** — pior de toda a família testada |
+
+**Hipótese REJEITADA, pelo próprio critério definido antes de rodar** (Fator de Lucro 0,98 <
+1,2). Duas partes da previsão até se confirmaram — acerto bem maior, tempo em posição bem menor
+— mas isso não bastou: **taxa de acerto não é a mesma coisa que sistema lucrativo**. O alvo
+original de 5R só precisa de ~17% de acerto para empatar (1/(1+5)); o alvo curto de 1R precisa
+de **50%** (1/(1+1)) só para ficar no zero a zero — e o filtro de surto de volume entregou
+exatamente 50,80%, em cima da linha de empate, que os custos reais (sobretudo swap: -488 no
+total) empurraram para o lado negativo.
+
+**O lado bom, real:** o pior mês individual nunca passou de 6,41% de DD
+(`maximum_monthly_DD_percent`) — de longe o mais baixo de qualquer caso testado (Caso 4 a 1% já
+tinha 16,63%) — e a sequência de perdas máxima caiu para 8 (era 13–24 no resto da família). O
+problema não é risco de ruína — é que **56% dos meses (32/57) fecham no vermelho**, ainda que
+cada um seja pequeno: perdas pequenas e frequentes demais para as vitórias pequenas compensarem,
+empatando (e com custo, perdendo) no agregado.
+
+**Nota sobre o `summary.csv`:** os campos `nominal_target_R` e `target_value` aparecem como "5"
+mesmo aqui, apesar do alvo real configurado ser 1R — ver aviso 4 em §5. Não afeta nenhum outro
+número deste resultado; o alvo realmente usado é confirmado por `mean_winner_MFE_R` = 1,01
+(bem próximo de 1R, como configurado) e pelas checagens internas de reconciliação do próprio EA,
+que vieram todas em zero.
+
 ---
 
 ## 5. AVISOS CRÍTICOS (leia antes de acreditar em qualquer resultado do Caso 5)
@@ -426,6 +457,19 @@ trade for ≤ 0 ou o fator de lucro < 1,2.
 3. **"Ganhar todos os dias" não existe.** O objetivo alcançável é *mais consistência e menos
    dependência do ouro subir* — não zero perdas. Perdas e dias/meses negativos continuarão
    ocorrendo; a meta é que sejam **pequenos e controlados** (é o que o sizing por risco faz).
+4. **Os campos `nominal_target_R` e `target_value` do `summary.csv` sempre mostram "5"**, mesmo
+   nos Casos 5 (alvo real 1R) e 8 (alvo real 3R). É herança do R200: essas duas linhas, dentro do
+   `Reports.mqh` **congelado**, calculam o alvo nominal a partir de `dc.targetMode` — um campo que
+   nunca varia (fica sempre 0) em nenhum Caso do R210 — em vez de olhar `InpQHTargetR`/
+   `InpBETargetR`. No R200 isso nunca foi um problema porque o alvo era sempre 5R mesmo. **Não
+   afeta nenhum outro número do relatório** — lucro, DD, taxa de acerto, trades e
+   `negative_booked_months` são todos calculados de outro jeito e conferidos automaticamente
+   pelo próprio EA (os campos `*_reconcile_*` vêm em zero quando bate). Para confirmar o alvo
+   realmente usado num backtest, olhe `mean_winner_MFE_R` — esse sim reflete o R real dos
+   ganhadores (deu 1,01 no Caso 5, 3,02 no Caso 8). Corrigir essas duas linhas é simples e não
+   mudaria nenhuma decisão de trade — mas exigiria tocar o único arquivo que provei, com um teste
+   automatizado, permanecer byte-idêntico ao R200 durante todo o projeto. Prefiro perguntar antes
+   de quebrar essa garantia; me avise se quiser que eu corrija.
 
 ---
 
