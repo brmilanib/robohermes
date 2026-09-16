@@ -16,15 +16,18 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 
 - **Validado aqui (g++):** toda a lógica de decisão portável — roteamento dos casos, o
   `QHGate` do Caso 5, o `DDThrottleMultiplier` do Caso 6, o `WDUpdate`/`WDTradingCapital` do
-  Caso 7, a propagação de `profile.be15`/alvo do Caso 8 e o corpo de produção do `OpenCycle` —
-  compila e passa em 11/11 testes unitários (`python3 verificar.py`). Os **cores auditados do
-  R200 continuam byte-idênticos** (a verificação prova isso). O motor de breakeven do Caso 8
-  (`ManageProtection`/`MoveStops`/`PEArm`) **não é código novo** — é o mesmo motor do R200,
-  já testado, só nunca configurado com `be15>0` em nenhum Caso até agora.
+  Caso 7, a propagação de `profile.be15`/alvo do Caso 8, o `EMACrossGate` do Caso 9 e o corpo de
+  produção do `OpenCycle` — compila e passa em 12/12 testes unitários (`python3 verificar.py`).
+  Os **cores auditados do R200 continuam byte-idênticos** (a verificação prova isso). O motor de
+  breakeven do Caso 8 (`ManageProtection`/`MoveStops`/`PEArm`) **não é código novo** — é o mesmo
+  motor do R200, já testado, só nunca configurado com `be15>0` em nenhum Caso até agora. O Caso 9
+  é o primeiro desde o Caso 5 (Colheita Rápida) a introduzir uma condição de entrada
+  **genuinamente nova** (`EMACrossCore.mqh`), em vez de só configurar um motor existente.
 - **NÃO validado aqui:** rentabilidade. Não há MetaTrader neste ambiente — **nenhum backtest
   nativo foi executado por mim**. Os Casos 4, 5, 6, 7 e 8 já rodaram no MT5 do proprietário — os
   Casos 4, 6 e 7 têm resultados reais que se sustentam (§3); os Casos 5 e 8 também têm resultado
-  real, mas foram **rejeitados** pelos critérios pré-registrados (§3.4, §4).
+  real, mas foram **rejeitados** pelos critérios pré-registrados (§3.4, §4). O Caso 9 ainda não
+  tem backtest nativo.
 - **Um passo que depende do ChatGPT:** o EA completo precisa ser **compilado no MetaEditor**.
   A cola de integração no EA (ex.: `ReadQuickHarvest`, o ramo do `OnTick`) segue os padrões do
   próprio projeto, mas não pôde ser compilada aqui. Se aparecer algum erro de compilação,
@@ -34,7 +37,7 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 
 ---
 
-## 2. Os oito casos
+## 2. Os nove casos
 
 | Caso | Nome | Entrada | Sizing | Alvo | Situação |
 | --- | --- | --- | --- | --- | --- |
@@ -46,6 +49,7 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 | 6 | **HERMES_DD_THROTTLE** | **igual ao Caso 1/4** | risco % **com freio por rebaixamento** | 5R | **novo — testado pelo proprietário (§3.2)** |
 | 7 | **HERMES_SAQUE_LUCRO** | **igual ao Caso 1/4** | risco % **sobre capital com saque de lucro** | 5R | **novo — testado pelo proprietário (§3.3)** |
 | 8 | **HERMES_BREAKEVEN_3R** | **igual ao Caso 1/4** | risco % do patrimônio | **3R + stop no breakeven em 1R** | **testado — REJEITADO (§3.4)** |
+| 9 | **HERMES_CRUZAMENTO_EMA** | **igual ao Caso 1/4 + filtro EMA5/21** | risco % do patrimônio | 5R | **novo — a testar (§3.5)** |
 
 Selecione o caso pelo input `InpCase` (1..8) ou pelos presets em `presets/`.
 
@@ -243,7 +247,7 @@ rebaixamento, tentando evitar que ele fique tão fundo. O saque (Caso 7) não ev
 rebaixamento — ele **tira dinheiro da mesa antes**, então mesmo um tombo de 56% sobre o capital
 que restou em risco representa uma fatia menor da riqueza total do proprietário (parte já está
 sacada, fora do alcance daquele tombo). São mecanismos complementares, não concorrentes — dá
-pra imaginar um Caso 9 futuro combinando os dois, mas só depois de entender cada um isolado.
+pra imaginar um Caso futuro combinando os dois, mas só depois de entender cada um isolado.
 
 **Resultado real (US$ 10.000, mesmo risco-base de 5% do Caso 4 puro):** lucro 186.878 (quase
 idêntico à tentativa 1 do Caso 6 — coincidência de caminho, não sinal de nada). O
@@ -370,9 +374,72 @@ uma característica estrutural das **entradas** do sistema (baixa frequência, ~
 26% de acerto nativo) — não algo resolvível só ajustando tamanho de posição ou proteção de stop.
 Próximo passo é decisão do proprietário: aceitar os 20 meses negativos como característica do
 sistema, ou arriscar mudar a própria lógica de entrada (descongelando o comparador, o que exige
-disciplina extra) — o Caso 5 (Colheita Rápida), a única ideia desta rodada que mudava a
+disciplina extra) — o Caso 5 (Colheita Rápida), a primeira ideia desta rodada que mudava a
 **entrada** em vez da saída ou do tamanho, também rodou nativamente e também foi **rejeitado**
-(§4): piorou ainda mais esse número (32/57).
+(§4): piorou ainda mais esse número (32/57). O Caso 9 (§3.5), pedido em seguida, tenta a mesma
+frente por outro ângulo — filtrar as entradas do Caso 1/4 em vez de substituí-las — mas ainda não
+tem backtest nativo.
+
+### 3.5 Caso 9 — Caso 4 + filtro de cruzamento EMA5/21
+
+**Por quê.** Pedido do proprietário, depois de ver que os 20 meses negativos resistiram a 3
+mecanismos de sizing e 2 de gestão de trade: tentar melhorar a **qualidade da entrada** em si,
+exigindo uma confirmação extra de momentum de curto prazo — um cruzamento recente da EMA5 acima
+(compra) ou abaixo (venda) da EMA21 — além de tudo que a entrada original do Caso 1/4 já exige.
+
+**Diferente dos Casos 6/7/8, isto é lógica genuinamente nova**, não um motor dormente do R200
+sendo configurado. `EMACrossCore.mqh` é uma função pura nova (`EMACrossGate`), testada
+isoladamente (`tests/test_ema_cross.cpp`) — a mesma disciplina do Caso 5 (`QuickHarvestCore.mqh`).
+
+**Mecanismo.** Na barra de sinal fechada, com o lado (compra/venda) já decidido pela entrada
+original: a EMA5 precisa estar do lado certo da EMA21 **agora** (>21 na compra, <21 na venda) **e**
+ter estado do lado oposto em alguma das `InpEMACrossLookback` barras fechadas anteriores (padrão
+3) — ou seja, o cruzamento aconteceu de fato dentro da janela, não é só um alinhamento antigo e
+estático (o que não seria um "cruzamento"). Só **filtra** o lado que a entrada original já
+escolheu — nunca decide o lado sozinho, nunca abre posição sem a entrada original também ter
+disparado.
+
+**Mudanças (arquivos/linhas):**
+- `src/EMACrossCore.mqh` (**novo**): `EMACrossGate(side, ema5[], ema21[], n, sideOut)`, pura,
+  testada em `tests/test_ema_cross.cpp` (compra, venda, alinhamento antigo sem cruzar, desalinhado
+  agora, borda da janela, toque exato, lado/janela/dados inválidos).
+- `src/EA.mq5`: novo input `InpEMACrossLookback` (padrão 3); novo handle `hEMA5` (EMA de 5
+  períodos, só criado quando `InpCase==9`); `ReadEMACross` lê EMA5/EMA21 das últimas
+  `lookback+1` barras fechadas; no `OnTick`, logo após a entrada original decidir `side`/`setup`,
+  se `InpCase==9` e a entrada original já teria disparado (`setup==0`), o resultado do
+  `EMACrossGate` pode **vetar** esse sinal (nunca inverter o lado nem criar um novo).
+- `src/PivotEntryCore.mqh`: roteamento aceita `id` até 9, mesma entrada/rota do Caso 1/4
+  (`HP_DISABLED`, sem pivô) — o filtro EMA não faz parte do roteamento, é uma camada extra no
+  `OnTick`, fora do escopo do `HPRouteEntry`.
+- Corrigido de passagem (não é um bug do Caso 9, mas apareceu ao mexer nestas linhas): o
+  `target_value`/`target_R` exportados em `parameters.txt` e as colunas equivalentes em
+  `bars.csv` estavam hardcoded em "5" mesmo para o Caso 8 (alvo real 3R) — `EA.mq5` não é
+  arquivo congelado, então corrigi para refletir o alvo nominal real de cada Caso. **Não** mexi
+  no mesmo problema em `summary.csv` (`nominal_target_R`/`target_value` via `Reports.mqh`, que
+  É congelado) — ver §5, item 4, ainda pendente de resposta do proprietário.
+
+**Só filtra — nenhuma entrada nova é criada, nenhuma saída é alterada.** `HPSelectProfile`/
+`HPRouteEntry` tratam o Caso 9 exatamente como o Caso 4 (mesma rota, `HP_DISABLED`, sem pivô);
+dentro do `OpenCycle`, o Caso 9 é **idêntico** ao Caso 4 em tudo (sizing, alvo 5R, sem breakeven)
+— testado explicitamente em `tests/test_entry.cpp`. O filtro só decide, no `OnTick`, **se** aquele
+sinal chega a `OpenCycle` — nunca o que acontece depois que chega.
+
+**Preset:** `presets/CASO_09_HERMES_CRUZAMENTO_EMA.set` — `InpCase=9`, resto nos padrões
+compartilhados (`InpRiskPercent=1.0`, igual ao `CASO_04_HERMES_RISCO_REF.set`) — comparação
+direta contra o Caso 4 no seu preset mais simples, risco-base baixo, focada em **qualidade da
+entrada**, não em composição/risco.
+
+**Previsão falsificável.** Menos trades que o Caso 4 (o filtro só remove sinais, nunca adiciona).
+Se o filtro realmente separa sinais melhores dos piores, a taxa de acerto e/ou o
+`average_net_R_initial` devem subir, e — o teste que importa — `negative_booked_months` deve cair
+de forma material frente aos 19-20/57 do resto da família. **Rejeite** se `negative_booked_months`
+não melhorar, ou se o número de trades cair tanto (por ex. abaixo de ~80-100 em 57 meses) que a
+amostra fique pequena demais para qualquer conclusão.
+
+**A janela de 3 barras é a primeira hipótese, não um resultado provado.** Se o primeiro teste não
+convencer (poucos trades, ou sem melhora em `negative_booked_months`), ajustar
+`InpEMACrossLookback` é experimento novo — uma variável de cada vez, contra o mesmo comparador
+(Caso 4), nunca uma varredura cega de janelas.
 
 ---
 
@@ -480,10 +547,10 @@ que vieram todas em zero.
    Testador (`OnInit` bloqueia uso fora do Strategy Tester).
 3. No Testador: XAUUSD, M30, período desejado, **modelagem por ticks reais**, **custos reais**.
 4. Carregue um preset de `presets/` (ex.: `CASO_04_...`, `CASO_05_...`, `CASO_06_...`,
-   `CASO_07_...`, `CASO_08_...`) ou ajuste `InpCase`.
+   `CASO_07_...`, `CASO_08_...`, `CASO_09_...`) ou ajuste `InpCase`.
 5. Exporte os CSVs (bars/events + agregados) como no R200 para comparar.
 
-Checagem local sem MT5: `python3 verificar.py` (compila e roda os 11 testes portáveis em g++ e
+Checagem local sem MT5: `python3 verificar.py` (compila e roda os 12 testes portáveis em g++ e
 prova que os cores do R200 não foram tocados).
 
 ---
@@ -504,9 +571,12 @@ prova que os cores do R200 não foram tocados).
    frente aos 26,05% históricos, e `negative_booked_months` precisa cair de forma material frente
    aos 20/57 medidos em todo o resto da família (Casos 4/6/7) — senão o alvo menor só trocou
    ganho por ganho, sem resolver o problema que motivou o caso (§3.4).
-7. **Fora da amostra:** walk-forward + uma janela final nunca usada na escolha + teste num
+7. **Caso 9 vs Caso 4 (mesmo risco-base, 1%)**: menos trades (o filtro só remove sinais), e
+   `negative_booked_months` precisa cair de forma material — senão o filtro só descartou sinais
+   ao acaso, sem separar os bons dos ruins (§3.5).
+8. **Fora da amostra:** walk-forward + uma janela final nunca usada na escolha + teste num
    período do ouro que **não** foi bull market (ex.: 2013–2019).
-8. **Forward em DEMO** antes de qualquer real. Depois, micro-real com risco baixo.
+9. **Forward em DEMO** antes de qualquer real. Depois, micro-real com risco baixo.
 
 Detalhe do raciocínio e das previsões em `../docs/PLANO_EXPERIMENTOS.md` e no parecer
 `../docs/PARECER_CLAUDE_R200.md`.
@@ -528,7 +598,7 @@ tamanho da conta sozinho.
 
 **O que você descreveu é outra coisa: escalar o lote pelo LUCRO acumulado, não pelo risco do
 trade.** Isso já está implementado — código legado, testado, **nunca ativado** em nenhum
-Caso Hermes (`p.reinvest` é sempre `false` nos 8 casos R210):
+Caso Hermes (`p.reinvest` é sempre `false` nos 9 casos R210):
 
 - `src/ProtectCore.mqh:144` · `PEReinvestLot(base, deposit, balance, cap, step)` — usa
   **exatamente 50%** fixo: `efetivo = base × (1 + 0,5 × max(0, balance−deposit)/deposit)`.
@@ -552,37 +622,41 @@ Caso Hermes (`p.reinvest` é sempre `false` nos 8 casos R210):
 
 **Minha recomendação:** fique com o Caso 4 (risco % puro) como o mecanismo de "reinvestimento".
 Se mesmo assim você quiser **medir** a ideia do lucro-acumulado como hipótese separada — nunca
-empilhada com o Caso 4 —, eu implemento um **Caso 9 isolado** (`PEReinvestLot`/`EVOCapitalLot`,
+empilhada com o Caso 4 —, eu implemento um **Caso 10 isolado** (`PEReinvestLot`/`EVOCapitalLot`,
 já testados no motor) com **sizing fixo simples** (sem risco%), seguindo o mesmo protocolo:
 comparador preservado, previsão falsificável, validação fora da amostra. Me avise se quiser
-que eu construa esse Caso 9.
+que eu construa esse Caso 10.
 
-> **Nota:** os números "Caso 6", "Caso 7" e "Caso 8" citados em versões anteriores deste
-> documento acabaram sendo usados para o freio de risco por rebaixamento (§3.2), o saque de
-> lucro (§3.3) e o breakeven+alvo 3R (§3.4), todos pedidos depois desta seção. Se a ideia de
-> lucro-acumulado acima for implementada, ela vira **Caso 9** — os números dos casos nunca são
-> reciclados depois de existirem presets/testes referenciando-os.
+> **Nota:** os números "Caso 6", "Caso 7", "Caso 8" e "Caso 9" citados em versões anteriores
+> deste documento acabaram sendo usados para o freio de risco por rebaixamento (§3.2), o saque
+> de lucro (§3.3), o breakeven+alvo 3R (§3.4) e o filtro de cruzamento EMA5/21 (§3.5), todos
+> pedidos depois desta seção. Se a ideia de lucro-acumulado acima for implementada, ela vira
+> **Caso 10** — os números dos casos nunca são reciclados depois de existirem presets/testes
+> referenciando-os.
 
 ## 9. Mapa de mudanças
 
 | Arquivo | Estado | O quê |
 | --- | --- | --- |
 | `src/XAU_H1_Core.mqh`, `ProtectCore`, `EntryCore`, `DonchianCore`, `HermesCore`, `Execution`, `PivotCore`, `PivotRuntime`, `Reports` | **byte-idêntico ao R200** | motor auditado, intocado (inclui o motor de breakeven do Caso 8 — só configuração nova, zero linhas mudadas) |
-| `src/PivotEntryCore.mqh` | alterado | roteamento aceita Casos 4/5/6/7/8 (sizing por risco; Caso 8 usa a mesma rota do Caso 4) |
-| `src/EA.mq5` | alterado | inputs novos, `ReadQuickHarvest`, ramo do Caso 5, freio do Caso 6, saque do Caso 7, `profile.be15`+alvo curto do Caso 8, validações |
+| `src/PivotEntryCore.mqh` | alterado | roteamento aceita Casos 4/5/6/7/8/9 (sizing por risco; Casos 8/9 usam a mesma rota do Caso 4) |
+| `src/EA.mq5` | alterado | inputs novos, `ReadQuickHarvest`, ramo do Caso 5, freio do Caso 6, saque do Caso 7, `profile.be15`+alvo curto do Caso 8, `ReadEMACross`+filtro do Caso 9, validações; corrigido de passagem: `target_value`/`target_R` em `parameters.txt`/`bars.csv` (não em `Reports.mqh`, que é congelado) agora refletem o alvo real do Caso 5/8 em vez de sempre "5" |
 | `src/QuickHarvestCore.mqh` | novo | decisão do Caso 5 (`QHGate`), pura e testada |
 | `src/DDThrottleCore.mqh` | novo | freio do Caso 6 (`DDThrottleMultiplier`), pura e testada |
 | `src/WithdrawalCore.mqh` | novo | saque do Caso 7 (`WDUpdate`/`WDTradingCapital`), pura e testada |
+| `src/EMACrossCore.mqh` | **novo** | filtro do Caso 9 (`EMACrossGate`), pura e testada — lógica de entrada genuinamente nova, não configuração de motor existente |
 | `tests/test_quickharvest.cpp` | novo | testa `QHGate` |
 | `tests/test_dd_throttle.cpp` | novo | testa `DDThrottleMultiplier` (bandas, dados/config inválidos) |
 | `tests/test_withdrawal.cpp` | novo | testa `WDUpdate`/`WDTradingCapital` (recordes, acúmulo, frações-limite, piso em zero) |
-| `tests/test_entry.cpp` | atualizado | Caso 4 imune a `ddPeakEquity`/`withdrawState`/`profile.be15`; Casos 6/7 reduzem o risco corretamente; Caso 8 confirma alvo 3R (`tp=4042,8`) e `beTrigger` propagado, vs. Caso 4 com alvo 5R e `beTrigger=0` |
-| `tests/test_pivot_entry.cpp` | atualizado | agora valida Casos 4/5/6/7/8 |
-| `build.py`, `verificar.py` | adaptados | 8 casos, 11 presets; prova cores congelados (Caso 8 não adiciona `.mqh` novo — reusa `Execution.mqh` congelado) |
-| `presets/CASO_04_*`, `CASO_05_*`, `CASO_06_*`, `CASO_06B_*`, `CASO_07_*`, `CASO_08_*`, `00_COMPARAR_8_CASOS` | novos | presets dos casos novos |
+| `tests/test_ema_cross.cpp` | **novo** | testa `EMACrossGate` (compra/venda, alinhamento antigo sem cruzar, desalinhado agora, borda da janela, toque exato, lado/janela/dados inválidos) |
+| `tests/test_entry.cpp` | atualizado | Caso 4 imune a `ddPeakEquity`/`withdrawState`/`profile.be15`; Casos 6/7 reduzem o risco corretamente; Caso 8 confirma alvo 3R (`tp=4042,8`) e `beTrigger` propagado; Caso 9 confirma `OpenCycle` idêntico ao Caso 4 (o filtro vive fora do `OpenCycle`, no `OnTick`) |
+| `tests/test_pivot_entry.cpp` | atualizado | agora valida Casos 4/5/6/7/8/9 |
+| `build.py`, `verificar.py` | adaptados | 9 casos, 12 presets; prova cores congelados (Caso 9 adiciona `EMACrossCore.mqh`; Caso 8 não adicionou `.mqh` — reusa `Execution.mqh` congelado) |
+| `presets/CASO_04_*`, `CASO_05_*`, `CASO_06_*`, `CASO_06B_*`, `CASO_07_*`, `CASO_08_*`, `CASO_09_*`, `00_COMPARAR_9_CASOS` | novos | presets dos casos novos |
 
 **Peço ao ChatGPT:** compilar no MetaEditor; confirmar que os Casos 1–3 reproduzem o R200;
 rodar Caso 4 (risco 1%), Caso 5 (**com custos reais**), Caso 6 (risco 5% + freio), Caso 7
-(risco 5% + saque) e Caso 8 (risco 5% + breakeven em 1R + alvo 3R), comparando os três últimos
-contra a linha "5%" da tabela em §3.1; devolver os CSVs para eu analisar regime, custo de
-ocupação e a fronteira risco×retorno.
+(risco 5% + saque), Caso 8 (risco 5% + breakeven em 1R + alvo 3R) e Caso 9 (risco 1% + filtro de
+cruzamento EMA5/21), comparando os últimos quatro contra a linha "5%" da tabela em §3.1 ou contra
+o `CASO_04_HERMES_RISCO_REF.set` (Caso 9, mesmo risco-base baixo); devolver os CSVs para eu
+analisar regime, custo de ocupação e a fronteira risco×retorno.

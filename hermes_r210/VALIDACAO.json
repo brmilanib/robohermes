@@ -1,8 +1,8 @@
 {
   "version": "2.10",
-  "source_sha256": "8e293bfa6a6a2e5b84527bfdd3eb97b59386ea809004e79035d57d7ca7665954",
-  "cases": 8,
-  "presets": 11,
+  "source_sha256": "7994de4b1083906208c772d54956e6c31976230f0be11699d6a5846d8f173333",
+  "cases": 9,
+  "presets": 12,
   "statistics_fields": 116,
   "frozen_cores_identical_to_r200": true,
   "changed_files": [
@@ -12,7 +12,8 @@
   "added_files": [
     "QuickHarvestCore.mqh",
     "DDThrottleCore.mqh",
-    "WithdrawalCore.mqh"
+    "WithdrawalCore.mqh",
+    "EMACrossCore.mqh"
   ],
   "local_tests": [
     {
@@ -69,9 +70,14 @@
       "test": "test_withdrawal",
       "passed": true,
       "output": "Saque de lucro (Caso 7): sem novo recorde, split correto, acumulo em multiplos recordes, fracoes-limite 0/1, dados/config invalidos e piso em zero passaram."
+    },
+    {
+      "test": "test_ema_cross",
+      "passed": true,
+      "output": "Cruzamento EMA5/21 (Caso 9): compra, venda, alinhamento antigo sem cruzar, desalinhado agora, borda da janela, toque exato, lado/janela/dados invalidos passaram."
     }
   ],
   "native_MQL5_compilation": false,
   "native_MT5_backtests": false,
-  "note": "Casos 4/5/6/7/8 sao hipoteses NAO validadas. Exigem backtest MT5 com custos realistas e validacao fora da amostra antes de qualquer conclusao de lucro. Sem simulacao de PnL aqui."
+  "note": "Casos 4/5/6/7/8/9 sao hipoteses NAO validadas. Exigem backtest MT5 com custos realistas e validacao fora da amostra antes de qualquer conclusao de lucro. Sem simulacao de PnL aqui."
 }

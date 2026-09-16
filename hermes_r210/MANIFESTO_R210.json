@@ -2,7 +2,7 @@
   "version": "2.10",
   "batch": "R210",
   "parent": "R200:1(projeto_fonte)",
-  "source_sha256": "8e293bfa6a6a2e5b84527bfdd3eb97b59386ea809004e79035d57d7ca7665954",
+  "source_sha256": "7994de4b1083906208c772d54956e6c31976230f0be11699d6a5846d8f173333",
   "native_compilation": false,
   "native_backtests": false,
   "frozen_from_r200": [
@@ -23,7 +23,8 @@
   "added": [
     "QuickHarvestCore.mqh",
     "DDThrottleCore.mqh",
-    "WithdrawalCore.mqh"
+    "WithdrawalCore.mqh",
+    "EMACrossCore.mqh"
   ],
   "cases": [
     {
@@ -53,6 +54,7 @@
       "reinvest": false,
       "dd_throttle": false,
       "profit_withdrawal": false,
+      "ema_cross_filter": false,
       "status": "CONGELADO_R200"
     },
     {
@@ -82,6 +84,7 @@
       "reinvest": false,
       "dd_throttle": false,
       "profit_withdrawal": false,
+      "ema_cross_filter": false,
       "status": "CONGELADO_R200"
     },
     {
@@ -111,6 +114,7 @@
       "reinvest": false,
       "dd_throttle": false,
       "profit_withdrawal": false,
+      "ema_cross_filter": false,
       "status": "CONGELADO_R200"
     },
     {
@@ -140,6 +144,7 @@
       "reinvest": false,
       "dd_throttle": false,
       "profit_withdrawal": false,
+      "ema_cross_filter": false,
       "status": "NOVO_R210_NAO_VALIDADO"
     },
     {
@@ -169,6 +174,7 @@
       "reinvest": false,
       "dd_throttle": false,
       "profit_withdrawal": false,
+      "ema_cross_filter": false,
       "status": "NOVO_R210_NAO_VALIDADO"
     },
     {
@@ -198,6 +204,7 @@
       "reinvest": false,
       "dd_throttle": true,
       "profit_withdrawal": false,
+      "ema_cross_filter": false,
       "status": "NOVO_R210_NAO_VALIDADO"
     },
     {
@@ -227,6 +234,7 @@
       "reinvest": false,
       "dd_throttle": false,
       "profit_withdrawal": true,
+      "ema_cross_filter": false,
       "status": "NOVO_R210_NAO_VALIDADO"
     },
     {
@@ -256,8 +264,39 @@
       "reinvest": false,
       "dd_throttle": false,
       "profit_withdrawal": false,
+      "ema_cross_filter": false,
+      "status": "NOVO_R210_NAO_VALIDADO"
+    },
+    {
+      "case": 9,
+      "name": "HERMES_CRUZAMENTO_EMA",
+      "timeframe": "M30",
+      "entry": "ORIGINAL",
+      "extra_enabled": false,
+      "extra_requires_close_above_SMA200": false,
+      "extra_requires_rising_SMA200": false,
+      "EMA_period": 21,
+      "SMA_middle": 50,
+      "SMA_long": 200,
+      "ATR_period": 14,
+      "ADX_period": 14,
+      "min_ADX": 20,
+      "minimum_entry_distance_ATR": 0.5,
+      "minimum_structural_stop_ATR": 1.0,
+      "maximum_structural_stop_ATR": 2.5,
+      "stop_buffer_ATR": 0.2,
+      "stop_lookback_closed_bars": 3,
+      "target_R": 5,
+      "sizing": "RISK_PERCENT",
+      "partial": false,
+      "adds": 0,
+      "breakeven": false,
+      "reinvest": false,
+      "dd_throttle": false,
+      "profit_withdrawal": false,
+      "ema_cross_filter": true,
       "status": "NOVO_R210_NAO_VALIDADO"
     }
   ],
-  "note": "Casos 4, 5, 6, 7 e 8 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Ver MUDANCAS_R210.md."
+  "note": "Casos 4, 5, 6, 7, 8 e 9 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Ver MUDANCAS_R210.md."
 }

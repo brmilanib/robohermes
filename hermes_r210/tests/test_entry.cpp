@@ -105,6 +105,18 @@ int main(){
  s=prepare(1);InpCase=4;dc.riskPercent=1.0;profile.be15=0;
  assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
  assert(integrity&&near(tp,4071.2)&&cycles[0].beTrigger==0); // 5R padrao, sem BE
+ // R210: Caso 9 (Caso 4 + filtro de cruzamento EMA5/21). O filtro em si vive
+ // no OnTick, ANTES de chamar OpenCycle (fora de Open_Runtime.inc) - aqui so
+ // confirmamos que, uma vez que OpenCycle e' chamado, InpCase==9 se comporta
+ // EXATAMENTE como o Caso 4 (mesmo sizing por risco, mesmo alvo 5R, be15
+ // nunca sobrescrito) - prova que o Caso 9 so filtra QUAIS sinais chegam ao
+ // OpenCycle, nunca o que acontece depois que um chega.
+ s=prepare(1);InpCase=9;dc.riskPercent=1.0;profile.be15=0;
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(tp,4071.2)&&cycles[0].beTrigger==0); // identico ao Caso 4 a 1%
+ s=prepare(1);InpCase=9;dc.riskPercent=2.0;
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(cycles[0].volume,.14)&&near(risk,198.8)); // identico ao Caso 4 a 2%
  s=prepare(3);mockFillOffset=-.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
  assert(integrity&&near(cycles[0].target-cycles[0].entry,20)&&targetAdjustments==1&&slRequests==1&&volumeRequests==1);
  s=prepare(3);mockFillOffset=.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);

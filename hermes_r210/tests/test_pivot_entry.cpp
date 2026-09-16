@@ -22,22 +22,24 @@ int main()
   HPRouteEntry(id,e,s,f,112,99,.5,false,pivot,out);
   assert(out.setup==0&&out.path==HP_BASE); // Missing pivot data cannot suppress original.
  }
- assert(!HPSelectProfile(0,d,e,p)&&!HPSelectProfile(9,d,e,p));
+ assert(!HPSelectProfile(0,d,e,p)&&!HPSelectProfile(10,d,e,p));
  // R210: casos 4 (Referencia + risco), 5 (Colheita Rapida), 6 (Caso 4 + freio
- // de rebaixamento), 7 (Caso 4 + saque de lucro) e 8 (Caso 4 + breakeven+3R)
- // sao validos e usam sizing por risco (fixedLot=false, riskPercent em (0,2]
- // - o EA sobrescreve com InpRiskPercent, ate 5, depois). O be15==0 aqui e' o
- // valor de FABRICA (antes do EA sobrescrever com InpBETriggerR pro Caso 8 -
- // fora do escopo deste arquivo, que so testa o roteamento puro).
- for(int id:{4,5,6,7,8}) {
+ // de rebaixamento), 7 (Caso 4 + saque de lucro), 8 (Caso 4 + breakeven+3R) e
+ // 9 (Caso 4 + filtro de cruzamento EMA5/21) sao validos e usam sizing por
+ // risco (fixedLot=false, riskPercent em (0,2] - o EA sobrescreve com
+ // InpRiskPercent, ate 5, depois). O be15==0 aqui e' o valor de FABRICA
+ // (antes do EA sobrescrever com InpBETriggerR pro Caso 8 - fora do escopo
+ // deste arquivo, que so testa o roteamento puro).
+ for(int id:{4,5,6,7,8,9}) {
   assert(HPSelectProfile(id,d,e,p));
   assert(!d.fixedLot && d.riskPercent>0.0 && d.riskPercent<=2.0 && d.targetMode==0);
   assert(d.matchedControl==2 && !p.reinvest && !p.partial && p.be15==0 && p.addFraction==0);
  }
- // Casos 4, 6, 7 e 8 usam exatamente as entradas do Caso 1 (rota base, pivo
- // desabilitado) - os Casos 6/7/8 so mudam o SIZING/protecao (fora do escopo
- // deste arquivo), nunca a entrada/saida.
- for(int cid:{4,6,7,8}) {
+ // Casos 4, 6, 7, 8 e 9 usam exatamente as entradas do Caso 1 (rota base,
+ // pivo desabilitado) - os Casos 6/7/8/9 so mudam o SIZING/protecao/filtro
+ // extra (fora do escopo deste arquivo, que so testa o roteamento ORIGINAL),
+ // nunca a entrada base/saida.
+ for(int cid:{4,6,7,8,9}) {
   H1Signal z=good_signal();
   HPRouteEntry(cid,e,z,f,112,99,.5,true,pivot,out);
   assert(out.original_gate==0&&out.setup==0&&out.side==1&&out.path==HP_BASE&&out.extra_gate==HP_DISABLED);

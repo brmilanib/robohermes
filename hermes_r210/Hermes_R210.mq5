@@ -269,6 +269,49 @@ double WDTradingCapital(const double equity, const double bankedWithdrawn)
 }
 #endif
 
+#ifndef HERMES_EMACROSS_CORE_210
+#define HERMES_EMACROSS_CORE_210
+// Caso 9 - "Cruzamento EMA 5/21": pedido do proprietario, tentar melhorar a
+// entrada exigindo confirmacao extra de um cruzamento RECENTE da EMA5 pelo
+// lado certo da EMA21 (acima para compra, abaixo para venda), alem de tudo
+// que a entrada original do Caso 1/4 ja exige. So FILTRA o lado que a
+// entrada original (H1EvaluateProfile) ja escolheu - nunca decide o lado
+// sozinho, nunca abre posicao sem a entrada original tambem ter disparado.
+//
+// Definicao de "cruzamento recente" (a unica variavel testada aqui, um
+// primeiro palpite razoavel, NAO ajustada na amostra): na barra de sinal
+// fechada (shift1) a EMA5 precisa estar do lado certo (>EMA21 na compra,
+// <EMA21 na venda) E em ALGUMA das barras fechadas anteriores dentro da
+// janela (shift2..shift(lookback+1)) a EMA5 estava do lado OPOSTO - ou seja,
+// o cruzamento aconteceu de verdade dentro da janela, nao e' so um
+// alinhamento antigo e estatico (o que nao seria um "cruzamento").
+//
+// Funcao pura, testavel fora do MT5. ema5[]/ema21[] vem em ORDEM de shift
+// crescente: indice 0 = shift1 (barra de sinal), indice n-1 = shift n.
+
+enum EMAX_GATE
+{
+   EMAX_READY=0,
+   EMAX_DATA=400,   // dados invalidos (janela insuficiente, NaN, side invalido)
+   EMAX_NONE        // EMA5 nao esta alinhada agora, ou alinhada mas sem cruzamento recente na janela
+};
+
+int EMACrossGate(const int side,const double &ema5[],const double &ema21[],const int n,int &sideOut)
+{
+   sideOut=0;
+   if((side!=1 && side!=-1) || n<2) return EMAX_DATA;
+   for(int i=0;i<n;i++) if(!MathIsValidNumber(ema5[i]) || !MathIsValidNumber(ema21[i])) return EMAX_DATA;
+   bool alignedNow=(side==1) ? ema5[0]>ema21[0] : ema5[0]<ema21[0];
+   if(!alignedNow) return EMAX_NONE;
+   for(int i=1;i<n;i++)
+     {
+      bool wasOpposite=(side==1) ? ema5[i]<=ema21[i] : ema5[i]>=ema21[i];
+      if(wasOpposite) { sideOut=side; return EMAX_READY; }
+     }
+   return EMAX_NONE;
+}
+#endif
+
 #ifndef XAU_PROTECT_CORE_150
 #define XAU_PROTECT_CORE_150
 // Platform-independent decisions, shared unchanged with the local C++ tests.
@@ -956,14 +999,15 @@ struct HPDecision
 };
 bool HPSelectProfile(const int id,DCProfile &d,EVOProfile &e,PEProfile &p)
 {
- if(id<1 || id>8 || !DCSelectProfile(2,d,e,p)) return false;
+ if(id<1 || id>9 || !DCSelectProfile(2,d,e,p)) return false;
  d.id=id; d.matchedControl=2; e.matchedControl=2;
  // Casos 4 (Referencia + risco), 5 (Colheita Rapida), 6 (freio por
- // rebaixamento), 7 (saque de lucro) e 8 (breakeven+alvo 3R), todos sobre o
- // Caso 4: MESMO motor de execucao, porem sizing por % do patrimonio em vez
- // de lote fixo. O EA sobrescreve d.riskPercent com InpRiskPercent (e, so no
- // Caso 8, p.be15 com InpBETriggerR) logo apos esta selecao.
- const bool riskSized=(id==4 || id==5 || id==6 || id==7 || id==8);
+ // rebaixamento), 7 (saque de lucro), 8 (breakeven+alvo 3R) e 9 (filtro de
+ // cruzamento EMA5/21), todos sobre o Caso 4: MESMO motor de execucao, porem
+ // sizing por % do patrimonio em vez de lote fixo. O EA sobrescreve
+ // d.riskPercent com InpRiskPercent (e, so no Caso 8, p.be15 com
+ // InpBETriggerR) logo apos esta selecao.
+ const bool riskSized=(id==4 || id==5 || id==6 || id==7 || id==8 || id==9);
  if(riskSized) { d.fixedLot=false; if(!(d.riskPercent>0.0 && d.riskPercent<=2.0)) d.riskPercent=1.0; }
  // A referencia herdada e volume (exato ou por risco), 5R, so compra, uma perna.
  return (riskSized ? !d.fixedLot : d.fixedLot) && !d.weekly && d.targetMode==0 && d.channelMode==0
@@ -974,8 +1018,8 @@ int HPExtraGate(const int id,const H1Signal &s,const EVOFeatures &f,
                 const double ask,const double old200,const double minimumDistance,
                 const bool pivotDataReady,const HPSignal &pivot)
 {
- if(id<1 || id>8) return HP_INVALID_CASE;
- if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5, 6, 7 e 8 nao usam a rota de pivo
+ if(id<1 || id>9) return HP_INVALID_CASE;
+ if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5, 6, 7, 8 e 9 nao usam a rota de pivo
  if(!pivotDataReady) return HP_DATA_PENDING;
  if(!pivot.buy) return HP_NO_CANDIDATE;
  if(!(s.ema>s.sma50 && s.sma50>s.oldSma50)) return HP_TREND50;
@@ -996,7 +1040,7 @@ void HPRouteEntry(const int id,const EVOProfile &e,const H1Signal &s,const EVOFe
  out.original_gate=EVOEvaluate(e,s,f,ask,old200,minimumDistance,false,out.side);
  out.extra_gate=HPExtraGate(id,s,f,ask,old200,minimumDistance,pivotDataReady,pivot);
  out.setup=out.original_gate;
- if(id<1 || id>8) { out.setup=HP_INVALID_CASE; out.side=0; return; }
+ if(id<1 || id>9) { out.setup=HP_INVALID_CASE; out.side=0; return; }
  if(out.original_gate==0) { out.path=HP_BASE; return; }
  if(out.extra_gate==0) { out.setup=0; out.side=1; out.path=HP_PIVOT; }
 }
@@ -1035,6 +1079,8 @@ input double InpWithdrawFraction=0.50; // Caso 7: fracao (0..1) do novo pico de 
 // --- Caso 8: breakeven em InpBETriggerR + alvo reduzido InpBETargetR (mesmo motor de BE do R200, so nunca ligado antes) ---
 input double InpBETriggerR=1.00; // Caso 8: quando o trade atinge esse R de lucro flutuante, stop move pro preco de entrada
 input double InpBETargetR=3.00;  // Caso 8: alvo fixo, multiplo do risco inicial (em vez do 5R padrao)
+// --- Caso 9: exige cruzamento RECENTE de EMA5/EMA21 na direcao da entrada original (Caso 4), alem de tudo mais ---
+input int InpEMACrossLookback=3; // Caso 9: janela (barras fechadas) em que o cruzamento precisa ter ocorrido
 
 enum PE_GATE { G_NO_DATA=0,G_BASE,G_DIRECTION,G_DISTANCE,G_REGIME,G_POSITION,
  G_SPREAD,G_STOP,G_BROKER_STOPS,G_RISK,G_MARGIN_ERROR,G_MARGIN_BLOCK,G_REJECTED,G_FILLED,G_HALTED,G_ENTRY_FILTER,G_TARGET,G_COUNT };
@@ -1092,7 +1138,7 @@ CTrade trade;
 PECycle cycles[];
 PEMonth months[];
 int active=-1;
-int hEMA=INVALID_HANDLE,h50=INVALID_HANDLE,h200=INVALID_HANDLE,hADX=INVALID_HANDLE,hATR=INVALID_HANDLE;
+int hEMA=INVALID_HANDLE,h50=INVALID_HANDLE,h200=INVALID_HANDLE,hADX=INVALID_HANDLE,hATR=INVALID_HANDLE,hEMA5=INVALID_HANDLE;
 int barsFile=INVALID_HANDLE,eventsFile=INVALID_HANDLE,optFile=INVALID_HANDLE,optMonths=INVALID_HANDLE,optShadow=INVALID_HANDLE,optFiles=INVALID_HANDLE;
 string folder="",optFolder="",lastReason="";
 bool ioFailure=false; long barRows=0;
@@ -1122,8 +1168,8 @@ string EntryName(const int k)
  }
 string DCName(const int id)
  {
-  string names[8]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA","HERMES_DD_THROTTLE","HERMES_SAQUE_LUCRO","HERMES_BREAKEVEN_3R"};
-  return id>=1 && id<=8 ? names[id-1] : "INVALID";
+  string names[9]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA","HERMES_DD_THROTTLE","HERMES_SAQUE_LUCRO","HERMES_BREAKEVEN_3R","HERMES_CRUZAMENTO_EMA"};
+  return id>=1 && id<=9 ? names[id-1] : "INVALID";
  }
 string ProfileName(const int id) { return DCName(id); }
 string TFName(const int id) { return "M30"; }
@@ -1290,6 +1336,15 @@ bool ReadQuickHarvest(const H1Signal &s,QHFeatures &f)
   f.closeLocation=(r[0].high>r[0].low) ? (r[0].close-r[0].low)/(r[0].high-r[0].low) : 0.5;
   f.valid=true; return true;
  }
+// Caso 9 (Cruzamento EMA 5/21): EMA5 e EMA21 nas ultimas (lookback+1) barras
+// FECHADAS (indice 0 = shift1, a barra de sinal; indice n-1 = shift(lookback+1)).
+bool ReadEMACross(const int lookback,double &ema5[],double &ema21[])
+ {
+  int n=lookback+1; ArrayResize(ema5,n); ArrayResize(ema21,n);
+  for(int i=0;i<n;i++)
+   if(!ReadValue(hEMA5,0,i+1,ema5[i]) || !ReadValue(hEMA,0,i+1,ema21[i])) return false;
+  return true;
+ }
 // MT5 history adapter. No current candle OHLC enters the detector.
 // Copy/validation is transactional: incomplete catch-up never corrupts state.
 string HPPathName(const int path)
@@ -1375,7 +1430,7 @@ void Record(const PE_GATE gate,const int setup,const int origin,const H1Signal &
   Cell(row,N(AccountInfoDouble(ACCOUNT_MARGIN))); Cell(row,N(minimumLotRiskMoney)); Cell(row,N(minimumLotRiskPercent));
   Cell(row,N(minimumEquityForLot)); Cell(row,N(minimumLotMargin));
   Cell(row,I(dc.sourceControl180)); Cell(row,I(dc.matchedControl)); Cell(row,I(dc.fixedLot)); Cell(row,TargetUnitName());
-  Cell(row,N(dc.targetMode==0 ? (InpCase==5 ? InpQHTargetR : 5) : 20)); Cell(row,N(plannedTargetDistance)); Cell(row,N(plannedTargetRiskRatio)); Cell(row,N(plannedTargetProfit));
+  Cell(row,N(dc.targetMode==0 ? (InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : 5)) : 20)); Cell(row,N(plannedTargetDistance)); Cell(row,N(plannedTargetRiskRatio)); Cell(row,N(plannedTargetProfit));
   Cell(row,I(hpDataReady)); Cell(row,hpStatus); Cell(row,I(hpSignal.buy));
   Cell(row,I(hpRoute.original_gate)); Cell(row,I(hpRoute.extra_gate)); Cell(row,HPPathName(hpRoute.path));
   Cell(row,TS((datetime)hpSignal.signal_time)); Cell(row,TS((datetime)hpSignal.available_time));
@@ -1936,6 +1991,14 @@ void OnTick()
                 hpDataReady,hpSignal,hpRoute);
   }
   int setup=hpRoute.setup; side=hpRoute.side;
+  if(InpCase==9 && setup==0) {
+   // Caso 9: mesma entrada do Caso 4 (setup==0 = original ja disparou); so
+   // ABRE se a EMA5 tambem cruzou a EMA21 recentemente na mesma direcao.
+   double ema5[],ema21[]; int exSide=0;
+   bool eok=ReadEMACross(InpEMACrossLookback,ema5,ema21);
+   int egate=eok ? EMACrossGate(side,ema5,ema21,InpEMACrossLookback+1,exSide) : EMAX_DATA;
+   if(egate!=EMAX_READY) { setup=egate; hpRoute.setup=egate; }
+  }
   if(hpRoute.extra_gate==0) hpExtraEligible++;
   if(hpRoute.path==HP_BASE) hpBaseSelected++;
   if(hpRoute.path==HP_PIVOT) hpPivotSelected++;
@@ -1967,9 +2030,10 @@ bool WriteParameters()
   KV(f,"risk_percent",N(dc.riskPercent)); KV(f,"margin_cap_percent",dc.fixedLot ? "no_extra_percent_cap_free_margin_only" : N(InpMaxMarginPct));
   KV(f,"max_lot",dc.fixedLot ? N(InpFixedLot) : N(InpMaxLot)); KV(f,"initial_lot_reference",N(InpFixedLot));
   KV(f,"fixed_lot_mode",I(dc.fixedLot)); KV(f,"capital_mode",dc.fixedLot ? "EXACT_FIXED_LOT" : "EQUITY_RISK_2PCT");
-  KV(f,"target_unit",TargetUnitName()); KV(f,"target_unit_code",I(dc.targetMode)); KV(f,"target_value",dc.targetMode==0 ? "5" : "20");
+  double nominalReward=(InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : 5.0));
+  KV(f,"target_unit",TargetUnitName()); KV(f,"target_unit_code",I(dc.targetMode)); KV(f,"target_value",dc.targetMode==0 ? N(nominalReward) : "20");
   KV(f,"resolved_target_distance_price",N(HermesTargetDistance(dc.targetMode,_Point)));
-  KV(f,"target_R",dc.targetMode==0 ? "5" : "variable_target_divided_by_original_stop"); KV(f,"partial_enabled","0"); KV(f,"BE_trigger_R","0"); KV(f,"max_adds","0");
+  KV(f,"target_R",dc.targetMode==0 ? N(nominalReward)+"R" : "variable_target_divided_by_original_stop"); KV(f,"partial_enabled","0"); KV(f,"BE_trigger_R","0"); KV(f,"max_adds","0");
   KV(f,"case_protocol","1 HERMES_REFERENCIA;2 HERMES_PIVO_CONTINUIDADE;3 HERMES_PIVO_INICIO. All M30, exact fixed lot, target5R, no partial/BE/add/reinvestment.");
   KV(f,"reference_source_sha256","0ddbee937fc4b5af16510987f84d72e126012e0a080b61ef18530a80275d8e35");
   KV(f,"reference_EA","Olimpo_Consistencia_Lab_190 case2");
@@ -2037,6 +2101,9 @@ int OnInit()
       !MathIsValidNumber(InpQHMinADX) || InpQHMinADX<0 ||
       !MathIsValidNumber(InpQHMaxSpreadATR) || InpQHMaxSpreadATR<=0) return INIT_PARAMETERS_INCORRECT;
   }
+  if(InpCase==9) {
+   if(InpEMACrossLookback<1 || InpEMACrossLookback>20) return INIT_PARAMETERS_INCORRECT;
+  }
   signalTF=PERIOD_M30; HPCoreReset(hpState); HPClearSignal(hpSignal);
   if(_Period!=signalTF) { Print("Caso ",InpCase," exige ",TFName(InpCase)," no testador."); return INIT_PARAMETERS_INCORRECT; }
   if(!MathIsValidNumber(InpMaxMarginPct) || InpMaxMarginPct<=0 || InpMaxMarginPct>50 ||
@@ -2056,7 +2123,9 @@ int OnInit()
   TesterHideIndicators(true); hEMA=iMA(_Symbol,signalTF,21,0,MODE_EMA,PRICE_CLOSE);
   if(!dc.weekly) { h50=iMA(_Symbol,signalTF,50,0,MODE_SMA,PRICE_CLOSE); h200=iMA(_Symbol,signalTF,200,0,MODE_SMA,PRICE_CLOSE); }
   hADX=iADX(_Symbol,signalTF,14); hATR=iATR(_Symbol,signalTF,14);
-  if(hEMA==INVALID_HANDLE || (!dc.weekly && (h50==INVALID_HANDLE || h200==INVALID_HANDLE)) || hADX==INVALID_HANDLE || hATR==INVALID_HANDLE) return INIT_FAILED;
+  if(InpCase==9) hEMA5=iMA(_Symbol,signalTF,5,0,MODE_EMA,PRICE_CLOSE); // Caso 9: EMA rapida p/ cruzamento com hEMA (21)
+  if(hEMA==INVALID_HANDLE || (!dc.weekly && (h50==INVALID_HANDLE || h200==INVALID_HANDLE)) || hADX==INVALID_HANDLE || hATR==INVALID_HANDLE ||
+     (InpCase==9 && hEMA5==INVALID_HANDLE)) return INIT_FAILED;
   trade.SetExpertMagicNumber(InpMagic); trade.SetDeviationInPoints(InpDeviationPoints); trade.SetAsyncMode(false); trade.SetTypeFillingBySymbol(_Symbol);
   ArrayInitialize(counters,0); priorEquity=AccountInfoDouble(ACCOUNT_EQUITY); priorBalance=AccountInfoDouble(ACCOUNT_BALANCE);
   ddPeakEquity=priorEquity;

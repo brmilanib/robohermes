@@ -265,6 +265,49 @@ double WDTradingCapital(const double equity, const double bankedWithdrawn)
 }
 #endif
 
+#ifndef HERMES_EMACROSS_CORE_210
+#define HERMES_EMACROSS_CORE_210
+// Caso 9 - "Cruzamento EMA 5/21": pedido do proprietario, tentar melhorar a
+// entrada exigindo confirmacao extra de um cruzamento RECENTE da EMA5 pelo
+// lado certo da EMA21 (acima para compra, abaixo para venda), alem de tudo
+// que a entrada original do Caso 1/4 ja exige. So FILTRA o lado que a
+// entrada original (H1EvaluateProfile) ja escolheu - nunca decide o lado
+// sozinho, nunca abre posicao sem a entrada original tambem ter disparado.
+//
+// Definicao de "cruzamento recente" (a unica variavel testada aqui, um
+// primeiro palpite razoavel, NAO ajustada na amostra): na barra de sinal
+// fechada (shift1) a EMA5 precisa estar do lado certo (>EMA21 na compra,
+// <EMA21 na venda) E em ALGUMA das barras fechadas anteriores dentro da
+// janela (shift2..shift(lookback+1)) a EMA5 estava do lado OPOSTO - ou seja,
+// o cruzamento aconteceu de verdade dentro da janela, nao e' so um
+// alinhamento antigo e estatico (o que nao seria um "cruzamento").
+//
+// Funcao pura, testavel fora do MT5. ema5[]/ema21[] vem em ORDEM de shift
+// crescente: indice 0 = shift1 (barra de sinal), indice n-1 = shift n.
+
+enum EMAX_GATE
+{
+   EMAX_READY=0,
+   EMAX_DATA=400,   // dados invalidos (janela insuficiente, NaN, side invalido)
+   EMAX_NONE        // EMA5 nao esta alinhada agora, ou alinhada mas sem cruzamento recente na janela
+};
+
+int EMACrossGate(const int side,const std::vector<double> &ema5,const std::vector<double> &ema21,const int n,int &sideOut)
+{
+   sideOut=0;
+   if((side!=1 && side!=-1) || n<2) return EMAX_DATA;
+   for(int i=0;i<n;i++) if(!MathIsValidNumber(ema5[i]) || !MathIsValidNumber(ema21[i])) return EMAX_DATA;
+   bool alignedNow=(side==1) ? ema5[0]>ema21[0] : ema5[0]<ema21[0];
+   if(!alignedNow) return EMAX_NONE;
+   for(int i=1;i<n;i++)
+     {
+      bool wasOpposite=(side==1) ? ema5[i]<=ema21[i] : ema5[i]>=ema21[i];
+      if(wasOpposite) { sideOut=side; return EMAX_READY; }
+     }
+   return EMAX_NONE;
+}
+#endif
+
 #ifndef XAU_PROTECT_CORE_150
 #define XAU_PROTECT_CORE_150
 // Platform-independent decisions, shared unchanged with the local C++ tests.
@@ -952,14 +995,15 @@ struct HPDecision
 };
 bool HPSelectProfile(const int id,DCProfile &d,EVOProfile &e,PEProfile &p)
 {
- if(id<1 || id>8 || !DCSelectProfile(2,d,e,p)) return false;
+ if(id<1 || id>9 || !DCSelectProfile(2,d,e,p)) return false;
  d.id=id; d.matchedControl=2; e.matchedControl=2;
  // Casos 4 (Referencia + risco), 5 (Colheita Rapida), 6 (freio por
- // rebaixamento), 7 (saque de lucro) e 8 (breakeven+alvo 3R), todos sobre o
- // Caso 4: MESMO motor de execucao, porem sizing por % do patrimonio em vez
- // de lote fixo. O EA sobrescreve d.riskPercent com InpRiskPercent (e, so no
- // Caso 8, p.be15 com InpBETriggerR) logo apos esta selecao.
- const bool riskSized=(id==4 || id==5 || id==6 || id==7 || id==8);
+ // rebaixamento), 7 (saque de lucro), 8 (breakeven+alvo 3R) e 9 (filtro de
+ // cruzamento EMA5/21), todos sobre o Caso 4: MESMO motor de execucao, porem
+ // sizing por % do patrimonio em vez de lote fixo. O EA sobrescreve
+ // d.riskPercent com InpRiskPercent (e, so no Caso 8, p.be15 com
+ // InpBETriggerR) logo apos esta selecao.
+ const bool riskSized=(id==4 || id==5 || id==6 || id==7 || id==8 || id==9);
  if(riskSized) { d.fixedLot=false; if(!(d.riskPercent>0.0 && d.riskPercent<=2.0)) d.riskPercent=1.0; }
  // A referencia herdada e volume (exato ou por risco), 5R, so compra, uma perna.
  return (riskSized ? !d.fixedLot : d.fixedLot) && !d.weekly && d.targetMode==0 && d.channelMode==0
@@ -970,8 +1014,8 @@ int HPExtraGate(const int id,const H1Signal &s,const EVOFeatures &f,
                 const double ask,const double old200,const double minimumDistance,
                 const bool pivotDataReady,const HPSignal &pivot)
 {
- if(id<1 || id>8) return HP_INVALID_CASE;
- if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5, 6, 7 e 8 nao usam a rota de pivo
+ if(id<1 || id>9) return HP_INVALID_CASE;
+ if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5, 6, 7, 8 e 9 nao usam a rota de pivo
  if(!pivotDataReady) return HP_DATA_PENDING;
  if(!pivot.buy) return HP_NO_CANDIDATE;
  if(!(s.ema>s.sma50 && s.sma50>s.oldSma50)) return HP_TREND50;
@@ -992,7 +1036,7 @@ void HPRouteEntry(const int id,const EVOProfile &e,const H1Signal &s,const EVOFe
  out.original_gate=EVOEvaluate(e,s,f,ask,old200,minimumDistance,false,out.side);
  out.extra_gate=HPExtraGate(id,s,f,ask,old200,minimumDistance,pivotDataReady,pivot);
  out.setup=out.original_gate;
- if(id<1 || id>8) { out.setup=HP_INVALID_CASE; out.side=0; return; }
+ if(id<1 || id>9) { out.setup=HP_INVALID_CASE; out.side=0; return; }
  if(out.original_gate==0) { out.path=HP_BASE; return; }
  if(out.extra_gate==0) { out.setup=0; out.side=1; out.path=HP_PIVOT; }
 }

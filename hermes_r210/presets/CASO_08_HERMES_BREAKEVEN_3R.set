@@ -5,6 +5,7 @@
 ; Caso 6: Caso 4 + freio de risco por rebaixamento (InpDDBand1/2, InpDDMult1/2).
 ; Caso 7: Caso 4 + saque de lucro (InpWithdrawFraction do novo recorde de saldo).
 ; Caso 8: Caso 4 + breakeven em InpBETriggerR + alvo InpBETargetR (em vez de 5R).
+; Caso 9: Caso 4 + exige cruzamento recente de EMA5/EMA21 (InpEMACrossLookback barras).
 ; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.
 InpCase=8||8||1||8||N
 InpMaxMarginPct=20.0||20.0||0.01||20.0||N
@@ -33,3 +34,4 @@ InpDDMult2=0.25||0.25||0.01||0.25||N
 InpWithdrawFraction=0.5||0.5||0.01||0.5||N
 InpBETriggerR=1.0||1.0||0.01||1.0||N
 InpBETargetR=3.0||3.0||0.01||3.0||N
+InpEMACrossLookback=3||3||1||3||N
