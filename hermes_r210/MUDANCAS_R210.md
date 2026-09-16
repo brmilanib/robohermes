@@ -24,10 +24,9 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
   é o primeiro desde o Caso 5 (Colheita Rápida) a introduzir uma condição de entrada
   **genuinamente nova** (`EMACrossCore.mqh`), em vez de só configurar um motor existente.
 - **NÃO validado aqui:** rentabilidade. Não há MetaTrader neste ambiente — **nenhum backtest
-  nativo foi executado por mim**. Os Casos 4, 5, 6, 7 e 8 já rodaram no MT5 do proprietário — os
-  Casos 4, 6 e 7 têm resultados reais que se sustentam (§3); os Casos 5 e 8 também têm resultado
-  real, mas foram **rejeitados** pelos critérios pré-registrados (§3.4, §4). O Caso 9 ainda não
-  tem backtest nativo.
+  nativo foi executado por mim**. Todos os Casos 4-9 já rodaram no MT5 do proprietário — os
+  Casos 4, 6 e 7 têm resultados reais que se sustentam (§3); os Casos 5, 8 e 9 também têm
+  resultado real, mas foram **rejeitados** pelos critérios pré-registrados (§3.4, §3.5, §4).
 - **Um passo que depende do ChatGPT:** o EA completo precisa ser **compilado no MetaEditor**.
   A cola de integração no EA (ex.: `ReadQuickHarvest`, o ramo do `OnTick`) segue os padrões do
   próprio projeto, mas não pôde ser compilada aqui. Se aparecer algum erro de compilação,
@@ -49,7 +48,7 @@ compila no MetaEditor, roda os backtests no MT5 e devolve os resultados.
 | 6 | **HERMES_DD_THROTTLE** | **igual ao Caso 1/4** | risco % **com freio por rebaixamento** | 5R | **novo — testado pelo proprietário (§3.2)** |
 | 7 | **HERMES_SAQUE_LUCRO** | **igual ao Caso 1/4** | risco % **sobre capital com saque de lucro** | 5R | **novo — testado pelo proprietário (§3.3)** |
 | 8 | **HERMES_BREAKEVEN_3R** | **igual ao Caso 1/4** | risco % do patrimônio | **3R + stop no breakeven em 1R** | **testado — REJEITADO (§3.4)** |
-| 9 | **HERMES_CRUZAMENTO_EMA** | **igual ao Caso 1/4 + filtro EMA5/21** | risco % do patrimônio | 5R | **novo — a testar (§3.5)** |
+| 9 | **HERMES_CRUZAMENTO_EMA** | **igual ao Caso 1/4 + filtro EMA5/21** | risco % do patrimônio | 5R | **testado — REJEITADO (§3.5)** |
 
 Selecione o caso pelo input `InpCase` (1..8) ou pelos presets em `presets/`.
 
@@ -440,6 +439,46 @@ amostra fique pequena demais para qualquer conclusão.
 convencer (poucos trades, ou sem melhora em `negative_booked_months`), ajustar
 `InpEMACrossLookback` é experimento novo — uma variável de cada vez, contra o mesmo comparador
 (Caso 4), nunca uma varredura cega de janelas.
+
+**Resultado real (backtest do proprietário, `CASO_09_HERMES_CRUZAMENTO_EMA.set`, US$ 10.000):**
+
+| Métrica | Caso 1 (mesma entrada base) | Caso 9 |
+| --- | --- | --- |
+| Trades | 260 | **100** |
+| Taxa de acerto | 25,38% | 27,00% |
+| `average_net_R_initial` | 0,443 | **0,545** |
+| Perdas seguidas (máx.) | 13 | **11** |
+| Meses sem nenhum trade | 3/57 | **12/57** |
+| `negative_booked_months` | 19/57 | **22/57** |
+| Negativo entre meses **ativos** (com trade) | 19/54 = 35,2% | **22/45 = 48,9%** |
+
+**Hipótese REJEITADA pelo critério pré-registrado.** `negative_booked_months` não caiu — **piorou**
+(22 contra 19, e contra os ~20/57 do resto da família Caso 4/6/7). O número absoluto já bastaria
+para rejeitar, mas o que importa entender é *por quê*: o filtro cortou 61% dos trades (260→100),
+deixando **12 meses sem nenhuma operação** (contra só 3 no Caso 1). Nos 45 meses em que o Caso 9
+realmente operou, **quase metade (48,9%) terminou negativa** — bem pior que a taxa do Caso 1 nos
+seus 54 meses ativos (35,2%). O filtro não separou meses ruins de bons; piorou a proporção.
+
+**O "engano" que esse resultado quase causou.** Olhado isoladamente pelo resumo nativo do
+Testador (Fator de Lucro 1,77, DD relativo 13,39%, taxa de acerto 27%), o Caso 9 parece uma
+melhoria sobre o Caso 4 a 1% (DD 16,63%) — e de fato, **as médias por trade melhoraram**:
+`average_net_R_initial` subiu de 0,443 para 0,545, perdas seguidas caíram de 13 para 11. É
+exatamente por isso que fixamos `negative_booked_months` como critério **antes** de rodar:
+métricas agregadas por trade podem melhorar enquanto a consistência mês a mês piora — os trades
+que sobraram do filtro ainda se agrupam nos mesmos períodos ruins, só que agora há menos trades
+bons nos outros meses para compensar.
+
+**Bate com a análise de trades em meses negativos vs. positivos** (do Caso 1, ver mensagem
+anterior a este resultado): nenhuma feature estática de entrada (ADX, ATR, inclinação da SMA200,
+distância) separava trade de mês bom de trade de mês ruim. Um filtro construído sobre outra
+feature estática (cruzamento de EMA5/21) reproduziu exatamente esse padrão — melhora o trade
+médio, não melhora (piora) a consistência mensal. Reforça a hipótese de que os meses negativos são
+sequências de perdas correlacionadas no tempo, não trades individualmente identificáveis de
+antemão pelas features hoje disponíveis.
+
+Com isso, **6 mecanismos diferentes** já testados com dados reais (Caso 4 sizing, Caso 6 freio,
+Caso 7 saque, Caso 8 breakeven×2, Caso 5 entrada nova, Caso 9 filtro de entrada) — nenhum reduziu
+`negative_booked_months` abaixo do que o próprio Caso 1 (sem nenhuma modificação) já tinha.
 
 ---
 
