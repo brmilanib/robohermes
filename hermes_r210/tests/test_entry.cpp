@@ -10,6 +10,7 @@ double InpFixedLot=1,InpMaxMarginPct=20,InpMaxLot=1,maxLots=0,InpQHTargetR=1;
 double InpDDBand1=15.0,InpDDMult1=0.50,InpDDBand2=25.0,InpDDMult2=0.25,ddPeakEquity=0;
 double InpWithdrawFraction=0.50; WDState withdrawState{0,0};
 double InpBETriggerR=1.00,InpBETargetR=3.00;
+double InpDSTargetR=3.00;
 long targetRejects=0,fixedVolumeRejects=0;datetime lastPivotUsed=0,pivotTime=0;int liveMonth=0;
 HPDecision hpRoute{}; HPSignal hpSignal{}; long hpPivotFills=0;
 void ObserveOpenPath(){}
@@ -117,6 +118,18 @@ int main(){
  s=prepare(1);InpCase=9;dc.riskPercent=2.0;
  assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
  assert(integrity&&near(cycles[0].volume,.14)&&near(risk,198.8)); // identico ao Caso 4 a 2%
+ // R210: Caso 10 (duplo topo/fundo + EMA5/21/50, M2). O padrao em si vive no
+ // OnTick (fora de Open_Runtime.inc); aqui so confirmamos que OpenCycle usa
+ // o STOP calculado pelo padrao (via s.lowest, do mesmo jeito que os outros
+ // casos usam o stop estrutural de 3 barras) e o alvo 3R (InpDSTargetR, nao
+ // 5R) - prova que reaproveitar H1Levels/OpenCycle sem tocar neles funciona:
+ // so' precisa da EA sobrescrever s.lowest ANTES de chamar OpenCycle.
+ s=prepare(1);InpCase=10;dc.riskPercent=1.0;s.lowest=3980; // stop do duplo fundo, nao o padrao (3988)
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(sl,3978)&&near(tp,4066.8)); // sl=3980-0.20*10; tp=entry+3*(entry-sl)
+ s=prepare(1);InpCase=4;dc.riskPercent=1.0; // Caso 4 continua com o stop padrao (imune a esta mudanca)
+ assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
+ assert(integrity&&near(sl,3986)&&near(tp,4071.2));
  s=prepare(3);mockFillOffset=-.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);
  assert(integrity&&near(cycles[0].target-cycles[0].entry,20)&&targetAdjustments==1&&slRequests==1&&volumeRequests==1);
  s=prepare(3);mockFillOffset=.01;assert(OpenCycle(15,1,s,quote,70,sl,tp,risk,detail)==G_FILLED);

@@ -14,7 +14,7 @@ source=(ROOT/'src/EA.mq5').read_text()
 # DDThrottleCore e WithdrawalCore nao dependem de nada (funcoes puras de
 # equity/percentuais); ficam juntos dos outros cores novos do R210, antes dos
 # cores congelados do R200.
-names=['XAU_H1_Core.mqh','QuickHarvestCore.mqh','DDThrottleCore.mqh','WithdrawalCore.mqh','EMACrossCore.mqh','ProtectCore.mqh','EntryCore.mqh',
+names=['XAU_H1_Core.mqh','QuickHarvestCore.mqh','DDThrottleCore.mqh','WithdrawalCore.mqh','EMACrossCore.mqh','DoubleSwingCore.mqh','ProtectCore.mqh','EntryCore.mqh',
        'DonchianCore.mqh','HermesCore.mqh','PivotCore.mqh','PivotEntryCore.mqh',
        'PivotRuntime.mqh','Execution.mqh','Reports.mqh']
 ea=source
@@ -26,9 +26,9 @@ assert '#include "' not in ea
 (ROOT/'Hermes_R210.mq5').write_text(ea)
 
 # Cores portaveis para os testes em C++ (mesmo tratamento do R200).
-# Agora sao 11 arquivos ate PivotEntryCore.mqh (7 originais + QuickHarvestCore
-# + DDThrottleCore + WithdrawalCore + EMACrossCore).
-core='\n'.join((ROOT/'src'/n).read_text() for n in names[:11])
+# Agora sao 12 arquivos ate PivotEntryCore.mqh (7 originais + QuickHarvestCore
+# + DDThrottleCore + WithdrawalCore + EMACrossCore + DoubleSwingCore).
+core='\n'.join((ROOT/'src'/n).read_text() for n in names[:12])
 core=re.sub(r'const double &(\w+)\[\]',r'const std::vector<double> &\1',core)
 (ROOT/'tests/Core_Runtime.inc').write_text(core)
 structs='\n'.join(re.findall(r'struct (?:PECycle|PEMonth) \{.*?\};',source,re.S))
@@ -48,24 +48,28 @@ enums='\n'.join(re.findall(r'enum PE_(?:GATE|STAT) \{.*?\};',source,re.S))
 adapter=(ROOT/'src/PivotRuntime.mqh').read_text().replace('MqlRates observed[];', 'std::vector<MqlRates> observed;')
 (ROOT/'tests/PivotAdapter_Runtime.inc').write_text(adapter)
 
-# Nomes dos casos, agora 9 (DCName no EA).
-case_names=re.search(r'string names\[9\]=\{(.*?)\};',source,re.S)[1]
+# Nomes dos casos, agora 10 (DCName no EA). Ancorado no nome da funcao -
+# EntryName() e' outro array de 10 strings (rotulos legados, nao relacionados
+# aos Casos) que colide em tamanho por coincidencia; sem ancorar, re.search
+# acha o primeiro "names[N]" do arquivo (o do EntryName), nao o do DCName.
+case_names=re.search(r'string DCName\(const int id\)\s*\{\s*string names\[10\]=\{(.*?)\};',source,re.S)[1]
 case_names=re.findall(r'"([^"]+)"',case_names)
-assert len(case_names)==9,case_names
+assert len(case_names)==10,case_names
 
 def case_row(i,name):
     extra=i in (2,3)
-    return dict(case=i,name=name,timeframe='M30',
-        entry='ORIGINAL' if i in (1,4,6,7,8,9) else ('ORIGINAL_OR_CAUSAL_LONG_123' if extra else 'QUICK_HARVEST_VOLUME_BURST'),
+    return dict(case=i,name=name,timeframe='M30' if i!=10 else 'M2',
+        entry='ORIGINAL' if i in (1,4,6,7,8,9) else ('ORIGINAL_OR_CAUSAL_LONG_123' if extra
+              else ('QUICK_HARVEST_VOLUME_BURST' if i==5 else 'DOUBLE_SWING_EMA_5_21_50')),
         extra_enabled=extra,
         extra_requires_close_above_SMA200=i==2,extra_requires_rising_SMA200=i==2,
         EMA_period=21,SMA_middle=50,SMA_long=200,ATR_period=14,ADX_period=14,min_ADX=20,
         minimum_entry_distance_ATR=.5,minimum_structural_stop_ATR=1.0,maximum_structural_stop_ATR=2.5,
         stop_buffer_ATR=.2,stop_lookback_closed_bars=3,
-        target_R=5 if i not in (5,8) else ('InpQHTargetR' if i==5 else 'InpBETargetR'),
+        target_R=5 if i not in (5,8,10) else ({5:'InpQHTargetR',8:'InpBETargetR',10:'InpDSTargetR'}[i]),
         sizing='EXACT_FIXED_LOT' if i in (1,2,3) else 'RISK_PERCENT',
         partial=False,adds=0,breakeven=i==8,reinvest=False,
-        dd_throttle=i==6,profit_withdrawal=i==7,ema_cross_filter=i==9,
+        dd_throttle=i==6,profit_withdrawal=i==7,ema_cross_filter=i==9,double_swing_m2=i==10,
         status='CONGELADO_R200' if i in (1,2,3) else 'NOVO_R210_NAO_VALIDADO')
 cases=[case_row(i,name) for i,name in enumerate(case_names,1)]
 
@@ -75,7 +79,8 @@ base=dict(InpCase=1,InpMaxMarginPct=20.0,InpMaxLot=1.0,InpFixedLot=1.0,InpMinEnt
     InpRiskPercent=1.0,InpQHTargetR=1.0,InpQHVolFactor=1.5,InpQHRangeFactor=1.0,
     InpQHMinCloseLoc=0.6,InpQHMinADX=20.0,InpQHMaxSpreadATR=0.10,
     InpDDBand1=15.0,InpDDMult1=0.50,InpDDBand2=25.0,InpDDMult2=0.25,
-    InpWithdrawFraction=0.50,InpBETriggerR=1.00,InpBETargetR=3.00,InpEMACrossLookback=3)
+    InpWithdrawFraction=0.50,InpBETriggerR=1.00,InpBETargetR=3.00,InpEMACrossLookback=3,
+    InpDSToleranceATR=0.50,InpDSTargetR=3.00,InpDSSwingWindow=40,InpDSMaxSpreadATR=0.10)
 assert set(re.findall(r'^input\s+\w+\s+(Inp\w+)',source,re.M))==set(base)
 
 def preset(filename,id,sweep=None,overrides=None):
@@ -91,6 +96,7 @@ def preset(filename,id,sweep=None,overrides=None):
            '; Caso 7: Caso 4 + saque de lucro (InpWithdrawFraction do novo recorde de saldo).',
            '; Caso 8: Caso 4 + breakeven em InpBETriggerR + alvo InpBETargetR (em vez de 5R).',
            '; Caso 9: Caso 4 + exige cruzamento recente de EMA5/EMA21 (InpEMACrossLookback barras).',
+           '; Caso 10: EMA5/21/50 alinhadas + duplo topo/fundo no pullback, alvo InpDSTargetR, TIMEFRAME M2.',
            '; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.']
     for key,value in (base|{'InpCase':id}|overrides).items():
         if key in sweep:
@@ -105,7 +111,7 @@ def preset(filename,id,sweep=None,overrides=None):
     (ROOT/'presets'/filename).write_text('\r\n'.join(lines)+'\r\n')
 
 for old in (ROOT/'presets').glob('*.set'): old.unlink()   # limpa presets herdados do R200
-preset('00_COMPARAR_9_CASOS.set',1,sweep={'InpCase':(1,1,9)})
+preset('00_COMPARAR_10_CASOS.set',1,sweep={'InpCase':(1,1,10)})
 for c in cases:
     if c['case'] in (6,7,8): continue   # Casos 6/7/8 ganham preset proprio abaixo, no mesmo risco-base do Caso 4
     preset(f"CASO_{c['case']:02d}_{c['name']}.set",c['case'])
@@ -137,14 +143,20 @@ preset('CASO_08_HERMES_BREAKEVEN_3R.set',8,overrides={'InpRiskPercent':5.0})
 # mudada e' a exigencia extra de cruzamento EMA5/21 (InpEMACrossLookback=3,
 # primeiro palpite razoavel, nao ajustado na amostra). Preset gerado pelo loop
 # principal acima (Caso 9 nao esta na lista de exclusao).
+# Caso 10, mesma logica do Caso 9: risco-base padrao (1%), sem override -
+# e' um setup de ENTRADA nova (nao existe "Caso 4 em M2" pra comparar risco
+# identico), entao o proprio Caso 4/1 em M30 e' a referencia de trades/DD/
+# meses negativos; timeframe M2 e' a mudanca de fundo, ja embutida no TFName
+# do proprio Caso (nao e' um override de input). Preset gerado pelo loop
+# principal (Caso 10 tambem nao esta na lista de exclusao).
 with (ROOT/'CASOS.csv').open('w',encoding='utf-8-sig',newline='') as f:
     writer=csv.DictWriter(f,list(cases[0]),delimiter=';');writer.writeheader();writer.writerows(cases)
 
 manifest=dict(version='2.10',batch='R210',parent='R200:1(projeto_fonte)',
     source_sha256=hashlib.sha256(ea.encode()).hexdigest(),native_compilation=False,native_backtests=False,
     frozen_from_r200=['XAU_H1_Core.mqh','ProtectCore.mqh','EntryCore.mqh','DonchianCore.mqh','HermesCore.mqh','Execution.mqh','PivotCore.mqh','PivotRuntime.mqh','Reports.mqh'],
-    changed=['EA.mq5','PivotEntryCore.mqh'],added=['QuickHarvestCore.mqh','DDThrottleCore.mqh','WithdrawalCore.mqh','EMACrossCore.mqh'],
+    changed=['EA.mq5','PivotEntryCore.mqh'],added=['QuickHarvestCore.mqh','DDThrottleCore.mqh','WithdrawalCore.mqh','EMACrossCore.mqh','DoubleSwingCore.mqh'],
     cases=cases,
-    note='Casos 4, 5, 6, 7, 8 e 9 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Ver MUDANCAS_R210.md.')
+    note='Casos 4-10 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Caso 10 roda em M2, nunca testado antes neste projeto. Ver MUDANCAS_R210.md.')
 (ROOT/'MANIFESTO_R210.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
-print('R210: 9 casos, 12 presets, single-file Hermes_R210.mq5 gerado. Sem compilacao/backtest MQL5.')
+print('R210: 10 casos, 13 presets, single-file Hermes_R210.mq5 gerado. Sem compilacao/backtest MQL5.')

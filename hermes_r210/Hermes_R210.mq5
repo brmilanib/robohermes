@@ -312,6 +312,119 @@ int EMACrossGate(const int side,const double &ema5[],const double &ema21[],const
 }
 #endif
 
+#ifndef HERMES_DOUBLESWING_CORE_210
+#define HERMES_DOUBLESWING_CORE_210
+// Caso 10 - "Duplo Topo/Fundo + EMA 5/21/50" (M2). Baseado num setup manual
+// do proprietario: as 3 EMAs alinhadas definem a tendencia; dentro de um
+// pullback contra essa tendencia, dois fundos (compra) ou dois topos (venda)
+// COMPARAVEIS - um fractal de 2 barras de cada lado, a mesma tecnica do
+// detector de pivo do projeto (PivotCore.mqh) - formam a estrutura. O
+// rompimento, no FECHAMENTO da barra de sinal, da maior alta entre os dois
+// fundos (compra) ou da menor baixa entre os dois topos (venda) - a
+// "neckline" - dispara a entrada NA MESMA direcao da tendencia (continuacao,
+// nao reversao). Stop alem do extremo mais distante do par (o motor de
+// H1Levels ja existente aplica o buffer de 0.20*ATR de sempre). Alvo fixo em
+// multiplos do risco inicial (InpDSTargetR, padrao 3R).
+//
+// Funcao pura, testavel fora do MT5. So le barras FECHADAS: lows[]/highs[]
+// em ordem DECRESCENTE de tempo (indice 0 = barra imediatamente ANTERIOR a
+// barra de sinal, mesma convencao ArraySetAsSeries do resto do projeto);
+// closeSignal e' o fechamento da propria barra de sinal, passado separado -
+// ela nunca faz parte da estrutura que rompe.
+
+enum DS_GATE
+{
+   DS_READY=0,
+   DS_DATA=500,     // dados invalidos (janela curta demais, ATR<=0, NaN)
+   DS_TREND,        // EMA5/21/50 nao alinhadas em nenhuma direcao
+   DS_NO_SWINGS,    // nao achou dois fractais na janela
+   DS_TOLERANCE,    // os dois fractais nao sao "duplos" (fora da tolerancia)
+   DS_NO_BREAK,     // barra de sinal nao rompeu a neckline
+   DS_DISTANCE,     // impulso minimo desde a EMA5 nao atingido
+   DS_SPREAD        // spread grande demais (guarda de custo obrigatoria)
+};
+
+// Acha o fractal LOW mais recente e o anterior a ele em lows[0..n-1] (ordem
+// decrescente de tempo). aIdx = mais recente, bIdx = mais antigo. neckline =
+// maior high entre os dois (exclusive das pontas). false se nao achou dois.
+bool DSFindDoubleLow(const double &lows[],const double &highs[],const int n,
+                     int &aIdx,int &bIdx,double &neckline)
+{
+   aIdx=-1; bIdx=-1;
+   for(int i=2;i<=n-3;i++)
+     {
+      bool isFractal=true;
+      for(int j=i-2;j<=i+2;j++) if(j!=i && lows[j]<=lows[i]) { isFractal=false; break; }
+      if(!isFractal) continue;
+      if(aIdx<0) aIdx=i;
+      else { bIdx=i; break; }
+     }
+   if(aIdx<0 || bIdx<0) return false;
+   neckline=highs[aIdx+1];
+   for(int k=aIdx+2;k<bIdx;k++) neckline=MathMax(neckline,highs[k]);
+   return true;
+}
+// Espelho para topo duplo (venda): fractal HIGH, neckline = menor low entre eles.
+bool DSFindDoubleHigh(const double &lows[],const double &highs[],const int n,
+                      int &aIdx,int &bIdx,double &neckline)
+{
+   aIdx=-1; bIdx=-1;
+   for(int i=2;i<=n-3;i++)
+     {
+      bool isFractal=true;
+      for(int j=i-2;j<=i+2;j++) if(j!=i && highs[j]>=highs[i]) { isFractal=false; break; }
+      if(!isFractal) continue;
+      if(aIdx<0) aIdx=i;
+      else { bIdx=i; break; }
+     }
+   if(aIdx<0 || bIdx<0) return false;
+   neckline=lows[aIdx+1];
+   for(int k=aIdx+2;k<bIdx;k++) neckline=MathMin(neckline,lows[k]);
+   return true;
+}
+
+// side: +1 (compra, fundo duplo) ou -1 (venda, topo duplo) na saida. stop =
+// extremo mais distante do par (SEM buffer - quem aplica o buffer de
+// 0.20*ATR e' o H1Levels ja existente, reaproveitado por fora desta funcao).
+int DSGate(const double ema5,const double ema21,const double ema50,
+           const double closeSignal,const double &lows[],const double &highs[],const int n,
+           const double atr,const double toleranceATR,const double minEntryDistATR,
+           const double ask,const double bid,const double maxSpreadATR,
+           double &stop,double &neckline,int &side)
+{
+   side=0; stop=0; neckline=0;
+   if(n<5 || atr<=0 || !MathIsValidNumber(ema5) || !MathIsValidNumber(ema21) ||
+      !MathIsValidNumber(ema50) || !MathIsValidNumber(closeSignal) ||
+      !MathIsValidNumber(ask) || !MathIsValidNumber(bid) || ask<bid) return DS_DATA;
+
+   bool buyTrend=ema5>ema21 && ema21>ema50;
+   bool sellTrend=ema5<ema21 && ema21<ema50;
+   if(!buyTrend && !sellTrend) return DS_TREND;
+
+   int aIdx=-1,bIdx=-1; double neck=0;
+   if(buyTrend)
+     {
+      if(!DSFindDoubleLow(lows,highs,n,aIdx,bIdx,neck)) return DS_NO_SWINGS;
+      if(toleranceATR<=0 || MathAbs(lows[aIdx]-lows[bIdx])>toleranceATR*atr+1e-8) return DS_TOLERANCE;
+      if(!(closeSignal>neck)) return DS_NO_BREAK;
+      if(!(ask-ema5>=minEntryDistATR*atr-1e-8)) return DS_DISTANCE;
+      if(!(maxSpreadATR>0 && (ask-bid)<=maxSpreadATR*atr+1e-8)) return DS_SPREAD;
+      side=1; stop=MathMin(lows[aIdx],lows[bIdx]); neckline=neck;
+      return DS_READY;
+     }
+   else
+     {
+      if(!DSFindDoubleHigh(lows,highs,n,aIdx,bIdx,neck)) return DS_NO_SWINGS;
+      if(toleranceATR<=0 || MathAbs(highs[aIdx]-highs[bIdx])>toleranceATR*atr+1e-8) return DS_TOLERANCE;
+      if(!(closeSignal<neck)) return DS_NO_BREAK;
+      if(!(ema5-bid>=minEntryDistATR*atr-1e-8)) return DS_DISTANCE;
+      if(!(maxSpreadATR>0 && (ask-bid)<=maxSpreadATR*atr+1e-8)) return DS_SPREAD;
+      side=-1; stop=MathMax(highs[aIdx],highs[bIdx]); neckline=neck;
+      return DS_READY;
+     }
+}
+#endif
+
 #ifndef XAU_PROTECT_CORE_150
 #define XAU_PROTECT_CORE_150
 // Platform-independent decisions, shared unchanged with the local C++ tests.
@@ -999,15 +1112,15 @@ struct HPDecision
 };
 bool HPSelectProfile(const int id,DCProfile &d,EVOProfile &e,PEProfile &p)
 {
- if(id<1 || id>9 || !DCSelectProfile(2,d,e,p)) return false;
+ if(id<1 || id>10 || !DCSelectProfile(2,d,e,p)) return false;
  d.id=id; d.matchedControl=2; e.matchedControl=2;
  // Casos 4 (Referencia + risco), 5 (Colheita Rapida), 6 (freio por
- // rebaixamento), 7 (saque de lucro), 8 (breakeven+alvo 3R) e 9 (filtro de
- // cruzamento EMA5/21), todos sobre o Caso 4: MESMO motor de execucao, porem
- // sizing por % do patrimonio em vez de lote fixo. O EA sobrescreve
- // d.riskPercent com InpRiskPercent (e, so no Caso 8, p.be15 com
- // InpBETriggerR) logo apos esta selecao.
- const bool riskSized=(id==4 || id==5 || id==6 || id==7 || id==8 || id==9);
+ // rebaixamento), 7 (saque de lucro), 8 (breakeven+alvo 3R), 9 (filtro de
+ // cruzamento EMA5/21) e 10 (duplo topo/fundo + EMA5/21/50 em M2), todos
+ // sobre o Caso 4: MESMO motor de execucao, porem sizing por % do patrimonio
+ // em vez de lote fixo. O EA sobrescreve d.riskPercent com InpRiskPercent
+ // (e, so no Caso 8, p.be15 com InpBETriggerR) logo apos esta selecao.
+ const bool riskSized=(id==4 || id==5 || id==6 || id==7 || id==8 || id==9 || id==10);
  if(riskSized) { d.fixedLot=false; if(!(d.riskPercent>0.0 && d.riskPercent<=2.0)) d.riskPercent=1.0; }
  // A referencia herdada e volume (exato ou por risco), 5R, so compra, uma perna.
  return (riskSized ? !d.fixedLot : d.fixedLot) && !d.weekly && d.targetMode==0 && d.channelMode==0
@@ -1018,8 +1131,8 @@ int HPExtraGate(const int id,const H1Signal &s,const EVOFeatures &f,
                 const double ask,const double old200,const double minimumDistance,
                 const bool pivotDataReady,const HPSignal &pivot)
 {
- if(id<1 || id>9) return HP_INVALID_CASE;
- if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5, 6, 7, 8 e 9 nao usam a rota de pivo
+ if(id<1 || id>10) return HP_INVALID_CASE;
+ if(id==1 || id>=4) return HP_DISABLED;   // Casos 1, 4, 5, 6, 7, 8, 9 e 10 nao usam a rota de pivo
  if(!pivotDataReady) return HP_DATA_PENDING;
  if(!pivot.buy) return HP_NO_CANDIDATE;
  if(!(s.ema>s.sma50 && s.sma50>s.oldSma50)) return HP_TREND50;
@@ -1040,7 +1153,7 @@ void HPRouteEntry(const int id,const EVOProfile &e,const H1Signal &s,const EVOFe
  out.original_gate=EVOEvaluate(e,s,f,ask,old200,minimumDistance,false,out.side);
  out.extra_gate=HPExtraGate(id,s,f,ask,old200,minimumDistance,pivotDataReady,pivot);
  out.setup=out.original_gate;
- if(id<1 || id>9) { out.setup=HP_INVALID_CASE; out.side=0; return; }
+ if(id<1 || id>10) { out.setup=HP_INVALID_CASE; out.side=0; return; }
  if(out.original_gate==0) { out.path=HP_BASE; return; }
  if(out.extra_gate==0) { out.setup=0; out.side=1; out.path=HP_PIVOT; }
 }
@@ -1081,6 +1194,11 @@ input double InpBETriggerR=1.00; // Caso 8: quando o trade atinge esse R de lucr
 input double InpBETargetR=3.00;  // Caso 8: alvo fixo, multiplo do risco inicial (em vez do 5R padrao)
 // --- Caso 9: exige cruzamento RECENTE de EMA5/EMA21 na direcao da entrada original (Caso 4), alem de tudo mais ---
 input int InpEMACrossLookback=3; // Caso 9: janela (barras fechadas) em que o cruzamento precisa ter ocorrido
+// --- Caso 10: duplo topo/fundo + EMA5/21/50 em M2 (setup manual do proprietario) ---
+input double InpDSToleranceATR=0.50; // Caso 10: diferenca maxima entre os 2 extremos p/ contar como "duplo"
+input double InpDSTargetR=3.00;      // Caso 10: alvo fixo, multiplo do risco inicial
+input int InpDSSwingWindow=40;       // Caso 10: barras fechadas anteriores ao sinal onde procurar os 2 fractais
+input double InpDSMaxSpreadATR=0.10; // Caso 10: guarda de custo obrigatoria: spread <= fator*ATR (M2)
 
 enum PE_GATE { G_NO_DATA=0,G_BASE,G_DIRECTION,G_DISTANCE,G_REGIME,G_POSITION,
  G_SPREAD,G_STOP,G_BROKER_STOPS,G_RISK,G_MARGIN_ERROR,G_MARGIN_BLOCK,G_REJECTED,G_FILLED,G_HALTED,G_ENTRY_FILTER,G_TARGET,G_COUNT };
@@ -1138,7 +1256,7 @@ CTrade trade;
 PECycle cycles[];
 PEMonth months[];
 int active=-1;
-int hEMA=INVALID_HANDLE,h50=INVALID_HANDLE,h200=INVALID_HANDLE,hADX=INVALID_HANDLE,hATR=INVALID_HANDLE,hEMA5=INVALID_HANDLE;
+int hEMA=INVALID_HANDLE,h50=INVALID_HANDLE,h200=INVALID_HANDLE,hADX=INVALID_HANDLE,hATR=INVALID_HANDLE,hEMA5=INVALID_HANDLE,hEMA50=INVALID_HANDLE;
 int barsFile=INVALID_HANDLE,eventsFile=INVALID_HANDLE,optFile=INVALID_HANDLE,optMonths=INVALID_HANDLE,optShadow=INVALID_HANDLE,optFiles=INVALID_HANDLE;
 string folder="",optFolder="",lastReason="";
 bool ioFailure=false; long barRows=0;
@@ -1168,13 +1286,13 @@ string EntryName(const int k)
  }
 string DCName(const int id)
  {
-  string names[9]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA","HERMES_DD_THROTTLE","HERMES_SAQUE_LUCRO","HERMES_BREAKEVEN_3R","HERMES_CRUZAMENTO_EMA"};
-  return id>=1 && id<=9 ? names[id-1] : "INVALID";
+  string names[10]={"HERMES_REFERENCIA","HERMES_PIVO_CONTINUIDADE","HERMES_PIVO_INICIO","HERMES_RISCO_REF","HERMES_COLHEITA_RAPIDA","HERMES_DD_THROTTLE","HERMES_SAQUE_LUCRO","HERMES_BREAKEVEN_3R","HERMES_CRUZAMENTO_EMA","HERMES_DUPLO_M2"};
+  return id>=1 && id<=10 ? names[id-1] : "INVALID";
  }
 string ProfileName(const int id) { return DCName(id); }
-string TFName(const int id) { return "M30"; }
+string TFName(const int id) { return id==10 ? "M2" : "M30"; }
 string TargetUnitName() { return dc.targetMode==1 ? "QUOTE_PRICE" : (dc.targetMode==2 ? "MT5_POINT" : "INITIAL_STOP_R"); }
-string TargetLabel() { return dc.targetMode==1 ? "20.00 unidades de preco" : (dc.targetMode==2 ? "20 pontos MT5" : (InpCase==5 ? DoubleToString(InpQHTargetR,2)+"R" : "5R")); }
+string TargetLabel() { return dc.targetMode==1 ? "20.00 unidades de preco" : (dc.targetMode==2 ? "20 pontos MT5" : DoubleToString(InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : (InpCase==10 ? InpDSTargetR : 5.0)),2)+"R"); }
 bool LoadDonchian(const datetime cutoff)
  {
   channelReady=false; channelUpper=0; channelLower=0; channelBars=0;
@@ -1345,6 +1463,23 @@ bool ReadEMACross(const int lookback,double &ema5[],double &ema21[])
    if(!ReadValue(hEMA5,0,i+1,ema5[i]) || !ReadValue(hEMA,0,i+1,ema21[i])) return false;
   return true;
  }
+// Caso 10 (Duplo topo/fundo + EMA5/21/50, M2): EMA5/21/50 atuais e a janela
+// de barras FECHADAS anteriores a barra de sinal (p/ achar os 2 fractais).
+// closeSignal = fechamento da propria barra de sinal (shift1); lows[]/highs[]
+// = shift2..shift(window+1), ordem decrescente de tempo (indice 0 = mais
+// recente das barras de estrutura) - nunca inclui a barra de sinal em si.
+bool ReadDoubleSwing(const int window,double &ema5,double &ema21,double &ema50,
+                     double &closeSignal,double &lows[],double &highs[])
+ {
+  if(!ReadValue(hEMA5,0,1,ema5) || !ReadValue(hEMA,0,1,ema21) || !ReadValue(hEMA50,0,1,ema50)) return false;
+  int need=window+1;
+  MqlRates r[]; ArraySetAsSeries(r,true);
+  if(CopyRates(_Symbol,signalTF,1,need,r)!=need) return false;
+  closeSignal=r[0].close;
+  ArrayResize(lows,window); ArrayResize(highs,window);
+  for(int i=0;i<window;i++) { lows[i]=r[i+1].low; highs[i]=r[i+1].high; }
+  return true;
+ }
 // MT5 history adapter. No current candle OHLC enters the detector.
 // Copy/validation is transactional: incomplete catch-up never corrupts state.
 string HPPathName(const int path)
@@ -1430,7 +1565,7 @@ void Record(const PE_GATE gate,const int setup,const int origin,const H1Signal &
   Cell(row,N(AccountInfoDouble(ACCOUNT_MARGIN))); Cell(row,N(minimumLotRiskMoney)); Cell(row,N(minimumLotRiskPercent));
   Cell(row,N(minimumEquityForLot)); Cell(row,N(minimumLotMargin));
   Cell(row,I(dc.sourceControl180)); Cell(row,I(dc.matchedControl)); Cell(row,I(dc.fixedLot)); Cell(row,TargetUnitName());
-  Cell(row,N(dc.targetMode==0 ? (InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : 5)) : 20)); Cell(row,N(plannedTargetDistance)); Cell(row,N(plannedTargetRiskRatio)); Cell(row,N(plannedTargetProfit));
+  Cell(row,N(dc.targetMode==0 ? (InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : (InpCase==10 ? InpDSTargetR : 5))) : 20)); Cell(row,N(plannedTargetDistance)); Cell(row,N(plannedTargetRiskRatio)); Cell(row,N(plannedTargetProfit));
   Cell(row,I(hpDataReady)); Cell(row,hpStatus); Cell(row,I(hpSignal.buy));
   Cell(row,I(hpRoute.original_gate)); Cell(row,I(hpRoute.extra_gate)); Cell(row,HPPathName(hpRoute.path));
   Cell(row,TS((datetime)hpSignal.signal_time)); Cell(row,TS((datetime)hpSignal.available_time));
@@ -1816,7 +1951,7 @@ PE_GATE OpenCycle(const int origin,const int side,const H1Signal &s,const MqlTic
  {
   double tick=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE),entry=side==1 ? q.ask : q.bid;
   H1Signal setup=s; if(evo.entryPolicy==8) { setup.lowest=pivotSwing; setup.highest=pivotSwing; }
-  double reward=(InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : 5.0));   // Caso 5: alvo curto em R; Caso 8: 3R padrao
+  double reward=(InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : (InpCase==10 ? InpDSTargetR : 5.0)));   // Caso 5: alvo curto em R; Caso 8/10: 3R padrao
   if(!H1Levels(side,entry,setup,.20,1.0,2.5,reward,tick,sl,tp)) return G_STOP;
   // Original structural stop is retained in every case.
   if(dc.minimumStopATR>1.0 && !DCStructuralStopAccepted(entry,sl,s.atr,dc.minimumStopATR)) {
@@ -1986,6 +2121,22 @@ void OnTick()
    hpRoute.original_gate=qgate; hpRoute.extra_gate=HP_DISABLED;
    hpRoute.setup=(qgate==QH_READY ? 0 : qgate); hpRoute.side=qside;
    hpRoute.path=(qgate==QH_READY ? HP_BASE : HP_NONE);
+  } else if(InpCase==10) {
+   // Caso 10 (Duplo topo/fundo + EMA5/21/50, M2): rota propria.
+   double ds5=0,ds21=0,ds50=0,dsClose=0,dsLows[],dsHighs[];
+   bool dsok=ReadDoubleSwing(InpDSSwingWindow,ds5,ds21,ds50,dsClose,dsLows,dsHighs);
+   int dside=0; double dsStop=0,dsNeck=0;
+   int dgate=dsok ? DSGate(ds5,ds21,ds50,dsClose,dsLows,dsHighs,InpDSSwingWindow,s.atr,
+                           InpDSToleranceATR,InpMinEntryATR,q.ask,q.bid,InpDSMaxSpreadATR,
+                           dsStop,dsNeck,dside) : DS_DATA;
+   hpRoute.original_gate=dgate; hpRoute.extra_gate=HP_DISABLED;
+   hpRoute.setup=(dgate==DS_READY ? 0 : dgate); hpRoute.side=dside;
+   hpRoute.path=(dgate==DS_READY ? HP_BASE : HP_NONE);
+   // O motor de stop (H1Levels, dentro de OpenCycle) usa s.lowest/s.highest;
+   // sobrescrever aqui reaproveita o mesmo buffer de 0.20*ATR e os mesmos
+   // limites de distancia (1.0-2.5 ATR) de todos os outros casos, sem tocar
+   // em OpenCycle/H1Levels.
+   if(dgate==DS_READY) { if(dside==1) s.lowest=dsStop; else s.highest=dsStop; }
   } else {
    HPRouteEntry(InpCase,evo,s,features,q.ask,oldSMA200,minimumEntryDistance,
                 hpDataReady,hpSignal,hpRoute);
@@ -2030,7 +2181,7 @@ bool WriteParameters()
   KV(f,"risk_percent",N(dc.riskPercent)); KV(f,"margin_cap_percent",dc.fixedLot ? "no_extra_percent_cap_free_margin_only" : N(InpMaxMarginPct));
   KV(f,"max_lot",dc.fixedLot ? N(InpFixedLot) : N(InpMaxLot)); KV(f,"initial_lot_reference",N(InpFixedLot));
   KV(f,"fixed_lot_mode",I(dc.fixedLot)); KV(f,"capital_mode",dc.fixedLot ? "EXACT_FIXED_LOT" : "EQUITY_RISK_2PCT");
-  double nominalReward=(InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : 5.0));
+  double nominalReward=(InpCase==5 ? InpQHTargetR : (InpCase==8 ? InpBETargetR : (InpCase==10 ? InpDSTargetR : 5.0)));
   KV(f,"target_unit",TargetUnitName()); KV(f,"target_unit_code",I(dc.targetMode)); KV(f,"target_value",dc.targetMode==0 ? N(nominalReward) : "20");
   KV(f,"resolved_target_distance_price",N(HermesTargetDistance(dc.targetMode,_Point)));
   KV(f,"target_R",dc.targetMode==0 ? N(nominalReward)+"R" : "variable_target_divided_by_original_stop"); KV(f,"partial_enabled","0"); KV(f,"BE_trigger_R","0"); KV(f,"max_adds","0");
@@ -2104,7 +2255,13 @@ int OnInit()
   if(InpCase==9) {
    if(InpEMACrossLookback<1 || InpEMACrossLookback>20) return INIT_PARAMETERS_INCORRECT;
   }
-  signalTF=PERIOD_M30; HPCoreReset(hpState); HPClearSignal(hpSignal);
+  if(InpCase==10) {
+   if(!MathIsValidNumber(InpDSToleranceATR) || InpDSToleranceATR<=0 ||
+      !MathIsValidNumber(InpDSTargetR) || InpDSTargetR<=0 || InpDSTargetR>10 ||
+      InpDSSwingWindow<5 || InpDSSwingWindow>500 ||
+      !MathIsValidNumber(InpDSMaxSpreadATR) || InpDSMaxSpreadATR<=0) return INIT_PARAMETERS_INCORRECT;
+  }
+  signalTF=(InpCase==10) ? PERIOD_M2 : PERIOD_M30; HPCoreReset(hpState); HPClearSignal(hpSignal);
   if(_Period!=signalTF) { Print("Caso ",InpCase," exige ",TFName(InpCase)," no testador."); return INIT_PARAMETERS_INCORRECT; }
   if(!MathIsValidNumber(InpMaxMarginPct) || InpMaxMarginPct<=0 || InpMaxMarginPct>50 ||
      !MathIsValidNumber(InpMaxLot) || InpMaxLot<=0) return INIT_PARAMETERS_INCORRECT;
@@ -2123,9 +2280,10 @@ int OnInit()
   TesterHideIndicators(true); hEMA=iMA(_Symbol,signalTF,21,0,MODE_EMA,PRICE_CLOSE);
   if(!dc.weekly) { h50=iMA(_Symbol,signalTF,50,0,MODE_SMA,PRICE_CLOSE); h200=iMA(_Symbol,signalTF,200,0,MODE_SMA,PRICE_CLOSE); }
   hADX=iADX(_Symbol,signalTF,14); hATR=iATR(_Symbol,signalTF,14);
-  if(InpCase==9) hEMA5=iMA(_Symbol,signalTF,5,0,MODE_EMA,PRICE_CLOSE); // Caso 9: EMA rapida p/ cruzamento com hEMA (21)
+  if(InpCase==9 || InpCase==10) hEMA5=iMA(_Symbol,signalTF,5,0,MODE_EMA,PRICE_CLOSE); // Caso 9/10: EMA rapida (cruzamento com hEMA=21, ou 3a media do Caso 10)
+  if(InpCase==10) hEMA50=iMA(_Symbol,signalTF,50,0,MODE_EMA,PRICE_CLOSE); // Caso 10: 3a media (5/21/50)
   if(hEMA==INVALID_HANDLE || (!dc.weekly && (h50==INVALID_HANDLE || h200==INVALID_HANDLE)) || hADX==INVALID_HANDLE || hATR==INVALID_HANDLE ||
-     (InpCase==9 && hEMA5==INVALID_HANDLE)) return INIT_FAILED;
+     ((InpCase==9 || InpCase==10) && hEMA5==INVALID_HANDLE) || (InpCase==10 && hEMA50==INVALID_HANDLE)) return INIT_FAILED;
   trade.SetExpertMagicNumber(InpMagic); trade.SetDeviationInPoints(InpDeviationPoints); trade.SetAsyncMode(false); trade.SetTypeFillingBySymbol(_Symbol);
   ArrayInitialize(counters,0); priorEquity=AccountInfoDouble(ACCOUNT_EQUITY); priorBalance=AccountInfoDouble(ACCOUNT_BALANCE);
   ddPeakEquity=priorEquity;

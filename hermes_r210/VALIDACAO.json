@@ -1,8 +1,8 @@
 {
   "version": "2.10",
-  "source_sha256": "7994de4b1083906208c772d54956e6c31976230f0be11699d6a5846d8f173333",
-  "cases": 9,
-  "presets": 12,
+  "source_sha256": "c4b0889043ddc352bf460336aebc1a6e45ac2f4571144af233abb72c2978f595",
+  "cases": 10,
+  "presets": 13,
   "statistics_fields": 116,
   "frozen_cores_identical_to_r200": true,
   "changed_files": [
@@ -13,7 +13,8 @@
     "QuickHarvestCore.mqh",
     "DDThrottleCore.mqh",
     "WithdrawalCore.mqh",
-    "EMACrossCore.mqh"
+    "EMACrossCore.mqh",
+    "DoubleSwingCore.mqh"
   ],
   "local_tests": [
     {
@@ -75,9 +76,14 @@
       "test": "test_ema_cross",
       "passed": true,
       "output": "Cruzamento EMA5/21 (Caso 9): compra, venda, alinhamento antigo sem cruzar, desalinhado agora, borda da janela, toque exato, lado/janela/dados invalidos passaram."
+    },
+    {
+      "test": "test_double_swing",
+      "passed": true,
+      "output": "Duplo topo/fundo + EMA (Caso 10): compra, venda, tendencia desalinhada, fractal unico, tolerancia (fora/limite), rompimento (falta/exato), distancia, spread, dados invalidos passaram."
     }
   ],
   "native_MQL5_compilation": false,
   "native_MT5_backtests": false,
-  "note": "Casos 4/5/6/7/8/9 sao hipoteses NAO validadas. Exigem backtest MT5 com custos realistas e validacao fora da amostra antes de qualquer conclusao de lucro. Sem simulacao de PnL aqui."
+  "note": "Casos 4-10 sao hipoteses NAO validadas. Caso 10 roda em M2 (nunca testado neste projeto). Exigem backtest MT5 com custos realistas e validacao fora da amostra antes de qualquer conclusao de lucro. Sem simulacao de PnL aqui."
 }

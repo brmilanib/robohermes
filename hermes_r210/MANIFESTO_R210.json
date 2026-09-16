@@ -2,7 +2,7 @@
   "version": "2.10",
   "batch": "R210",
   "parent": "R200:1(projeto_fonte)",
-  "source_sha256": "7994de4b1083906208c772d54956e6c31976230f0be11699d6a5846d8f173333",
+  "source_sha256": "c4b0889043ddc352bf460336aebc1a6e45ac2f4571144af233abb72c2978f595",
   "native_compilation": false,
   "native_backtests": false,
   "frozen_from_r200": [
@@ -24,7 +24,8 @@
     "QuickHarvestCore.mqh",
     "DDThrottleCore.mqh",
     "WithdrawalCore.mqh",
-    "EMACrossCore.mqh"
+    "EMACrossCore.mqh",
+    "DoubleSwingCore.mqh"
   ],
   "cases": [
     {
@@ -55,6 +56,7 @@
       "dd_throttle": false,
       "profit_withdrawal": false,
       "ema_cross_filter": false,
+      "double_swing_m2": false,
       "status": "CONGELADO_R200"
     },
     {
@@ -85,6 +87,7 @@
       "dd_throttle": false,
       "profit_withdrawal": false,
       "ema_cross_filter": false,
+      "double_swing_m2": false,
       "status": "CONGELADO_R200"
     },
     {
@@ -115,6 +118,7 @@
       "dd_throttle": false,
       "profit_withdrawal": false,
       "ema_cross_filter": false,
+      "double_swing_m2": false,
       "status": "CONGELADO_R200"
     },
     {
@@ -145,6 +149,7 @@
       "dd_throttle": false,
       "profit_withdrawal": false,
       "ema_cross_filter": false,
+      "double_swing_m2": false,
       "status": "NOVO_R210_NAO_VALIDADO"
     },
     {
@@ -175,6 +180,7 @@
       "dd_throttle": false,
       "profit_withdrawal": false,
       "ema_cross_filter": false,
+      "double_swing_m2": false,
       "status": "NOVO_R210_NAO_VALIDADO"
     },
     {
@@ -205,6 +211,7 @@
       "dd_throttle": true,
       "profit_withdrawal": false,
       "ema_cross_filter": false,
+      "double_swing_m2": false,
       "status": "NOVO_R210_NAO_VALIDADO"
     },
     {
@@ -235,6 +242,7 @@
       "dd_throttle": false,
       "profit_withdrawal": true,
       "ema_cross_filter": false,
+      "double_swing_m2": false,
       "status": "NOVO_R210_NAO_VALIDADO"
     },
     {
@@ -265,6 +273,7 @@
       "dd_throttle": false,
       "profit_withdrawal": false,
       "ema_cross_filter": false,
+      "double_swing_m2": false,
       "status": "NOVO_R210_NAO_VALIDADO"
     },
     {
@@ -295,8 +304,40 @@
       "dd_throttle": false,
       "profit_withdrawal": false,
       "ema_cross_filter": true,
+      "double_swing_m2": false,
+      "status": "NOVO_R210_NAO_VALIDADO"
+    },
+    {
+      "case": 10,
+      "name": "HERMES_DUPLO_M2",
+      "timeframe": "M2",
+      "entry": "DOUBLE_SWING_EMA_5_21_50",
+      "extra_enabled": false,
+      "extra_requires_close_above_SMA200": false,
+      "extra_requires_rising_SMA200": false,
+      "EMA_period": 21,
+      "SMA_middle": 50,
+      "SMA_long": 200,
+      "ATR_period": 14,
+      "ADX_period": 14,
+      "min_ADX": 20,
+      "minimum_entry_distance_ATR": 0.5,
+      "minimum_structural_stop_ATR": 1.0,
+      "maximum_structural_stop_ATR": 2.5,
+      "stop_buffer_ATR": 0.2,
+      "stop_lookback_closed_bars": 3,
+      "target_R": "InpDSTargetR",
+      "sizing": "RISK_PERCENT",
+      "partial": false,
+      "adds": 0,
+      "breakeven": false,
+      "reinvest": false,
+      "dd_throttle": false,
+      "profit_withdrawal": false,
+      "ema_cross_filter": false,
+      "double_swing_m2": true,
       "status": "NOVO_R210_NAO_VALIDADO"
     }
   ],
-  "note": "Casos 4, 5, 6, 7, 8 e 9 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Ver MUDANCAS_R210.md."
+  "note": "Casos 4-10 sao hipoteses NAO validadas: exigem backtest MT5 com custos realistas e validacao fora da amostra. Caso 10 roda em M2, nunca testado antes neste projeto. Ver MUDANCAS_R210.md."
 }

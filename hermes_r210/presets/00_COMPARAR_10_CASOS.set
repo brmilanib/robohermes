@@ -8,7 +8,7 @@
 ; Caso 9: Caso 4 + exige cruzamento recente de EMA5/EMA21 (InpEMACrossLookback barras).
 ; Caso 10: EMA5/21/50 alinhadas + duplo topo/fundo no pullback, alvo InpDSTargetR, TIMEFRAME M2.
 ; Datas, deposito, alavancagem, modelagem e CUSTOS nao sao definidos por .set.
-InpCase=7||7||1||7||N
+InpCase=1||1||1||10||Y
 InpMaxMarginPct=20.0||20.0||0.01||20.0||N
 InpMaxLot=1.0||1.0||0.01||1.0||N
 InpFixedLot=1.0||1.0||0.01||1.0||N
@@ -21,7 +21,7 @@ InpShowIndicators=false||false||0||true||N
 InpExportOptimizationDetails=true||false||0||true||N
 InpExportAllBars=true||false||0||true||N
 InpRunTag=R210_01
-InpRiskPercent=5.0||5.0||0.01||5.0||N
+InpRiskPercent=1.0||1.0||0.01||1.0||N
 InpQHTargetR=1.0||1.0||0.01||1.0||N
 InpQHVolFactor=1.5||1.5||0.01||1.5||N
 InpQHRangeFactor=1.0||1.0||0.01||1.0||N

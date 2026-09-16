@@ -22,15 +22,16 @@ int main()
   HPRouteEntry(id,e,s,f,112,99,.5,false,pivot,out);
   assert(out.setup==0&&out.path==HP_BASE); // Missing pivot data cannot suppress original.
  }
- assert(!HPSelectProfile(0,d,e,p)&&!HPSelectProfile(10,d,e,p));
+ assert(!HPSelectProfile(0,d,e,p)&&!HPSelectProfile(11,d,e,p));
  // R210: casos 4 (Referencia + risco), 5 (Colheita Rapida), 6 (Caso 4 + freio
- // de rebaixamento), 7 (Caso 4 + saque de lucro), 8 (Caso 4 + breakeven+3R) e
- // 9 (Caso 4 + filtro de cruzamento EMA5/21) sao validos e usam sizing por
- // risco (fixedLot=false, riskPercent em (0,2] - o EA sobrescreve com
- // InpRiskPercent, ate 5, depois). O be15==0 aqui e' o valor de FABRICA
- // (antes do EA sobrescrever com InpBETriggerR pro Caso 8 - fora do escopo
- // deste arquivo, que so testa o roteamento puro).
- for(int id:{4,5,6,7,8,9}) {
+ // de rebaixamento), 7 (Caso 4 + saque de lucro), 8 (Caso 4 + breakeven+3R),
+ // 9 (Caso 4 + filtro de cruzamento EMA5/21) e 10 (duplo topo/fundo + EMA
+ // 5/21/50 em M2) sao validos e usam sizing por risco (fixedLot=false,
+ // riskPercent em (0,2] - o EA sobrescreve com InpRiskPercent, ate 5,
+ // depois). O be15==0 aqui e' o valor de FABRICA (antes do EA sobrescrever
+ // com InpBETriggerR pro Caso 8 - fora do escopo deste arquivo, que so testa
+ // o roteamento puro).
+ for(int id:{4,5,6,7,8,9,10}) {
   assert(HPSelectProfile(id,d,e,p));
   assert(!d.fixedLot && d.riskPercent>0.0 && d.riskPercent<=2.0 && d.targetMode==0);
   assert(d.matchedControl==2 && !p.reinvest && !p.partial && p.be15==0 && p.addFraction==0);
