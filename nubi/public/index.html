@@ -660,6 +660,47 @@ function grafDispersao(box, pts, {altura = 320}) {
   alvo.addEventListener("pointerleave", esconderTip);
   alvo.addEventListener("click", () => { if (perto) abrirMarcaRanking(perto.nome); });
 }
+// Entradas (para cima) e saídas (para baixo) do ranking em cada mês.
+function grafEntSai(box, M, ent, sai) {
+  box.replaceChildren();
+  const W = Math.max(320, box.clientWidth), H = 230, m = {l: 40, r: 10, t: 18, b: 40};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b, n = M.length;
+  const mx = Math.max(1, ...M.map(x => Math.max(x.entradas, x.saidas)));
+  const tk = passos(0, mx, 2), hi = tk[tk.length - 1], zero = m.t + ih / 2, esc2 = v => v / hi * (ih / 2);
+  const svg = svgEl("svg", {width: W, height: H, viewBox: `0 0 ${W} ${H}`}, box);
+  const g = svgEl("g", {class: "grid"}, svg);
+  tk.forEach(t => { [1, -1].forEach(sg => { if (!t && sg < 0) return; svgEl("line", {x1: m.l, x2: m.l + iw, y1: zero - sg * esc2(t), y2: zero - sg * esc2(t)}, g);
+    svgTxt(svg, m.l - 8, zero - sg * esc2(t) + 4, nf0.format(t), {"text-anchor": "end"}); }); });
+  const banda = iw / n, bw = Math.min(24, banda * 0.55);
+  const barra = (cx, v, cima, cor) => {
+    const h = Math.max(v ? 2 : 0, esc2(v)), x = cx - bw / 2, r = Math.min(4, h);
+    if (!h) return;
+    const d = cima ? `M${x},${zero - 1}V${zero - 1 - h + r}Q${x},${zero - 1 - h} ${x + r},${zero - 1 - h}H${x + bw - r}Q${x + bw},${zero - 1 - h} ${x + bw},${zero - 1 - h + r}V${zero - 1}Z`
+      : `M${x},${zero + 1}V${zero + 1 + h - r}Q${x},${zero + 1 + h} ${x + r},${zero + 1 + h}H${x + bw - r}Q${x + bw},${zero + 1 + h} ${x + bw},${zero + 1 + h - r}V${zero + 1}Z`;
+    svgEl("path", {d, fill: cor, class: "mk"}, svg);
+  };
+  M.forEach((x, i) => {
+    const cx = m.l + banda * (i + .5);
+    svgTxt(svg, cx, H - 6, mesCurto(x.mes), {"text-anchor": "middle"});
+    if (i === 0) { svgTxt(svg, cx, zero + 4, "início", {"text-anchor": "middle"}); }
+    else {
+      barra(cx, x.entradas, true, "var(--dv-pos)"); barra(cx, x.saidas, false, "var(--dv-neg)");
+      svgTxt(svg, cx, zero - esc2(x.entradas) - 6, "+" + x.entradas, {"text-anchor": "middle", class: "lbl"});
+      svgTxt(svg, cx, zero + esc2(x.saidas) + 14, "−" + x.saidas, {"text-anchor": "middle", class: "lbl"});
+    }
+    const alvo = svgEl("rect", {x: cx - banda / 2, y: 0, width: banda, height: H - 20, class: "hit"}, svg);
+    alvo.addEventListener("pointermove", ev => {
+      if (i === 0) return mostrarTip(ev, mesCurto(x.mes), [{valor: "primeiro mês do período", nome: "sem comparação"}]);
+      const es = ent.filter(e => e.mes === x.mes).slice(0, 5), ss = sai.filter(e => e.mes === x.mes).slice(0, 5);
+      mostrarTip(ev, mesCurto(x.mes), [
+        {cor: "var(--dv-pos)", valor: `${x.entradas} entraram`, nome: abrev(x.vendas_entradas)},
+        ...es.map(e => ({valor: abrev(e.vendas), nome: `#${e.posicao} ${e.marca}`})),
+        {cor: "var(--dv-neg)", valor: `${x.saidas} saíram`, nome: abrev(x.vendas_saidas) + " no mês anterior"},
+        ...ss.map(e => ({valor: abrev(e.vendas), nome: `#${e.posicao} ${e.marca}`}))]);
+    });
+    alvo.addEventListener("pointerleave", esconderTip);
+  });
+}
 function sparkSerie(s) {
   const w = 110, hh = 24, vs = s.filter(v => v != null), mx = Math.max(...vs, 1), mn = Math.min(...vs, mx);
   const X = i => s.length === 1 ? w / 2 : 2 + i * (w - 4) / (s.length - 1), Y = v => hh - 3 - (v - mn) / (mx - mn || 1) * (hh - 6);
@@ -669,7 +710,8 @@ function sparkSerie(s) {
   return `<svg class="spark" width="${w}" height="${hh}" viewBox="0 0 ${w} ${hh}"><path d="${d}" fill="none" stroke="var(--s1)" stroke-width="1.6" stroke-linejoin="round"/>
     ${s[u] != null ? `<circle cx="${X(u)}" cy="${Y(s[u])}" r="2.5" fill="var(--s1)"/>` : ""}</svg>`;
 }
-const ST_CLS = {"Subindo forte": "good", "Crescimento consistente": "good", "Nova": "good", "Em queda": "bad", "Saiu do ranking": "bad", "Instável": "warn"};
+const ST_CLS = {"Subindo forte": "good", "Crescimento consistente": "good", "Nova": "good", "Em queda": "bad", "Saiu do ranking": "bad", "Instável": "warn",
+  "Ficou e cresceu": "good", "Entrou agora": "good", "Entrou e saiu": "bad", "Ficou, mas caindo": "bad", "Perdeu fôlego": "bad", "Passou rápido": "warn", "Voltou depois": "warn"};
 const statusHTML = s => s ? `<span class="st ${ST_CLS[s] || ""}">${esc(s)}</span>` : "";
 
 // ---------- B.I. do ranking (todos os meses importados) ----------
@@ -714,7 +756,8 @@ async function telaBI(cat) {
       ${kpi("Ticket médio", "R$ " + nf2.format(ult.ticket), n > 1 ? varTxt(z.cresc_ticket, "vs " + mesCurto(pri.mes)) : "")}
       ${kpi("Concentração top 5", FMT.pct(ult.top5), n > 1 ? `${pp(z.var_top5)} vs ${esc(mesCurto(pri.mes))} · ${z.var_top5 > 0.005 ? "concentrando" : z.var_top5 < -0.005 ? "abrindo espaço" : "estável"}` : "")}
       ${kpi("Marcas fiéis", `${z.sempre} de ${z.passaram}`, "no ranking em todos os meses")}
-      ${kpi("Rotatividade", n > 1 ? nf1.format(z.novas_media) : "—", "marcas novas por mês no ranking")}
+      ${kpi("Entraram / saíram do top " + ult.marcas, n > 1 ? `<span class="pos">${z.entradas}</span> / <span class="neg">${z.saidas}</span>` : "—",
+        n > 1 ? `${z.entradas_ficaram} das que entraram seguem no ranking · ${nf1.format(z.novas_media)} novas/mês` : "precisa de 2 meses")}
       ${kpi("Melhor mês", esc(mesCurto(z.melhor_mes)), "pior: " + esc(mesCurto(z.pior_mes)))}
     </div>
     <div class="bi-grid">
@@ -744,6 +787,17 @@ async function telaBI(cat) {
       <div class="card pad bi-card"><h2>Tendência das marcas por mês</h2><div class="sub">Quantas marcas o Nubimetrics marcou crescendo, estáveis e diminuindo.</div>
         ${legenda([["Crescendo", "var(--good)"], ["Estável", "var(--dv-outro)"], ["Diminuindo", "var(--bad)"]], true)}<div class="ch" id="g-tend"></div></div>
     </div>
+    <div class="card pad bi-card" style="margin-top:14px"><h2>Entradas e saídas do top ${ult.marcas}</h2>
+      <div class="sub">Quantas marcas entraram (azul, para cima) e saíram (vermelho, para baixo) do ranking em cada mês. Passe o mouse para ver quais e o faturamento.</div>
+      <div class="ch" id="g-entsai"></div>
+      <div class="grid2 gh" style="gap:18px;margin-top:12px">
+        <div><h2 style="font-size:14px">🚀 Vindo de baixo</h2><div class="sub">Entraram no período, seguem no ranking e ganharam share ou posições desde a entrada.</div><div id="bi-subindo"></div></div>
+        <div><h2 style="font-size:14px">📉 Saindo do hype</h2><div class="sub">Saíram do ranking e não voltaram; ordenado pela queda desde o pico de faturamento.</div><div id="bi-hype"></div></div>
+      </div></div>
+    <h2 style="margin:22px 0 0">Entraram no top ${ult.marcas} · mês a mês</h2>
+    <div id="bi-ent" class="painel"></div>
+    <h2 style="margin:22px 0 0">Saíram do top ${ult.marcas} · mês a mês</h2>
+    <div id="bi-sai" class="painel"></div>
     <h2 style="margin:22px 0 0">Todas as marcas que passaram pelo ranking</h2>
     <div id="bi-tab" class="painel"></div>
   </div>`;
@@ -798,7 +852,32 @@ async function telaBI(cat) {
     () => grafColunas($("#g-tend"), {rotulos: rot, series: [{nome: "Crescendo", cor: "var(--good)", v: serieM("crescendo")}, {nome: "Estável", cor: "var(--dv-outro)", v: serieM("estavel")},
       {nome: "Diminuindo", cor: "var(--bad)", v: serieM("diminuindo")}], fmt: v => nf0.format(v) + " marcas", fmtEixo: nf0.format, altura: 220}),
   ];
+  biRedesenhar.push(() => grafEntSai($("#g-entsai"), M, r.entradas, r.saidas));
   biRedesenhar.forEach(g => g());
+  const lista = (itens, linha) => itens.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><tbody>${itens.map(linha).join("")}</tbody></table></div>`
+    : `<div class="muted" style="padding:10px 0">Nenhuma no período.</div>`;
+  const subindo = r.entradas.filter(e => e.ainda_no_ranking && e.cresc_desde_entrada != null && ((e.var_share_desde_entrada || 0) > 0 || (e.posicoes_desde_entrada || 0) > 0))
+    .sort((a, b) => (b.posicoes_desde_entrada || 0) - (a.posicoes_desde_entrada || 0) || (b.var_share_desde_entrada || 0) - (a.var_share_desde_entrada || 0)).slice(0, 8);
+  $("#bi-subindo").innerHTML = lista(subindo, e => `<tr><td class="first">${rkLink(e.marca)}</td><td class="muted">entrou ${esc(mesCurto(e.mes))} em #${e.posicao} com ${abrev(e.vendas)}</td>
+    <td class="num">→ #${e.posicao_atual}</td><td class="num">${rankVar(e.posicoes_desde_entrada)}</td><td class="num">${abrev(e.vendas_atual)}</td></tr>`);
+  const hype = r.saidas.filter(e => !e.voltou_em).sort((a, b) => (a.queda_desde_pico ?? 0) - (b.queda_desde_pico ?? 0)).slice(0, 8);
+  $("#bi-hype").innerHTML = lista(hype, e => `<tr><td class="first">${rkLink(e.marca)}</td><td class="muted">saiu em ${esc(mesCurto(e.mes))} · pico ${abrev(e.pico_vendas)} (#${e.pico_posicao}) em ${esc(mesCurto(e.pico_mes))}</td>
+    <td class="num">último ${abrev(e.vendas)}</td><td class="num ${e.queda_desde_pico < 0 ? "neg" : ""}">${FMT.var(e.queda_desde_pico)}</td></tr>`);
+  const rotMes = e => `${e.mes} · ${mesCurto(e.mes)}`;
+  const ent = [...r.entradas].sort((a, b) => b.mes.localeCompare(a.mes) || b.vendas - a.vendas).map(e => ({...e, mes_rot: rotMes(e), reent: e.reentrada ? "Sim" : "Não"}));
+  tabela($("#bi-ent"), "bi_ent", ent, [["mes_rot","Mês","txt","sel"],["marca","Marca","rkmarca","txt"],["leitura","O que aconteceu","status","sel"],
+    ["posicao","Posição na entrada","int"],["vendas","Faturamento na entrada","moeda"],["unidades","Unidades na entrada","int"],["vendedores","Vendedores","int"],
+    ["tendencia","Tendência","txt","sel"],["saturacao","Saturação","txt","sel"],["reent","Já esteve antes","txt","sel"],["meses_seguidos","Meses seguidos","int"],
+    ["posicao_atual","Posição " + mesCurto(ult.mes),"int"],["vendas_atual","Faturamento " + mesCurto(ult.mes),"moeda"],["cresc_desde_entrada","Var. faturamento","var"],
+    ["var_share_desde_entrada","Var. share","var"],["posicoes_desde_entrada","Posições desde a entrada","rank"],["pico_vendas","Pico de faturamento","moeda"],["pico_posicao","Melhor posição","int"]],
+    {nota: "Marcas que não estavam no ranking no mês anterior. Faturamento e posição do mês em que entraram, e onde estão agora. Var. share compara a fatia das vendas do ranking (desconta o mercado inteiro crescendo ou caindo)."});
+  const sai = [...r.saidas].sort((a, b) => b.mes.localeCompare(a.mes) || b.vendas - a.vendas).map(e => ({...e, mes_rot: rotMes(e),
+    desde_rot: e.desde ? mesCurto(e.desde) : "início do período", pico_rot: mesCurto(e.pico_mes), volta_rot: e.voltou_em ? mesCurto(e.voltou_em) : ""}));
+  tabela($("#bi-sai"), "bi_sai", sai, [["mes_rot","Mês em que saiu","txt","sel"],["marca","Marca","rkmarca","txt"],["leitura","O que aconteceu","status","sel"],
+    ["posicao","Última posição","int"],["vendas","Último faturamento","moeda"],["unidades","Últimas unidades","int"],["vendedores","Vendedores","int"],["tendencia","Tendência antes de sair","txt","sel"],
+    ["meses_no_ranking","Meses no ranking","int"],["desde_rot","No ranking desde","txt"],["pico_vendas","Pico de faturamento","moeda"],["pico_rot","Mês do pico","txt"],
+    ["pico_posicao","Melhor posição","int"],["queda_desde_pico","Queda desde o pico","var"],["volta_rot","Voltou em","txt"]],
+    {nota: "Marcas que estavam no ranking no mês anterior e não aparecem neste. Último faturamento = o do último mês no ranking. Perdeu fôlego = saiu com faturamento 30% ou mais abaixo do pico."});
   const linhas = r.marcas.map(x => ({...x, presenca: x.presente + "/" + n, _spark: null}));
   const cols = [["posicao","# atual","int"],["marca","Marca","rkmarca","txt"],["status","Status","status","sel"],["nota","Nota B.I.","nota"],["_spark","Vendas mês a mês","spark"],
     ["vendas_atual","Vendas " + mesCurto(ult.mes),"moeda"],["cresc_mes","Var. mês","var"],["cresc_3m","Var. 3 meses","var"],["cresc_total","Var. período","var"],

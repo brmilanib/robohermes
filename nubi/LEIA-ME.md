@@ -69,6 +69,19 @@ da categoria. O filtro **De / até** limita o período e vale para a tela inteir
   crescendo mais que os vendedores.
 - **Status** de cada marca: Subindo forte, Crescimento consistente, Estável, Instável, Em
   queda, Nova ou Saiu do ranking.
+- **Entradas e saídas do top 100** (a partir do 2º mês):
+  - gráfico com quantas marcas entraram e saíram do ranking em cada mês;
+  - **🚀 Vindo de baixo**: marcas que entraram, continuam no ranking e ganharam
+    posições ou share desde a entrada;
+  - **📉 Saindo do hype**: marcas que saíram e não voltaram, ordenadas pela queda
+    desde o pico de faturamento;
+  - duas tabelas por mês (filtro Mês):
+    - **Entraram**: faturamento e posição na entrada, onde estão agora e o pico;
+    - **Saíram**: último faturamento e posição, pico, mês do pico, meses no ranking e se voltaram.
+  - "O que aconteceu" resume cada caso: Ficou e cresceu, Ficou, Ficou mas caindo,
+    Entrou e saiu, Entrou agora; Perdeu fôlego, Passou rápido, Voltou depois, Saiu.
+  - Crescer aqui olha o share e a posição, não só o R$. Assim não confunde a marca
+    crescendo com o mercado inteiro crescendo.
 - O relatório traz só as maiores marcas de cada mês. Se uma marca some num mês, ela
   saiu do ranking; não quer dizer que vendeu zero. Por isso as variações só comparam
   meses em que a marca aparece.

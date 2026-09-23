@@ -383,7 +383,13 @@ def bi(meses, linhas_por_mes, marcas_explorador=()):
         marcas.append(x)
     marcas.sort(key=lambda x: (x["posicao"] is None, x["posicao"] or 0, -(max(v or 0 for v in x["vendas"]))))
 
-    r = {"meses": resumo_meses, "marcas": marcas}
+    entradas, saidas = movimentos(meses, por_marca, totais)
+    for m in resumo_meses:
+        es = [e for e in entradas if e["mes"] == m["mes"]]
+        ss = [e for e in saidas if e["mes"] == m["mes"]]
+        m.update({"entradas": len(es), "saidas": len(ss), "vendas_entradas": sum(e["vendas"] or 0 for e in es),
+                  "vendas_saidas": sum(e["vendas"] or 0 for e in ss)})
+    r = {"meses": resumo_meses, "marcas": marcas, "entradas": entradas, "saidas": saidas}
     if n:
         a, b = resumo_meses[0], resumo_meses[-1]
         r["resumo"] = {
@@ -396,7 +402,86 @@ def bi(meses, linhas_por_mes, marcas_explorador=()):
             "sempre": sum(1 for x in marcas if x["presente"] == n),
             "passaram": len(marcas),
             "novas_media": _div(sum(m["novas"] or 0 for m in resumo_meses[1:]), n - 1) if n > 1 else None,
+            "entradas": len(entradas), "saidas": len(saidas),
+            "entradas_ficaram": sum(1 for e in entradas if e["ainda_no_ranking"]),
             "melhor_mes": max(resumo_meses, key=lambda m: m["vendas"])["mes"],
             "pior_mes": min(resumo_meses, key=lambda m: m["vendas"])["mes"],
         }
     return r
+
+
+def movimentos(meses, por_marca, totais):
+    """
+    Entradas e saídas do ranking (top do relatório), mês a mês, a partir do 2º mês.
+    Entrada: a marca aparece no mês e não estava no mês anterior. Guarda o faturamento e a
+    posição com que entrou e o que aconteceu depois (ficou? cresceu desde a entrada?).
+    "Cresceu" olha o share (a fatia das vendas do ranking) e a posição, não o R$, para não
+    confundir crescimento da marca com o mercado inteiro crescendo.
+    Saída: estava no mês anterior e não está neste. Guarda o último faturamento e a posição
+    antes de sair, o pico enquanto estava no ranking e se voltou depois.
+    """
+    n = len(meses)
+    entradas, saidas = [], []
+    for chave, d in por_marca.items():
+        ls = d["l"]
+        for i in range(1, n):
+            if ls[i] and not ls[i - 1]:
+                l = ls[i]
+                seg = [j for j in range(i, n) if ls[j]]
+                fim = i
+                while fim + 1 < n and ls[fim + 1]:
+                    fim += 1
+                pico = max(seg, key=lambda j: ls[j]["vendas"] or 0)
+                atual = ls[-1]
+                var_sh = (_cresc(_div(l["vendas"], totais[i]), _div(atual["vendas"], totais[-1]))
+                          if atual and i < n - 1 else None)
+                if i == n - 1:
+                    leitura = "Entrou agora"
+                elif not atual:
+                    leitura = "Entrou e saiu"
+                elif (var_sh or 0) >= 0.2 or atual["posicao"] <= l["posicao"] - 5:
+                    leitura = "Ficou e cresceu"
+                elif (var_sh or 0) <= -0.2 or atual["posicao"] >= l["posicao"] + 5:
+                    leitura = "Ficou, mas caindo"
+                else:
+                    leitura = "Ficou"
+                entradas.append({
+                    "mes": meses[i][:7], "mes_nome": nome_mes(meses[i]), "marca": d["marca"], "marca_chave": chave,
+                    "posicao": l["posicao"], "vendas": l["vendas"], "unidades": l["unidades"],
+                    "vendedores": l["vendedores"], "tendencia": l["tendencia"], "saturacao": l["saturacao"],
+                    "reentrada": any(ls[:i - 1]), "meses_seguidos": fim - i + 1,
+                    "ainda_no_ranking": bool(atual), "posicao_atual": atual["posicao"] if atual else None,
+                    "vendas_atual": atual["vendas"] if atual else None,
+                    "cresc_desde_entrada": _cresc(l["vendas"], atual["vendas"]) if atual and i < n - 1 else None,
+                    "var_share_desde_entrada": var_sh,
+                    "posicoes_desde_entrada": (l["posicao"] - atual["posicao"]) if atual and i < n - 1 else None,
+                    "pico_vendas": ls[pico]["vendas"], "pico_posicao": min(ls[j]["posicao"] for j in seg),
+                    "leitura": leitura})
+            if ls[i - 1] and not ls[i]:
+                ini = i - 1
+                while ini - 1 >= 0 and ls[ini - 1]:
+                    ini -= 1
+                run = list(range(ini, i))
+                pico = max(run, key=lambda j: ls[j]["vendas"] or 0)
+                u = ls[i - 1]
+                volta = next((j for j in range(i + 1, n) if ls[j]), None)
+                queda = _cresc(ls[pico]["vendas"], u["vendas"])
+                if volta is not None:
+                    leitura = "Voltou depois"
+                elif queda is not None and queda <= -0.3:
+                    leitura = "Perdeu fôlego"
+                elif len(run) == 1:
+                    leitura = "Passou rápido"
+                else:
+                    leitura = "Saiu"
+                saidas.append({
+                    "mes": meses[i][:7], "mes_nome": nome_mes(meses[i]), "marca": d["marca"], "marca_chave": chave,
+                    "ultimo_mes": meses[i - 1][:7], "posicao": u["posicao"], "vendas": u["vendas"],
+                    "unidades": u["unidades"], "vendedores": u["vendedores"], "tendencia": u["tendencia"],
+                    "meses_no_ranking": len(run), "desde": meses[ini][:7] if ini > 0 else None,
+                    "pico_vendas": ls[pico]["vendas"], "pico_posicao": min(ls[j]["posicao"] for j in run),
+                    "pico_mes": meses[pico][:7], "queda_desde_pico": queda,
+                    "voltou_em": meses[volta][:7] if volta is not None else None, "leitura": leitura})
+    entradas.sort(key=lambda e: (e["mes"], -(e["vendas"] or 0)))
+    saidas.sort(key=lambda e: (e["mes"], -(e["vendas"] or 0)))
+    return entradas, saidas
