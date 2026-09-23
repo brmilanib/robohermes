@@ -249,3 +249,42 @@ create table if not exists public.vend_decisoes (
 alter table public.vend_decisoes enable row level security;
 create policy "autorizado" on public.vend_decisoes
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- B.I. dos vendedores: foto diária acumulada por produto e resumo por produto/mês.
+create table if not exists public.vend_produto_dia (
+  vendedor text not null, mes date not null, chave text not null,
+  dias jsonb not null default '{}'::jsonb,   -- {"AAAA-MM-DD": {"u": unidades acumuladas, "v": vendas acumuladas, "a": anúncios ativos, "n": anúncios}}
+  atualizado_em timestamptz not null default now(),
+  primary key (vendedor, mes, chave)
+);
+alter table public.vend_produto_dia enable row level security;
+create policy "autorizado" on public.vend_produto_dia
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create or replace function public.vend_dia_gravar(dados jsonb)
+returns void language sql security invoker set search_path = public as $$
+  insert into vend_produto_dia (vendedor, mes, chave, dias)
+  select d->>'vendedor', (d->>'mes')::date, d->>'chave', d->'dias' from jsonb_array_elements(dados) d
+  on conflict (vendedor, mes, chave) do update set dias = vend_produto_dia.dias || excluded.dias, atualizado_em = now();
+$$;
+create index if not exists vend_anuncios_chave on public.vend_anuncios ((coalesce(nullif(gtin, ''), 'T:' || lower(titulo))));
+create or replace function public.vend_prod_mes(ids bigint[], so_chave text default null)
+returns table (relatorio_id bigint, chave text, gtin text, marca text, titulo text, unidades bigint, vendas numeric,
+               anuncios int, ativos int, fulfillment boolean, catalogo boolean)
+language sql stable security invoker set search_path = public as $$
+  select a.relatorio_id, k.chave, max(a.gtin), max(a.marca), (array_agg(a.titulo order by a.unidades desc nulls last))[1],
+         sum(coalesce(a.unidades, 0))::bigint, sum(coalesce(a.vendas, 0)), count(*)::int,
+         (count(*) filter (where lower(coalesce(a.estado, '')) = 'active'))::int, bool_or(a.fulfillment), bool_or(a.catalogo)
+  from vend_anuncios a cross join lateral (select coalesce(nullif(a.gtin, ''), 'T:' || lower(a.titulo)) as chave) k
+  where a.relatorio_id = any(ids) and (so_chave is null or k.chave = so_chave)
+  group by a.relatorio_id, k.chave
+$$;
+create or replace function public.vend_prod_serie(p_chave text)
+returns table (relatorio_id bigint, unidades bigint, vendas numeric, anuncios int, ativos int,
+               fulfillment boolean, catalogo boolean, titulo text, marca text)
+language sql stable security invoker set search_path = public as $$
+  select a.relatorio_id, sum(coalesce(a.unidades, 0))::bigint, sum(coalesce(a.vendas, 0)), count(*)::int,
+         (count(*) filter (where lower(coalesce(a.estado, '')) = 'active'))::int, bool_or(a.fulfillment), bool_or(a.catalogo),
+         (array_agg(a.titulo order by a.unidades desc nulls last))[1], max(a.marca)
+  from vend_anuncios a where coalesce(nullif(a.gtin, ''), 'T:' || lower(a.titulo)) = p_chave
+  group by a.relatorio_id
+$$;

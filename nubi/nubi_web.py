@@ -18,12 +18,14 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 
 import pandas as pd
 
 import nubi
 import ranking
+import vend_bi
 import vendedores
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://ivsmadbyzbmugwfadwtg.supabase.co")
@@ -916,6 +918,18 @@ CAMPOS_VEND = ["titulo", "marca", "marca_chave", "gtin", "sku", "vendas", "unida
                "fulfillment", "catalogo", "frete_gratis", "desconto", "estado", "bruto"]
 
 
+def _prod_mes(repo, ids):
+    """Produtos (por GTIN) de cada relatório, somando os anúncios (SQL vend_prod_mes)."""
+    return repo._todos("rpc/vend_prod_mes", {"order": "relatorio_id,chave"}, "POST", {"ids": ids})
+
+
+def _dias_mes(repo, vendedor, mes):
+    """{chave: {dia: foto}} do vendedor num mês (vend_produto_dia)."""
+    rs = repo._todos("vend_produto_dia", {"select": "chave,dias", "vendedor": repo._eq(vendedor),
+                                          "mes": repo._eq(str(mes)[:7] + "-01"), "order": "chave"})
+    return {r["chave"]: r["dias"] for r in rs}
+
+
 def _vend_rels(repo, vendedor=None):
     p = {"select": "id,vendedor,mes,ate,arquivo,importado_em,seller_hash,nome_exibido", "order": "vendedor,mes"}
     if vendedor:
@@ -1040,6 +1054,10 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         except ErroNuvem:
             repo._req("DELETE", "vend_relatorios", {"id": repo._eq(rid)})
             raise
+        # foto acumulada de cada produto no dia (vendas por dia e ruptura de estoque)
+        fts = vend_bi.fotos(linhas, vend, mes, ate)
+        for i in range(0, len(fts), LOTE):
+            repo._req("POST", "rpc/vend_dia_gravar", corpo={"dados": fts[i:i + LOTE]})
         log.insert(0, f"OK: {vend} · {ranking.nome_mes(mes + '-01')} · {len(linhas)} anúncios · "
                       f"R$ {sum(l['vendas'] for l in linhas):,.0f}".replace(",", "."))
         if antigos:
@@ -1059,12 +1077,7 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         cat, rk_mes, bi = _ranking_do_mes(repo, atual["mes"][:7], {l["marca_chave"] for l in linhas})
         ex = _explorador_cruzado(repo, vend)
         r = vendedores.analisar(linhas, linhas_ant, rk_mes, bi, ex, vend)
-        # evolução mês a mês
-        evol = []
-        for x in rels:
-            ls = linhas if x["id"] == atual["id"] else (linhas_ant if ant and x["id"] == ant["id"]
-                                                         else _vend_linhas(repo, x["id"]))
-            evol.append(dict(vendedores.resumo(ls), mes=x["mes"][:7], nome=ranking.nome_mes(x["mes"])))
+        evol = []                                    # a evolução mês a mês está na visão do ano (vend_bi)
         r.update({"vendedor": vend, "mes": atual["mes"][:7], "mes_nome": ranking.nome_mes(atual["mes"]),
                   "id": atual["id"], "arquivo": atual["arquivo"],
                   "anterior": {"mes": ant["mes"][:7], "nome": ranking.nome_mes(ant["mes"])} if ant else None,
@@ -1075,6 +1088,93 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
                                                 "mes_ok": bool(rk_mes)},
                   "explorador_gtins": sum(1 for p in r["produtos"] if p["ex_preco_medio"] is not None)})
         return r
+
+    if rota == "vend_bi":
+        vend = q["vendedor"]
+        rels = _vend_rels(repo, vend)
+        if not rels:
+            raise ErroNuvem("Nenhum relatório deste vendedor.", 404)
+        prods = _prod_mes(repo, [r["id"] for r in rels])
+        ult, ant = rels[-1], (rels[-2] if len(rels) > 1 else None)
+        dias = _dias_mes(repo, vend, ult["mes"])
+        r = vend_bi.ano(rels, prods, dias)
+        r["alertas"] = vend_bi.alertas(vend, ant, ult, [p for p in prods if p["relatorio_id"] == ant["id"]],
+                                       [p for p in prods if p["relatorio_id"] == ult["id"]], dias) if ant else []
+        r.update({"vendedor": vend, "diario_dias": len({d for x in dias.values() for d in x})})
+        return r
+
+    if rota == "vend_alertas":
+        rels = _vend_rels(repo)
+        por = {}
+        for r in rels:
+            por.setdefault(r["vendedor"], []).append(r)
+
+        def um(item):
+            vend, rs = item
+            if len(rs) < 2:
+                return [], []
+            ant, ult = rs[-2], rs[-1]
+            prods = _prod_mes(repo, [ant["id"], ult["id"]])
+            p_ult = [p for p in prods if p["relatorio_id"] == ult["id"]]
+            al = vend_bi.alertas(vend, ant, ult, [p for p in prods if p["relatorio_id"] == ant["id"]], p_ult,
+                                 _dias_mes(repo, vend, ult["mes"]))
+            d = vend_bi.dias_periodo(ult)
+            return al, [(p["chave"], {"vendedor": vend, "ritmo": (p["unidades"] or 0) / d if d else 0,
+                                      "ativos": p["ativos"], "preco": float(p["vendas"] or 0) / p["unidades"]
+                                      if p["unidades"] else 0}) for p in p_ult]
+        with ThreadPoolExecutor(8) as ex:
+            res = list(ex.map(um, por.items()))
+        todos, quem = [], {}
+        for al, qv in res:
+            todos.extend(al)
+            for k, v in qv:
+                quem.setdefault(k, []).append(v)
+        for v in quem.values():
+            v.sort(key=lambda x: -x["ritmo"])
+        return {"produtos": vend_bi.cruzar_alertas(todos, quem), "alertas": todos,
+                "vendedores": len(por), "fotos": {v: rs[-1].get("ate") or rs[-1]["mes"][:7] for v, rs in por.items()}}
+
+    if rota == "vend_produto":
+        k = q["chave"]
+        rels = {r["id"]: r for r in _vend_rels(repo)}
+        serie = repo._req("POST", "rpc/vend_prod_serie", corpo={"p_chave": k}) or []
+        dias = repo._todos("vend_produto_dia", {"select": "vendedor,mes,dias", "chave": repo._eq(k),
+                                                "order": "vendedor,mes"})
+        meses = sorted({r["mes"][:7] for r in rels.values()})
+        por = {}
+        titulo, marca = "", ""
+        for x in sorted(serie, key=lambda x: rels[x["relatorio_id"]]["mes"] if x["relatorio_id"] in rels else ""):
+            r = rels.get(x["relatorio_id"])
+            if not r:
+                continue
+            v = por.setdefault(r["vendedor"], {"vendedor": r["vendedor"], "u": {}, "v": {}, "ritmo": {},
+                                               "ativos": None, "anuncios": None, "ult": ""})
+            m, d = r["mes"][:7], vend_bi.dias_periodo(r)
+            v["u"][m], v["v"][m] = int(x["unidades"] or 0), float(x["vendas"] or 0)
+            v["ritmo"][m] = (x["unidades"] or 0) / d if d else 0
+            if m >= v["ult"]:
+                v["ult"], v["ativos"], v["anuncios"] = m, x["ativos"], x["anuncios"]
+                v["full"], v["catalogo"] = x["fulfillment"], x["catalogo"]
+                titulo, marca = x["titulo"] or titulo, x["marca"] or marca
+        ult_rel = {}
+        for r in rels.values():
+            if r["mes"] >= ult_rel.get(r["vendedor"], {}).get("mes", ""):
+                ult_rel[r["vendedor"]] = r
+        for linha in dias:
+            v = por.get(linha["vendedor"])
+            if v and linha["mes"][:7] == v["ult"]:
+                v["diario"] = vend_bi.diario(linha["dias"], linha["mes"])
+                v["parado"] = vend_bi.dias_parado(linha["dias"])
+        for v in por.values():
+            r = ult_rel.get(v["vendedor"])
+            v["no_ultimo"] = bool(r and r["mes"][:7] == v["ult"])      # vendeu no último relatório dele
+            v["ult_rel"] = r["mes"][:7] if r else ""
+            v["ult_ate"] = r.get("ate") if r else None
+            v["vendas"], v["unidades"] = sum(v["v"].values()), sum(v["u"].values())
+        vs = sorted(por.values(), key=lambda v: -v["vendas"])
+        return {"chave": k, "produto": titulo or k.replace("T:", ""), "marca": marca,
+                "gtin": "" if k.startswith("T:") else k, "meses": meses, "vendedores": vs,
+                "foco": q.get("vendedor") or ""}
 
     if rota == "vend_comparar":
         rels = _vend_rels(repo)
