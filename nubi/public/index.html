@@ -119,6 +119,9 @@ label.f input,label.f select{border:1px solid var(--line);border-radius:8px;padd
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;z-index:60;max-width:90vw}
 svg.spark{display:block}
 .top5 li{margin:6px 0}
+a.plink{color:inherit;text-decoration:none;border-bottom:1px dashed var(--muted);cursor:pointer}
+a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.modal.larga{max-width:1080px}
 </style>
 </head>
 <body>
@@ -341,7 +344,7 @@ function telaMarca() {
       <div class="card pad">
         <h2>Melhores oportunidades</h2>
         ${top.length ? `<ol class="top5" style="margin:0;padding-left:20px">${top.map(o => `
-          <li><b>${esc(o.produto)}</b> ${notaHTML(o.nota)} <span class="muted">${nf1.format(o.giro)}/dia · ${o.vendedores} vendedor(es)</span><br>${sinaisHTML(o.sinais)}</li>`).join("")}</ol>`
+          <li><b>${prodLink(o.produto)}</b> ${notaHTML(o.nota)} <span class="muted">${nf1.format(o.giro)}/dia · ${o.vendedores} vendedor(es)</span><br>${sinaisHTML(o.sinais)}</li>`).join("")}</ol>`
           : `<p class="muted">Sem produtos com venda no período.</p>`}
       </div>
       <div class="card pad">
@@ -499,8 +502,11 @@ function tabela(el, chave, linhas, cols, extra = {}) {
   if (extra.acoes) $("#bpesq", el).onclick = () => pesquisarGtins($("#plog", el));
   desenhar();
 }
+const prodLink = v => S.rel && S.rel.vendedores_produto && S.rel.vendedores_produto[v]
+  ? `<a href="#" class="plink" data-prod="${esc(v)}" title="Ver os vendedores deste produto">${esc(v)}</a>` : esc(v);
 function celula(r, k, f, i) {
   const v = r[k];
+  if (k === "produto") return `<td class="first">${prodLink(v)}</td>`;
   if (f === "nota") return `<td class="num">${notaHTML(v)}</td>`;
   if (f === "sinais") return `<td>${sinaisHTML(v)}</td>`;
   if (f === "mov") return `<td>${movHTML(v)}</td>`;
@@ -512,6 +518,46 @@ function celula(r, k, f, i) {
   const cls = [NUM.has(f) ? "num" : "", i === 0 ? "first" : ""].join(" ");
   return `<td class="${cls}">${esc((FMT[f] || FMT.txt)(v))}</td>`;
 }
+
+// ---------- Vendedores de um produto ----------
+function abrirVendedoresProduto(prod) {
+  const lista = (S.rel.vendedores_produto || {})[prod] || [];
+  const tot = lista.reduce((a, v) => ({un: a.un + v.un, fat: a.fat + v.fat, an: a.an + v.anuncios}), {un: 0, fat: 0, an: 0});
+  const comVenda = lista.filter(v => v.un > 0).length;
+  const bg = modal(`
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <div style="flex:1"><h2 style="margin-bottom:2px">${esc(prod)}</h2>
+        <div class="muted">${nf0.format(lista.length)} vendedores (${nf0.format(comVenda)} com venda) · ${nf0.format(tot.an)} anúncios ·
+          ${nf0.format(tot.un)} un. · R$ ${nf0.format(tot.fat)} · período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)}</div></div>
+      <button class="btn small" data-fechar>Fechar</button>
+    </div>
+    <div class="tw" style="margin-top:12px;max-height:62vh"><table class="t"><thead><tr>
+      <th class="num">#</th><th>Código</th><th>Vendedor</th><th class="num">Un. vendidas</th><th class="num">Faturamento</th>
+      <th class="num">Share</th><th class="num" title="Faturamento ÷ unidades">Preço médio</th><th class="num" title="Mediana do último preço dos anúncios do vendedor">Preço atual</th>
+      <th class="num">Anúncios</th><th class="num" title="Anúncios em FULL">FULL</th><th class="num" title="Anúncios em catálogo">Catál.</th><th>Loja of.</th></tr></thead><tbody>
+      ${lista.map((v, i) => `<tr>
+        <td class="num">${i + 1}</td><td>${esc(v.codigo)}</td><td class="first">${esc(v.vendedor)}</td>
+        <td class="num">${nf0.format(v.un)}</td><td class="num">R$ ${nf0.format(v.fat)}</td>
+        <td class="num"><div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+          <div style="width:60px;background:var(--soft);border-radius:3px;height:8px"><div style="width:${(v.share * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:3px"></div></div>
+          ${FMT.pct(v.share)}</div></td>
+        <td class="num">${v.un ? "R$ " + nf2.format(v.preco_medio) : "—"}</td><td class="num">R$ ${nf2.format(v.ultimo_preco)}</td>
+        <td class="num">${v.anuncios}</td><td class="num">${v.full}</td><td class="num">${v.catalogo}</td>
+        <td>${v.loja_oficial ? '<span class="pill good">sim</span>' : ""}</td></tr>`).join("")
+        || `<tr><td colspan="12" class="empty">Nenhum vendedor.</td></tr>`}
+    </tbody></table></div>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).</p>`);
+  $(".modal", bg).classList.add("larga");
+}
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { const ms = document.querySelectorAll(".modal-bg"); if (ms.length) ms[ms.length - 1].remove(); }
+});
+document.addEventListener("click", e => {
+  const a = e.target.closest("a.plink");
+  if (!a) return;
+  e.preventDefault();
+  abrirVendedoresProduto(a.dataset.prod);
+});
 
 // ---------- Histórico ----------
 function telaHistorico(el) {
@@ -532,7 +578,7 @@ function telaHistorico(el) {
   const desenhar = () => {
     const b = $("#hb", el).value.toLowerCase();
     $("#hc", el).innerHTML = linhas.filter(l => !b || l.produto.toLowerCase().includes(b)).map(l => `<tr>
-      <td class="first">${esc(l.produto)}</td><td>${esc(l.categoria)}</td><td>${spark(l.serie)}</td>
+      <td class="first">${prodLink(l.produto)}</td><td>${esc(l.categoria)}</td><td>${spark(l.serie)}</td>
       ${l.serie.map(v => `<td class="num">${v ? nf1.format(v) : "·"}</td>`).join("")}
       <td class="num">${nf1.format(l.media_ant)}</td>
       <td class="num ${l.ultimo_vs_media > 0.2 ? "pos" : l.ultimo_vs_media < -0.2 ? "neg" : ""}">${FMT.var(l.ultimo_vs_media)}</td>

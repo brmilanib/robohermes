@@ -388,6 +388,22 @@ def relatorio(repo, marca):
         anuncios.append({"produto": r["produto"], "confianca": r["confianca"], "codigo": r["cod"],
                          **{f"c{i}": bruto.get(c, "") for i, c in enumerate(colunas)}})
 
+    # Vendedores de cada produto (janela que abre ao clicar no produto)
+    vend_prod = {}
+    g = df.assign(fat_preco=df["preco"] * df["un"]).groupby(["produto", "vendedor_id"])
+    for (prod, vid), x in g:
+        un, fat, n = int(x["un"].sum()), float(x["fat"].sum()), len(x)
+        vend_prod.setdefault(prod, []).append({
+            "codigo": vend.at[vid, "cod"], "vendedor": vend.at[vid, "nome"], "anuncios": n, "un": un, "fat": fat,
+            "preco_medio": _div(fat, un), "ultimo_preco": float(x["preco"].median()),
+            "full": int(x["full"].sum()), "catalogo": int(x["catalogo"].sum()),
+            "loja_oficial": int(x["loja_oficial"].max())})
+    for lista in vend_prod.values():
+        tot = sum(v["un"] for v in lista)
+        for v in lista:
+            v["share"] = _div(v["un"], tot)
+        lista.sort(key=lambda v: (-v["un"], -v["fat"], v["codigo"]))
+
     # Resumo
     n = len(df)
     conc = []
@@ -415,6 +431,7 @@ def relatorio(repo, marca):
                     "vendedores": _registros(vendedores), "gtins": _registros(gtins),
                     "duvidas": _registros(duvidas), "anuncios": _registros(anuncios)},
         "historico": historico,
+        "vendedores_produto": {k: _registros(v) for k, v in vend_prod.items()},
         "colunas_arquivo": colunas,
     }
 
