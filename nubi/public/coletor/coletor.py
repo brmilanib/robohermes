@@ -265,11 +265,39 @@ def limpar_nome(txt):
     return re.sub(r"\s+", " ", nome).upper()
 
 
+def mostrar_mais_linhas(pg):
+    """Paginação MUI: tenta 100/50/25 linhas por página para caber o grupo inteiro numa página só."""
+    try:
+        sel = pg.locator('.MuiTablePagination-select, .MuiTablePagination-root [role="combobox"], '
+                         '.MuiTablePagination-root [aria-haspopup="listbox"]').first
+        if not sel.count():
+            return
+        antes = pg.locator('td a[aria-label="Analise um concorrente"]').count()
+        sel.click()
+        for n in ("100", "50", "25"):
+            op = pg.locator(f'li[role="option"][data-value="{n}"]')
+            if op.count():
+                op.first.click()
+                pg.wait_for_function("n => document.querySelectorAll('td a[aria-label=\"Analise um concorrente\"]')"
+                                     ".length > n", arg=antes, timeout=15000)
+                log(f"  lista de vendedores com {n} por página")
+                return
+        pg.keyboard.press("Escape")
+    except Exception:  # noqa: BLE001
+        try:
+            pg.keyboard.press("Escape")
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def listar_vendedores(pg, cfg):
     """Nome e hash de cada vendedor do grupo (tabela paginada, 10 por página)."""
     ir(pg, f"{BASE}/competition/dashboardbycompetitor?group={cfg['grupo']}&range=PREVMONTH",
        'td a[aria-label="Analise um concorrente"]')
     vistos, pagina = {}, 1
+    mostrar_mais_linhas(pg)
+    js_nomes = ("() => Array.from(document.querySelectorAll('td a[aria-label=\"Analise um concorrente\"]'))"
+                ".map(a => (a.closest('td') || a).innerText.trim()).join('|')")
     while True:
         pg.wait_for_selector('td a[aria-label="Analise um concorrente"]', timeout=60000)
         for a in pg.locator('td a[aria-label="Analise um concorrente"]').all():
@@ -288,13 +316,18 @@ def listar_vendedores(pg, cfg):
             if h:
                 vistos[h] = nome
         prox = pg.locator('button[aria-label="Go to next page"]')
-        if prox.count() == 0 or prox.first.is_disabled():
+        if prox.count() == 0 or prox.first.is_disabled() or pagina >= 20:
             break
-        antes = pg.locator("td").first.inner_text()
+        antes = pg.evaluate(js_nomes)
+        prox.first.scroll_into_view_if_needed()
         prox.first.click()
+        try:                                         # a página trocou quando a lista de nomes muda
+            pg.wait_for_function(f"t => ({js_nomes})() !== t", arg=antes, timeout=30000)
+        except Exception:  # noqa: BLE001
+            log(f"  ⚠ não consegui passar para a página {pagina + 1} da lista de vendedores; "
+                f"sigo com os {len(vistos)} já encontrados " + diagnostico(pg))
+            break
         pagina += 1
-        pg.wait_for_function("t => document.querySelector('td') && document.querySelector('td').innerText !== t",
-                             arg=antes, timeout=30000)
     log(f"Vendedores no grupo: {len(vistos)} ({pagina} página(s))")
     avisos = []
     hoje = date.today().isoformat()
