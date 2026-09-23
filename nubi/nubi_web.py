@@ -570,6 +570,28 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem("Este e-mail ainda não tem acesso ao nubi. Peça para liberar.", 403)
             return _json(repo.painel())
 
+        if rota == "coletor_status":
+            ult = repo._req("GET", "coletor_execucoes", {"select": "*", "order": "id.desc", "limit": 10}) or []
+            for u in ult:
+                u["log"] = (u.get("log") or "")[-4000:]
+            return _json({"execucoes": ult})
+        if rota == "coletor_registrar" and metodo == "POST":
+            d = json.loads(corpo or b"{}")
+            reg = {k: d.get(k) for k in ("iniciado_em", "terminado_em", "tarefa", "ok", "arquivos", "importados",
+                                         "erros", "mensagem")}
+            reg["log"] = str(d.get("log") or "")[-20000:]
+            repo._req("POST", "coletor_execucoes", corpo=[reg], prefer="return=minimal")
+            return _json({"ok": True})
+        if rota == "coletor_pendencias":
+            # O que já existe no nubi, para o coletor não baixar de novo o que já foi importado.
+            vend = {}
+            for r in _vend_rels(repo):
+                vend.setdefault(r["vendedor"], {})[r["mes"][:7]] = r.get("ate")
+            rk = {}
+            for r in _relatorios(repo):
+                rk.setdefault(r["categoria"], []).append(r["mes"][:7])
+            return _json({"vendedores": vend, "ranking": rk})
+
         if rota.startswith("apelido"):
             return _json(rota_apelidos(repo, metodo, rota, q, corpo))
 
@@ -880,7 +902,7 @@ CAMPOS_VEND = ["titulo", "marca", "marca_chave", "gtin", "sku", "vendas", "unida
 
 
 def _vend_rels(repo, vendedor=None):
-    p = {"select": "id,vendedor,mes,arquivo,importado_em", "order": "vendedor,mes"}
+    p = {"select": "id,vendedor,mes,ate,arquivo,importado_em", "order": "vendedor,mes"}
     if vendedor:
         p["vendedor"] = repo._eq(vendedor)
     return repo._todos("vend_relatorios", p)
@@ -943,7 +965,7 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         rels = _vend_rels(repo)
         out = {}
         for r in rels:
-            out.setdefault(r["vendedor"], []).append({"id": r["id"], "mes": r["mes"][:7],
+            out.setdefault(r["vendedor"], []).append({"id": r["id"], "mes": r["mes"][:7], "ate": r.get("ate"),
                                                       "nome": ranking.nome_mes(r["mes"]), "arquivo": r["arquivo"]})
         return [{"vendedor": v, "meses": list(reversed(ms))} for v, ms in out.items()]
 
@@ -974,8 +996,9 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
                     "vendedor": ja[0]["vendedor"], "mes": ja[0]["mes"][:7]}
         antigos = repo._req("DELETE", "vend_relatorios", {"vendedor": repo._eq(vend), "mes": repo._eq(mes + "-01")},
                             prefer="return=representation") or []
+        ate = q.get("ate") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", q.get("ate") or "") else None
         novo = repo._req("POST", "vend_relatorios", corpo=[{"vendedor": vend, "mes": mes + "-01", "arquivo": nome,
-                                                            "hash": h}], prefer="return=representation")
+                                                            "hash": h, "ate": ate}], prefer="return=representation")
         rid = novo[0]["id"]
         regs = []
         for l in linhas:
@@ -1017,7 +1040,9 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         r.update({"vendedor": vend, "mes": atual["mes"][:7], "mes_nome": ranking.nome_mes(atual["mes"]),
                   "id": atual["id"], "arquivo": atual["arquivo"],
                   "anterior": {"mes": ant["mes"][:7], "nome": ranking.nome_mes(ant["mes"])} if ant else None,
-                  "meses": [{"mes": x["mes"][:7], "nome": ranking.nome_mes(x["mes"])} for x in reversed(rels)],
+                  "meses": [{"mes": x["mes"][:7], "nome": ranking.nome_mes(x["mes"]) + (
+                      f" (parcial até {nubi.fmt_data(x['ate'])[:5]})" if x.get("ate") else "")} for x in reversed(rels)],
+                  "parcial_ate": atual.get("ate"),
                   "evolucao": evol, "ranking": {"categoria": cat, "categoria_nome": ranking.nome_categoria(cat) if cat else "",
                                                 "mes_ok": bool(rk_mes)},
                   "explorador_gtins": sum(1 for p in r["produtos"] if p["ex_preco_medio"] is not None)})

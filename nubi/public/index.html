@@ -343,6 +343,7 @@ function desenharMenu() {
       <span class="ic">${x.icone}</span><span>${esc(x.nome)}<small>${esc(x.desc)}</small></span></a>
     ${x.id === sec && sub.length ? `<div class="subnav">${sub.map(i => `<a class="${i.on ? "on" : ""}" href="${i.href}" ${i.sub ? 'style="padding-left:22px;font-size:12.5px"' : ""}>${esc(i.nome)}</a>`).join("")}</div>` : ""}`).join("");
   $("#side").insertAdjacentHTML("beforeend", `<a class="navi ${sec === "nomes" ? "on" : ""}" href="#/nomes-marcas" style="margin-top:6px"><span class="ic">🔗</span><span>Nomes de marcas<small>Juntar grafias da mesma marca</small></span></a>`);
+  $("#side").insertAdjacentHTML("beforeend", `<div id="coletor-st" class="muted" style="font-size:12px;margin:14px 12px 0;padding-top:12px;border-top:1px solid var(--line)"></div>`);
   $("#side").insertAdjacentHTML("beforeend", `<div id="agente-st" class="muted" style="font-size:12px;margin:14px 12px 0;padding-top:12px;border-top:1px solid var(--line)"></div>`);
   desenharAgente();
 }
@@ -909,16 +910,28 @@ async function carregarVendLista() { try { S.vendLista = await api("vend_lista")
 const vendLinkV = v => `<a href="#/vendedores/${encodeURIComponent(v)}" class="plink0">${esc(v)}</a>`;
 const mesAnterior = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
 const pctCor = v => v == null ? "" : `<span class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${FMT.var(v)}</span>`;
+function cartaoColetor() {
+  const ex = S.coletor || [];
+  return `<div class="card pad" style="margin-top:14px"><h2>📥 Coletor automático do Nubimetrics</h2>
+    ${ex.length ? `<table class="t" style="font-size:12.5px"><thead><tr><th>Quando</th><th>Tarefa</th><th>Resultado</th><th class="num">Importados</th><th>Resumo</th></tr></thead><tbody>
+      ${ex.slice(0, 6).map(e => `<tr><td>${esc(quando(e.terminado_em || e.iniciado_em))}</td><td>${esc(e.tarefa)}</td>
+        <td>${e.ok ? `<span class="st good">ok</span>` : `<span class="st bad">falhou</span>`}</td><td class="num">${e.importados || 0}/${e.arquivos || 0}</td>
+        <td class="wrap">${esc(e.mensagem || "")}</td></tr>`).join("")}</tbody></table>`
+      : `<p class="muted" style="margin:0">Ainda não rodou. No Terminal do Mac mini, cole:</p>`}
+    <div class="log" style="margin-top:8px">curl -fsSL https://nubi-explorador.vercel.app/coletor/instalar.sh | bash</div>
+    <div class="muted" style="font-size:12px;margin-top:6px">Todo dia às 7h30 ele baixa o que falta: o relatório MARCAS do mês fechado e os vendedores seguidos do grupo "perfumes". Se a sessão do Nubimetrics expirar, aparece aqui como "falhou" e no Mac: rode <code>~/.nubi-coletor/coletor entrar</code>.</div></div>`;
+}
 function vendVazio(main) {
   main.innerHTML = `<h1>Vendedores monitorados</h1>
     <div class="card empty" style="margin-top:16px"><h2>Nenhum vendedor ainda</h2>
     <p>Importe o export de anúncios de um vendedor que você segue no Nubimetrics, mês fechado (.xlsx).<br>
     O nome do arquivo vira o nome do vendedor, por exemplo <code>AUMA_PERFUMARIA_P2.xlsx</code> → AUMA PERFUMARIA P2.</p>
-    <button class="btn primary" onclick="abrirUploadVendedor()">⬆ Importar vendedor</button></div>`;
+    <button class="btn primary" onclick="abrirUploadVendedor()">⬆ Importar vendedor</button></div>` + cartaoColetor();
 }
 async function telaVendedores(mes) {
   const main = $("#main");
   if (!S.vendLista) await carregarVendLista();
+  if (!S.coletor) { try { S.coletor = (await api("coletor_status")).execucoes; } catch { S.coletor = []; } }
   if (!S.vendLista.length) { vendVazio(main); desenharMenu(); return; }
   main.innerHTML = `<div class="empty"><span class="spin"></span> Comparando vendedores…</div>`;
   let r;
@@ -953,6 +966,7 @@ async function telaVendedores(mes) {
         </tbody></table></div></div>
     </div>`;
   $("#vmes").onchange = e => { location.hash = `#/vendedores?mes=${e.target.value}`; };
+  main.insertAdjacentHTML("beforeend", cartaoColetor());
   biRedesenhar = [() => grafBarrasH($("#g-vend"), vs.map(v => ({nome: v.vendedor, v: v.vendas, rot: abrev(v.vendas) + (v.var_vendas != null ? " · " + FMT.var(v.var_vendas) : ""),
       dica: [{valor: abrev(v.vendas), nome: "vendas"}, {valor: nf0.format(v.unidades), nome: "unidades"}, {valor: v.top_marcas.join(", "), nome: "maiores marcas"}]})),
     {cor: "var(--s1)", fmt: abrev, aoClicar: it => { location.hash = "#/vendedores/" + encodeURIComponent(it.nome); }})];
@@ -1622,6 +1636,9 @@ function quando(iso) {
   return min < 1 ? "agora" : min < 60 ? `há ${min} min` : min < 1440 ? `há ${Math.round(min / 60)} h` : `há ${Math.round(min / 1440)} dia(s)`;
 }
 function desenharAgente() {
+  const c = (S.coletor || [])[0], ec = $("#coletor-st");
+  if (ec) ec.innerHTML = !c ? `📥 Coletor Nubimetrics: <a href="#/vendedores">instalar</a>`
+    : `📥 Coletor Nubimetrics · ${quando(c.terminado_em || c.iniciado_em)}<br><small class="${c.ok ? "" : "neg"}">${c.ok ? "ok" : "falhou"} · ${esc((c.mensagem || "").slice(0, 70))}</small>`;
   const a = S.agente, el = $("#agente-st");
   if (el) el.innerHTML = S.agenteRodando ? `<span class="spin"></span> Agente de GTIN pesquisando…`
     : !a ? `🤖 Agente de GTIN ligado`
@@ -1635,6 +1652,7 @@ function desenharAgente() {
 }
 async function carregarAgente() {
   try { const st = await api("agente_status"); S.agente = st.execucoes[0] || null; } catch { S.agente = null; }
+  try { S.coletor = (await api("coletor_status")).execucoes; } catch { S.coletor = []; }
   desenharAgente();
 }
 async function cicloAgente() {

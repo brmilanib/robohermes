@@ -216,3 +216,15 @@ language sql stable security invoker set search_path = public as $$
   select marca, 'vendedores', sum(vendas) from public.vend_anuncios where marca is not null and marca <> '' group by marca;
 $$;
 grant execute on function public.marcas_vistas() to authenticated;
+
+-- Coletor do Nubimetrics (Mac mini): mês parcial e registro de cada coleta.
+alter table public.vend_relatorios add column if not exists ate date;
+create table if not exists public.coletor_execucoes (
+  id bigint generated always as identity primary key,
+  iniciado_em timestamptz not null default now(),
+  terminado_em timestamptz,
+  tarefa text, ok boolean, arquivos int, importados int, erros int, mensagem text, log text
+);
+alter table public.coletor_execucoes enable row level security;
+create policy "autorizado" on public.coletor_execucoes
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

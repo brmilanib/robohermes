@@ -147,6 +147,54 @@ Yves Saint Laurent, Thierry Mugler e Mugler, erros como "David Beckmam"). Nessa 
 A junção vale na hora para o Ranking, o B.I. e os Vendedores, inclusive nos dados já
 importados. Os arquivos continuam guardados com o nome original, então dá para desfazer.
 
+### Coletor automático do Nubimetrics (Mac mini)
+
+Um programa no Mac mini abre o Nubimetrics com o seu login já salvo, baixa os relatórios
+e manda para o nubi sozinho. O Explorador de anúncios continua manual.
+
+**Instalar** (uma vez, no Terminal do Mac mini):
+
+```
+curl -fsSL https://nubi-explorador.vercel.app/coletor/instalar.sh | bash
+```
+
+O instalador:
+1. prepara o Python e o navegador do coletor em `~/.nubi-coletor`;
+2. agenda a coleta para todo dia às 7h30. Para outro horário, use
+   `... | bash -s -- 8 15` (8h15);
+3. pede o login do **nubi** (guardado no Chaveiro do Mac), usado para enviar os arquivos;
+4. abre uma janela do navegador para você entrar no **Nubimetrics**. O login fica salvo no
+   perfil do coletor, e a senha do Nubimetrics não é gravada.
+
+**O que ele faz todo dia** (`coletor diario`), só baixando o que ainda falta no nubi:
+- o relatório **MARCAS** do mês fechado (categoria Perfumes, 100 linhas);
+- o export de anúncios de cada vendedor do grupo "perfumes" (16 hoje) do mês fechado, um
+  por um, com pausa entre eles. Vendedor novo no grupo entra sozinho;
+- cada coleta fica registrada no nubi (menu lateral e página Vendedores). Se falhar,
+  aparece como "falhou" e o Mac mostra uma notificação.
+
+**Comandos úteis** (no Terminal):
+
+| Comando | Para quê |
+|---|---|
+| `~/.nubi-coletor/coletor diario` | roda a coleta agora |
+| `~/.nubi-coletor/coletor status` | últimas coletas |
+| `~/.nubi-coletor/coletor entrar` | refazer o login do Nubimetrics (se a sessão expirar) |
+| `~/.nubi-coletor/coletor vendedores --mes 2026-07` | baixar um mês específico |
+| `~/.nubi-coletor/coletor marcas --mes 2026-07` | baixar o MARCAS de um mês específico |
+| `~/.nubi-coletor/coletor vendedores --parcial` | mês atual até ontem (aparece como "parcial até dd/mm") |
+
+**Cuidados:**
+- O Mac precisa estar ligado e com o seu usuário logado no horário. Para o Mac acordar
+  sozinho: `sudo pmset repeat wakeorpoweron MTWRFSU 07:25:00`.
+- Vendedores sem apelido aparecem com nome aleatório no Nubimetrics (ex.:
+  BANTENG.PRETO.DEMONSTRATIVO). Dê um apelido fixo a eles no Nubimetrics (ícone de lápis).
+  O coletor guarda o primeiro nome de cada vendedor e só troca um nome aleatório por um
+  apelido de verdade, então o histórico no nubi não se quebra.
+- O "mês atual até ontem" (`--parcial`) usa um período personalizado que ainda não foi
+  conferido no Nubimetrics. Por isso vem desligado na coleta diária. Depois de testar uma
+  vez, dá para ligar com `"mes_atual": true` em `~/.nubi-coletor/config.json`.
+
 A versão de computador continua funcionando igual, com os dados locais em `dados/base.db`.
 
 ## Instalação no computador (uma vez só)

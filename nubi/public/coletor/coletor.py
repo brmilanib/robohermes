@@ -1,0 +1,561 @@
+# -*- coding: utf-8 -*-
+"""
+Coletor do Nubimetrics — roda no Mac mini, abre o Nubimetrics com o seu login já feito,
+baixa os relatórios e manda para o nubi (https://nubi-explorador.vercel.app).
+
+  Vendedores seguidos (grupo "perfumes"): o export de anúncios de cada vendedor, mês fechado.
+  Relatório MARCAS: o ranking de marcas do mês fechado da categoria (Perfumes).
+
+Instalação no Mac: curl -fsSL https://nubi-explorador.vercel.app/coletor/instalar.sh | bash
+Depois, os comandos ficam em ~/.nubi-coletor/coletor (ex.: ~/.nubi-coletor/coletor status):
+  python coletor.py configurar      e-mail e senha do NUBI (guardados no Chaveiro do Mac)
+  python coletor.py entrar          abre o navegador para você fazer login no Nubimetrics
+  python coletor.py diario          o que o agendamento roda todo dia (só baixa o que falta)
+  python coletor.py vendedores [--mes AAAA-MM] [--parcial] [--so NOME] [--sem-enviar]
+  python coletor.py marcas [--mes AAAA-MM] [--sem-enviar]
+  python coletor.py status          última coleta e o que já está no nubi
+
+Os caminhos, botões e endereços do Nubimetrics seguem o mapeamento feito com o Claude do
+navegador (URLs diretas, ids e aria-labels estáveis; os ids gerados pelo MUI mudam a cada
+carga e não são usados).
+"""
+
+import argparse
+import calendar
+import getpass
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import traceback
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+
+BASE = os.environ.get("NUBIMETRICS_URL", "https://app.nubimetrics.com")
+NUBI = os.environ.get("NUBI_URL", "https://nubi-explorador.vercel.app")
+SUPABASE_URL = "https://ivsmadbyzbmugwfadwtg.supabase.co"
+SUPABASE_KEY = "sb_publishable_hlLuzIP8GMxjwTfY-otJQQ_LbMPm7Yt"     # chave pública (a mesma da página)
+PASTA = Path(os.environ.get("NUBI_COLETOR_DIR", Path.home() / ".nubi-coletor"))
+CONFIG = PASTA / "config.json"
+SERVICO_CHAVEIRO = "nubi-coletor"
+PAUSA = float(os.environ.get("NUBI_COLETOR_PAUSA", "4"))           # segundos entre vendedores
+
+PADRAO_CONFIG = {
+    "nubi_email": "",
+    "grupo": "460388",                       # grupo "perfumes" no Nubimetrics
+    "categoria": "MLB1246-MLB6284",          # Beleza e Cuidado Pessoal > Perfumes
+    "categoria_nomes": ["Beleza e Cuidado Pessoal", "Perfumes"],
+    "mes_atual": False,                      # baixar também o mês em andamento (parcial), todo dia
+    "mostrar_navegador": False,
+    "vendedores": {},                        # hash do vendedor -> nome fixo usado no nubi
+}
+MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto",
+         "Setembro", "Outubro", "Novembro", "Dezembro"]
+OFUSCADO = re.compile(r"^[A-Z]+\.[A-Z]+\.[A-Z]+$")                   # BANTENG.PRETO.DEMONSTRATIVO
+ESCONDER = "#intercom-container, .intercom-lightweight-app, .intercom-launcher {display: none !important}"
+
+
+class Falha(Exception):
+    pass
+
+
+class SessaoExpirada(Falha):
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Configuração, registro e avisos
+# ---------------------------------------------------------------------------
+
+LOG = []
+
+
+def log(msg):
+    linha = f"{datetime.now():%H:%M:%S} {msg}"
+    LOG.append(linha)
+    print(linha, flush=True)
+    try:
+        PASTA.mkdir(parents=True, exist_ok=True)
+        with open(PASTA / "coletor.log", "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d} {linha}\n")
+    except OSError:
+        pass
+
+
+def ler_config():
+    cfg = dict(PADRAO_CONFIG)
+    if CONFIG.exists():
+        cfg.update(json.loads(CONFIG.read_text(encoding="utf-8")))
+    return cfg
+
+
+def salvar_config(cfg):
+    PASTA.mkdir(parents=True, exist_ok=True)
+    CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def aviso_mac(titulo, texto):
+    """Notificação na tela do Mac (só avisa; não faz nada em outros sistemas)."""
+    if sys.platform != "darwin":
+        return
+    t = texto.replace('"', "'")[:200]
+    subprocess.run(["osascript", "-e", f'display notification "{t}" with title "{titulo}"'], check=False)
+
+
+# ---------------------------------------------------------------------------
+# Login no nubi (para enviar os arquivos)
+# ---------------------------------------------------------------------------
+
+def senha_chaveiro(email):
+    if os.environ.get("NUBI_SENHA"):
+        return os.environ["NUBI_SENHA"]
+    if sys.platform != "darwin":
+        return ""
+    r = subprocess.run(["security", "find-generic-password", "-s", SERVICO_CHAVEIRO, "-a", email, "-w"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def token_nubi(cfg):
+    if os.environ.get("NUBI_TOKEN"):                   # testes
+        return os.environ["NUBI_TOKEN"]
+    email = cfg.get("nubi_email") or ""
+    senha = senha_chaveiro(email)
+    if not email or not senha:
+        raise Falha("Login do nubi não configurado. Rode: python coletor.py configurar")
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/auth/v1/token?grant_type=password",
+        data=json.dumps({"email": email, "password": senha}).encode(),
+        headers={"apikey": SUPABASE_KEY, "Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode())["access_token"]
+    except urllib.error.HTTPError as e:
+        raise Falha(f"Login no nubi recusado ({e.code}). Rode de novo: python coletor.py configurar")
+
+
+def api(token, rota, params=None, corpo=None, metodo=None):
+    q = urllib.parse.urlencode(dict(params or {}, r=rota))
+    dados = corpo if isinstance(corpo, (bytes, type(None))) else json.dumps(corpo).encode()
+    req = urllib.request.Request(f"{NUBI}/api/app?{q}", data=dados, method=metodo or ("POST" if dados else "GET"),
+                                 headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            return json.loads(r.read().decode() or "{}")
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read().decode()).get("erro")
+        except Exception:  # noqa: BLE001
+            msg = None
+        raise Falha(msg or f"nubi respondeu {e.code}")
+
+
+# ---------------------------------------------------------------------------
+# Navegador
+# ---------------------------------------------------------------------------
+
+def abrir_navegador(p, cfg, visivel=None):
+    """Chrome com perfil próprio e persistente: o login do Nubimetrics fica salvo nele."""
+    visivel = cfg.get("mostrar_navegador") if visivel is None else visivel
+    opcoes = dict(user_data_dir=str(PASTA / "perfil"), headless=not visivel, accept_downloads=True,
+                  viewport={"width": 1500, "height": 950}, locale="pt-BR")
+    exe = os.environ.get("NUBI_CHROMIUM")
+    if exe:
+        opcoes["executable_path"] = exe
+    else:
+        try:                                        # prefere o Google Chrome instalado no Mac
+            return p.chromium.launch_persistent_context(channel="chrome", **opcoes)
+        except Exception:  # noqa: BLE001
+            pass
+    return p.chromium.launch_persistent_context(**opcoes)
+
+
+def conferir_sessao(pg):
+    """Sessão expirada: o Nubimetrics manda para a tela de login."""
+    caminho = urllib.parse.urlparse(pg.url).path          # só o caminho: a tela de login leva o destino na query
+    if not caminho.startswith(("/competition", "/market")):
+        raise SessaoExpirada("A sessão do Nubimetrics expirou. No Mac mini, rode: "
+                             "python coletor.py entrar (e faça login de novo).")
+
+
+def ir(pg, url, esperar):
+    pg.goto(url, wait_until="domcontentloaded", timeout=90000)
+    try:
+        pg.wait_for_selector(esperar, timeout=60000)
+    except Exception:  # noqa: BLE001
+        conferir_sessao(pg)
+        raise Falha(f"a página não carregou o esperado ({esperar}): {pg.url}")
+    conferir_sessao(pg)
+    try:
+        pg.add_style_tag(content=ESCONDER)          # chat do Intercom pode cobrir botões
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Períodos
+# ---------------------------------------------------------------------------
+
+def mes_anterior(hoje=None):
+    hoje = hoje or date.today()
+    d = hoje.replace(day=1) - timedelta(days=1)
+    return f"{d.year}-{d.month:02d}"
+
+
+def limites(mes):
+    a, m = map(int, mes.split("-"))
+    return f"{mes}-01", f"{mes}-{calendar.monthrange(a, m)[1]:02d}"
+
+
+# ---------------------------------------------------------------------------
+# Fluxo 1 — vendedores seguidos
+# ---------------------------------------------------------------------------
+
+def limpar_nome(txt):
+    """Nome do vendedor na tabela, sem ícones (lápis, lupa) e espaços sobrando."""
+    linhas = [l.strip() for l in (txt or "").splitlines() if l.strip()]
+    nome = linhas[0] if linhas else ""
+    nome = re.sub(r"^[^\w]+|[^\w)]+$", "", nome)
+    return re.sub(r"\s+", " ", nome).upper()
+
+
+def listar_vendedores(pg, cfg):
+    """Nome e hash de cada vendedor do grupo (tabela paginada, 10 por página)."""
+    ir(pg, f"{BASE}/competition/dashboardbycompetitor?group={cfg['grupo']}&range=PREVMONTH",
+       'td a[aria-label="Analise um concorrente"]')
+    vistos, pagina = {}, 1
+    while True:
+        pg.wait_for_selector('td a[aria-label="Analise um concorrente"]', timeout=60000)
+        for a in pg.locator('td a[aria-label="Analise um concorrente"]').all():
+            nome = limpar_nome(a.evaluate("a => { const td = a.closest('td'); const c = td.cloneNode(true);"
+                                          " c.querySelectorAll('a, svg, button, img').forEach(x => x.remove());"
+                                          " return c.innerText; }"))
+            href = a.get_attribute("href") or ""
+            if "seller=" not in href:               # link sem href: abre nova aba ao clicar
+                with pg.context.expect_page() as nova:
+                    a.click()
+                aba = nova.value
+                aba.wait_for_load_state("domcontentloaded")
+                href = aba.url
+                aba.close()
+            h = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("seller", [""])[0]
+            if h:
+                vistos[h] = nome
+        prox = pg.locator('button[aria-label="Go to next page"]')
+        if prox.count() == 0 or prox.first.is_disabled():
+            break
+        antes = pg.locator("td").first.inner_text()
+        prox.first.click()
+        pagina += 1
+        pg.wait_for_function("t => document.querySelector('td') && document.querySelector('td').innerText !== t",
+                             arg=antes, timeout=30000)
+    log(f"Vendedores no grupo: {len(vistos)} ({pagina} página(s))")
+    # nome fixo por vendedor no nubi: o primeiro visto; troca só se o antigo era ofuscado
+    fixos = cfg.setdefault("vendedores", {})
+    for h, nome in vistos.items():
+        antigo = fixos.get(h)
+        if not antigo or (OFUSCADO.match(antigo) and not OFUSCADO.match(nome)):
+            fixos[h] = nome
+    return [(h, fixos[h], vistos[h]) for h in vistos]
+
+
+def baixar_vendedor(pg, h, ini, fim, rng, destino):
+    url = (f"{BASE}/competition/analysisbycompetitor?seller={h}&range={rng}&category="
+           f"&from={ini}&to={fim}")
+    ir(pg, url, "button#tab-1")
+    with pg.expect_response(lambda r: "analysisitems" in r.url and f"from={ini}" in r.url, timeout=120000) as resp:
+        pg.click("button#tab-1")
+    if not resp.value.ok:
+        raise Falha(f"a lista de anúncios não carregou ({resp.value.status})")
+    pg.wait_for_selector("#dashboardByCompetitor_exportBtn_table", timeout=60000)
+    pg.wait_for_function("() => document.querySelectorAll('table tbody tr').length > 0", timeout=60000)
+    time.sleep(1.5)                                  # a tabela termina de desenhar
+    with pg.expect_download(timeout=120000) as d:
+        pg.click("#dashboardByCompetitor_exportBtn_table")
+    dl = d.value
+    arq = destino / dl.suggested_filename           # nome = vendedor na tela; não renomear
+    dl.save_as(str(arq))
+    if arq.stat().st_size < 3000:
+        raise Falha(f"arquivo vazio ou incompleto ({arq.name})")
+    return arq
+
+
+def coletar_vendedores(p, cfg, token, mes=None, parcial=False, so=None, enviar=True, pular=None):
+    hoje = date.today()
+    if parcial:
+        mes = f"{hoje.year}-{hoje.month:02d}"
+        ontem = hoje - timedelta(days=1)
+        if ontem.month != hoje.month:
+            log("Dia 1º: ainda não há mês atual para baixar.")
+            return 0, 0, 0
+        ini, fim, rng, ate = f"{mes}-01", ontem.isoformat(), "CUSTOM", ontem.isoformat()
+    else:
+        mes = mes or mes_anterior()
+        ini, fim = limites(mes)
+        rng = "PREVMONTH" if mes == mes_anterior() else "CUSTOM"
+        ate = None
+    destino = PASTA / "arquivos" / (mes + ("-parcial" if parcial else ""))
+    destino.mkdir(parents=True, exist_ok=True)
+    ctx = abrir_navegador(p, cfg)
+    arquivos = importados = erros = 0
+    try:
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        lista = listar_vendedores(pg, cfg)
+        salvar_config(cfg)
+        for h, nome_fixo, nome_tela in lista:
+            if so and so.upper() not in (nome_fixo.upper(), nome_tela.upper()):
+                continue
+            if pular and pular(nome_fixo):
+                log(f"  {nome_fixo}: {mes} já está no nubi")
+                continue
+            try:
+                arq = baixar_vendedor(pg, h, ini, fim, rng, destino)
+                arquivos += 1
+                log(f"  {nome_fixo}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
+                if enviar:
+                    params = {"arquivo": arq.name, "mes": mes, "vendedor": nome_fixo}
+                    if ate:
+                        params["ate"] = ate
+                    r = api(token, "vend_importar", params, arq.read_bytes())
+                    importados += 1
+                    log("    " + " ".join(r.get("log", [])))
+            except SessaoExpirada:
+                raise
+            except Exception as e:  # noqa: BLE001
+                erros += 1
+                log(f"  {nome_fixo}: ERRO {e}")
+            time.sleep(PAUSA)
+    finally:
+        salvar_config(cfg)
+        ctx.close()
+    return arquivos, importados, erros
+
+
+# ---------------------------------------------------------------------------
+# Fluxo 2 — relatório MARCAS mensal
+# ---------------------------------------------------------------------------
+
+def coletar_marcas(p, cfg, token, mes=None, enviar=True):
+    mes = mes or mes_anterior()
+    a, m = map(int, mes.split("-"))
+    rotulo_mes = f"{MESES[m - 1]} {a}"
+    cat = cfg["categoria"]
+    nivel1, nivel2 = cat.split("-")[:2]
+    destino = PASTA / "arquivos" / mes
+    destino.mkdir(parents=True, exist_ok=True)
+    ctx = abrir_navegador(p, cfg)
+    try:
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        ir(pg, f"{BASE}/market/sellerranking#?range={mes}-01", "button#simple-tab-3")
+        # mês: o botão do calendário tem que mostrar o mês certo
+        cal = pg.locator("button.calendar-btn").first
+        if rotulo_mes.lower() not in cal.inner_text().lower():
+            cal.click()
+            pg.locator("ul.dropdown-menu li a", has_text=rotulo_mes).first.click()
+            pg.wait_for_function("t => document.querySelector('button.calendar-btn').innerText.toLowerCase()"
+                                 ".includes(t)", arg=rotulo_mes.lower(), timeout=30000)
+        # categoria: os botões têm que mostrar Beleza e Cuidado Pessoal / Perfumes
+        botoes = pg.locator("div.dropdown-category button.dropdown-toggle")
+        textos = " | ".join(botoes.all_inner_texts())
+        if not all(n.lower() in textos.lower() for n in cfg["categoria_nomes"]):
+            log(f"  Categoria na tela: {textos!r}; escolhendo {cat}")
+            botoes.nth(0).click()
+            pg.locator(f'a[data-id="{nivel1}"]').first.click()
+            time.sleep(2)
+            botoes.nth(1).click()
+            pg.locator(f'a[data-id="{nivel2}"][data-parent="{nivel1}"]').first.click()
+            time.sleep(2)
+            textos = " | ".join(botoes.all_inner_texts())
+            if not all(n.lower() in textos.lower() for n in cfg["categoria_nomes"]):
+                raise Falha(f"não consegui escolher a categoria (tela mostra: {textos})")
+        # aba MARCAS
+        def e_ranking(r, limite=None):
+            u = urllib.parse.unquote(r.url)
+            return ("ranking/tree" in u and "Topic=brands" in u and f"Date={mes}-01" in u
+                    and f"CategoryPath={cat}" in u and (limite is None or f"Limit={limite}" in u))
+        with pg.expect_response(lambda r: e_ranking(r), timeout=120000):
+            pg.click("button#simple-tab-3")
+        # 100 linhas por página (o export sai da tabela carregada)
+        seletor = pg.locator('[role="combobox"], [aria-haspopup="listbox"]').filter(has_text=re.compile(r"^\s*10\s*$")).first
+        if seletor.count():
+            with pg.expect_response(lambda r: e_ranking(r, 100), timeout=120000):
+                seletor.click()
+                pg.locator('li[role="option"][data-value="100"]').click()
+        pg.wait_for_function("() => document.querySelectorAll('table tbody tr').length > 0", timeout=60000)
+        time.sleep(1.5)
+        with pg.expect_download(timeout=120000) as d:
+            pg.locator("button", has_text="EXPORTAR").last.click()
+        dl = d.value
+        nome = dl.suggested_filename
+        if not re.search(r"MARCAS.*\d{4}-\d{2}", nome, re.I):
+            nome = f"MARCAS-{cat}-{mes}-01.xlsx"
+        arq = destino / nome
+        dl.save_as(str(arq))
+        log(f"  MARCAS {mes}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
+        if enviar:
+            r = api(token, "ranking_importar", {"arquivo": arq.name, "categoria": cat, "mes": mes}, arq.read_bytes())
+            log("    " + " ".join(r.get("log", [])))
+            return 1, 1, 0
+        return 1, 0, 0
+    finally:
+        ctx.close()
+
+
+# ---------------------------------------------------------------------------
+# Comandos
+# ---------------------------------------------------------------------------
+
+def registrar(token, tarefa, inicio, ok, arquivos, importados, erros, mensagem):
+    if not token:
+        return
+    try:
+        api(token, "coletor_registrar", corpo={
+            "iniciado_em": inicio.isoformat(), "terminado_em": datetime.now(timezone.utc).isoformat(),
+            "tarefa": tarefa, "ok": ok, "arquivos": arquivos, "importados": importados, "erros": erros,
+            "mensagem": mensagem, "log": "\n".join(LOG)})
+    except Exception as e:  # noqa: BLE001
+        log(f"(não consegui registrar a coleta no nubi: {e})")
+
+
+def cmd_configurar(args, cfg):
+    print("Login do NUBI (o mesmo da página nubi-explorador.vercel.app), para enviar os arquivos.")
+    email = input(f"E-mail [{cfg.get('nubi_email') or ''}]: ").strip() or cfg.get("nubi_email")
+    senha = getpass.getpass("Senha do nubi: ")
+    if sys.platform == "darwin":
+        subprocess.run(["security", "add-generic-password", "-U", "-s", SERVICO_CHAVEIRO, "-a", email, "-w", senha],
+                       check=True)
+    else:
+        os.environ["NUBI_SENHA"] = senha
+    cfg["nubi_email"] = email
+    grupo = input(f"Grupo de vendedores no Nubimetrics [{cfg['grupo']}]: ").strip()
+    cfg["grupo"] = grupo or cfg["grupo"]
+    salvar_config(cfg)
+    token_nubi(cfg)
+    print("OK: login do nubi conferido e guardado no Chaveiro do Mac.")
+
+
+def cmd_entrar(args, cfg):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        ctx = abrir_navegador(p, cfg, visivel=True)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(f"{BASE}/competition/dashboardbycompetitor?group={cfg['grupo']}&range=PREVMONTH")
+        print("Faça login no Nubimetrics na janela que abriu (marque 'lembrar', se houver).")
+        print("Quando a tela de Grupo de vendedores aparecer, o login fica salvo e a janela fecha.")
+        fim = time.time() + 600
+        while time.time() < fim:
+            if pg.locator('td a[aria-label="Analise um concorrente"]').count():
+                print("OK: login salvo no perfil do coletor.")
+                break
+            time.sleep(2)
+        else:
+            print("Tempo esgotado (10 min) sem ver a tela de vendedores.")
+        ctx.close()
+
+
+def cmd_status(args, cfg):
+    token = token_nubi(cfg)
+    st = api(token, "coletor_status")
+    for e in st["execucoes"][:5]:
+        print(f"{e['iniciado_em'][:16]}  {e['tarefa']:<10} {'ok ' if e['ok'] else 'ERRO'}  "
+              f"{e['importados'] or 0}/{e['arquivos'] or 0} importados  {e['mensagem'] or ''}")
+
+
+def executar(tarefa, func):
+    """Roda uma coleta com registro no nubi e aviso no Mac em caso de erro."""
+    cfg = ler_config()
+    inicio = datetime.now(timezone.utc)
+    token = None
+    try:
+        token = token_nubi(cfg)
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            arquivos, importados, erros, msg = func(p, cfg, token)
+        ok = erros == 0
+        log(("OK: " if ok else "Terminou com erros: ") + msg)
+        registrar(token, tarefa, inicio, ok, arquivos, importados, erros, msg)
+        if not ok:
+            aviso_mac("Coletor nubi", msg)
+        return 0 if ok else 1
+    except Exception as e:  # noqa: BLE001
+        msg = str(e) if isinstance(e, Falha) else f"{e.__class__.__name__}: {e}"
+        log("FALHOU: " + msg)
+        if not isinstance(e, Falha):
+            log(traceback.format_exc()[-2000:])
+        registrar(token, tarefa, inicio, False, 0, 0, 1, msg)
+        aviso_mac("Coletor nubi — falhou", msg)
+        return 2
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Coletor do Nubimetrics para o nubi")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("configurar")
+    sub.add_parser("entrar")
+    sub.add_parser("status")
+    sub.add_parser("diario")
+    v = sub.add_parser("vendedores")
+    v.add_argument("--mes")
+    v.add_argument("--parcial", action="store_true", help="mês atual até ontem")
+    v.add_argument("--so", help="só este vendedor")
+    v.add_argument("--sem-enviar", action="store_true")
+    mk = sub.add_parser("marcas")
+    mk.add_argument("--mes")
+    mk.add_argument("--sem-enviar", action="store_true")
+    args = ap.parse_args()
+    cfg = ler_config()
+
+    if args.cmd == "configurar":
+        return cmd_configurar(args, cfg)
+    if args.cmd == "entrar":
+        return cmd_entrar(args, cfg)
+    if args.cmd == "status":
+        return cmd_status(args, cfg)
+    if args.cmd == "vendedores":
+        def f(p, cfg, token):
+            a, i, e = coletar_vendedores(p, cfg, token, args.mes, args.parcial, args.so, not args.sem_enviar)
+            return a, i, e, f"vendedores: {a} baixado(s), {i} importado(s), {e} erro(s)"
+        return executar("vendedores", f)
+    if args.cmd == "marcas":
+        def f(p, cfg, token):
+            a, i, e = coletar_marcas(p, cfg, token, args.mes, not args.sem_enviar)
+            return a, i, e, f"MARCAS {args.mes or mes_anterior()}: baixado"
+        return executar("marcas", f)
+    if args.cmd == "diario":
+        def f(p, cfg, token):
+            mes = mes_anterior()
+            pend = api(token, "coletor_pendencias")
+            A = I = E = 0
+            partes = []
+            if mes not in pend["ranking"].get(cfg["categoria"], []):
+                try:
+                    a, i, e = coletar_marcas(p, cfg, token, mes)
+                    partes.append(f"MARCAS {mes} importado")
+                except SessaoExpirada:
+                    raise
+                except Exception as ex:  # noqa: BLE001
+                    a, i, e = 0, 0, 1
+                    log(f"  MARCAS {mes}: ERRO {ex}")
+                    partes.append(f"MARCAS {mes} falhou")
+                A, I, E = A + a, I + i, E + e
+            # vendedores: mês fechado que falta (ou que ainda está como parcial)
+            ja = pend["vendedores"]
+            pular = lambda nome: mes in ja.get(nome, {}) and not ja[nome][mes]
+            a, i, e = coletar_vendedores(p, cfg, token, mes, pular=pular)
+            A, I, E = A + a, I + i, E + e
+            partes.append(f"vendedores {mes}: {i} importado(s)")
+            if cfg.get("mes_atual"):
+                a, i, e = coletar_vendedores(p, cfg, token, parcial=True)
+                A, I, E = A + a, I + i, E + e
+                partes.append(f"mês atual: {i} importado(s)")
+            return A, I, E, "; ".join(partes) + (f"; {E} erro(s)" if E else "")
+        return executar("diario", f)
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)
