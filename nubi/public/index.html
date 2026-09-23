@@ -64,6 +64,10 @@ h2{font-size:16px;margin:0 0 10px}
 .kpi .l{font-size:12px;color:var(--muted)}
 .kpi .o{font-size:11.5px;color:var(--muted);margin-top:2px}
 .grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+.grid2>*{min-width:0}
+.rolar{overflow-x:auto}
+.grid2.gh{grid-template-columns:1fr 1fr}
+@media (max-width:700px){.grid2.gh{grid-template-columns:1fr}}
 @media (max-width:900px){.grid2{grid-template-columns:1fr}}
 .tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);margin:18px 0 0;padding-bottom:0}
 .tab{padding:9px 13px;border:none;background:none;border-bottom:2px solid transparent;color:var(--muted);font-weight:600;white-space:nowrap}
@@ -140,6 +144,46 @@ aside.side{background:var(--card);border-right:1px solid var(--line);padding:14p
 a.plink{color:inherit;text-decoration:none;border-bottom:1px dashed var(--muted);cursor:pointer}
 a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .modal.larga{max-width:1080px}
+/* ---- Gráficos do B.I. (paleta categórica validada p/ daltonismo; escuro tem os próprios tons) ---- */
+:root{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;
+  --dv-pos:#2a78d6;--dv-neg:#e34948;--dv-mid:#f0efec;--dv-outro:#b8bcc6}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
+  --dv-pos:#3987e5;--dv-neg:#e66767;--dv-mid:#383835;--dv-outro:#4a5263}}
+:root[data-theme="dark"]{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
+  --dv-pos:#3987e5;--dv-neg:#e66767;--dv-mid:#383835;--dv-outro:#4a5263}
+.bi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:14px;margin-top:14px}
+@media (max-width:700px){.bi-grid{grid-template-columns:1fr}}
+.bi-grid .card{min-width:0}
+.bi-card h2{margin:0}
+.bi-card .sub{font-size:12px;color:var(--muted);margin:2px 0 8px}
+.ch{position:relative;width:100%}
+.ch svg{display:block;overflow:visible}
+.ch text{fill:var(--muted);font-size:11px;font-family:inherit}
+.ch .lbl{fill:var(--ink);font-size:11.5px}
+.ch .grid line{stroke:var(--line);stroke-width:1}
+.ch .hit{fill:transparent;cursor:pointer}
+.ch .mk:hover,.ch .mk.on{filter:brightness(1.12)}
+.legenda{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin:2px 0 6px}
+.legenda span{display:inline-flex;align-items:center;gap:6px;cursor:default}
+.legenda i{display:inline-block;width:14px;height:3px;border-radius:2px}
+.legenda i.q{width:10px;height:10px;border-radius:2px}
+#dvtip{position:fixed;z-index:70;pointer-events:none;background:var(--card);border:1px solid var(--line);box-shadow:0 4px 16px rgba(0,0,0,.18);
+  border-radius:8px;padding:8px 10px;font-size:12px;min-width:140px;max-width:320px}
+#dvtip .tt{color:var(--muted);margin-bottom:4px}
+#dvtip .r{display:flex;align-items:center;gap:8px;margin:2px 0}
+#dvtip .r i{width:12px;height:2px;border-radius:1px;flex:none}
+#dvtip .r b{font-variant-numeric:tabular-nums}
+#dvtip .r span{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
+.seg button{border:none;background:none;padding:5px 11px;font-size:12.5px;color:var(--muted)}
+.seg button.on{background:var(--soft);color:var(--ink);font-weight:600}
+.heat{border-collapse:separate;border-spacing:2px;font-size:11.5px;width:100%}
+.heat td,.heat th{text-align:center;padding:4px 2px;border-radius:4px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.heat th{color:var(--muted);font-weight:500}
+.heat td.nm{text-align:left;padding-right:8px;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.heat td.c{cursor:default;min-width:44px}
+.st{display:inline-block;border-radius:6px;padding:0 7px;font-size:11.5px;background:var(--soft);white-space:nowrap}
+.st.good{background:var(--good-bg);color:var(--good)} .st.bad{background:var(--bad-bg);color:var(--bad)} .st.warn{background:var(--warn-bg);color:var(--warn)}
 </style>
 </head>
 <body>
@@ -164,7 +208,7 @@ const FMT = {
   x: v => v == null || v === 0 ? "" : nf1.format(v) + "x",
   txt: v => v ?? "",
 };
-const NUM = new Set(["int","dec","moeda","moeda2","pct","var","x","nota","numtxt"]);
+const NUM = new Set(["pp","int","dec","moeda","moeda2","pct","var","x","nota","numtxt"]);
 const dataBR = s => s ? s.split("-").reverse().join("/") : "";
 
 let S = { sessao: null, painel: [], marca: null, rel: null, aba: "oportunidades", tabelas: {} };
@@ -286,12 +330,14 @@ function desenharMenu() {
   const sec = secaoAtual(), h = decodeURIComponent(location.hash);
   const sub = sec === "explorador"
     ? S.painel.map(p => ({href: "#/" + encodeURIComponent(p.marca), nome: nome(p.marca), on: h === "#/" + p.marca}))
-    : (S.rankLista || []).map(c => ({href: `#/ranking/${encodeURIComponent(c.categoria)}`, nome: c.nome.split(" > ").pop(),
-        on: h.startsWith(`#/ranking/${c.categoria}`)}));
+    : (S.rankLista || []).flatMap(c => [
+        {href: `#/ranking/${encodeURIComponent(c.categoria)}`, nome: c.nome.split(" > ").pop(),
+         on: h.startsWith(`#/ranking/${c.categoria}`) && !h.endsWith("/bi")},
+        {href: `#/ranking/${encodeURIComponent(c.categoria)}/bi`, nome: "📊 B.I. · " + c.meses.length + " meses", on: h === `#/ranking/${c.categoria}/bi`, sub: true}]);
   $("#side").innerHTML = SECOES.map(x => `
     <a class="navi ${x.id === sec ? "on" : ""}" href="${x.id === "ranking" ? "#/ranking" : "#/"}">
       <span class="ic">${x.icone}</span><span>${esc(x.nome)}<small>${esc(x.desc)}</small></span></a>
-    ${x.id === sec && sub.length ? `<div class="subnav">${sub.map(i => `<a class="${i.on ? "on" : ""}" href="${i.href}">${esc(i.nome)}</a>`).join("")}</div>` : ""}`).join("");
+    ${x.id === sec && sub.length ? `<div class="subnav">${sub.map(i => `<a class="${i.on ? "on" : ""}" href="${i.href}" ${i.sub ? 'style="padding-left:22px;font-size:12.5px"' : ""}>${esc(i.nome)}</a>`).join("")}</div>` : ""}`).join("");
 }
 const nome = m => (m || "").toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()).replace(/ (De|Da|Do|Di|Du) /g, x => x.toLowerCase());
 
@@ -301,8 +347,8 @@ async function rotear() {
   const sec = secaoAtual();
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   if (sec === "ranking") {
-    const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}))?/) || [];
-    return telaRanking(cat, mes);
+    const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi))?/) || [];
+    return mes === "bi" ? telaBI(cat) : telaRanking(cat, mes);
   }
   const m = decodeURIComponent((location.hash.match(/^#\/(.+)$/) || [])[1] || "");
   S.marca = m || null;
@@ -339,6 +385,8 @@ async function telaRanking(cat, mes) {
       <h1>Ranking de marcas · ${esc(r.categoria_nome)}</h1>
       <select id="rkmes" class="btn" style="padding:5px 8px">${r.meses.map(m => `<option value="${m.mes}" ${m.mes === r.mes ? "selected" : ""}>${esc(m.nome)}</option>`).join("")}</select>
       <span class="muted">${ant ? `comparando com ${esc(ant.nome)}` : "primeiro mês importado desta categoria (a comparação aparece a partir do próximo)"}</span>
+      <div style="flex:1"></div>
+      <div class="seg"><button class="on">📅 Mês</button><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}/bi'">📊 B.I. · todos os meses (${r.meses.length})</button></div>
     </div>
     <p class="alerta" style="margin:4px 0 0">Mercado inteiro da categoria no mês fechado (${nf0.format(z.marcas)} marcas do relatório), não da sua loja.</p>
     <div class="kpis">
@@ -357,10 +405,10 @@ async function telaRanking(cat, mes) {
           <span class="muted">#${m.posicao} · ${abrev(m.vendas)} · ${nf0.format(m.vendedores || 0)} vendedores · ticket R$ ${nf0.format(m.ticket)}</span><br>${sinaisRk(m.sinais)}</li>`).join("")}</ol>
       </div>
       <div class="card pad"><h2>Maiores marcas</h2>
-        <table class="t" style="font-size:13px"><tbody>${maiores.map(m => `<tr><td class="num muted">${m.posicao}</td>
+        <div class="rolar"><table class="t" style="font-size:13px"><tbody>${maiores.map(m => `<tr><td class="num muted">${m.posicao}</td>
           <td>${rankVar(m.variacao)}</td><td class="first">${rkLink(m.marca)}</td><td class="num">${abrev(m.vendas)}</td>
           <td style="width:20%;min-width:70px"><div style="background:var(--soft);border-radius:4px;height:8px"><div style="width:${(m.vendas / maiores[0].vendas * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:4px"></div></div></td>
-          <td class="num">${FMT.pct(m.share)}</td></tr>`).join("")}</tbody></table>
+          <td class="num">${FMT.pct(m.share)}</td></tr>`).join("")}</tbody></table></div>
         ${r.sairam.length ? `<div class="muted" style="font-size:12px;margin-top:10px">Saíram do ranking: ${r.sairam.map(x => `<span class="sinal bad">${esc(x.marca)} (era #${x.posicao_ant})</span>`).join("")}</div>` : ""}
       </div>
     </div>
@@ -416,6 +464,350 @@ async function abrirMarcaRanking(marca) {
         <td>${esc(x.tendencia)}</td><td>${esc(x.saturacao)}</td><td class="num">${x.ranking_demanda ?? ""}</td></tr>`).join("")}
     </tbody></table></div>
     ${!linha.explorador ? `<p class="muted" style="font-size:12px;margin:10px 0 0">Para ver os anúncios e produtos desta marca, importe o export de anúncios dela no Explorador.</p>` : ""}`;
+}
+// ---------- Gráficos (SVG feito à mão, sem biblioteca) ----------
+// Cores por entidade (a marca mantém a cor em todos os gráficos da tela), máx. 8 séries.
+const corS = i => `var(--s${i + 1})`;
+const MES_C = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+const mesCurto = m => MES_C[+m.slice(5, 7) - 1] + "/" + m.slice(2, 4);
+const abrevEixo = v => v >= 1e6 ? nf0.format(v / 1e6) + " mi" : v >= 1e3 ? nf0.format(v / 1e3) + " mil" : nf0.format(v);
+const pp = v => v == null ? "—" : (v > 0 ? "+" : "") + nf1.format(v * 100) + " p.p.";
+function svgEl(tag, at = {}, pai) {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(at)) if (v != null) e.setAttribute(k, v);
+  if (pai) pai.appendChild(e);
+  return e;
+}
+function svgTxt(pai, x, y, txt, at = {}) { const t = svgEl("text", {x, y, ...at}, pai); t.textContent = txt; return t; }
+function passos(lo, hi, n = 4) {
+  if (hi <= lo) hi = lo + 1;
+  const bruto = (hi - lo) / n, p = 10 ** Math.floor(Math.log10(bruto)), e = bruto / p;
+  const st = (e < 1.5 ? 1 : e < 3 ? 2 : e < 7 ? 5 : 10) * p;
+  const out = [];
+  for (let v = Math.floor(lo / st) * st; v <= Math.ceil(hi / st) * st + st / 2; v += st) out.push(+v.toPrecision(12));
+  return out;
+}
+// Tooltip único; fica fora do <body> para não sofrer o zoom das telas 4K.
+function mostrarTip(ev, titulo, linhas) {
+  let t = document.getElementById("dvtip");
+  if (!t) { t = document.createElement("div"); t.id = "dvtip"; document.documentElement.appendChild(t); }
+  t.replaceChildren();
+  const h = document.createElement("div"); h.className = "tt"; h.textContent = titulo; t.appendChild(h);
+  for (const l of linhas) {
+    const r = document.createElement("div"); r.className = "r";
+    if (l.cor) { const i = document.createElement("i"); i.style.background = l.cor; r.appendChild(i); }
+    const b = document.createElement("b"); b.textContent = l.valor; r.appendChild(b);
+    if (l.nome) { const s = document.createElement("span"); s.textContent = l.nome; r.appendChild(s); }
+    t.appendChild(r);
+  }
+  t.style.display = "block";
+  const w = t.offsetWidth, hh = t.offsetHeight;
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + w > innerWidth - 8) x = ev.clientX - w - 14;
+  if (y + hh > innerHeight - 8) y = ev.clientY - hh - 14;
+  t.style.left = Math.max(4, x) + "px"; t.style.top = Math.max(4, y) + "px";
+}
+function esconderTip() { const t = document.getElementById("dvtip"); if (t) t.style.display = "none"; }
+const posSvg = (svg, ev, W) => { const r = svg.getBoundingClientRect(); return [(ev.clientX - r.left) * W / r.width, (ev.clientY - r.top) * W / r.width]; };
+function legenda(itens, quadrado = false) {
+  return `<div class="legenda">${itens.map(([nm, cor]) => `<span><i class="${quadrado ? "q" : ""}" style="background:${cor}"></i>${esc(nm)}</span>`).join("")}</div>`;
+}
+// Linhas (uma ou várias séries, com buracos quando falta o mês). inverter: posição no ranking (1 no topo).
+function grafLinhas(box, {rotulos, series, fmt, fmtEixo = fmt, inverter = false, zero = true, altura = 260, rotFim = true, pontos = false}) {
+  box.replaceChildren();
+  const W = Math.max(320, box.clientWidth), H = altura, m = {l: 56, r: rotFim ? 124 : 14, t: 10, b: 24};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b, n = rotulos.length;
+  const vals = series.flatMap(s => s.v).filter(v => v != null);
+  if (!vals.length) { box.innerHTML = `<div class="empty">Sem dados.</div>`; return; }
+  let tk;
+  if (inverter) { const mx = Math.max(...vals); tk = passos(0, mx, 5).filter(v => v >= 1 || v === 0).map(v => Math.max(1, v)); tk = [...new Set(tk)]; }
+  else tk = passos(zero ? Math.min(0, ...vals) : Math.min(...vals), Math.max(...vals));
+  const lo = tk[0], hi = tk[tk.length - 1];
+  const X = i => m.l + (n === 1 ? iw / 2 : i * iw / (n - 1));
+  const Y = v => inverter ? m.t + (v - lo) / (hi - lo || 1) * ih : m.t + ih - (v - lo) / (hi - lo || 1) * ih;
+  const svg = svgEl("svg", {width: W, height: H, viewBox: `0 0 ${W} ${H}`}, box);
+  const g = svgEl("g", {class: "grid"}, svg);
+  tk.forEach(t => { svgEl("line", {x1: m.l, x2: m.l + iw, y1: Y(t), y2: Y(t)}, g); svgTxt(svg, m.l - 8, Y(t) + 4, inverter ? "#" + t : fmtEixo(t), {"text-anchor": "end"}); });
+  const cada = Math.ceil(n / Math.max(1, Math.floor(iw / 52)));
+  rotulos.forEach((r, i) => { if (i % cada === 0 || i === n - 1) svgTxt(svg, X(i), H - 6, r, {"text-anchor": "middle"}); });
+  const fins = [];
+  series.forEach(s => {
+    let d = "", aberto = false;
+    s.v.forEach((v, i) => { if (v == null) { aberto = false; return; } d += `${aberto ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`; aberto = true; });
+    svgEl("path", {d, fill: "none", stroke: s.cor, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round"}, svg);
+    s.v.forEach((v, i) => {
+      const isolado = v != null && s.v[i - 1] == null && s.v[i + 1] == null;
+      if (v != null && (pontos || isolado)) svgEl("circle", {cx: X(i), cy: Y(v), r: 4, fill: s.cor, stroke: "var(--card)", "stroke-width": 2}, svg);
+    });
+    const u = s.v.map((v, i) => [v, i]).filter(([v]) => v != null).pop();
+    if (u) { svgEl("circle", {cx: X(u[1]), cy: Y(u[0]), r: 4, fill: s.cor, stroke: "var(--card)", "stroke-width": 2}, svg); fins.push({y: Y(u[0]), x: X(u[1]), s}); }
+  });
+  if (rotFim) {
+    fins.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < fins.length; i++) if (fins[i].y - fins[i - 1].y < 13) fins[i].y = fins[i - 1].y + 13;
+    const exc = fins.length ? fins[fins.length - 1].y - (m.t + ih + 4) : 0;
+    if (exc > 0) fins.forEach(f => f.y -= exc);
+    fins.forEach(f => { const t = svgTxt(svg, m.l + iw + 10, f.y + 4, f.s.nome.length > 17 ? f.s.nome.slice(0, 16) + "…" : f.s.nome, {class: "lbl"}); });
+  }
+  const cruz = svgEl("line", {y1: m.t, y2: m.t + ih, stroke: "var(--muted)", "stroke-width": 1, visibility: "hidden"}, svg);
+  const alvo = svgEl("rect", {x: m.l - 10, y: 0, width: iw + 20, height: H, class: "hit"}, svg);
+  alvo.addEventListener("pointermove", ev => {
+    const [px] = posSvg(svg, ev, W);
+    const i = n === 1 ? 0 : Math.max(0, Math.min(n - 1, Math.round((px - m.l) / (iw / (n - 1)))));
+    cruz.setAttribute("x1", X(i)); cruz.setAttribute("x2", X(i)); cruz.setAttribute("visibility", "visible");
+    const ls = series.filter(s => s.v[i] != null).sort((a, b) => inverter ? a.v[i] - b.v[i] : b.v[i] - a.v[i])
+      .map(s => ({cor: s.cor, valor: inverter ? "#" + s.v[i] : fmt(s.v[i]), nome: s.nome}));
+    series.filter(s => s.v[i] == null).forEach(s => ls.push({cor: s.cor, valor: "fora", nome: s.nome}));
+    mostrarTip(ev, rotulos[i], ls);
+  });
+  alvo.addEventListener("pointerleave", () => { cruz.setAttribute("visibility", "hidden"); esconderTip(); });
+}
+// Colunas empilhadas (1 série = colunas simples). rotCap: texto no topo de cada coluna.
+function grafColunas(box, {rotulos, series, fmt, fmtEixo = fmt, altura = 240, rotCap, dica}) {
+  box.replaceChildren();
+  const W = Math.max(320, box.clientWidth), H = altura, m = {l: 56, r: 10, t: 18, b: 24};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b, n = rotulos.length;
+  const tot = rotulos.map((_, i) => series.reduce((a, s) => a + (s.v[i] || 0), 0));
+  const tk = passos(0, Math.max(...tot, 1)), hi = tk[tk.length - 1];
+  const Y = v => m.t + ih - v / hi * ih, banda = iw / n, bw = Math.min(24, banda * 0.6);
+  const svg = svgEl("svg", {width: W, height: H, viewBox: `0 0 ${W} ${H}`}, box);
+  const g = svgEl("g", {class: "grid"}, svg);
+  tk.forEach(t => { svgEl("line", {x1: m.l, x2: m.l + iw, y1: Y(t), y2: Y(t)}, g); svgTxt(svg, m.l - 8, Y(t) + 4, fmtEixo(t), {"text-anchor": "end"}); });
+  rotulos.forEach((r, i) => {
+    const cx = m.l + banda * (i + .5);
+    svgTxt(svg, cx, H - 6, r, {"text-anchor": "middle"});
+    let base = 0;
+    const vis = series.map((s, k) => [s, k]).filter(([s]) => (s.v[i] || 0) > 0);
+    vis.forEach(([s], j) => {
+      const v = s.v[i], y0 = Y(base), y1 = Y(base + v), topo = j === vis.length - 1;
+      const gap = j > 0 ? 2 : 0, h = Math.max(0, y0 - y1 - gap), x = cx - bw / 2, rr = topo ? Math.min(4, h) : 0;
+      const yb = y0 - gap;
+      svgEl("path", {class: "mk", fill: s.cor, d: `M${x},${yb}V${yb - h + rr}Q${x},${yb - h} ${x + rr},${yb - h}H${x + bw - rr}Q${x + bw},${yb - h} ${x + bw},${yb - h + rr}V${yb}Z`}, svg);
+      base += v;
+    });
+    if (rotCap) svgTxt(svg, cx, Y(tot[i]) - 5, rotCap(i), {"text-anchor": "middle", class: "lbl"});
+    const alvo = svgEl("rect", {x: cx - banda / 2, y: m.t - 18, width: banda, height: ih + 18, class: "hit"}, svg);
+    alvo.addEventListener("pointermove", ev => mostrarTip(ev, rotulos[i], dica ? dica(i) : series.map(s => ({cor: s.cor, valor: fmt(s.v[i] || 0), nome: s.nome}))));
+    alvo.addEventListener("pointerleave", esconderTip);
+  });
+}
+// Barras horizontais a partir de uma base, com o valor na ponta. itens: {nome, v, rot, dica}
+function grafBarrasH(box, itens, {cor, fmt}) {
+  box.replaceChildren();
+  if (!itens.length) { box.innerHTML = `<div class="empty" style="padding:20px">Nada no período.</div>`; return; }
+  const W = Math.max(280, box.clientWidth), lh = 24, H = itens.length * lh + 4, nomeW = Math.min(150, W * 0.38), valW = 104;
+  const iw = W - nomeW - valW, mx = Math.max(...itens.map(x => Math.abs(x.v)), 1);
+  const svg = svgEl("svg", {width: W, height: H, viewBox: `0 0 ${W} ${H}`}, box);
+  itens.forEach((it, i) => {
+    const y = i * lh + 2, w = Math.max(2, Math.abs(it.v) / mx * iw), bh = 14, by = y + (lh - bh) / 2 - 1;
+    const a = svgEl("a", {class: "plink rklink", "data-rkm": it.nome}, svg);
+    const cab = Math.max(6, Math.floor((nomeW - 12) / 7));
+    const tn = svgTxt(a, nomeW - 8, y + lh / 2 + 3, it.nome.length > cab ? it.nome.slice(0, cab - 1) + "…" : it.nome, {"text-anchor": "end", class: "lbl", style: "cursor:pointer"});
+    svgEl("title", {}, tn).textContent = it.nome;
+    const x = nomeW, rr = Math.min(4, w);
+    svgEl("path", {class: "mk", fill: cor, d: `M${x},${by}H${x + w - rr}Q${x + w},${by} ${x + w},${by + rr}V${by + bh - rr}Q${x + w},${by + bh} ${x + w - rr},${by + bh}H${x}Z`}, svg);
+    svgTxt(svg, x + w + 6, y + lh / 2 + 3, it.rot || fmt(it.v), {class: "lbl"});
+    const alvo = svgEl("rect", {x: nomeW, y, width: iw + valW, height: lh, class: "hit"}, svg);
+    alvo.addEventListener("pointermove", ev => mostrarTip(ev, it.nome, it.dica || [{cor, valor: fmt(it.v)}]));
+    alvo.addEventListener("pointerleave", esconderTip);
+    alvo.addEventListener("click", () => abrirMarcaRanking(it.nome));
+  });
+}
+// Dispersão: crescimento das vendas × crescimento dos vendedores.
+function grafDispersao(box, pts, {altura = 320}) {
+  box.replaceChildren();
+  if (pts.length < 3) { box.innerHTML = `<div class="empty">Precisa de pelo menos 2 meses com as mesmas marcas.</div>`; return; }
+  const W = Math.max(320, box.clientWidth), H = altura, m = {l: 56, r: 16, t: 12, b: 36};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const q = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const lo = Math.min(-0.2, q(xs, .03), q(ys, .03)), hi = Math.max(0.2, q(xs, .97), q(ys, .97));
+  const tk = passos(lo, hi, 5), a = tk[0], b = tk[tk.length - 1];
+  const X = v => m.l + (Math.max(a, Math.min(b, v)) - a) / (b - a) * iw, Y = v => m.t + ih - (Math.max(a, Math.min(b, v)) - a) / (b - a) * ih;
+  const svg = svgEl("svg", {width: W, height: H, viewBox: `0 0 ${W} ${H}`}, box);
+  svgEl("path", {d: `M${X(Math.max(a, 0))},${Y(a)}L${X(b)},${Y(a)}L${X(b)},${Y(b)}Z`, fill: "var(--s1)", opacity: .07}, svg);
+  const g = svgEl("g", {class: "grid"}, svg);
+  tk.forEach(t => {
+    svgEl("line", {x1: m.l, x2: m.l + iw, y1: Y(t), y2: Y(t)}, g); svgEl("line", {y1: m.t, y2: m.t + ih, x1: X(t), x2: X(t)}, g);
+    svgTxt(svg, m.l - 8, Y(t) + 4, FMT.var(t).replace(",0", ""), {"text-anchor": "end"}); svgTxt(svg, X(t), m.t + ih + 15, FMT.var(t).replace(",0", ""), {"text-anchor": "middle"});
+  });
+  svgEl("line", {x1: X(a), y1: Y(a), x2: X(b), y2: Y(b), stroke: "var(--muted)", "stroke-width": 1}, svg);
+  svgTxt(svg, X(b) - 4, Y(b) + 14, "vendedores = vendas", {"text-anchor": "end"});
+  svgTxt(svg, m.l + iw / 2, H - 4, "Crescimento das vendas no período →", {"text-anchor": "middle"});
+  svgTxt(svg, 12, m.t + ih / 2, "Crescimento dos vendedores →", {"text-anchor": "middle", transform: `rotate(-90 12 ${m.t + ih / 2})`});
+  const ord = [...pts].sort((p, q2) => (p.dest ? 1 : 0) - (q2.dest ? 1 : 0));
+  ord.forEach(p => svgEl("circle", {cx: X(p.x), cy: Y(p.y), r: 4.5, fill: p.dest ? "var(--s1)" : "var(--dv-outro)", stroke: "var(--card)", "stroke-width": 2, class: "mk"}, svg));
+  const rot = pts.filter(p => p.dest).sort((p, q2) => (q2.nota || 0) - (p.nota || 0)).slice(0, 6);
+  const caixas = [];
+  rot.forEach(p => {
+    const nm = p.nome.length > 16 ? p.nome.slice(0, 15) + "…" : p.nome, w = nm.length * 6.6, px = X(p.x), py = Y(p.y) - 6;
+    const esq = px + 7 + w > W - 2, x0 = esq ? px - 7 - w : px + 7;
+    if (caixas.some(c => x0 < c[0] + c[2] && x0 + w > c[0] && Math.abs(py - c[1]) < 13)) return;   // não sobrepõe rótulos
+    caixas.push([x0, py, w]);
+    svgTxt(svg, esq ? px - 7 : px + 7, py, nm, {class: "lbl", "text-anchor": esq ? "end" : "start"});
+  });
+  const alvo = svgEl("rect", {x: m.l, y: m.t, width: iw, height: ih, class: "hit"}, svg);
+  let perto = null;
+  alvo.addEventListener("pointermove", ev => {
+    const [px, py] = posSvg(svg, ev, W);
+    perto = null; let dm = 24 * 24;
+    for (const p of pts) { const d = (X(p.x) - px) ** 2 + (Y(p.y) - py) ** 2; if (d < dm) { dm = d; perto = p; } }
+    alvo.style.cursor = perto ? "pointer" : "default";
+    if (!perto) return esconderTip();
+    mostrarTip(ev, perto.nome, [{cor: perto.dest ? "var(--s1)" : "var(--dv-outro)", valor: FMT.var(perto.x), nome: "vendas"},
+      {valor: FMT.var(perto.y), nome: "vendedores"}, {valor: abrev(perto.vendas), nome: "vendas no último mês"}]);
+  });
+  alvo.addEventListener("pointerleave", esconderTip);
+  alvo.addEventListener("click", () => { if (perto) abrirMarcaRanking(perto.nome); });
+}
+function sparkSerie(s) {
+  const w = 110, hh = 24, vs = s.filter(v => v != null), mx = Math.max(...vs, 1), mn = Math.min(...vs, mx);
+  const X = i => s.length === 1 ? w / 2 : 2 + i * (w - 4) / (s.length - 1), Y = v => hh - 3 - (v - mn) / (mx - mn || 1) * (hh - 6);
+  let d = "", ab = false;
+  s.forEach((v, i) => { if (v == null) { ab = false; return; } d += `${ab ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`; ab = true; });
+  const u = s.length - 1;
+  return `<svg class="spark" width="${w}" height="${hh}" viewBox="0 0 ${w} ${hh}"><path d="${d}" fill="none" stroke="var(--s1)" stroke-width="1.6" stroke-linejoin="round"/>
+    ${s[u] != null ? `<circle cx="${X(u)}" cy="${Y(s[u])}" r="2.5" fill="var(--s1)"/>` : ""}</svg>`;
+}
+const ST_CLS = {"Subindo forte": "good", "Crescimento consistente": "good", "Nova": "good", "Em queda": "bad", "Saiu do ranking": "bad", "Instável": "warn"};
+const statusHTML = s => s ? `<span class="st ${ST_CLS[s] || ""}">${esc(s)}</span>` : "";
+
+// ---------- B.I. do ranking (todos os meses importados) ----------
+let biRedesenhar = [];
+window.addEventListener("resize", () => { clearTimeout(window._biT); window._biT = setTimeout(() => biRedesenhar.forEach(f => f()), 150); });
+async function telaBI(cat) {
+  const main = $("#main");
+  if (!S.rankLista) await carregarRankLista();
+  if (!S.rankLista.length) return telaRanking();
+  cat = cat || S.rankLista[0].categoria;
+  const f = S.biFiltro && S.biFiltro.categoria === cat ? S.biFiltro : (S.biFiltro = {categoria: cat, desde: "", ate: "", per: "3m"});
+  if ($("#bi-raiz")) $("#bi-raiz").style.opacity = .5;
+  else main.innerHTML = `<div class="empty"><span class="spin"></span> Montando o B.I.…</div>`;
+  let r;
+  try { r = await api("ranking_bi", {categoria: cat, ...(f.desde ? {desde: f.desde} : {}), ...(f.ate ? {ate: f.ate} : {})}); }
+  catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const M = r.meses, z = r.resumo, n = M.length, ult = M[n - 1], pri = M[0], rot = M.map(m => mesCurto(m.mes));
+  S.bi = r; S.tabelas = {};
+  S.rank = {categoria: cat, categoria_nome: r.categoria_nome, mes_nome: ult.nome, marcas: r.marcas.filter(x => x.no_ultimo)};
+  const top8 = r.marcas.filter(x => x.no_ultimo).slice(0, 8);
+  const cor = new Map(top8.map((x, i) => [x.marca_chave, corS(i)]));
+  const varTxt = (v, ref) => v == null ? "" : `<span class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${FMT.var(v)}</span> ${ref}`;
+  const acompanhar = r.marcas.filter(x => x.no_ultimo && x.nota != null).sort((a, b) => b.nota - a.nota).slice(0, 10);
+  const opMes = (sel, excl) => r.todos_meses.map(m => `<option value="${m.mes}" ${m.mes === sel ? "selected" : ""}>${esc(mesCurto(m.mes))}</option>`).join("");
+  main.innerHTML = `<div id="bi-raiz">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h1>B.I. do ranking · ${esc(r.categoria_nome)}</h1>
+      <span class="muted">${n} ${n === 1 ? "mês" : "meses"} · ${esc(mesCurto(pri.mes))} → ${esc(mesCurto(ult.mes))}</span>
+      <div style="flex:1"></div>
+      <div class="seg"><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}'">📅 Mês</button><button class="on">📊 B.I. · todos os meses</button></div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 0">
+      <label class="muted">De <select id="bi-de" class="btn" style="padding:4px 8px">${opMes(pri.mes)}</select></label>
+      <label class="muted">até <select id="bi-ate" class="btn" style="padding:4px 8px">${opMes(ult.mes)}</select></label>
+      ${f.desde || f.ate ? `<button class="btn small" id="bi-todos">Todos os meses</button>` : ""}
+      <span class="alerta" style="font-size:12.5px">Mercado inteiro da categoria (as ${nf0.format(ult.marcas)} maiores marcas de cada mês). Marca que some num mês saiu do ranking naquele mês, não quer dizer venda zero.</span>
+    </div>
+    <div class="kpis">
+      ${kpi("Vendas em " + mesCurto(ult.mes), abrev(ult.vendas), n > 1 ? varTxt(ult.var_vendas, "vs mês anterior") : "")}
+      ${kpi("Crescimento no período", n > 1 ? `<span class="${z.cresc_vendas >= 0 ? "pos" : "neg"}">${FMT.var(z.cresc_vendas)}</span>` : "—", n > 1 ? `${esc(mesCurto(pri.mes))} → ${esc(mesCurto(ult.mes))} · ${FMT.var(z.cresc_mensal)} ao mês` : "precisa de 2 meses")}
+      ${kpi("Vendas somadas no período", abrev(z.vendas_periodo), nf0.format(z.unidades_periodo) + " unidades")}
+      ${kpi("Ticket médio", "R$ " + nf2.format(ult.ticket), n > 1 ? varTxt(z.cresc_ticket, "vs " + mesCurto(pri.mes)) : "")}
+      ${kpi("Concentração top 5", FMT.pct(ult.top5), n > 1 ? `${pp(z.var_top5)} vs ${esc(mesCurto(pri.mes))} · ${z.var_top5 > 0.005 ? "concentrando" : z.var_top5 < -0.005 ? "abrindo espaço" : "estável"}` : "")}
+      ${kpi("Marcas fiéis", `${z.sempre} de ${z.passaram}`, "no ranking em todos os meses")}
+      ${kpi("Rotatividade", n > 1 ? nf1.format(z.novas_media) : "—", "marcas novas por mês no ranking")}
+      ${kpi("Melhor mês", esc(mesCurto(z.melhor_mes)), "pior: " + esc(mesCurto(z.pior_mes)))}
+    </div>
+    <div class="bi-grid">
+      <div class="card pad bi-card"><h2>Vendas do mercado por mês</h2><div class="sub">Soma das marcas do relatório; no topo, a variação contra o mês anterior.</div><div class="ch" id="g-vendas"></div></div>
+      <div class="card pad bi-card"><h2>Para acompanhar</h2><div class="sub">Nota B.I.: crescimento em 3 meses, consistência (meses em alta), subida no ranking, saturação e vendas crescendo mais que os vendedores.</div>
+        <div class="rolar"><table class="t" style="font-size:12.5px"><tbody>${acompanhar.map(x => `<tr><td class="num">${notaHTML(x.nota)}</td><td class="first">${rkLink(x.marca)}</td>
+          <td>${statusHTML(x.status)}</td><td class="num muted">#${x.posicao}</td><td>${sparkSerie(x.vendas)}</td>
+          <td class="num ${x.cresc_3m > 0 ? "pos" : x.cresc_3m < 0 ? "neg" : ""}" title="últimos 3 meses">${FMT.var(x.cresc_3m)}</td></tr>`).join("")}</tbody></table></div></div>
+      <div class="card pad bi-card"><h2>Share das 8 maiores marcas</h2><div class="sub">Participação nas vendas do ranking, mês a mês (as 8 maiores de ${esc(mesCurto(ult.mes))}).</div>
+        ${legenda(top8.map(x => [x.marca, cor.get(x.marca_chave)]))}<div class="ch" id="g-share"></div></div>
+      <div class="card pad bi-card"><h2>Posição no ranking</h2><div class="sub">Mesmas 8 marcas; quanto mais alto, melhor a posição.</div>
+        ${legenda(top8.map(x => [x.marca, cor.get(x.marca_chave)]))}<div class="ch" id="g-pos"></div></div>
+      <div class="card pad bi-card"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="flex:1">Quem mais ganhou e perdeu vendas</h2>
+          <div class="seg" id="bi-per"><button data-p="mes">Último mês</button><button data-p="3m">3 meses</button><button data-p="total">Período</button></div></div>
+        <div class="sub" id="bi-per-sub"></div>
+        <div class="grid2 gh" style="gap:18px"><div><div class="muted" style="font-size:12px;margin-bottom:4px">▲ Maiores ganhos (R$)</div><div class="ch" id="g-ganhos"></div></div>
+          <div><div class="muted" style="font-size:12px;margin-bottom:4px">▼ Maiores quedas (R$)</div><div class="ch" id="g-quedas"></div></div></div></div>
+      <div class="card pad bi-card"><h2>Demanda × concorrência</h2><div class="sub">Cada ponto é uma marca presente no primeiro e no último mês. Na área azul as vendas cresceram mais que o número de vendedores: a demanda está puxando mais que a concorrência.</div>
+        ${legenda([["Vendas crescendo mais que vendedores", "var(--s1)"], ["Demais marcas", "var(--dv-outro)"]], true)}<div class="ch" id="g-disp"></div></div>
+      <div class="card pad bi-card" style="grid-column:1/-1"><h2>Mapa de calor · as 25 maiores de ${esc(mesCurto(ult.mes))}</h2>
+        <div class="sub">O número é a posição no mês; a cor é a variação das vendas contra o mês anterior (azul cresceu, vermelho caiu). "—" = fora do ranking.</div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:11.5px;margin-bottom:6px" class="muted">−50%<span style="display:inline-block;width:160px;height:8px;border-radius:4px;background:linear-gradient(90deg,var(--dv-neg),var(--dv-mid),var(--dv-pos))"></span>+50%</div>
+        <div style="overflow-x:auto" id="g-heat"></div></div>
+      <div class="card pad bi-card"><h2>Ticket médio por mês</h2><div class="sub">Vendas ÷ unidades de todas as marcas do ranking.</div><div class="ch" id="g-ticket"></div></div>
+      <div class="card pad bi-card"><h2>Concentração do mercado</h2><div class="sub">Quanto das vendas fica com a maior, as 5 e as 10 maiores marcas. Caindo = mercado abrindo espaço.</div>
+        ${legenda([["Top 10", corS(0)], ["Top 5", corS(1)], ["Maior marca", corS(2)]])}<div class="ch" id="g-conc"></div></div>
+      <div class="card pad bi-card"><h2>Tendência das marcas por mês</h2><div class="sub">Quantas marcas o Nubimetrics marcou crescendo, estáveis e diminuindo.</div>
+        ${legenda([["Crescendo", "var(--good)"], ["Estável", "var(--dv-outro)"], ["Diminuindo", "var(--bad)"]], true)}<div class="ch" id="g-tend"></div></div>
+    </div>
+    <h2 style="margin:22px 0 0">Todas as marcas que passaram pelo ranking</h2>
+    <div id="bi-tab" class="painel"></div>
+  </div>`;
+  const mudaFiltro = () => { f.desde = $("#bi-de").value; f.ate = $("#bi-ate").value; if (f.ate < f.desde) [f.desde, f.ate] = [f.ate, f.desde]; telaBI(cat); };
+  $("#bi-de").onchange = mudaFiltro; $("#bi-ate").onchange = mudaFiltro;
+  if ($("#bi-todos")) $("#bi-todos").onclick = () => { f.desde = f.ate = ""; telaBI(cat); };
+  const serieM = k => M.map(m => m[k]);
+  const PER = {mes: ["ganho_mes", "cresc_mes", "contra o mês anterior"], "3m": ["ganho_3m", "cresc_3m", "contra 3 meses atrás"], total: ["ganho_vendas", "cresc_total", "desde o primeiro mês em que a marca aparece no período"]};
+  const desenharGanhos = () => {
+    const [kg, kc, txt] = PER[f.per];
+    document.querySelectorAll("#bi-per button").forEach(b => b.classList.toggle("on", b.dataset.p === f.per));
+    $("#bi-per-sub").textContent = `Diferença de vendas em R$ ${txt}. Só marcas no ranking nos dois meses comparados.`;
+    const vs = r.marcas.filter(x => x[kg] != null);
+    const item = x => ({nome: x.marca, v: x[kg], rot: (x[kg] > 0 ? "+" : "−") + abrev(Math.abs(x[kg])).replace("R$ ", "") + " · " + FMT.var(x[kc]),
+      dica: [{valor: (x[kg] > 0 ? "+" : "−") + abrev(Math.abs(x[kg])), nome: "em vendas"}, {valor: FMT.var(x[kc]), nome: "variação"}, {valor: "#" + x.posicao, nome: "posição atual"}]});
+    grafBarrasH($("#g-ganhos"), vs.filter(x => x[kg] > 0).sort((a, b) => b[kg] - a[kg]).slice(0, 10).map(item), {cor: "var(--dv-pos)", fmt: abrev});
+    grafBarrasH($("#g-quedas"), vs.filter(x => x[kg] < 0).sort((a, b) => a[kg] - b[kg]).slice(0, 10).map(item), {cor: "var(--dv-neg)", fmt: abrev});
+  };
+  document.querySelectorAll("#bi-per button").forEach(b => b.onclick = () => { f.per = b.dataset.p; desenharGanhos(); });
+  const heat = () => {
+    const linhas = r.marcas.filter(x => x.no_ultimo).slice(0, 25);
+    $("#g-heat").innerHTML = `<table class="heat"><thead><tr><th></th>${rot.map(x => `<th>${esc(x)}</th>`).join("")}<th>Status</th></tr></thead><tbody>${linhas.map(x => `<tr>
+      <td class="nm">${rkLink(x.marca)}</td>${x.vendas.map((v, i) => {
+        if (v == null) return `<td class="c muted">—</td>`;
+        const a = i > 0 ? x.vendas[i - 1] : null, d = a ? v / a - 1 : null;
+        const t = d == null || Math.abs(d) < 0.02 ? 0 : Math.round(18 + 67 * Math.min(1, Math.abs(d) / 0.5));
+        const bg = t ? `color-mix(in oklab, var(${d > 0 ? "--dv-pos" : "--dv-neg"}) ${t}%, var(--dv-mid))` : "var(--dv-mid)";
+        return `<td class="c" style="background:${bg};${t > 50 ? "color:#fff" : ""}" data-m="${esc(x.marca)}" data-i="${i}">#${x.posicoes[i]}</td>`;
+      }).join("")}<td>${statusHTML(x.status)}</td></tr>`).join("")}</tbody></table>`;
+    $("#g-heat").querySelectorAll("td[data-i]").forEach(td => {
+      td.onpointermove = ev => { const x = r.marcas.find(y => y.marca === td.dataset.m), i = +td.dataset.i, v = x.vendas[i], a = i > 0 ? x.vendas[i - 1] : null;
+        mostrarTip(ev, `${x.marca} · ${rot[i]}`, [{valor: "#" + x.posicoes[i], nome: "posição"}, {valor: abrev(v), nome: "vendas"},
+          {valor: a ? FMT.var(v / a - 1) : "—", nome: a ? "vs mês anterior" : (i ? "fora do ranking no mês anterior" : "primeiro mês")},
+          {valor: FMT.pct(x.share[i]), nome: "share"}, {valor: nf0.format(x.vendedores_serie[i] || 0), nome: "vendedores"}]); };
+      td.onpointerleave = esconderTip;
+    });
+  };
+  biRedesenhar = [
+    () => grafColunas($("#g-vendas"), {rotulos: rot, series: [{nome: "Vendas", cor: "var(--s1)", v: serieM("vendas")}], fmt: abrev, fmtEixo: abrevEixo,
+      rotCap: i => i && M[i].var_vendas != null ? FMT.var(M[i].var_vendas).replace(",0%", "%") : "",
+      dica: i => [{cor: "var(--s1)", valor: abrev(M[i].vendas), nome: "vendas"}, {valor: nf0.format(M[i].unidades), nome: "unidades"},
+        ...(i ? [{valor: FMT.var(M[i].var_vendas), nome: "vs mês anterior"}] : []), {valor: nf0.format(M[i].marcas), nome: "marcas no ranking"}]}),
+    () => grafLinhas($("#g-share"), {rotulos: rot, series: top8.map(x => ({nome: x.marca, cor: cor.get(x.marca_chave), v: x.share})), fmt: FMT.pct, fmtEixo: v => nf0.format(v * 100) + "%", pontos: n <= 12}),
+    () => grafLinhas($("#g-pos"), {rotulos: rot, series: top8.map(x => ({nome: x.marca, cor: cor.get(x.marca_chave), v: x.posicoes})), fmt: v => "#" + v, inverter: true, pontos: n <= 12}),
+    desenharGanhos,
+    () => grafDispersao($("#g-disp"), r.marcas.filter(x => x.no_ultimo && x.cresc_total != null && x.var_vendedores != null)
+      .map(x => ({nome: x.marca, x: x.cresc_total, y: x.var_vendedores, dest: x.cresc_total > 0 && x.cresc_total > x.var_vendedores + 0.1, nota: x.nota, vendas: x.vendas_atual})), {}),
+    heat,
+    () => grafLinhas($("#g-ticket"), {rotulos: rot, series: [{nome: "Ticket médio", cor: "var(--s1)", v: serieM("ticket")}], fmt: v => "R$ " + nf2.format(v), fmtEixo: v => "R$ " + nf0.format(v), zero: false, rotFim: false, pontos: true, altura: 220}),
+    () => grafLinhas($("#g-conc"), {rotulos: rot, series: [{nome: "Top 10", cor: corS(0), v: serieM("top10")}, {nome: "Top 5", cor: corS(1), v: serieM("top5")}, {nome: "Maior marca", cor: corS(2), v: serieM("top1")}],
+      fmt: FMT.pct, fmtEixo: v => nf0.format(v * 100) + "%", altura: 220, pontos: n <= 12}),
+    () => grafColunas($("#g-tend"), {rotulos: rot, series: [{nome: "Crescendo", cor: "var(--good)", v: serieM("crescendo")}, {nome: "Estável", cor: "var(--dv-outro)", v: serieM("estavel")},
+      {nome: "Diminuindo", cor: "var(--bad)", v: serieM("diminuindo")}], fmt: v => nf0.format(v) + " marcas", fmtEixo: nf0.format, altura: 220}),
+  ];
+  biRedesenhar.forEach(g => g());
+  const linhas = r.marcas.map(x => ({...x, presenca: x.presente + "/" + n, _spark: null}));
+  const cols = [["posicao","# atual","int"],["marca","Marca","rkmarca","txt"],["status","Status","status","sel"],["nota","Nota B.I.","nota"],["_spark","Vendas mês a mês","spark"],
+    ["vendas_atual","Vendas " + mesCurto(ult.mes),"moeda"],["cresc_mes","Var. mês","var"],["cresc_3m","Var. 3 meses","var"],["cresc_total","Var. período","var"],
+    ["ganho_posicoes","Posições ganhas","rank"],["share_atual","Share","pct"],["var_share","Var. share","pp"],["consistencia","Meses em alta","pct"],["volatilidade","Oscilação","pct"],
+    ["vendedores","Vendedores","int"],["var_vendedores","Var. vendedores","var"],["ticket","Ticket médio","moeda2"],["var_ticket","Var. ticket","var"],
+    ["tendencia","Tendência","txt","sel"],["saturacao","Saturação","txt","sel"],["presenca","Meses no ranking","txt","sel"],["explorador","Explorador","expl"]];
+  tabela($("#bi-tab"), "bi_marcas", linhas, cols, {ordem: ["posicao", 1],
+    nota: "Variações comparam só meses em que a marca estava no ranking. Meses em alta = % das passagens de mês em que as vendas subiram. Oscilação = desvio padrão das variações mensais (alto = vendas instáveis). Clique na marca para ver o histórico completo."});
+  desenharMenu();
 }
 function abrirUploadRanking() {
   const itens = [];
@@ -734,6 +1126,9 @@ function celula(r, k, f, i) {
   if (k === "produto") return `<td class="first">${prodLink(v)}</td>`;
   if (f === "rkmarca") return `<td class="first">${rkLink(v)}</td>`;
   if (f === "rank") return `<td class="num">${rankVar(v)}</td>`;
+  if (f === "spark") return `<td>${sparkSerie(r.vendas)}</td>`;
+  if (f === "status") return `<td>${statusHTML(v)}</td>`;
+  if (f === "pp") return `<td class="num ${v > 0.001 ? "pos" : v < -0.001 ? "neg" : ""}">${pp(v)}</td>`;
   if (f === "sinais_rk") return `<td>${sinaisRk(v)}</td>`;
   if (f === "expl") return `<td>${v ? `<a href="#/${encodeURIComponent(v)}">abrir ↗</a>` : ""}</td>`;
   if (f === "vend") return `<td>${vendLink(r.codigo, v)}</td>`;

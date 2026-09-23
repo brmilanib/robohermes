@@ -737,6 +737,29 @@ def rota_ranking(repo, metodo, rota, q, corpo):
         return {"marca": hist[-1]["marca"] if hist else q["marca"], "historico": hist,
                 "meses_total": len(rels)}
 
+    if rota == "ranking_bi":
+        cat = q["categoria"]
+        rels = _relatorios(repo, cat)
+        if q.get("desde"):
+            rels = [r for r in rels if r["mes"][:7] >= q["desde"]] or rels
+        if q.get("ate"):
+            rels = [r for r in rels if r["mes"][:7] <= q["ate"]] or rels
+        if not rels:
+            raise ErroNuvem("Nenhum relatório importado para esta categoria.", 404)
+        ids = ",".join(str(r["id"]) for r in rels)
+        linhas = repo._todos("ranking_linhas", {
+            "select": "relatorio_id,posicao,variacao,marca,marca_chave,vendas,unidades,tendencia,catalogo,"
+                      "vendedores,saturacao,ranking_demanda",
+            "relatorio_id": f"in.({ids})", "order": "relatorio_id,posicao"})
+        por_rel = {r["id"]: [] for r in rels}
+        for l in linhas:
+            por_rel[l["relatorio_id"]].append(l)
+        todos = _relatorios(repo, cat)
+        r = ranking.bi([x["mes"] for x in rels], [por_rel[x["id"]] for x in rels], repo.marcas())
+        r.update({"categoria": cat, "categoria_nome": ranking.nome_categoria(cat),
+                  "todos_meses": [{"mes": x["mes"][:7], "nome": ranking.nome_mes(x["mes"])} for x in todos]})
+        return r
+
     if rota == "ranking_apagar" and metodo == "POST":
         repo._req("DELETE", "ranking_relatorios", {"id": repo._eq(int(q["id"]))})
         return {"ok": True}

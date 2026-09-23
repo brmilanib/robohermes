@@ -48,6 +48,31 @@ relatório não traz produtos.
 - Clicar numa marca abre o histórico dela mês a mês. Se a marca também está no
   Explorador, aparece o atalho para os anúncios dela.
 
+#### B.I. · todos os meses
+
+O botão **📊 B.I.** (ou o item embaixo da categoria no menu) junta todos os meses importados
+da categoria. O filtro **De / até** limita o período e vale para a tela inteira.
+
+- **Indicadores**: vendas do último mês, crescimento no período (e a média ao mês),
+  vendas somadas, ticket médio, concentração top 5, marcas presentes em todos os
+  meses, marcas novas por mês e melhor/pior mês.
+- **Gráficos**:
+  - vendas do mercado por mês;
+  - share e posição no ranking das 8 maiores marcas;
+  - quem mais ganhou e perdeu vendas (último mês, 3 meses ou período);
+  - demanda × concorrência (crescimento das vendas × crescimento dos vendedores);
+  - mapa de calor das 25 maiores (posição e variação mês a mês);
+  - ticket médio, concentração e tendência das marcas por mês.
+  Passe o mouse para ver os números. Clique numa marca para ver o histórico dela.
+- **Para acompanhar**: as 10 marcas com a maior nota B.I. A nota soma o crescimento em
+  3 meses, a consistência (meses em alta), a subida no ranking, a saturação e as vendas
+  crescendo mais que os vendedores.
+- **Status** de cada marca: Subindo forte, Crescimento consistente, Estável, Instável, Em
+  queda, Nova ou Saiu do ranking.
+- O relatório traz só as maiores marcas de cada mês. Se uma marca some num mês, ela
+  saiu do ranking; não quer dizer que vendeu zero. Por isso as variações só comparam
+  meses em que a marca aparece.
+
 A versão de computador continua funcionando igual, com os dados locais em `dados/base.db`.
 
 ## Instalação no computador (uma vez só)

@@ -258,3 +258,145 @@ def analisar(linhas, anteriores=None, marcas_explorador=()):
                        "var_unidades": (_div(tot_u, tu_a) - 1) if tu_a else None,
                        "novas": sum(1 for x in saida if x.get("novo")), "sairam": len(saiu)})
     return saida, saiu, resumo
+
+
+# ---------------------------------------------------------------------------
+# B.I.: todos os meses importados de uma categoria, lado a lado
+# ---------------------------------------------------------------------------
+
+def _clip(v, lo=0.0, hi=1.0):
+    return max(lo, min(hi, v))
+
+
+def _cresc(a, b):
+    """Variação de a para b (None se não dá para comparar)."""
+    return (_div(b, a) - 1) if a and b is not None else None
+
+
+def bi(meses, linhas_por_mes, marcas_explorador=()):
+    """
+    meses: lista ordenada de 'AAAA-MM-01'; linhas_por_mes: lista paralela com as linhas de cada mês.
+    O relatório traz só as maiores marcas do mês: marca ausente num mês = fora do ranking
+    (não quer dizer venda zero), por isso crescimento só compara meses em que a marca aparece.
+
+    Nota B.I. (0–100), para achar marca com momento bom e sustentado:
+      100 × √(tamanho no último mês, teto nas 25% maiores) × (0,30 × crescimento em 3 meses [+50% = 1]
+      + 0,20 × consistência [meses em alta ÷ comparações] + 0,15 × subida no ranking em 3 meses [+10 = 1]
+      + 0,20 × saturação livre + 0,15 × vendas crescendo mais que vendedores [+50 p.p. = 1]).
+    """
+    n = len(meses)
+    resumo_meses = []
+    ant = None
+    for mes, linhas in zip(meses, linhas_por_mes):
+        _, saiu, z = analisar(linhas, ant)
+        vpv = [_div(l["vendas"], l["vendedores"]) for l in linhas if l["vendedores"]]
+        resumo_meses.append({
+            "mes": mes[:7], "nome": nome_mes(mes), "vendas": z["vendas"], "unidades": z["unidades"],
+            "ticket": z["ticket"], "marcas": z["marcas"], "top1": z["concentracao"]["top1"],
+            "top5": z["concentracao"]["top5"], "top10": z["concentracao"]["top10"],
+            "crescendo": z["crescendo"], "estavel": z["estavel"], "diminuindo": z["diminuindo"],
+            "sat_baixa": z["sat_baixa"], "sat_media": z["sat_media"], "sat_alta": z["sat_alta"],
+            "vendedores_mediana": z["vendedores_mediana"],
+            "vpv_mediana": statistics.median(vpv) if vpv else 0,
+            "novas": z.get("novas"), "sairam": z.get("sairam"), "var_vendas": z.get("var_vendas"),
+            "var_unidades": z.get("var_unidades")})
+        ant = linhas
+
+    totais = [m["vendas"] for m in resumo_meses]
+    por_marca = {}
+    for i, linhas in enumerate(linhas_por_mes):
+        for l in linhas:
+            d = por_marca.setdefault(l["marca_chave"], {"marca": l["marca"], "l": [None] * n})
+            d["l"][i] = l
+            d["marca"] = l["marca"]          # grafia do mês mais recente
+
+    ult = linhas_por_mes[-1] if linhas_por_mes else []
+    vend_ult = sorted(l["vendas"] or 0 for l in ult)
+    p75 = vend_ult[int(len(vend_ult) * 0.75)] if vend_ult else 1
+    explorador = {nubi.compacta(m): m for m in marcas_explorador}
+    k3 = max(0, n - 4)                         # "3 meses atrás" (ou o primeiro)
+    marcas = []
+    for chave, d in por_marca.items():
+        ls = d["l"]
+        vendas = [l["vendas"] if l else None for l in ls]
+        pos = [l["posicao"] if l else None for l in ls]
+        vend = [l["vendedores"] if l else None for l in ls]
+        pres = [i for i in range(n) if ls[i]]
+        prim, ultm = pres[0], pres[-1]
+        atual = ls[-1]
+        comp = [(vendas[i - 1], vendas[i]) for i in range(1, n) if ls[i] and ls[i - 1]]
+        subidas = sum(1 for a, b in comp if (b or 0) > (a or 0))
+        mom = [_cresc(a, b) for a, b in comp if a]
+        cresc_total = _cresc(vendas[prim], vendas[-1]) if atual and prim < n - 1 else None
+        base3 = next((i for i in range(k3, n - 1) if ls[i]), None)
+        cresc_3m = _cresc(vendas[base3], vendas[-1]) if atual and base3 is not None else None
+        cresc_mes = _cresc(vendas[-2], vendas[-1]) if n > 1 and atual and ls[-2] else None
+        var_vend = _cresc(vend[prim], vend[-1]) if atual and prim < n - 1 and vend[prim] else None
+        var_ticket = (_cresc(_div(vendas[prim], ls[prim]["unidades"]), _div(vendas[-1], atual["unidades"]))
+                      if atual and prim < n - 1 and ls[prim]["unidades"] and atual["unidades"] else None)
+        subida_3m = (pos[base3] - pos[-1]) if atual and base3 is not None else None
+        consist = _div(subidas, len(comp)) if comp else None
+        volat = statistics.pstdev(mom) if len(mom) >= 2 else None
+        share = [_div(v, t) if v is not None else None for v, t in zip(vendas, totais)]
+        x = {
+            "marca": d["marca"], "marca_chave": chave, "vendas": vendas, "posicoes": pos,
+            "share": share, "vendedores_serie": vend, "presente": len(pres), "no_ultimo": bool(atual),
+            "primeiro_mes": meses[prim][:7], "ultimo_mes": meses[ultm][:7],
+            "posicao": atual["posicao"] if atual else None, "posicao_inicio": pos[prim],
+            "ganho_posicoes": (pos[prim] - atual["posicao"]) if atual and prim < n - 1 else None,
+            "vendas_atual": vendas[-1], "vendas_inicio": vendas[prim],
+            "ganho_vendas": (vendas[-1] - vendas[prim]) if atual and prim < n - 1 else None,
+            "ganho_3m": (vendas[-1] - vendas[base3]) if atual and base3 is not None else None,
+            "ganho_mes": (vendas[-1] - vendas[-2]) if cresc_mes is not None else None,
+            "cresc_total": cresc_total, "cresc_3m": cresc_3m, "cresc_mes": cresc_mes,
+            "share_atual": share[-1], "var_share": ((share[-1] or 0) - (share[prim] or 0)) if prim < n - 1 else None,
+            "meses_em_alta": subidas, "comparacoes": len(comp), "consistencia": consist, "volatilidade": volat,
+            "vendedores": atual["vendedores"] if atual else None, "var_vendedores": var_vend,
+            "ticket": _div(vendas[-1], atual["unidades"]) if atual else None, "var_ticket": var_ticket,
+            "tendencia": atual["tendencia"] if atual else None, "saturacao": atual["saturacao"] if atual else None,
+            "explorador": explorador.get(chave),
+        }
+        # classificação
+        if not atual:
+            st = "Saiu do ranking"
+        elif n >= 3 and prim >= n - 2:
+            st = "Nova"
+        elif cresc_3m is not None and cresc_3m >= 0.3 and (consist or 0) >= 0.6:
+            st = "Subindo forte"
+        elif consist is not None and consist >= 0.7 and (cresc_total or 0) > 0:
+            st = "Crescimento consistente"
+        elif (cresc_3m is not None and cresc_3m <= -0.2) or (consist is not None and consist <= 0.3 and (cresc_total or 0) < 0):
+            st = "Em queda"
+        elif volat is not None and volat > 0.35:
+            st = "Instável"
+        else:
+            st = "Estável"
+        x["status"] = st
+        if atual:
+            tam = math.sqrt(min(1.0, _div(vendas[-1] or 0, p75)))
+            sat = SAT_LIVRE.get((atual["saturacao"] or "").lower(), 0.5)
+            dem = _clip(((cresc_total or 0) - (var_vend or 0)) / 0.5) if cresc_total is not None else 0
+            x["nota"] = round(100 * tam * (0.3 * _clip((cresc_3m or 0) / 0.5) + 0.2 * (consist or 0)
+                                           + 0.15 * _clip((subida_3m or 0) / 10) + 0.2 * sat + 0.15 * dem))
+        else:
+            x["nota"] = None
+        marcas.append(x)
+    marcas.sort(key=lambda x: (x["posicao"] is None, x["posicao"] or 0, -(max(v or 0 for v in x["vendas"]))))
+
+    r = {"meses": resumo_meses, "marcas": marcas}
+    if n:
+        a, b = resumo_meses[0], resumo_meses[-1]
+        r["resumo"] = {
+            "n_meses": n, "vendas_periodo": sum(totais), "unidades_periodo": sum(m["unidades"] for m in resumo_meses),
+            "cresc_vendas": _cresc(a["vendas"], b["vendas"]) if n > 1 else None,
+            "cresc_unidades": _cresc(a["unidades"], b["unidades"]) if n > 1 else None,
+            "cresc_ticket": _cresc(a["ticket"], b["ticket"]) if n > 1 else None,
+            "cresc_mensal": ((_div(b["vendas"], a["vendas"]) ** (1 / (n - 1)) - 1) if n > 1 and a["vendas"] and b["vendas"] else None),
+            "var_top5": (b["top5"] - a["top5"]) if n > 1 else None,
+            "sempre": sum(1 for x in marcas if x["presente"] == n),
+            "passaram": len(marcas),
+            "novas_media": _div(sum(m["novas"] or 0 for m in resumo_meses[1:]), n - 1) if n > 1 else None,
+            "melhor_mes": max(resumo_meses, key=lambda m: m["vendas"])["mes"],
+            "pior_mes": min(resumo_meses, key=lambda m: m["vendas"])["mes"],
+        }
+    return r
