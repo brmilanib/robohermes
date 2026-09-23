@@ -14,6 +14,8 @@ Depois, os comandos ficam em ~/.nubi-coletor/coletor (ex.: ~/.nubi-coletor/colet
   python coletor.py vendedores [--mes AAAA-MM] [--parcial] [--so NOME] [--sem-enviar]
   python coletor.py marcas [--mes AAAA-MM] [--sem-enviar]
   python coletor.py status          última coleta e o que já está no nubi
+  python coletor.py atualizar       baixa a versão mais nova do coletor
+  (qualquer coleta aceita --ver para mostrar a janela do navegador e acompanhar)
 
 Os caminhos, botões e endereços do Nubimetrics seguem o mapeamento feito com o Claude do
 navegador (URLs diretas, ids e aria-labels estáveis; os ids gerados pelo MUI mudam a cada
@@ -42,6 +44,9 @@ SUPABASE_URL = "https://ivsmadbyzbmugwfadwtg.supabase.co"
 SUPABASE_KEY = "sb_publishable_hlLuzIP8GMxjwTfY-otJQQ_LbMPm7Yt"     # chave pública (a mesma da página)
 PASTA = Path(os.environ.get("NUBI_COLETOR_DIR", Path.home() / ".nubi-coletor"))
 CONFIG = PASTA / "config.json"
+SESSAO = PASTA / "sessao.json"          # cookies do Nubimetrics (inclusive os "de sessão", que o Chrome apaga ao fechar)
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+      "Chrome/140.0.0.0 Safari/537.36")
 SERVICO_CHAVEIRO = "nubi-coletor"
 PAUSA = float(os.environ.get("NUBI_COLETOR_PAUSA", "4"))           # segundos entre vendedores
 
@@ -164,26 +169,59 @@ def api(token, rota, params=None, corpo=None, metodo=None):
 
 def abrir_navegador(p, cfg, visivel=None):
     """Chrome com perfil próprio e persistente: o login do Nubimetrics fica salvo nele."""
-    visivel = cfg.get("mostrar_navegador") if visivel is None else visivel
+    if visivel is None:
+        visivel = bool(cfg.get("mostrar_navegador") or os.environ.get("NUBI_VER"))
     opcoes = dict(user_data_dir=str(PASTA / "perfil"), headless=not visivel, accept_downloads=True,
-                  viewport={"width": 1500, "height": 950}, locale="pt-BR")
+                  viewport={"width": 1500, "height": 950}, locale="pt-BR", user_agent=UA,
+                  args=["--disable-blink-features=AutomationControlled"],
+                  ignore_default_args=["--enable-automation"])
     exe = os.environ.get("NUBI_CHROMIUM")
+    ctx = None
     if exe:
         opcoes["executable_path"] = exe
     else:
         try:                                        # prefere o Google Chrome instalado no Mac
-            return p.chromium.launch_persistent_context(channel="chrome", **opcoes)
+            ctx = p.chromium.launch_persistent_context(channel="chrome", **opcoes)
         except Exception:  # noqa: BLE001
-            pass
-    return p.chromium.launch_persistent_context(**opcoes)
+            ctx = None
+    ctx = ctx or p.chromium.launch_persistent_context(**opcoes)
+    if SESSAO.exists():                             # devolve os cookies de sessão do último login
+        try:
+            ctx.add_cookies(json.loads(SESSAO.read_text(encoding="utf-8")).get("cookies", []))
+        except Exception as e:  # noqa: BLE001
+            log(f"(não consegui restaurar a sessão salva: {e})")
+    return ctx
+
+
+def guardar_sessao(ctx):
+    try:
+        ctx.storage_state(path=str(SESSAO))
+        os.chmod(SESSAO, 0o600)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def diagnostico(pg):
+    """Onde a página parou (sem a parte da URL com parâmetros) + foto da tela."""
+    foto = PASTA / "ultimo-erro.png"
+    try:
+        pg.screenshot(path=str(foto), full_page=True)
+    except Exception:  # noqa: BLE001
+        foto = None
+    try:
+        titulo = pg.title()
+    except Exception:  # noqa: BLE001
+        titulo = ""
+    u = urllib.parse.urlparse(pg.url)
+    return f"[parou em {u.netloc}{u.path} · título '{titulo[:60]}'" + (f" · foto: {foto}]" if foto else "]")
 
 
 def conferir_sessao(pg):
     """Sessão expirada: o Nubimetrics manda para a tela de login."""
     caminho = urllib.parse.urlparse(pg.url).path          # só o caminho: a tela de login leva o destino na query
     if not caminho.startswith(("/competition", "/market")):
-        raise SessaoExpirada("A sessão do Nubimetrics expirou. No Mac mini, rode: "
-                             "python coletor.py entrar (e faça login de novo).")
+        raise SessaoExpirada("O Nubimetrics pediu login de novo. No Mac mini, rode: "
+                             "~/.nubi-coletor/coletor entrar " + diagnostico(pg))
 
 
 def ir(pg, url, esperar):
@@ -192,7 +230,7 @@ def ir(pg, url, esperar):
         pg.wait_for_selector(esperar, timeout=60000)
     except Exception:  # noqa: BLE001
         conferir_sessao(pg)
-        raise Falha(f"a página não carregou o esperado ({esperar}): {pg.url}")
+        raise Falha(f"a página não carregou o esperado ({esperar}) " + diagnostico(pg))
     conferir_sessao(pg)
     try:
         pg.add_style_tag(content=ESCONDER)          # chat do Intercom pode cobrir botões
@@ -351,6 +389,7 @@ def coletar_vendedores(p, cfg, token, mes=None, parcial=False, so=None, enviar=T
                 erros += 1
                 log(f"  {nome}: ERRO {e}")
             time.sleep(PAUSA)
+        guardar_sessao(ctx)
     finally:
         salvar_config(cfg)
         ctx.close()
@@ -418,6 +457,7 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True):
         arq = destino / nome
         dl.save_as(str(arq))
         log(f"  MARCAS {mes}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
+        guardar_sessao(ctx)
         if enviar:
             r = api(token, "ranking_importar", {"arquivo": arq.name, "categoria": cat, "mes": mes}, arq.read_bytes())
             log("    " + " ".join(r.get("log", [])))
@@ -475,6 +515,20 @@ def cmd_configurar(args, cfg):
     print("OK: login do nubi conferido e guardado no Chaveiro do Mac.")
 
 
+def testar_sessao(p, cfg, visivel):
+    ctx = abrir_navegador(p, cfg, visivel=visivel)
+    try:
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        ir(pg, f"{BASE}/competition/dashboardbycompetitor?group={cfg['grupo']}&range=PREVMONTH",
+           'td a[aria-label="Analise um concorrente"]')
+        guardar_sessao(ctx)
+        return True, ""
+    except Falha as e:
+        return False, str(e)
+    finally:
+        ctx.close()
+
+
 def cmd_entrar(args, cfg):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -483,15 +537,36 @@ def cmd_entrar(args, cfg):
         pg.goto(f"{BASE}/competition/dashboardbycompetitor?group={cfg['grupo']}&range=PREVMONTH")
         print("Faça login no Nubimetrics na janela que abriu (marque 'lembrar', se houver).")
         print("Quando a tela de Grupo de vendedores aparecer, o login fica salvo e a janela fecha.")
-        fim = time.time() + 600
+        fim, ok = time.time() + 600, False
         while time.time() < fim:
             if pg.locator('td a[aria-label="Analise um concorrente"]').count():
-                print("OK: login salvo no perfil do coletor.")
+                ok = True
                 break
             time.sleep(2)
-        else:
-            print("Tempo esgotado (10 min) sem ver a tela de vendedores.")
+        if ok:
+            time.sleep(3)
+            guardar_sessao(ctx)
         ctx.close()
+        if not ok:
+            print("Tempo esgotado (10 min) sem ver a tela de vendedores.")
+            return 1
+        print("OK: login feito. Testando se o coletor consegue entrar sozinho, sem janela…")
+        ok, erro = testar_sessao(p, cfg, visivel=False)
+        if ok:
+            cfg["mostrar_navegador"] = False
+            print("OK: funciona sem janela. As coletas vão rodar em segundo plano.")
+        else:
+            print(f"  Sem janela o Nubimetrics não aceitou ({erro[:160]}).")
+            print("  Testando com a janela do navegador aberta (ela aparece e some sozinha durante a coleta)…")
+            ok, erro = testar_sessao(p, cfg, visivel=True)
+            if ok:
+                cfg["mostrar_navegador"] = True
+                print("OK: com janela funciona. As coletas vão abrir o navegador por alguns minutos e fechar sozinhas.")
+            else:
+                print(f"  Também não entrou com janela: {erro}")
+                print("  Me mande esta mensagem e a foto ~/.nubi-coletor/ultimo-erro.png.")
+        salvar_config(cfg)
+        return 0 if ok else 1
 
 
 def cmd_status(args, cfg):
@@ -534,17 +609,23 @@ def main():
     sub.add_parser("configurar")
     sub.add_parser("entrar")
     sub.add_parser("status")
-    sub.add_parser("diario")
+    sub.add_parser("atualizar", help="baixa a versão mais nova do coletor")
+    d = sub.add_parser("diario")
+    d.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     v = sub.add_parser("vendedores")
     v.add_argument("--mes")
     v.add_argument("--parcial", action="store_true", help="mês atual até ontem")
     v.add_argument("--so", help="só este vendedor")
     v.add_argument("--sem-enviar", action="store_true")
+    v.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     mk = sub.add_parser("marcas")
     mk.add_argument("--mes")
     mk.add_argument("--sem-enviar", action="store_true")
+    mk.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     args = ap.parse_args()
     cfg = ler_config()
+    if getattr(args, "ver", False):
+        os.environ["NUBI_VER"] = "1"
 
     if args.cmd == "configurar":
         return cmd_configurar(args, cfg)
@@ -552,6 +633,12 @@ def main():
         return cmd_entrar(args, cfg)
     if args.cmd == "status":
         return cmd_status(args, cfg)
+    if args.cmd == "atualizar":
+        novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
+        compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro
+        Path(__file__).write_bytes(novo)
+        print("OK: coletor atualizado.")
+        return 0
     if args.cmd == "vendedores":
         def f(p, cfg, token):
             a, i, e = coletar_vendedores(p, cfg, token, args.mes, args.parcial, args.so, not args.sem_enviar)

@@ -205,7 +205,9 @@ Cada arquivo sai com o nome que o Nubimetrics dá, numa pasta por mês, e vai ju
 |---|---|
 | `~/.nubi-coletor/coletor diario` | roda a coleta agora |
 | `~/.nubi-coletor/coletor status` | últimas coletas |
-| `~/.nubi-coletor/coletor entrar` | refazer o login do Nubimetrics (se a sessão expirar) |
+| `~/.nubi-coletor/coletor entrar` | refazer o login do Nubimetrics (se a sessão expirar). Depois do login, ele testa se consegue entrar sozinho sem janela; se o Nubimetrics não aceitar, passa a coletar com a janela aberta |
+| `~/.nubi-coletor/coletor atualizar` | baixa a versão mais nova do coletor |
+| `... --ver` | em qualquer coleta, mostra a janela do navegador para acompanhar |
 | `~/.nubi-coletor/coletor vendedores --mes 2026-07` | baixar um mês específico |
 | `~/.nubi-coletor/coletor marcas --mes 2026-07` | baixar o MARCAS de um mês específico |
 | `~/.nubi-coletor/coletor vendedores --parcial` | mês atual até ontem (aparece como "parcial até dd/mm") |
