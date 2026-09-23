@@ -505,12 +505,28 @@ def login_agente():
         raise ErroNuvem(f"Login do agente recusado ({e.code}).", 500)
 
 
+# Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
+REGRA_ATUAL = "regra 2: mesmo GTIN = mesmo produto; linha lida do título"
+
+
+def aplicar_regra_nova(repo):
+    if repo._req("GET", "agente_execucoes", {"select": "id", "origem": repo._eq(REGRA_ATUAL), "limit": 1}):
+        return
+    nubi.avisar("    Aplicando a regra nova de agrupamento em todos os períodos já importados…")
+    nubi.reconsolidar(repo, repo.carregar_config())
+    agora = datetime.now(timezone.utc).isoformat()
+    repo._req("POST", "agente_execucoes", corpo=[{"origem": REGRA_ATUAL, "iniciado_em": agora, "terminado_em": agora,
+                                                   "log": "Reprocessamento de todas as marcas."}],
+              prefer="return=minimal")
+
+
 def rodar_agente(repo, origem, marca=None, segundos=TEMPO_MAX):
     """Uma rodada: pesquisa os GTINs em dúvida (os que mais vendem primeiro) até acabar o tempo,
     reagrupa as marcas que mudaram e registra a rodada em agente_execucoes."""
     inicio = datetime.now(timezone.utc)
     prazo = time.monotonic() + max(5, segundos)
     log = _preparar(repo)
+    aplicar_regra_nova(repo)
     res = nubi.pesquisar_gtins(repo, 10_000, None, marca, prazo=prazo)
     mudaram = sorted(res["marcas"])
     if mudaram and time.monotonic() < prazo + 40:
@@ -541,7 +557,8 @@ def atender(metodo, rota, q, corpo, token):
             seg = min(TEMPO_MAX, int(q.get("segundos") or 60))
             return _json(rodar_agente(repo, q.get("origem") or "manual", q.get("marca") or None, seg))
         if rota == "agente_status":
-            ult = repo._req("GET", "agente_execucoes", {"select": "*", "order": "id.desc", "limit": 15}) or []
+            ult = repo._req("GET", "agente_execucoes", {"select": "*", "order": "id.desc", "limit": 15,
+                                                        "origem": "neq." + REGRA_ATUAL}) or []
             for u in ult:
                 u["log"] = (u.get("log") or "")[-4000:]
             return _json({"execucoes": ult, "agendado": bool(CRON_SECRET and AGENTE_EMAIL)})

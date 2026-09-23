@@ -84,6 +84,7 @@ TIPO_PADRAO = "EDT?"   # título sem tipo escrito: EDT por padrão, mas não vot
 CONF_PESQ = "Pesquisado (GTIN)"
 CONF_GTIN = "Confirmado por GTIN"
 CONF_TITULO = "Só título"
+CONF_LINHA_TITULO = "Linha pelo título (GTIN)"
 DUV_DIVERG = "Dúvida: títulos divergentes"
 DUV_LINHA = "Dúvida: linha não identificada"
 
@@ -439,6 +440,48 @@ def achar_linha(titulo_norm, linhas, palavras_marca):
     return principais[0][3]
 
 
+# Palavras de tipo/gênero genéricas que não fazem parte do nome da linha no início ou no fim.
+PALAVRAS_TIPO = {"eau", "de", "toilette", "parfum", "cologne", "edt", "edp", "edc", "ml", "body", "splash",
+                 "deo", "desodorante", "kit", "masculino", "feminino", "masculina", "feminina", "unissex"}
+
+
+def linha_pelo_titulo(titulos, unidades, palavras_marca, outras=()):
+    """
+    Nome da linha escrito no título, para GTIN cuja linha não está na configuração.
+    Em cada título, pega o primeiro trecho seguido de palavras que não são marca, tipo,
+    volume nem palavra de anúncio ("Perfume Carolina Herrera 212 Men Masculino Edt 200ml"
+    -> "212 Men"), no máximo 4 palavras. Vence o trecho com mais unidades vendidas.
+    """
+    votos = {}
+    for titulo, un in zip(titulos, unidades):
+        toks = normalizar(titulo).split()
+        for i in range(len(toks) - 1):      # "Mont Blanc" separado = marca "MONTBLANC"
+            if toks[i] + toks[i + 1] in palavras_marca:
+                toks[i] = toks[i + 1] = toks[i] + toks[i + 1]
+        trecho, achou = [], False
+        for j, t in enumerate(toks):
+            volume = re.fullmatch(r"\d+(ml|g)?", t) and (t.endswith(("ml", "g")) or
+                                                        (j + 1 < len(toks) and toks[j + 1] in ("ml", "g")))
+            vazio = (t in PALAVRAS_VAZIAS or t in PALAVRAS_TIPO or t in palavras_marca or t in outras
+                     or volume or len(t) < 2 and not t.isdigit())
+            if vazio:
+                if achou:
+                    break
+                continue
+            achou = True
+            trecho.append(t)
+            if len(trecho) == 4:
+                break
+        if trecho:
+            chave = " ".join(trecho)
+            votos[chave] = votos.get(chave, 0) + int(un or 0) + 1
+    if not votos:
+        return None
+    melhor = max(votos.items(), key=lambda kv: kv[1])[0]
+    return " ".join(w.upper() if w.isdigit() or len(w) <= 2 and w not in ("de", "da", "do") else
+                    w[:1].upper() + w[1:] for w in melhor.split())
+
+
 RE_VOLUME = re.compile(r"(?<!\d)(\d{2,3})\s?ml\b")
 
 
@@ -624,6 +667,10 @@ def consolidar(df, marca, cfg, info=None):
     palavras_marca = palavras_da_marca(marca)
     tn = df["titulo"].map(normalizar)
 
+    alvo_marca = compacta(marca)
+    outras_marcas = {compacta(v).lower() for v in df.get("marca_anuncio", pd.Series(dtype=str)).fillna("")
+                     if v and not marca_bate(v, alvo_marca)}
+
     # Etapa 1 — ler o título.
     lido = pd.DataFrame([ler_texto(t, linhas, palavras_marca) for t in tn], index=df.index)
     for c in ("linha", "volume", "tipo", "genero"):
@@ -662,27 +709,28 @@ def consolidar(df, marca, cfg, info=None):
     # de vendas) com "...Club De Nuit Intense Man Eau De Toilette 105ml".
     # "-" e "Outros" não votam, mas o vencedor é aplicado ao grupo inteiro.
     # Se o GTIN foi pesquisado, a especificação pesquisada vence a votação.
-    # Quando os títulos do mesmo GTIN discordam entre si, o grupo fica marcado como
-    # dúvida — é a lista que o --pesquisar-gtin vai conferir.
+    # Títulos diferentes no mesmo GTIN NÃO são dúvida: o GTIN manda, e o título do anúncio
+    # que mais vende vira o padrão do grupo inteiro.
+    # Dúvida só sobra quando nenhum título do GTIN deixa ler a linha do produto: primeiro
+    # pelas linhas configuradas da marca; se nenhuma casar, pelo próprio texto do título
+    # (o que sobra tirando marca, tipo, volume e palavras de anúncio, ex. "212 Men").
     com_gtin = df[(df["gtin"] != "") & ~fora]
     for gtin, grupo in com_gtin.groupby("gtin"):
         p = pesquisados.get(gtin, {})
-        divergente = any(grupo[c][~grupo[c].isin(NEUTROS)].nunique() > 1
-                         for c in ("linha", "volume", "tipo"))
         for coluna in ("linha", "volume", "tipo", "genero"):
             vencedor = p.get(coluna) if p.get(coluna) not in NEUTROS | {None} else None
             if vencedor is None:
                 vencedor = _mais_vendido(grupo, coluna)
             if vencedor is not None:
                 df.loc[grupo.index, coluna] = vencedor
+        conf = CONF_PESQ if p.get("linha") not in NEUTROS | {None} else CONF_GTIN
         if df.at[grupo.index[0], "linha"] == "Outros":
-            conf = DUV_LINHA
-        elif p.get("linha") not in NEUTROS | {None}:
-            conf = CONF_PESQ
-        elif divergente:
-            conf = DUV_DIVERG
-        else:
-            conf = CONF_GTIN
+            lida = linha_pelo_titulo(grupo["titulo"], grupo["un"], palavras_marca, outras_marcas)
+            if lida:
+                df.loc[grupo.index, "linha"] = lida
+                conf = CONF_LINHA_TITULO
+            else:
+                conf = DUV_LINHA
         df.loc[grupo.index, "confianca"] = conf
 
     # Etapa 3 — preencher o que sobrou vazio.
@@ -1418,7 +1466,7 @@ def aba_resumo(ws, marca, snap, n_vend, n_prod, n_gtin, n_duvida, n_oport):
         ("Unidades fora de perfumaria", f'=SUMIFS({AN("un")},{AN("tipo")},"{TIPO_FORA}")', INT,
          "Canetas, acessórios etc. que vieram no export da marca."),
         ("GTINs em dúvida", n_duvida, INT,
-         f"Títulos do mesmo GTIN não batem (aba Dúvidas). Para pesquisar: {COMANDO_PESQUISA}"
+         f"GTIN sem linha de produto reconhecida (aba Dúvidas). Para pesquisar: {COMANDO_PESQUISA}"
          if n_duvida else "Nenhum: todos os GTINs agruparam sem conflito."),
     ]
     cols = [("Indicador", None, None), ("Valor", None, None), ("Observação", None, None)]
@@ -1667,8 +1715,8 @@ def aba_duvidas(ws, df):
     """GTINs cujos anúncios discordam sobre o produto — o que vale conferir/pesquisar."""
     ws.title = "Dúvidas"
     duv = df[(df["gtin"] != "") & df["confianca"].fillna("").str.startswith("Dúvida")]
-    cel(ws, 1, 1, "GTINs em dúvida: os títulos dos anúncios não batem entre si (ou a linha não foi "
-                  "reconhecida). O produto atribuído foi escolhido pelo anúncio que mais vende.",
+    cel(ws, 1, 1, "GTINs em dúvida: nem as linhas configuradas nem o texto dos títulos disseram a linha "
+                  "do produto. Título diferente no mesmo GTIN não é dúvida: vale o do anúncio que mais vende.",
         fonte=FONTE_B, borda=False)
     cel(ws, 2, 1, f"Para pesquisar as especificações automaticamente:  {COMANDO_PESQUISA}     "
                   f"(um GTIN específico:  python nubi.py --gtin 3386460101035)", fonte=FONTE_ALERTA, borda=False)
@@ -2056,7 +2104,7 @@ def main():
         pendentes = [g for g in gtins_em_duvida(repo) if precisa_pesquisar(g[0])]
         if pendentes:
             un = sum(g[2] for g in pendentes)
-            print(f"\n  Em dúvida: {len(pendentes)} GTIN(s) com títulos que não batem entre si "
+            print(f"\n  Em dúvida: {len(pendentes)} GTIN(s) sem linha de produto reconhecida "
                   f"({fmt_int(un)} unidades). Veja a aba Dúvidas.")
             print(f"  Para pesquisar as especificações e agrupar certo:  {COMANDO_PESQUISA}")
     finally:

@@ -187,10 +187,18 @@ Tudo continua somando no total, só que separado.
 
 ## Quando o agrupamento está em dúvida: pesquisar o GTIN
 
-Às vezes os anúncios do mesmo GTIN não concordam sobre o produto: um diz 75 ml e
-outro 80 ml, um diz Individuel e outro Individuelle. Às vezes a linha nem é
-reconhecida. Esses GTINs aparecem na aba **Dúvidas**, e o programa sempre mostra
-no fim da execução o comando que resolve:
+**Mesmo GTIN = mesmo produto.** Se os anúncios do mesmo GTIN têm títulos diferentes
+(um diz 75 ml e outro 80 ml, um diz Individuel e outro Individuelle), isso não é dúvida:
+o grupo inteiro fica com o que diz o título do anúncio que mais vende.
+
+Se a linha do produto não está nas linhas configuradas da marca, ela é lida do próprio
+título: o que sobra tirando marca, tipo, volume e palavras de anúncio. Por exemplo,
+"Perfume Carolina Herrera 212 Men Masculino Edt 200ml" vira a linha "212 Men". Esses
+anúncios aparecem com a confiança "Linha pelo título (GTIN)".
+
+Só fica em dúvida o GTIN em que nenhum título diz a linha (ex.: "Perfume Carolina Herrera
+Eau de Toilette 100ml"). Esses GTINs aparecem na aba **Dúvidas**, e o programa sempre
+mostra no fim da execução o comando que resolve:
 
 ```
 python nubi.py --pesquisar-gtin
@@ -249,7 +257,7 @@ Arquivo `saida/<marca>-explorador-de-anuncios.xlsx`:
 | **Histórico** | Giro/dia de cada produto em cada período importado (até os 30 últimos), comparando o último com a média. |
 | **Produtos** | Uma linha por referência, com curva ABC, giro, disputa (unidades por anúncio) e a confiança do agrupamento. |
 | **GTINs** | Vendas por GTIN, a especificação pesquisada e um link para pesquisar. No rodapé, quantas unidades ficaram sem GTIN válido: é a medida de quão sujo está o cadastro da marca. |
-| **Dúvidas** | GTINs cujos anúncios não concordam sobre o produto, com os títulos conflitantes e o resultado da pesquisa. |
+| **Dúvidas** | GTINs em que nenhum título diz a linha do produto, com os títulos e o resultado da pesquisa. |
 | **Vendedores** | Ranking com código V01, V02… Em verde, quem tem 5% ou mais do mercado. |
 | **Preços** | Mínimo, quartis, mediana, máximo, amplitude e unidades vendidas abaixo de 80% da mediana. |
 | **Anúncios** | A base limpa, anúncio por anúncio, com o produto consolidado ao lado. É aqui que se confere quando um número parecer estranho. |

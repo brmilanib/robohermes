@@ -1121,7 +1121,7 @@ const EXTRAS = {
   precos: {nota: "Só anúncios com venda e preço > 0; referências com menos de 2 anúncios ficam de fora. Amplitude alta = sem faixa de preço definida."},
   vendedores: {nota: "Códigos V01, V02… por ordem de volume."},
   gtins: {nota: () => `${nf0.format(S.rel.resumo.un_sem_gtin)} unidades estão em anúncios sem GTIN válido (aparecem só em Produtos) — é a medida de quão sujo está o cadastro da marca.`},
-  duvidas: {acoes: true, nota: "Os títulos do mesmo GTIN não batem entre si. O produto atribuído foi escolhido pelo anúncio que mais vende. O agente automático pesquisa o nome oficial sozinho; o que ele não achar, corrija à mão em “Corrigir”."},
+  duvidas: {acoes: true, nota: "GTINs cuja linha de produto não foi reconhecida nem pela configuração nem pelo texto dos títulos. Título diferente no mesmo GTIN não é dúvida: o GTIN agrupa e vale o título do anúncio que mais vende. O agente automático pesquisa o nome oficial sozinho; o que ele não achar, corrija à mão em “Corrigir”."},
   anuncios: {limite: 300, nota: "As colunas depois de “Cód. vendedor” são exatamente as do arquivo importado, com os mesmos nomes e valores."},
 };
 
