@@ -92,6 +92,8 @@ def ler_config():
     cfg = dict(PADRAO_CONFIG)
     if CONFIG.exists():
         cfg.update(json.loads(CONFIG.read_text(encoding="utf-8")))
+    if not str(cfg.get("grupo") or "").isdigit():      # ex.: alguém respondeu "sim" na pergunta do grupo
+        cfg["grupo"] = PADRAO_CONFIG["grupo"]
     return cfg
 
 
@@ -442,19 +444,34 @@ def registrar(token, tarefa, inicio, ok, arquivos, importados, erros, mensagem):
 
 
 def cmd_configurar(args, cfg):
-    print("Login do NUBI (o mesmo da página nubi-explorador.vercel.app), para enviar os arquivos.")
-    email = input(f"E-mail [{cfg.get('nubi_email') or ''}]: ").strip() or cfg.get("nubi_email")
-    senha = getpass.getpass("Senha do nubi: ")
-    if sys.platform == "darwin":
-        subprocess.run(["security", "add-generic-password", "-U", "-s", SERVICO_CHAVEIRO, "-a", email, "-w", senha],
-                       check=True)
+    print("Login do NUBI: o MESMO e-mail e senha que você usa em nubi-explorador.vercel.app")
+    print("(não é o login do Nubimetrics; esse vem no próximo passo).")
+    for tentativa in range(3):
+        padrao = cfg.get("nubi_email") or ""
+        email = (input(f"E-mail do nubi{f' [{padrao}]' if padrao else ''}: ").strip() or padrao).lower()
+        senha = getpass.getpass("Senha do nubi: ")
+        if sys.platform == "darwin":
+            subprocess.run(["security", "add-generic-password", "-U", "-s", SERVICO_CHAVEIRO, "-a", email,
+                            "-w", senha], check=True)
+        else:
+            os.environ["NUBI_SENHA"] = senha
+        cfg["nubi_email"] = email
+        salvar_config(cfg)
+        try:
+            token_nubi(cfg)
+            break
+        except Falha:
+            print("  E-mail ou senha do nubi não conferem. Use o login da página nubi-explorador.vercel.app"
+                  " (se esqueceu a senha, peça uma nova).")
     else:
-        os.environ["NUBI_SENHA"] = senha
-    cfg["nubi_email"] = email
-    grupo = input(f"Grupo de vendedores no Nubimetrics [{cfg['grupo']}]: ").strip()
-    cfg["grupo"] = grupo or cfg["grupo"]
+        print("Não consegui entrar no nubi. Rode de novo depois: ~/.nubi-coletor/coletor configurar")
+        return 1
+    grupo = input(f"Número do grupo de vendedores no Nubimetrics (Enter para manter {cfg['grupo']}): ").strip()
+    if grupo.isdigit():
+        cfg["grupo"] = grupo
+    elif grupo:
+        print(f"  '{grupo}' não é um número; mantive o grupo {cfg['grupo']}.")
     salvar_config(cfg)
-    token_nubi(cfg)
     print("OK: login do nubi conferido e guardado no Chaveiro do Mac.")
 
 

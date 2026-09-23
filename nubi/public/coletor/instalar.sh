@@ -39,7 +39,7 @@ launchctl load "$PLIST"
 
 echo
 echo "-> 1/2: login do NUBI (o mesmo da página nubi-explorador), para enviar os arquivos"
-"$PASTA/coletor" configurar </dev/tty
+"$PASTA/coletor" configurar </dev/tty || { echo "Login do nubi não configurado; rode o instalador de novo."; exit 1; }
 echo
 echo "-> 2/2: login do NUBIMETRICS: vai abrir uma janela do navegador; entre com seu e-mail e senha"
 "$PASTA/coletor" entrar </dev/tty
