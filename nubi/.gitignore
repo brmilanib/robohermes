@@ -5,3 +5,5 @@ saida/*
 dados/*
 !dados/.gitkeep
 __pycache__/
+gtins.json
+cosmos-token.txt

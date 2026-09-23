@@ -19,15 +19,19 @@ import json
 import re
 import sqlite3
 import sys
+import time
 import traceback
 import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 try:
     import pandas as pd
     from openpyxl import Workbook
-    from openpyxl.formatting.rule import FormulaRule
+    from openpyxl.formatting.rule import ColorScaleRule, FormulaRule
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
 except ImportError:
@@ -45,6 +49,8 @@ SAIDA = BASE / "saida"
 DADOS = BASE / "dados"
 BANCO = DADOS / "base.db"
 CONFIG = BASE / "marcas.json"
+ARQ_GTINS = BASE / "gtins.json"
+ARQ_TOKEN_COSMOS = BASE / "cosmos-token.txt"
 LOG_ERRO = DADOS / "erro.log"
 
 PADRAO_NOME = re.compile(r"^(.+?)__(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})$", re.IGNORECASE)
@@ -61,7 +67,17 @@ COLUNAS_OPCIONAIS = [
 CATEGORIA_PERFUMARIA = "beleza e cuidado pessoal"
 TIPO_FORA = "Não perfume"
 TIPO_OUTRA = "Outra marca"   # anúncio de outra marca (contratipo, erro de cadastro)
-TIPO_PADRAO = "EDT?"   # título sem tipo escrito: EDT por padrão, mas não vota na etapa 2
+TIPO_PADRAO = "EDT?"
+
+# Grau de confiança do agrupamento de cada anúncio (coluna "Confiança").
+CONF_PESQ = "Pesquisado (GTIN)"
+CONF_GTIN = "Confirmado por GTIN"
+CONF_TITULO = "Só título"
+DUV_DIVERG = "Dúvida: títulos divergentes"
+DUV_LINHA = "Dúvida: linha não identificada"
+
+# Especificações pesquisadas por GTIN (gtins.json). Carregado no main().
+INFO_GTIN = {}   # título sem tipo escrito: EDT por padrão, mas não vota na etapa 2
 
 # Prefixos GS1 plausíveis para achar um GTIN dentro de uma string de dígitos colados.
 PREFIXOS_GS1 = ("789", "332", "542", "629", "608", "500", "871", "400", "301", "760", "335")
@@ -407,6 +423,42 @@ def achar_tipo(t):
     return TIPO_PADRAO
 
 
+RE_FEM = re.compile(r"\b(feminino|feminina|fem|woman|women|femme|her|mulher|lady|donna)\b")
+RE_MASC = re.compile(r"\b(masculino|masculina|masc|men|man|homme|him|homem|uomo)\b")
+RE_UNI = re.compile(r"\b(unissex|unisex|unisexo)\b")
+
+
+def achar_genero(t):
+    if RE_UNI.search(t):
+        return "Unissex"
+    f, m = bool(RE_FEM.search(t)), bool(RE_MASC.search(t))
+    if f and m:
+        return "Unissex"
+    return "Feminino" if f else "Masculino" if m else "-"
+
+
+def categoria_de(tipo):
+    """Categoria para filtro, a partir do tipo."""
+    return {"EDT": "Perfume", "EDP": "Perfume", "EDC": "Perfume", "Body Splash": "Body Splash",
+            "Deo": "Desodorante", "Banho": "Banho", "Kit": "Kit", TIPO_OUTRA: "Outra marca",
+            TIPO_FORA: "Não perfume"}.get(tipo, "Perfume")
+
+
+def tamanho_de(volume):
+    m = re.match(r"(\d+)", str(volume))
+    if not m:
+        return "-"
+    ml = int(m.group(1))
+    return ("Miniatura (até 30 ml)" if ml <= 30 else "Pequeno (31–60 ml)" if ml <= 60
+            else "Padrão (61–125 ml)" if ml <= 125 else "Grande (126+ ml)")
+
+
+def ler_texto(t, linhas, palavras_marca):
+    """Lê linha, volume, tipo e gênero de um texto já normalizado."""
+    return {"linha": achar_linha(t, linhas, palavras_marca), "volume": achar_volume(t),
+            "tipo": achar_tipo(t), "genero": achar_genero(t)}
+
+
 def _mais_vendido(sub, coluna):
     """Valor de `coluna` que somou mais unidades (neutros não votam). None se só há neutros."""
     s = sub[~sub[coluna].isin(NEUTROS)]
@@ -427,11 +479,12 @@ def marca_bate(valor, alvo):
     return bool(v) and (v == alvo or (len(v) >= 4 and (v in alvo or alvo in v)))
 
 
-def dono_do_anuncio(df, marca):
+def dono_do_anuncio(df, marca, pesquisados=None):
     """
     Confirma, anúncio por anúncio, se ele é mesmo da marca do export — cruzando a
     coluna Marca com o GTIN. Devolve uma Série: "" = é da marca; senão o nome da
     outra marca (ex.: "J. SERRANO" num export da Montblanc = contratipo).
+    - GTIN pesquisado (gtins.json) com marca preenchida manda: é a fonte mais confiável.
     - GTIN que aparece em pelo menos um anúncio com a Marca certa é da marca: os
       outros anúncios desse GTIN também são, mesmo que o vendedor tenha posto a
       marca da loja dele na coluna Marca (ex.: "ERIAN" vendendo Montblanc Explorer).
@@ -443,8 +496,11 @@ def dono_do_anuncio(df, marca):
     declarada = df["marca_anuncio"].fillna("").str.strip()
     bate = declarada.map(lambda v: marca_bate(v, alvo))
     dono = declarada.where(~bate & (declarada != ""), "")
-    for _, g in df[df["gtin"] != ""].groupby("gtin"):
-        if bate[g.index].any():
+    for gtin, g in df[df["gtin"] != ""].groupby("gtin"):
+        marca_pesq = (pesquisados or {}).get(gtin, {}).get("marca", "")
+        if marca_pesq:
+            dono[g.index] = "" if marca_bate(marca_pesq, alvo) else marca_pesq
+        elif bate[g.index].any():
             dono[g.index] = ""
         else:
             outras = g[declarada[g.index] != ""]
@@ -458,20 +514,33 @@ def dono_do_anuncio(df, marca):
     return dono
 
 
-def consolidar(df, marca, cfg):
-    """Devolve df com linha, volume, tipo e produto preenchidos."""
+def consolidar(df, marca, cfg, info=None):
+    """Devolve df com linha, volume, tipo, gênero, produto e confiança preenchidos."""
     df = df.copy()
+    info = INFO_GTIN if info is None else info
     linhas = cfg.get(chave_marca(marca), {}).get("linhas", [])
     palavras_marca = set(normalizar(marca).split())
     tn = df["titulo"].map(normalizar)
 
     # Etapa 1 — ler o título.
-    df["linha"] = tn.map(lambda t: achar_linha(t, linhas, palavras_marca))
-    df["volume"] = tn.map(achar_volume)
-    df["tipo"] = tn.map(achar_tipo)
+    lido = pd.DataFrame([ler_texto(t, linhas, palavras_marca) for t in tn], index=df.index)
+    for c in ("linha", "volume", "tipo", "genero"):
+        df[c] = lido[c]
+
+    # Especificação pesquisada do GTIN (gtins.json, preenchido por --pesquisar-gtin
+    # ou à mão). É lida com as mesmas regras do título, mas vale mais que qualquer
+    # anúncio: é o nome oficial do produto, não o que o vendedor digitou.
+    pesquisados = {}
+    for g in df.loc[df["gtin"] != "", "gtin"].unique():
+        d = info.get(g) or {}
+        if d.get("nome") or d.get("marca"):
+            p = ler_texto(normalizar(d.get("nome", "")), linhas, palavras_marca)
+            p["marca"] = d.get("marca", "")
+            pesquisados[g] = p
+
     # Antes de tudo, separar o que não é da marca nem é perfume: esses anúncios
     # continuam no total, mas viram referências próprias e não votam nas etapas 2 e 3.
-    dono = dono_do_anuncio(df, marca)
+    dono = dono_do_anuncio(df, marca, pesquisados)
     outra = dono != ""
     df.loc[outra, "linha"] = dono[outra].map(nome_bonito)
     df.loc[outra, "tipo"] = TIPO_OUTRA
@@ -479,21 +548,40 @@ def consolidar(df, marca, cfg):
     df.loc[nao_perf, "linha"] = df.loc[nao_perf, "categoria"]
     df.loc[nao_perf, "tipo"] = TIPO_FORA
     fora = outra | nao_perf
-    df.loc[fora, "volume"] = "-"
+    df.loc[fora, ["volume", "genero"]] = "-"
+    df["confianca"] = CONF_TITULO
+    df.loc[fora, "confianca"] = "-"
 
     # Etapa 2 — o GTIN corrige o título.
-    # Todos os anúncios do mesmo GTIN são o mesmo produto físico. Para linha, volume
-    # e tipo, vale o que o anúncio que MAIS VENDEU UNIDADES diz (não o valor mais
-    # frequente): um título com 1.200 unidades pesa mais que cinco com 2 cada.
+    # Todos os anúncios do mesmo GTIN são o mesmo produto físico. Para linha, volume,
+    # tipo e gênero, vale o que o anúncio que MAIS VENDEU UNIDADES diz (não o valor
+    # mais frequente): um título com 1.200 unidades pesa mais que cinco com 2 cada.
     # É isso que junta "Club De Nuit Intense Da Armaf Ed" (título cortado, campeão
     # de vendas) com "...Club De Nuit Intense Man Eau De Toilette 105ml".
     # "-" e "Outros" não votam, mas o vencedor é aplicado ao grupo inteiro.
+    # Se o GTIN foi pesquisado, a especificação pesquisada vence a votação.
+    # Quando os títulos do mesmo GTIN discordam entre si, o grupo fica marcado como
+    # dúvida — é a lista que o --pesquisar-gtin vai conferir.
     com_gtin = df[(df["gtin"] != "") & ~fora]
-    for _, grupo in com_gtin.groupby("gtin"):
-        for coluna in ("linha", "volume", "tipo"):
-            vencedor = _mais_vendido(grupo, coluna)
+    for gtin, grupo in com_gtin.groupby("gtin"):
+        p = pesquisados.get(gtin, {})
+        divergente = any(grupo[c][~grupo[c].isin(NEUTROS)].nunique() > 1
+                         for c in ("linha", "volume", "tipo"))
+        for coluna in ("linha", "volume", "tipo", "genero"):
+            vencedor = p.get(coluna) if p.get(coluna) not in NEUTROS | {None} else None
+            if vencedor is None:
+                vencedor = _mais_vendido(grupo, coluna)
             if vencedor is not None:
                 df.loc[grupo.index, coluna] = vencedor
+        if df.at[grupo.index[0], "linha"] == "Outros":
+            conf = DUV_LINHA
+        elif p.get("linha") not in NEUTROS | {None}:
+            conf = CONF_PESQ
+        elif divergente:
+            conf = DUV_DIVERG
+        else:
+            conf = CONF_GTIN
+        df.loc[grupo.index, "confianca"] = conf
 
     # Etapa 3 — preencher o que sobrou vazio.
     # 3a. Tipo não escrito no título e sem GTIN que resolva ("EDT?"): recebe o tipo
@@ -515,6 +603,13 @@ def consolidar(df, marca, cfg):
             vencedor = _mais_vendido(grupo, "volume")
             if vencedor is not None:
                 df.loc[faltando, "volume"] = vencedor
+    # 3c. Gênero não escrito: o que mais vendeu na mesma linha.
+    for _, grupo in df[~fora].groupby("linha"):
+        faltando = grupo.index[grupo["genero"] == "-"]
+        if len(faltando):
+            vencedor = _mais_vendido(grupo, "genero")
+            if vencedor is not None:
+                df.loc[faltando, "genero"] = vencedor
 
     marca_txt = nome_bonito(marca)
     df["produto"] = [
@@ -531,6 +626,7 @@ def consolidar(df, marca, cfg):
 # ---------------------------------------------------------------------------
 
 CAMPOS_ANUNCIO = ["titulo", "vendedor", "vendedor_id", "marca_anuncio", "categoria", "produto", "linha", "volume", "tipo",
+                  "genero", "confianca",
                   "gtin", "sku", "un", "fat", "preco", "un_hist", "fat_hist", "dias_pub",
                   "exposicao", "catalogo", "full", "flex", "internacional", "loja_oficial",
                   "frete_gratis"]
@@ -547,12 +643,18 @@ def abrir_banco():
         CREATE TABLE IF NOT EXISTS anuncios(
             snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
             titulo TEXT, vendedor TEXT, vendedor_id TEXT, marca_anuncio TEXT, categoria TEXT, produto TEXT, linha TEXT,
-            volume TEXT, tipo TEXT, gtin TEXT, sku TEXT, un INTEGER, fat REAL, preco REAL,
+            volume TEXT, tipo TEXT, genero TEXT, confianca TEXT, gtin TEXT, sku TEXT, un INTEGER, fat REAL, preco REAL,
             un_hist INTEGER, fat_hist REAL, dias_pub INTEGER, exposicao TEXT,
             catalogo INTEGER, full INTEGER, flex INTEGER, internacional INTEGER,
             loja_oficial INTEGER, frete_gratis INTEGER);
         CREATE INDEX IF NOT EXISTS ix_anuncios_snap ON anuncios(snapshot_id);
     """)
+    # Banco criado por uma versão anterior: acrescenta as colunas que faltam.
+    existentes = {r[1] for r in con.execute("PRAGMA table_info(anuncios)")}
+    for c in ("marca_anuncio", "categoria", "genero", "confianca"):
+        if c not in existentes:
+            con.execute(f"ALTER TABLE anuncios ADD COLUMN {c} TEXT")
+    con.commit()
     return con
 
 
@@ -584,12 +686,180 @@ def reconsolidar(con, cfg):
         df = pd.read_sql("SELECT rowid AS rid, * FROM anuncios WHERE snapshot_id=?", con, params=(sid,))
         if df.empty:
             continue
+        for c in ("gtin", "marca_anuncio", "categoria"):
+            df[c] = df[c].fillna("")
         garantir_config(cfg, marca, df)
         novo = consolidar(df, marca, cfg)
-        con.executemany("UPDATE anuncios SET produto=?, linha=?, volume=?, tipo=? WHERE rowid=?",
-                        list(novo[["produto", "linha", "volume", "tipo", "rid"]]
+        con.executemany("UPDATE anuncios SET produto=?, linha=?, volume=?, tipo=?, genero=?, "
+                        "confianca=? WHERE rowid=?",
+                        list(novo[["produto", "linha", "volume", "tipo", "genero", "confianca", "rid"]]
                              .itertuples(index=False, name=None)))
     con.commit()
+
+
+# ---------------------------------------------------------------------------
+# Pesquisa de GTIN: buscar a especificação oficial quando o agrupamento está em dúvida
+# ---------------------------------------------------------------------------
+
+COMANDO_PESQUISA = "python nubi.py --pesquisar-gtin"
+
+
+def link_pesquisa(gtin):
+    return "https://www.google.com/search?q=" + urllib.parse.quote(f"{gtin} perfume")
+
+
+def carregar_gtins():
+    if not ARQ_GTINS.exists():
+        return {}
+    try:
+        bruto = json.loads(ARQ_GTINS.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise ErroArquivo(f"gtins.json está com erro de digitação (linha {e.lineno}, "
+                          f"coluna {e.colno}). Corrija e rode de novo.")
+    return {re.sub(r"\D", "", k): v for k, v in bruto.items() if isinstance(v, dict)}
+
+
+def salvar_gtins(info):
+    """Um GTIN por linha, para dar para corrigir à mão."""
+    linhas = [f"  {json.dumps(g)}: {json.dumps(info[g], ensure_ascii=False)}" for g in sorted(info)]
+    ARQ_GTINS.write_text("{\n" + ",\n".join(linhas) + "\n}\n", encoding="utf-8")
+
+
+class SemConexao(Exception):
+    pass
+
+
+class LimiteAtingido(Exception):
+    pass
+
+
+def _get_json(url, cabecalhos=None):
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "nubi/1.0 (explorador de anuncios)", "Accept": "application/json",
+        **(cabecalhos or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        if e.code == 429:
+            raise LimiteAtingido()
+        raise SemConexao(f"erro {e.code}")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
+        raise SemConexao(e.__class__.__name__)
+
+
+def fonte_cosmos(gtin, token):
+    """Cosmos (Bluesoft): melhor base para produtos vendidos no Brasil. Precisa de token."""
+    d = _get_json(f"https://api.cosmos.bluesoft.com.br/gtins/{gtin}.json", {"X-Cosmos-Token": token})
+    if not d or not d.get("description"):
+        return None
+    return {"nome": d["description"], "marca": (d.get("brand") or {}).get("name", "")}
+
+
+def fonte_open_beauty(gtin):
+    """Open Beauty Facts: base aberta de cosméticos e perfumes, sem cadastro."""
+    d = _get_json(f"https://world.openbeautyfacts.org/api/v2/product/{gtin}.json"
+                  "?fields=product_name,generic_name,brands,quantity")
+    if not d or d.get("status") != 1:
+        return None
+    p = d.get("product") or {}
+    nome = " ".join(str(p.get(k) or "").strip()
+                    for k in ("brands", "product_name", "generic_name", "quantity")).strip()
+    if not nome:
+        return None
+    return {"nome": re.sub(r"\s+", " ", nome), "marca": str(p.get("brands") or "").split(",")[0].strip()}
+
+
+def fonte_upcitemdb(gtin):
+    """UPCitemdb: base internacional, grátis até ~100 consultas por dia."""
+    d = _get_json(f"https://api.upcitemdb.com/prod/trial/lookup?upc={gtin}")
+    itens = (d or {}).get("items") or []
+    if not itens:
+        return None
+    it = itens[0]
+    nome = " ".join(str(it.get(k) or "").strip() for k in ("title", "size")).strip()
+    return {"nome": nome, "marca": str(it.get("brand") or "")} if nome else None
+
+
+def consultar_gtin(gtin, token=""):
+    """Tenta as bases em ordem. Devolve (resultado ou None, lista de falhas de conexão)."""
+    fontes = [("Cosmos", lambda g: fonte_cosmos(g, token))] if token else []
+    fontes += [("Open Beauty Facts", fonte_open_beauty), ("UPCitemdb", fonte_upcitemdb)]
+    falhas = []
+    for nome, f in fontes:
+        try:
+            r = f(gtin)
+        except LimiteAtingido:
+            falhas.append(f"{nome}: limite de consultas do dia")
+            continue
+        except SemConexao as e:
+            falhas.append(f"{nome}: sem resposta ({e})")
+            continue
+        if r:
+            r["fonte"] = nome
+            return r, falhas, len(fontes)
+    # Se alguma base não respondeu, "não encontrado" ainda não é definitivo.
+    return None, falhas, len(fontes)
+
+
+def gtins_em_duvida(con):
+    """GTINs cujo agrupamento está em dúvida, no período mais recente de cada marca."""
+    return con.execute(f"""
+        SELECT a.gtin, s.marca, SUM(a.un) AS un
+        FROM anuncios a JOIN snapshots s ON s.id = a.snapshot_id
+        WHERE a.gtin <> '' AND a.confianca LIKE 'Dúvida%'
+          AND s.id IN (SELECT id FROM snapshots s2 WHERE s2.marca = s.marca
+                       ORDER BY fim DESC, inicio DESC, id DESC LIMIT 1)
+        GROUP BY a.gtin, s.marca ORDER BY un DESC""").fetchall()
+
+
+def pesquisar_gtins(con, limite, lista=None):
+    if lista:
+        alvos = [(normalizar_gtin(g) or re.sub(r"\D", "", g), "", 0) for g in lista]
+    else:
+        alvos = [a for a in gtins_em_duvida(con) if a[0] not in INFO_GTIN]
+    if not alvos:
+        print("\n  Nenhum GTIN em dúvida esperando pesquisa.")
+        return
+    token = ARQ_TOKEN_COSMOS.read_text(encoding="utf-8").strip() if ARQ_TOKEN_COSMOS.exists() else ""
+    lote = alvos[:limite]
+    if lista:
+        print(f"\nPesquisando {len(lote)} GTIN(s):")
+    else:
+        print(f"\nPesquisando {len(lote)} GTIN(s) em dúvida (de {len(alvos)}), "
+              f"dos que mais vendem para os que menos vendem:")
+    sem_rede = 0
+    for gtin, _, _ in lote:
+        r, falhas, n_fontes = consultar_gtin(gtin, token)
+        agora = datetime.now().isoformat(timespec="seconds")
+        if r:
+            INFO_GTIN[gtin] = {"nome": r["nome"], "marca": r["marca"], "fonte": r["fonte"],
+                               "consultado_em": agora}
+            print(f"    {gtin}  {r['nome']}  ({r['fonte']})")
+            sem_rede = 0
+        elif len(falhas) == n_fontes:
+            print(f"    {gtin}  sem resposta das bases ({'; '.join(falhas)})")
+            sem_rede += 1
+            if sem_rede >= 3:
+                print("    Sem conexão com as bases de GTIN agora. Tente de novo mais tarde.")
+                break
+        elif falhas:
+            print(f"    {gtin}  não encontrado, mas nem todas as bases responderam "
+                  f"({'; '.join(falhas)}). Fica para a próxima pesquisa.")
+            sem_rede = 0
+        else:
+            INFO_GTIN[gtin] = {"nome": "", "marca": "", "fonte": "não encontrado", "consultado_em": agora}
+            print(f"    {gtin}  não encontrado nas bases — confira: {link_pesquisa(gtin)}")
+            sem_rede = 0
+        time.sleep(0.5)
+    salvar_gtins(INFO_GTIN)
+    if len(alvos) > len(lote):
+        print(f"    Faltam {len(alvos) - len(lote)}. Rode de novo para continuar "
+              f"(ou use --limite para pesquisar mais de uma vez).")
+    print("    Resultados gravados em gtins.json. Se algum nome estiver errado, corrija ali "
+          "(ou preencha à mão os não encontrados) e rode de novo.")
 
 
 # ---------------------------------------------------------------------------
@@ -778,9 +1048,13 @@ def col(i):
 # Aba Anúncios: é a base de onde as outras abas puxam por fórmula.
 COLS_ANUNCIOS = [
     ("produto", "Produto (consolidado)", TXT, 46),
+    ("cat", "Categoria", TXT, 13),
     ("linha", "Linha", TXT, 24),
     ("tipo", "Tipo", TXT, 11),
     ("volume", "Volume", TXT, 9),
+    ("tamanho", "Tamanho", TXT, 19),
+    ("genero", "Gênero", TXT, 11),
+    ("confianca", "Confiança do agrupamento", TXT, 26),
     ("titulo", "Título do anúncio", TXT, 60),
     ("cod", "Cód. vendedor", TXT, 10),
     ("vendedor", "Vendedor", TXT, 26),
@@ -814,6 +1088,17 @@ def AN(chave):
 
 R_DIAS = "'Resumo'!$B$6"
 R_UN = "'Resumo'!$B$8"
+FONTE_LINK = Font(name="Arial", size=10, color="0563C1", underline="single")
+
+
+def faixa_preco(ref):
+    """Fórmula que classifica um preço em faixas fixas (para filtrar)."""
+    return (f'=IF({ref}<=0,"-",IF({ref}<100,"até R$ 99",IF({ref}<200,"R$ 100–199",'
+            f'IF({ref}<300,"R$ 200–299",IF({ref}<500,"R$ 300–499","R$ 500+")))))')
+
+
+def link_google(gtin):
+    return f'=HYPERLINK("{link_pesquisa(gtin)}","pesquisar")'
 
 
 # ---------------------------------------------------------------------------
@@ -830,7 +1115,23 @@ def codigos_vendedor(df):
     return g
 
 
-def aba_resumo(ws, marca, snap, n_vend, n_prod, n_gtin):
+def atributos_produto(df):
+    """Uma linha por produto com os campos de filtro (categoria, gênero, tamanho…)."""
+    out = df.groupby("produto").agg(linha=("linha", "first"), tipo=("tipo", "first"),
+                                    volume=("volume", "first"), un=("un", "sum"), fat=("fat", "sum"),
+                                    vendedores=("vendedor_id", "nunique"))
+    votos = (df[~df["genero"].isin(NEUTROS)].assign(p=lambda d: d["un"] + 0.001)
+             .groupby(["produto", "genero"])["p"].sum())
+    melhor = votos.groupby(level=0).idxmax().map(lambda x: x[1]) if len(votos) else {}
+    out["genero"] = [melhor.get(p, "-") for p in out.index]
+    peso = df.assign(p=df["un"] + 1).groupby(["produto", "confianca"])["p"].sum()
+    out["confianca"] = peso.groupby(level=0).idxmax().map(lambda x: x[1])
+    out["cat"] = out["tipo"].map(categoria_de)
+    out["tamanho"] = out["volume"].map(tamanho_de)
+    return out.sort_values(["un", "fat"], ascending=False, kind="mergesort")
+
+
+def aba_resumo(ws, marca, snap, n_vend, n_prod, n_gtin, n_duvida, n_oport):
     ws.title = "Resumo"
     ws.column_dimensions["A"].width = 36
     ws.column_dimensions["B"].width = 18
@@ -866,6 +1167,9 @@ def aba_resumo(ws, marca, snap, n_vend, n_prod, n_gtin):
          "Coluna Marca e GTIN apontam outra marca (contratipo ou cadastro errado)."),
         ("Unidades fora de perfumaria", f'=SUMIFS({AN("un")},{AN("tipo")},"{TIPO_FORA}")', INT,
          "Canetas, acessórios etc. que vieram no export da marca."),
+        ("GTINs em dúvida", n_duvida, INT,
+         f"Títulos do mesmo GTIN não batem (aba Dúvidas). Para pesquisar: {COMANDO_PESQUISA}"
+         if n_duvida else "Nenhum: todos os GTINs agruparam sem conflito."),
     ]
     cols = [("Indicador", None, None), ("Valor", None, None), ("Observação", None, None)]
     cabecalho(ws, 5, cols)
@@ -892,65 +1196,181 @@ def aba_resumo(ws, marca, snap, n_vend, n_prod, n_gtin):
         else:
             vals = [rot, "=$B$15", f"=SUM({vend('C')})", f"=IFERROR(C{r}/$B$8,0)"]
         linha_dados(ws, r, cols, vals, total=(n is None))
-    rn = r0 + len(faixas) + 2
-    nota(ws, rn, NOTA_FAT)
-    nota(ws, rn + 1, "Giro/dia e projeções usam os dias reais do período, nunca 30 fixo.")
+
+    # As 5 melhores notas da aba Oportunidades (que já vem ordenada pela nota).
+    r0 = r0 + len(faixas) + 3
+    if n_oport:
+        cel(ws, r0 - 1, 1, "Melhores oportunidades (detalhes na aba Oportunidades)", fonte=FONTE_B, borda=False)
+        cols = [("Produto", None, None), ("Nota (0–100)", INT, None), ("Giro/dia", DEC, None),
+                ("Sinais", None, None)]
+        cabecalho(ws, r0, cols)
+        for i in range(min(5, n_oport)):
+            r, o = r0 + 1 + i, i + 2
+            linha_dados(ws, r, cols, [f"='Oportunidades'!A{o}", f"='Oportunidades'!Q{o}",
+                                      f"='Oportunidades'!E{o}", f"='Oportunidades'!R{o}"])
+        r0 += min(5, n_oport) + 2
+    nota(ws, r0, NOTA_FAT)
+    nota(ws, r0 + 1, "Giro/dia e projeções usam os dias reais do período, nunca 30 fixo.")
 
 
-def aba_produtos(ws, dfp, df):
+def aba_oportunidades(ws, df, attrs, df_ant, dias_ant):
+    """
+    Onde entrar: produtos da marca com venda, com uma nota de 0 a 100 e sinais.
+    A demanda MULTIPLICA a nota (produto sem venda não é oportunidade, por mais
+    livre que esteja):  nota = 100 × √(giro ÷ maior giro) × (0,40 + 0,25 × pouca
+    concorrência + 0,15 × FULL livre + 0,10 × líder fraco + 0,10 × aceleração).
+    """
+    ws.title = "Oportunidades"
+    cols = [("Produto", TXT, 44), ("Categoria", TXT, 12), ("Gênero", TXT, 10), ("Tamanho", TXT, 18),
+            ("Giro/dia", DEC, 9), ("Giro/dia anterior", DEC, 10), ("Variação do giro", PCT, 10),
+            ("Vendedores com venda", INT, 10), ("Giro por vendedor", DEC, 10), ("Anúncios", INT, 9),
+            ("Líder: share do maior vendedor", PCT, 12), ("% FULL", PCT, 8), ("% catálogo", PCT, 9),
+            ("Preço mediano", MOEDA2, 11), ("Faixa de preço", TXT, 12), ("Amplitude de preço", VEZES, 10),
+            ("Nota (0–100)", INT, 9), ("Sinais", TXT, 60)]
+    alvo = attrs[~attrs["cat"].isin(["Outra marca", "Não perfume"]) & (attrs["un"] > 0)]
+    dias = float(df.attrs["dias"])
+    un_ant = df_ant.groupby("produto")["un"].sum() if df_ant is not None else None
+    dados = []
+    for prod, a in alvo.iterrows():
+        g = df[df["produto"] == prod]
+        com_venda = g[g["un"] > 0]
+        por_vend = com_venda.groupby("vendedor_id")["un"].sum()
+        precos = com_venda.loc[com_venda["preco"] > 0, "preco"]
+        giro = a["un"] / dias
+        giro_ant = (float(un_ant.get(prod, 0)) / dias_ant) if un_ant is not None else None
+        x = {"prod": prod, "a": a, "giro": giro, "giro_ant": giro_ant, "vend": len(por_vend),
+             "lider": por_vend.max() / a["un"] if a["un"] else 0,
+             "full": g["full"].mean(), "mediana": round(float(precos.median()), 2) if len(precos) else 0,
+             "amp": round(float(precos.max() / precos.min()), 2) if len(precos) >= 2 else 0}
+        dados.append(x)
+    # Mesma conta da fórmula da coluna Nota, só para ordenar a aba.
+    gmax = max([x["giro"] for x in dados] or [1]) or 1
+    for x in dados:
+        var = (x["giro"] / x["giro_ant"] - 1) if x["giro_ant"] else 0
+        x["nota"] = 100 * (x["giro"] / gmax) ** 0.5 * (
+            0.4 + 0.25 / max(x["vend"], 1) + 0.15 * (1 - x["full"])
+            + 0.1 * (1 - x["lider"]) + 0.1 * max(0, min(var, 1)))
+    dados.sort(key=lambda x: -x["nota"])
+    n = len(dados) + 1
+    P = AN("produto")
+    E = f"E$2:E${max(n, 2)}"
+
+    def fazer(x):
+        a = x["a"]
+
+        def f(r):
+            sinais = (f'IF(AND(H{r}<=3,E{r}>=AVERAGE({E}))," · Pouca concorrência","")'
+                      f'&IF(AND(L{r}<0.2,E{r}>=AVERAGE({E}))," · FULL livre","")'
+                      f'&IF(M{r}<0.3," · Catálogo pouco disputado","")'
+                      f'&IF(K{r}>=0.6," · Líder domina","")'
+                      f'&IF(AND(ISNUMBER(G{r}),G{r}>0.2)," · Acelerando","")'
+                      f'&IF(AND(ISNUMBER(G{r}),G{r}<-0.2)," · Perdendo giro","")'
+                      f'&IF(AND(ISNUMBER(F{r}),F{r}=0)," · Novo no período","")'
+                      f'&IF(P{r}>=2," · Preço disperso","")')
+            return [x["prod"], a["cat"], a["genero"], a["tamanho"],
+                    f"=IFERROR(SUMIFS({AN('un')},{P},$A{r})/{R_DIAS},0)",
+                    None if x["giro_ant"] is None else round(x["giro_ant"], 4),
+                    f'=IF(AND(ISNUMBER(F{r}),F{r}>0),E{r}/F{r}-1,"")',
+                    x["vend"], f"=IFERROR(E{r}/H{r},0)", f"=COUNTIFS({P},$A{r})",
+                    round(float(x["lider"]), 4),
+                    f"=IFERROR(COUNTIFS({P},$A{r},{AN('full')},1)/J{r},0)",
+                    f"=IFERROR(COUNTIFS({P},$A{r},{AN('catalogo')},1)/J{r},0)",
+                    x["mediana"], faixa_preco(f"N{r}"), x["amp"],
+                    f"=ROUND(100*SQRT(IFERROR(E{r}/MAX({E}),0))*(0.4+0.25*IFERROR(1/H{r},0)"
+                    f"+0.15*(1-L{r})+0.1*(1-K{r})+0.1*IF(ISNUMBER(G{r}),MAX(0,MIN(G{r},1)),0)),0)",
+                    f"=MID({sinais},4,300)"]
+        return f
+
+    r = tabela(ws, 1, cols, [fazer(x) for x in dados])
+    if r >= 2:
+        ws.conditional_formatting.add(f"Q2:Q{r}", ColorScaleRule(
+            start_type="num", start_value=0, start_color="FFFFFF",
+            end_type="num", end_value=100, end_color="63BE7B"))
+    notas = [
+        "Como ler: nota alta = muita demanda, pouca gente vendendo, FULL livre, mercado sem dono e giro subindo.",
+        "Nota = 100 × √(giro ÷ maior giro) × (0,40 + 0,25 × pouca concorrência [1 ÷ vendedores com venda] "
+        "+ 0,15 × FULL livre + 0,10 × líder fraco + 0,10 × aceleração). A demanda multiplica: sem venda, sem nota.",
+        "Pouca concorrência: até 3 vendedores com venda e giro acima da média. "
+        "FULL livre: menos de 20% dos anúncios em FULL e giro acima da média.",
+        "Catálogo pouco disputado: menos de 30% dos anúncios no catálogo. Líder domina: um vendedor com 60%+ "
+        "das unidades (difícil entrar). Preço disperso: máximo 2x ou mais o mínimo (há espaço de margem).",
+        "Acelerando / perdendo giro: variação acima de +20% / abaixo de −20% contra o período anterior. "
+        "Rodando todo dia, isso vira o seu radar diário.",
+        "Só produtos da própria marca com venda no período (sem outras marcas nem itens fora de perfumaria).",
+    ]
+    for i, t in enumerate(notas):
+        nota(ws, r + 2 + i, t)
+    return len(dados)
+
+
+def aba_produtos(ws, attrs, df):
     ws.title = "Produtos"
-    cols = [("Produto", TXT, 46), ("Anúncios", INT, 10), ("Vendedores", INT, 11),
-            ("Un. vendidas", INT, 12), ("Faturamento", MOEDA, 15), ("Preço médio", MOEDA2, 12),
-            ("Giro/dia", DEC, 10), ("Projeção 30d", INT, 12), ("% do volume", PCT, 10),
-            ("% acumulado", PCT, 11), ("Curva ABC", TXT, 8), ("Un. por anúncio", DEC, 11),
-            ("% catálogo", PCT, 10), ("% FULL", PCT, 9)]
-    n = len(dfp)
+    cols = [("Produto", TXT, 44), ("Categoria", TXT, 12), ("Linha", TXT, 22), ("Tipo", TXT, 10),
+            ("Volume", TXT, 8), ("Tamanho", TXT, 18), ("Gênero", TXT, 10),
+            ("Anúncios", INT, 9), ("Vendedores", INT, 10),
+            ("Un. vendidas", INT, 11), ("Faturamento", MOEDA, 14), ("Preço médio", MOEDA2, 11),
+            ("Faixa de preço", TXT, 12), ("Giro/dia", DEC, 9), ("Projeção 30d", INT, 11),
+            ("% do volume", PCT, 9), ("% acumulado", PCT, 10), ("Curva ABC", TXT, 7),
+            ("Un. por anúncio", DEC, 10), ("% catálogo", PCT, 9), ("% FULL", PCT, 8),
+            ("Confiança do agrupamento", TXT, 26)]
+    n = len(attrs)
     tr = n + 2   # linha do TOTAL
     P, U, F = AN("produto"), AN("un"), AN("fat")
 
-    def fazer(nome, vend):
+    def fazer(prod, a):
         def f(r):
-            return [nome, f"=COUNTIFS({P},$A{r})", vend,
+            return [prod, a["cat"], a["linha"], a["tipo"], a["volume"], a["tamanho"], a["genero"],
+                    f"=COUNTIFS({P},$A{r})", int(a["vendedores"]),
                     f"=SUMIFS({U},{P},$A{r})", f"=SUMIFS({F},{P},$A{r})",
-                    f"=IFERROR(E{r}/D{r},0)", f"=IFERROR(D{r}/{R_DIAS},0)", f"=G{r}*30",
-                    f"=IFERROR(D{r}/$D${tr},0)", f"=IFERROR(SUM($D$2:D{r})/$D${tr},0)",
-                    f'=IF(J{r}-I{r}<0.8,"A",IF(J{r}-I{r}<0.95,"B","C"))', f"=IFERROR(D{r}/B{r},0)",
-                    f"=IFERROR(COUNTIFS({P},$A{r},{AN('catalogo')},1)/B{r},0)",
-                    f"=IFERROR(COUNTIFS({P},$A{r},{AN('full')},1)/B{r},0)"]
+                    f"=IFERROR(K{r}/J{r},0)", faixa_preco(f"L{r}"),
+                    f"=IFERROR(J{r}/{R_DIAS},0)", f"=N{r}*30",
+                    f"=IFERROR(J{r}/$J${tr},0)", f"=IFERROR(SUM($J$2:J{r})/$J${tr},0)",
+                    f'=IF(Q{r}-P{r}<0.8,"A",IF(Q{r}-P{r}<0.95,"B","C"))', f"=IFERROR(J{r}/H{r},0)",
+                    f"=IFERROR(COUNTIFS({P},$A{r},{AN('catalogo')},1)/H{r},0)",
+                    f"=IFERROR(COUNTIFS({P},$A{r},{AN('full')},1)/H{r},0)", a["confianca"]]
         return f
 
     def total(r):
-        u = f"$D$2:$D${r - 1}" if n else "$D$2:$D$2"
         rng = lambda L: f"{L}2:{L}{max(r - 1, 2)}"
-        return ["TOTAL", f"=SUM({rng('B')})", df["vendedor_id"].nunique(), f"=SUM({u})",
-                f"=SUM({rng('E')})", f"=IFERROR(E{r}/D{r},0)", f"=IFERROR(D{r}/{R_DIAS},0)",
-                f"=G{r}*30", f"=SUM({rng('I')})", None, None, f"=IFERROR(D{r}/B{r},0)",
-                f"=IFERROR(SUM({AN('catalogo')})/B{r},0)", f"=IFERROR(SUM({AN('full')})/B{r},0)"]
+        return ["TOTAL", None, None, None, None, None, None, f"=SUM({rng('H')})",
+                df["vendedor_id"].nunique(), f"=SUM({rng('J')})", f"=SUM({rng('K')})",
+                f"=IFERROR(K{r}/J{r},0)", None, f"=IFERROR(J{r}/{R_DIAS},0)", f"=N{r}*30",
+                f"=SUM({rng('P')})", None, None, f"=IFERROR(J{r}/H{r},0)",
+                f"=IFERROR(SUM({AN('catalogo')})/H{r},0)", f"=IFERROR(SUM({AN('full')})/H{r},0)", None]
 
-    r = tabela(ws, 1, cols, [fazer(p, v) for p, v in zip(dfp.index, dfp["vendedores"])], total)
+    r = tabela(ws, 1, cols, [fazer(p, a) for p, a in attrs.iterrows()], total)
     nota(ws, r + 2, NOTA_FAT)
     nota(ws, r + 3, "Curva ABC pelo % acumulado: até 80% = A, até 95% = B, resto = C (o produto que "
                     "cruza a linha dos 80% ainda é A). "
                     "Un. por anúncio alto = poucos anúncios levando muito volume.")
+    nota(ws, r + 4, "Use os filtros do cabeçalho (Categoria, Gênero, Tamanho, Faixa de preço, Curva ABC) "
+                    "para recortar o mercado.")
 
 
-def aba_gtins(ws, df):
+def aba_gtins(ws, df, attrs):
     ws.title = "GTINs"
-    cols = [("GTIN", TXT, 16), ("Produto", TXT, 46), ("Anúncios", INT, 10), ("Vendedores", INT, 11),
+    cols = [("GTIN", TXT, 16), ("Produto", TXT, 44), ("Anúncios", INT, 10), ("Vendedores", INT, 11),
             ("Un. vendidas", INT, 12), ("Faturamento", MOEDA, 15), ("Preço médio", MOEDA2, 12),
-            ("% do volume", PCT, 10)]
+            ("% do volume", PCT, 10), ("Categoria", TXT, 12), ("Confiança do agrupamento", TXT, 26),
+            ("Especificação pesquisada", TXT, 44), ("Pesquisar", TXT, 11)]
     g = df[df["gtin"] != ""]
     agg = g.groupby("gtin").agg(produto=("produto", lambda s: s.value_counts().index[0]),
-                                vend=("vendedor_id", "nunique"), un=("un", "sum"), fat=("fat", "sum"))
+                                vend=("vendedor_id", "nunique"), un=("un", "sum"), fat=("fat", "sum"),
+                                conf=("confianca", lambda s: s.value_counts().index[0]))
     agg = agg.sort_values(["un", "fat"], ascending=False, kind="mergesort")
     G, U, F = AN("gtin"), AN("un"), AN("fat")
 
-    def fazer(gtin, prod, vend):
-        return lambda r: [gtin, prod, f"=COUNTIFS({G},$A{r})", vend, f"=SUMIFS({U},{G},$A{r})",
-                          f"=SUMIFS({F},{G},$A{r})", f"=IFERROR(F{r}/E{r},0)",
-                          f"=IFERROR(E{r}/{R_UN},0)"]
+    def fazer(gtin, x):
+        cat = attrs["cat"].get(x["produto"], "")
+        spec = (INFO_GTIN.get(gtin) or {}).get("nome", "")
+        return lambda r: [gtin, x["produto"], f"=COUNTIFS({G},$A{r})", x["vend"],
+                          f"=SUMIFS({U},{G},$A{r})", f"=SUMIFS({F},{G},$A{r})",
+                          f"=IFERROR(F{r}/E{r},0)", f"=IFERROR(E{r}/{R_UN},0)",
+                          cat, x["conf"], spec, link_google(gtin)]
 
-    r = tabela(ws, 1, cols, [fazer(i, p, v) for i, p, v in zip(agg.index, agg["produto"], agg["vend"])])
+    r = tabela(ws, 1, cols, [fazer(i, x) for i, x in agg.iterrows()])
+    for rr in range(2, r + 1):
+        ws.cell(row=rr, column=12).font = FONTE_LINK
     fim = max(r, 2)
     r += 2
     cel(ws, r, 1, "Unidades sem GTIN válido", fonte=FONTE_B)
@@ -960,6 +1380,50 @@ def aba_gtins(ws, df):
     nota(ws, r + 1, "Essas unidades não aparecem nesta aba, mas estão na aba Produtos. "
                     "Quanto maior esse número, mais sujo está o cadastro da marca no marketplace.")
     nota(ws, r + 2, NOTA_FAT)
+
+
+def aba_duvidas(ws, df):
+    """GTINs cujos anúncios discordam sobre o produto — o que vale conferir/pesquisar."""
+    ws.title = "Dúvidas"
+    duv = df[(df["gtin"] != "") & df["confianca"].fillna("").str.startswith("Dúvida")]
+    cel(ws, 1, 1, "GTINs em dúvida: os títulos dos anúncios não batem entre si (ou a linha não foi "
+                  "reconhecida). O produto atribuído foi escolhido pelo anúncio que mais vende.",
+        fonte=FONTE_B, borda=False)
+    cel(ws, 2, 1, f"Para pesquisar as especificações automaticamente:  {COMANDO_PESQUISA}     "
+                  f"(um GTIN específico:  python nubi.py --gtin 3386460101035)", fonte=FONTE_ALERTA, borda=False)
+    cel(ws, 3, 1, "Para corrigir à mão: abra gtins.json e escreva o nome certo do produto no GTIN, "
+                  'ex.: "3386460101035": {"nome": "Montblanc Explorer Eau de Parfum 100 ml", "marca": "Montblanc"}',
+        fonte=FONTE_NOTA, borda=False)
+    cols = [("GTIN", TXT, 16), ("Produto atribuído", TXT, 44), ("Motivo", TXT, 28),
+            ("Anúncios", INT, 9), ("Un. vendidas", INT, 11), ("Títulos diferentes", INT, 10),
+            ("Principais títulos (dos que mais vendem)", TXT, 80), ("Pesquisa automática", TXT, 40),
+            ("Pesquisar", TXT, 11)]
+    grupos = []
+    for gtin, g in duv.groupby("gtin"):
+        g = g.sort_values("un", ascending=False)
+        titulos = list(dict.fromkeys(g["titulo"]))
+        info = INFO_GTIN.get(gtin)
+        if not info:
+            status = "não pesquisado"
+        elif info.get("nome"):
+            status = f"{info.get('fonte', '')}: {info['nome']}"
+        else:
+            status = "não encontrado nas bases — confira no Google"
+        grupos.append((int(g["un"].sum()), gtin, g["produto"].value_counts().index[0],
+                       g["confianca"].iloc[0], g["titulo"].map(normalizar).nunique(),
+                       " | ".join(titulos[:3]), status))
+    grupos.sort(key=lambda x: -x[0])
+    G = AN("gtin")
+
+    def fazer(x):
+        _, gtin, prod, motivo, n_tit, tits, status = x
+        return lambda r: [gtin, prod, motivo, f"=COUNTIFS({G},$A{r})", f"=SUMIFS({AN('un')},{G},$A{r})",
+                          n_tit, tits, status, link_google(gtin)]
+
+    r = tabela(ws, 5, cols, [fazer(x) for x in grupos])
+    for rr in range(6, r + 1):
+        ws.cell(row=rr, column=9).font = FONTE_LINK
+    return len(grupos)
 
 
 def aba_vendedores(ws, df, vend):
@@ -990,12 +1454,13 @@ def aba_vendedores(ws, df, vend):
     nota(ws, r + 3, NOTA_FAT)
 
 
-def aba_precos(ws, df):
+def aba_precos(ws, df, attrs):
     ws.title = "Preços"
-    cols = [("Produto", TXT, 46), ("Vendedores", INT, 11), ("Un. vendidas", INT, 12),
+    cols = [("Produto", TXT, 44), ("Vendedores", INT, 11), ("Un. vendidas", INT, 12),
             ("Mínimo", MOEDA2, 11), ("1º quartil", MOEDA2, 11), ("Mediana", MOEDA2, 11),
             ("3º quartil", MOEDA2, 11), ("Máximo", MOEDA2, 11), ("Amplitude (máx ÷ mín)", VEZES, 12),
-            ("Preço médio ponderado", MOEDA2, 13), ("Un. vendidas abaixo de 80% da mediana", INT, 16)]
+            ("Preço médio ponderado", MOEDA2, 13), ("Un. vendidas abaixo de 80% da mediana", INT, 16),
+            ("Categoria", TXT, 12), ("Gênero", TXT, 10), ("Faixa de preço", TXT, 12)]
     v = df[(df["un"] > 0) & (df["preco"] > 0)]
     grupos = []
     for prod, g in v.groupby("produto"):
@@ -1008,9 +1473,11 @@ def aba_precos(ws, df):
     filtro = lambda r: f'{P},$A{r},{U},">0",{PR},">0"'
 
     def fazer(prod, nv, q):
+        a = attrs.loc[prod]
         return lambda r: [prod, nv, f"=SUMIFS({U},{filtro(r)})", *[round(x, 2) for x in q],
                           f"=IFERROR(H{r}/D{r},0)", f"=IFERROR(SUMIFS({RC},{filtro(r)})/C{r},0)",
-                          f'=SUMIFS({U},{filtro(r)},{PR},"<"&(0.8*F{r}))']
+                          f'=SUMIFS({U},{filtro(r)},{PR},"<"&(0.8*F{r}))',
+                          a["cat"], a["genero"], faixa_preco(f"F{r}")]
 
     r = tabela(ws, 1, cols, [fazer(p, nv, q) for _, p, nv, q in grupos])
     nota(ws, r + 2, "Só anúncios com venda no período e preço > 0; referências com menos de 2 "
@@ -1019,7 +1486,7 @@ def aba_precos(ws, df):
                     "se há volume real vendido muito barato ou só anúncio de vitrine que não gira.")
 
 
-def aba_evolucao(ws, ant, atu, snap_ant, snap_atu):
+def aba_evolucao(ws, ant, atu, snap_ant, snap_atu, attrs):
     ws.title = "Evolução"
     cel(ws, 1, 1, "Evolução por referência — tudo por dia, porque os períodos podem ter durações diferentes",
         fonte=FONTE_B, borda=False)
@@ -1028,19 +1495,25 @@ def aba_evolucao(ws, ant, atu, snap_ant, snap_atu):
         cel(ws, r, 2, f"{fmt_data(s['inicio'])} a {fmt_data(s['fim'])}")
         cel(ws, r, 3, "Dias", fonte=FONTE_B)
         cel(ws, r, 4, int(s["dias"]), fmt=INT)
-    cols = [("Produto", TXT, 46), ("Giro/dia anterior", DEC, 12), ("Giro/dia atual", DEC, 12),
+    cols = [("Produto", TXT, 44), ("Giro/dia anterior", DEC, 12), ("Giro/dia atual", DEC, 12),
             ("Variação do giro", PCT, 11), ("Preço médio anterior", MOEDA2, 13),
             ("Preço médio atual", MOEDA2, 13), ("Variação do preço", PCT, 11),
             ("Vendedores antes", INT, 11), ("Vendedores agora", INT, 11), ("Movimento", TXT, 16),
             ("Un. anterior (base)", INT, 12), ("Un. atual (base)", INT, 12),
-            ("Faturamento anterior (base)", MOEDA, 15), ("Faturamento atual (base)", MOEDA, 15)]
+            ("Faturamento anterior (base)", MOEDA, 15), ("Faturamento atual (base)", MOEDA, 15),
+            ("Categoria", TXT, 12), ("Gênero", TXT, 10)]
     agg = lambda d: d.groupby("produto").agg(un=("un", "sum"), fat=("fat", "sum"),
                                              vend=("vendedor_id", "nunique"))
     j = agg(ant).join(agg(atu), how="outer", lsuffix="_a", rsuffix="_b").fillna(0)
     j["giro"] = j["un_b"] / snap_atu["dias"]
     j = j.sort_values(["giro", "un_a"], ascending=False, kind="mergesort")
+    extra = ant.drop_duplicates("produto").set_index("produto")
 
     def fazer(prod, x):
+        if prod in attrs.index:
+            cat, gen = attrs.at[prod, "cat"], attrs.at[prod, "genero"]
+        else:
+            cat, gen = categoria_de(extra.at[prod, "tipo"]), extra.at[prod, "genero"] or "-"
         return lambda r: [
             prod, f"=IFERROR(K{r}/$D$2,0)", f"=IFERROR(L{r}/$D$3,0)",
             f"=IF(B{r}=0,0,IFERROR(C{r}/B{r}-1,0))",
@@ -1049,12 +1522,44 @@ def aba_evolucao(ws, ant, atu, snap_ant, snap_atu):
             int(x["vend_a"]), int(x["vend_b"]),
             f'=IF(AND(B{r}=0,C{r}=0),"sem venda",IF(B{r}=0,"novo no período",IF(C{r}=0,"sumiu",'
             f'IF(D{r}>0.2,"acelerando",IF(D{r}<-0.2,"perdendo giro","estável")))))',
-            int(x["un_a"]), int(x["un_b"]), float(x["fat_a"]), float(x["fat_b"])]
+            int(x["un_a"]), int(x["un_b"]), float(x["fat_a"]), float(x["fat_b"]), cat, gen]
 
     r = tabela(ws, 5, cols, [fazer(p, x) for p, x in j.iterrows()])
     nota(ws, r + 2, "Movimento: sem giro antes = novo no período; sem giro agora = sumiu; "
                     "variação acima de +20% = acelerando; abaixo de −20% = perdendo giro; senão estável.")
-    nota(ws, r + 3, NOTA_FAT)
+    nota(ws, r + 3, "Produto que sumiu com giro alto antes = possível ruptura de estoque dos concorrentes: "
+                    "oportunidade de entrar.")
+    nota(ws, r + 4, NOTA_FAT)
+
+
+def aba_historico(ws, con, snaps, attrs):
+    """Giro/dia de cada referência em cada período importado (até os 30 últimos)."""
+    ws.title = "Histórico"
+    snaps = snaps.tail(30)
+    series, rotulos = [], []
+    for _, s in snaps.iterrows():
+        d = pd.read_sql("SELECT produto, un FROM anuncios WHERE snapshot_id=?", con, params=(int(s["id"]),))
+        series.append(d.groupby("produto")["un"].sum() / float(s["dias"]))
+        ini, fim = fmt_data(s["inicio"])[:5], fmt_data(s["fim"])[:5]
+        rotulos.append(f"Giro/dia {fim}" if s["inicio"] == s["fim"] else f"Giro/dia {ini} a {fim}")
+    tab = pd.concat(series, axis=1).fillna(0)
+    tab = tab.iloc[(-tab.iloc[:, -1].values).argsort(kind="mergesort")]   # maior giro atual primeiro
+    k = len(series)
+    L0, Lp, Lu = col(3), col(2 + k - 1), col(2 + k)   # primeira, penúltima e última coluna de giro
+    cols = ([("Produto", TXT, 44), ("Categoria", TXT, 12)] + [(t, DEC, 11) for t in rotulos]
+            + [("Média dos períodos anteriores", DEC, 12), ("Último vs média", PCT, 10),
+               ("Períodos com venda", INT, 10)])
+
+    def fazer(prod, valores):
+        cat = attrs.at[prod, "cat"] if prod in attrs.index else "-"
+        return lambda r: ([prod, cat] + [round(float(v), 4) for v in valores]
+                          + [f"=AVERAGE({L0}{r}:{Lp}{r})",
+                             f'=IF({col(3 + k)}{r}>0,{Lu}{r}/{col(3 + k)}{r}-1,"")',
+                             f'=COUNTIFS({L0}{r}:{Lu}{r},">0")'])
+
+    r = tabela(ws, 1, cols, [fazer(p, v.values) for p, v in tab.iterrows()])
+    nota(ws, r + 2, "Cada coluna é um período importado. Importando um CSV por dia, esta aba vira a série "
+                    "diária de cada produto. Último vs média: +20% ou mais = ganhando tração.")
 
 
 def aba_anuncios(ws, df, vend):
@@ -1062,6 +1567,10 @@ def aba_anuncios(ws, df, vend):
     cols = [(t, f, l) for _, t, f, l in COLS_ANUNCIOS]
     d = df.sort_values(["produto", "un"], ascending=[True, False], kind="mergesort").copy()
     d["cod"] = d["vendedor_id"].map(vend["cod"])
+    d["cat"] = d["tipo"].map(categoria_de)
+    d["tamanho"] = d["volume"].map(tamanho_de)
+    d["genero"] = d["genero"].fillna("-")
+    d["confianca"] = d["confianca"].fillna("")
     chaves = [k for k, *_ in COLS_ANUNCIOS]
     iL, iJ = col(IDX_AN["preco"]), col(IDX_AN["un"])
     registros = d.to_dict("records")
@@ -1083,32 +1592,47 @@ def aba_anuncios(ws, df, vend):
     tabela(ws, 1, cols, [fazer(reg) for reg in registros])
 
 
+def ler_snapshot(con, sid):
+    df = pd.read_sql("SELECT * FROM anuncios WHERE snapshot_id=?", con, params=(int(sid),))
+    for c in ("gtin", "marca_anuncio", "categoria", "confianca"):
+        df[c] = df[c].fillna("")
+    df["genero"] = df["genero"].fillna("-")
+    return df
+
+
 def gerar_planilha_marca(con, marca):
     snaps = pd.read_sql("SELECT * FROM snapshots WHERE marca=? ORDER BY fim, inicio, id",
                         con, params=(marca,))
     if snaps.empty:
         return None
     atual = snaps.iloc[-1]
-    df = pd.read_sql("SELECT * FROM anuncios WHERE snapshot_id=?", con, params=(int(atual["id"]),))
-    df["gtin"] = df["gtin"].fillna("")
+    df = ler_snapshot(con, atual["id"])
+    df.attrs["dias"] = int(atual["dias"])
     vend = codigos_vendedor(df)
-    dfp = df.groupby("produto").agg(un=("un", "sum"), fat=("fat", "sum"),
-                                    vendedores=("vendedor_id", "nunique"))
-    dfp = dfp.sort_values(["un", "fat"], ascending=False, kind="mergesort")
+    attrs = atributos_produto(df)
     n_gtin = df.loc[df["gtin"] != "", "gtin"].nunique()
-
-    wb = Workbook()
-    aba_resumo(wb.active, marca, atual, len(vend), len(dfp), n_gtin)
+    df_ant, anterior = None, None
     if len(snaps) >= 2:
         anterior = snaps.iloc[-2]
-        df_ant = pd.read_sql("SELECT * FROM anuncios WHERE snapshot_id=?", con,
-                             params=(int(anterior["id"]),))
-        aba_evolucao(wb.create_sheet(), df_ant, df, anterior, atual)
-    aba_produtos(wb.create_sheet(), dfp, df)
-    aba_gtins(wb.create_sheet(), df)
+        df_ant = ler_snapshot(con, anterior["id"])
+
+    wb = Workbook()
+    resumo = wb.active
+    n_oport = aba_oportunidades(wb.create_sheet(), df, attrs, df_ant,
+                                float(anterior["dias"]) if anterior is not None else None)
+    if df_ant is not None:
+        aba_evolucao(wb.create_sheet(), df_ant, df, anterior, atual, attrs)
+        aba_historico(wb.create_sheet(), con, snaps, attrs)
+    aba_produtos(wb.create_sheet(), attrs, df)
+    aba_precos(wb.create_sheet(), df, attrs)
     aba_vendedores(wb.create_sheet(), df, vend)
-    aba_precos(wb.create_sheet(), df)
+    aba_gtins(wb.create_sheet(), df, attrs)
+    ws_duv = wb.create_sheet()
+    n_duvida = aba_duvidas(ws_duv, df)
+    if not n_duvida:
+        wb.remove(ws_duv)
     aba_anuncios(wb.create_sheet(), df, vend)
+    aba_resumo(resumo, marca, atual, len(vend), len(attrs), n_gtin, n_duvida, n_oport)
 
     destino = SAIDA / f"{slug(marca)}-explorador-de-anuncios.xlsx"
     salvar(wb, destino)
@@ -1177,6 +1701,12 @@ def ler_argumentos():
     ap.add_argument("--marca", help="marca dos CSVs cujo nome não segue o padrão")
     ap.add_argument("--inicio", help="data inicial do período, AAAA-MM-DD")
     ap.add_argument("--fim", help="data final do período, AAAA-MM-DD")
+    ap.add_argument("--pesquisar-gtin", action="store_true",
+                    help="pesquisa na internet os GTINs cujo agrupamento está em dúvida")
+    ap.add_argument("--gtin", nargs="+", metavar="GTIN",
+                    help="pesquisa estes GTINs específicos (mesmo que já pesquisados)")
+    ap.add_argument("--limite", type=int, default=40,
+                    help="máximo de GTINs pesquisados por vez (padrão 40)")
     a = ap.parse_args()
     ini = data_valida(a.inicio) if a.inicio else None
     fim = data_valida(a.fim) if a.fim else None
@@ -1184,32 +1714,37 @@ def ler_argumentos():
         ap.error("datas no formato AAAA-MM-DD, ex.: --inicio 2026-08-01 --fim 2026-09-16")
     if bool(ini) != bool(fim) or (ini and fim < ini):
         ap.error("informe --inicio e --fim juntos, com o fim depois do início")
-    return (a.marca, ini, fim)
+    a.informado = (a.marca, ini, fim)
+    a.pesquisar = a.pesquisar_gtin or bool(a.gtin)
+    return a
 
 
 def main():
-    informado = ler_argumentos()
+    global INFO_GTIN
+    args = ler_argumentos()
     for p in (ENTRADA, SAIDA, DADOS):
         p.mkdir(parents=True, exist_ok=True)
     print("nubi — explorador de anúncios")
 
     arquivos = sorted(p for p in ENTRADA.iterdir() if p.is_file() and p.suffix.lower() == ".csv")
-    if not arquivos:
+    if not arquivos and not args.pesquisar:
         print(f"\n  Nenhum CSV na pasta entrada/. Coloque os exports lá e rode de novo.")
         return 0
 
     try:
         cfg = carregar_config()
+        INFO_GTIN = carregar_gtins()
     except ErroArquivo as e:
         print(f"\n  {e}")
         return 1
 
     con = abrir_banco()
     try:
-        print(f"\nImportando {len(arquivos)} arquivo(s):")
+        if arquivos:
+            print(f"\nImportando {len(arquivos)} arquivo(s):")
         for arq in arquivos:
             try:
-                importar(con, cfg, arq, informado)
+                importar(con, cfg, arq, args.informado)
             except ErroArquivo as e:
                 print(f"    Não importado: {e}.")
 
@@ -1219,6 +1754,9 @@ def main():
             return 0
 
         reconsolidar(con, cfg)
+        if args.pesquisar:
+            pesquisar_gtins(con, max(1, args.limite), args.gtin)
+            reconsolidar(con, cfg)
         print("\nPlanilhas geradas:")
         for marca in marcas + [None]:
             try:
@@ -1227,6 +1765,14 @@ def main():
                     print(f"  saida/{destino.name}")
             except ErroArquivo as e:
                 print(f"  {e}.")
+
+        # Sempre que houver agrupamento em dúvida, mostrar o comando que resolve.
+        pendentes = [g for g in gtins_em_duvida(con) if g[0] not in INFO_GTIN]
+        if pendentes:
+            un = sum(g[2] for g in pendentes)
+            print(f"\n  Em dúvida: {len(pendentes)} GTIN(s) com títulos que não batem entre si "
+                  f"({fmt_int(un)} unidades). Veja a aba Dúvidas.")
+            print(f"  Para pesquisar as especificações e agrupar certo:  {COMANDO_PESQUISA}")
     finally:
         con.close()
     return 0

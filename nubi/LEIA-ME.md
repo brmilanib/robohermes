@@ -23,6 +23,10 @@ pip install pandas openpyxl
 Pode deixar os CSVs antigos na pasta `entrada/`: arquivo já importado é
 reconhecido e pulado, sem duplicar nada.
 
+**Monitoramento diário:** importe um CSV por dia, por exemplo
+`ARMAF__2026-09-23_2026-09-23.csv`. A aba **Histórico** vira a série diária de
+cada produto e a aba **Oportunidades** mostra o que acelerou.
+
 ## Marca e período de cada arquivo
 
 O CSV não diz de qual marca nem de qual período ele é. Existem três formas de informar:
@@ -78,6 +82,38 @@ Antes disso, o GTIN é cruzado com a coluna **Marca**:
 
 Tudo continua somando no total, só que separado.
 
+## Quando o agrupamento está em dúvida: pesquisar o GTIN
+
+Às vezes os anúncios do mesmo GTIN não concordam sobre o produto: um diz 75 ml e
+outro 80 ml, um diz Individuel e outro Individuelle. Às vezes a linha nem é
+reconhecida. Esses GTINs aparecem na aba **Dúvidas**, e o programa sempre mostra
+no fim da execução o comando que resolve:
+
+```
+python nubi.py --pesquisar-gtin
+```
+
+O comando busca a especificação oficial de cada GTIN em dúvida, começando pelos
+que mais vendem, nas bases públicas Open Beauty Facts e UPCitemdb. O resultado é
+gravado em `gtins.json` e passa a valer mais que qualquer título de anúncio: define
+linha, volume, tipo, gênero e até a **marca**. Se a base disser que o GTIN é de
+outra marca, os anúncios desse GTIN vão para "Outra marca".
+
+- Por padrão pesquisa até 40 por vez. Para mudar: `--limite 100`.
+- Para pesquisar GTINs específicos: `python nubi.py --gtin 3386460101035 3386460028462`.
+- Um GTIN não encontrado fica marcado, e a aba Dúvidas tem um link "pesquisar" que
+  abre o Google com ele. Achou? Escreva à mão no `gtins.json`:
+  ```json
+  "3386460028462": {"nome": "Montblanc Starwalker Eau de Toilette 75 ml", "marca": "Montblanc"}
+  ```
+  Depois rode `python nubi.py` de novo.
+- **Base brasileira (opcional, melhor para GTIN 789…):** crie uma conta grátis no
+  Cosmos (cosmos.bluesoft.com.br), copie o token e salve num arquivo
+  `cosmos-token.txt` ao lado do `nubi.py`. O Cosmos passa a ser consultado primeiro.
+- O nome pesquisado é lido com a mesma lista do `marcas.json`. Se a pesquisa
+  trouxer uma linha que não está na lista (ex.: "Legend Blue"), acrescente essa linha
+  ao `marcas.json`.
+
 ## marcas.json
 
 Lista, por marca, os textos a procurar no título e o nome que aparece no relatório:
@@ -104,13 +140,29 @@ Arquivo `saida/<marca>-explorador-de-anuncios.xlsx`:
 
 | Aba | O que mostra |
 |---|---|
-| **Resumo** | Indicadores do período (unidades, faturamento, giro/dia, projeções, vendedores, % catálogo, % FULL) e concentração Top 1/3/5/10/20. |
+| **Resumo** | Indicadores do período (unidades, faturamento, giro/dia, projeções, vendedores, % catálogo, % FULL), concentração Top 1/3/5/10/20 e as 5 melhores oportunidades. |
+| **Oportunidades** | Onde entrar. Cada produto da marca recebe uma **nota de 0 a 100** e **sinais**: pouca concorrência, FULL livre, catálogo pouco disputado, líder domina, acelerando, perdendo giro, novo, preço disperso. A demanda multiplica a nota, então produto sem venda não aparece bem colocado. |
 | **Evolução** | Só aparece a partir do 2º período da marca. Compara o período atual com o anterior, por referência, **sempre por dia**: acelerando, perdendo giro, estável, novo, sumiu. |
-| **Produtos** | Uma linha por referência, com curva ABC, giro e disputa (unidades por anúncio). |
-| **GTINs** | Vendas por GTIN. No rodapé, quantas unidades ficaram sem GTIN válido: é a medida de quão sujo está o cadastro da marca. |
+| **Histórico** | Giro/dia de cada produto em cada período importado (até os 30 últimos), comparando o último com a média. |
+| **Produtos** | Uma linha por referência, com curva ABC, giro, disputa (unidades por anúncio) e a confiança do agrupamento. |
+| **GTINs** | Vendas por GTIN, a especificação pesquisada e um link para pesquisar. No rodapé, quantas unidades ficaram sem GTIN válido: é a medida de quão sujo está o cadastro da marca. |
+| **Dúvidas** | GTINs cujos anúncios não concordam sobre o produto, com os títulos conflitantes e o resultado da pesquisa. |
 | **Vendedores** | Ranking com código V01, V02… Em verde, quem tem 5% ou mais do mercado. |
 | **Preços** | Mínimo, quartis, mediana, máximo, amplitude e unidades vendidas abaixo de 80% da mediana. |
 | **Anúncios** | A base limpa, anúncio por anúncio, com o produto consolidado ao lado. É aqui que se confere quando um número parecer estranho. |
+
+### Categorias para filtrar
+
+As abas Produtos, Oportunidades, Preços, Evolução e Anúncios têm colunas de filtro
+(use a setinha do cabeçalho):
+
+- **Categoria**: Perfume, Kit, Body Splash, Desodorante, Banho, Outra marca, Não perfume.
+- **Linha**, **Tipo** (EDT/EDP/EDC…) e **Volume**.
+- **Tamanho**: Miniatura (até 30 ml), Pequeno (31–60), Padrão (61–125), Grande (126+).
+- **Gênero**: Masculino, Feminino ou Unissex, lido do título e confirmado pelo GTIN.
+- **Faixa de preço**: até R$ 99, R$ 100–199, R$ 200–299, R$ 300–499, R$ 500+.
+- **Curva ABC** e **Confiança do agrupamento**. A confiança diz como o anúncio foi
+  agrupado: pesquisado pelo GTIN, confirmado pelo GTIN, só pelo título, ou em dúvida.
 
 Arquivo `saida/painel-geral.xlsx`: todas as marcas lado a lado, sempre no período
 mais recente de cada uma.
@@ -127,6 +179,7 @@ Importante:
 ```
 nubi.py        o programa
 marcas.json    linhas de produto por marca
+gtins.json     especificações pesquisadas por GTIN (criado sozinho; pode editar)
 entrada/       coloque os CSVs aqui
 saida/         planilhas geradas
 dados/base.db  histórico (criado sozinho; não apague se quiser a aba Evolução)
