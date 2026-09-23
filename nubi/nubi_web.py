@@ -24,6 +24,7 @@ import pandas as pd
 
 import nubi
 import ranking
+import vendedores
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://ivsmadbyzbmugwfadwtg.supabase.co")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "sb_publishable_hlLuzIP8GMxjwTfY-otJQQ_LbMPm7Yt")
@@ -569,6 +570,9 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem("Este e-mail ainda não tem acesso ao nubi. Peça para liberar.", 403)
             return _json(repo.painel())
 
+        if rota.startswith("vend_"):
+            return _json(rota_vendedores(repo, metodo, rota, q, corpo))
+
         if rota.startswith("ranking"):
             return _json(rota_ranking(repo, metodo, rota, q, corpo))
 
@@ -857,6 +861,207 @@ def rota_ranking(repo, metodo, rota, q, corpo):
 
     raise ErroNuvem("Rota desconhecida.", 404)
 
+
+
+# ---------------------------------------------------------------------------
+# 5. Vendedores monitorados
+# ---------------------------------------------------------------------------
+
+CAMPOS_VEND = ["titulo", "marca", "marca_chave", "gtin", "sku", "vendas", "unidades", "preco", "tipo_pub",
+               "fulfillment", "catalogo", "frete_gratis", "desconto", "estado", "bruto"]
+
+
+def _vend_rels(repo, vendedor=None):
+    p = {"select": "id,vendedor,mes,arquivo,importado_em", "order": "vendedor,mes"}
+    if vendedor:
+        p["vendedor"] = repo._eq(vendedor)
+    return repo._todos("vend_relatorios", p)
+
+
+def _vend_linhas(repo, rid, bruto=False):
+    sel = ",".join(c for c in CAMPOS_VEND if bruto or c != "bruto")
+    ls = repo._todos("vend_anuncios", {"select": sel, "relatorio_id": repo._eq(int(rid)), "order": "id"})
+    for l in ls:
+        l["full"] = bool(l.pop("fulfillment"))
+        l["vendas"] = float(l["vendas"] or 0)
+        l["preco"] = float(l["preco"] or 0)
+        l["unidades"] = int(l["unidades"] or 0)
+    return ls
+
+
+def _ranking_do_mes(repo, mes, chaves):
+    """Ranking de marcas do mesmo mês: a categoria que mais tem marcas do vendedor.
+    Devolve (categoria, {marca_chave: linha}, bi até o mês) ou (None, {}, None)."""
+    rels = [r for r in _relatorios(repo) if r["mes"][:7] <= mes]
+    if not rels:
+        return None, {}, None
+    melhor = None
+    for cat in sorted({r["categoria"] for r in rels if r["mes"][:7] == mes}):
+        r = next(r for r in rels if r["categoria"] == cat and r["mes"][:7] == mes)
+        ls = _linhas(repo, r["id"])
+        n = sum(1 for l in ls if l["marca_chave"] in chaves)
+        if melhor is None or n > melhor[0]:
+            melhor = (n, cat, ls)
+    if melhor is None:
+        return None, {}, None
+    _, cat, ls = melhor
+    rels_cat = [r for r in rels if r["categoria"] == cat]
+    ids = ",".join(str(r["id"]) for r in rels_cat)
+    todas = repo._todos("ranking_linhas", {
+        "select": "relatorio_id,posicao,variacao,marca,marca_chave,vendas,unidades,tendencia,catalogo,"
+                  "vendedores,saturacao,ranking_demanda",
+        "relatorio_id": f"in.({ids})", "order": "relatorio_id,posicao"})
+    por_rel = {r["id"]: [] for r in rels_cat}
+    for l in todas:
+        por_rel[l["relatorio_id"]].append(l)
+    bi = ranking.bi([r["mes"] for r in rels_cat], [por_rel[r["id"]] for r in rels_cat])
+    return cat, {l["marca_chave"]: l for l in ls}, bi
+
+
+def _explorador_cruzado(repo, vendedor):
+    snaps = repo.snapshots()
+    if snaps.empty:
+        return {}
+    por_marca = {}
+    for marca, g in snaps.groupby("marca"):
+        s = g.iloc[-1]
+        df = nubi.preparar(repo.anuncios(s["id"]))
+        por_marca[marca] = (df, f"{nubi.fmt_data(s['inicio'])} a {nubi.fmt_data(s['fim'])}")
+    return vendedores.cruzar_explorador(por_marca, vendedor)
+
+
+def rota_vendedores(repo, metodo, rota, q, corpo):
+    if rota == "vend_lista":
+        rels = _vend_rels(repo)
+        out = {}
+        for r in rels:
+            out.setdefault(r["vendedor"], []).append({"id": r["id"], "mes": r["mes"][:7],
+                                                      "nome": ranking.nome_mes(r["mes"]), "arquivo": r["arquivo"]})
+        return [{"vendedor": v, "meses": list(reversed(ms))} for v, ms in out.items()]
+
+    if rota == "vend_analisar" and metodo == "POST":
+        try:
+            linhas, vend, mes = vendedores.ler_vendedor(corpo, q.get("arquivo", ""))
+        except vendedores.ErroVendedor as e:
+            raise ErroNuvem(f"Não importado: {e}.")
+        return {"vendedor": vend, "mes": mes, "anuncios": len(linhas),
+                "vendas": sum(l["vendas"] for l in linhas), "unidades": sum(l["unidades"] for l in linhas),
+                "marcas": len({l["marca_chave"] for l in linhas})}
+
+    if rota == "vend_importar" and metodo == "POST":
+        nome = q.get("arquivo") or "vendedor.xlsx"
+        try:
+            linhas, vend, mes = vendedores.ler_vendedor(corpo, nome)
+        except vendedores.ErroVendedor as e:
+            raise ErroNuvem(f"Não importado: {e}.")
+        vend = (q.get("vendedor") or vend or "").strip().upper()
+        mes = q.get("mes") or mes
+        if not vend or not re.fullmatch(r"\d{4}-\d{2}", mes or ""):
+            raise ErroNuvem("Informe o vendedor e o mês do relatório.")
+        h = ranking.hash_de(corpo)
+        ja = repo._req("GET", "vend_relatorios", {"select": "vendedor,mes", "hash": repo._eq(h)})
+        if ja:
+            return {"ok": True, "log": [f"Esse arquivo já foi importado ({ja[0]['vendedor']}, "
+                                        f"{ranking.nome_mes(ja[0]['mes'])})."],
+                    "vendedor": ja[0]["vendedor"], "mes": ja[0]["mes"][:7]}
+        antigos = repo._req("DELETE", "vend_relatorios", {"vendedor": repo._eq(vend), "mes": repo._eq(mes + "-01")},
+                            prefer="return=representation") or []
+        novo = repo._req("POST", "vend_relatorios", corpo=[{"vendedor": vend, "mes": mes + "-01", "arquivo": nome,
+                                                            "hash": h}], prefer="return=representation")
+        rid = novo[0]["id"]
+        regs = []
+        for l in linhas:
+            r = {c: l.get(c) for c in CAMPOS_VEND if c != "fulfillment"}
+            r["fulfillment"] = bool(l["full"])
+            r["relatorio_id"] = rid
+            regs.append(r)
+        try:
+            for i in range(0, len(regs), LOTE):
+                repo._req("POST", "vend_anuncios", corpo=regs[i:i + LOTE], prefer="return=minimal")
+        except ErroNuvem:
+            repo._req("DELETE", "vend_relatorios", {"id": repo._eq(rid)})
+            raise
+        log = [f"OK: {vend} · {ranking.nome_mes(mes + '-01')} · {len(linhas)} anúncios · "
+               f"R$ {sum(l['vendas'] for l in linhas):,.0f}".replace(",", ".")]
+        if antigos:
+            log.append("(substituiu o relatório anterior do mesmo mês)")
+        return {"ok": True, "log": log, "vendedor": vend, "mes": mes}
+
+    if rota == "vend_relatorio":
+        vend = q["vendedor"]
+        rels = _vend_rels(repo, vend)
+        if not rels:
+            raise ErroNuvem("Nenhum relatório deste vendedor.", 404)
+        mes = q.get("mes")
+        idx = next((i for i, r in enumerate(rels) if r["mes"][:7] == mes), len(rels) - 1)
+        atual, ant = rels[idx], (rels[idx - 1] if idx > 0 else None)
+        linhas = _vend_linhas(repo, atual["id"])
+        linhas_ant = _vend_linhas(repo, ant["id"]) if ant else None
+        cat, rk_mes, bi = _ranking_do_mes(repo, atual["mes"][:7], {l["marca_chave"] for l in linhas})
+        ex = _explorador_cruzado(repo, vend)
+        r = vendedores.analisar(linhas, linhas_ant, rk_mes, bi, ex, vend)
+        # evolução mês a mês
+        evol = []
+        for x in rels:
+            ls = linhas if x["id"] == atual["id"] else (linhas_ant if ant and x["id"] == ant["id"]
+                                                         else _vend_linhas(repo, x["id"]))
+            evol.append(dict(vendedores.resumo(ls), mes=x["mes"][:7], nome=ranking.nome_mes(x["mes"])))
+        r.update({"vendedor": vend, "mes": atual["mes"][:7], "mes_nome": ranking.nome_mes(atual["mes"]),
+                  "id": atual["id"], "arquivo": atual["arquivo"],
+                  "anterior": {"mes": ant["mes"][:7], "nome": ranking.nome_mes(ant["mes"])} if ant else None,
+                  "meses": [{"mes": x["mes"][:7], "nome": ranking.nome_mes(x["mes"])} for x in reversed(rels)],
+                  "evolucao": evol, "ranking": {"categoria": cat, "categoria_nome": ranking.nome_categoria(cat) if cat else "",
+                                                "mes_ok": bool(rk_mes)},
+                  "explorador_gtins": sum(1 for p in r["produtos"] if p["ex_preco_medio"] is not None)})
+        return r
+
+    if rota == "vend_comparar":
+        rels = _vend_rels(repo)
+        if not rels:
+            return {"meses": [], "vendedores": []}
+        meses = sorted({r["mes"][:7] for r in rels})
+        mes = q.get("mes") if q.get("mes") in meses else meses[-1]
+        do_mes = [r for r in rels if r["mes"][:7] == mes]
+        vends, matriz = [], {}
+        todas_chaves = set()
+        dados = []
+        for r in do_mes:
+            ls = _vend_linhas(repo, r["id"])
+            dados.append((r, ls))
+            todas_chaves |= {l["marca_chave"] for l in ls}
+        cat, rk_mes, _ = _ranking_do_mes(repo, mes, todas_chaves)
+        for r, ls in dados:
+            z = vendedores.resumo(ls)
+            antes = [x for x in rels if x["vendedor"] == r["vendedor"] and x["mes"][:7] < mes]
+            if antes:
+                za = vendedores.resumo(_vend_linhas(repo, antes[-1]["id"]))
+                z["var_vendas"] = (z["vendas"] / za["vendas"] - 1) if za["vendas"] else None
+            por_m = {}
+            for l in ls:
+                x = por_m.setdefault(l["marca_chave"], {"marca": l["marca"], "vendas": 0.0})
+                x["vendas"] += l["vendas"]
+            top = sorted(por_m.values(), key=lambda x: -x["vendas"])[:3]
+            z.update({"vendedor": r["vendedor"], "top_marcas": [t["marca"] for t in top]})
+            vends.append(z)
+            for k, x in por_m.items():
+                m = matriz.setdefault(k, {"marca": x["marca"], "total": 0.0, "por": {}})
+                m["por"][r["vendedor"]] = x["vendas"]
+                m["total"] += x["vendas"]
+        linhas_m = sorted(matriz.items(), key=lambda kv: -kv[1]["total"])[:25]
+        mat = []
+        for k, m in linhas_m:
+            rk = rk_mes.get(k)
+            mat.append({"marca": m["marca"], "total": m["total"], "por": m["por"],
+                        "rk_posicao": rk["posicao"] if rk else None, "rk_vendas": rk["vendas"] if rk else None})
+        vends.sort(key=lambda z: -z["vendas"])
+        return {"mes": mes, "mes_nome": ranking.nome_mes(mes + "-01"), "meses": list(reversed(meses)),
+                "vendedores": vends, "matriz": mat, "categoria": cat}
+
+    if rota == "vend_apagar" and metodo == "POST":
+        repo._req("DELETE", "vend_relatorios", {"id": repo._eq(int(q["id"]))})
+        return {"ok": True}
+
+    raise ErroNuvem("Rota desconhecida.", 404)
 
 def _json(obj, status=200):
     def padrao(o):

@@ -296,8 +296,9 @@ function trocarSenha() {
 const SECOES = [
   {id: "explorador", nome: "Explorador de anúncios", desc: "Anúncios por marca", icone: "🔎"},
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
+  {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : "explorador"; }
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/vendedores/.test(location.hash) ? "vendedores" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -308,7 +309,7 @@ function moldura() {
       ${S.painel.map(p => `<option value="${esc(p.marca)}" ${p.marca === S.marca ? "selected" : ""}>${esc(nome(p.marca))}</option>`).join("")}
     </select>` : ""}
     <div class="sp"></div>
-    <button class="btn ghost" id="bup">⬆ ${sec === "ranking" ? "Importar relatório do mês" : "Importar CSV"}</button>
+    <button class="btn ghost" id="bup">⬆ ${sec === "ranking" ? "Importar relatório do mês" : sec === "vendedores" ? "Importar vendedor" : "Importar CSV"}</button>
     ${sec === "explorador" ? `<button class="btn ghost" id="bxl">⬇ Excel</button>` : ""}
     <span style="opacity:.8;font-size:12.5px">${esc(email)}</span>
     <button class="btn ghost small" id="bsenha">Trocar senha</button>
@@ -318,9 +319,9 @@ function moldura() {
     <aside class="side" id="side"></aside>
     <main id="main"></main>
   </div>`;
-  $("#home").onclick = () => { location.hash = sec === "ranking" ? "#/ranking" : "#/"; };
+  $("#home").onclick = () => { location.hash = sec === "ranking" ? "#/ranking" : sec === "vendedores" ? "#/vendedores" : "#/"; };
   if ($("#selm")) $("#selm").onchange = e => irPara(e.target.value);
-  $("#bup").onclick = sec === "ranking" ? abrirUploadRanking : abrirUpload;
+  $("#bup").onclick = sec === "ranking" ? abrirUploadRanking : sec === "vendedores" ? abrirUploadVendedor : abrirUpload;
   if ($("#bxl")) $("#bxl").onclick = baixarExcel;
   $("#bsenha").onclick = trocarSenha;
   $("#bsair").onclick = async () => { await sb.auth.signOut(); location.hash = ""; };
@@ -328,14 +329,17 @@ function moldura() {
 }
 function desenharMenu() {
   const sec = secaoAtual(), h = decodeURIComponent(location.hash);
-  const sub = sec === "explorador"
+  const sub = sec === "vendedores"
+    ? [{href: "#/vendedores", nome: "📊 Comparar vendedores", on: h === "#/vendedores" || h.startsWith("#/vendedores?")},
+       ...(S.vendLista || []).map(v => ({href: "#/vendedores/" + encodeURIComponent(v.vendedor), nome: nome(v.vendedor), on: h.startsWith("#/vendedores/" + v.vendedor)}))]
+    : sec === "explorador"
     ? S.painel.map(p => ({href: "#/" + encodeURIComponent(p.marca), nome: nome(p.marca), on: h === "#/" + p.marca}))
     : (S.rankLista || []).flatMap(c => [
         {href: `#/ranking/${encodeURIComponent(c.categoria)}`, nome: c.nome.split(" > ").pop(),
          on: h.startsWith(`#/ranking/${c.categoria}`) && !h.endsWith("/bi")},
         {href: `#/ranking/${encodeURIComponent(c.categoria)}/bi`, nome: "📊 B.I. · " + c.meses.length + " meses", on: h === `#/ranking/${c.categoria}/bi`, sub: true}]);
   $("#side").innerHTML = SECOES.map(x => `
-    <a class="navi ${x.id === sec ? "on" : ""}" href="${x.id === "ranking" ? "#/ranking" : "#/"}">
+    <a class="navi ${x.id === sec ? "on" : ""}" href="${x.id === "ranking" ? "#/ranking" : x.id === "vendedores" ? "#/vendedores" : "#/"}">
       <span class="ic">${x.icone}</span><span>${esc(x.nome)}<small>${esc(x.desc)}</small></span></a>
     ${x.id === sec && sub.length ? `<div class="subnav">${sub.map(i => `<a class="${i.on ? "on" : ""}" href="${i.href}" ${i.sub ? 'style="padding-left:22px;font-size:12.5px"' : ""}>${esc(i.nome)}</a>`).join("")}</div>` : ""}`).join("");
   $("#side").insertAdjacentHTML("beforeend", `<div id="agente-st" class="muted" style="font-size:12px;margin:14px 12px 0;padding-top:12px;border-top:1px solid var(--line)"></div>`);
@@ -351,6 +355,13 @@ async function rotear() {
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi))?/) || [];
     return mes === "bi" ? telaBI(cat) : telaRanking(cat, mes);
+  }
+  if (sec === "vendedores") {
+    if (!S.vendLista) await carregarVendLista();
+    const h = decodeURIComponent(location.hash);
+    const m = h.match(/^#\/vendedores\/([^/?]+)(?:\/(\d{4}-\d{2}))?/);
+    if (m) return telaVendedor(m[1], m[2]);
+    return telaVendedores((h.match(/[?&]mes=(\d{4}-\d{2})/) || [])[1]);
   }
   const m = decodeURIComponent((location.hash.match(/^#\/(.+)$/) || [])[1] || "");
   S.marca = m || null;
@@ -594,7 +605,7 @@ function grafColunas(box, {rotulos, series, fmt, fmtEixo = fmt, altura = 240, ro
   });
 }
 // Barras horizontais a partir de uma base, com o valor na ponta. itens: {nome, v, rot, dica}
-function grafBarrasH(box, itens, {cor, fmt}) {
+function grafBarrasH(box, itens, {cor, fmt, aoClicar}) {
   box.replaceChildren();
   if (!itens.length) { box.innerHTML = `<div class="empty" style="padding:20px">Nada no período.</div>`; return; }
   const W = Math.max(280, box.clientWidth), lh = 24, H = itens.length * lh + 4, nomeW = Math.min(150, W * 0.38), valW = 104;
@@ -602,7 +613,8 @@ function grafBarrasH(box, itens, {cor, fmt}) {
   const svg = svgEl("svg", {width: W, height: H, viewBox: `0 0 ${W} ${H}`}, box);
   itens.forEach((it, i) => {
     const y = i * lh + 2, w = Math.max(2, Math.abs(it.v) / mx * iw), bh = 14, by = y + (lh - bh) / 2 - 1;
-    const a = svgEl("a", {class: "plink rklink", "data-rkm": it.nome}, svg);
+    const a = aoClicar ? svgEl("a", {}, svg) : svgEl("a", {class: "plink rklink", "data-rkm": it.nome}, svg);
+    if (aoClicar) a.addEventListener("click", () => aoClicar(it));
     const cab = Math.max(6, Math.floor((nomeW - 12) / 7));
     const tn = svgTxt(a, nomeW - 8, y + lh / 2 + 3, it.nome.length > cab ? it.nome.slice(0, cab - 1) + "…" : it.nome, {"text-anchor": "end", class: "lbl", style: "cursor:pointer"});
     svgEl("title", {}, tn).textContent = it.nome;
@@ -612,7 +624,7 @@ function grafBarrasH(box, itens, {cor, fmt}) {
     const alvo = svgEl("rect", {x: nomeW, y, width: iw + valW, height: lh, class: "hit"}, svg);
     alvo.addEventListener("pointermove", ev => mostrarTip(ev, it.nome, it.dica || [{cor, valor: fmt(it.v)}]));
     alvo.addEventListener("pointerleave", esconderTip);
-    alvo.addEventListener("click", () => abrirMarcaRanking(it.nome));
+    alvo.addEventListener("click", () => aoClicar ? aoClicar(it) : abrirMarcaRanking(it.nome));
   });
 }
 // Dispersão: crescimento das vendas × crescimento dos vendedores.
@@ -713,7 +725,7 @@ function sparkSerie(s) {
     ${s[u] != null ? `<circle cx="${X(u)}" cy="${Y(s[u])}" r="2.5" fill="var(--s1)"/>` : ""}</svg>`;
 }
 const ST_CLS = {"Subindo forte": "good", "Crescimento consistente": "good", "Nova": "good", "Em queda": "bad", "Saiu do ranking": "bad", "Instável": "warn",
-  "Ficou e cresceu": "good", "Entrou agora": "good", "Entrou e saiu": "bad", "Ficou, mas caindo": "bad", "Perdeu fôlego": "bad", "Passou rápido": "warn", "Voltou depois": "warn"};
+  "Ficou e cresceu": "good", "Entrou agora": "good", "Entrou e saiu": "bad", "Fora do ranking": "", "Ficou, mas caindo": "bad", "Perdeu fôlego": "bad", "Passou rápido": "warn", "Voltou depois": "warn"};
 const statusHTML = s => s ? `<span class="st ${ST_CLS[s] || ""}">${esc(s)}</span>` : "";
 
 // ---------- B.I. do ranking (todos os meses importados) ----------
@@ -889,6 +901,219 @@ async function telaBI(cat) {
   tabela($("#bi-tab"), "bi_marcas", linhas, cols, {ordem: ["posicao", 1],
     nota: "Variações comparam só meses em que a marca estava no ranking. Meses em alta = % das passagens de mês em que as vendas subiram. Oscilação = desvio padrão das variações mensais (alto = vendas instáveis). Clique na marca para ver o histórico completo."});
   desenharMenu();
+}
+// ---------- Vendedores monitorados (#/vendedores e #/vendedores/NOME/AAAA-MM) ----------
+async function carregarVendLista() { try { S.vendLista = await api("vend_lista"); } catch { S.vendLista = []; } }
+const vendLinkV = v => `<a href="#/vendedores/${encodeURIComponent(v)}" class="plink0">${esc(v)}</a>`;
+const mesAnterior = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
+const pctCor = v => v == null ? "" : `<span class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${FMT.var(v)}</span>`;
+function vendVazio(main) {
+  main.innerHTML = `<h1>Vendedores monitorados</h1>
+    <div class="card empty" style="margin-top:16px"><h2>Nenhum vendedor ainda</h2>
+    <p>Importe o export de anúncios de um vendedor que você segue no Nubimetrics, mês fechado (.xlsx).<br>
+    O nome do arquivo vira o nome do vendedor, por exemplo <code>AUMA_PERFUMARIA_P2.xlsx</code> → AUMA PERFUMARIA P2.</p>
+    <button class="btn primary" onclick="abrirUploadVendedor()">⬆ Importar vendedor</button></div>`;
+}
+async function telaVendedores(mes) {
+  const main = $("#main");
+  if (!S.vendLista) await carregarVendLista();
+  if (!S.vendLista.length) { vendVazio(main); desenharMenu(); return; }
+  main.innerHTML = `<div class="empty"><span class="spin"></span> Comparando vendedores…</div>`;
+  let r;
+  try { r = await api("vend_comparar", mes ? {mes} : {}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const vs = r.vendedores, tot = vs.reduce((a, v) => a + v.vendas, 0);
+  const nomes = vs.map(v => v.vendedor);
+  main.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h1>Vendedores monitorados</h1>
+      <select id="vmes" class="btn" style="padding:5px 8px">${r.meses.map(m => `<option value="${m}" ${m === r.mes ? "selected" : ""}>${esc(mesCurto(m))}</option>`).join("")}</select>
+      <span class="muted">${vs.length} vendedor(es) com relatório em ${esc(r.mes_nome)}</span>
+    </div>
+    <div class="kpis">
+      ${kpi("Vendas somadas", abrev(tot), "dos vendedores seguidos no mês")}
+      ${kpi("Maior vendedor", esc(vs[0].vendedor), abrev(vs[0].vendas))}
+      ${kpi("Anúncios com venda", nf0.format(vs.reduce((a, v) => a + v.com_venda, 0)), "somando todos")}
+      ${kpi("Ticket médio", "R$ " + nf2.format(tot / (vs.reduce((a, v) => a + v.unidades, 0) || 1)), "somando todos")}
+    </div>
+    <div class="bi-grid">
+      <div class="card pad bi-card"><h2>Vendas no mês</h2><div class="sub">Clique no vendedor para abrir o relatório dele.</div><div class="ch" id="g-vend"></div></div>
+      <div class="card pad bi-card"><h2>Como cada um vende</h2><div class="sub">% das vendas em FULL, catálogo e anúncio Premium, e o ticket médio.</div>
+        <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Vendedor</th><th class="num">Ticket</th><th class="num">FULL</th><th class="num">Catálogo</th><th class="num">Premium</th><th class="num">Marcas</th><th class="num">Var. mês</th></tr></thead>
+        <tbody>${vs.map(v => `<tr><td class="first">${vendLinkV(v.vendedor)}</td><td class="num">R$ ${nf0.format(v.ticket)}</td><td class="num">${FMT.pct(v.pct_full)}</td>
+          <td class="num">${FMT.pct(v.pct_catalogo)}</td><td class="num">${FMT.pct(v.pct_premium)}</td><td class="num">${v.marcas}</td><td class="num">${pctCor(v.var_vendas)}</td></tr>`).join("")}</tbody></table></div></div>
+      <div class="card pad bi-card" style="grid-column:1/-1"><h2>Marcas × vendedores · ${esc(mesCurto(r.mes))}</h2>
+        <div class="sub">As 25 marcas que mais vendem somando os vendedores. ${r.categoria ? "Cada célula mostra a venda do vendedor e, embaixo, quanto isso é das vendas da marca no mercado (ranking do mês); quanto mais escuro, maior a fatia." : "Importe o ranking de marcas do mesmo mês para ver a fatia de cada vendedor no mercado da marca."}</div>
+        <div class="rolar"><table class="heat"><thead><tr><th style="text-align:left">Marca</th><th># ranking</th><th>Mercado</th>${nomes.map(n => `<th>${esc(n)}</th>`).join("")}</tr></thead><tbody>
+        ${r.matriz.map(m => `<tr><td class="nm">${esc(m.marca)}</td><td class="muted">${m.rk_posicao ? "#" + m.rk_posicao : "—"}</td><td class="muted">${m.rk_vendas ? abrev(m.rk_vendas) : "—"}</td>
+          ${nomes.map(n => { const v = m.por[n]; if (!v) return `<td class="c muted">—</td>`;
+            const sh = m.rk_vendas ? v / m.rk_vendas : null, t = sh == null ? 12 : Math.round(12 + 70 * Math.min(1, sh / 0.3));
+            return `<td class="c" style="background:color-mix(in oklab, var(--s1) ${t}%, var(--card));${t > 50 ? "color:#fff" : ""}" title="${esc(n)} · ${esc(m.marca)}">${abrev(v).replace("R$ ", "")}${sh != null ? `<br><small>${FMT.pct(sh)}</small>` : ""}</td>`; }).join("")}</tr>`).join("")}
+        </tbody></table></div></div>
+    </div>`;
+  $("#vmes").onchange = e => { location.hash = `#/vendedores?mes=${e.target.value}`; };
+  biRedesenhar = [() => grafBarrasH($("#g-vend"), vs.map(v => ({nome: v.vendedor, v: v.vendas, rot: abrev(v.vendas) + (v.var_vendas != null ? " · " + FMT.var(v.var_vendas) : ""),
+      dica: [{valor: abrev(v.vendas), nome: "vendas"}, {valor: nf0.format(v.unidades), nome: "unidades"}, {valor: v.top_marcas.join(", "), nome: "maiores marcas"}]})),
+    {cor: "var(--s1)", fmt: abrev, aoClicar: it => { location.hash = "#/vendedores/" + encodeURIComponent(it.nome); }})];
+  biRedesenhar.forEach(g => g());
+  desenharMenu();
+}
+async function telaVendedor(nomeV, mes) {
+  const main = $("#main");
+  main.innerHTML = `<div class="empty"><span class="spin"></span> Montando o relatório de ${esc(nomeV)}…</div>`;
+  let r;
+  try { r = await api("vend_relatorio", mes ? {vendedor: nomeV, mes} : {vendedor: nomeV}); }
+  catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  S.vend = r; S.tabelas = {};
+  if (r.ranking.categoria) S.rank = {categoria: r.ranking.categoria, categoria_nome: r.ranking.categoria_nome, mes_nome: r.mes_nome,
+    marcas: r.marcas.filter(m => m.rk_posicao).map(m => ({marca: m.marca, posicao: m.rk_posicao, sinais: ""}))};
+  const z = r.resumo, ant = r.anterior, rk = r.ranking.mes_ok;
+  const vt = v => v == null ? "" : `${pctCor(v)} vs ${esc(ant.nome)}`;
+  const fortes = r.marcas.filter(m => m.share_no_mercado != null).sort((a, b) => b.share_no_mercado - a.share_no_mercado).slice(0, 10);
+  const novas = r.marcas.filter(m => m.nova);
+  main.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h1>🏪 ${esc(r.vendedor)}</h1>
+      <select id="vmes" class="btn" style="padding:5px 8px">${r.meses.map(m => `<option value="${m.mes}" ${m.mes === r.mes ? "selected" : ""}>${esc(m.nome)}</option>`).join("")}</select>
+      <span class="muted">${ant ? `comparando com ${esc(ant.nome)}` : "primeiro mês importado deste vendedor"}</span>
+    </div>
+    ${!rk ? `<p class="alerta" style="margin:6px 0 0">Sem ranking de marcas de ${esc(r.mes_nome)}: importe o relatório MARCAS do mês para ver a fatia do vendedor em cada marca e as oportunidades.</p>` : ""}
+    <div class="kpis">
+      ${kpi("Vendas", abrev(z.vendas), vt(z.var_vendas))}
+      ${kpi("Unidades", nf0.format(z.unidades), vt(z.var_unidades))}
+      ${kpi("Ticket médio", "R$ " + nf2.format(z.ticket), vt(z.var_ticket))}
+      ${kpi("Anúncios com venda", nf0.format(z.com_venda), `${nf0.format(z.ativos)} ativos · ${nf0.format(z.produtos)} produtos`)}
+      ${kpi("Marcas", nf0.format(z.marcas), novas.length ? `${novas.length} nova(s) no mês` : "")}
+      ${kpi("FULL", FMT.pct(z.pct_full), "das vendas")}
+      ${kpi("Catálogo", FMT.pct(z.pct_catalogo), "das vendas")}
+      ${kpi("Premium", FMT.pct(z.pct_premium), "das vendas · com desconto " + FMT.pct(z.pct_desconto))}
+    </div>
+    <div class="bi-grid">
+      ${r.evolucao.length > 1 ? `<div class="card pad bi-card"><h2>Vendas mês a mês</h2><div class="sub">Todos os meses importados deste vendedor.</div><div class="ch" id="g-vevol"></div></div>` : ""}
+      <div class="card pad bi-card"><h2>Maiores marcas do vendedor</h2><div class="sub">Quanto cada marca pesa nas vendas dele${rk ? " e quanto ele representa das vendas da marca no mercado" : ""}.</div>
+        <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Marca</th><th class="num">Vendas</th><th class="num">% do vendedor</th>${ant ? `<th class="num">Var. mês</th>` : ""}${rk ? `<th class="num"># ranking</th><th class="num">% do mercado</th><th>Status da marca</th>` : ""}</tr></thead>
+        <tbody>${r.marcas.slice(0, 12).map(m => `<tr><td class="first">${m.rk_posicao ? rkLink(m.marca) : esc(m.marca)}</td><td class="num">${abrev(m.vendas)}</td><td class="num">${FMT.pct(m.share_vendedor)}</td>
+          ${ant ? `<td class="num">${m.nova ? `<span class="st good">nova</span>` : pctCor(m.var_vendas)}</td>` : ""}
+          ${rk ? `<td class="num muted">${m.rk_posicao ? "#" + m.rk_posicao : "fora"}</td><td class="num">${m.share_no_mercado != null ? FMT.pct(m.share_no_mercado) : "—"}</td><td>${statusHTML(m.rk_status)}</td>` : ""}</tr>`).join("")}</tbody></table></div></div>
+      ${rk ? `<div class="card pad bi-card"><h2>🎯 Oportunidades: marcas em alta que ele não trabalha</h2>
+        <div class="sub">Marcas do ranking com status "Subindo forte", "Crescimento consistente" ou "Nova" em que ${esc(r.vendedor)} tem menos de 1% das vendas da marca. Espaço para entrar antes dele.</div>
+        ${r.oportunidades.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><tbody>${r.oportunidades.slice(0, 12).map(o => `<tr><td class="num">${notaHTML(o.nota)}</td><td class="first">${rkLink(o.marca)}</td>
+          <td>${statusHTML(o.status)}</td><td class="num muted">#${o.posicao}</td><td class="num">${abrev(o.vendas_mercado)}</td><td class="num" title="crescimento em 3 meses">${pctCor(o.cresc_3m)}</td>
+          <td class="muted">${o.vendas_vendedor ? "ele: " + abrev(o.vendas_vendedor) : "ele não vende"}</td></tr>`).join("")}</tbody></table></div>` : `<div class="muted">Nenhuma: ele já está nas marcas que crescem.</div>`}</div>
+      <div class="card pad bi-card"><h2>Onde ele é forte no mercado</h2><div class="sub">Marcas em que ele tem a maior fatia das vendas do mercado no mês.</div>
+        <div class="rolar"><table class="t" style="font-size:12.5px"><tbody>${fortes.map(m => `<tr><td class="first">${rkLink(m.marca)}</td>
+          <td style="width:40%;min-width:90px"><div style="background:var(--soft);border-radius:4px;height:8px"><div style="width:${Math.min(100, m.share_no_mercado * 100).toFixed(1)}%;background:var(--s1);height:8px;border-radius:4px"></div></div></td>
+          <td class="num">${FMT.pct(m.share_no_mercado)}</td><td class="num muted">${abrev(m.vendas)} de ${abrev(m.rk_vendas)}</td></tr>`).join("")}</tbody></table></div></div>
+      ${r.riscos.length ? `<div class="card pad bi-card"><h2>⚠️ Riscos: marcas em queda que pesam para ele</h2><div class="sub">Marcas com 2% ou mais das vendas dele que estão em queda no ranking.</div>
+        <table class="t" style="font-size:12.5px"><tbody>${r.riscos.map(m => `<tr><td class="first">${rkLink(m.marca)}</td><td>${statusHTML(m.rk_status)}</td><td class="num">${FMT.pct(m.share_vendedor)} dele</td>
+          <td class="num" title="marca no mercado, 3 meses">${pctCor(m.rk_cresc_3m)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+      ${r.vindo_de_baixo.length ? `<div class="card pad bi-card"><h2>🚀 Marcas vindo de baixo que ele não vende</h2><div class="sub">Entraram no top do ranking e ficaram/cresceram; ${esc(r.vendedor)} ainda não tem anúncio com venda delas.</div>
+        <table class="t" style="font-size:12.5px"><tbody>${r.vindo_de_baixo.slice(0, 10).map(e => `<tr><td class="first">${rkLink(e.marca)}</td><td>${statusHTML(e.leitura)}</td>
+          <td class="muted">entrou ${esc(mesCurto(e.mes))} em #${e.posicao}</td><td class="num">${e.posicao_atual ? "hoje #" + e.posicao_atual : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}` : ""}
+    </div>
+    ${ant && (novas.length || r.marcas_sairam.length) ? `<div class="card pad" style="margin-top:14px;font-size:12.5px">
+      ${novas.length ? `<div><b>Começou a vender em ${esc(r.mes_nome)}:</b> ${novas.map(m => `<span class="sinal good">${esc(m.marca)} · ${abrev(m.vendas)}</span>`).join("")}</div>` : ""}
+      ${r.marcas_sairam.length ? `<div style="margin-top:6px"><b>Parou de vender:</b> ${r.marcas_sairam.map(m => `<span class="sinal bad">${esc(m.marca)} · era ${abrev(m.vendas_ant)}</span>`).join("")}</div>` : ""}</div>` : ""}
+    <div class="tabs" id="vtabs">${[["marcas", "Marcas", r.marcas.length], ["produtos", "Produtos", r.produtos.length], ["anuncios", "Anúncios", r.anuncios.length]]
+      .map(([k, l, n]) => `<button class="tab ${k === (S.vaba || "marcas") ? "on" : ""}" data-k="${k}">${l}<span class="n">${nf0.format(n)}</span></button>`).join("")}</div>
+    <div id="vtab" class="painel"></div>
+    <div class="muted" style="font-size:12px;margin-top:10px">Arquivo: ${esc(r.arquivo || "")} · <a href="#" id="vapagar">apagar este mês</a></div>`;
+  $("#vmes").onchange = e => { location.hash = `#/vendedores/${encodeURIComponent(r.vendedor)}/${e.target.value}`; };
+  $("#vapagar").onclick = async e => {
+    e.preventDefault();
+    if (!confirm(`Apagar o relatório de ${r.vendedor} de ${r.mes_nome}? Não dá para desfazer.`)) return;
+    await api("vend_apagar", {id: r.id}, {method: "POST"}); toast("Relatório apagado.");
+    await carregarVendLista(); location.hash = "#/vendedores";
+  };
+  const aba = () => {
+    const k = S.vaba || "marcas";
+    document.querySelectorAll("#vtabs .tab").forEach(b => b.classList.toggle("on", b.dataset.k === k));
+    if (k === "marcas") tabela($("#vtab"), "v_marcas", r.marcas, [["marca","Marca","txt","txt"],["vendas","Vendas","moeda"],["unidades","Unidades","int"],["anuncios","Anúncios","int"],
+      ["preco_medio","Preço médio","moeda2"],["share_vendedor","% do vendedor","pct"],["share_acum","% acumulado","pct"],["pct_full","FULL","pct"],["pct_catalogo","Catálogo","pct"],
+      ...(ant ? [["var_vendas","Var. mês","var"]] : []),
+      ...(rk ? [["rk_posicao","# ranking","int"],["rk_vendas","Vendas da marca no mercado","moeda"],["share_no_mercado","% do mercado","pct"],["rk_status","Status da marca","status","sel"],
+        ["rk_tendencia","Tendência","txt","sel"],["rk_saturacao","Saturação","txt","sel"],["rk_vendedores","Vendedores da marca","int"]] : [])],
+      {ordem: ["vendas", -1], nota: "% do mercado = vendas do vendedor na marca ÷ vendas da marca no ranking do mesmo mês (mercado inteiro da categoria)."});
+    if (k === "produtos") tabela($("#vtab"), "v_prod", r.produtos, [["produto","Produto","txt","txt"],["marca","Marca","txt","auto"],["gtin","GTIN","txt","txt"],["vendas","Vendas","moeda"],
+      ["unidades","Unidades","int"],["preco","Preço médio","moeda2"],["anuncios","Anúncios","int"],["full","FULL","txt","sel"],["catalogo","Catálogo","txt","sel"],["share_vendedor","% do vendedor","pct"],
+      ...(ant ? [["var_vendas","Var. mês","var"],["novo","Novo","txt","sel"]] : []),
+      ["ex_preco_medio","Preço médio do mercado (Explorador)","moeda2"],["ex_dif_preco","Preço dele vs mercado","var"],["ex_vendedores","Vendedores do GTIN","int"],
+      ["ex_pos_vendedor","Posição dele no GTIN","int"],["ex_share","Fatia dele no GTIN","pct"],["ex_periodo","Período do Explorador","txt"]],
+      {ordem: ["vendas", -1], nota: `Agrupado por GTIN. As colunas do Explorador aparecem para os GTINs das marcas que você monitora no Explorador de anúncios (${r.explorador_gtins} produto(s) cruzado(s)); o período do Explorador pode ser diferente do mês do vendedor.`});
+    if (k === "anuncios") tabela($("#vtab"), "v_anun", r.anuncios, [["titulo","Título","txt","txt"],["marca","Marca","txt","auto"],["gtin","GTIN","txt","txt"],["vendas","Vendas","moeda"],
+      ["unidades","Unidades","int"],["preco","Preço médio","moeda2"],["tipo_pub","Tipo","txt","sel"],["full","FULL","txt","sel"],["catalogo","Catálogo","txt","sel"],
+      ["frete_gratis","Frete grátis","txt","sel"],["desconto","Desconto","txt","sel"],["estado","Estado","txt","sel"],["sku","SKU","txt","txt"]], {ordem: ["vendas", -1]});
+  };
+  document.querySelectorAll("#vtabs .tab").forEach(b => b.onclick = () => { S.vaba = b.dataset.k; aba(); });
+  aba();
+  biRedesenhar = r.evolucao.length > 1 ? [() => grafColunas($("#g-vevol"), {rotulos: r.evolucao.map(x => mesCurto(x.mes)),
+    series: [{nome: "Vendas", cor: "var(--s1)", v: r.evolucao.map(x => x.vendas)}], fmt: abrev, fmtEixo: abrevEixo,
+    rotCap: i => i ? FMT.var(r.evolucao[i].vendas / (r.evolucao[i - 1].vendas || 1) - 1).replace(",0%", "%") : "",
+    dica: i => [{cor: "var(--s1)", valor: abrev(r.evolucao[i].vendas), nome: "vendas"}, {valor: nf0.format(r.evolucao[i].unidades), nome: "unidades"},
+      {valor: nf0.format(r.evolucao[i].marcas), nome: "marcas"}, {valor: FMT.pct(r.evolucao[i].pct_full), nome: "FULL"}]})] : [];
+  biRedesenhar.forEach(g => g());
+  desenharMenu();
+}
+function abrirUploadVendedor() {
+  const itens = [];
+  const conhecidos = (S.vendLista || []).map(x => x.vendedor);
+  modal(`<h2>Importar vendedor (mês fechado)</h2>
+    <p class="muted" style="margin-top:0">O export de anúncios de um vendedor que você segue no Nubimetrics (.xlsx). O nome do arquivo vira o nome do vendedor — use o mesmo nome de sempre para o histórico juntar os meses.</p>
+    <label class="drop" id="dz"><input type="file" id="fi" accept=".xlsx,.csv" multiple hidden>Clique ou arraste os arquivos aqui</label>
+    <datalist id="vconh">${conhecidos.map(v => `<option value="${esc(v)}">`).join("")}</datalist>
+    <div class="files" id="fl"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" data-fechar id="fcan">Cancelar</button><button class="btn primary" id="fgo" disabled>Importar</button></div>`,
+    m => {
+      const dz = $("#dz", m), fi = $("#fi", m);
+      let rodando = false, terminou = false;
+      const desenhar = () => {
+        $("#fl", m).innerHTML = itens.map((it, i) => `<div class="fi"><b>${esc(it.f.name)}</b>
+          ${it.info ? `<span class="muted">${nf0.format(it.info.anuncios)} anúncios · ${abrev(it.info.vendas)} · ${nf0.format(it.info.marcas)} marcas</span>` : ""}
+          ${it.estado === "ok" ? ' <span class="pill good">importado</span>' : it.estado === "erro" ? ' <span class="pill bad">não importado</span>' : ""}
+          <div class="form-row" style="grid-template-columns:2fr 1fr">
+            <label class="f">Vendedor<input list="vconh" data-i="${i}" data-k="vendedor" value="${esc(it.vendedor)}"></label>
+            <label class="f">Mês fechado<input type="month" data-i="${i}" data-k="mes" value="${it.mes}"></label>
+          </div>
+          ${it.estado === "rodando" || it.estado === "lendo" ? `<div class="barra" style="margin-top:10px"></div>` : ""}
+          ${it.log ? `<div class="log">${esc(it.log)}</div>` : ""}</div>`).join("");
+        m.querySelectorAll("[data-k]").forEach(inp => { inp.disabled = rodando || itens[inp.dataset.i].estado === "ok";
+          inp.oninput = () => { itens[inp.dataset.i][inp.dataset.k] = inp.dataset.k === "vendedor" ? inp.value.toUpperCase() : inp.value; }; });
+        const go = $("#fgo", m);
+        if (terminou) { go.disabled = false; go.textContent = "Concluído"; }
+        else { go.disabled = rodando || !itens.some(it => it.estado !== "ok") || itens.some(it => it.estado === "lendo"); go.textContent = rodando ? "Importando…" : "Importar"; }
+        $("#fcan", m).classList.toggle("hidden", rodando || terminou);
+      };
+      const add = async files => {
+        for (const f of files) {
+          const it = {f, vendedor: "", mes: mesAnterior(), estado: "lendo", log: ""};
+          itens.push(it); terminou = false; desenhar();
+          try { it.info = await api("vend_analisar", {arquivo: f.name}, {method: "POST", body: await f.arrayBuffer()});
+            it.vendedor = it.info.vendedor; if (it.info.mes) it.mes = it.info.mes; it.estado = ""; }
+          catch (e) { it.estado = "erro"; it.log = e.message; }
+          desenhar();
+        }
+      };
+      fi.onchange = () => { add([...fi.files]); fi.value = ""; };
+      dz.ondragover = e => { e.preventDefault(); dz.classList.add("on"); };
+      dz.ondragleave = () => dz.classList.remove("on");
+      dz.ondrop = e => { e.preventDefault(); dz.classList.remove("on"); add([...e.dataTransfer.files]); };
+      $("#fgo", m).onclick = async () => {
+        if (terminou) { m.remove(); return; }
+        rodando = true; let ultimo = null;
+        for (const it of itens.filter(x => x.estado !== "ok")) {
+          if (!it.vendedor || !it.mes) { it.estado = "erro"; it.log = "Preencha o vendedor e o mês."; desenhar(); continue; }
+          it.estado = "rodando"; it.log = ""; desenhar();
+          try { const r = await api("vend_importar", {arquivo: it.f.name, vendedor: it.vendedor, mes: it.mes}, {method: "POST", body: await it.f.arrayBuffer()});
+            it.log = r.log.join("\n"); it.estado = "ok"; ultimo = r; }
+          catch (e) { it.estado = "erro"; it.log = e.message; }
+          desenhar();
+        }
+        rodando = false; terminou = true; desenhar();
+        await carregarVendLista();
+        if (ultimo) location.hash = `#/vendedores/${encodeURIComponent(ultimo.vendedor)}`;   // abre no mês mais recente
+        await rotear();
+      };
+    });
 }
 function abrirUploadRanking() {
   const itens = [];
@@ -1618,7 +1843,7 @@ async function iniciar(sessao) {
   S.sessao = sessao;
   if (!sessao) return telaLogin();
   $("#app").innerHTML = `<div class="empty"><span class="spin"></span> Carregando…</div>`;
-  try { await carregarPainel(); await carregarRankLista(); }
+  try { await carregarPainel(); await carregarRankLista(); await carregarVendLista(); }
   catch (e) {
     S.msgLogin = e.message;
     await sb.auth.signOut();

@@ -104,6 +104,36 @@ da categoria. O filtro **De / até** limita o período e vale para a tela inteir
   saiu do ranking; não quer dizer que vendeu zero. Por isso as variações só comparam
   meses em que a marca aparece.
 
+### Vendedores monitorados (menu lateral)
+
+A terceira função lê o export de anúncios de um vendedor que você segue no Nubimetrics,
+mês fechado (.xlsx): título, marca, vendas, unidades, preço, FULL, catálogo, tipo de
+publicação, GTIN...
+
+- **Importar vendedor**: o nome do arquivo vira o nome do vendedor
+  (`AUMA_PERFUMARIA_P2.xlsx` → AUMA PERFUMARIA P2, o mesmo nome da coluna Vendedor do
+  Explorador). O mês fechado é escolhido na importação. Use sempre o mesmo nome para os
+  meses do vendedor se juntarem. Reimportar o mesmo vendedor e mês substitui o anterior.
+- **Página do vendedor**:
+  - indicadores: vendas, unidades, ticket, anúncios, marcas e % em FULL, catálogo e
+    Premium, com a variação contra o mês anterior;
+  - vendas mês a mês;
+  - marcas que ele começou a vender e marcas que ele parou de vender;
+  - abas Marcas, Produtos (agrupados por GTIN) e Anúncios.
+- **Cruzamento com o Ranking de marcas** (precisa do relatório MARCAS do mesmo mês):
+  - **% do mercado**: quanto das vendas de cada marca passa por ele;
+  - **Onde ele é forte**: as marcas em que ele tem a maior fatia;
+  - **Oportunidades**: marcas em alta no B.I. em que ele tem menos de 1% das vendas;
+  - **Riscos**: marcas em queda que pesam 2% ou mais nas vendas dele;
+  - **Vindo de baixo que ele não vende**: marcas que entraram no ranking e ficaram ou cresceram.
+- **Cruzamento com o Explorador**: para os GTINs das marcas monitoradas, o preço médio do
+  mercado, o preço dele contra esse preço, quantos vendedores tem o GTIN e a posição e a
+  fatia dele. O período do Explorador pode ser diferente do mês do vendedor.
+- **Comparar vendedores**:
+  - vendas no mês de cada vendedor seguido;
+  - como cada um vende (ticket, FULL, catálogo, Premium);
+  - uma matriz com as 25 maiores marcas e a fatia de cada vendedor no mercado da marca.
+
 A versão de computador continua funcionando igual, com os dados locais em `dados/base.db`.
 
 ## Instalação no computador (uma vez só)

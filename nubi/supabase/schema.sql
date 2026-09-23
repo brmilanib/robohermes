@@ -172,3 +172,29 @@ create table if not exists public.agente_execucoes (
 alter table public.agente_execucoes enable row level security;
 create policy "autorizado" on public.agente_execucoes
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Vendedores monitorados: export de anúncios de um vendedor seguido, mês fechado.
+create table if not exists public.vend_relatorios (
+  id bigint generated always as identity primary key,
+  vendedor text not null,
+  mes date not null,
+  arquivo text,
+  hash text unique,
+  importado_em timestamptz not null default now()
+);
+create unique index if not exists vend_relatorios_vendedor_mes on public.vend_relatorios (vendedor, mes);
+create table if not exists public.vend_anuncios (
+  id bigint generated always as identity primary key,
+  relatorio_id bigint not null references public.vend_relatorios(id) on delete cascade,
+  titulo text, marca text, marca_chave text, gtin text, sku text,
+  vendas numeric, unidades int, preco numeric, tipo_pub text,
+  fulfillment boolean, catalogo boolean, frete_gratis boolean, desconto boolean, estado text,
+  bruto jsonb
+);
+create index if not exists vend_anuncios_rel on public.vend_anuncios (relatorio_id);
+alter table public.vend_relatorios enable row level security;
+alter table public.vend_anuncios enable row level security;
+create policy "autorizado" on public.vend_relatorios
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create policy "autorizado" on public.vend_anuncios
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
