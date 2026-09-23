@@ -154,7 +154,10 @@ async function api(rota, params = {}, opts = {}) {
     headers: {Authorization: "Bearer " + token, ...(opts.headers || {})}});
   if (opts.blob && res.ok) return res.blob();
   let j; try { j = await res.json(); } catch { j = {erro: "Resposta inválida do servidor (" + res.status + ")."}; }
-  if (!res.ok || j.erro) { if (res.status === 401) await sb.auth.signOut(); throw new Error(j.erro || "Erro " + res.status); }
+  if (!res.ok || j.erro) {
+    if (res.status === 401) { S.msgLogin = j.erro; await sb.auth.signOut(); }
+    throw new Error(j.erro || "Erro " + res.status);
+  }
   return j;
 }
 function toast(msg, ms = 3500) {
@@ -165,6 +168,7 @@ function toast(msg, ms = 3500) {
 
 // ---------- Login ----------
 function telaLogin(msg) {
+  msg = msg || S.msgLogin; S.msgLogin = null;   // aviso guardado (ex.: e-mail sem acesso)
   $("#app").innerHTML = `
   <div class="card login">
     <h1>nubi</h1>
@@ -646,19 +650,26 @@ async function iniciar(sessao) {
   $("#app").innerHTML = `<div class="empty"><span class="spin"></span> Carregando…</div>`;
   try { await carregarPainel(); }
   catch (e) {
+    S.msgLogin = e.message;
     await sb.auth.signOut();
-    return telaLogin(e.message);
+    return telaLogin();
   }
   moldura();
   await rotear();
 }
-window.addEventListener("hashchange", () => S.sessao && rotear());
-let iniciado = false;
+// Só troca de marca pelo endereço depois que a tela já está montada (o Supabase também
+// mexe no endereço ao apagar o token do link de e-mail).
+window.addEventListener("hashchange", () => { if (S.sessao && $("#main")) rotear(); });
+// O Supabase avisa o login mais de uma vez (SIGNED_IN, INITIAL_SESSION, renovação do
+// token…). A página só reinicia quando muda QUEM está logado, uma vez de cada vez, e
+// fora do aviso (chamar o Supabase de dentro dele pode travar).
+let usuarioAtual, fila = Promise.resolve();
 sb.auth.onAuthStateChange((ev, sessao) => {
-  if (ev === "INITIAL_SESSION" || ev === "SIGNED_IN" || ev === "SIGNED_OUT") {
-    if (ev === "SIGNED_IN" && iniciado && S.sessao) { S.sessao = sessao; return; }
-    iniciado = true; iniciar(sessao);
-  }
+  if (sessao) S.sessao = sessao;
+  const uid = sessao?.user?.id || null;
+  if (uid === usuarioAtual) return;
+  usuarioAtual = uid;
+  setTimeout(() => { fila = fila.then(() => iniciar(sessao)).catch(e => telaLogin(e.message)); }, 0);
 });
 </script>
 </body>
