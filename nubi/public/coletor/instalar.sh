@@ -2,13 +2,13 @@
 # Instalador do coletor do Nubimetrics para o nubi (Mac).
 # Uso no Terminal do Mac mini:
 #   curl -fsSL https://nubi-explorador.vercel.app/coletor/instalar.sh | bash
-# Hora da coleta diária (padrão 7h30):
+# Hora da coleta diária (padrão 7h00):
 #   curl -fsSL https://nubi-explorador.vercel.app/coletor/instalar.sh | bash -s -- 8 15
 set -e
 ORIGEM="${NUBI_URL:-https://nubi-explorador.vercel.app}/coletor"
 PASTA="$HOME/.nubi-coletor"
 HORA="${1:-7}"
-MINUTO="${2:-30}"
+MINUTO="${2:-0}"
 
 echo "== Coletor do Nubimetrics para o nubi =="
 if ! command -v python3 >/dev/null 2>&1 || ! python3 -c "import venv" >/dev/null 2>&1; then

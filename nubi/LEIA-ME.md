@@ -184,20 +184,28 @@ curl -fsSL https://nubi-explorador.vercel.app/coletor/instalar.sh | bash
 
 O instalador:
 1. prepara o Python e o navegador do coletor em `~/.nubi-coletor`;
-2. agenda a coleta para todo dia às 7h30. Para outro horário, use
-   `... | bash -s -- 8 15` (8h15);
+2. agenda a coleta para todo dia às 7h00. Para mudar depois: `~/.nubi-coletor/coletor agendar 8 15`
+   (8h15);
 3. pede o login do **nubi** (guardado no Chaveiro do Mac), usado para enviar os arquivos;
 4. abre uma janela do navegador para você entrar no **Nubimetrics**. O login fica salvo no
    perfil do coletor, e a senha do Nubimetrics não é gravada.
 
-**O que ele faz todo dia** (`coletor diario`), só baixando o que ainda falta no nubi.
-Cada arquivo sai com o nome que o Nubimetrics dá, numa pasta por mês, e vai junto um
-`manifest.json` com o hash de cada vendedor:
-- o relatório **MARCAS** do mês fechado (categoria Perfumes, 100 linhas);
-- o export de anúncios de cada vendedor do grupo "perfumes" (16 hoje) do mês fechado, um
-  por um, com pausa entre eles. Vendedor novo no grupo entra sozinho;
-- cada coleta fica registrada no nubi (menu lateral e página Vendedores). Se falhar,
+**O que ele faz todo dia** (`coletor diario`, às 7h00). O Nubimetrics libera os dados com 2
+dias de atraso, então no dia 23 os dados vão até o dia 21. Ele só baixa o que ainda falta no
+nubi. Cada arquivo sai com o nome que o Nubimetrics dá, numa pasta por mês, e vai junto um
+`manifest.json` com o hash de cada vendedor.
+- **Histórico desde janeiro/2026** (`"desde"` no `config.json`): para cada um dos vendedores
+  do grupo "perfumes", baixa cada mês fechado que falta. Na primeira vez são 16 vendedores ×
+  9 meses, então leva algumas horas; nas vezes seguintes, só o que mudou.
+- **Mês atual até o último dia liberado**: todo dia o mês em andamento é baixado de novo e
+  aparece no nubi como "setembro de 2026 (parcial até 21/09)". Quando o último dia do mês
+  é liberado (ex.: 02/10 para setembro), o mês fecha e passa a ser o completo.
+- O relatório **MARCAS** de cada mês fechado que ainda não está no nubi.
+- Vendedor novo no grupo entra sozinho, com o histórico desde janeiro.
+- Cada coleta fica registrada no nubi (menu lateral e página Vendedores). Se falhar,
   aparece como "falhou" e o Mac mostra uma notificação.
+- Meses passados usam um período personalizado. Se a tela do Nubimetrics ignorar o período
+  que vai no endereço, o coletor escolhe as datas no calendário (dd/mm/aaaa e APLICAR).
 
 **Comandos úteis** (no Terminal):
 
@@ -210,11 +218,12 @@ Cada arquivo sai com o nome que o Nubimetrics dá, numa pasta por mês, e vai ju
 | `... --ver` | em qualquer coleta, mostra a janela do navegador para acompanhar |
 | `~/.nubi-coletor/coletor vendedores --mes 2026-07` | baixar um mês específico |
 | `~/.nubi-coletor/coletor marcas --mes 2026-07` | baixar o MARCAS de um mês específico |
-| `~/.nubi-coletor/coletor vendedores --parcial` | mês atual até ontem (aparece como "parcial até dd/mm") |
+| `~/.nubi-coletor/coletor vendedores --parcial` | só o mês atual, até o último dia liberado |
+| `~/.nubi-coletor/coletor agendar 7 0` | muda o horário da coleta diária |
 
 **Cuidados:**
 - O Mac precisa estar ligado e com o seu usuário logado no horário. Para o Mac acordar
-  sozinho: `sudo pmset repeat wakeorpoweron MTWRFSU 07:25:00`.
+  sozinho: `sudo pmset repeat wakeorpoweron MTWRFSU 06:55:00`.
 - Vendedores sem apelido aparecem com nome aleatório no Nubimetrics (ex.:
   BANTENG.PRETO.DEMONSTRATIVO). O coletor avisa (no log, no nubi e na tela do Mac) para
   você dar um apelido a eles no Nubimetrics (ícone de lápis). O histórico não se perde,
@@ -222,9 +231,8 @@ Cada arquivo sai com o nome que o Nubimetrics dá, numa pasta por mês, e vai ju
 - O coletor anota o hash de cada vendedor por dia. Se um apelido aparecer com hash
   diferente do anterior, ele avisa: é o sinal de que o hash não é estável, e aí vale a
   impressão digital dos anúncios.
-- O "mês atual até ontem" (`--parcial`) usa um período personalizado que ainda não foi
-  conferido no Nubimetrics. Por isso vem desligado na coleta diária. Depois de testar uma
-  vez, dá para ligar com `"mes_atual": true` em `~/.nubi-coletor/config.json`.
+- Para não baixar o mês atual todo dia, use `"mes_atual": false` em
+  `~/.nubi-coletor/config.json`. Para mudar o atraso de liberação, use `"atraso_dias"`.
 
 A versão de computador continua funcionando igual, com os dados locais em `dados/base.db`.
 

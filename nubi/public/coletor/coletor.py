@@ -10,7 +10,9 @@ Instalação no Mac: curl -fsSL https://nubi-explorador.vercel.app/coletor/insta
 Depois, os comandos ficam em ~/.nubi-coletor/coletor (ex.: ~/.nubi-coletor/coletor status):
   python coletor.py configurar      e-mail e senha do NUBI (guardados no Chaveiro do Mac)
   python coletor.py entrar          abre o navegador para você fazer login no Nubimetrics
-  python coletor.py diario          o que o agendamento roda todo dia (só baixa o que falta)
+  python coletor.py diario          o que o agendamento roda todo dia: baixa o que falta desde 'desde'
+                                    (meses fechados + mês atual até o último dia liberado)
+  python coletor.py agendar 7 0     muda o horário da coleta diária (7h00)
   python coletor.py vendedores [--mes AAAA-MM] [--parcial] [--so NOME] [--sem-enviar]
   python coletor.py marcas [--mes AAAA-MM] [--sem-enviar]
   python coletor.py status          última coleta e o que já está no nubi
@@ -55,7 +57,9 @@ PADRAO_CONFIG = {
     "grupo": "460388",                       # grupo "perfumes" no Nubimetrics
     "categoria": "MLB1246-MLB6284",          # Beleza e Cuidado Pessoal > Perfumes
     "categoria_nomes": ["Beleza e Cuidado Pessoal", "Perfumes"],
-    "mes_atual": False,                      # baixar também o mês em andamento (parcial), todo dia
+    "mes_atual": True,                       # manter o mês em andamento atualizado (parcial), todo dia
+    "desde": "2026-01",                      # primeiro mês do histórico de vendedores
+    "atraso_dias": 2,                        # o Nubimetrics libera os dados com 2 dias de atraso
     "mostrar_navegador": False,
     "hashes": {},                            # hash do vendedor -> {nome, primeiro, ultimo} (conferir estabilidade)
     "hash_por_nome": {},                     # apelido -> hash (se mudar, o hash não é estável)
@@ -248,6 +252,34 @@ def mes_anterior(hoje=None):
     return f"{d.year}-{d.month:02d}"
 
 
+def ultimo_dia_liberado(cfg, hoje=None):
+    return (hoje or date.today()) - timedelta(days=int(cfg.get("atraso_dias", 2)))
+
+
+def periodo_fechado(mes, hoje=None):
+    ini, fim = limites(mes)
+    return {"mes": mes, "ini": ini, "fim": fim, "ate": None,
+            "rng": "PREVMONTH" if mes == mes_anterior(hoje) else "CUSTOM"}
+
+
+def periodos(cfg, hoje=None):
+    """Do mês 'desde' até o mês do último dia liberado: meses fechados + o mês atual parcial."""
+    d = ultimo_dia_liberado(cfg, hoje)
+    a, m = map(int, (cfg.get("desde") or "2026-01").split("-"))
+    saida = []
+    while (a, m) <= (d.year, d.month):
+        mes = f"{a}-{m:02d}"
+        ini, fim = limites(mes)
+        if (a, m) < (d.year, d.month) or d.isoformat() == fim:
+            saida.append(periodo_fechado(mes, hoje))
+        elif cfg.get("mes_atual", True):
+            saida.append({"mes": mes, "ini": ini, "fim": d.isoformat(), "ate": d.isoformat(), "rng": "CUSTOM"})
+        m += 1
+        if m == 13:
+            a, m = a + 1, 1
+    return saida
+
+
 def limites(mes):
     a, m = map(int, mes.split("-"))
     return f"{mes}-01", f"{mes}-{calendar.monthrange(a, m)[1]:02d}"
@@ -347,12 +379,37 @@ def listar_vendedores(pg, cfg):
     return list(vistos.items()), avisos
 
 
+def aplicar_periodo(pg, ini, fim):
+    """Plano B: escolher o período no calendário da tela (dois campos dd/mm/aaaa + APLICAR)."""
+    br = lambda d: f"{d[8:10]}/{d[5:7]}/{d[:4]}"
+    botao = pg.locator("button, [role=button]").filter(
+        has_text=re.compile(r"\d{1,2}\s+[A-ZÇ]{3}\s*-\s*\d{1,2}\s+[A-ZÇ]{3}", re.I)).first
+    if not botao.count():
+        raise Falha("não achei o botão do período (ex.: '15 SET - 21 SET') " + diagnostico(pg))
+    botao.click()
+    pg.wait_for_function("() => [...document.querySelectorAll('input')].filter(i => /^\\d{2}\\/\\d{2}\\/\\d{4}$/"
+                         ".test(i.value) && i.offsetParent).length >= 2", timeout=15000)
+    idx = pg.evaluate("() => [...document.querySelectorAll('input')].map((i, n) => [n, i]).filter(([n, i]) =>"
+                      " /^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(i.value) && i.offsetParent).map(([n]) => n)")
+    for n, valor in zip(idx[:2], (br(ini), br(fim))):
+        campo = pg.locator("input").nth(n)
+        campo.click(click_count=3)
+        campo.fill(valor)
+        campo.press("Tab")
+    pg.locator("button", has_text=re.compile(r"^\s*APLICAR\s*$", re.I)).first.click()
+
+
 def baixar_vendedor(pg, h, ini, fim, rng, destino):
     url = (f"{BASE}/competition/analysisbycompetitor?seller={h}&range={rng}&category="
            f"&from={ini}&to={fim}")
     ir(pg, url, "button#tab-1")
-    with pg.expect_response(lambda r: "analysisitems" in r.url and f"from={ini}" in r.url, timeout=120000) as resp:
+    certo = lambda r: "analysisitems" in r.url and f"from={ini}" in r.url and f"to={fim}" in r.url
+    with pg.expect_response(lambda r: "analysisitems" in r.url, timeout=120000) as resp:
         pg.click("button#tab-1")
+    if not certo(resp.value):
+        # a tela ignorou o período da URL: escolhe no calendário e espera a tabela recarregar
+        with pg.expect_response(certo, timeout=120000) as resp:
+            aplicar_periodo(pg, ini, fim)
     if not resp.value.ok:
         raise Falha(f"a lista de anúncios não carregou ({resp.value.status})")
     pg.wait_for_selector("#dashboardByCompetitor_exportBtn_table", timeout=60000)
@@ -368,22 +425,9 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
     return arq
 
 
-def coletar_vendedores(p, cfg, token, mes=None, parcial=False, so=None, enviar=True, pular=None, avisos=None):
-    hoje = date.today()
-    if parcial:
-        mes = f"{hoje.year}-{hoje.month:02d}"
-        ontem = hoje - timedelta(days=1)
-        if ontem.month != hoje.month:
-            log("Dia 1º: ainda não há mês atual para baixar.")
-            return 0, 0, 0
-        ini, fim, rng, ate = f"{mes}-01", ontem.isoformat(), "CUSTOM", ontem.isoformat()
-    else:
-        mes = mes or mes_anterior()
-        ini, fim = limites(mes)
-        rng = "PREVMONTH" if mes == mes_anterior() else "CUSTOM"
-        ate = None
-    destino = PASTA / "arquivos" / (mes + ("-parcial" if parcial else ""))
-    destino.mkdir(parents=True, exist_ok=True)
+def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pular=None, avisos=None):
+    """Para cada vendedor do grupo, baixa cada período (mês fechado ou mês atual parcial) e envia ao nubi.
+    pular(hash, nome, periodo) -> True quando o nubi já tem exatamente esse período."""
     ctx = abrir_navegador(p, cfg)
     arquivos = importados = erros = 0
     try:
@@ -392,37 +436,41 @@ def coletar_vendedores(p, cfg, token, mes=None, parcial=False, so=None, enviar=T
         if avisos is not None:
             avisos.extend(av)
         salvar_config(cfg)
-        manifesto_arq = destino / "manifest.json"
-        manifesto = json.loads(manifesto_arq.read_text(encoding="utf-8")) if manifesto_arq.exists() else []
         for h, nome in lista:
             if so and so.upper() != nome.upper():
                 continue
-            if pular and pular(h, nome):
-                log(f"  {nome}: {mes} já está no nubi")
-                continue
-            try:
-                arq = baixar_vendedor(pg, h, ini, fim, rng, destino)
-                arquivos += 1
-                log(f"  {nome}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
-                manifesto = [m for m in manifesto if m["arquivo"] != arq.name] + [{
-                    "arquivo": arq.name, "nome_exibido": nome, "seller_hash": h, "mes": mes, "ate": ate,
-                    "baixado_em": datetime.now(timezone.utc).isoformat()}]
-                manifesto_arq.write_text(json.dumps(manifesto, ensure_ascii=False, indent=2), encoding="utf-8")
-                if enviar:
-                    # nome do arquivo = nome exibido; o hash é a identidade do vendedor no nubi
-                    params = {"arquivo": arq.name, "mes": mes, "seller_hash": h}
-                    if ate:
-                        params["ate"] = ate
-                    r = api(token, "vend_importar", params, arq.read_bytes())
-                    importados += 1
-                    log("    " + " ".join(r.get("log", [])))
-            except SessaoExpirada:
-                raise
-            except Exception as e:  # noqa: BLE001
-                erros += 1
-                log(f"  {nome}: ERRO {e}")
-            time.sleep(PAUSA)
-        guardar_sessao(ctx)
+            for per in lista_periodos:
+                mes, ate = per["mes"], per["ate"]
+                rotulo = mes + (f" até {ate[8:10]}/{ate[5:7]}" if ate else "")
+                if pular and pular(h, nome, per):
+                    continue
+                destino = PASTA / "arquivos" / (mes + ("-parcial" if ate else ""))
+                destino.mkdir(parents=True, exist_ok=True)
+                try:
+                    arq = baixar_vendedor(pg, h, per["ini"], per["fim"], per["rng"], destino)
+                    arquivos += 1
+                    log(f"  {nome} {rotulo}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
+                    manifesto_arq = destino / "manifest.json"
+                    manifesto = json.loads(manifesto_arq.read_text(encoding="utf-8")) if manifesto_arq.exists() else []
+                    manifesto = [m for m in manifesto if m["arquivo"] != arq.name] + [{
+                        "arquivo": arq.name, "nome_exibido": nome, "seller_hash": h, "mes": mes, "ate": ate,
+                        "baixado_em": datetime.now(timezone.utc).isoformat()}]
+                    manifesto_arq.write_text(json.dumps(manifesto, ensure_ascii=False, indent=2), encoding="utf-8")
+                    if enviar:
+                        # nome do arquivo = nome exibido; o hash é a identidade do vendedor no nubi
+                        params = {"arquivo": arq.name, "mes": mes, "seller_hash": h}
+                        if ate:
+                            params["ate"] = ate
+                        r = api(token, "vend_importar", params, arq.read_bytes())
+                        importados += 1
+                        log("    " + " ".join(r.get("log", [])))
+                except SessaoExpirada:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    erros += 1
+                    log(f"  {nome} {rotulo}: ERRO {e}")
+                time.sleep(PAUSA)
+            guardar_sessao(ctx)
     finally:
         salvar_config(cfg)
         ctx.close()
@@ -643,6 +691,9 @@ def main():
     sub.add_parser("entrar")
     sub.add_parser("status")
     sub.add_parser("atualizar", help="baixa a versão mais nova do coletor")
+    ag = sub.add_parser("agendar", help="muda o horário da coleta diária")
+    ag.add_argument("hora", type=int)
+    ag.add_argument("minuto", type=int, nargs="?", default=0)
     d = sub.add_parser("diario")
     d.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     v = sub.add_parser("vendedores")
@@ -666,6 +717,19 @@ def main():
         return cmd_entrar(args, cfg)
     if args.cmd == "status":
         return cmd_status(args, cfg)
+    if args.cmd == "agendar":
+        plist = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.plist"
+        if not plist.exists():
+            print("Agendamento não encontrado; rode o instalador.")
+            return 1
+        txt = plist.read_text(encoding="utf-8")
+        txt = re.sub(r"(<key>Hour</key><integer>)\d+", rf"\g<1>{args.hora}", txt)
+        txt = re.sub(r"(<key>Minute</key><integer>)\d+", rf"\g<1>{args.minuto}", txt)
+        plist.write_text(txt, encoding="utf-8")
+        subprocess.run(["launchctl", "unload", str(plist)], check=False, capture_output=True)
+        subprocess.run(["launchctl", "load", str(plist)], check=False)
+        print(f"OK: coleta diária agendada para {args.hora}h{args.minuto:02d}.")
+        return 0
     if args.cmd == "atualizar":
         novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro
@@ -674,7 +738,13 @@ def main():
         return 0
     if args.cmd == "vendedores":
         def f(p, cfg, token):
-            a, i, e = coletar_vendedores(p, cfg, token, args.mes, args.parcial, args.so, not args.sem_enviar)
+            if args.parcial:
+                d = ultimo_dia_liberado(cfg)
+                mes = f"{d.year}-{d.month:02d}"
+                pers = [{"mes": mes, "ini": f"{mes}-01", "fim": d.isoformat(), "ate": d.isoformat(), "rng": "CUSTOM"}]
+            else:
+                pers = [periodo_fechado(args.mes or mes_anterior())]
+            a, i, e = coletar_vendedores(p, cfg, token, pers, args.so, not args.sem_enviar)
             return a, i, e, f"vendedores: {a} baixado(s), {i} importado(s), {e} erro(s)"
         return executar("vendedores", f)
     if args.cmd == "marcas":
@@ -684,38 +754,39 @@ def main():
         return executar("marcas", f)
     if args.cmd == "diario":
         def f(p, cfg, token):
-            mes = mes_anterior()
             pend = api(token, "coletor_pendencias")
+            d = ultimo_dia_liberado(cfg)
+            pers = periodos(cfg)
             A = I = E = 0
-            partes = []
-            if mes not in pend["ranking"].get(cfg["categoria"], []):
+            partes = [f"dados até {d:%d/%m}"]
+            # MARCAS: todo mês fechado (último dia já liberado) que ainda não está no nubi
+            ja_rk = set(pend["ranking"].get(cfg["categoria"], []))
+            for per in pers:
+                if per["ate"] or per["mes"] in ja_rk:
+                    continue
                 try:
-                    a, i, e = coletar_marcas(p, cfg, token, mes)
-                    partes.append(f"MARCAS {mes} importado")
+                    a, i, e = coletar_marcas(p, cfg, token, per["mes"])
+                    partes.append(f"MARCAS {per['mes']} importado")
                 except SessaoExpirada:
                     raise
                 except Exception as ex:  # noqa: BLE001
                     a, i, e = 0, 0, 1
-                    log(f"  MARCAS {mes}: ERRO {ex}")
-                    partes.append(f"MARCAS {mes} falhou")
+                    log(f"  MARCAS {per['mes']}: ERRO {ex}")
+                    partes.append(f"MARCAS {per['mes']} falhou")
                 A, I, E = A + a, I + i, E + e
-            # vendedores: mês fechado que falta (ou que ainda está como parcial)
+            # vendedores: cada mês que falta, o mês que ainda estava parcial e fechou, e o mês atual
             ja, ja_h = pend["vendedores"], pend.get("hashes", {})
 
-            def pular(h, nome):          # já importado (e não parcial) neste mês
+            def pular(h, nome, per):
                 reg = ja_h.get(h) if h in ja_h else ja.get(nome, {})
-                return mes in reg and not reg[mes]
+                return per["mes"] in reg and (reg[per["mes"]] or None) == per["ate"]
             avisos = []
-            a, i, e = coletar_vendedores(p, cfg, token, mes, pular=pular, avisos=avisos)
+            a, i, e = coletar_vendedores(p, cfg, token, pers, pular=pular, avisos=avisos)
             A, I, E = A + a, I + i, E + e
-            partes.append(f"vendedores {mes}: {i} importado(s)")
+            partes.append(f"vendedores: {i} arquivo(s) importado(s)")
             if avisos:
                 partes.append(f"{len(avisos)} aviso(s): " + "; ".join(avisos)[:300])
                 aviso_mac("Coletor nubi — conferir", avisos[0])
-            if cfg.get("mes_atual"):
-                a, i, e = coletar_vendedores(p, cfg, token, parcial=True)
-                A, I, E = A + a, I + i, E + e
-                partes.append(f"mês atual: {i} importado(s)")
             return A, I, E, "; ".join(partes) + (f"; {E} erro(s)" if E else "")
         return executar("diario", f)
 

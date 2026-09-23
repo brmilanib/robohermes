@@ -922,7 +922,7 @@ function cartaoColetor() {
         <td class="wrap">${esc(e.mensagem || "")}</td></tr>`).join("")}</tbody></table>`
       : `<p class="muted" style="margin:0">Ainda não rodou. No Terminal do Mac mini, cole:</p>`}
     <div class="log" style="margin-top:8px">curl -fsSL https://nubi-explorador.vercel.app/coletor/instalar.sh | bash</div>
-    <div class="muted" style="font-size:12px;margin-top:6px">Todo dia às 7h30 ele baixa o que falta: o relatório MARCAS do mês fechado e os vendedores seguidos do grupo "perfumes". Se a sessão do Nubimetrics expirar, aparece aqui como "falhou" e no Mac: rode <code>~/.nubi-coletor/coletor entrar</code>.</div></div>`;
+    <div class="muted" style="font-size:12px;margin-top:6px">Todo dia às 7h00 ele baixa o que falta desde janeiro: os vendedores seguidos do grupo "perfumes" (meses fechados + mês atual até o último dia liberado pelo Nubimetrics, 2 dias de atraso) e o relatório MARCAS de cada mês fechado. Se a sessão do Nubimetrics expirar, aparece aqui como "falhou" e no Mac: rode <code>~/.nubi-coletor/coletor entrar</code>.</div></div>`;
 }
 function vendVazio(main) {
   main.innerHTML = `<h1>Vendedores monitorados</h1>
