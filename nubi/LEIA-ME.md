@@ -147,6 +147,30 @@ Yves Saint Laurent, Thierry Mugler e Mugler, erros como "David Beckmam"). Nessa 
 A junção vale na hora para o Ranking, o B.I. e os Vendedores, inclusive nos dados já
 importados. Os arquivos continuam guardados com o nome original, então dá para desfazer.
 
+### Nomes de vendedores (identidade do vendedor)
+
+O Nubimetrics mostra um nome aleatório para vendedor sem apelido (ex.:
+BANTENG.PRETO.DEMONSTRATIVO) e esse nome pode mudar. Por isso o nome não é a identidade do
+vendedor no nubi:
+
+1. **Hash do Nubimetrics** (chave principal): o coletor automático manda o hash de cada
+   vendedor (128 caracteres, fixo por vendedor). Mesmo hash é o mesmo vendedor. Se um
+   vendedor com nome aleatório ganha apelido, o histórico dele passa para o apelido sozinho.
+2. **Impressão digital dos anúncios** (reserva, para importação manual ou se o hash
+   mudar): compara os ~200 itens que mais vendem (GTIN, senão SKU, senão título + marca)
+   com os vendedores que ainda não têm aquele mês.
+   - Junta sozinho só quando itens em comum ≥ 60%, faturamento parecido (≥ 50%), mix de
+     marcas parecido (≥ 80%) e tamanho de catálogo parecido (≥ 60%). Lojas de perfume
+     vendem muitos GTINs iguais, por isso itens sozinhos não bastam.
+   - Entre 35% e 60% de itens em comum (ou se faltar algum dos outros critérios), importa
+     com o nome do arquivo e deixa para você conferir.
+
+A tela **🔗 Nomes de vendedores** (menu Vendedores) mostra:
+- o que está **para conferir**, com os botões "É o mesmo" e "São diferentes";
+- os vendedores com os outros nomes que já usaram e o hash;
+- o histórico das decisões, com "desfazer";
+- a opção de **juntar à mão**.
+
 ### Coletor automático do Nubimetrics (Mac mini)
 
 Um programa no Mac mini abre o Nubimetrics com o seu login já salvo, baixa os relatórios
@@ -166,7 +190,9 @@ O instalador:
 4. abre uma janela do navegador para você entrar no **Nubimetrics**. O login fica salvo no
    perfil do coletor, e a senha do Nubimetrics não é gravada.
 
-**O que ele faz todo dia** (`coletor diario`), só baixando o que ainda falta no nubi:
+**O que ele faz todo dia** (`coletor diario`), só baixando o que ainda falta no nubi.
+Cada arquivo sai com o nome que o Nubimetrics dá, numa pasta por mês, e vai junto um
+`manifest.json` com o hash de cada vendedor:
 - o relatório **MARCAS** do mês fechado (categoria Perfumes, 100 linhas);
 - o export de anúncios de cada vendedor do grupo "perfumes" (16 hoje) do mês fechado, um
   por um, com pausa entre eles. Vendedor novo no grupo entra sozinho;
@@ -188,9 +214,12 @@ O instalador:
 - O Mac precisa estar ligado e com o seu usuário logado no horário. Para o Mac acordar
   sozinho: `sudo pmset repeat wakeorpoweron MTWRFSU 07:25:00`.
 - Vendedores sem apelido aparecem com nome aleatório no Nubimetrics (ex.:
-  BANTENG.PRETO.DEMONSTRATIVO). Dê um apelido fixo a eles no Nubimetrics (ícone de lápis).
-  O coletor guarda o primeiro nome de cada vendedor e só troca um nome aleatório por um
-  apelido de verdade, então o histórico no nubi não se quebra.
+  BANTENG.PRETO.DEMONSTRATIVO). O coletor avisa (no log, no nubi e na tela do Mac) para
+  você dar um apelido a eles no Nubimetrics (ícone de lápis). O histórico não se perde,
+  porque a identidade é o hash.
+- O coletor anota o hash de cada vendedor por dia. Se um apelido aparecer com hash
+  diferente do anterior, ele avisa: é o sinal de que o hash não é estável, e aí vale a
+  impressão digital dos anúncios.
 - O "mês atual até ontem" (`--parcial`) usa um período personalizado que ainda não foi
   conferido no Nubimetrics. Por isso vem desligado na coleta diária. Depois de testar uma
   vez, dá para ligar com `"mes_atual": true` em `~/.nubi-coletor/config.json`.

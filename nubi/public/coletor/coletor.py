@@ -52,7 +52,8 @@ PADRAO_CONFIG = {
     "categoria_nomes": ["Beleza e Cuidado Pessoal", "Perfumes"],
     "mes_atual": False,                      # baixar também o mês em andamento (parcial), todo dia
     "mostrar_navegador": False,
-    "vendedores": {},                        # hash do vendedor -> nome fixo usado no nubi
+    "hashes": {},                            # hash do vendedor -> {nome, primeiro, ultimo} (conferir estabilidade)
+    "hash_por_nome": {},                     # apelido -> hash (se mudar, o hash não é estável)
 }
 MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto",
          "Setembro", "Outubro", "Novembro", "Dezembro"]
@@ -255,13 +256,22 @@ def listar_vendedores(pg, cfg):
         pg.wait_for_function("t => document.querySelector('td') && document.querySelector('td').innerText !== t",
                              arg=antes, timeout=30000)
     log(f"Vendedores no grupo: {len(vistos)} ({pagina} página(s))")
-    # nome fixo por vendedor no nubi: o primeiro visto; troca só se o antigo era ofuscado
-    fixos = cfg.setdefault("vendedores", {})
+    avisos = []
+    hoje = date.today().isoformat()
+    hs, por_nome = cfg.setdefault("hashes", {}), cfg.setdefault("hash_por_nome", {})
     for h, nome in vistos.items():
-        antigo = fixos.get(h)
-        if not antigo or (OFUSCADO.match(antigo) and not OFUSCADO.match(nome)):
-            fixos[h] = nome
-    return [(h, fixos[h], vistos[h]) for h in vistos]
+        x = hs.setdefault(h, {"nome": nome, "primeiro": hoje})
+        x.update(nome=nome, ultimo=hoje)
+        if OFUSCADO.match(nome):
+            avisos.append(f"{nome} está com nome aleatório: dê um apelido a ele no Nubimetrics (ícone de lápis)")
+        elif por_nome.get(nome) and por_nome[nome] != h:
+            avisos.append(f"o hash de {nome} mudou desde {hs.get(por_nome[nome], {}).get('ultimo', '?')}: "
+                          "o nubi vai reconhecê-lo pelos anúncios")
+        if not OFUSCADO.match(nome):
+            por_nome[nome] = h
+    for a in avisos:
+        log("  ⚠ " + a)
+    return list(vistos.items()), avisos
 
 
 def baixar_vendedor(pg, h, ini, fim, rng, destino):
@@ -285,7 +295,7 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
     return arq
 
 
-def coletar_vendedores(p, cfg, token, mes=None, parcial=False, so=None, enviar=True, pular=None):
+def coletar_vendedores(p, cfg, token, mes=None, parcial=False, so=None, enviar=True, pular=None, avisos=None):
     hoje = date.today()
     if parcial:
         mes = f"{hoje.year}-{hoje.month:02d}"
@@ -305,20 +315,29 @@ def coletar_vendedores(p, cfg, token, mes=None, parcial=False, so=None, enviar=T
     arquivos = importados = erros = 0
     try:
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-        lista = listar_vendedores(pg, cfg)
+        lista, av = listar_vendedores(pg, cfg)
+        if avisos is not None:
+            avisos.extend(av)
         salvar_config(cfg)
-        for h, nome_fixo, nome_tela in lista:
-            if so and so.upper() not in (nome_fixo.upper(), nome_tela.upper()):
+        manifesto_arq = destino / "manifest.json"
+        manifesto = json.loads(manifesto_arq.read_text(encoding="utf-8")) if manifesto_arq.exists() else []
+        for h, nome in lista:
+            if so and so.upper() != nome.upper():
                 continue
-            if pular and pular(nome_fixo):
-                log(f"  {nome_fixo}: {mes} já está no nubi")
+            if pular and pular(h, nome):
+                log(f"  {nome}: {mes} já está no nubi")
                 continue
             try:
                 arq = baixar_vendedor(pg, h, ini, fim, rng, destino)
                 arquivos += 1
-                log(f"  {nome_fixo}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
+                log(f"  {nome}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
+                manifesto = [m for m in manifesto if m["arquivo"] != arq.name] + [{
+                    "arquivo": arq.name, "nome_exibido": nome, "seller_hash": h, "mes": mes, "ate": ate,
+                    "baixado_em": datetime.now(timezone.utc).isoformat()}]
+                manifesto_arq.write_text(json.dumps(manifesto, ensure_ascii=False, indent=2), encoding="utf-8")
                 if enviar:
-                    params = {"arquivo": arq.name, "mes": mes, "vendedor": nome_fixo}
+                    # nome do arquivo = nome exibido; o hash é a identidade do vendedor no nubi
+                    params = {"arquivo": arq.name, "mes": mes, "seller_hash": h}
                     if ate:
                         params["ate"] = ate
                     r = api(token, "vend_importar", params, arq.read_bytes())
@@ -328,7 +347,7 @@ def coletar_vendedores(p, cfg, token, mes=None, parcial=False, so=None, enviar=T
                 raise
             except Exception as e:  # noqa: BLE001
                 erros += 1
-                log(f"  {nome_fixo}: ERRO {e}")
+                log(f"  {nome}: ERRO {e}")
             time.sleep(PAUSA)
     finally:
         salvar_config(cfg)
@@ -544,11 +563,18 @@ def main():
                     partes.append(f"MARCAS {mes} falhou")
                 A, I, E = A + a, I + i, E + e
             # vendedores: mês fechado que falta (ou que ainda está como parcial)
-            ja = pend["vendedores"]
-            pular = lambda nome: mes in ja.get(nome, {}) and not ja[nome][mes]
-            a, i, e = coletar_vendedores(p, cfg, token, mes, pular=pular)
+            ja, ja_h = pend["vendedores"], pend.get("hashes", {})
+
+            def pular(h, nome):          # já importado (e não parcial) neste mês
+                reg = ja_h.get(h) if h in ja_h else ja.get(nome, {})
+                return mes in reg and not reg[mes]
+            avisos = []
+            a, i, e = coletar_vendedores(p, cfg, token, mes, pular=pular, avisos=avisos)
             A, I, E = A + a, I + i, E + e
             partes.append(f"vendedores {mes}: {i} importado(s)")
+            if avisos:
+                partes.append(f"{len(avisos)} aviso(s): " + "; ".join(avisos)[:300])
+                aviso_mac("Coletor nubi — conferir", avisos[0])
             if cfg.get("mes_atual"):
                 a, i, e = coletar_vendedores(p, cfg, token, parcial=True)
                 A, I, E = A + a, I + i, E + e

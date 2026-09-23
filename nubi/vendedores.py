@@ -328,3 +328,65 @@ def cruzar_explorador(anuncios_por_marca, vendedor):
                          "preco_medio": _div(fat, un), "pos_vendedor": pos, "share_vendedor": _div(un_v, un),
                          "periodo": periodo}
     return out
+
+
+# ---------------------------------------------------------------------------
+# Identidade do vendedor
+# ---------------------------------------------------------------------------
+# O Nubimetrics troca o nome de vendedores sem apelido por nomes aleatórios
+# (BANTENG.PRETO.DEMONSTRATIVO), então o nome não é uma chave confiável.
+#   Chave 1: o hash do vendedor no Nubimetrics (seller=<128 hex>), enviado pelo coletor.
+#   Chave 2 (reserva): a "impressão digital" dos anúncios — os itens que mais vendem.
+
+OFUSCADO = re.compile(r"^[A-Z]+\.[A-Z]+\.[A-Z]+$")
+LIMIAR_AUTO, LIMIAR_REVISAR = 0.60, 0.35
+
+
+def ofuscado(nome):
+    return bool(OFUSCADO.match((nome or "").strip().upper()))
+
+
+def impressao(linhas, n=200):
+    """Os ~200 itens que mais vendem (GTIN, senão SKU, senão título + marca), o total e o mix de marcas."""
+    top = sorted(linhas, key=lambda l: -(l["vendas"] or 0))[:n]
+    itens = set()
+    for l in top:
+        if l.get("gtin"):
+            itens.add(l["gtin"])
+        elif l.get("sku"):
+            itens.add("S:" + str(l["sku"]).strip().upper())
+        else:
+            itens.add("T:" + nubi.normalizar(l["titulo"]) + "|" + nubi.compacta(l.get("marca") or ""))
+    total = sum(l["vendas"] or 0 for l in linhas)
+    marcas = {}
+    for l in linhas:
+        k = l.get("marca_chave") or ""
+        marcas[k] = marcas.get(k, 0) + (l["vendas"] or 0)
+    top_m = dict(sorted(marcas.items(), key=lambda kv: -kv[1])[:30])
+    return {"itens": sorted(itens), "vendas": total,
+            "marcas": {k: round(v / total, 4) for k, v in top_m.items()} if total else {}}
+
+
+def comparar(a, b):
+    """Similaridade entre duas impressões: itens em comum ÷ itens do menor conjunto,
+    razão de faturamento (menor ÷ maior) e parecença do mix de marcas (cosseno)."""
+    ia, ib = set(a.get("itens") or []), set(b.get("itens") or [])
+    sim = len(ia & ib) / min(len(ia), len(ib)) if ia and ib else 0.0
+    va, vb = a.get("vendas") or 0, b.get("vendas") or 0
+    razao = min(va, vb) / max(va, vb) if va and vb else 0.0
+    ma, mb = a.get("marcas") or {}, b.get("marcas") or {}
+    num = sum(ma[k] * mb.get(k, 0) for k in ma)
+    den = (sum(v * v for v in ma.values()) ** 0.5) * (sum(v * v for v in mb.values()) ** 0.5)
+    tam = min(len(ia), len(ib)) / max(len(ia), len(ib)) if ia and ib else 0.0
+    return {"itens": sim, "vendas": razao, "marcas": num / den if den else 0.0, "tamanho": tam}
+
+
+def decidir(c):
+    """Mesmo vendedor só com itens E faturamento E mix de marcas E tamanho de catálogo parecidos:
+    lojas de perfume vendem muitos GTINs em comum, então itens sozinhos não bastam."""
+    # catálogo pequeno "cabe" inteiro no top 200 de um grande: tamanhos parecidos também são exigidos
+    if c["itens"] >= LIMIAR_AUTO and c["vendas"] >= 0.5 and c["marcas"] >= 0.8 and c.get("tamanho", 1) >= 0.6:
+        return "mesmo"
+    if c["itens"] >= LIMIAR_REVISAR:
+        return "revisar"
+    return "novo"

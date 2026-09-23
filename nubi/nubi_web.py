@@ -584,13 +584,15 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"ok": True})
         if rota == "coletor_pendencias":
             # O que já existe no nubi, para o coletor não baixar de novo o que já foi importado.
-            vend = {}
+            vend, por_hash = {}, {}
             for r in _vend_rels(repo):
                 vend.setdefault(r["vendedor"], {})[r["mes"][:7]] = r.get("ate")
+                if r.get("seller_hash"):
+                    por_hash.setdefault(r["seller_hash"], {})[r["mes"][:7]] = r.get("ate")
             rk = {}
             for r in _relatorios(repo):
                 rk.setdefault(r["categoria"], []).append(r["mes"][:7])
-            return _json({"vendedores": vend, "ranking": rk})
+            return _json({"vendedores": vend, "hashes": por_hash, "ranking": rk})
 
         if rota.startswith("apelido"):
             return _json(rota_apelidos(repo, metodo, rota, q, corpo))
@@ -902,7 +904,7 @@ CAMPOS_VEND = ["titulo", "marca", "marca_chave", "gtin", "sku", "vendas", "unida
 
 
 def _vend_rels(repo, vendedor=None):
-    p = {"select": "id,vendedor,mes,ate,arquivo,importado_em", "order": "vendedor,mes"}
+    p = {"select": "id,vendedor,mes,ate,arquivo,importado_em,seller_hash,nome_exibido", "order": "vendedor,mes"}
     if vendedor:
         p["vendedor"] = repo._eq(vendedor)
     return repo._todos("vend_relatorios", p)
@@ -994,12 +996,21 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
             return {"ok": True, "log": [f"Esse arquivo já foi importado ({ja[0]['vendedor']}, "
                                         f"{ranking.nome_mes(ja[0]['mes'])})."],
                     "vendedor": ja[0]["vendedor"], "mes": ja[0]["mes"][:7]}
+        exibido = vend
+        imp = vendedores.impressao(linhas)
+        log = []
+        vend, decisoes = _identificar_vendedor(repo, vend, q.get("seller_hash") or None, mes, imp, log)
         antigos = repo._req("DELETE", "vend_relatorios", {"vendedor": repo._eq(vend), "mes": repo._eq(mes + "-01")},
                             prefer="return=representation") or []
         ate = q.get("ate") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", q.get("ate") or "") else None
-        novo = repo._req("POST", "vend_relatorios", corpo=[{"vendedor": vend, "mes": mes + "-01", "arquivo": nome,
-                                                            "hash": h, "ate": ate}], prefer="return=representation")
+        novo = repo._req("POST", "vend_relatorios", corpo=[{
+            "vendedor": vend, "mes": mes + "-01", "arquivo": nome, "hash": h, "ate": ate,
+            "seller_hash": q.get("seller_hash") or None, "nome_exibido": exibido, "impressao": imp}],
+            prefer="return=representation")
         rid = novo[0]["id"]
+        if decisoes:
+            repo._req("POST", "vend_decisoes", corpo=[dict(d, relatorio_id=rid) for d in decisoes],
+                      prefer="return=minimal")
         regs = []
         for l in linhas:
             r = {c: l.get(c) for c in CAMPOS_VEND if c != "fulfillment"}
@@ -1012,8 +1023,8 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         except ErroNuvem:
             repo._req("DELETE", "vend_relatorios", {"id": repo._eq(rid)})
             raise
-        log = [f"OK: {vend} · {ranking.nome_mes(mes + '-01')} · {len(linhas)} anúncios · "
-               f"R$ {sum(l['vendas'] for l in linhas):,.0f}".replace(",", ".")]
+        log.insert(0, f"OK: {vend} · {ranking.nome_mes(mes + '-01')} · {len(linhas)} anúncios · "
+                      f"R$ {sum(l['vendas'] for l in linhas):,.0f}".replace(",", "."))
         if antigos:
             log.append("(substituiu o relatório anterior do mesmo mês)")
         return {"ok": True, "log": log, "vendedor": vend, "mes": mes}
@@ -1090,12 +1101,147 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         return {"mes": mes, "mes_nome": ranking.nome_mes(mes + "-01"), "meses": list(reversed(meses)),
                 "vendedores": vends, "matriz": mat, "categoria": cat}
 
+    if rota == "vend_nomes":
+        rels = _vend_rels(repo)
+        pessoas = {}
+        for r in rels:
+            x = pessoas.setdefault(r["vendedor"], {"vendedor": r["vendedor"], "meses": [], "nomes": set(), "hashes": set()})
+            x["meses"].append(r["mes"][:7])
+            if r.get("nome_exibido"):
+                x["nomes"].add(r["nome_exibido"])
+            if r.get("seller_hash"):
+                x["hashes"].add(r["seller_hash"])
+        lista = []
+        for x in sorted(pessoas.values(), key=lambda x: x["vendedor"]):
+            lista.append(dict(x, nomes=sorted(x["nomes"] - {x["vendedor"]}), hashes=[h[:12] for h in sorted(x["hashes"])],
+                              ofuscado=vendedores.ofuscado(x["vendedor"]), meses=sorted(x["meses"])))
+        dec = repo._todos("vend_decisoes", {"select": "*", "order": "id.desc"})
+        return {"vendedores": lista, "pendentes": [d for d in dec if d["status"] == "pendente"],
+                "historico": [d for d in dec if d["status"] != "pendente"][:40]}
+
+    if rota == "vend_juntar" and metodo == "POST":
+        d = json.loads(corpo or b"{}")
+        de, para = (d.get("de") or "").strip().upper(), (d.get("para") or "").strip().upper()
+        if not de or not para or de == para:
+            raise ErroNuvem("Escolha dois vendedores diferentes.")
+        n = _renomear_vendedor(repo, de, para)
+        repo._req("POST", "vend_decisoes", corpo=[{"vendedor_antes": de, "vendedor_depois": para, "tipo": "manual",
+                                                   "status": "aplicado", "detalhe": f"{n} mês(es) juntados"}],
+                  prefer="return=minimal")
+        return {"ok": True, "meses": n}
+
+    if rota == "vend_decisao" and metodo == "POST":
+        d = json.loads(corpo or b"{}")
+        dec = repo._req("GET", "vend_decisoes", {"select": "*", "id": repo._eq(int(d["id"]))})
+        if not dec:
+            raise ErroNuvem("Decisão não encontrada.", 404)
+        dec = dec[0]
+        acao = d.get("acao")
+        if acao == "aceitar" and dec["status"] == "pendente":
+            _renomear_vendedor(repo, dec["vendedor_antes"], dec["vendedor_depois"])
+            novo = "aplicado"
+        elif acao == "recusar" and dec["status"] == "pendente":
+            novo = "recusado"
+        elif acao == "desfazer" and dec["status"] == "aplicado":
+            if dec.get("relatorio_id"):
+                r = repo._req("GET", "vend_relatorios", {"select": "id,mes", "id": repo._eq(dec["relatorio_id"])})
+                if r and repo._req("GET", "vend_relatorios", {"select": "id", "vendedor": repo._eq(dec["vendedor_antes"]),
+                                                              "mes": repo._eq(r[0]["mes"])}):
+                    raise ErroNuvem(f"{dec['vendedor_antes']} já tem esse mês; apague um dos dois antes.")
+                repo._req("PATCH", "vend_relatorios", {"id": repo._eq(dec["relatorio_id"])},
+                          corpo={"vendedor": dec["vendedor_antes"]})
+            else:
+                raise ErroNuvem("Junção manual: para separar, junte de novo no sentido contrário ou apague o mês.")
+            novo = "desfeito"
+        else:
+            raise ErroNuvem("Ação inválida para esta decisão.")
+        repo._req("PATCH", "vend_decisoes", {"id": repo._eq(dec["id"])}, corpo={"status": novo})
+        return {"ok": True}
+
     if rota == "vend_apagar" and metodo == "POST":
         repo._req("DELETE", "vend_relatorios", {"id": repo._eq(int(q["id"]))})
         return {"ok": True}
 
     raise ErroNuvem("Rota desconhecida.", 404)
 
+
+
+def _renomear_vendedor(repo, de, para):
+    """Junta todos os meses de `de` em `para`. Mês que os dois têm: fica o de `para`."""
+    meses_para = {r["mes"] for r in _vend_rels(repo, para)}
+    n = 0
+    for r in _vend_rels(repo, de):
+        if r["mes"] in meses_para:
+            repo._req("DELETE", "vend_relatorios", {"id": repo._eq(r["id"])})
+        else:
+            repo._req("PATCH", "vend_relatorios", {"id": repo._eq(r["id"])}, corpo={"vendedor": para})
+            n += 1
+    return n
+
+
+def _impressao_rel(repo, r):
+    if r.get("impressao"):
+        return r["impressao"]
+    imp = vendedores.impressao(_vend_linhas(repo, r["id"]))
+    repo._req("PATCH", "vend_relatorios", {"id": repo._eq(r["id"])}, corpo={"impressao": imp})
+    return imp
+
+
+def _identificar_vendedor(repo, vend, seller_hash, mes, imp, log):
+    """Quem é este vendedor? 1º pelo hash do Nubimetrics; sem hash (ou nome novo/ofuscado),
+    pela impressão digital dos anúncios comparada com os vendedores que não têm este mês.
+    Devolve (nome no nubi, decisões a registrar)."""
+    rels = repo._todos("vend_relatorios", {"select": "id,vendedor,mes,seller_hash,impressao", "order": "mes.desc"})
+    decisoes = []
+    if seller_hash:
+        mesmo = next((r for r in rels if r.get("seller_hash") == seller_hash), None)
+        if mesmo and mesmo["vendedor"] != vend:
+            antigo = mesmo["vendedor"]
+            if vendedores.ofuscado(antigo) and not vendedores.ofuscado(vend):
+                n = _renomear_vendedor(repo, antigo, vend)
+                log.append(f"(ganhou apelido: {antigo} agora é {vend}; {n} mês(es) antigos juntados)")
+                decisoes.append({"vendedor_antes": antigo, "vendedor_depois": vend, "tipo": "hash", "status": "aplicado",
+                                 "detalhe": "mesmo hash do Nubimetrics, novo apelido"})
+            else:
+                log.append(f"(mesmo vendedor que {antigo}, pelo hash do Nubimetrics)")
+                decisoes.append({"vendedor_antes": vend, "vendedor_depois": antigo, "tipo": "hash", "status": "aplicado",
+                                 "detalhe": "mesmo hash do Nubimetrics"})
+                vend = antigo
+            return vend, decisoes
+        if mesmo or (not vendedores.ofuscado(vend) and any(r["vendedor"] == vend for r in rels)):
+            return vend, decisoes
+    elif any(r["vendedor"] == vend for r in rels) and not vendedores.ofuscado(vend):
+        return vend, decisoes
+    # impressão digital: candidatos = vendedores que ainda não têm este mês
+    recusados = {d["vendedor_depois"] for d in repo._todos("vend_decisoes", {
+        "select": "vendedor_depois", "vendedor_antes": repo._eq(vend), "status": "eq.recusado"})}
+    com_mes = {r["vendedor"] for r in rels if r["mes"][:7] == mes}
+    ultimo = {}
+    for r in rels:
+        if r["vendedor"] != vend and r["vendedor"] not in com_mes and r["vendedor"] not in recusados:
+            ultimo.setdefault(r["vendedor"], r)
+    melhor = None
+    for nome_c, r in ultimo.items():
+        c = vendedores.comparar(imp, _impressao_rel(repo, r))
+        nota = c["itens"] + 0.5 * c["vendas"] + 0.3 * c["marcas"]     # itens pesam mais; desempata no faturamento
+        if melhor is None or nota > melhor[2]:
+            melhor = (nome_c, c, nota)
+    if not melhor:
+        return vend, decisoes
+    nome_c, c, _ = melhor
+    txt = (f"itens {c['itens']:.0%}, faturamento {c['vendas']:.0%}, marcas {c['marcas']:.0%}, "
+           f"tamanho do catálogo {c['tamanho']:.0%}")
+    decisao = vendedores.decidir(c)
+    if decisao == "mesmo":
+        log.append(f"(reconhecido como {nome_c} pelos anúncios: {txt})")
+        decisoes.append({"vendedor_antes": vend, "vendedor_depois": nome_c, "tipo": "impressao", "status": "aplicado",
+                         "similaridade": round(c["itens"], 3), "detalhe": txt})
+        return nome_c, decisoes
+    if decisao == "revisar":
+        log.append(f"(parece {nome_c} ({txt}); importado como {vend} — confira em Nomes de vendedores)")
+        decisoes.append({"vendedor_antes": vend, "vendedor_depois": nome_c, "tipo": "impressao", "status": "pendente",
+                         "similaridade": round(c["itens"], 3), "detalhe": txt})
+    return vend, decisoes
 
 # ---------------------------------------------------------------------------
 # 6. Nomes de marca: a mesma marca escrita de jeitos diferentes (YSL = Yves Saint Laurent)

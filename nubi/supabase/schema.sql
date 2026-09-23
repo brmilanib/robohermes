@@ -228,3 +228,18 @@ create table if not exists public.coletor_execucoes (
 alter table public.coletor_execucoes enable row level security;
 create policy "autorizado" on public.coletor_execucoes
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Identidade do vendedor (hash do Nubimetrics e impressão digital dos anúncios).
+alter table public.vend_relatorios add column if not exists seller_hash text;
+alter table public.vend_relatorios add column if not exists nome_exibido text;
+alter table public.vend_relatorios add column if not exists impressao jsonb;
+create index if not exists vend_relatorios_hash on public.vend_relatorios (seller_hash);
+create table if not exists public.vend_decisoes (
+  id bigint generated always as identity primary key,
+  relatorio_id bigint references public.vend_relatorios(id) on delete cascade,
+  vendedor_antes text, vendedor_depois text, tipo text, similaridade numeric, status text, detalhe text,
+  criado_em timestamptz not null default now()
+);
+alter table public.vend_decisoes enable row level security;
+create policy "autorizado" on public.vend_decisoes
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

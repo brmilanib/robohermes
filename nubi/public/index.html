@@ -298,7 +298,7 @@ const SECOES = [
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/vendedores/.test(location.hash) ? "vendedores" : /^#\/nomes-marcas/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores)/.test(location.hash) ? "vendedores" : /^#\/nomes-marcas/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -331,6 +331,7 @@ function desenharMenu() {
   const sec = secaoAtual(), h = decodeURIComponent(location.hash);
   const sub = sec === "vendedores"
     ? [{href: "#/vendedores", nome: "📊 Comparar vendedores", on: h === "#/vendedores" || h.startsWith("#/vendedores?")},
+       {href: "#/nomes-vendedores", nome: "🔗 Nomes de vendedores", on: h === "#/nomes-vendedores"},
        ...(S.vendLista || []).map(v => ({href: "#/vendedores/" + encodeURIComponent(v.vendedor), nome: nome(v.vendedor), on: h.startsWith("#/vendedores/" + v.vendedor)}))]
     : sec === "explorador"
     ? S.painel.map(p => ({href: "#/" + encodeURIComponent(p.marca), nome: nome(p.marca), on: h === "#/" + p.marca}))
@@ -352,6 +353,7 @@ const nome = m => (m || "").toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCas
 function irPara(marca) { location.hash = marca ? "#/" + encodeURIComponent(marca) : "#/"; }
 let secaoDesenhada = null;
 async function rotear() {
+  biRedesenhar = [];            // gráficos da tela anterior não redesenham mais
   const sec = secaoAtual();
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   if (sec === "ranking") {
@@ -361,6 +363,7 @@ async function rotear() {
   if (sec === "nomes") return telaNomesMarcas();
   if (sec === "vendedores") {
     if (!S.vendLista) await carregarVendLista();
+    if (location.hash.startsWith("#/nomes-vendedores")) return telaNomesVendedores();
     const h = decodeURIComponent(location.hash);
     const m = h.match(/^#\/vendedores\/([^/?]+)(?:\/(\d{4}-\d{2}))?/);
     if (m) return telaVendedor(m[1], m[2]);
@@ -728,7 +731,7 @@ function sparkSerie(s) {
     ${s[u] != null ? `<circle cx="${X(u)}" cy="${Y(s[u])}" r="2.5" fill="var(--s1)"/>` : ""}</svg>`;
 }
 const ST_CLS = {"Subindo forte": "good", "Crescimento consistente": "good", "Nova": "good", "Em queda": "bad", "Saiu do ranking": "bad", "Instável": "warn",
-  "Ficou e cresceu": "good", "Entrou agora": "good", "Entrou e saiu": "bad", "Fora do ranking": "", "Ficou, mas caindo": "bad", "Perdeu fôlego": "bad", "Passou rápido": "warn", "Voltou depois": "warn"};
+  "Ficou e cresceu": "good", "Entrou agora": "good", "Entrou e saiu": "bad", "Fora do ranking": "", "Ficou, mas caindo": "bad", "Perdeu fôlego": "bad", "Passou rápido": "warn", "Voltou depois": "warn", "Juntado": "good", "Separado": "", "Desfeito": "warn"};
 const statusHTML = s => s ? `<span class="st ${ST_CLS[s] || ""}">${esc(s)}</span>` : "";
 
 // ---------- B.I. do ranking (todos os meses importados) ----------
@@ -1171,6 +1174,59 @@ async function telaNomesMarcas() {
   main.querySelectorAll("[data-n]").forEach(b => b.onclick = () => { const x = r.sugestoes[b.dataset.n]; acao("apelido_ignorar", {apelido: x.apelido}, "Sugestão escondida."); });
   main.querySelectorAll("[data-x]").forEach(b => b.onclick = e => { e.preventDefault(); acao("apelido_apagar", {apelido: b.dataset.x}, "Desfeito."); });
   $("#ap-add").onclick = () => acao("apelido_salvar", {apelido: $("#ap-a").value, marca: $("#ap-b").value}, "Nomes juntados.");
+  desenharMenu();
+}
+
+// ---------- Nomes de vendedores (mesmo vendedor com nomes diferentes) ----------
+async function telaNomesVendedores() {
+  const main = $("#main");
+  main.innerHTML = `<div class="empty"><span class="spin"></span> Carregando vendedores…</div>`;
+  let r;
+  try { r = await api("vend_nomes"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const acao = async (rota, corpo, msg) => {
+    try { await api(rota, {}, {method: "POST", body: JSON.stringify(corpo)}); toast(msg); await carregarVendLista(); telaNomesVendedores(); }
+    catch (e) { toast(e.message, 6000); }
+  };
+  const TIPO = {hash: "hash do Nubimetrics", impressao: "anúncios parecidos", manual: "manual"};
+  const nomesV = r.vendedores.map(v => v.vendedor);
+  main.innerHTML = `<h1>Nomes de vendedores</h1>
+    <p class="muted" style="margin:4px 0 0">O Nubimetrics mostra nome aleatório para vendedor sem apelido (ex.: BANTENG.PRETO.DEMONSTRATIVO) e o nome muda.
+    O nubi reconhece o mesmo vendedor pelo <b>hash do Nubimetrics</b> (coletor automático) ou, sem ele, pelos <b>anúncios que mais vendem</b>
+    (itens em comum, faturamento e mix de marcas). Quando fica em dúvida, pede a sua confirmação aqui.</p>
+    <div class="grid2" style="margin-top:14px">
+      <div class="card pad"><h2>Para conferir <span class="muted" style="font-weight:400">(${r.pendentes.length})</span></h2>
+        ${r.pendentes.length ? `<table class="t" style="font-size:12.5px"><tbody>${r.pendentes.map((d, i) => `<tr>
+          <td class="first">${esc(d.vendedor_antes)}</td><td>parece</td><td class="first">${esc(d.vendedor_depois)}</td>
+          <td class="muted wrap" style="min-width:160px">${esc(d.detalhe || "")}</td>
+          <td><button class="btn small primary" data-ac="${d.id}">É o mesmo</button> <button class="btn small" data-re="${d.id}">São diferentes</button></td></tr>`).join("")}</tbody></table>`
+          : `<div class="muted">Nada para conferir.</div>`}
+        <h2 style="margin-top:18px">Juntar à mão</h2>
+        <div class="form-row" style="grid-template-columns:1fr 1fr auto;align-items:end;margin-top:0">
+          <label class="f">Este vendedor<select id="vj-de">${nomesV.map(n => `<option>${esc(n)}</option>`).join("")}</select></label>
+          <label class="f">vira este<select id="vj-para">${nomesV.map(n => `<option>${esc(n)}</option>`).join("")}</select></label>
+          <button class="btn primary" id="vj-ok">Juntar</button></div>
+        <div class="muted" style="font-size:12px;margin-top:6px">Os meses do primeiro passam para o segundo. Se os dois tiverem o mesmo mês, fica o do segundo.</div>
+      </div>
+      <div class="card pad"><h2>Vendedores <span class="muted" style="font-weight:400">(${r.vendedores.length})</span></h2>
+        <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Vendedor</th><th>Meses</th><th>Outros nomes</th><th>Hash</th></tr></thead><tbody>
+        ${r.vendedores.map(v => `<tr><td class="first">${vendLinkV(v.vendedor)} ${v.ofuscado ? `<span class="st warn">nome aleatório</span>` : ""}</td>
+          <td>${v.meses.map(mesCurto).join(", ")}</td><td class="muted">${esc(v.nomes.join(", "))}</td><td class="muted">${esc(v.hashes.join(", ") || "—")}</td></tr>`).join("")}</tbody></table></div>
+      </div>
+    </div>
+    <div class="card pad" style="margin-top:14px"><h2>Histórico de decisões</h2>
+      ${r.historico.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Quando</th><th>Chegou como</th><th>Ligado a</th><th>Como</th><th>Situação</th><th>Detalhe</th><th></th></tr></thead><tbody>
+      ${r.historico.map(d => `<tr><td>${esc(quando(d.criado_em))}</td><td>${esc(d.vendedor_antes)}</td><td class="first">${esc(d.vendedor_depois)}</td>
+        <td>${esc(TIPO[d.tipo] || d.tipo)}</td><td>${statusHTML({aplicado: "Juntado", recusado: "Separado", desfeito: "Desfeito"}[d.status] || d.status)}</td>
+        <td class="muted wrap">${esc(d.detalhe || "")}</td>
+        <td>${d.status === "aplicado" && d.relatorio_id ? `<button class="btn small" data-de="${d.id}">desfazer</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
+        : `<div class="muted">Nenhuma ainda.</div>`}
+    </div>`;
+  main.querySelectorAll("[data-ac]").forEach(b => b.onclick = () => acao("vend_decisao", {id: +b.dataset.ac, acao: "aceitar"}, "Vendedores juntados."));
+  main.querySelectorAll("[data-re]").forEach(b => b.onclick = () => acao("vend_decisao", {id: +b.dataset.re, acao: "recusar"}, "Marcados como diferentes."));
+  main.querySelectorAll("[data-de]").forEach(b => b.onclick = () => acao("vend_decisao", {id: +b.dataset.de, acao: "desfazer"}, "Desfeito."));
+  $("#vj-ok").onclick = () => { const de = $("#vj-de").value, para = $("#vj-para").value;
+    if (de === para) return toast("Escolha dois vendedores diferentes.");
+    if (confirm(`Juntar ${de} em ${para}?`)) acao("vend_juntar", {de, para}, "Vendedores juntados."); };
   desenharMenu();
 }
 function abrirUploadRanking() {
