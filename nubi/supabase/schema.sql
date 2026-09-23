@@ -131,3 +131,30 @@ grant execute on function public.painel() to authenticated;
 
 -- Linha original do CSV, coluna por coluna (aba Anúncios mostra igual ao arquivo).
 alter table public.anuncios add column if not exists bruto jsonb;
+
+-- Ranking mensal de marcas (relatório "MARCAS" do Nubimetrics, sem produtos).
+create table if not exists public.ranking_relatorios (
+  id bigserial primary key,
+  categoria text not null,
+  mes date not null,
+  arquivo text,
+  hash text unique,
+  importado_em timestamptz not null default now(),
+  unique (categoria, mes)
+);
+create table if not exists public.ranking_linhas (
+  id bigserial primary key,
+  relatorio_id bigint not null references public.ranking_relatorios (id) on delete cascade,
+  posicao int, variacao int, marca text, marca_chave text,
+  vendas double precision, unidades double precision,
+  tendencia text, catalogo double precision, vendedores int, saturacao text, ranking_demanda int,
+  bruto jsonb
+);
+create index if not exists ranking_linhas_rel on public.ranking_linhas (relatorio_id);
+create index if not exists ranking_linhas_chave on public.ranking_linhas (marca_chave);
+alter table public.ranking_relatorios enable row level security;
+alter table public.ranking_linhas enable row level security;
+create policy "autorizado" on public.ranking_relatorios
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create policy "autorizado" on public.ranking_linhas
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

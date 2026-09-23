@@ -5,8 +5,7 @@ uma por marca, com histórico acumulado entre períodos.
 
 ## Versão web (no navegador)
 
-Acesse **https://nubi-explorador-vb-financeiro.vercel.app** e entre com o seu e-mail.
-Você recebe um link de acesso no e-mail. Na página dá para:
+Acesse **https://nubi-explorador.vercel.app** e entre com e-mail e senha. Na página dá para:
 
 - **Importar CSV**: arraste um ou mais exports. Marca e período vêm do nome do arquivo
   (padrão abaixo) ou você preenche no formulário.
@@ -27,6 +26,27 @@ Como funciona por trás:
   liberar alguém, adicione o e-mail dessa pessoa lá (Table Editor → acesso → Insert row).
 - Para usar a base Cosmos na pesquisa de GTIN, cadastre o token na variável de
   ambiente `NUBI_COSMOS_TOKEN` do projeto na Vercel.
+
+### Ranking mensal de marcas (menu lateral)
+
+A segunda função do menu lateral lê o relatório **MARCAS** do Nubimetrics do mês
+fechado. É o arquivo `.xlsx` com uma linha por marca: posição, variação, vendas em $,
+quantidade, tendência, catálogo, vendedores, saturação e ranking de demanda. Esse
+relatório não traz produtos.
+
+- **Importar relatório do mês**: categoria e mês vêm do nome do arquivo
+  (`MARCAS-MLB1246-MLB6284-2026-08-01_1.xlsx` → Perfumes, agosto de 2026).
+- A página mostra:
+  - os indicadores do mês: vendas, unidades, ticket médio, concentração, tendência e saturação;
+  - **Onde vale olhar**: nota de oportunidade por marca. Pesam crescimento, pouca
+    saturação, poucos vendedores para o volume e subida no ranking. O tamanho só conta
+    até o nível das 25% maiores;
+  - as **maiores marcas** e o ranking completo com filtros;
+  - ticket médio, vendas por vendedor e share em cada marca.
+- A partir do 2º mês da mesma categoria aparecem a variação de vendas e unidades, as
+  marcas que entraram e as que saíram do ranking.
+- Clicar numa marca abre o histórico dela mês a mês. Se a marca também está no
+  Explorador, aparece o atalho para os anúncios dela.
 
 A versão de computador continua funcionando igual, com os dados locais em `dados/base.db`.
 

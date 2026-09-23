@@ -22,6 +22,7 @@ from datetime import date, datetime
 import pandas as pd
 
 import nubi
+import ranking
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://ivsmadbyzbmugwfadwtg.supabase.co")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "sb_publishable_hlLuzIP8GMxjwTfY-otJQQ_LbMPm7Yt")
@@ -487,6 +488,9 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem("Este e-mail ainda não tem acesso ao nubi. Peça para liberar.", 403)
             return _json(repo.painel())
 
+        if rota.startswith("ranking"):
+            return _json(rota_ranking(repo, metodo, rota, q, corpo))
+
         if rota == "marcas":
             # Marcas já cadastradas (com dados ou só com linhas configuradas), para o upload.
             return _json(sorted(set(repo.carregar_config()) | set(repo.marcas())))
@@ -625,6 +629,119 @@ def atender(metodo, rota, q, corpo, token):
     except Exception:  # noqa: BLE001 — a página mostra uma frase; o detalhe vai para o log da Vercel
         traceback.print_exc()
         return _json({"erro": "Algo deu errado no servidor. Tente de novo; se persistir, veja os logs."}, 500)
+
+
+# ---------------------------------------------------------------------------
+# 4. Ranking mensal de marcas
+# ---------------------------------------------------------------------------
+
+def _relatorios(repo, categoria=None):
+    p = {"select": "id,categoria,mes,arquivo,importado_em", "order": "categoria,mes"}
+    if categoria:
+        p["categoria"] = repo._eq(categoria)
+    return repo._todos("ranking_relatorios", p)
+
+
+def _linhas(repo, rid):
+    return repo._todos("ranking_linhas", {"select": "*", "relatorio_id": repo._eq(int(rid)), "order": "posicao"})
+
+
+def rota_ranking(repo, metodo, rota, q, corpo):
+    if rota == "ranking_lista":
+        rels = _relatorios(repo)
+        cats = {}
+        for r in rels:
+            cats.setdefault(r["categoria"], []).append(r)
+        return [{"categoria": c, "nome": ranking.nome_categoria(c),
+                 "meses": [{"id": r["id"], "mes": r["mes"], "nome": ranking.nome_mes(r["mes"]),
+                            "arquivo": r["arquivo"]} for r in reversed(rs)]}
+                for c, rs in cats.items()]
+
+    if rota == "ranking_analisar" and metodo == "POST":
+        try:
+            linhas, cat, mes = ranking.ler_relatorio(corpo, q.get("arquivo", ""))
+        except ranking.ErroRanking as e:
+            raise ErroNuvem(f"Não importado: {e}.")
+        return {"categoria": cat, "categoria_nome": ranking.nome_categoria(cat) if cat else "",
+                "mes": mes[:7], "marcas": len(linhas), "primeira": linhas[0]["marca"],
+                "vendas": sum(l["vendas"] or 0 for l in linhas)}
+
+    if rota == "ranking_importar" and metodo == "POST":
+        nome = q.get("arquivo") or "relatorio.xlsx"
+        try:
+            linhas, cat, mes = ranking.ler_relatorio(corpo, nome)
+        except ranking.ErroRanking as e:
+            raise ErroNuvem(f"Não importado: {e}.")
+        cat = (q.get("categoria") or cat or "").strip().upper()
+        mes = (q.get("mes") + "-01") if q.get("mes") else mes
+        if not cat or not re.fullmatch(r"\d{4}-\d{2}-01", mes or ""):
+            raise ErroNuvem("Informe a categoria e o mês do relatório.")
+        h = ranking.hash_de(corpo)
+        ja = repo._req("GET", "ranking_relatorios", {"select": "categoria,mes", "hash": repo._eq(h)})
+        if ja:
+            return {"ok": True, "log": [f"Esse arquivo já foi importado ({ranking.nome_categoria(ja[0]['categoria'])}, "
+                                        f"{ranking.nome_mes(ja[0]['mes'])})."], "categoria": ja[0]["categoria"],
+                    "mes": ja[0]["mes"][:7]}
+        antigos = repo._req("DELETE", "ranking_relatorios", {"categoria": repo._eq(cat), "mes": repo._eq(mes)},
+                            prefer="return=representation") or []
+        novo = repo._req("POST", "ranking_relatorios", corpo=[{"categoria": cat, "mes": mes, "arquivo": nome,
+                                                                "hash": h}], prefer="return=representation")
+        rid = novo[0]["id"]
+        regs = [dict(l, relatorio_id=rid) for l in linhas]
+        try:
+            for i in range(0, len(regs), LOTE):
+                repo._req("POST", "ranking_linhas", corpo=regs[i:i + LOTE], prefer="return=minimal")
+        except ErroNuvem:
+            repo._req("DELETE", "ranking_relatorios", {"id": repo._eq(rid)})
+            raise
+        log = [f"OK: {ranking.nome_categoria(cat)} · {ranking.nome_mes(mes)} · {len(linhas)} marcas"]
+        if antigos:
+            log.append("(substituiu o relatório anterior do mesmo mês)")
+        return {"ok": True, "log": log, "categoria": cat, "mes": mes[:7]}
+
+    if rota == "ranking_relatorio":
+        cat = q["categoria"]
+        rels = _relatorios(repo, cat)
+        if not rels:
+            raise ErroNuvem("Nenhum relatório importado para esta categoria.", 404)
+        mes = q.get("mes")
+        idx = next((i for i, r in enumerate(rels) if r["mes"][:7] == mes), len(rels) - 1)
+        atual = rels[idx]
+        ant = rels[idx - 1] if idx > 0 else None
+        linhas = _linhas(repo, atual["id"])
+        linhas_ant = _linhas(repo, ant["id"]) if ant else None
+        tabela, saiu, resumo = ranking.analisar(linhas, linhas_ant, repo.marcas())
+        return {"categoria": cat, "categoria_nome": ranking.nome_categoria(cat),
+                "mes": atual["mes"][:7], "mes_nome": ranking.nome_mes(atual["mes"]), "id": atual["id"],
+                "arquivo": atual["arquivo"],
+                "anterior": {"mes": ant["mes"][:7], "nome": ranking.nome_mes(ant["mes"])} if ant else None,
+                "meses": [{"mes": r["mes"][:7], "nome": ranking.nome_mes(r["mes"]), "id": r["id"]} for r in reversed(rels)],
+                "resumo": resumo, "marcas": tabela, "sairam": saiu}
+
+    if rota == "ranking_marca":
+        cat, chave = q["categoria"], nubi.compacta(q["marca"])
+        rels = {r["id"]: r for r in _relatorios(repo, cat)}
+        if not rels:
+            return {"historico": []}
+        ids = ",".join(str(i) for i in rels)
+        linhas = repo._todos("ranking_linhas", {"select": "*", "marca_chave": repo._eq(chave),
+                                                "relatorio_id": f"in.({ids})", "order": "relatorio_id"})
+        hist = []
+        for l in linhas:
+            r = rels[l["relatorio_id"]]
+            l.pop("bruto", None)
+            hist.append(dict(l, mes=r["mes"][:7], mes_nome=ranking.nome_mes(r["mes"]),
+                             ticket=ranking._div(l["vendas"], l["unidades"]),
+                             vendas_por_vendedor=ranking._div(l["vendas"], l["vendedores"])))
+        hist.sort(key=lambda x: x["mes"])
+        return {"marca": hist[-1]["marca"] if hist else q["marca"], "historico": hist,
+                "meses_total": len(rels)}
+
+    if rota == "ranking_apagar" and metodo == "POST":
+        repo._req("DELETE", "ranking_relatorios", {"id": repo._eq(int(q["id"]))})
+        return {"ok": True}
+
+    raise ErroNuvem("Rota desconhecida.", 404)
 
 
 def _json(obj, status=200):

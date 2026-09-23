@@ -124,6 +124,19 @@ label.f input,label.f select{border:1px solid var(--line);border-radius:8px;padd
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;z-index:60;max-width:90vw}
 svg.spark{display:block}
 .top5 li{margin:6px 0}
+.layout{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:calc(100vh - 54px)}
+.layout>main{margin:0;min-width:0}
+aside.side{background:var(--card);border-right:1px solid var(--line);padding:14px 10px;position:sticky;top:54px;height:calc(100vh - 54px);overflow:auto}
+.navi{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;color:var(--ink);text-decoration:none;font-weight:600;margin-bottom:4px}
+.navi:hover{background:var(--soft)}
+.navi.on{background:var(--soft);color:var(--accent)}
+.navi .ic{font-size:18px;line-height:1.2}
+.navi small{display:block;font-weight:400;color:var(--muted);font-size:11.5px}
+.subnav{display:flex;flex-direction:column;margin:0 0 8px 40px;border-left:1px solid var(--line)}
+.subnav a{padding:5px 10px;color:var(--muted);text-decoration:none;font-size:13px}
+.subnav a:hover{color:var(--ink)}
+.subnav a.on{color:var(--accent);font-weight:600;border-left:2px solid var(--accent);margin-left:-1px}
+@media (max-width:900px){.layout{grid-template-columns:1fr}aside.side{position:static;height:auto;display:flex;flex-wrap:wrap;gap:4px;border-right:none;border-bottom:1px solid var(--line)}.subnav{display:none}}
 a.plink{color:inherit;text-decoration:none;border-bottom:1px dashed var(--muted);cursor:pointer}
 a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .modal.larga{max-width:1080px}
@@ -234,37 +247,238 @@ function trocarSenha() {
 }
 
 // ---------- Estrutura ----------
+// Menu lateral: cada função do nubi é uma seção. Explorador (#/ e #/MARCA) e
+// Ranking mensal de marcas (#/ranking e #/ranking/CATEGORIA/AAAA-MM).
+const SECOES = [
+  {id: "explorador", nome: "Explorador de anúncios", desc: "Anúncios por marca", icone: "🔎"},
+  {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
+];
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
+  const sec = secaoAtual();
   $("#app").innerHTML = `
   <header class="top">
-    <div class="logo" id="home">nubi <small>Explorador de anúncios</small></div>
-    <select id="selm" title="Marca"><option value="">Todas as marcas</option>
+    <div class="logo" id="home">nubi <small>${esc(SECOES.find(x => x.id === sec).nome)}</small></div>
+    ${sec === "explorador" ? `<select id="selm" title="Marca"><option value="">Todas as marcas</option>
       ${S.painel.map(p => `<option value="${esc(p.marca)}" ${p.marca === S.marca ? "selected" : ""}>${esc(nome(p.marca))}</option>`).join("")}
-    </select>
+    </select>` : ""}
     <div class="sp"></div>
-    <button class="btn ghost" id="bup">⬆ Importar CSV</button>
-    <button class="btn ghost" id="bxl">⬇ Excel</button>
+    <button class="btn ghost" id="bup">⬆ ${sec === "ranking" ? "Importar relatório do mês" : "Importar CSV"}</button>
+    ${sec === "explorador" ? `<button class="btn ghost" id="bxl">⬇ Excel</button>` : ""}
     <span style="opacity:.8;font-size:12.5px">${esc(email)}</span>
     <button class="btn ghost small" id="bsenha">Trocar senha</button>
     <button class="btn ghost small" id="bsair">Sair</button>
   </header>
-  <main id="main"></main>`;
-  $("#home").onclick = () => irPara("");
-  $("#selm").onchange = e => irPara(e.target.value);
-  $("#bup").onclick = abrirUpload;
-  $("#bxl").onclick = baixarExcel;
+  <div class="layout">
+    <aside class="side" id="side"></aside>
+    <main id="main"></main>
+  </div>`;
+  $("#home").onclick = () => { location.hash = sec === "ranking" ? "#/ranking" : "#/"; };
+  if ($("#selm")) $("#selm").onchange = e => irPara(e.target.value);
+  $("#bup").onclick = sec === "ranking" ? abrirUploadRanking : abrirUpload;
+  if ($("#bxl")) $("#bxl").onclick = baixarExcel;
   $("#bsenha").onclick = trocarSenha;
   $("#bsair").onclick = async () => { await sb.auth.signOut(); location.hash = ""; };
+  desenharMenu();
+}
+function desenharMenu() {
+  const sec = secaoAtual(), h = decodeURIComponent(location.hash);
+  const sub = sec === "explorador"
+    ? S.painel.map(p => ({href: "#/" + encodeURIComponent(p.marca), nome: nome(p.marca), on: h === "#/" + p.marca}))
+    : (S.rankLista || []).map(c => ({href: `#/ranking/${encodeURIComponent(c.categoria)}`, nome: c.nome.split(" > ").pop(),
+        on: h.startsWith(`#/ranking/${c.categoria}`)}));
+  $("#side").innerHTML = SECOES.map(x => `
+    <a class="navi ${x.id === sec ? "on" : ""}" href="${x.id === "ranking" ? "#/ranking" : "#/"}">
+      <span class="ic">${x.icone}</span><span>${esc(x.nome)}<small>${esc(x.desc)}</small></span></a>
+    ${x.id === sec && sub.length ? `<div class="subnav">${sub.map(i => `<a class="${i.on ? "on" : ""}" href="${i.href}">${esc(i.nome)}</a>`).join("")}</div>` : ""}`).join("");
 }
 const nome = m => (m || "").toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()).replace(/ (De|Da|Do|Di|Du) /g, x => x.toLowerCase());
 
 function irPara(marca) { location.hash = marca ? "#/" + encodeURIComponent(marca) : "#/"; }
+let secaoDesenhada = null;
 async function rotear() {
+  const sec = secaoAtual();
+  if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
+  if (sec === "ranking") {
+    const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}))?/) || [];
+    return telaRanking(cat, mes);
+  }
   const m = decodeURIComponent((location.hash.match(/^#\/(.+)$/) || [])[1] || "");
   S.marca = m || null;
   if ($("#selm")) $("#selm").value = S.marca || "";
   if (S.marca) await abrirMarca(S.marca); else telaPainel();
+}
+
+// ---------- Ranking mensal de marcas ----------
+async function carregarRankLista() { try { S.rankLista = await api("ranking_lista"); } catch { S.rankLista = []; } }
+const rankVar = v => v == null ? "" : v > 0 ? `<span class="pos">▲ ${v}</span>` : v < 0 ? `<span class="neg">▼ ${-v}</span>` : `<span class="muted">=</span>`;
+const abrev = v => v == null ? "—" : v >= 1e6 ? "R$ " + nf1.format(v / 1e6) + " mi" : v >= 1e3 ? "R$ " + nf1.format(v / 1e3) + " mil" : "R$ " + nf0.format(v);
+async function telaRanking(cat, mes) {
+  const main = $("#main");
+  if (!S.rankLista) await carregarRankLista();
+  if (!S.rankLista.length) {
+    main.innerHTML = `<h1>Ranking mensal de marcas</h1>
+      <div class="card empty" style="margin-top:16px"><h2>Nenhum relatório ainda</h2>
+      <p>Importe o relatório de marcas do mês fechado (arquivo <code>MARCAS-MLB…-AAAA-MM-01.xlsx</code> do Nubimetrics).</p>
+      <button class="btn primary" onclick="abrirUploadRanking()">⬆ Importar relatório do mês</button></div>`;
+    desenharMenu(); return;
+  }
+  cat = cat || S.rankLista[0].categoria;
+  main.innerHTML = `<div class="empty"><span class="spin"></span> Carregando o ranking…</div>`;
+  let r;
+  try { r = await api("ranking_relatorio", mes ? {categoria: cat, mes} : {categoria: cat}); }
+  catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  S.rank = r; S.tabelas = {};
+  const z = r.resumo, ant = r.anterior;
+  const varTxt = v => v == null ? "" : `<span class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${FMT.var(v)} vs ${esc(ant.nome)}</span>`;
+  const top = [...r.marcas].sort((a, b) => b.nota - a.nota).slice(0, 8);
+  const maiores = r.marcas.slice(0, 10);
+  main.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h1>Ranking de marcas · ${esc(r.categoria_nome)}</h1>
+      <select id="rkmes" class="btn" style="padding:5px 8px">${r.meses.map(m => `<option value="${m.mes}" ${m.mes === r.mes ? "selected" : ""}>${esc(m.nome)}</option>`).join("")}</select>
+      <span class="muted">${ant ? `comparando com ${esc(ant.nome)}` : "primeiro mês importado desta categoria (a comparação aparece a partir do próximo)"}</span>
+    </div>
+    <p class="alerta" style="margin:4px 0 0">Mercado inteiro da categoria no mês fechado (${nf0.format(z.marcas)} marcas do relatório), não da sua loja.</p>
+    <div class="kpis">
+      ${kpi("Vendas das " + z.marcas + " marcas", abrev(z.vendas), varTxt(z.var_vendas))}
+      ${kpi("Unidades vendidas", nf0.format(z.unidades), varTxt(z.var_unidades))}
+      ${kpi("Ticket médio", "R$ " + nf2.format(z.ticket), "vendas ÷ unidades")}
+      ${kpi("Concentração", FMT.pct(z.concentracao.top5) + " top 5", FMT.pct(z.concentracao.top10) + " top 10 · " + FMT.pct(z.concentracao.top20) + " top 20")}
+      ${kpi("Tendência", `<span class="pos">${z.crescendo}</span> / ${z.estavel} / <span class="neg">${z.diminuindo}</span>`, "crescendo / estáveis / diminuindo")}
+      ${kpi("Saturação", `${z.sat_baixa} / ${z.sat_media} / ${z.sat_alta}`, "marcas com saturação baixa / média / alta")}
+      ${kpi("Vendedores por marca", nf0.format(z.vendedores_mediana), "mediana")}
+      ${ant ? kpi("Entraram / saíram", `${z.novas} / ${z.sairam}`, "marcas no ranking vs " + esc(ant.nome)) : ""}
+    </div>
+    <div class="grid2">
+      <div class="card pad"><h2>Onde vale olhar</h2>
+        <ol class="top5" style="margin:0;padding-left:22px">${top.map(m => `<li><b>${rkLink(m.marca)}</b> ${notaHTML(m.nota)}
+          <span class="muted">#${m.posicao} · ${abrev(m.vendas)} · ${nf0.format(m.vendedores || 0)} vendedores · ticket R$ ${nf0.format(m.ticket)}</span><br>${sinaisRk(m.sinais)}</li>`).join("")}</ol>
+      </div>
+      <div class="card pad"><h2>Maiores marcas</h2>
+        <table class="t" style="font-size:13px"><tbody>${maiores.map(m => `<tr><td class="num muted">${m.posicao}</td>
+          <td>${rankVar(m.variacao)}</td><td class="first">${rkLink(m.marca)}</td><td class="num">${abrev(m.vendas)}</td>
+          <td style="width:20%;min-width:70px"><div style="background:var(--soft);border-radius:4px;height:8px"><div style="width:${(m.vendas / maiores[0].vendas * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:4px"></div></div></td>
+          <td class="num">${FMT.pct(m.share)}</td></tr>`).join("")}</tbody></table>
+        ${r.sairam.length ? `<div class="muted" style="font-size:12px;margin-top:10px">Saíram do ranking: ${r.sairam.map(x => `<span class="sinal bad">${esc(x.marca)} (era #${x.posicao_ant})</span>`).join("")}</div>` : ""}
+      </div>
+    </div>
+    <div id="rk-tab" class="painel"></div>
+    <div class="muted" style="font-size:12px;margin-top:10px">Arquivo: ${esc(r.arquivo || "")} ·
+      <a href="#" id="rkapagar">apagar este mês</a></div>`;
+  $("#rkmes").onchange = e => { location.hash = `#/ranking/${encodeURIComponent(cat)}/${e.target.value}`; };
+  $("#rkapagar").onclick = async e => {
+    e.preventDefault();
+    if (!confirm(`Apagar o relatório de ${r.mes_nome}? Não dá para desfazer.`)) return;
+    await api("ranking_apagar", {id: r.id}, {method: "POST"}); toast("Relatório apagado.");
+    await carregarRankLista(); desenharMenu(); location.hash = "#/ranking"; rotear();
+  };
+  const cols = [["posicao","#","int"],["variacao","Var. posição","rank"],["marca","Marca","rkmarca","txt"],["nota","Nota","nota"],["sinais","Sinais","sinais_rk","txt"],
+    ["vendas","Vendas","moeda"], ...(ant ? [["var_vendas","Var. vendas","var"]] : []), ["unidades","Unidades","int"], ...(ant ? [["var_unidades","Var. unidades","var"]] : []),
+    ["ticket","Ticket médio","moeda2"],["vendedores","Vendedores","int"],["vendas_por_vendedor","Vendas por vendedor","moeda"],
+    ["catalogo","Catálogo","pct"],["tendencia","Tendência","txt","sel"],["saturacao","Saturação","txt","sel"],["ranking_demanda","Ranking de demanda","int"],
+    ["share","Share","pct"],["share_acum","Share acumulado","pct"],["explorador","Explorador","expl"]];
+  tabela($("#rk-tab"), "rk_marcas", r.marcas, cols, {ordem: ["posicao", 1],
+    nota: "Nota de oportunidade: crescimento, pouca saturação, poucos vendedores para o volume e subida no ranking; o tamanho só conta até o nível das 25% maiores (as gigantes não ganham nota só por serem grandes). Clique na marca para ver o histórico dela mês a mês."});
+  desenharMenu();
+}
+const BOM_RK = new Set(["Pouca saturação", "Crescendo", "Poucos vendedores p/ o volume", "Subiu no ranking", "Catálogo pouco disputado", "Nova no ranking"]);
+const sinaisRk = s => (s || "").split(" · ").filter(Boolean).map(x => `<span class="sinal ${BOM_RK.has(x) ? "good" : "bad"}">${esc(x)}</span>`).join("");
+const rkLink = m => `<a href="#" class="plink rklink" data-rkm="${esc(m)}" title="Histórico da marca mês a mês">${esc(m)}</a>`;
+async function abrirMarcaRanking(marca) {
+  const bg = modal(`<div class="empty"><span class="spin"></span> Carregando ${esc(marca)}…</div>`);
+  $(".modal", bg).classList.add("larga");
+  let h;
+  try { h = await api("ranking_marca", {categoria: S.rank.categoria, marca}); }
+  catch (e) { $(".modal", bg).innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const linha = S.rank.marcas.find(x => x.marca === marca) || {};
+  const hs = h.historico;
+  const serie = hs.map(x => x.vendas || 0), mx = Math.max(...serie, 1);
+  const barras = hs.length > 1 ? `<div style="display:flex;align-items:flex-end;gap:8px;height:90px;margin:14px 0 4px">${hs.map(x =>
+      `<div style="flex:1;text-align:center"><div title="${esc(x.mes_nome)}: ${abrev(x.vendas)}" style="height:${Math.max(3, (x.vendas || 0) / mx * 70)}px;background:var(--accent);border-radius:4px 4px 0 0"></div>
+       <div class="muted" style="font-size:11px">${esc(x.mes_nome.split(" de ")[0].slice(0, 3))}/${x.mes.slice(2, 4)}</div></div>`).join("")}</div>` : "";
+  $(".modal", bg).innerHTML = `
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <div style="flex:1"><h2 style="margin-bottom:2px">${esc(h.marca)} <span class="muted" style="font-weight:500">#${linha.posicao ?? "—"} em ${esc(S.rank.mes_nome)}</span></h2>
+        <div class="muted">${esc(S.rank.categoria_nome)} · ${hs.length} de ${h.meses_total} mês(es) importado(s) no ranking</div>
+        <div style="margin-top:6px">${sinaisRk(linha.sinais)}</div></div>
+      ${linha.explorador ? `<a class="btn small" href="#/${encodeURIComponent(linha.explorador)}" data-fechar>Abrir no explorador ↗</a>` : ""}
+      <button class="btn small" data-fechar>Fechar</button>
+    </div>
+    ${barras}
+    <div class="tw" style="margin-top:10px"><table class="t"><thead><tr><th>Mês</th><th class="num">Posição</th><th class="num">Var.</th>
+      <th class="num">Vendas</th><th class="num">Unidades</th><th class="num">Ticket médio</th><th class="num">Vendedores</th>
+      <th class="num">Vendas por vendedor</th><th class="num">Catálogo</th><th>Tendência</th><th>Saturação</th><th class="num">Ranking de demanda</th></tr></thead><tbody>
+      ${[...hs].reverse().map(x => `<tr><td class="first">${esc(x.mes_nome)}</td><td class="num">${x.posicao}</td><td class="num">${rankVar(x.variacao)}</td>
+        <td class="num">R$ ${nf0.format(x.vendas || 0)}</td><td class="num">${nf0.format(x.unidades || 0)}</td><td class="num">R$ ${nf2.format(x.ticket)}</td>
+        <td class="num">${nf0.format(x.vendedores || 0)}</td><td class="num">R$ ${nf0.format(x.vendas_por_vendedor)}</td><td class="num">${FMT.pct(x.catalogo)}</td>
+        <td>${esc(x.tendencia)}</td><td>${esc(x.saturacao)}</td><td class="num">${x.ranking_demanda ?? ""}</td></tr>`).join("")}
+    </tbody></table></div>
+    ${!linha.explorador ? `<p class="muted" style="font-size:12px;margin:10px 0 0">Para ver os anúncios e produtos desta marca, importe o export de anúncios dela no Explorador.</p>` : ""}`;
+}
+function abrirUploadRanking() {
+  const itens = [];
+  const PADRAO_RK = /MARCAS[-_]+((?:MLB\d+[-_]?)+?)[-_]+(\d{4}-\d{2})/i;
+  modal(`<h2>Importar relatório mensal de marcas</h2>
+    <p class="muted" style="margin-top:0">O relatório “MARCAS” do Nubimetrics do mês fechado (.xlsx). Categoria e mês vêm do nome do arquivo, por exemplo <code>MARCAS-MLB1246-MLB6284-2026-08-01_1.xlsx</code>.</p>
+    <label class="drop" id="dz"><input type="file" id="fi" accept=".xlsx,.csv" multiple hidden>Clique ou arraste os arquivos aqui</label>
+    <div id="up-status" class="muted" style="margin-top:10px"></div><div class="files" id="fl"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" data-fechar id="fcan">Cancelar</button><button class="btn primary" id="fgo" disabled>Importar</button></div>`,
+    m => {
+      const dz = $("#dz", m), fi = $("#fi", m);
+      let rodando = false, terminou = false;
+      const desenhar = () => {
+        $("#fl", m).innerHTML = itens.map((it, i) => `<div class="fi"><b>${esc(it.f.name)}</b>
+          ${it.info ? `<span class="muted">${nf0.format(it.info.marcas)} marcas · ${abrev(it.info.vendas)} · 1ª: ${esc(it.info.primeira)}</span>` : ""}
+          ${it.estado === "ok" ? ' <span class="pill good">importado</span>' : it.estado === "erro" ? ' <span class="pill bad">não importado</span>' : ""}
+          <div class="form-row" style="grid-template-columns:2fr 1fr">
+            <label class="f">Categoria (códigos do Mercado Livre)<input data-i="${i}" data-k="categoria" value="${esc(it.categoria)}" placeholder="MLB1246-MLB6284">
+              ${it.info && it.info.categoria_nome ? `<span>${esc(it.info.categoria_nome)}</span>` : ""}</label>
+            <label class="f">Mês<input type="month" data-i="${i}" data-k="mes" value="${it.mes}"></label>
+          </div>
+          ${it.estado === "rodando" || it.estado === "lendo" ? `<div class="barra" style="margin-top:10px"></div>` : ""}
+          ${it.log ? `<div class="log">${esc(it.log)}</div>` : ""}</div>`).join("");
+        m.querySelectorAll("[data-k]").forEach(inp => { inp.disabled = rodando || itens[inp.dataset.i].estado === "ok";
+          inp.oninput = () => { itens[inp.dataset.i][inp.dataset.k] = inp.dataset.k === "categoria" ? inp.value.toUpperCase() : inp.value; }; });
+        const go = $("#fgo", m);
+        if (terminou) { go.disabled = false; go.textContent = "Concluído"; }
+        else { go.disabled = rodando || !itens.some(it => it.estado !== "ok") || itens.some(it => it.estado === "lendo"); go.textContent = rodando ? "Importando…" : "Importar"; }
+        $("#fcan", m).classList.toggle("hidden", rodando || terminou);
+      };
+      const add = async files => {
+        for (const f of files) {
+          const p = f.name.match(PADRAO_RK);
+          const it = {f, categoria: p ? p[1].replace(/_/g, "-").replace(/-$/, "").toUpperCase() : "", mes: p ? p[2] : "", estado: "lendo", log: ""};
+          itens.push(it); terminou = false; desenhar();
+          try { it.info = await api("ranking_analisar", {arquivo: f.name}, {method: "POST", body: await f.arrayBuffer()});
+            if (!it.categoria) it.categoria = it.info.categoria; if (!it.mes) it.mes = it.info.mes; it.estado = ""; }
+          catch (e) { it.estado = "erro"; it.log = e.message; }
+          desenhar();
+        }
+      };
+      fi.onchange = () => { add([...fi.files]); fi.value = ""; };
+      dz.ondragover = e => { e.preventDefault(); dz.classList.add("on"); };
+      dz.ondragleave = () => dz.classList.remove("on");
+      dz.ondrop = e => { e.preventDefault(); dz.classList.remove("on"); add([...e.dataTransfer.files]); };
+      $("#fgo", m).onclick = async () => {
+        if (terminou) { m.remove(); return; }
+        rodando = true; let ultimo = null;
+        for (const it of itens.filter(x => x.estado !== "ok")) {
+          if (!it.categoria || !it.mes) { it.estado = "erro"; it.log = "Preencha a categoria e o mês."; desenhar(); continue; }
+          it.estado = "rodando"; it.log = ""; desenhar();
+          try { const r = await api("ranking_importar", {arquivo: it.f.name, categoria: it.categoria, mes: it.mes}, {method: "POST", body: await it.f.arrayBuffer()});
+            it.log = r.log.join("\n"); it.estado = "ok"; ultimo = r; }
+          catch (e) { it.estado = "erro"; it.log = e.message; }
+          desenhar();
+        }
+        rodando = false; terminou = true; desenhar();
+        await carregarRankLista();
+        if (ultimo) location.hash = `#/ranking/${encodeURIComponent(ultimo.categoria)}/${ultimo.mes}`;
+        await rotear();
+      };
+    });
 }
 
 // ---------- Painel geral ----------
@@ -518,6 +732,10 @@ const prodLink = v => S.rel && S.rel.vendedores_produto && S.rel.vendedores_prod
 function celula(r, k, f, i) {
   const v = r[k];
   if (k === "produto") return `<td class="first">${prodLink(v)}</td>`;
+  if (f === "rkmarca") return `<td class="first">${rkLink(v)}</td>`;
+  if (f === "rank") return `<td class="num">${rankVar(v)}</td>`;
+  if (f === "sinais_rk") return `<td>${sinaisRk(v)}</td>`;
+  if (f === "expl") return `<td>${v ? `<a href="#/${encodeURIComponent(v)}">abrir ↗</a>` : ""}</td>`;
   if (f === "vend") return `<td>${vendLink(r.codigo, v)}</td>`;
   if (f === "nota") return `<td class="num">${notaHTML(v)}</td>`;
   if (f === "sinais") return `<td>${sinaisHTML(v)}</td>`;
@@ -600,7 +818,8 @@ document.addEventListener("click", e => {
   const a = e.target.closest("a.plink");
   if (!a) return;
   e.preventDefault();
-  if (a.classList.contains("vlink")) abrirProdutosVendedor(a.dataset.cod);
+  if (a.classList.contains("rklink")) abrirMarcaRanking(a.dataset.rkm);
+  else if (a.classList.contains("vlink")) abrirProdutosVendedor(a.dataset.cod);
   else abrirVendedoresProduto(a.dataset.prod);
 });
 
@@ -873,13 +1092,13 @@ async function iniciar(sessao) {
   S.sessao = sessao;
   if (!sessao) return telaLogin();
   $("#app").innerHTML = `<div class="empty"><span class="spin"></span> Carregando…</div>`;
-  try { await carregarPainel(); }
+  try { await carregarPainel(); await carregarRankLista(); }
   catch (e) {
     S.msgLogin = e.message;
     await sb.auth.signOut();
     return telaLogin();
   }
-  moldura();
+  secaoDesenhada = null;
   await rotear();
 }
 // Só troca de marca pelo endereço depois que a tela já está montada (o Supabase também
