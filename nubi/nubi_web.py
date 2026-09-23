@@ -13,11 +13,12 @@ import json
 import math
 import os
 import re
+import time
 import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pandas as pd
 
@@ -478,10 +479,72 @@ def _preparar(repo):
     return log
 
 
+# ---------------------------------------------------------------------------
+# Agente de GTIN: pesquisa sozinho os GTINs em dúvida e reagrupa os produtos.
+# Roda depois de cada importação, na agenda da Vercel (Cron) e enquanto a página está aberta.
+# ---------------------------------------------------------------------------
+
+AGENTE_EMAIL = os.environ.get("NUBI_AGENTE_EMAIL", "")
+AGENTE_SENHA = os.environ.get("NUBI_AGENTE_SENHA", "")
+CRON_SECRET = os.environ.get("CRON_SECRET", "")
+TEMPO_MAX = 240          # segundos por rodada (a função da Vercel tem 300)
+
+
+def login_agente():
+    """A agenda da Vercel não tem usuário logado: o agente entra com o login dele (acesso igual ao seu)."""
+    if not (AGENTE_EMAIL and AGENTE_SENHA):
+        raise ErroNuvem("Agente sem login configurado (NUBI_AGENTE_EMAIL / NUBI_AGENTE_SENHA).", 500)
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/auth/v1/token?grant_type=password",
+        data=json.dumps({"email": AGENTE_EMAIL, "password": AGENTE_SENHA}).encode(),
+        headers={"apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode())["access_token"]
+    except urllib.error.HTTPError as e:
+        raise ErroNuvem(f"Login do agente recusado ({e.code}).", 500)
+
+
+def rodar_agente(repo, origem, marca=None, segundos=TEMPO_MAX):
+    """Uma rodada: pesquisa os GTINs em dúvida (os que mais vendem primeiro) até acabar o tempo,
+    reagrupa as marcas que mudaram e registra a rodada em agente_execucoes."""
+    inicio = datetime.now(timezone.utc)
+    prazo = time.monotonic() + max(5, segundos)
+    log = _preparar(repo)
+    res = nubi.pesquisar_gtins(repo, 10_000, None, marca, prazo=prazo)
+    mudaram = sorted(res["marcas"])
+    if mudaram and time.monotonic() < prazo + 40:
+        nubi.reconsolidar(repo, repo.carregar_config(), mudaram)
+        nubi.avisar(f"    Produtos reagrupados: {', '.join(nubi.nome_bonito(m) for m in mudaram)}.")
+    reg = {"origem": origem, "marca": marca, "iniciado_em": inicio.isoformat(),
+           "terminado_em": datetime.now(timezone.utc).isoformat(),
+           "pendentes": res["pendentes"], "pesquisados": res["pesquisados"], "encontrados": res["encontrados"],
+           "nao_encontrados": res["nao_encontrados"], "sem_resposta": res["sem_resposta"],
+           "restantes": max(0, res["pendentes"] - res["pesquisados"]) + res["sem_resposta"],
+           "log": "\n".join(log)[-20000:]}
+    try:
+        repo._req("POST", "agente_execucoes", corpo=[reg], prefer="return=minimal")
+    except ErroNuvem:
+        pass   # registrar a rodada não pode derrubar a pesquisa
+    return dict(reg, marcas=mudaram, log=log)
+
+
 def atender(metodo, rota, q, corpo, token):
     """Devolve (status, tipo de conteúdo, bytes, cabeçalhos extras)."""
+    t0 = time.monotonic()
     try:
+        if rota == "agente" and CRON_SECRET and token == CRON_SECRET:
+            # Chamada da agenda (Vercel Cron manda "Authorization: Bearer CRON_SECRET").
+            return _json(rodar_agente(RepoSupabase(login_agente()), "agendado"))
         repo = RepoSupabase(token)
+        if rota == "agente" and metodo == "POST":
+            seg = min(TEMPO_MAX, int(q.get("segundos") or 60))
+            return _json(rodar_agente(repo, q.get("origem") or "manual", q.get("marca") or None, seg))
+        if rota == "agente_status":
+            ult = repo._req("GET", "agente_execucoes", {"select": "*", "order": "id.desc", "limit": 15}) or []
+            for u in ult:
+                u["log"] = (u.get("log") or "")[-4000:]
+            return _json({"execucoes": ult, "agendado": bool(CRON_SECRET and AGENTE_EMAIL)})
         if rota == "painel":
             # A tabela acesso só devolve a linha de quem está liberado (RLS).
             if not repo._req("GET", "acesso", {"select": "email", "limit": 1}):
@@ -552,18 +615,28 @@ def atender(metodo, rota, q, corpo, token):
             avisar = nubi.avisar
             avisar(nome)
             marca = nubi.importar_dados(repo, cfg, nome, corpo, marca_periodo)
-            pendentes = []
+            restantes = 0
             if marca:
-                pendentes = [g for g in nubi.gtins_em_duvida(repo, marca) if g[0] not in nubi.INFO_GTIN]
-                if pendentes:
-                    avisar(f"    Em dúvida: {len(pendentes)} GTIN(s) com títulos que não batem entre si. "
-                           f"Use \"Pesquisar GTINs\" na aba Dúvidas.")
-            return _json({"marca": marca, "log": log, "duvidas": len(pendentes)})
+                sobra = min(120, 250 - (time.monotonic() - t0))
+                if sobra > 15:
+                    avisar("    Agente de GTIN: pesquisando os GTINs em dúvida desta marca…")
+                    r = rodar_agente(repo, "importação", marca, int(sobra))
+                    log.extend(r["log"])
+                    nubi._SAIDA[0] = log.append
+                    restantes = r["restantes"]
+                else:
+                    restantes = len([g for g in nubi.gtins_em_duvida(repo, marca) if nubi.precisa_pesquisar(g[0])])
+                if restantes:
+                    avisar(f"    Ainda em dúvida: {restantes} GTIN(s). O agente continua sozinho "
+                           f"(enquanto a página estiver aberta e na rodada diária).")
+            return _json({"marca": marca, "log": log, "duvidas": restantes})
 
         if rota == "pesquisar" and metodo == "POST":
             log = _preparar(repo)
             marca = q.get("marca")
             lista = [g for g in (q.get("gtin") or "").split(",") if g.strip()] or None
+            if not lista:
+                return _json(rodar_agente(repo, "manual", marca, TEMPO_MAX))
             nubi.pesquisar_gtins(repo, int(q.get("limite") or 15), lista, marca)
             nubi.reconsolidar(repo, repo.carregar_config(), [marca] if marca else None)
             return _json({"log": log})

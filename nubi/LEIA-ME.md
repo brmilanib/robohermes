@@ -27,6 +27,24 @@ Como funciona por trás:
 - Para usar a base Cosmos na pesquisa de GTIN, cadastre o token na variável de
   ambiente `NUBI_COSMOS_TOKEN` do projeto na Vercel.
 
+### Agente de GTIN automático
+
+Os GTINs em dúvida (aba Dúvidas) são pesquisados sozinhos, sem precisar apertar botão:
+
+- **Depois de cada importação**, para a marca importada (até 2 minutos).
+- **Enquanto a página está aberta**, a cada 10 minutos (1 hora quando a fila está vazia).
+- **Uma vez por dia na nuvem** (Vercel Cron, 6h de Brasília), mesmo com a página fechada.
+
+Ele pesquisa dos GTINs que mais vendem para os que menos vendem e grava o nome oficial.
+Depois reagrupa os produtos da marca. O que não existir em nenhuma base fica na aba Dúvidas
+para você corrigir à mão; esse GTIN é pesquisado de novo depois de 30 dias. O menu lateral e
+a aba Dúvidas mostram a última rodada. O botão **Rodar o agente agora** faz uma rodada na hora.
+
+Como a rodada diária roda sem ninguém logado, o agente tem um login próprio
+(`agente.nubi@example.com`, liberado na tabela `acesso`, com o mesmo acesso que o seu). As
+variáveis `NUBI_AGENTE_EMAIL`, `NUBI_AGENTE_SENHA` e `CRON_SECRET` ficam no projeto da
+Vercel. Cada rodada fica registrada na tabela `agente_execucoes`.
+
 ### Ranking mensal de marcas (menu lateral)
 
 A segunda função do menu lateral lê o relatório **MARCAS** do Nubimetrics do mês

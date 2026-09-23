@@ -996,14 +996,39 @@ def gtins_em_duvida(repo, marca=None):
     return sorted(saida, key=lambda x: -x[2])
 
 
-def pesquisar_gtins(repo, limite, lista=None, marca=None):
+REPESQUISAR_DIAS = 30
+
+
+def precisa_pesquisar(gtin):
+    """Nunca pesquisado, ou "não encontrado" há mais de 30 dias (as bases crescem)."""
+    d = INFO_GTIN.get(gtin)
+    if d is None:
+        return True
+    if d.get("fonte") != "não encontrado":
+        return False
+    try:
+        quando = datetime.fromisoformat(str(d.get("consultado_em", ""))[:19])
+    except ValueError:
+        return True
+    return (datetime.now() - quando).days >= REPESQUISAR_DIAS
+
+
+def pesquisar_gtins(repo, limite, lista=None, marca=None, prazo=None):
+    """
+    Pesquisa os GTINs (em dúvida, ou os da lista) e grava o resultado.
+    prazo: time.monotonic() limite para parar (a função da nuvem tem tempo máximo).
+    Devolve um resumo: pendentes, pesquisados, encontrados, nao_encontrados, sem_resposta, marcas.
+    """
+    res = {"pendentes": 0, "pesquisados": 0, "encontrados": 0, "nao_encontrados": 0, "sem_resposta": 0,
+           "marcas": set()}
     if lista:
         alvos = [(normalizar_gtin(g) or re.sub(r"\D", "", g), "", 0) for g in lista]
     else:
-        alvos = [a for a in gtins_em_duvida(repo, marca) if a[0] not in INFO_GTIN]
+        alvos = [a for a in gtins_em_duvida(repo, marca) if precisa_pesquisar(a[0])]
+    res["pendentes"] = len(alvos)
     if not alvos:
         avisar("\n  Nenhum GTIN em dúvida esperando pesquisa.")
-        return
+        return res
     token = (ARQ_TOKEN_COSMOS.read_text(encoding="utf-8").strip() if ARQ_TOKEN_COSMOS.exists()
              else os.environ.get("NUBI_COSMOS_TOKEN", ""))
     alterados = []
@@ -1014,36 +1039,47 @@ def pesquisar_gtins(repo, limite, lista=None, marca=None):
         avisar(f"Pesquisando {len(lote)} GTIN(s) em dúvida (de {len(alvos)}), "
               f"dos que mais vendem para os que menos vendem:")
     sem_rede = 0
-    for gtin, _, _ in lote:
+    for gtin, m_gtin, _ in lote:
+        if prazo and time.monotonic() > prazo:
+            avisar("    Tempo desta rodada acabou; o resto fica para a próxima.")
+            break
+        res["pesquisados"] += 1
         r, falhas, n_fontes = consultar_gtin(gtin, token)
         agora = datetime.now().isoformat(timespec="seconds")
         if r:
             INFO_GTIN[gtin] = {"nome": r["nome"], "marca": r["marca"], "fonte": r["fonte"],
                                "consultado_em": agora}
             alterados.append(gtin)
+            res["encontrados"] += 1
+            if m_gtin:
+                res["marcas"].add(m_gtin)
             avisar(f"    {gtin}  {r['nome']}  ({r['fonte']})")
             sem_rede = 0
         elif len(falhas) == n_fontes:
             avisar(f"    {gtin}  sem resposta das bases ({'; '.join(falhas)})")
+            res["sem_resposta"] += 1
             sem_rede += 1
             if sem_rede >= 3:
                 avisar("    Sem conexão com as bases de GTIN agora. Tente de novo mais tarde.")
                 break
         elif falhas:
+            res["sem_resposta"] += 1
             avisar(f"    {gtin}  não encontrado, mas nem todas as bases responderam "
                   f"({'; '.join(falhas)}). Fica para a próxima pesquisa.")
             sem_rede = 0
         else:
             INFO_GTIN[gtin] = {"nome": "", "marca": "", "fonte": "não encontrado", "consultado_em": agora}
             alterados.append(gtin)
+            res["nao_encontrados"] += 1
             avisar(f"    {gtin}  não encontrado nas bases — confira: {link_pesquisa(gtin)}")
             sem_rede = 0
         time.sleep(0.5)
     repo.salvar_gtins(INFO_GTIN, alterados)
-    if len(alvos) > len(lote):
-        avisar(f"    Faltam {len(alvos) - len(lote)}. Pesquise de novo para continuar.")
+    if len(alvos) > res["pesquisados"]:
+        avisar(f"    Faltam {len(alvos) - res['pesquisados']}. Pesquise de novo para continuar.")
     avisar("    Resultados gravados (gtins.json no computador; aba Dúvidas na web). Se algum nome "
            "estiver errado, ou não foi encontrado, corrija à mão e reprocesse.")
+    return res
 
 
 # ---------------------------------------------------------------------------
@@ -2017,7 +2053,7 @@ def main():
                 print(f"  {e}.")
 
         # Sempre que houver agrupamento em dúvida, mostrar o comando que resolve.
-        pendentes = [g for g in gtins_em_duvida(repo) if g[0] not in INFO_GTIN]
+        pendentes = [g for g in gtins_em_duvida(repo) if precisa_pesquisar(g[0])]
         if pendentes:
             un = sum(g[2] for g in pendentes)
             print(f"\n  Em dúvida: {len(pendentes)} GTIN(s) com títulos que não batem entre si "

@@ -158,3 +158,17 @@ create policy "autorizado" on public.ranking_relatorios
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
 create policy "autorizado" on public.ranking_linhas
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Agente de GTIN: registro de cada rodada automática (importação, página aberta, agenda diária).
+create table if not exists public.agente_execucoes (
+  id bigint generated always as identity primary key,
+  origem text not null,
+  marca text,
+  iniciado_em timestamptz not null default now(),
+  terminado_em timestamptz,
+  pendentes int, pesquisados int, encontrados int, nao_encontrados int, sem_resposta int, restantes int,
+  log text
+);
+alter table public.agente_execucoes enable row level security;
+create policy "autorizado" on public.agente_execucoes
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

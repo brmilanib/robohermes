@@ -338,6 +338,8 @@ function desenharMenu() {
     <a class="navi ${x.id === sec ? "on" : ""}" href="${x.id === "ranking" ? "#/ranking" : "#/"}">
       <span class="ic">${x.icone}</span><span>${esc(x.nome)}<small>${esc(x.desc)}</small></span></a>
     ${x.id === sec && sub.length ? `<div class="subnav">${sub.map(i => `<a class="${i.on ? "on" : ""}" href="${i.href}" ${i.sub ? 'style="padding-left:22px;font-size:12.5px"' : ""}>${esc(i.nome)}</a>`).join("")}</div>` : ""}`).join("");
+  $("#side").insertAdjacentHTML("beforeend", `<div id="agente-st" class="muted" style="font-size:12px;margin:14px 12px 0;padding-top:12px;border-top:1px solid var(--line)"></div>`);
+  desenharAgente();
 }
 const nome = m => (m || "").toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()).replace(/ (De|Da|Do|Di|Du) /g, x => x.toLowerCase());
 
@@ -1119,7 +1121,7 @@ const EXTRAS = {
   precos: {nota: "Só anúncios com venda e preço > 0; referências com menos de 2 anúncios ficam de fora. Amplitude alta = sem faixa de preço definida."},
   vendedores: {nota: "Códigos V01, V02… por ordem de volume."},
   gtins: {nota: () => `${nf0.format(S.rel.resumo.un_sem_gtin)} unidades estão em anúncios sem GTIN válido (aparecem só em Produtos) — é a medida de quão sujo está o cadastro da marca.`},
-  duvidas: {acoes: true, nota: "Os títulos do mesmo GTIN não batem entre si. O produto atribuído foi escolhido pelo anúncio que mais vende. Pesquise para confirmar pelo nome oficial, ou corrija à mão em “Corrigir”."},
+  duvidas: {acoes: true, nota: "Os títulos do mesmo GTIN não batem entre si. O produto atribuído foi escolhido pelo anúncio que mais vende. O agente automático pesquisa o nome oficial sozinho; o que ele não achar, corrija à mão em “Corrigir”."},
   anuncios: {limite: 300, nota: "As colunas depois de “Cód. vendedor” são exatamente as do arquivo importado, com os mesmos nomes e valores."},
 };
 
@@ -1145,11 +1147,11 @@ function tabela(el, chave, linhas, cols, extra = {}) {
       <input type="search" id="tb-busca" placeholder="Buscar em toda a tabela…" value="${esc(st.busca)}">
       <span class="muted" id="tb-cont"></span>
       <div style="flex:1"></div>
-      ${extra.acoes ? `<button class="btn primary" id="bpesq">🔎 Pesquisar GTINs em dúvida</button>` : ""}
+      ${extra.acoes ? `<button class="btn primary" id="bpesq">🔎 Rodar o agente agora</button>` : ""}
       <button class="btn small" id="tb-limpar">Limpar filtros</button>
     </div>
     ${nota ? `<div class="muted pad" style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid var(--line)">${esc(nota)}</div>` : ""}
-    ${extra.acoes ? `<div id="plog"></div>` : ""}
+    ${extra.acoes ? `<div id="agente-box" class="muted" style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid var(--line)"></div><div id="plog"></div>` : ""}
     <div class="tw"><table class="t"><thead>
       <tr>${cols.map(([k, l, f]) => `<th class="${NUM.has(f) ? "num" : ""}" data-k="${k}">${esc(l)}<span class="ar">${st.ordem && st.ordem[0] === k ? (st.ordem[1] > 0 ? "▲" : "▼") : ""}</span></th>`).join("")}</tr>
       <tr class="f">${cols.map(([k, , , f]) => `<th>${f === "sel" ? `<select data-f="${k}"><option value="">todos</option>${opcoes[k].map(o => `<option ${st.filtros[k] === String(o) ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
@@ -1193,7 +1195,7 @@ function tabela(el, chave, linhas, cols, extra = {}) {
   });
   $("#tb-limpar", el).onclick = () => { st.busca = ""; st.filtros = {}; tabela(el, chave, linhas, cols, extra); };
   $("#tb-mais button", el).onclick = () => { st.limite += 500; desenhar(); };
-  if (extra.acoes) $("#bpesq", el).onclick = () => pesquisarGtins($("#plog", el));
+  if (extra.acoes) { $("#bpesq", el).onclick = () => pesquisarGtins($("#plog", el)); desenharAgente(); }
   desenhar();
 }
 const vendLink = (cod, nomeV) => cod && S.rel && S.rel.produtos_vendedor && S.rel.produtos_vendedor[cod]
@@ -1328,14 +1330,61 @@ function telaHistorico(el) {
 
 // ---------- Dúvidas: pesquisa e correção ----------
 async function pesquisarGtins(logEl) {
-  const bt = $("#bpesq"); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> Pesquisando…';
-  logEl.innerHTML = `<div class="log pad">Consultando as bases de GTIN (pode levar até 1 minuto)…</div>`;
+  const bt = $("#bpesq"); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> Agente pesquisando…';
+  logEl.innerHTML = `<div class="log pad">Consultando as bases de GTIN, dos que mais vendem para os que menos vendem (até 4 minutos)…</div>`;
+  S.agenteRodando = true; desenharAgente();
   try {
-    const r = await api("pesquisar", {marca: S.marca, limite: 15}, {method: "POST"});
+    const r = await api("pesquisar", {marca: S.marca}, {method: "POST"});
+    S.agente = r;
     logEl.innerHTML = `<div class="log">${esc(r.log.join("\n"))}</div>`;
-    toast("Pesquisa concluída. Atualizando…");
+    toast(`Agente: ${r.encontrados} encontrado(s) de ${r.pesquisados} pesquisado(s). Atualizando…`);
+    S.agenteRodando = false;
     await abrirMarca(S.marca, true);
-  } catch (e) { logEl.innerHTML = `<div class="log">${esc(e.message)}</div>`; bt.disabled = false; bt.textContent = "🔎 Pesquisar GTINs em dúvida"; }
+  } catch (e) { logEl.innerHTML = `<div class="log">${esc(e.message)}</div>`; bt.disabled = false; bt.textContent = "🔎 Rodar o agente agora"; }
+  finally { S.agenteRodando = false; desenharAgente(); }
+}
+// ---------- Agente de GTIN automático ----------
+// Roda sozinho depois de cada importação, uma vez por dia na nuvem e, enquanto a página
+// estiver aberta, a cada 10 minutos (1 hora quando não há mais nada pendente).
+const ORIGEM = {"agendado": "rodada diária", "importação": "após importar", "página": "página aberta", "manual": "manual"};
+function quando(iso) {
+  if (!iso) return "";
+  const min = Math.round((Date.now() - new Date(iso)) / 60000);
+  return min < 1 ? "agora" : min < 60 ? `há ${min} min` : min < 1440 ? `há ${Math.round(min / 60)} h` : `há ${Math.round(min / 1440)} dia(s)`;
+}
+function desenharAgente() {
+  const a = S.agente, el = $("#agente-st");
+  if (el) el.innerHTML = S.agenteRodando ? `<span class="spin"></span> Agente de GTIN pesquisando…`
+    : !a ? `🤖 Agente de GTIN ligado`
+    : `🤖 Agente de GTIN · ${quando(a.terminado_em)}<br><small>${a.encontrados} achado(s) na última rodada · ${a.restantes ? a.restantes + " na fila" : "fila vazia"}</small>`;
+  const box = $("#agente-box");
+  if (box) box.innerHTML = !a ? `<b>🤖 Agente automático</b> ligado: pesquisa os GTINs em dúvida depois de cada importação, 1× por dia e a cada 10 min com a página aberta.`
+    : `<b>🤖 Agente automático</b> · última rodada ${quando(a.terminado_em)} (${esc(ORIGEM[a.origem] || a.origem)}${a.marca ? " · " + esc(nome(a.marca)) : ""}):
+    pesquisou ${a.pesquisados}, achou ${a.encontrados}, não encontrou ${a.nao_encontrados}${a.sem_resposta ? `, ${a.sem_resposta} sem resposta das bases` : ""} ·
+    ${a.restantes ? `<b>${a.restantes}</b> ainda na fila` : "fila vazia"}. Ele roda depois de cada importação, 1× por dia e a cada 10 min com a página aberta.
+    O que não existe em nenhuma base fica aqui para você corrigir à mão (e é pesquisado de novo depois de 30 dias).`;
+}
+async function carregarAgente() {
+  try { const st = await api("agente_status"); S.agente = st.execucoes[0] || null; } catch { S.agente = null; }
+  desenharAgente();
+}
+async function cicloAgente() {
+  clearTimeout(S.agenteT);
+  let prox = 10 * 60000;
+  if (S.sessao && !S.agenteRodando) {
+    S.agenteRodando = true; desenharAgente();
+    try {
+      const r = await api("agente", {origem: "página", segundos: 90}, {method: "POST"});
+      S.agente = r;
+      if (!r.restantes) prox = 60 * 60000;
+      if (r.encontrados) {
+        toast(`🤖 Agente de GTIN: ${r.encontrados} GTIN(s) identificado(s)${r.marcas.length ? " em " + r.marcas.map(nome).join(", ") : ""}.`, 6000);
+        if (S.marca && r.marcas.includes(S.marca) && !document.querySelector(".modal-bg")) abrirMarca(S.marca, true);
+      }
+    } catch (e) { prox = 15 * 60000; }
+    S.agenteRodando = false; desenharAgente();
+  }
+  S.agenteT = setTimeout(cicloAgente, prox);
 }
 function corrigirGtin(d) {
   modal(`<h2>Corrigir GTIN ${esc(d.gtin)}</h2>
@@ -1574,6 +1623,8 @@ async function iniciar(sessao) {
   }
   secaoDesenhada = null;
   await rotear();
+  carregarAgente();
+  clearTimeout(S.agenteT); S.agenteT = setTimeout(cicloAgente, 20000);
 }
 // Só troca de marca pelo endereço depois que a tela já está montada (o Supabase também
 // mexe no endereço ao apagar o token do link de e-mail).
