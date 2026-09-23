@@ -1,9 +1,10 @@
 {
-  "regions": ["gru1"],
+  "regions": [
+    "gru1"
+  ],
   "functions": {
     "api/app.py": {
       "maxDuration": 300,
-      "memory": 1024,
       "includeFiles": "{nubi.py,nubi_web.py}"
     }
   }

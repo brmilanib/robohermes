@@ -3,7 +3,34 @@
 Transforma os exports CSV do Nubimetrics em planilhas Excel de acompanhamento,
 uma por marca, com histórico acumulado entre períodos.
 
-## Instalação (uma vez só)
+## Versão web (no navegador)
+
+Acesse **https://nubi-explorador-vb-financeiro.vercel.app** e entre com o seu e-mail.
+Você recebe um link de acesso no e-mail. Na página dá para:
+
+- **Importar CSV**: arraste um ou mais exports. Marca e período vêm do nome do arquivo
+  (padrão abaixo) ou você preenche no formulário.
+- Ver o **painel geral** e, em cada marca, as abas Oportunidades, Evolução,
+  Histórico, Produtos, Preços, Vendedores, GTINs, Dúvidas e Anúncios. Todas têm
+  filtros por coluna, busca e ordenação.
+- **Pesquisar GTINs em dúvida** e **corrigir à mão** o nome oficial de um GTIN (aba Dúvidas).
+- Editar as **linhas de produto** da marca (aba Configuração). O histórico é
+  reprocessado na hora.
+- Apagar um período importado por engano (aba Períodos).
+- **Baixar o Excel** completo, igual ao gerado no computador.
+
+Como funciona por trás:
+- Os dados ficam no **Supabase** (projeto `nubi`).
+- A página e o motor em Python rodam na **Vercel** (projeto `nubi-explorador`).
+- O código fica neste repositório. Cada push na branch publicada gera uma nova versão.
+- Só os e-mails cadastrados na tabela `acesso` do Supabase veem os dados. Para
+  liberar alguém, adicione o e-mail dessa pessoa lá (Table Editor → acesso → Insert row).
+- Para usar a base Cosmos na pesquisa de GTIN, cadastre o token na variável de
+  ambiente `NUBI_COSMOS_TOKEN` do projeto na Vercel.
+
+A versão de computador continua funcionando igual, com os dados locais em `dados/base.db`.
+
+## Instalação no computador (uma vez só)
 
 Precisa de Python 3.9 ou mais novo. No terminal:
 
