@@ -110,6 +110,8 @@ label.f{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--
 label.f input,label.f select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg);color:var(--ink)}
 .drop{display:block;margin-top:12px;border:2px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted);cursor:pointer}
 .drop.on{border-color:var(--accent);background:var(--soft)}
+.prog{height:10px;border-radius:5px;background:var(--soft);overflow:hidden}
+.prog>i{display:block;height:100%;border-radius:5px;background:var(--accent);transition:width .6s}
 .barra{height:6px;border-radius:3px;background:var(--soft);overflow:hidden;position:relative}
 .barra::after{content:"";position:absolute;inset:0;width:35%;border-radius:3px;background:var(--accent);animation:barra 1.1s ease-in-out infinite}
 @keyframes barra{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
@@ -913,16 +915,63 @@ async function carregarVendLista() { try { S.vendLista = await api("vend_lista")
 const vendLinkV = v => `<a href="#/vendedores/${encodeURIComponent(v)}" class="plink0">${esc(v)}</a>`;
 const mesAnterior = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
 const pctCor = v => v == null ? "" : `<span class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${FMT.var(v)}</span>`;
+// O coletor atualiza a execução a cada poucos segundos; sem notícia há 3 min, consideramos que parou.
+function coletorRodando(e) { return e && e.em_andamento && Date.now() - new Date(e.atualizado_em || e.iniciado_em) < 3 * 60000; }
+const TAREFA = {diario: "atualização diária", vendedores: "vendedores", marcas: "MARCAS"};
+function coletorAoVivo(e) {
+  const pct = e.total ? Math.min(100, Math.round(100 * (e.feito || 0) / e.total)) : 0;
+  return `<div class="card pad" style="background:var(--soft);margin:10px 0 14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span class="spin"></span><b>Coletando agora</b> · ${esc(TAREFA[e.tarefa] || e.tarefa)} · começou ${esc(quando(e.iniciado_em))}
+      <span class="muted" style="margin-left:auto">${e.total ? `${e.feito || 0} de ${e.total} arquivo(s) · ${pct}%` : "preparando a lista…"}</span></div>
+    <div class="prog" style="margin-top:10px"><i style="width:${pct}%"></i></div>
+    ${e.atual ? `<div style="margin-top:8px;font-size:13px">Baixando: <b>${esc(e.atual)}</b></div>` : ""}
+    <div class="log" id="coletor-log" style="max-height:260px">${esc(e.log || "")}</div>
+    <div class="muted" style="font-size:12px;margin-top:6px">Atualiza sozinho a cada 4 segundos. Não feche o Chrome que o coletor abriu no Mac mini.</div></div>`;
+}
 function cartaoColetor() {
-  const ex = S.coletor || [];
-  return `<div class="card pad" style="margin-top:14px"><h2>📥 Coletor automático do Nubimetrics</h2>
-    ${ex.length ? `<table class="t" style="font-size:12.5px"><thead><tr><th>Quando</th><th>Tarefa</th><th>Resultado</th><th class="num">Importados</th><th>Resumo</th></tr></thead><tbody>
-      ${ex.slice(0, 6).map(e => `<tr><td>${esc(quando(e.terminado_em || e.iniciado_em))}</td><td>${esc(e.tarefa)}</td>
-        <td>${e.ok ? `<span class="st good">ok</span>` : `<span class="st bad">falhou</span>`}</td><td class="num">${e.importados || 0}/${e.arquivos || 0}</td>
-        <td class="wrap">${esc(e.mensagem || "")}</td></tr>`).join("")}</tbody></table>`
-      : `<p class="muted" style="margin:0">Ainda não rodou. No Terminal do Mac mini, cole:</p>`}
+  const ex = S.coletor || [], vivo = ex.find(coletorRodando);
+  const feitos = ex.filter(e => e !== vivo);
+  return `<div class="card pad" id="coletor-card" style="margin-top:14px"><h2>📥 Coletor automático do Nubimetrics</h2>
+    ${vivo ? coletorAoVivo(vivo) : ""}
+    ${feitos.length ? `<table class="t" style="font-size:12.5px"><thead><tr><th>Quando</th><th>Tarefa</th><th>Resultado</th><th class="num">Importados</th><th>Resumo</th><th></th></tr></thead><tbody>
+      ${feitos.slice(0, 6).map(e => `<tr><td>${esc(quando(e.terminado_em || e.iniciado_em))}</td><td>${esc(TAREFA[e.tarefa] || e.tarefa)}</td>
+        <td>${e.em_andamento ? `<span class="st bad">parou</span>` : e.ok ? `<span class="st good">ok</span>` : `<span class="st bad">falhou</span>`}</td><td class="num">${e.importados || 0}/${e.arquivos || 0}</td>
+        <td class="wrap">${esc(e.mensagem || "")}</td>
+        <td>${e.tem_log ? `<button class="btn" style="padding:3px 8px;font-size:12px" onclick="verLogColetor(${e.id})">log</button>` : ""}</td></tr>`).join("")}</tbody></table>`
+      : vivo ? "" : `<p class="muted" style="margin:0">Ainda não rodou. No Terminal do Mac mini, cole:</p>`}
     <div class="log" style="margin-top:8px">curl -fsSL https://nubi-explorador.vercel.app/coletor/instalar.sh | bash</div>
     <div class="muted" style="font-size:12px;margin-top:6px">Todo dia às 7h00 ele baixa o que falta desde janeiro: os vendedores seguidos do grupo "perfumes" (meses fechados + mês atual até o último dia liberado pelo Nubimetrics, 2 dias de atraso) e o relatório MARCAS de cada mês fechado. Se a sessão do Nubimetrics expirar, aparece aqui como "falhou" e no Mac: rode <code>~/.nubi-coletor/coletor entrar</code>.</div></div>`;
+}
+async function verLogColetor(id) {
+  const e = (S.coletor || []).find(x => x.id === id);
+  if (!e) return;
+  try { e.logCompleto = (await api("coletor_log", {id})).log; } catch (err) { return toast(err.message); }
+  modal(`<h2>Log do coletor · ${esc(TAREFA[e.tarefa] || e.tarefa)} · ${esc(quando(e.terminado_em || e.iniciado_em))}</h2>
+    <p class="muted" style="margin-top:0">${esc(e.mensagem || "")}</p>
+    <div class="log" style="max-height:60vh">${esc(e.logCompleto || "")}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn" data-fechar>Fechar</button></div>`,
+    m => { const l = $(".log", m); l.scrollTop = l.scrollHeight; });
+}
+// Com o coletor rodando, busca o andamento a cada 4 s; parado, a cada 1 min.
+async function cicloColetor() {
+  clearTimeout(S.coletorT);
+  if (S.sessao) {
+    try { S.coletor = (await api("coletor_status")).execucoes; } catch { /* tenta de novo no próximo ciclo */ }
+    desenharAgente();
+    const card = $("#coletor-card");
+    if (card && !document.querySelector(".modal-bg")) {
+      const l = $("#coletor-log"), noFim = !l || l.scrollHeight - l.scrollTop - l.clientHeight < 30;
+      const antes = S.coletorVivo;
+      card.outerHTML = cartaoColetor();
+      const n = $("#coletor-log");
+      if (n) n.scrollTop = noFim ? n.scrollHeight : l.scrollTop;
+      S.coletorVivo = (S.coletor || []).some(coletorRodando);
+      if (antes && !S.coletorVivo) { toast("📥 Coletor terminou. Atualizando os vendedores…", 5000); S.vendLista = null; rotear(); }
+    }
+    S.coletorVivo = (S.coletor || []).some(coletorRodando);
+  }
+  S.coletorT = setTimeout(cicloColetor, S.coletorVivo ? 4000 : 60000);
 }
 function vendVazio(main) {
   main.innerHTML = `<h1>Vendedores monitorados</h1>
@@ -1694,6 +1743,9 @@ function quando(iso) {
 function desenharAgente() {
   const c = (S.coletor || [])[0], ec = $("#coletor-st");
   if (ec) ec.innerHTML = !c ? `📥 Coletor Nubimetrics: <a href="#/vendedores">instalar</a>`
+    : coletorRodando(c) ? `<a href="#/vendedores" style="color:inherit;text-decoration:none"><span class="spin"></span> Coletor baixando${c.total ? ` ${c.feito || 0}/${c.total}` : "…"}
+      <div class="prog" style="height:6px;margin-top:6px"><i style="width:${c.total ? Math.round(100 * (c.feito || 0) / c.total) : 0}%"></i></div>
+      <small>${esc((c.atual || "").slice(0, 60))}</small></a>`
     : `📥 Coletor Nubimetrics · ${quando(c.terminado_em || c.iniciado_em)}<br><small class="${c.ok ? "" : "neg"}">${c.ok ? "ok" : "falhou"} · ${esc((c.mensagem || "").slice(0, 70))}</small>`;
   const a = S.agente, el = $("#agente-st");
   if (el) el.innerHTML = S.agenteRodando ? `<span class="spin"></span> Agente de GTIN pesquisando…`
@@ -1971,6 +2023,7 @@ async function iniciar(sessao) {
   await rotear();
   carregarAgente();
   clearTimeout(S.agenteT); S.agenteT = setTimeout(cicloAgente, 20000);
+  clearTimeout(S.coletorT); S.coletorT = setTimeout(cicloColetor, 4000);
 }
 // Só troca de marca pelo endereço depois que a tela já está montada (o Supabase também
 // mexe no endereço ao apagar o token do link de e-mail).

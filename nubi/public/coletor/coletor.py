@@ -29,6 +29,7 @@ import calendar
 import getpass
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -50,7 +51,8 @@ SESSAO = PASTA / "sessao.json"          # cookies do Nubimetrics (inclusive os "
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
       "Chrome/140.0.0.0 Safari/537.36")
 SERVICO_CHAVEIRO = "nubi-coletor"
-PAUSA = float(os.environ.get("NUBI_COLETOR_PAUSA", "4"))           # segundos entre vendedores
+PAUSA = float(os.environ.get("NUBI_COLETOR_PAUSA", "10"))          # segundos entre um download e outro
+CALMA = float(os.environ.get("NUBI_COLETOR_CALMA", "1"))           # multiplica as esperas entre cliques
 
 PADRAO_CONFIG = {
     "nubi_email": "",
@@ -83,6 +85,8 @@ class SessaoExpirada(Falha):
 # ---------------------------------------------------------------------------
 
 LOG = []
+# andamento mostrado ao vivo no nubi (Vendedores → Coletor)
+AO_VIVO = {"token": None, "id": None, "feito": 0, "total": 0, "atual": "", "enviado": 0.0}
 
 
 def log(msg):
@@ -95,6 +99,26 @@ def log(msg):
             f.write(f"{datetime.now():%Y-%m-%d} {linha}\n")
     except OSError:
         pass
+    ao_vivo()
+
+
+def ao_vivo(forcar=False, **mudou):
+    """Manda o andamento e o fim do log para o nubi, no máximo a cada 3 s."""
+    AO_VIVO.update(mudou)
+    if not AO_VIVO["token"] or not AO_VIVO["id"] or (not forcar and time.time() - AO_VIVO["enviado"] < 3):
+        return
+    AO_VIVO["enviado"] = time.time()
+    try:
+        api(AO_VIVO["token"], "coletor_registrar", corpo={
+            "id": AO_VIVO["id"], "em_andamento": True, "feito": AO_VIVO["feito"], "total": AO_VIVO["total"],
+            "atual": AO_VIVO["atual"], "log": "\n".join(LOG[-400:])}, timeout=15)
+    except Exception:  # noqa: BLE001
+        pass                                          # o site fica sem o ao vivo; a coleta segue
+
+
+def devagar(seg=2.0):
+    """Espera um pouco entre os cliques: o Nubimetrics fecha o Chrome quando é rápido demais."""
+    time.sleep(seg * CALMA * random.uniform(0.8, 1.3))
 
 
 def ler_config():
@@ -151,13 +175,13 @@ def token_nubi(cfg):
         raise Falha(f"Login no nubi recusado ({e.code}). Rode de novo: python coletor.py configurar")
 
 
-def api(token, rota, params=None, corpo=None, metodo=None):
+def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
     q = urllib.parse.urlencode(dict(params or {}, r=rota))
     dados = corpo if isinstance(corpo, (bytes, type(None))) else json.dumps(corpo).encode()
     req = urllib.request.Request(f"{NUBI}/api/app?{q}", data=dados, method=metodo or ("POST" if dados else "GET"),
                                  headers={"Authorization": f"Bearer {token}"})
     try:
-        with urllib.request.urlopen(req, timeout=300) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode() or "{}")
     except urllib.error.HTTPError as e:
         try:
@@ -240,6 +264,7 @@ def ir(pg, url, esperar):
         pg.add_style_tag(content=ESCONDER)          # chat do Intercom pode cobrir botões
     except Exception:  # noqa: BLE001
         pass
+    devagar(3)
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +412,7 @@ def aplicar_periodo(pg, ini, fim):
     if not botao.count():
         raise Falha("não achei o botão do período (ex.: '15 SET - 21 SET') " + diagnostico(pg))
     botao.click()
+    devagar(1.5)
     pg.wait_for_function("() => [...document.querySelectorAll('input')].filter(i => /^\\d{2}\\/\\d{2}\\/\\d{4}$/"
                          ".test(i.value) && i.offsetParent).length >= 2", timeout=15000)
     idx = pg.evaluate("() => [...document.querySelectorAll('input')].map((i, n) => [n, i]).filter(([n, i]) =>"
@@ -396,6 +422,7 @@ def aplicar_periodo(pg, ini, fim):
         campo.click(click_count=3)
         campo.fill(valor)
         campo.press("Tab")
+        devagar(1)
     pg.locator("button", has_text=re.compile(r"^\s*APLICAR\s*$", re.I)).first.click()
 
 
@@ -406,6 +433,7 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
     certo = lambda r: "analysisitems" in r.url and f"from={ini}" in r.url and f"to={fim}" in r.url
     with pg.expect_response(lambda r: "analysisitems" in r.url, timeout=120000) as resp:
         pg.click("button#tab-1")
+    devagar(2)
     if not certo(resp.value):
         # a tela ignorou o período da URL: escolhe no calendário e espera a tabela recarregar
         with pg.expect_response(certo, timeout=120000) as resp:
@@ -414,12 +442,13 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
         raise Falha(f"a lista de anúncios não carregou ({resp.value.status})")
     pg.wait_for_selector("#dashboardByCompetitor_exportBtn_table", timeout=60000)
     pg.wait_for_function("() => document.querySelectorAll('table tbody tr').length > 0", timeout=60000)
-    time.sleep(1.5)                                  # a tabela termina de desenhar
+    devagar(3)                                       # a tabela termina de desenhar
     with pg.expect_download(timeout=120000) as d:
         pg.click("#dashboardByCompetitor_exportBtn_table")
     dl = d.value
     arq = destino / dl.suggested_filename           # nome = vendedor na tela; não renomear
     dl.save_as(str(arq))
+    devagar(2)                                       # deixa o Chrome terminar o download antes de seguir
     if arq.stat().st_size < 3000:
         raise Falha(f"arquivo vazio ou incompleto ({arq.name})")
     return arq
@@ -438,6 +467,7 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
             estado["ctx"].close()
         except Exception:  # noqa: BLE001
             pass
+        time.sleep(10)
         estado["ctx"] = abrir_navegador(p, cfg)
         estado["pg"] = estado["ctx"].new_page()
 
@@ -456,6 +486,10 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
         if avisos is not None:
             avisos.extend(av)
         salvar_config(cfg)
+        fila = [(h, nome, per) for h, nome in lista if not so or so.upper() == nome.upper()
+                for per in lista_periodos if not (pular and pular(h, nome, per))]
+        log(f"Vendedores: {len(fila)} arquivo(s) para baixar")
+        ao_vivo(True, total=AO_VIVO["total"] + len(fila))
         for h, nome in lista:
             if so and so.upper() != nome.upper():
                 continue
@@ -464,6 +498,7 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                 rotulo = mes + (f" até {ate[8:10]}/{ate[5:7]}" if ate else "")
                 if pular and pular(h, nome, per):
                     continue
+                ao_vivo(True, atual=f"{nome} · {rotulo}")
                 destino = PASTA / "arquivos" / (mes + ("-parcial" if ate else ""))
                 destino.mkdir(parents=True, exist_ok=True)
                 for tentativa in (1, 2):
@@ -498,7 +533,9 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                         extra = "" if fechou else " " + diagnostico(pagina())
                         log(f"  {nome} {rotulo}: ERRO {str(e)[:200]}{extra}")
                         break
-                time.sleep(PAUSA)
+                AO_VIVO["feito"] += 1
+                ao_vivo(True)
+                time.sleep(PAUSA * random.uniform(0.8, 1.4))
             guardar_sessao(estado["ctx"])
     finally:
         salvar_config(cfg)
@@ -560,7 +597,7 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True):
                 seletor.click()
                 pg.locator('li[role="option"][data-value="100"]').click()
         pg.wait_for_function("() => document.querySelectorAll('table tbody tr').length > 0", timeout=60000)
-        time.sleep(1.5)
+        devagar(3)
         with pg.expect_download(timeout=120000) as d:
             pg.locator("button", has_text="EXPORTAR").last.click()
         dl = d.value
@@ -569,6 +606,7 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True):
             nome = f"MARCAS-{cat}-{mes}-01.xlsx"
         arq = destino / nome
         dl.save_as(str(arq))
+        devagar(2)
         log(f"  MARCAS {mes}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
         guardar_sessao(ctx)
         if enviar:
@@ -589,7 +627,8 @@ def registrar(token, tarefa, inicio, ok, arquivos, importados, erros, mensagem):
         return
     try:
         api(token, "coletor_registrar", corpo={
-            "iniciado_em": inicio.isoformat(), "terminado_em": datetime.now(timezone.utc).isoformat(),
+            "id": AO_VIVO["id"], "em_andamento": False, "atual": None, "feito": AO_VIVO["feito"],
+            "total": AO_VIVO["total"], "iniciado_em": inicio.isoformat(), "terminado_em": datetime.now(timezone.utc).isoformat(),
             "tarefa": tarefa, "ok": ok, "arquivos": arquivos, "importados": importados, "erros": erros,
             "mensagem": mensagem, "log": "\n".join(LOG)})
     except Exception as e:  # noqa: BLE001
@@ -697,6 +736,12 @@ def executar(tarefa, func):
     token = None
     try:
         token = token_nubi(cfg)
+        try:
+            r = api(token, "coletor_registrar", corpo={"iniciado_em": inicio.isoformat(), "tarefa": tarefa,
+                                                       "em_andamento": True, "mensagem": "rodando…"}, timeout=30)
+            AO_VIVO.update(token=token, id=r.get("id"))
+        except Exception as e:  # noqa: BLE001
+            log(f"(sem acompanhamento ao vivo no nubi: {e})")
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             arquivos, importados, erros, msg = func(p, cfg, token)
@@ -793,9 +838,12 @@ def main():
             partes = [f"dados até {d:%d/%m}"]
             # MARCAS: todo mês fechado (último dia já liberado) que ainda não está no nubi
             ja_rk = set(pend["ranking"].get(cfg["categoria"], []))
+            faltam = [per for per in pers if not per["ate"] and per["mes"] not in ja_rk]
+            ao_vivo(True, total=len(faltam))
             for per in pers:
                 if per["ate"] or per["mes"] in ja_rk:
                     continue
+                ao_vivo(True, atual=f"MARCAS · {per['mes']}")
                 try:
                     a, i, e = coletar_marcas(p, cfg, token, per["mes"])
                     partes.append(f"MARCAS {per['mes']} importado")
@@ -806,6 +854,8 @@ def main():
                     log(f"  MARCAS {per['mes']}: ERRO {ex}")
                     partes.append(f"MARCAS {per['mes']} falhou")
                 A, I, E = A + a, I + i, E + e
+                AO_VIVO["feito"] += 1
+                devagar(5)
             # vendedores: cada mês que falta, o mês que ainda estava parcial e fechou, e o mês atual
             ja, ja_h = pend["vendedores"], pend.get("hashes", {})
 

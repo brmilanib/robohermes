@@ -571,17 +571,30 @@ def atender(metodo, rota, q, corpo, token):
             return _json(repo.painel())
 
         if rota == "coletor_status":
+            # consultado a cada 4 s durante a coleta: log só da que está rodando; o resto via coletor_log
             ult = repo._req("GET", "coletor_execucoes", {"select": "*", "order": "id.desc", "limit": 10}) or []
             for u in ult:
-                u["log"] = (u.get("log") or "")[-4000:]
+                lg = u.get("log") or ""
+                u["tem_log"] = bool(lg)
+                u["log"] = lg[-12000:] if u.get("em_andamento") else ""
             return _json({"execucoes": ult})
+        if rota == "coletor_log":
+            r = repo._req("GET", "coletor_execucoes", {"select": "log", "id": repo._eq(int(q.get("id", 0)))}) or []
+            return _json({"log": (r[0].get("log") or "") if r else ""})
         if rota == "coletor_registrar" and metodo == "POST":
+            # Chamado no começo (em_andamento), a cada poucos segundos (andamento + log) e no fim.
             d = json.loads(corpo or b"{}")
-            reg = {k: d.get(k) for k in ("iniciado_em", "terminado_em", "tarefa", "ok", "arquivos", "importados",
-                                         "erros", "mensagem")}
-            reg["log"] = str(d.get("log") or "")[-20000:]
-            repo._req("POST", "coletor_execucoes", corpo=[reg], prefer="return=minimal")
-            return _json({"ok": True})
+            reg = {k: d[k] for k in ("iniciado_em", "terminado_em", "tarefa", "ok", "arquivos", "importados",
+                                     "erros", "mensagem", "em_andamento", "feito", "total", "atual") if k in d}
+            if "log" in d:
+                reg["log"] = str(d.get("log") or "")[-20000:]
+            reg["atualizado_em"] = datetime.now(timezone.utc).isoformat()
+            if d.get("id"):
+                repo._req("PATCH", "coletor_execucoes", {"id": repo._eq(int(d["id"]))}, corpo=reg,
+                          prefer="return=minimal")
+                return _json({"ok": True, "id": int(d["id"])})
+            novo = repo._req("POST", "coletor_execucoes", corpo=[reg], prefer="return=representation")
+            return _json({"ok": True, "id": novo[0]["id"] if novo else None})
         if rota == "coletor_pendencias":
             # O que já existe no nubi, para o coletor não baixar de novo o que já foi importado.
             vend, por_hash = {}, {}

@@ -226,6 +226,12 @@ create table if not exists public.coletor_execucoes (
   tarefa text, ok boolean, arquivos int, importados int, erros int, mensagem text, log text
 );
 alter table public.coletor_execucoes enable row level security;
+-- andamento ao vivo (o coletor atualiza a mesma linha enquanto roda)
+alter table public.coletor_execucoes add column if not exists em_andamento boolean not null default false;
+alter table public.coletor_execucoes add column if not exists feito int;
+alter table public.coletor_execucoes add column if not exists total int;
+alter table public.coletor_execucoes add column if not exists atual text;
+alter table public.coletor_execucoes add column if not exists atualizado_em timestamptz;
 create policy "autorizado" on public.coletor_execucoes
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
 
