@@ -46,7 +46,12 @@ header.top select option{color:#000}
 .btn.ghost:hover{background:rgba(255,255,255,.1)}
 .btn.small{padding:4px 9px;font-size:12.5px}
 .btn:disabled{opacity:.55;cursor:default}
-main{max-width:1500px;margin:0 auto;padding:20px}
+main{margin:0 auto;padding:20px clamp(16px,1.6vw,40px)}
+/* Telas grandes (2K/4K): usa a largura toda e aumenta tudo na mesma proporção. */
+@media (min-width:2200px){body{zoom:1.2}}
+@media (min-width:2800px){body{zoom:1.4}}
+@media (min-width:3400px){body{zoom:1.6}}
+@media (min-width:1800px){.grid2{grid-template-columns:1.25fr 1fr}.tw{max-height:74vh}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
 .pad{padding:16px 18px}
 h1{font-size:22px;margin:0}
@@ -322,7 +327,7 @@ const ABAS = [
 function telaMarca() {
   const r = S.rel, z = r.resumo;
   const ant = r.anterior;
-  const top = r.tabelas.oportunidades.slice(0, 5);
+  const top = r.tabelas.oportunidades.slice(0, 8);
   $("#main").innerHTML = `
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h1>${esc(r.nome)}</h1>
