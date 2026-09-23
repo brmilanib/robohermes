@@ -511,13 +511,14 @@ REGRA_ATUAL = "regra 2: mesmo GTIN = mesmo produto; linha lida do título"
 
 def aplicar_regra_nova(repo):
     if repo._req("GET", "agente_execucoes", {"select": "id", "origem": repo._eq(REGRA_ATUAL), "limit": 1}):
-        return
+        return False
     nubi.avisar("    Aplicando a regra nova de agrupamento em todos os períodos já importados…")
     nubi.reconsolidar(repo, repo.carregar_config())
     agora = datetime.now(timezone.utc).isoformat()
     repo._req("POST", "agente_execucoes", corpo=[{"origem": REGRA_ATUAL, "iniciado_em": agora, "terminado_em": agora,
                                                    "log": "Reprocessamento de todas as marcas."}],
               prefer="return=minimal")
+    return True
 
 
 def rodar_agente(repo, origem, marca=None, segundos=TEMPO_MAX):
@@ -526,7 +527,7 @@ def rodar_agente(repo, origem, marca=None, segundos=TEMPO_MAX):
     inicio = datetime.now(timezone.utc)
     prazo = time.monotonic() + max(5, segundos)
     log = _preparar(repo)
-    aplicar_regra_nova(repo)
+    regra = aplicar_regra_nova(repo)
     res = nubi.pesquisar_gtins(repo, 10_000, None, marca, prazo=prazo)
     mudaram = sorted(res["marcas"])
     if mudaram and time.monotonic() < prazo + 40:
@@ -542,7 +543,7 @@ def rodar_agente(repo, origem, marca=None, segundos=TEMPO_MAX):
         repo._req("POST", "agente_execucoes", corpo=[reg], prefer="return=minimal")
     except ErroNuvem:
         pass   # registrar a rodada não pode derrubar a pesquisa
-    return dict(reg, marcas=mudaram, log=log)
+    return dict(reg, marcas=mudaram, log=log, regra_aplicada=regra)
 
 
 def atender(metodo, rota, q, corpo, token):

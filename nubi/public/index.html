@@ -1377,7 +1377,10 @@ async function cicloAgente() {
       const r = await api("agente", {origem: "página", segundos: 90}, {method: "POST"});
       S.agente = r;
       if (!r.restantes) prox = 60 * 60000;
-      if (r.encontrados) {
+      if (r.regra_aplicada) {
+        toast("🤖 Agrupamento atualizado: mesmo GTIN = mesmo produto.", 6000);
+        if (!document.querySelector(".modal-bg")) { if (S.marca) abrirMarca(S.marca, true); else if (secaoAtual() === "explorador") { await carregarPainel(); rotear(); } }
+      } else if (r.encontrados) {
         toast(`🤖 Agente de GTIN: ${r.encontrados} GTIN(s) identificado(s)${r.marcas.length ? " em " + r.marcas.map(nome).join(", ") : ""}.`, 6000);
         if (S.marca && r.marcas.includes(S.marca) && !document.querySelector(".modal-bg")) abrirMarca(S.marca, true);
       }
