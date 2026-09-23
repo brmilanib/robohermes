@@ -198,3 +198,21 @@ create policy "autorizado" on public.vend_relatorios
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
 create policy "autorizado" on public.vend_anuncios
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Nomes de marcas: grafias diferentes da mesma marca (YSL -> YVES SAINT LAURENT).
+create table if not exists public.marca_apelidos (
+  apelido text primary key,
+  marca text,
+  ignorar boolean not null default false,
+  criado_em timestamptz not null default now()
+);
+alter table public.marca_apelidos enable row level security;
+create policy "autorizado" on public.marca_apelidos
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create or replace function public.marcas_vistas() returns table (marca text, fonte text, vendas numeric)
+language sql stable security invoker set search_path = public as $$
+  select marca, 'ranking', sum(vendas) from public.ranking_linhas where marca is not null group by marca
+  union all
+  select marca, 'vendedores', sum(vendas) from public.vend_anuncios where marca is not null and marca <> '' group by marca;
+$$;
+grant execute on function public.marcas_vistas() to authenticated;

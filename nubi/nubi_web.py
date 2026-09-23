@@ -570,6 +570,9 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem("Este e-mail ainda não tem acesso ao nubi. Peça para liberar.", 403)
             return _json(repo.painel())
 
+        if rota.startswith("apelido"):
+            return _json(rota_apelidos(repo, metodo, rota, q, corpo))
+
         if rota.startswith("vend_"):
             return _json(rota_vendedores(repo, metodo, rota, q, corpo))
 
@@ -738,7 +741,8 @@ def _relatorios(repo, categoria=None):
 
 
 def _linhas(repo, rid):
-    return repo._todos("ranking_linhas", {"select": "*", "relatorio_id": repo._eq(int(rid)), "order": "posicao"})
+    return unificar_marcas(repo, repo._todos("ranking_linhas", {"select": "*", "relatorio_id": repo._eq(int(rid)),
+                                                                 "order": "posicao"}), somar=True)
 
 
 def rota_ranking(repo, metodo, rota, q, corpo):
@@ -814,13 +818,17 @@ def rota_ranking(repo, metodo, rota, q, corpo):
                 "resumo": resumo, "marcas": tabela, "sairam": saiu}
 
     if rota == "ranking_marca":
-        cat, chave = q["categoria"], nubi.compacta(q["marca"])
+        cat = q["categoria"]
+        ap = apelidos(repo)
+        chave = ap.get(nubi.compacta(q["marca"]), (nubi.compacta(q["marca"]), None))[0]
+        grafias = sorted({chave} | {a for a, (c, _) in ap.items() if c == chave})
         rels = {r["id"]: r for r in _relatorios(repo, cat)}
         if not rels:
             return {"historico": []}
         ids = ",".join(str(i) for i in rels)
-        linhas = repo._todos("ranking_linhas", {"select": "*", "marca_chave": repo._eq(chave),
-                                                "relatorio_id": f"in.({ids})", "order": "relatorio_id"})
+        linhas = unificar_marcas(repo, repo._todos("ranking_linhas", {
+            "select": "*", "marca_chave": f"in.({','.join(grafias)})",
+            "relatorio_id": f"in.({ids})", "order": "relatorio_id"}), somar=True)
         hist = []
         for l in linhas:
             r = rels[l["relatorio_id"]]
@@ -842,10 +850,10 @@ def rota_ranking(repo, metodo, rota, q, corpo):
         if not rels:
             raise ErroNuvem("Nenhum relatório importado para esta categoria.", 404)
         ids = ",".join(str(r["id"]) for r in rels)
-        linhas = repo._todos("ranking_linhas", {
+        linhas = unificar_marcas(repo, repo._todos("ranking_linhas", {
             "select": "relatorio_id,posicao,variacao,marca,marca_chave,vendas,unidades,tendencia,catalogo,"
                       "vendedores,saturacao,ranking_demanda",
-            "relatorio_id": f"in.({ids})", "order": "relatorio_id,posicao"})
+            "relatorio_id": f"in.({ids})", "order": "relatorio_id,posicao"}), somar=True)
         por_rel = {r["id"]: [] for r in rels}
         for l in linhas:
             por_rel[l["relatorio_id"]].append(l)
@@ -886,7 +894,7 @@ def _vend_linhas(repo, rid, bruto=False):
         l["vendas"] = float(l["vendas"] or 0)
         l["preco"] = float(l["preco"] or 0)
         l["unidades"] = int(l["unidades"] or 0)
-    return ls
+    return unificar_marcas(repo, ls)
 
 
 def _ranking_do_mes(repo, mes, chaves):
@@ -907,10 +915,10 @@ def _ranking_do_mes(repo, mes, chaves):
     _, cat, ls = melhor
     rels_cat = [r for r in rels if r["categoria"] == cat]
     ids = ",".join(str(r["id"]) for r in rels_cat)
-    todas = repo._todos("ranking_linhas", {
+    todas = unificar_marcas(repo, repo._todos("ranking_linhas", {
         "select": "relatorio_id,posicao,variacao,marca,marca_chave,vendas,unidades,tendencia,catalogo,"
                   "vendedores,saturacao,ranking_demanda",
-        "relatorio_id": f"in.({ids})", "order": "relatorio_id,posicao"})
+        "relatorio_id": f"in.({ids})", "order": "relatorio_id,posicao"}), somar=True)
     por_rel = {r["id"]: [] for r in rels_cat}
     for l in todas:
         por_rel[l["relatorio_id"]].append(l)
@@ -1061,6 +1069,147 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         repo._req("DELETE", "vend_relatorios", {"id": repo._eq(int(q["id"]))})
         return {"ok": True}
 
+    raise ErroNuvem("Rota desconhecida.", 404)
+
+
+# ---------------------------------------------------------------------------
+# 6. Nomes de marca: a mesma marca escrita de jeitos diferentes (YSL = Yves Saint Laurent)
+# ---------------------------------------------------------------------------
+
+def apelidos(repo):
+    """{grafia compactada: (chave oficial, nome oficial)} — carregado uma vez por requisição."""
+    if getattr(repo, "_apelidos", None) is None:
+        ap = {}
+        for r in repo._todos("marca_apelidos", {"select": "apelido,marca,ignorar"}):
+            if r["marca"] and not r["ignorar"]:
+                ap[nubi.compacta(r["apelido"])] = (nubi.compacta(r["marca"]), r["marca"].strip().upper())
+        repo._apelidos = ap
+    return repo._apelidos
+
+
+def unificar_marcas(repo, linhas, somar=False):
+    """Troca cada grafia pelo nome oficial. somar=True (ranking): se duas grafias caem no
+    mesmo relatório, vira uma linha só (vendas/unidades/vendedores somados, melhor posição)."""
+    ap = apelidos(repo)
+    if not ap:
+        return linhas
+    for l in linhas:
+        k = l.get("marca_chave") or nubi.compacta(l.get("marca") or "")
+        if k in ap:
+            l["marca_original"] = l.get("marca")
+            l["marca_chave"], l["marca"] = ap[k]
+    if not somar:
+        return linhas
+    saida, vistos = [], {}
+    for l in linhas:
+        chave = (l.get("relatorio_id"), l["marca_chave"])
+        if chave not in vistos:
+            vistos[chave] = l
+            saida.append(l)
+            continue
+        a = vistos[chave]
+        for c in ("vendas", "unidades", "vendedores"):
+            if l.get(c) is not None:
+                a[c] = (a.get(c) or 0) + l[c]
+        if l.get("posicao") and (not a.get("posicao") or l["posicao"] < a["posicao"]):
+            a["posicao"] = l["posicao"]
+    return saida
+
+
+def _iniciais(nome):
+    return "".join(p[0] for p in re.split(r"[^A-Z0-9]+", nubi.sem_acento(nome).upper()) if p)
+
+
+def _contem_palavras(x, y):
+    """Um dos nomes aparece inteiro, em palavras, dentro do outro (WELLA / WELLA PROFISSIONAL)."""
+    px, py = nubi.sem_acento(x).upper().split(), nubi.sem_acento(y).upper().split()
+    if len(px) == len(py):
+        return False
+    curto, longo = (px, py) if len(px) < len(py) else (py, px)
+    return any(longo[i:i + len(curto)] == curto for i in range(len(longo) - len(curto) + 1))
+
+
+def sugestoes_apelidos(repo):
+    """Pares de grafias que parecem a mesma marca, para você confirmar."""
+    import difflib
+    ap = apelidos(repo)
+    decididos = {nubi.compacta(r["apelido"]) for r in repo._todos("marca_apelidos", {"select": "apelido"})}
+    vistas = {}
+    for r in repo._req("POST", "rpc/marcas_vistas", corpo={}) or []:
+        k = nubi.compacta(r["marca"] or "")
+        if not k:
+            continue
+        x = vistas.setdefault(k, {"nomes": {}, "vendas": 0.0, "fontes": set()})
+        x["nomes"][r["marca"]] = x["nomes"].get(r["marca"], 0) + float(r["vendas"] or 0)
+        x["vendas"] += float(r["vendas"] or 0)
+        x["fontes"].add(r["fonte"])
+    for x in vistas.values():
+        x["nome"] = max(x["nomes"], key=x["nomes"].get)
+    chaves = [k for k in vistas if k not in ap]
+    out = []
+    for a in chaves:
+        if a in decididos:
+            continue
+        for b in chaves:
+            if a == b:
+                continue
+            A, B = vistas[a], vistas[b]
+            if "ranking" in A["fontes"]:      # o ranking do Nubimetrics já é o nome canônico
+                continue
+            if re.sub(r"\D", "", a) != re.sub(r"\D", "", b):   # "212" e "212 VIP" não são grafias da mesma coisa
+                continue
+            motivo = None
+            if len(a) <= 5 and len(B["nome"].split()) >= 2 and a == _iniciais(B["nome"]):
+                motivo = "sigla"
+            elif min(len(a), len(b)) >= 4 and _contem_palavras(A["nome"], B["nome"]) and \
+                    ("ranking" in B["fontes"] or B["vendas"] >= A["vendas"]):
+                motivo = "nome contido"      # um nome está dentro do outro; vai para o que mais vende
+            elif len(a) >= 5 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.88 and A["vendas"] <= B["vendas"]:
+                motivo = "grafia parecida"
+            if not motivo:
+                continue
+            # vai para o nome do ranking (o do mercado) ou, sem ranking, o que mais vende
+            if "ranking" in A["fontes"] and "ranking" not in B["fontes"]:
+                continue
+            out.append({"apelido": A["nome"], "marca": B["nome"], "motivo": motivo,
+                        "vendas_apelido": A["vendas"], "vendas_marca": B["vendas"],
+                        "fontes_apelido": sorted(A["fontes"]), "fontes_marca": sorted(B["fontes"])})
+    ordem = {"sigla": 0, "grafia parecida": 1, "nome contido": 2}
+    out.sort(key=lambda x: (ordem[x["motivo"]], "ranking" not in x["fontes_marca"], -x["vendas_marca"]))
+    melhor = {}
+    for x in out:                          # um destino por grafia: o mais provável
+        melhor.setdefault(x["apelido"], x)
+    out = sorted(melhor.values(), key=lambda x: (ordem[x["motivo"]], -x["vendas_apelido"]))
+    return out[:80], sorted({v["nome"] for v in vistas.values()})
+
+
+def rota_apelidos(repo, metodo, rota, q, corpo):
+    if rota == "apelidos":
+        lista = repo._todos("marca_apelidos", {"select": "*", "order": "marca,apelido"})
+        sug, nomes = sugestoes_apelidos(repo)
+        return {"apelidos": [r for r in lista if r["marca"] and not r["ignorar"]],
+                "ignorados": [r for r in lista if r["ignorar"]], "sugestoes": sug, "marcas": nomes}
+    d = json.loads(corpo or b"{}")
+    apelido = (d.get("apelido") or "").strip().upper()
+    if not apelido:
+        raise ErroNuvem("Informe o nome da marca.")
+    if rota == "apelido_salvar" and metodo == "POST":
+        marca = (d.get("marca") or "").strip().upper()
+        if not marca or nubi.compacta(marca) == nubi.compacta(apelido):
+            raise ErroNuvem("Informe o nome oficial (diferente do apelido).")
+        # o oficial não pode ser apelido de outra (evita cadeia YSL -> X -> Y)
+        repo._req("DELETE", "marca_apelidos", {"apelido": repo._eq(marca)})
+        repo._req("POST", "marca_apelidos", corpo=[{"apelido": apelido, "marca": marca, "ignorar": False}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        repo._req("PATCH", "marca_apelidos", {"marca": repo._eq(apelido)}, corpo={"marca": marca})
+        return {"ok": True}
+    if rota == "apelido_ignorar" and metodo == "POST":
+        repo._req("POST", "marca_apelidos", corpo=[{"apelido": apelido, "marca": None, "ignorar": True}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True}
+    if rota == "apelido_apagar" and metodo == "POST":
+        repo._req("DELETE", "marca_apelidos", {"apelido": repo._eq(apelido)})
+        return {"ok": True}
     raise ErroNuvem("Rota desconhecida.", 404)
 
 def _json(obj, status=200):

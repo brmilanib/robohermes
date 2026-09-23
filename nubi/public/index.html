@@ -298,18 +298,18 @@ const SECOES = [
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/vendedores/.test(location.hash) ? "vendedores" : "explorador"; }
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/vendedores/.test(location.hash) ? "vendedores" : /^#\/nomes-marcas/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
   $("#app").innerHTML = `
   <header class="top">
-    <div class="logo" id="home">nubi <small>${esc(SECOES.find(x => x.id === sec).nome)}</small></div>
+    <div class="logo" id="home">nubi <small>${esc((SECOES.find(x => x.id === sec) || {nome: "Nomes de marcas"}).nome)}</small></div>
     ${sec === "explorador" ? `<select id="selm" title="Marca"><option value="">Todas as marcas</option>
       ${S.painel.map(p => `<option value="${esc(p.marca)}" ${p.marca === S.marca ? "selected" : ""}>${esc(nome(p.marca))}</option>`).join("")}
     </select>` : ""}
     <div class="sp"></div>
-    <button class="btn ghost" id="bup">⬆ ${sec === "ranking" ? "Importar relatório do mês" : sec === "vendedores" ? "Importar vendedor" : "Importar CSV"}</button>
+    ${sec === "nomes" ? "" : `<button class="btn ghost" id="bup">⬆ ${sec === "ranking" ? "Importar relatório do mês" : sec === "vendedores" ? "Importar vendedor" : "Importar CSV"}</button>`}
     ${sec === "explorador" ? `<button class="btn ghost" id="bxl">⬇ Excel</button>` : ""}
     <span style="opacity:.8;font-size:12.5px">${esc(email)}</span>
     <button class="btn ghost small" id="bsenha">Trocar senha</button>
@@ -321,7 +321,7 @@ function moldura() {
   </div>`;
   $("#home").onclick = () => { location.hash = sec === "ranking" ? "#/ranking" : sec === "vendedores" ? "#/vendedores" : "#/"; };
   if ($("#selm")) $("#selm").onchange = e => irPara(e.target.value);
-  $("#bup").onclick = sec === "ranking" ? abrirUploadRanking : sec === "vendedores" ? abrirUploadVendedor : abrirUpload;
+  if ($("#bup")) $("#bup").onclick = sec === "ranking" ? abrirUploadRanking : sec === "vendedores" ? abrirUploadVendedor : abrirUpload;
   if ($("#bxl")) $("#bxl").onclick = baixarExcel;
   $("#bsenha").onclick = trocarSenha;
   $("#bsair").onclick = async () => { await sb.auth.signOut(); location.hash = ""; };
@@ -342,6 +342,7 @@ function desenharMenu() {
     <a class="navi ${x.id === sec ? "on" : ""}" href="${x.id === "ranking" ? "#/ranking" : x.id === "vendedores" ? "#/vendedores" : "#/"}">
       <span class="ic">${x.icone}</span><span>${esc(x.nome)}<small>${esc(x.desc)}</small></span></a>
     ${x.id === sec && sub.length ? `<div class="subnav">${sub.map(i => `<a class="${i.on ? "on" : ""}" href="${i.href}" ${i.sub ? 'style="padding-left:22px;font-size:12.5px"' : ""}>${esc(i.nome)}</a>`).join("")}</div>` : ""}`).join("");
+  $("#side").insertAdjacentHTML("beforeend", `<a class="navi ${sec === "nomes" ? "on" : ""}" href="#/nomes-marcas" style="margin-top:6px"><span class="ic">🔗</span><span>Nomes de marcas<small>Juntar grafias da mesma marca</small></span></a>`);
   $("#side").insertAdjacentHTML("beforeend", `<div id="agente-st" class="muted" style="font-size:12px;margin:14px 12px 0;padding-top:12px;border-top:1px solid var(--line)"></div>`);
   desenharAgente();
 }
@@ -356,6 +357,7 @@ async function rotear() {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi))?/) || [];
     return mes === "bi" ? telaBI(cat) : telaRanking(cat, mes);
   }
+  if (sec === "nomes") return telaNomesMarcas();
   if (sec === "vendedores") {
     if (!S.vendLista) await carregarVendLista();
     const h = decodeURIComponent(location.hash);
@@ -1114,6 +1116,48 @@ function abrirUploadVendedor() {
         await rotear();
       };
     });
+}
+
+// ---------- Nomes de marcas (juntar YSL = Yves Saint Laurent) ----------
+async function telaNomesMarcas() {
+  const main = $("#main");
+  main.innerHTML = `<div class="empty"><span class="spin"></span> Procurando grafias parecidas…</div>`;
+  let r;
+  try { r = await api("apelidos"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const acao = async (rota, corpo, msg) => {
+    try { await api(rota, {}, {method: "POST", body: JSON.stringify(corpo)}); toast(msg); telaNomesMarcas(); }
+    catch (e) { toast(e.message, 6000); }
+  };
+  const MOT = {"sigla": "sigla", "grafia parecida": "grafia parecida", "nome contido": "nome contido (confira)"};
+  main.innerHTML = `<h1>Nomes de marcas</h1>
+    <p class="muted" style="margin:4px 0 0">A mesma marca escrita de jeitos diferentes nos arquivos (ex.: YSL e Yves Saint Laurent) vira uma só no Ranking, no B.I. e nos Vendedores.
+    Vale para os dados já importados: não precisa importar de novo.</p>
+    <div class="grid2" style="margin-top:14px">
+      <div class="card pad"><h2>Sugestões para conferir <span class="muted" style="font-weight:400">(${r.sugestoes.length})</span></h2>
+        <div class="muted" style="font-size:12.5px;margin-bottom:8px">Pares que parecem a mesma marca. "Juntar" manda o primeiro nome para o segundo (o nome do ranking, quando existe). "Não é a mesma" esconde a sugestão.</div>
+        ${r.sugestoes.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><tbody>${r.sugestoes.map((x, i) => `<tr>
+          <td class="first">${esc(x.apelido)}<br><small class="muted">${abrev(x.vendas_apelido)} · ${esc(x.fontes_apelido.join(", "))}</small></td>
+          <td>→</td><td class="first">${esc(x.marca)}<br><small class="muted">${abrev(x.vendas_marca)} · ${esc(x.fontes_marca.join(", "))}</small></td>
+          <td><span class="st ${x.motivo === "nome contido" ? "warn" : ""}">${esc(MOT[x.motivo])}</span></td>
+          <td><button class="btn small primary" data-j="${i}">Juntar</button> <button class="btn small" data-n="${i}">Não é a mesma</button></td></tr>`).join("")}</tbody></table></div>`
+          : `<div class="muted">Nenhuma sugestão agora.</div>`}
+      </div>
+      <div class="card pad"><h2>Nomes juntados <span class="muted" style="font-weight:400">(${r.apelidos.length})</span></h2>
+        <div class="form-row" style="grid-template-columns:1fr 1fr auto;align-items:end;margin-top:0">
+          <label class="f">Como aparece no arquivo<input id="ap-a" list="ap-m" placeholder="YSL"></label>
+          <label class="f">Nome oficial<input id="ap-b" list="ap-m" placeholder="YVES SAINT LAURENT"></label>
+          <button class="btn primary" id="ap-add">Juntar</button></div>
+        <datalist id="ap-m">${r.marcas.map(m => `<option value="${esc(m)}">`).join("")}</datalist>
+        <table class="t" style="font-size:12.5px;margin-top:12px"><tbody>${r.apelidos.map(x => `<tr><td class="first">${esc(x.apelido)}</td><td>→</td><td>${esc(x.marca)}</td>
+          <td><button class="btn small" data-x="${esc(x.apelido)}">desfazer</button></td></tr>`).join("") || `<tr><td class="muted">Nenhum ainda.</td></tr>`}</tbody></table>
+        ${r.ignorados.length ? `<div class="muted" style="font-size:12px;margin-top:10px">Marcados como "não é a mesma": ${r.ignorados.map(x => `<a href="#" data-x="${esc(x.apelido)}">${esc(x.apelido)}</a>`).join(", ")} (clique para voltar a sugerir)</div>` : ""}
+      </div>
+    </div>`;
+  main.querySelectorAll("[data-j]").forEach(b => b.onclick = () => { const x = r.sugestoes[b.dataset.j]; acao("apelido_salvar", {apelido: x.apelido, marca: x.marca}, `${x.apelido} → ${x.marca}`); });
+  main.querySelectorAll("[data-n]").forEach(b => b.onclick = () => { const x = r.sugestoes[b.dataset.n]; acao("apelido_ignorar", {apelido: x.apelido}, "Sugestão escondida."); });
+  main.querySelectorAll("[data-x]").forEach(b => b.onclick = e => { e.preventDefault(); acao("apelido_apagar", {apelido: b.dataset.x}, "Desfeito."); });
+  $("#ap-add").onclick = () => acao("apelido_salvar", {apelido: $("#ap-a").value, marca: $("#ap-b").value}, "Nomes juntados.");
+  desenharMenu();
 }
 function abrirUploadRanking() {
   const itens = [];

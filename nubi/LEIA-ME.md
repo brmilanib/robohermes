@@ -134,6 +134,19 @@ publicação, GTIN...
   - como cada um vende (ticket, FULL, catálogo, Premium);
   - uma matriz com as 25 maiores marcas e a fatia de cada vendedor no mercado da marca.
 
+### Nomes de marcas (menu lateral, 🔗)
+
+A mesma marca aparece escrita de jeitos diferentes nos arquivos dos vendedores (YSL e
+Yves Saint Laurent, Thierry Mugler e Mugler, erros como "David Beckmam"). Nessa tela:
+
+- **Sugestões**: pares que parecem a mesma marca. Os motivos são sigla, grafia parecida
+  ou nome contido no outro. O destino é o nome do ranking do Nubimetrics, ou o que mais
+  vende. "Juntar" confirma o par; "Não é a mesma" esconde a sugestão.
+- **Juntar à mão**: escreva como a marca aparece no arquivo e o nome oficial.
+
+A junção vale na hora para o Ranking, o B.I. e os Vendedores, inclusive nos dados já
+importados. Os arquivos continuam guardados com o nome original, então dá para desfazer.
+
 A versão de computador continua funcionando igual, com os dados locais em `dados/base.db`.
 
 ## Instalação no computador (uma vez só)
