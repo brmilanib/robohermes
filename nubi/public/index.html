@@ -101,6 +101,9 @@ label.f{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--
 label.f input,label.f select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg);color:var(--ink)}
 .drop{display:block;margin-top:12px;border:2px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted);cursor:pointer}
 .drop.on{border-color:var(--accent);background:var(--soft)}
+.barra{height:6px;border-radius:3px;background:var(--soft);overflow:hidden;position:relative}
+.barra::after{content:"";position:absolute;inset:0;width:35%;border-radius:3px;background:var(--accent);animation:barra 1.1s ease-in-out infinite}
+@keyframes barra{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
 .files .fi{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:14px}
 .bcard{padding:16px;cursor:pointer;transition:border-color .15s}
@@ -567,12 +570,21 @@ async function telaConfig(el) {
       <div id="cfl">${linhas.map((p, i) => `<div class="cfg-row"><input data-i="${i}" data-j="0" value="${esc(p[0])}" placeholder="texto no título">
         <input data-i="${i}" data-j="1" value="${esc(p[1])}" placeholder="nome no relatório"><button class="btn small" data-del="${i}">✕</button></div>`).join("")}</div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-        <button class="btn" id="cfa">+ Adicionar linha</button><div style="flex:1"></div>
+        <button class="btn" id="cfa">+ Adicionar linha</button>
+        <button class="btn" id="cfr" title="Descarta esta lista e detecta de novo pelos títulos do período mais recente">↻ Detectar linhas de novo</button>
+        <div style="flex:1"></div>
         <button class="btn primary" id="cfs">Salvar e reprocessar</button></div>
       <div id="cflog"></div></div>`;
     el.querySelectorAll("#cfl input").forEach(i => i.oninput = () => { linhas[i.dataset.i][i.dataset.j] = i.value; });
     el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { linhas.splice(+b.dataset.del, 1); desenhar(); });
     $("#cfa", el).onclick = () => { linhas.unshift(["", ""]); desenhar(); $("#cfl input", el).focus(); };
+    $("#cfr", el).onclick = async () => {
+      if (!confirm("Descartar a lista atual e detectar as linhas de novo pelos títulos do período mais recente?")) return;
+      const bt = $("#cfr", el); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> Detectando…';
+      try { await api("redetectar", {marca: S.marca}, {method: "POST"});
+        toast("Linhas detectadas de novo e histórico reprocessado."); await abrirMarca(S.marca, true);
+      } catch (e) { $("#cflog", el).innerHTML = `<div class="log">${esc(e.message)}</div>`; bt.disabled = false; bt.textContent = "↻ Detectar linhas de novo"; }
+    };
     $("#cfs", el).onclick = async () => {
       const bt = $("#cfs", el); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> Reprocessando…';
       try { await api("config", {marca: S.marca}, {method: "POST", body: JSON.stringify({linhas: linhas.filter(p => p[0].trim())})});
@@ -601,54 +613,104 @@ function telaPeriodos(el) {
 
 // ---------- Upload ----------
 const PADRAO = /^(.+?)__(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.csv$/i;
-function abrirUpload() {
+const compacta = t => (t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+async function abrirUpload() {
   const itens = [];
+  let marcas = S.painel.map(p => p.marca);
+  try { marcas = await api("marcas"); } catch {}
+  // "Mont Blanc", "MONTBLANC" e "mont-blanc" apontam para a mesma marca já cadastrada.
+  const existente = t => marcas.find(m => compacta(m) === compacta(t)) || null;
   modal(`<h2>Importar exports do Nubimetrics</h2>
     <p class="muted" style="margin-top:0">Arraste um ou mais CSVs. Se o nome seguir o padrão <code>MARCA__AAAA-MM-DD_AAAA-MM-DD.csv</code>, marca e período já vêm preenchidos.</p>
     <label class="drop" id="dz"><input type="file" id="fi" accept=".csv,text/csv" multiple hidden>Clique ou arraste os arquivos aqui</label>
+    <div id="up-status" class="muted" style="margin-top:10px"></div>
     <div class="files" id="fl"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-      <button class="btn" data-fechar>Fechar</button><button class="btn primary" id="fgo" disabled>Importar</button></div>`,
+      <button class="btn" data-fechar id="fcan">Cancelar</button><button class="btn primary" id="fgo" disabled>Importar</button></div>`,
     m => {
       const dz = $("#dz", m), fi = $("#fi", m);
+      let rodando = false, terminou = false;
       const add = files => {
         for (const f of files) {
           const p = f.name.match(PADRAO);
-          itens.push({f, marca: p ? p[1].replace(/_/g, " ").toUpperCase() : (S.marca || ""), inicio: p ? p[2] : "", fim: p ? p[3] : "", log: ""});
+          const sugerida = p ? p[1].replace(/_/g, " ").toUpperCase() : (S.marca || "");
+          const ex = existente(sugerida);
+          const nova = !marcas.length || (!ex && !!sugerida);
+          itens.push({f, marca: ex || (nova ? sugerida.toUpperCase() : marcas[0]), nova,
+                      inicio: p ? p[2] : "", fim: p ? p[3] : "", log: "", estado: ""});
         }
+        terminou = false;
         desenhar();
       };
+      const campoMarca = (it, i) => it.nova
+        ? `<label class="f">Marca (nova)<input data-i="${i}" data-k="marca" value="${esc(it.marca)}" placeholder="ex.: ARMAF">
+             ${marcas.length ? `<a href="#" data-lista="${i}" style="font-size:12px">escolher da lista</a>` : ""}</label>`
+        : `<label class="f">Marca<select data-i="${i}" data-k="sel">
+             ${marcas.map(mm => `<option value="${esc(mm)}" ${mm === it.marca ? "selected" : ""}>${esc(nome(mm))}</option>`).join("")}
+             <option value="__nova__">+ Nova marca…</option></select></label>`;
       const desenhar = () => {
         $("#fl", m).innerHTML = itens.map((it, i) => `<div class="fi">
           <b>${esc(it.f.name)}</b> <span class="muted">${nf0.format(it.f.size / 1024)} KB</span>
+          ${it.estado === "ok" ? ' <span class="pill good">importado</span>' : it.estado === "erro" ? ' <span class="pill bad">não importado</span>' : ""}
           <div class="form-row">
-            <label class="f">Marca<input data-i="${i}" data-k="marca" value="${esc(it.marca)}" list="lm"></label>
+            ${campoMarca(it, i)}
             <label class="f">Início<input type="date" data-i="${i}" data-k="inicio" value="${it.inicio}"></label>
             <label class="f">Fim<input type="date" data-i="${i}" data-k="fim" value="${it.fim}"></label>
-          </div>${it.log ? `<div class="log">${esc(it.log)}</div>` : ""}</div>`).join("") +
-          `<datalist id="lm">${S.painel.map(p => `<option value="${esc(p.marca)}">`).join("")}</datalist>`;
-        m.querySelectorAll("[data-k]").forEach(inp => inp.oninput = () => { itens[inp.dataset.i][inp.dataset.k] = inp.value; });
-        $("#fgo", m).disabled = !itens.length;
+          </div>
+          ${it.estado === "rodando" ? `<div class="barra" style="margin-top:10px"></div><div class="muted" style="font-size:12px;margin-top:4px">Lendo, consolidando e gravando…</div>` : ""}
+          ${it.log ? `<div class="log">${esc(it.log)}</div>` : ""}</div>`).join("");
+        m.querySelectorAll("[data-k]").forEach(inp => {
+          const it = itens[inp.dataset.i];
+          inp.disabled = rodando || it.estado === "ok";
+          inp[inp.tagName === "SELECT" ? "onchange" : "oninput"] = () => {
+            if (inp.dataset.k === "sel") {
+              if (inp.value === "__nova__") { it.nova = true; it.marca = ""; desenhar(); $(`[data-i="${inp.dataset.i}"][data-k="marca"]`, m).focus(); }
+              else it.marca = inp.value;
+            } else it[inp.dataset.k] = inp.dataset.k === "marca" ? inp.value.toUpperCase() : inp.value;
+          };
+        });
+        m.querySelectorAll("[data-lista]").forEach(a => a.onclick = e => {
+          e.preventDefault(); const it = itens[a.dataset.lista];
+          it.nova = false; it.marca = existente(it.marca) || marcas[0]; desenhar();
+        });
+        const pend = itens.filter(it => it.estado !== "ok").length;
+        const go = $("#fgo", m);
+        if (terminou) { go.disabled = false; go.textContent = "Concluído"; }
+        else { go.disabled = rodando || !pend; go.textContent = rodando ? "Importando…" : "Importar"; }
+        $("#fcan", m).classList.toggle("hidden", rodando || terminou);
+        dz.classList.toggle("hidden", rodando);
       };
-      fi.onchange = () => add(fi.files);
+      fi.onchange = () => { add(fi.files); fi.value = ""; };
       dz.ondragover = e => { e.preventDefault(); dz.classList.add("on"); };
       dz.ondragleave = () => dz.classList.remove("on");
       dz.ondrop = e => { e.preventDefault(); dz.classList.remove("on"); add(e.dataTransfer.files); };
       $("#fgo", m).onclick = async () => {
-        const bt = $("#fgo", m); bt.disabled = true;
-        let ultima = null;
-        for (const it of itens) {
-          if (it.feito) continue;
-          if (!it.marca || !it.inicio || !it.fim) { it.log = "Preencha marca, início e fim."; desenhar(); continue; }
-          it.log = "Importando…"; desenhar();
+        if (terminou) { m.remove(); return; }
+        rodando = true;
+        let ultima = null, feitos = 0;
+        const fila = itens.filter(it => it.estado !== "ok");
+        for (const it of fila) {
+          feitos++;
+          $("#up-status", m).innerHTML = `<span class="spin"></span> Importando ${feitos} de ${fila.length}…`;
+          // Marca nova digitada igual a uma já cadastrada (outra grafia) vira a cadastrada.
+          if (it.nova) it.marca = existente(it.marca) || it.marca.trim().toUpperCase();
+          if (!it.marca || !it.inicio || !it.fim) { it.estado = "erro"; it.log = "Preencha marca, início e fim."; desenhar(); continue; }
+          it.estado = "rodando"; it.log = ""; desenhar();
           try {
             const r = await api("importar", {arquivo: it.f.name, marca: it.marca, inicio: it.inicio, fim: it.fim},
               {method: "POST", body: await it.f.arrayBuffer(), headers: {"Content-Type": "text/csv"}});
-            it.log = r.log.join("\n").trim(); it.feito = true; if (r.marca) ultima = r.marca;
-          } catch (e) { it.log = e.message; }
+            it.log = r.log.join("\n").trim();
+            it.estado = r.marca ? "ok" : "erro";
+            if (r.marca) { ultima = r.marca; if (!marcas.includes(r.marca)) marcas = [...marcas, r.marca].sort(); it.nova = false; it.marca = r.marca; }
+            if (/Já importado/.test(it.log)) it.estado = "ok";
+          } catch (e) { it.log = e.message; it.estado = "erro"; }
           desenhar();
         }
-        bt.textContent = "Concluído";
+        rodando = false; terminou = true;
+        const ok = itens.filter(it => it.estado === "ok").length;
+        $("#up-status", m).textContent = `${ok} de ${itens.length} arquivo(s) importado(s).`;
+        desenhar();
+        // Atualiza a página por trás; a janela fica aberta para ler o resultado.
         await carregarPainel(); moldura();
         if (ultima && ultima !== S.marca) irPara(ultima); else await rotear();
       };

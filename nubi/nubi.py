@@ -132,6 +132,18 @@ def chave_marca(marca):
     return re.sub(r"\s+", " ", sem_acento(marca).upper()).strip()
 
 
+def palavras_da_marca(marca):
+    """
+    Palavras que são só o nome da marca, em qualquer grafia: "MONT BLANC" dá
+    {"mont", "blanc", "montblanc"} e "MONTBLANC" dá {"montblanc"} — o título pode
+    trazer "Mont Blanc" ou "Montblanc" e nenhum dos dois é linha de produto.
+    """
+    p = set(normalizar(marca).split())
+    if p:
+        p.add("".join(normalizar(marca).split()))
+    return p
+
+
 def nome_bonito(txt):
     """ARMAF -> Armaf; ULRIC DE VARENS -> Ulric de Varens."""
     minusculas = {"de", "da", "do", "das", "dos", "di", "du", "del", "e"}
@@ -323,10 +335,14 @@ def detectar_linhas(df, marca):
     Pares pesam o dobro na ordenação, senão "nuit" e "intense" soltos ganham de
     "nuit intense" e a linha real se perde.
     """
-    palavras_marca = set(normalizar(marca).split())
+    palavras_marca = palavras_da_marca(marca)
     if "categoria" in df.columns:
         df = df[(df["categoria"].fillna("") == "") & (dono_do_anuncio(df, marca) == "")]
-    util = lambda p: (p not in PALAVRAS_VAZIAS and p not in palavras_marca
+    # Nome de outra marca declarado na coluna Marca (loja, contratipo) também não é linha.
+    alvo = compacta(marca)
+    outras = {compacta(v).lower() for v in df.get("marca_anuncio", pd.Series(dtype=str)).fillna("")
+              if v and not marca_bate(v, alvo)}
+    util = lambda p: (p not in PALAVRAS_VAZIAS and p not in palavras_marca and p not in outras
                       and not any(ch.isdigit() for ch in p))
     volume = {}
     for titulo, un in zip(df["titulo"], df["un"]):
@@ -535,7 +551,7 @@ def consolidar(df, marca, cfg, info=None):
     df = df.copy()
     info = INFO_GTIN if info is None else info
     linhas = cfg.get(chave_marca(marca), {}).get("linhas", [])
-    palavras_marca = set(normalizar(marca).split())
+    palavras_marca = palavras_da_marca(marca)
     tn = df["titulo"].map(normalizar)
 
     # Etapa 1 — ler o título.

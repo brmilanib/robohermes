@@ -441,6 +441,24 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem("Este e-mail ainda não tem acesso ao nubi. Peça para liberar.", 403)
             return _json(repo.painel())
 
+        if rota == "marcas":
+            # Marcas já cadastradas (com dados ou só com linhas configuradas), para o upload.
+            return _json(sorted(set(repo.carregar_config()) | set(repo.marcas())))
+
+        if rota == "redetectar" and metodo == "POST":
+            # Refaz a detecção automática das linhas pelo período mais recente e reprocessa.
+            marca = nubi.chave_marca(q["marca"])
+            snaps = repo.snapshots(marca)
+            if snaps.empty:
+                raise ErroNuvem("Nenhum período importado para esta marca.", 404)
+            log = _preparar(repo)
+            cfg = repo.carregar_config()
+            df = nubi.preparar(repo.anuncios(snaps.iloc[-1]["id"]))
+            cfg[marca] = {"linhas": nubi.detectar_linhas(df, marca)}
+            repo.salvar_config(cfg, marca)
+            nubi.reconsolidar(repo, cfg, [marca])
+            return _json({"ok": True, "linhas": cfg[marca]["linhas"], "log": log})
+
         if rota == "relatorio":
             _preparar(repo)
             return _json(relatorio(repo, q["marca"]))
