@@ -253,7 +253,7 @@ def relatorio(repo, marca):
         pm = _div(a["fat"], un)
         produtos.append({
             "produto": prod, "categoria": a["cat"], "linha": a["linha"], "tipo": a["tipo"],
-            "volume": a["volume"], "tamanho": a["tamanho"], "genero": a["genero"],
+            "volume": a["volume"], "gtins": int(a["gtins"]), "genero": a["genero"],
             "anuncios": int(anun[prod]), "vendedores": int(a["vendedores"]), "un": un,
             "fat": float(a["fat"]), "preco_medio": pm, "faixa": faixa(pm), "giro": un / dias,
             "proj30": un / dias * 30, "pct_volume": pct, "pct_acum": acum,
@@ -267,7 +267,7 @@ def relatorio(repo, marca):
                                          float(anterior["dias"]) if anterior is not None else None):
         a = x["a"]
         oport.append({
-            "produto": x["prod"], "categoria": a["cat"], "genero": a["genero"], "tamanho": a["tamanho"],
+            "produto": x["prod"], "categoria": a["cat"], "genero": a["genero"], "volume": a["volume"],
             "giro": x["giro"], "giro_ant": x["giro_ant"], "var": x["var"], "vendedores": x["vend"],
             "giro_por_vendedor": _div(x["giro"], x["vend"]), "anuncios": x["anuncios"],
             "lider": float(x["lider"]), "pct_full": float(x["full"]), "pct_catalogo": float(x["catalogo"]),
@@ -377,15 +377,16 @@ def relatorio(repo, marca):
                 "com_venda": sum(1 for v in serie if v > 0)})
         historico["linhas"].sort(key=lambda x: -x["serie"][-1])
 
-    # Anúncios
+    # Anúncios: produto consolidado + a linha original do arquivo, com as colunas do export.
+    colunas = list(nubi.COLUNAS_NUBIMETRICS)
+    for r in df["bruto"]:
+        if isinstance(r, dict):
+            colunas += [c for c in r if c not in colunas]
     anuncios = []
     for r in df.sort_values("un", ascending=False).to_dict("records"):
-        anuncios.append({
-            "produto": r["produto"], "categoria": nubi.categoria_de(r["tipo"]), "genero": r["genero"],
-            "confianca": r["confianca"], "titulo": r["titulo"], "codigo": r["cod"], "vendedor": r["vendedor"],
-            "marca_anuncio": r["marca_anuncio"], "gtin": r["gtin"], "un": r["un"], "fat": r["fat"],
-            "preco": r["preco"], "catalogo": r["catalogo"], "full": r["full"],
-            "loja_oficial": r["loja_oficial"], "internacional": r["internacional"]})
+        bruto = r.get("bruto") if isinstance(r.get("bruto"), dict) else {}
+        anuncios.append({"produto": r["produto"], "confianca": r["confianca"], "codigo": r["cod"],
+                         **{f"c{i}": bruto.get(c, "") for i, c in enumerate(colunas)}})
 
     # Resumo
     n = len(df)
@@ -414,6 +415,7 @@ def relatorio(repo, marca):
                     "vendedores": _registros(vendedores), "gtins": _registros(gtins),
                     "duvidas": _registros(duvidas), "anuncios": _registros(anuncios)},
         "historico": historico,
+        "colunas_arquivo": colunas,
     }
 
 

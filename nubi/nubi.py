@@ -57,6 +57,15 @@ LOG_ERRO = DADOS / "erro.log"
 
 PADRAO_NOME = re.compile(r"^(.+?)__(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})$", re.IGNORECASE)
 COLUNAS_OBRIGATORIAS = ["Título", "Vendedor", "Unidades vendidas"]
+# Colunas do export do Nubimetrics, na ordem do arquivo. A linha original de cada anúncio
+# é guardada inteira (campo "bruto") e mostrada assim na aba Anúncios da página.
+COLUNAS_NUBIMETRICS = [
+    "Título", "Vendedor", "Categoria L1", "Categoria final", "Código Completo da Categoria",
+    "Código da Categoria L1", "Código da Categoria Final", "Categoria completa", "Vendas em $ históricas",
+    "Vendas em $", "Unidades vendidas históricas", "Unidades vendidas", "Último preço", "Data de criação",
+    "Dias publicados", "Exposição", "Parcelas", "Catálogo", "FLEX", "FULL", "Compra Internacional", "Marca",
+    "Modelo", "Loja oficial", "Frete grátis", "ID do anúncio", "ID do vendedor", "Sku", "Gtin", "N° Peça", "Oem",
+]
 COLUNAS_OPCIONAIS = [
     "Vendas em $ históricas", "Vendas em $", "Unidades vendidas históricas",
     "Último preço", "Dias publicados", "Exposição", "Catálogo", "FLEX", "FULL",
@@ -253,6 +262,7 @@ def ler_csv(fonte):
     if faltando:
         raise ErroArquivo("não parece um export do Nubimetrics (faltam as colunas: "
                           + ", ".join(faltando) + ")")
+    originais = list(df.columns)
     for c in COLUNAS_OPCIONAIS:
         if c not in df.columns:
             df[c] = ""
@@ -278,6 +288,9 @@ def ler_csv(fonte):
         "internacional": df["Compra Internacional"].map(sim_nao),
         "loja_oficial": df["Loja oficial"].map(lambda v: 1 if limpar_celula(v) else 0),
         "frete_gratis": df["Frete grátis"].map(sim_nao),
+        # Linha original do arquivo, coluna por coluna (só tira o ="..." do Excel).
+        "bruto": [{c: re.sub(r'^="*(.*?)"*$', r"\1", str(v)).strip() for c, v in zip(originais, lin)}
+                  for lin in df[originais].itertuples(index=False, name=None)],
         # "" = perfumaria; senão, o nome da categoria final (ex.: "Canetas").
         "marca_anuncio": df["Marca"].str.strip(),
         "categoria": [
@@ -474,15 +487,6 @@ def categoria_de(tipo):
     return {"EDT": "Perfume", "EDP": "Perfume", "EDC": "Perfume", "Body Splash": "Body Splash",
             "Deo": "Desodorante", "Banho": "Banho", "Kit": "Kit", TIPO_OUTRA: "Outra marca",
             TIPO_FORA: "Não perfume"}.get(tipo, "Perfume")
-
-
-def tamanho_de(volume):
-    m = re.match(r"(\d+)", str(volume))
-    if not m:
-        return "-"
-    ml = int(m.group(1))
-    return ("Miniatura (até 30 ml)" if ml <= 30 else "Pequeno (31–60 ml)" if ml <= 60
-            else "Padrão (61–125 ml)" if ml <= 125 else "Grande (126+ ml)")
 
 
 def ler_texto(t, linhas, palavras_marca):
@@ -711,7 +715,7 @@ def consolidar(df, marca, cfg, info=None):
 # ---------------------------------------------------------------------------
 
 CAMPOS_ANUNCIO = ["titulo", "vendedor", "vendedor_id", "marca_anuncio", "categoria", "produto", "linha", "volume", "tipo",
-                  "genero", "confianca",
+                  "genero", "confianca", "bruto",
                   "gtin", "sku", "un", "fat", "preco", "un_hist", "fat_hist", "dias_pub",
                   "exposicao", "catalogo", "full", "flex", "internacional", "loja_oficial",
                   "frete_gratis"]
@@ -728,7 +732,7 @@ def abrir_banco():
         CREATE TABLE IF NOT EXISTS anuncios(
             snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
             titulo TEXT, vendedor TEXT, vendedor_id TEXT, marca_anuncio TEXT, categoria TEXT, produto TEXT, linha TEXT,
-            volume TEXT, tipo TEXT, genero TEXT, confianca TEXT, gtin TEXT, sku TEXT, un INTEGER, fat REAL, preco REAL,
+            volume TEXT, tipo TEXT, genero TEXT, confianca TEXT, bruto TEXT, gtin TEXT, sku TEXT, un INTEGER, fat REAL, preco REAL,
             un_hist INTEGER, fat_hist REAL, dias_pub INTEGER, exposicao TEXT,
             catalogo INTEGER, full INTEGER, flex INTEGER, internacional INTEGER,
             loja_oficial INTEGER, frete_gratis INTEGER);
@@ -736,7 +740,7 @@ def abrir_banco():
     """)
     # Banco criado por uma versão anterior: acrescenta as colunas que faltam.
     existentes = {r[1] for r in con.execute("PRAGMA table_info(anuncios)")}
-    for c in ("marca_anuncio", "categoria", "genero", "confianca"):
+    for c in ("marca_anuncio", "categoria", "genero", "confianca", "bruto"):
         if c not in existentes:
             con.execute(f"ALTER TABLE anuncios ADD COLUMN {c} TEXT")
     con.commit()
@@ -782,7 +786,9 @@ class RepoLocal:
             "VALUES (?,?,?,?,?,?,?)",
             (marca, inicio, fim, dias, arquivo, hash_, datetime.now().isoformat(timespec="seconds")))
         sid = cur.lastrowid
-        linhas = [(sid, *r) for r in df[CAMPOS_ANUNCIO].itertuples(index=False, name=None)]
+        d = df[CAMPOS_ANUNCIO].copy()
+        d["bruto"] = d["bruto"].map(lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, dict) else x)
+        linhas = [(sid, *r) for r in d.itertuples(index=False, name=None)]
         con.executemany(f"INSERT INTO anuncios(snapshot_id, {', '.join(CAMPOS_ANUNCIO)}) "
                         f"VALUES ({', '.join('?' * (len(CAMPOS_ANUNCIO) + 1))})", linhas)
         con.commit()
@@ -790,8 +796,10 @@ class RepoLocal:
 
     def anuncios(self, sid):
         """Anúncios de um período, com `rid` (identificador da linha para atualizar)."""
-        return pd.read_sql("SELECT rowid AS rid, * FROM anuncios WHERE snapshot_id=?",
-                           self.con, params=(int(sid),))
+        df = pd.read_sql("SELECT rowid AS rid, * FROM anuncios WHERE snapshot_id=?",
+                         self.con, params=(int(sid),))
+        df["bruto"] = df["bruto"].map(lambda x: json.loads(x) if isinstance(x, str) and x else {})
+        return df
 
     def atualizar_consolidacao(self, df):
         self.con.executemany(
@@ -1243,7 +1251,6 @@ COLS_ANUNCIOS = [
     ("linha", "Linha", TXT, 24),
     ("tipo", "Tipo", TXT, 11),
     ("volume", "Volume", TXT, 9),
-    ("tamanho", "Tamanho", TXT, 19),
     ("genero", "Gênero", TXT, 11),
     ("confianca", "Confiança do agrupamento", TXT, 26),
     ("titulo", "Título do anúncio", TXT, 60),
@@ -1307,7 +1314,7 @@ def codigos_vendedor(df):
 
 
 def atributos_produto(df):
-    """Uma linha por produto com os campos de filtro (categoria, gênero, tamanho…)."""
+    """Uma linha por produto com os campos de filtro (categoria, gênero, volume, GTINs…)."""
     out = df.groupby("produto").agg(linha=("linha", "first"), tipo=("tipo", "first"),
                                     volume=("volume", "first"), un=("un", "sum"), fat=("fat", "sum"),
                                     vendedores=("vendedor_id", "nunique"))
@@ -1318,7 +1325,8 @@ def atributos_produto(df):
     peso = df.assign(p=df["un"] + 1).groupby(["produto", "confianca"])["p"].sum()
     out["confianca"] = peso.groupby(level=0).idxmax().map(lambda x: x[1])
     out["cat"] = out["tipo"].map(categoria_de)
-    out["tamanho"] = out["volume"].map(tamanho_de)
+    # Cada GTIN é um produto físico de um tamanho só; a referência junta os GTINs dele.
+    out["gtins"] = df[df["gtin"] != ""].groupby("produto")["gtin"].nunique().reindex(out.index).fillna(0).astype(int)
     return out.sort_values(["un", "fat"], ascending=False, kind="mergesort")
 
 
@@ -1466,7 +1474,7 @@ def aba_oportunidades(ws, df, attrs, df_ant, dias_ant):
     concorrência + 0,15 × FULL livre + 0,10 × líder fraco + 0,10 × aceleração).
     """
     ws.title = "Oportunidades"
-    cols = [("Produto", TXT, 44), ("Categoria", TXT, 12), ("Gênero", TXT, 10), ("Tamanho", TXT, 18),
+    cols = [("Produto", TXT, 44), ("Categoria", TXT, 12), ("Gênero", TXT, 10), ("Volume", TXT, 9),
             ("Giro/dia", DEC, 9), ("Giro/dia anterior", DEC, 10), ("Variação do giro", PCT, 10),
             ("Vendedores com venda", INT, 10), ("Giro por vendedor", DEC, 10), ("Anúncios", INT, 9),
             ("Líder: share do maior vendedor", PCT, 12), ("% FULL", PCT, 8), ("% catálogo", PCT, 9),
@@ -1489,7 +1497,7 @@ def aba_oportunidades(ws, df, attrs, df_ant, dias_ant):
                       f'&IF(AND(ISNUMBER(G{r}),G{r}<-0.2)," · Perdendo giro","")'
                       f'&IF(AND(ISNUMBER(F{r}),F{r}=0)," · Novo no período","")'
                       f'&IF(P{r}>=2," · Preço disperso","")')
-            return [x["prod"], a["cat"], a["genero"], a["tamanho"],
+            return [x["prod"], a["cat"], a["genero"], a["volume"],
                     f"=IFERROR(SUMIFS({AN('un')},{P},$A{r})/{R_DIAS},0)",
                     None if x["giro_ant"] is None else round(x["giro_ant"], 4),
                     f'=IF(AND(ISNUMBER(F{r}),F{r}>0),E{r}/F{r}-1,"")',
@@ -1528,7 +1536,7 @@ def aba_oportunidades(ws, df, attrs, df_ant, dias_ant):
 def aba_produtos(ws, attrs, df):
     ws.title = "Produtos"
     cols = [("Produto", TXT, 44), ("Categoria", TXT, 12), ("Linha", TXT, 22), ("Tipo", TXT, 10),
-            ("Volume", TXT, 8), ("Tamanho", TXT, 18), ("Gênero", TXT, 10),
+            ("Volume", TXT, 8), ("GTINs", INT, 7), ("Gênero", TXT, 10),
             ("Anúncios", INT, 9), ("Vendedores", INT, 10),
             ("Un. vendidas", INT, 11), ("Faturamento", MOEDA, 14), ("Preço médio", MOEDA2, 11),
             ("Faixa de preço", TXT, 12), ("Giro/dia", DEC, 9), ("Projeção 30d", INT, 11),
@@ -1541,7 +1549,7 @@ def aba_produtos(ws, attrs, df):
 
     def fazer(prod, a):
         def f(r):
-            return [prod, a["cat"], a["linha"], a["tipo"], a["volume"], a["tamanho"], a["genero"],
+            return [prod, a["cat"], a["linha"], a["tipo"], a["volume"], int(a["gtins"]), a["genero"],
                     f"=COUNTIFS({P},$A{r})", int(a["vendedores"]),
                     f"=SUMIFS({U},{P},$A{r})", f"=SUMIFS({F},{P},$A{r})",
                     f"=IFERROR(K{r}/J{r},0)", faixa_preco(f"L{r}"),
@@ -1565,7 +1573,7 @@ def aba_produtos(ws, attrs, df):
     nota(ws, r + 3, "Curva ABC pelo % acumulado: até 80% = A, até 95% = B, resto = C (o produto que "
                     "cruza a linha dos 80% ainda é A). "
                     "Un. por anúncio alto = poucos anúncios levando muito volume.")
-    nota(ws, r + 4, "Use os filtros do cabeçalho (Categoria, Gênero, Tamanho, Faixa de preço, Curva ABC) "
+    nota(ws, r + 4, "Use os filtros do cabeçalho (Categoria, Volume, Gênero, Faixa de preço, Curva ABC) "
                     "para recortar o mercado.")
 
 
@@ -1791,7 +1799,6 @@ def aba_anuncios(ws, df, vend):
     d = df.sort_values(["produto", "un"], ascending=[True, False], kind="mergesort").copy()
     d["cod"] = d["vendedor_id"].map(vend["cod"])
     d["cat"] = d["tipo"].map(categoria_de)
-    d["tamanho"] = d["volume"].map(tamanho_de)
     d["genero"] = d["genero"].fillna("-")
     d["confianca"] = d["confianca"].fillna("")
     chaves = [k for k, *_ in COLS_ANUNCIOS]

@@ -128,3 +128,6 @@ language sql stable security invoker set search_path = public as $$
 $$;
 revoke execute on function public.painel() from public, anon;
 grant execute on function public.painel() to authenticated;
+
+-- Linha original do CSV, coluna por coluna (aba Anúncios mostra igual ao arquivo).
+alter table public.anuncios add column if not exists bruto jsonb;

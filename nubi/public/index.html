@@ -143,7 +143,7 @@ const FMT = {
   x: v => v == null || v === 0 ? "" : nf1.format(v) + "x",
   txt: v => v ?? "",
 };
-const NUM = new Set(["int","dec","moeda","moeda2","pct","var","x","nota"]);
+const NUM = new Set(["int","dec","moeda","moeda2","pct","var","x","nota","numtxt"]);
 const dataBR = s => s ? s.split("-").reverse().join("/") : "";
 
 let S = { sessao: null, painel: [], marca: null, rel: null, aba: "oportunidades", tabelas: {} };
@@ -370,7 +370,7 @@ function telaMarcaAba() {
   if (k === "config") return telaConfig(c);
   if (k === "periodos") return telaPeriodos(c);
   if (k === "historico") return telaHistorico(c);
-  tabela(c, k, S.rel.tabelas[k] || [], COLUNAS[k], EXTRAS[k]);
+  tabela(c, k, S.rel.tabelas[k] || [], k === "anuncios" ? colunasAnuncios() : COLUNAS[k], EXTRAS[k]);
 }
 
 const notaHTML = n => {
@@ -385,12 +385,12 @@ const confHTML = c => `<span class="pill ${String(c).startsWith("Dúvida") ? "wa
 // Colunas: [chave, rótulo, formato, filtro? ("sel" = lista, "txt" = busca)]
 const COLUNAS = {
   oportunidades: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["genero","Gênero","txt","sel"],
-    ["tamanho","Tamanho","txt","sel"],["nota","Nota","nota"],["sinais","Sinais","sinais","txt"],["giro","Giro/dia","dec"],
+    ["volume","Volume","txt","sel"],["nota","Nota","nota"],["sinais","Sinais","sinais","txt"],["giro","Giro/dia","dec"],
     ["var","Variação do giro","var"],["vendedores","Vendedores com venda","int"],["giro_por_vendedor","Giro por vendedor","dec"],
     ["anuncios","Anúncios","int"],["lider","Líder (share)","pct"],["pct_full","% FULL","pct"],["pct_catalogo","% catálogo","pct"],
     ["mediana","Preço mediano","moeda2"],["faixa","Faixa de preço","txt","sel"],["amplitude","Amplitude","x"]],
   produtos: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["linha","Linha","txt","sel"],
-    ["tipo","Tipo","txt","sel"],["volume","Volume","txt","sel"],["tamanho","Tamanho","txt","sel"],["genero","Gênero","txt","sel"],
+    ["tipo","Tipo","txt","sel"],["volume","Volume","txt","sel"],["gtins","GTINs","int"],["genero","Gênero","txt","sel"],
     ["anuncios","Anúncios","int"],["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],
     ["preco_medio","Preço médio","moeda2"],["faixa","Faixa de preço","txt","sel"],["giro","Giro/dia","dec"],["proj30","Projeção 30d","int"],
     ["pct_volume","% do volume","pct"],["pct_acum","% acumulado","pct"],["abc","ABC","txt","sel"],["un_por_anuncio","Un. por anúncio","dec"],
@@ -413,10 +413,7 @@ const COLUNAS = {
   duvidas: [["gtin","GTIN","txt","txt"],["produto","Produto atribuído","txt","txt"],["motivo","Motivo","txt","sel"],["un","Un. vendidas","int"],
     ["anuncios","Anúncios","int"],["titulos_diferentes","Títulos diferentes","int"],["titulos","Principais títulos","wrap","txt"],
     ["pesquisa","Pesquisa automática","txt","txt"],["link","","link"],["editar","","editar"]],
-  anuncios: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["genero","Gênero","txt","sel"],["confianca","Confiança","conf","sel"],
-    ["titulo","Título","txt","txt"],["codigo","Cód.","txt","txt"],["vendedor","Vendedor","txt","txt"],["marca_anuncio","Marca no anúncio","txt","sel"],
-    ["gtin","GTIN","txt","txt"],["un","Un.","int"],["fat","Faturamento","moeda"],["preco","Preço","moeda2"],["catalogo","Catálogo","int"],
-    ["full","FULL","int"],["loja_oficial","Loja oficial","int"],["internacional","Internacional","int"]],
+  anuncios: null,   // montada com as colunas do arquivo importado (ver colunasAnuncios)
 };
 const EXTRAS = {
   oportunidades: {ordem: ["nota", -1], nota: "Nota = 100 × √(giro ÷ maior giro) × (0,40 + 0,25 × pouca concorrência + 0,15 × FULL livre + 0,10 × líder fraco + 0,10 × aceleração). A demanda multiplica: sem venda, sem nota. Verde = sinal a favor; vermelho = atenção."},
@@ -426,12 +423,24 @@ const EXTRAS = {
   vendedores: {nota: "Códigos V01, V02… por ordem de volume."},
   gtins: {nota: () => `${nf0.format(S.rel.resumo.un_sem_gtin)} unidades estão em anúncios sem GTIN válido (aparecem só em Produtos) — é a medida de quão sujo está o cadastro da marca.`},
   duvidas: {acoes: true, nota: "Os títulos do mesmo GTIN não batem entre si. O produto atribuído foi escolhido pelo anúncio que mais vende. Pesquise para confirmar pelo nome oficial, ou corrija à mão em “Corrigir”."},
-  anuncios: {limite: 300},
+  anuncios: {limite: 300, nota: "As colunas depois de “Cód. vendedor” são exatamente as do arquivo importado, com os mesmos nomes e valores."},
 };
+
+// Aba Anúncios: produto consolidado + as colunas do export, com os nomes e a ordem do arquivo.
+function colunasAnuncios() {
+  const num = new Set(["Unidades vendidas", "Unidades vendidas históricas", "Dias publicados"]);
+  return [["produto","Produto (consolidado)","txt","txt"],["confianca","Confiança","conf","sel"],["codigo","Cód. vendedor","txt","txt"],
+    ...(S.rel.colunas_arquivo || []).map((c, i) => [`c${i}`, c, num.has(c) ? "numtxt" : "txt", "auto"])];
+}
 
 function tabela(el, chave, linhas, cols, extra = {}) {
   const st = S.tabelas[chave] ||= {busca: "", filtros: {}, ordem: extra.ordem || null, limite: extra.limite || 500};
   const opcoes = {};
+  cols = cols.map(c => {
+    if (c[3] !== "auto") return c;
+    const n = new Set(linhas.map(r => r[c[0]])).size;
+    return [c[0], c[1], c[2], n <= 30 ? "sel" : "txt"];
+  });
   cols.forEach(([k, , , f]) => { if (f === "sel") opcoes[k] = [...new Set(linhas.map(r => r[k]).filter(v => v != null && v !== ""))].sort(); });
   const nota = typeof extra.nota === "function" ? extra.nota() : extra.nota;
   el.innerHTML = `<div class="card">
@@ -466,6 +475,11 @@ function tabela(el, chave, linhas, cols, extra = {}) {
       const [k, d] = st.ordem;
       rs = [...rs].sort((x, y) => { const a = x[k], c = y[k];
         if (a == null) return 1; if (c == null) return -1;
+        if (typeof a !== "number" && typeof c !== "number") {   // números escritos como texto no arquivo
+          const na = parseFloat(String(a).replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".")),
+                nc = parseFloat(String(c).replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", "."));
+          if (!isNaN(na) && !isNaN(nc) && /^[\s$R\d.,-]+$/.test(a) && /^[\s$R\d.,-]+$/.test(c)) return (na - nc) * d;
+        }
         return (typeof a === "number" ? a - c : String(a).localeCompare(String(c), "pt-BR")) * d; });
     }
     $("#tb-cont", el).textContent = `${nf0.format(rs.length)} de ${nf0.format(linhas.length)} linhas`;
