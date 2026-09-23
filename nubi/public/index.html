@@ -193,6 +193,80 @@ a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .heat td.c{cursor:default;min-width:44px}
 .st{display:inline-block;border-radius:6px;padding:0 7px;font-size:11.5px;background:var(--soft);white-space:nowrap}
 .st.good{background:var(--good-bg);color:var(--good)} .st.bad{background:var(--bad-bg);color:var(--bad)} .st.warn{background:var(--warn-bg);color:var(--warn)}
+
+/* ===== Ajustes de layout (auditoria de UX, set/2026) ===== */
+:root{--sp1:4px;--sp2:8px;--sp3:12px;--sp4:16px;--sp5:24px;--r-sm:6px;--r:8px;--fs-sm:12.5px;--fs-kpi:21px;
+  --info:#1d4ed8;--info-bg:#eaf1ff;--th-leve:#f3f5f8;--header-h:54px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--info:#8fb3ff;--info-bg:#1a2640;--th-leve:#1e2531}}
+:root[data-theme="dark"]{--info:#8fb3ff;--info-bg:#1a2640;--th-leve:#1e2531}
+.card{min-width:0}
+h2{font-size:15px;font-weight:650}
+/* KPIs: 4 por linha (8 = 4×2, sem sobrar um sozinho) */
+.kpis{grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp3);margin:var(--sp4) 0}
+.kpis:has(> :nth-child(5):last-child){grid-template-columns:repeat(5,minmax(0,1fr))}
+.kpis:has(> :nth-child(3):last-child),.kpis:has(> :nth-child(6):last-child){grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (min-width:1800px){.kpis:has(> :nth-child(8):last-child){grid-template-columns:repeat(8,minmax(0,1fr))}}
+@media (max-width:700px){.kpis,.kpis:has(> *){grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:var(--sp2)}
+  .card.pad table.t td{white-space:normal} .card .t td.first{max-width:none}}
+.kpi{padding:12px 14px;min-width:0}
+.kpi .l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .v{font-size:var(--fs-kpi);overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
+.kpi .o{font-size:12px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* aviso de contexto (azul) x atenção (amarelo); vermelho fica só para erro */
+.aviso{display:inline-flex;align-items:flex-start;gap:6px;font-size:var(--fs-sm);color:var(--info);background:var(--info-bg);border-radius:var(--r-sm);padding:4px 10px;margin:var(--sp2) 0 0;line-height:1.4}
+.aviso::before{content:"i";flex:none;width:15px;height:15px;border-radius:50%;background:var(--info);color:var(--card);font:700 10px/15px Georgia,serif;text-align:center;margin-top:1px}
+.aviso.warn{color:var(--warn);background:var(--warn-bg)} .aviso.warn::before{content:"!";background:var(--warn);font-family:inherit}
+.aviso .btn{padding:1px 8px;font-size:12px;margin-left:6px}
+/* grades sem buraco: card não estica até a altura do vizinho */
+.bi-grid{align-items:start;gap:var(--sp4);margin-top:var(--sp4)}
+.bi-grid > .largo{grid-column:1/-1}
+.painel{margin-top:var(--sp4)}
+/* tabelas pequenas dentro de cards: cabeçalho leve (o azul-marinho fica para as tabelas de dados) */
+.card.pad table.t th,.modal table.t th{position:static;background:var(--th-leve);color:var(--muted);font-weight:600;font-size:11.5px;padding:6px 8px;cursor:default}
+.card.pad table.t td{padding:6px 8px}
+.card .t td.first{max-width:280px;overflow:hidden;text-overflow:ellipsis}
+.card .t td.first.wrap{max-width:none}
+td.acoes{white-space:normal;min-width:120px} td.acoes .btn{margin:2px 0}
+.form-row.fr-acao{grid-template-columns:1fr 1fr auto;align-items:end;margin-top:0}
+@media (max-width:600px){.form-row.fr-acao{grid-template-columns:1fr}}
+select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;font-weight:600;border-radius:var(--r)}
+/* menu lateral por grupos */
+.grupo{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:14px 12px 4px}
+.grupo:first-child{margin-top:2px}
+.navi{padding:7px 10px;margin-bottom:2px;font-weight:500;align-items:center;gap:9px}
+.navi .ic{font-size:16px}
+.navi.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);font-weight:600}
+.navi .badge{margin-left:auto;background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:0 7px;font-size:11.5px;font-weight:700}
+.subnav{margin:0 0 6px 30px}
+.subnav a{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px}
+.subnav input{margin:4px 8px 4px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;background:var(--bg);font-size:12.5px;min-width:0}
+.subnav .mais{font-size:12px;color:var(--accent);cursor:pointer}
+/* cabeçalho: pílula de status do coletor e menu da conta */
+header.top{flex-wrap:nowrap;min-height:var(--header-h)}
+.status-pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#fff;text-decoration:none;background:rgba(255,255,255,.1);border-radius:999px;padding:4px 11px;white-space:nowrap;position:relative;overflow:hidden}
+.status-pill .pt{width:8px;height:8px;border-radius:50%;background:#4fc987;flex:none}
+.status-pill.erro .pt{background:#ff7a6e} .status-pill.rodando .pt{background:#6b9cff;animation:pisca 1s infinite alternate}
+.status-pill.nada .pt{background:rgba(255,255,255,.5)}
+.status-pill .fio{position:absolute;left:0;bottom:0;height:2px;background:#6b9cff}
+@keyframes pisca{to{opacity:.35}}
+details.conta{position:relative} details.conta summary{list-style:none} details.conta summary::-webkit-details-marker{display:none}
+details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;min-width:230px;z-index:30;color:var(--ink);display:flex;flex-direction:column;gap:6px}
+.bmenu{display:none}
+/* celular: menu vira gaveta e o cabeçalho fica numa linha */
+@media (max-width:900px){
+  header.top{padding:8px 12px;gap:8px}
+  header.top .logo small,#selm,.status-pill .tx{display:none}
+  header.top .btn .rot{display:none}
+  .bmenu{display:inline-flex}
+  .layout{grid-template-columns:1fr}
+  aside.side{position:fixed;inset:0 auto 0 0;width:min(300px,86vw);height:100%;z-index:45;display:block;transform:translateX(-102%);transition:transform .2s ease;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+  body.menu-aberto aside.side{transform:none}
+  body.menu-aberto::after{content:"";position:fixed;inset:0;background:rgba(10,15,25,.45);z-index:44}
+  .subnav{display:flex}
+  main{padding:12px}
+  .vabas{overflow-x:auto;max-width:100%}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
@@ -307,22 +381,25 @@ const SECOES = [
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas)/.test(location.hash) ? "vendedores" : /^#\/nomes-marcas/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
+  const rotulo = sec === "ranking" ? "Importar ranking" : sec === "vendedores" ? "Importar vendedor" : "Importar CSV";
   $("#app").innerHTML = `
   <header class="top">
-    <div class="logo" id="home">nubi <small>${esc((SECOES.find(x => x.id === sec) || {nome: "Nomes de marcas"}).nome)}</small></div>
+    <button class="btn ghost bmenu" id="bmenu" aria-label="Abrir menu">☰</button>
+    <div class="logo" id="home">nubi <small>${esc((SECOES.find(x => x.id === sec) || {nome: "Ajustes"}).nome)}</small></div>
     ${sec === "explorador" ? `<select id="selm" title="Marca"><option value="">Todas as marcas</option>
       ${S.painel.map(p => `<option value="${esc(p.marca)}" ${p.marca === S.marca ? "selected" : ""}>${esc(nome(p.marca))}</option>`).join("")}
     </select>` : ""}
     <div class="sp"></div>
-    ${sec === "nomes" ? "" : `<button class="btn ghost" id="bup">⬆ ${sec === "ranking" ? "Importar relatório do mês" : sec === "vendedores" ? "Importar vendedor" : "Importar CSV"}</button>`}
-    ${sec === "explorador" ? `<button class="btn ghost" id="bxl">⬇ Excel</button>` : ""}
-    <span style="opacity:.8;font-size:12.5px">${esc(email)}</span>
-    <button class="btn ghost small" id="bsenha">Trocar senha</button>
-    <button class="btn ghost small" id="bsair">Sair</button>
+    <a class="status-pill nada" id="st-pill" href="#/coletor" title="Coletor do Nubimetrics e agente de GTIN"><span class="pt"></span><span class="tx">Coletor</span></a>
+    ${sec === "nomes" ? "" : `<button class="btn ghost" id="bup" title="${rotulo}">⬆ <span class="rot">${rotulo}</span></button>`}
+    ${sec === "explorador" ? `<button class="btn ghost" id="bxl" title="Baixar Excel">⬇ <span class="rot">Excel</span></button>` : ""}
+    <details class="conta"><summary class="btn ghost small" title="${esc(email)}">👤</summary>
+      <div class="card menu"><div class="muted" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis">${esc(email)}</div>
+        <button class="btn small" id="bsenha">Trocar senha</button><button class="btn small" id="bsair">Sair</button></div></details>
   </header>
   <div class="layout">
     <aside class="side" id="side"></aside>
@@ -332,45 +409,82 @@ function moldura() {
   if ($("#selm")) $("#selm").onchange = e => irPara(e.target.value);
   if ($("#bup")) $("#bup").onclick = sec === "ranking" ? abrirUploadRanking : sec === "vendedores" ? abrirUploadVendedor : abrirUpload;
   if ($("#bxl")) $("#bxl").onclick = baixarExcel;
-  $("#bsenha").onclick = trocarSenha;
+  $("#bmenu").onclick = e => { e.stopPropagation(); document.body.classList.toggle("menu-aberto"); };
+  $("#bsenha").onclick = () => { $("details.conta").open = false; trocarSenha(); };
   $("#bsair").onclick = async () => { await sb.auth.signOut(); location.hash = ""; };
   desenharMenu();
 }
+// Fecha a gaveta do menu (celular) e o menu da conta ao clicar fora.
+document.addEventListener("click", e => {
+  if (document.body.classList.contains("menu-aberto") && !e.target.closest("aside.side") && !e.target.closest("#bmenu")) document.body.classList.remove("menu-aberto");
+  const c = document.querySelector("details.conta[open]");
+  if (c && !e.target.closest("details.conta")) c.open = false;
+});
+// Menu lateral por grupos: Mercado, Concorrentes e Ajustes.
 function desenharMenu() {
   const sec = secaoAtual(), h = decodeURIComponent(location.hash);
-  const sub = sec === "vendedores"
-    ? [{href: "#/vendedores", nome: "📊 Comparar vendedores", on: h === "#/vendedores" || h.startsWith("#/vendedores?")},
-       {href: "#/alertas", nome: "🚨 Alertas de estoque", on: h === "#/alertas"},
-       {href: "#/nomes-vendedores", nome: "🔗 Nomes de vendedores", on: h === "#/nomes-vendedores"},
-       ...(S.vendLista || []).map(v => ({href: "#/vendedores/" + encodeURIComponent(v.vendedor), nome: nome(v.vendedor), on: h.startsWith("#/vendedores/" + v.vendedor)}))]
-    : sec === "explorador"
-    ? S.painel.map(p => ({href: "#/" + encodeURIComponent(p.marca), nome: nome(p.marca), on: h === "#/" + p.marca}))
-    : (S.rankLista || []).flatMap(c => [
-        {href: `#/ranking/${encodeURIComponent(c.categoria)}`, nome: c.nome.split(" > ").pop(),
-         on: h.startsWith(`#/ranking/${c.categoria}`) && !h.endsWith("/bi")},
-        {href: `#/ranking/${encodeURIComponent(c.categoria)}/bi`, nome: "📊 B.I. · " + c.meses.length + " meses", on: h === `#/ranking/${c.categoria}/bi`, sub: true}]);
-  $("#side").innerHTML = SECOES.map(x => `
-    <a class="navi ${x.id === sec ? "on" : ""}" href="${x.id === "ranking" ? "#/ranking" : x.id === "vendedores" ? "#/vendedores" : "#/"}">
-      <span class="ic">${x.icone}</span><span>${esc(x.nome)}<small>${esc(x.desc)}</small></span></a>
-    ${x.id === sec && sub.length ? `<div class="subnav">${sub.map(i => `<a class="${i.on ? "on" : ""}" href="${i.href}" ${i.sub ? 'style="padding-left:22px;font-size:12.5px"' : ""}>${esc(i.nome)}</a>`).join("")}</div>` : ""}`).join("");
-  $("#side").insertAdjacentHTML("beforeend", `<a class="navi ${sec === "nomes" ? "on" : ""}" href="#/nomes-marcas" style="margin-top:6px"><span class="ic">🔗</span><span>Nomes de marcas<small>Juntar grafias da mesma marca</small></span></a>`);
-  $("#side").insertAdjacentHTML("beforeend", `<div id="coletor-st" class="muted" style="font-size:12px;margin:14px 12px 0;padding-top:12px;border-top:1px solid var(--line)"></div>`);
-  $("#side").insertAdjacentHTML("beforeend", `<div id="agente-st" class="muted" style="font-size:12px;margin:14px 12px 0;padding-top:12px;border-top:1px solid var(--line)"></div>`);
+  const it = (href, ic, txt, on, extra = "") => `<a class="navi ${on ? "on" : ""}" href="${href}"><span class="ic">${ic}</span><span>${esc(txt)}</span>${extra}</a>`;
+  const sub = itens => itens.length ? `<div class="subnav">${itens.map(i => `<a class="${i.on ? "on" : ""}" href="${i.href}" title="${esc(i.nome)}">${esc(i.nome)}</a>`).join("")}</div>` : "";
+  const cats = (S.rankLista || []).map(c => ({href: `#/ranking/${encodeURIComponent(c.categoria)}`, nome: c.nome.split(" > ").pop(), on: h.startsWith(`#/ranking/${c.categoria}`)}));
+  const marcas = S.painel.map(p => ({href: "#/" + encodeURIComponent(p.marca), nome: nome(p.marca), on: h === "#/" + p.marca}));
+  const vendOn = h.startsWith("#/vendedores/");
+  const nAl = S.alertasN || 0;
+  $("#side").innerHTML = `
+    <div class="grupo">Mercado</div>
+    ${it("#/ranking", "🏆", "Ranking de marcas", sec === "ranking")}
+    ${sec === "ranking" && cats.length > 1 ? sub(cats) : ""}
+    ${it("#/", "🔎", "Explorador de anúncios", sec === "explorador")}
+    ${sec === "explorador" ? sub(marcas) : ""}
+    <div class="grupo">Concorrentes</div>
+    ${it("#/vendedores", "📊", "Visão geral", h === "#/vendedores" || h.startsWith("#/vendedores?"))}
+    ${it("#/alertas", "🚨", "Alertas de estoque", h.startsWith("#/alertas"), nAl ? `<span class="badge" title="produtos sem estoque ou parados nos concorrentes">${nAl}</span>` : "")}
+    ${it((S.vendLista || []).length ? "#/vendedores/" + encodeURIComponent((S.vendLista.find(v => h.startsWith("#/vendedores/" + v.vendedor)) || S.vendLista[0]).vendedor) : "#/vendedores", "🏪", "Vendedores", vendOn,
+      `<span class="muted" style="margin-left:auto;font-size:12px">${(S.vendLista || []).length || ""}</span>`)}
+    <div class="subnav" id="sub-vend"></div>
+    <div class="grupo">Ajustes</div>
+    ${it("#/nomes-marcas", "🔗", "Nomes de marcas", h.startsWith("#/nomes-marcas"))}
+    ${it("#/nomes-vendedores", "🔗", "Nomes de vendedores", h.startsWith("#/nomes-vendedores"))}
+    ${it("#/coletor", "📥", "Coletor e agente", h.startsWith("#/coletor"))}`;
+  desenharVendMenu();
   desenharAgente();
+}
+// Lista de vendedores no menu: busca + os 8 maiores (ou todos com "ver todos").
+function desenharVendMenu() {
+  const box = $("#sub-vend");
+  if (!box) return;
+  const h = decodeURIComponent(location.hash), lista = S.vendLista || [];
+  if (!lista.length) { box.remove(); return; }
+  const q = (S.vendBusca || "").toUpperCase();
+  const filtrados = lista.filter(v => !q || v.vendedor.includes(q));
+  const mostrar = q || S.vendTodos ? filtrados : filtrados.slice(0, 8);
+  const atual = lista.find(v => h.startsWith("#/vendedores/" + v.vendedor + "/") || h === "#/vendedores/" + v.vendedor);
+  if (atual && !mostrar.includes(atual)) mostrar.push(atual);
+  box.innerHTML = `${lista.length > 8 ? `<input type="search" id="vbusca" placeholder="Buscar vendedor…" value="${esc(S.vendBusca || "")}">` : ""}
+    ${mostrar.map(v => `<a class="${v === atual ? "on" : ""}" href="#/vendedores/${encodeURIComponent(v.vendedor)}" title="${esc(v.vendedor)}">${esc(v.vendedor)}</a>`).join("")}
+    ${!q && lista.length > 8 ? `<a class="mais" id="vtodos">${S.vendTodos ? "mostrar menos" : `ver todos (${lista.length})`}</a>` : ""}`;
+  const i = $("#vbusca");
+  if (i) i.oninput = e => { S.vendBusca = e.target.value; desenharVendMenu(); const n = $("#vbusca"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
+  if ($("#vtodos")) $("#vtodos").onclick = e => { e.preventDefault(); S.vendTodos = !S.vendTodos; desenharVendMenu(); };
 }
 const nome = m => (m || "").toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()).replace(/ (De|Da|Do|Di|Du) /g, x => x.toLowerCase());
 
 function irPara(marca) { location.hash = marca ? "#/" + encodeURIComponent(marca) : "#/"; }
 let secaoDesenhada = null;
+let rotaAnterior = null;
 async function rotear() {
   biRedesenhar = [];            // gráficos da tela anterior não redesenham mais
+  document.querySelectorAll(".modal-bg").forEach(x => x.remove());
+  esconderTip();
+  document.body.classList.remove("menu-aberto");
+  const base = decodeURIComponent(location.hash).split("?")[0];
+  if (base !== rotaAnterior) { rotaAnterior = base; scrollTo(0, 0); }
   const sec = secaoAtual();
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi))?/) || [];
     return mes === "bi" ? telaBI(cat) : telaRanking(cat, mes);
   }
-  if (sec === "nomes") return telaNomesMarcas();
+  if (sec === "nomes") return location.hash.startsWith("#/coletor") ? telaColetor() : telaNomesMarcas();
   if (sec === "vendedores") {
     if (!S.vendLista) await carregarVendLista();
     if (location.hash.startsWith("#/nomes-vendedores")) return telaNomesVendedores();
@@ -413,12 +527,12 @@ async function telaRanking(cat, mes) {
   main.innerHTML = `
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h1>Ranking de marcas · ${esc(r.categoria_nome)}</h1>
-      <select id="rkmes" class="btn" style="padding:5px 8px">${r.meses.map(m => `<option value="${m.mes}" ${m.mes === r.mes ? "selected" : ""}>${esc(m.nome)}</option>`).join("")}</select>
+      <select id="rkmes" class="mes">${r.meses.map(m => optMes(m.mes, null, m.mes === r.mes)).join("")}</select>
       <span class="muted">${ant ? `comparando com ${esc(ant.nome)}` : "primeiro mês importado desta categoria (a comparação aparece a partir do próximo)"}</span>
       <div style="flex:1"></div>
       <div class="seg"><button class="on">📅 Mês</button><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}/bi'">📊 B.I. · todos os meses (${r.meses.length})</button></div>
     </div>
-    <p class="alerta" style="margin:4px 0 0">Mercado inteiro da categoria no mês fechado (${nf0.format(z.marcas)} marcas do relatório), não da sua loja.</p>
+    <p class="aviso">Mercado inteiro da categoria no mês fechado (${nf0.format(z.marcas)} marcas do relatório), não da sua loja.</p>
     <div class="kpis">
       ${kpi("Vendas das " + z.marcas + " marcas", abrev(z.vendas), varTxt(z.var_vendas))}
       ${kpi("Unidades vendidas", nf0.format(z.unidades), varTxt(z.var_unidades))}
@@ -490,7 +604,7 @@ async function abrirMarcaRanking(marca) {
       <th class="num">Vendas por vendedor</th><th class="num">Catálogo</th><th>Tendência</th><th>Saturação</th><th class="num">Ranking de demanda</th></tr></thead><tbody>
       ${[...hs].reverse().map(x => `<tr><td class="first">${esc(x.mes_nome)}</td><td class="num">${x.posicao}</td><td class="num">${rankVar(x.variacao)}</td>
         <td class="num">R$ ${nf0.format(x.vendas || 0)}</td><td class="num">${nf0.format(x.unidades || 0)}</td><td class="num">R$ ${nf2.format(x.ticket)}</td>
-        <td class="num">${nf0.format(x.vendedores || 0)}</td><td class="num">R$ ${nf0.format(x.vendas_por_vendedor)}</td><td class="num">${FMT.pct(x.catalogo)}</td>
+        <td class="num">${nf0.format(x.vendedores || 0)}</td><td class="num">R$ ${nf0.format(x.vendas_por_vendedor)}</td><td class="num">${FMT.pct(x.catalogo > 1 ? x.catalogo / 100 : x.catalogo)}</td>
         <td>${esc(x.tendencia)}</td><td>${esc(x.saturacao)}</td><td class="num">${x.ranking_demanda ?? ""}</td></tr>`).join("")}
     </tbody></table></div>
     ${!linha.explorador ? `<p class="muted" style="font-size:12px;margin:10px 0 0">Para ver os anúncios e produtos desta marca, importe o export de anúncios dela no Explorador.</p>` : ""}`;
@@ -499,6 +613,8 @@ async function abrirMarcaRanking(marca) {
 // Cores por entidade (a marca mantém a cor em todos os gráficos da tela), máx. 8 séries.
 const corS = i => `var(--s${i + 1})`;
 const MES_C = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+const ddmm = d => d ? d.slice(8, 10) + "/" + d.slice(5, 7) : "";
+const optMes = (m, ate, sel) => `<option value="${m}" ${sel ? "selected" : ""}>${esc(mesCurto(m))}${ate ? " · parcial até " + ddmm(ate) : ""}</option>`;
 const mesCurto = m => MES_C[+m.slice(5, 7) - 1] + "/" + m.slice(2, 4);
 const abrevEixo = v => v >= 1e6 ? nf0.format(v / 1e6) + " mi" : v >= 1e3 ? nf0.format(v / 1e3) + " mil" : nf0.format(v);
 const pp = v => v == null ? "—" : (v > 0 ? "+" : "") + nf1.format(v * 100) + " p.p.";
@@ -603,9 +719,10 @@ function grafColunas(box, {rotulos, series, fmt, fmtEixo = fmt, altura = 240, ro
   const svg = svgEl("svg", {width: W, height: H, viewBox: `0 0 ${W} ${H}`}, box);
   const g = svgEl("g", {class: "grid"}, svg);
   tk.forEach(t => { svgEl("line", {x1: m.l, x2: m.l + iw, y1: Y(t), y2: Y(t)}, g); svgTxt(svg, m.l - 8, Y(t) + 4, fmtEixo(t), {"text-anchor": "end"}); });
+  const cadaR = Math.ceil(46 / banda), capOk = banda >= 44;
   rotulos.forEach((r, i) => {
     const cx = m.l + banda * (i + .5);
-    svgTxt(svg, cx, H - 6, r, {"text-anchor": "middle"});
+    if (i % cadaR === 0 || i === n - 1 && (n - 1) % cadaR >= cadaR / 2) svgTxt(svg, cx, H - 6, r, {"text-anchor": "middle"});
     let base = 0;
     const vis = series.map((s, k) => [s, k]).filter(([s]) => (s.v[i] || 0) > 0);
     vis.forEach(([s], j) => {
@@ -615,7 +732,7 @@ function grafColunas(box, {rotulos, series, fmt, fmtEixo = fmt, altura = 240, ro
       svgEl("path", {class: "mk", fill: s.cor, d: `M${x},${yb}V${yb - h + rr}Q${x},${yb - h} ${x + rr},${yb - h}H${x + bw - rr}Q${x + bw},${yb - h} ${x + bw},${yb - h + rr}V${yb}Z`}, svg);
       base += v;
     });
-    if (rotCap) svgTxt(svg, cx, Y(tot[i]) - 5, rotCap(i), {"text-anchor": "middle", class: "lbl"});
+    if (rotCap && capOk) svgTxt(svg, cx, Y(tot[i]) - 5, rotCap(i), {"text-anchor": "middle", class: "lbl"});
     const alvo = svgEl("rect", {x: cx - banda / 2, y: m.t - 18, width: banda, height: ih + 18, class: "hit"}, svg);
     alvo.addEventListener("pointermove", ev => mostrarTip(ev, rotulos[i], dica ? dica(i) : series.map(s => ({cor: s.cor, valor: fmt(s.v[i] || 0), nome: s.nome}))));
     alvo.addEventListener("pointerleave", esconderTip);
@@ -778,7 +895,7 @@ async function telaBI(cat) {
       <label class="muted">De <select id="bi-de" class="btn" style="padding:4px 8px">${opMes(pri.mes)}</select></label>
       <label class="muted">até <select id="bi-ate" class="btn" style="padding:4px 8px">${opMes(ult.mes)}</select></label>
       ${f.desde || f.ate ? `<button class="btn small" id="bi-todos">Todos os meses</button>` : ""}
-      <span class="alerta" style="font-size:12.5px">Mercado inteiro da categoria (as ${nf0.format(ult.marcas)} maiores marcas de cada mês). Marca que some num mês saiu do ranking naquele mês, não quer dizer venda zero.</span>
+      <span class="aviso">Mercado inteiro da categoria (as ${nf0.format(ult.marcas)} maiores marcas de cada mês). Marca que some num mês saiu do ranking naquele mês, não quer dizer venda zero.</span>
     </div>
     <div class="kpis">
       ${kpi("Vendas em " + mesCurto(ult.mes), abrev(ult.vendas), n > 1 ? varTxt(ult.var_vendas, "vs mês anterior") : "")}
@@ -943,11 +1060,11 @@ function cartaoColetor() {
   const feitos = ex.filter(e => e !== vivo);
   return `<div class="card pad" id="coletor-card" style="margin-top:14px"><h2>📥 Coletor automático do Nubimetrics</h2>
     ${vivo ? coletorAoVivo(vivo) : ""}
-    ${feitos.length ? `<table class="t" style="font-size:12.5px"><thead><tr><th>Quando</th><th>Tarefa</th><th>Resultado</th><th class="num">Importados</th><th>Resumo</th><th></th></tr></thead><tbody>
+    ${feitos.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Quando</th><th>Tarefa</th><th>Resultado</th><th class="num">Importados</th><th>Resumo</th><th></th></tr></thead><tbody>
       ${feitos.slice(0, 6).map(e => `<tr><td>${esc(quando(e.terminado_em || e.iniciado_em))}</td><td>${esc(TAREFA[e.tarefa] || e.tarefa)}</td>
         <td>${e.em_andamento ? `<span class="st bad">parou</span>` : e.ok ? `<span class="st good">ok</span>` : `<span class="st bad">falhou</span>`}</td><td class="num">${e.importados || 0}/${e.arquivos || 0}</td>
         <td class="wrap">${esc(e.mensagem || "")}</td>
-        <td>${e.tem_log ? `<button class="btn" style="padding:3px 8px;font-size:12px" onclick="verLogColetor(${e.id})">log</button>` : ""}</td></tr>`).join("")}</tbody></table>`
+        <td>${e.tem_log ? `<button class="btn" style="padding:3px 8px;font-size:12px" onclick="verLogColetor(${e.id})">log</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
       : vivo ? "" : `<p class="muted" style="margin:0">Ainda não rodou. No Terminal do Mac mini, cole:</p>`}
     <div class="log" style="margin-top:8px">curl -fsSL https://nubi-explorador.vercel.app/coletor/instalar.sh | bash</div>
     <div class="muted" style="font-size:12px;margin-top:6px">Todo dia às 7h00 ele baixa o que falta desde janeiro: os vendedores seguidos do grupo "perfumes" (meses fechados + mês atual até o último dia liberado pelo Nubimetrics, 2 dias de atraso) e o relatório MARCAS de cada mês fechado. Se a sessão do Nubimetrics expirar, aparece aqui como "falhou" e no Mac: rode <code>~/.nubi-coletor/coletor entrar</code>.</div></div>`;
@@ -982,6 +1099,13 @@ async function cicloColetor() {
   }
   S.coletorT = setTimeout(cicloColetor, S.coletorVivo ? 4000 : 60000);
 }
+function telaColetor() {
+  $("#main").innerHTML = `<h1>📥 Coletor e agente</h1>
+    <p class="muted" style="margin-top:4px">O coletor roda no Mac mini e baixa do Nubimetrics os vendedores seguidos e o ranking MARCAS. O agente de GTIN roda aqui no nubi.</p>
+    ${cartaoColetor()}
+    <div class="card pad" style="margin-top:14px"><h2>🤖 Agente de GTIN</h2><div id="agente-box" class="muted" style="font-size:13px"></div></div>`;
+  desenharAgente();
+}
 function vendVazio(main) {
   main.innerHTML = `<h1>Vendedores monitorados</h1>
     <div class="card empty" style="margin-top:16px"><h2>Nenhum vendedor ainda</h2>
@@ -1002,8 +1126,8 @@ async function telaVendedores(mes) {
   main.innerHTML = `
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h1>Vendedores monitorados</h1>
-      <select id="vmes" class="btn" style="padding:5px 8px">${r.meses.map(m => `<option value="${m}" ${m === r.mes ? "selected" : ""}>${esc(mesCurto(m))}</option>`).join("")}</select>
-      <span class="muted">${vs.length} vendedor(es) com relatório em ${esc(r.mes_nome)}</span>
+      <select id="vmes" class="mes">${r.meses.map(m => optMes(m, (r.parciais || {})[m], m === r.mes)).join("")}</select>
+      <span class="muted">${vs.length} vendedor(es) com relatório em ${esc(mesCurto(r.mes))}${(r.parciais || {})[r.mes] ? ` · <span class="st warn">parcial: variação pelo ritmo por dia</span>` : ""}</span>
     </div>
     <div class="kpis">
       ${kpi("Vendas somadas", abrev(tot), "dos vendedores seguidos no mês")}
@@ -1027,7 +1151,10 @@ async function telaVendedores(mes) {
         </tbody></table></div></div>
     </div>`;
   $("#vmes").onchange = e => { location.hash = `#/vendedores?mes=${e.target.value}`; };
-  main.insertAdjacentHTML("beforeend", cartaoColetor());
+  const c = (S.coletor || [])[0];
+  if (c && (coletorRodando(c) || (!c.ok && !c.em_andamento))) main.insertAdjacentHTML("afterbegin", `<p class="aviso ${coletorRodando(c) ? "" : "warn"}" style="margin:0 0 10px">
+    ${coletorRodando(c) ? `Coletor baixando agora${c.total ? ` (${c.feito || 0} de ${c.total})` : ""}: ${esc(c.atual || "")}` : `A última coleta falhou: ${esc((c.mensagem || "").slice(0, 120))}`}
+    <a class="btn" href="#/coletor">ver</a></p>`);
   biRedesenhar = [() => grafBarrasH($("#g-vend"), vs.map(v => ({nome: v.vendedor, v: v.vendas, rot: abrev(v.vendas) + (v.var_vendas != null ? " · " + FMT.var(v.var_vendas) : ""),
       dica: [{valor: abrev(v.vendas), nome: "vendas"}, {valor: nf0.format(v.unidades), nome: "unidades"}, {valor: v.top_marcas.join(", "), nome: "maiores marcas"}]})),
     {cor: "var(--s1)", fmt: abrev, aoClicar: it => { location.hash = "#/vendedores/" + encodeURIComponent(it.nome); }})];
@@ -1044,15 +1171,26 @@ async function telaVendedor(nomeV, mes) {
   if (r.ranking.categoria) S.rank = {categoria: r.ranking.categoria, categoria_nome: r.ranking.categoria_nome, mes_nome: r.mes_nome,
     marcas: r.marcas.filter(m => m.rk_posicao).map(m => ({marca: m.marca, posicao: m.rk_posicao, sinais: ""}))};
   const z = r.resumo, ant = r.anterior, rk = r.ranking.mes_ok;
-  const vt = v => v == null ? "" : `${pctCor(v)} vs ${esc(ant.nome)}`;
+  // mês parcial: compara o ritmo por dia com o mês anterior (21 dias contra 31 não é queda)
+  const diasMes = m => new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate();
+  const parcial = r.parcial_ate ? +r.parcial_ate.slice(8, 10) : null;
+  const ritmo = v => v == null || !parcial || !ant ? v : (1 + v) * diasMes(ant.mes) / parcial - 1;
+  if (parcial && ant) {
+    ["var_vendas", "var_unidades"].forEach(k => { z[k] = ritmo(z[k]); });
+    r.marcas.forEach(m => { m.var_vendas = ritmo(m.var_vendas); });
+    r.produtos.forEach(p => { p.var_vendas = ritmo(p.var_vendas); });
+  }
+  const vt = v => v == null ? "" : `${pctCor(v)}${parcial ? " no ritmo/dia" : ""} vs ${esc(mesCurto(ant.mes))}`;
   const fortes = r.marcas.filter(m => m.share_no_mercado != null).sort((a, b) => b.share_no_mercado - a.share_no_mercado).slice(0, 10);
   const novas = r.marcas.filter(m => m.nova);
   main.innerHTML = cabVendedor(r.vendedor, "mes", `
-      <select id="vmes" class="btn" style="padding:5px 8px">${r.meses.map(m => `<option value="${m.mes}" ${m.mes === r.mes ? "selected" : ""}>${esc(m.nome)}</option>`).join("")}</select>
-      <span class="muted">${ant ? `comparando com ${esc(ant.nome)}` : "primeiro mês importado deste vendedor"}</span>`) + `
-    ${!rk ? `<p class="alerta" style="margin:6px 0 0">Sem ranking de marcas de ${esc(r.mes_nome)}: importe o relatório MARCAS do mês para ver a fatia do vendedor em cada marca e as oportunidades.</p>` : ""}
+      <select id="vmes" class="mes">${r.meses.map(m => optMes(m.mes, m.ate, m.mes === r.mes)).join("")}</select>
+      ${parcial ? `<span class="st warn">parcial até ${ddmm(r.parcial_ate)}</span>` : ""}
+      <span class="muted">${ant ? `comparando com ${esc(mesCurto(ant.mes))}${parcial ? " pelo ritmo por dia" : ""}` : "primeiro mês importado deste vendedor"}</span>`) + `
+    ${!rk ? `<p class="aviso warn">Sem o ranking MARCAS de ${esc(mesCurto(r.mes))}: a fatia do vendedor no mercado e as oportunidades ficam de fora.
+      <button class="btn" onclick="abrirUploadRanking()">Importar ranking</button></p>` : ""}
     <div class="kpis">
-      ${kpi("Vendas", abrev(z.vendas), vt(z.var_vendas))}
+      ${kpi(parcial ? `Vendas até ${ddmm(r.parcial_ate)}` : "Vendas", abrev(z.vendas), vt(z.var_vendas) + (parcial ? ` · projeção ${abrev(z.vendas / parcial * diasMes(r.mes))}` : ""))}
       ${kpi("Unidades", nf0.format(z.unidades), vt(z.var_unidades))}
       ${kpi("Ticket médio", "R$ " + nf2.format(z.ticket), vt(z.var_ticket))}
       ${kpi("Anúncios com venda", nf0.format(z.com_venda), `${nf0.format(z.ativos)} ativos · ${nf0.format(z.produtos)} produtos`)}
@@ -1064,7 +1202,7 @@ async function telaVendedor(nomeV, mes) {
     <div class="bi-grid">
       ${r.evolucao.length > 1 ? `<div class="card pad bi-card"><h2>Vendas mês a mês</h2><div class="sub">Todos os meses importados deste vendedor.</div><div class="ch" id="g-vevol"></div></div>` : ""}
       <div class="card pad bi-card"><h2>Maiores marcas do vendedor</h2><div class="sub">Quanto cada marca pesa nas vendas dele${rk ? " e quanto ele representa das vendas da marca no mercado" : ""}.</div>
-        <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Marca</th><th class="num">Vendas</th><th class="num">% do vendedor</th>${ant ? `<th class="num">Var. mês</th>` : ""}${rk ? `<th class="num"># ranking</th><th class="num">% do mercado</th><th>Status da marca</th>` : ""}</tr></thead>
+        <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Marca</th><th class="num">Vendas</th><th class="num">% do vendedor</th>${ant ? `<th class="num">${parcial ? "Var. ritmo/dia" : "Var. mês"}</th>` : ""}${rk ? `<th class="num"># ranking</th><th class="num">% do mercado</th><th>Status da marca</th>` : ""}</tr></thead>
         <tbody>${r.marcas.slice(0, 12).map(m => `<tr><td class="first">${m.rk_posicao ? rkLink(m.marca) : esc(m.marca)}</td><td class="num">${abrev(m.vendas)}</td><td class="num">${FMT.pct(m.share_vendedor)}</td>
           ${ant ? `<td class="num">${m.nova ? `<span class="st good">nova</span>` : pctCor(m.var_vendas)}</td>` : ""}
           ${rk ? `<td class="num muted">${m.rk_posicao ? "#" + m.rk_posicao : "fora"}</td><td class="num">${m.share_no_mercado != null ? FMT.pct(m.share_no_mercado) : "—"}</td><td>${statusHTML(m.rk_status)}</td>` : ""}</tr>`).join("")}</tbody></table></div></div>
@@ -1085,8 +1223,8 @@ async function telaVendedor(nomeV, mes) {
           <td class="muted">entrou ${esc(mesCurto(e.mes))} em #${e.posicao}</td><td class="num">${e.posicao_atual ? "hoje #" + e.posicao_atual : ""}</td></tr>`).join("")}</tbody></table></div>` : ""}` : ""}
     </div>
     ${ant && (novas.length || r.marcas_sairam.length) ? `<div class="card pad" style="margin-top:14px;font-size:12.5px">
-      ${novas.length ? `<div><b>Começou a vender em ${esc(r.mes_nome)}:</b> ${novas.map(m => `<span class="sinal good">${esc(m.marca)} · ${abrev(m.vendas)}</span>`).join("")}</div>` : ""}
-      ${r.marcas_sairam.length ? `<div style="margin-top:6px"><b>Parou de vender:</b> ${r.marcas_sairam.map(m => `<span class="sinal bad">${esc(m.marca)} · era ${abrev(m.vendas_ant)}</span>`).join("")}</div>` : ""}</div>` : ""}
+      ${novas.length ? `<div><b>Começou a vender em ${esc(mesCurto(r.mes))}:</b> ${resumoSinais(novas, "good", m => `${esc(m.marca)} · ${abrev(m.vendas)}`, "Começou a vender")}</div>` : ""}
+      ${r.marcas_sairam.length ? `<div style="margin-top:6px"><b>Parou de vender:</b> ${resumoSinais(r.marcas_sairam, "bad", m => `${esc(m.marca)} · era ${abrev(m.vendas_ant)}`, "Parou de vender")}</div>` : ""}</div>` : ""}
     <div class="tabs" id="vtabs">${[["marcas", "Marcas", r.marcas.length], ["produtos", "Produtos", r.produtos.length], ["anuncios", "Anúncios", r.anuncios.length]]
       .map(([k, l, n]) => `<button class="tab ${k === (S.vaba || "marcas") ? "on" : ""}" data-k="${k}">${l}<span class="n">${nf0.format(n)}</span></button>`).join("")}</div>
     <div id="vtab" class="painel"></div>
@@ -1103,13 +1241,13 @@ async function telaVendedor(nomeV, mes) {
     document.querySelectorAll("#vtabs .tab").forEach(b => b.classList.toggle("on", b.dataset.k === k));
     if (k === "marcas") tabela($("#vtab"), "v_marcas", r.marcas, [["marca","Marca","txt","txt"],["vendas","Vendas","moeda"],["unidades","Unidades","int"],["anuncios","Anúncios","int"],
       ["preco_medio","Preço médio","moeda2"],["share_vendedor","% do vendedor","pct"],["share_acum","% acumulado","pct"],["pct_full","FULL","pct"],["pct_catalogo","Catálogo","pct"],
-      ...(ant ? [["var_vendas","Var. mês","var"]] : []),
+      ...(ant ? [["var_vendas",parcial ? "Var. ritmo/dia" : "Var. mês","var"]] : []),
       ...(rk ? [["rk_posicao","# ranking","int"],["rk_vendas","Vendas da marca no mercado","moeda"],["share_no_mercado","% do mercado","pct"],["rk_status","Status da marca","status","sel"],
         ["rk_tendencia","Tendência","txt","sel"],["rk_saturacao","Saturação","txt","sel"],["rk_vendedores","Vendedores da marca","int"]] : [])],
       {ordem: ["vendas", -1], nota: "% do mercado = vendas do vendedor na marca ÷ vendas da marca no ranking do mesmo mês (mercado inteiro da categoria)."});
     if (k === "produtos") tabela($("#vtab"), "v_prod", r.produtos.map(p => ({...p, chave: p.gtin || "T:" + p.produto.toLowerCase(), vendedor: r.vendedor})), [["produto","Produto","vprod","txt"],["marca","Marca","txt","auto"],["gtin","GTIN","txt","txt"],["vendas","Vendas","moeda"],
       ["unidades","Unidades","int"],["preco","Preço médio","moeda2"],["anuncios","Anúncios","int"],["full","FULL","txt","sel"],["catalogo","Catálogo","txt","sel"],["share_vendedor","% do vendedor","pct"],
-      ...(ant ? [["var_vendas","Var. mês","var"],["novo","Novo","txt","sel"]] : []),
+      ...(ant ? [["var_vendas",parcial ? "Var. ritmo/dia" : "Var. mês","var"],["novo","Novo","txt","sel"]] : []),
       ["ex_preco_medio","Preço médio do mercado (Explorador)","moeda2"],["ex_dif_preco","Preço dele vs mercado","var"],["ex_vendedores","Vendedores do GTIN","int"],
       ["ex_pos_vendedor","Posição dele no GTIN","int"],["ex_share","Fatia dele no GTIN","pct"],["ex_periodo","Período do Explorador","txt"]],
       {ordem: ["vendas", -1], nota: `Agrupado por GTIN. As colunas do Explorador aparecem para os GTINs das marcas que você monitora no Explorador de anúncios (${r.explorador_gtins} produto(s) cruzado(s)); o período do Explorador pode ser diferente do mês do vendedor.`});
@@ -1145,7 +1283,7 @@ document.addEventListener("click", e => {
 function cabVendedor(nomeV, aba, extra = "", nAlertas) {
   const base = "#/vendedores/" + encodeURIComponent(nomeV);
   const lista = (S.vendLista || []).find(v => v.vendedor === nomeV);
-  const ultMes = lista && lista.meses[0] ? lista.meses[0].mes : "";
+  const ultMes = lista ? ((lista.meses.find(m => !m.ate) || lista.meses[0] || {}).mes || "") : "";
   return `<div class="vcab">
       <h1>🏪 ${esc(nomeV)}</h1>
       <nav class="vabas">
@@ -1210,8 +1348,8 @@ async function telaVendedorAno(nomeV, abaAlertas) {
 function listaMov(titulo, ps, campo) {
   if (!ps.length) return "";
   return `<div style="margin-top:10px"><b style="font-size:13px">${titulo}</b>
-    <table class="t" style="font-size:12.5px;margin-top:4px"><tbody>${ps.slice(0, 6).map(p => `<tr><td class="first wrap">${vprodLink(p.chave, p.produto, S.vbi.vendedor)}</td>
-      <td>${sparkSerie(p.ritmo.map(x => x || 0))}</td><td class="num">${unDia(p[campo])}</td><td>${pillH(p.tendencia, TEND_CLS[p.tendencia])}</td></tr>`).join("")}</tbody></table></div>`;
+    <div class="rolar"><table class="t" style="font-size:12.5px;margin-top:4px"><tbody>${ps.slice(0, 6).map(p => `<tr><td class="first wrap">${vprodLink(p.chave, p.produto, S.vbi.vendedor)}</td>
+      <td>${sparkSerie(p.ritmo.map(x => x || 0))}</td><td class="num">${unDia(p[campo])}</td><td>${pillH(p.tendencia, TEND_CLS[p.tendencia])}</td></tr>`).join("")}</tbody></table></div></div>`;
 }
 function tabelaAlertas(el, chave, linhas, comVendedor) {
   tabela(el, chave, linhas.map(x => ({...x, produto_l: x.produto})), [
@@ -1243,6 +1381,7 @@ async function telaAlertas() {
   let r;
   try { r = await api("vend_alertas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.tabelas = {};
+  carregarAlertasN(r);
   const ps = r.produtos, fortes = ps.filter(p => p.sem_estoque > 0), dois = ps.filter(p => p.sem_estoque >= 2);
   main.innerHTML = `<h1>🚨 Alertas de estoque dos concorrentes</h1>
     <p class="muted" style="margin-top:4px">Produtos que os vendedores monitorados vendiam bem e agora estão sem estoque (anúncios pausados), pararam de vender ou caíram muito.
@@ -1301,6 +1440,18 @@ async function abrirProdutoVend(chave, vend) {
   const g2 = () => grafLinhas($("#gp-mes", bg), {rotulos: ms.map(mesCurto), fmt: v => nf0.format(v) + " un", fmtEixo: eixoUn, pontos: true,
       series: vs.slice(0, 5).map((v, i) => ({nome: v.vendedor, cor: cores[i], v: ms.map(m => v.u[m] ?? null)}))});
   g1(); g2();
+}
+// Lista de marcas em "sinais": mostra as 8 maiores e o resto num modal.
+function resumoSinais(xs, cls, f, titulo, n = 8) {
+  const id = "rs" + Math.random().toString(36).slice(2, 8);
+  (S.resumos ||= {})[id] = {xs, cls, f, titulo};
+  return xs.slice(0, n).map(m => `<span class="sinal ${cls}">${f(m)}</span>`).join("")
+    + (xs.length > n ? ` <a href="#" onclick="event.preventDefault();verResumo('${id}')">+${xs.length - n} outras</a>` : "");
+}
+function verResumo(id) {
+  const {xs, cls, f, titulo} = S.resumos[id];
+  modal(`<h2>${esc(titulo)} (${xs.length})</h2><div>${xs.map(m => `<span class="sinal ${cls}">${f(m)}</span>`).join("")}</div>
+    <div style="text-align:right;margin-top:14px"><button class="btn" data-fechar>Fechar</button></div>`);
 }
 function abrirUploadVendedor() {
   const itens = [];
@@ -1386,11 +1537,11 @@ async function telaNomesMarcas() {
           <td class="first">${esc(x.apelido)}<br><small class="muted">${abrev(x.vendas_apelido)} · ${esc(x.fontes_apelido.join(", "))}</small></td>
           <td>→</td><td class="first">${esc(x.marca)}<br><small class="muted">${abrev(x.vendas_marca)} · ${esc(x.fontes_marca.join(", "))}</small></td>
           <td><span class="st ${x.motivo === "nome contido" ? "warn" : ""}">${esc(MOT[x.motivo])}</span></td>
-          <td><button class="btn small primary" data-j="${i}">Juntar</button> <button class="btn small" data-n="${i}">Não é a mesma</button></td></tr>`).join("")}</tbody></table></div>`
+          <td class="acoes"><button class="btn small primary" data-j="${i}">Juntar</button> <button class="btn small" data-n="${i}">Não é a mesma</button></td></tr>`).join("")}</tbody></table></div>`
           : `<div class="muted">Nenhuma sugestão agora.</div>`}
       </div>
       <div class="card pad"><h2>Nomes juntados <span class="muted" style="font-weight:400">(${r.apelidos.length})</span></h2>
-        <div class="form-row" style="grid-template-columns:1fr 1fr auto;align-items:end;margin-top:0">
+        <div class="form-row fr-acao">
           <label class="f">Como aparece no arquivo<input id="ap-a" list="ap-m" placeholder="YSL"></label>
           <label class="f">Nome oficial<input id="ap-b" list="ap-m" placeholder="YVES SAINT LAURENT"></label>
           <button class="btn primary" id="ap-add">Juntar</button></div>
@@ -1428,10 +1579,10 @@ async function telaNomesVendedores() {
         ${r.pendentes.length ? `<table class="t" style="font-size:12.5px"><tbody>${r.pendentes.map((d, i) => `<tr>
           <td class="first">${esc(d.vendedor_antes)}</td><td>parece</td><td class="first">${esc(d.vendedor_depois)}</td>
           <td class="muted wrap" style="min-width:160px">${esc(d.detalhe || "")}</td>
-          <td><button class="btn small primary" data-ac="${d.id}">É o mesmo</button> <button class="btn small" data-re="${d.id}">São diferentes</button></td></tr>`).join("")}</tbody></table>`
+          <td class="acoes"><button class="btn small primary" data-ac="${d.id}">É o mesmo</button> <button class="btn small" data-re="${d.id}">São diferentes</button></td></tr>`).join("")}</tbody></table>`
           : `<div class="muted">Nada para conferir.</div>`}
         <h2 style="margin-top:18px">Juntar à mão</h2>
-        <div class="form-row" style="grid-template-columns:1fr 1fr auto;align-items:end;margin-top:0">
+        <div class="form-row fr-acao">
           <label class="f">Este vendedor<select id="vj-de">${nomesV.map(n => `<option>${esc(n)}</option>`).join("")}</select></label>
           <label class="f">vira este<select id="vj-para">${nomesV.map(n => `<option>${esc(n)}</option>`).join("")}</select></label>
           <button class="btn primary" id="vj-ok">Juntar</button></div>
@@ -1532,7 +1683,7 @@ function telaPainel() {
   const tot = p.reduce((a, x) => ({un: a.un + x.un, fat: a.fat + x.fat, an: a.an + x.anuncios}), {un: 0, fat: 0, an: 0});
   $("#main").innerHTML = `
     <h1>Painel geral</h1>
-    <p class="alerta" style="margin:6px 0 0">Números do mercado inteiro (todos os vendedores), não da sua loja.</p>
+    <p class="aviso">Mercado inteiro (todos os vendedores), não só a sua loja.</p>
     ${p.length ? `
     <div class="kpis">
       ${kpi("Marcas monitoradas", nf0.format(p.length))}
@@ -1589,7 +1740,7 @@ function telaMarca() {
       <h1>${esc(r.nome)}</h1>
       <span class="muted">${dataBR(r.atual.inicio)} a ${dataBR(r.atual.fim)} · ${r.atual.dias} dias${ant ? ` · comparando com ${dataBR(ant.inicio)} a ${dataBR(ant.fim)}` : ""}</span>
     </div>
-    <p class="alerta" style="margin:4px 0 0">Números do mercado inteiro (todos os vendedores), não da sua loja.</p>
+    <p class="aviso">Mercado inteiro (todos os vendedores), não só a sua loja.</p>
     <div class="kpis">
       ${kpi("Unidades no período", nf0.format(z.un), "giro " + nf1.format(z.giro) + "/dia")}
       ${kpi("Faturamento", "R$ " + nf0.format(z.fat), "aproximado (faixas da plataforma)")}
@@ -1610,14 +1761,14 @@ function telaMarca() {
       </div>
       <div class="card pad">
         <h2>Maiores vendedores</h2>
-        <table class="t" style="font-size:13px"><tbody>
+        <div class="rolar"><table class="t" style="font-size:13px"><tbody>
         ${r.tabelas.vendedores.slice(0, 10).map((v, i) => `<tr><td class="num muted">${i + 1}</td>
           <td class="first">${vendLink(v.codigo, v.vendedor)}</td>
           <td class="num">${nf0.format(v.un)} un.</td><td class="num">R$ ${nf0.format(v.fat)}</td>
           <td style="width:18%;min-width:70px"><div style="background:var(--soft);border-radius:4px;height:8px">
           <div style="width:${Math.min(100, v.share / Math.max(r.tabelas.vendedores[0].share, 0.0001) * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:4px"></div></div></td>
           <td class="num">${FMT.pct(v.share)}</td></tr>`).join("")}
-        </tbody></table>
+        </tbody></table></div>
         <div class="muted" style="font-size:12px;margin-top:10px">Concentração do volume:
           ${r.concentracao.map(c => `<span class="sinal">${c.faixa === "Todos" ? nf0.format(c.vendedores) + " vendedores" : c.faixa + ": " + FMT.pct(c.share)}</span>`).join("")}</div>
       </div>
@@ -1926,7 +2077,17 @@ function quando(iso) {
   return min < 1 ? "agora" : min < 60 ? `há ${min} min` : min < 1440 ? `há ${Math.round(min / 60)} h` : `há ${Math.round(min / 1440)} dia(s)`;
 }
 function desenharAgente() {
-  const c = (S.coletor || [])[0], ec = $("#coletor-st");
+  const c = (S.coletor || [])[0], ec = $("#coletor-st"), pill = $("#st-pill");
+  if (pill) {
+    const vivo = coletorRodando(c), pct = vivo && c.total ? Math.round(100 * (c.feito || 0) / c.total) : 0;
+    pill.className = "status-pill " + (!c ? "nada" : vivo ? "rodando" : c.ok || c.em_andamento ? "" : "erro");
+    pill.innerHTML = `<span class="pt"></span><span class="tx">${!c ? "Coletor: instalar" : vivo ? `Coletando${c.total ? ` ${c.feito || 0}/${c.total}` : "…"}`
+      : c.ok ? `Coletor · ${quando(c.terminado_em || c.iniciado_em)}` : c.em_andamento ? "Coletor parou" : "Coletor falhou"}${S.agenteRodando ? " · 🤖" : ""}</span>
+      ${vivo ? `<span class="fio" style="width:${pct}%"></span>` : ""}`;
+    const a = S.agente;
+    pill.title = (c ? `Coletor: ${c.mensagem || ""}` : "Coletor ainda não instalado") + (S.agenteRodando ? "\nAgente de GTIN pesquisando…"
+      : a ? `\nAgente de GTIN: última rodada ${quando(a.terminado_em)}, ${a.restantes ? a.restantes + " na fila" : "fila vazia"}` : "");
+  }
   if (ec) ec.innerHTML = !c ? `📥 Coletor Nubimetrics: <a href="#/vendedores">instalar</a>`
     : coletorRodando(c) ? `<a href="#/vendedores" style="color:inherit;text-decoration:none"><span class="spin"></span> Coletor baixando${c.total ? ` ${c.feito || 0}/${c.total}` : "…"}
       <div class="prog" style="height:6px;margin-top:6px"><i style="width:${c.total ? Math.round(100 * (c.feito || 0) / c.total) : 0}%"></i></div>
@@ -2209,6 +2370,11 @@ async function iniciar(sessao) {
   carregarAgente();
   clearTimeout(S.agenteT); S.agenteT = setTimeout(cicloAgente, 20000);
   clearTimeout(S.coletorT); S.coletorT = setTimeout(cicloColetor, 4000);
+  carregarAlertasN();
+}
+// Número do menu "Alertas de estoque": produtos sem estoque/parados em algum concorrente.
+async function carregarAlertasN(r) {
+  try { r = r || await api("vend_alertas"); S.alertasN = r.produtos.filter(p => p.sem_estoque > 0).length; desenharMenu(); } catch { /* sem vendedores ainda */ }
 }
 // Só troca de marca pelo endereço depois que a tela já está montada (o Supabase também
 // mexe no endereço ao apagar o token do link de e-mail).

@@ -428,3 +428,16 @@ dados/base.db  histórico (criado sozinho; não apague se quiser a aba Evoluçã
 
 Se algo der errado, o programa mostra uma frase explicando o problema. O
 detalhe técnico fica em `dados/erro.log`.
+
+## B.I. dos vendedores e alertas de estoque
+
+- **Visão do ano** (`#/vendedores/NOME`): vendas e ritmo (R$/dia) por mês, projeção do mês atual, fatia das 8 maiores
+  marcas, produtos subindo/caindo/novos e a tabela de produtos com o ritmo mês a mês. **Mês a mês** (`#/vendedores/NOME/AAAA-MM`)
+  abre no último mês fechado; no mês parcial as variações são pelo ritmo por dia (não pelo total).
+- **Produto** (clique em qualquer produto): vendas por dia no mês atual (diferença entre as fotos diárias do coletor,
+  tabela `vend_produto_dia`), unidades por mês e quem mais vende entre os monitorados.
+- **Alertas de estoque** (`#/alertas` e `#/vendedores/NOME/alertas`): produto que vendia ≥ 0,5 un/dia no mês anterior e agora
+  está com todos os anúncios pausados (sem estoque no Mercado Livre), parou de vender há dias, sumiu ou caiu abaixo de 35% do ritmo.
+  O número no menu conta os produtos sem estoque/parados em algum concorrente. Regras em `vend_bi.py`.
+- O export do Nubimetrics só traz anúncios com venda e o estado ATUAL do anúncio; as unidades são estimativas
+  (arredondadas de 10 em 10 nos produtos grandes).

@@ -1070,7 +1070,8 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         if not rels:
             raise ErroNuvem("Nenhum relatório deste vendedor.", 404)
         mes = q.get("mes")
-        idx = next((i for i, r in enumerate(rels) if r["mes"][:7] == mes), len(rels) - 1)
+        fechado = max((i for i, r in enumerate(rels) if not r.get("ate")), default=len(rels) - 1)
+        idx = next((i for i, r in enumerate(rels) if r["mes"][:7] == mes), fechado)
         atual, ant = rels[idx], (rels[idx - 1] if idx > 0 else None)
         linhas = _vend_linhas(repo, atual["id"])
         linhas_ant = _vend_linhas(repo, ant["id"]) if ant else None
@@ -1081,7 +1082,7 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         r.update({"vendedor": vend, "mes": atual["mes"][:7], "mes_nome": ranking.nome_mes(atual["mes"]),
                   "id": atual["id"], "arquivo": atual["arquivo"],
                   "anterior": {"mes": ant["mes"][:7], "nome": ranking.nome_mes(ant["mes"])} if ant else None,
-                  "meses": [{"mes": x["mes"][:7], "nome": ranking.nome_mes(x["mes"]) + (
+                  "meses": [{"mes": x["mes"][:7], "ate": x.get("ate"), "nome": ranking.nome_mes(x["mes"]) + (
                       f" (parcial até {nubi.fmt_data(x['ate'])[:5]})" if x.get("ate") else "")} for x in reversed(rels)],
                   "parcial_ate": atual.get("ate"),
                   "evolucao": evol, "ranking": {"categoria": cat, "categoria_nome": ranking.nome_categoria(cat) if cat else "",
@@ -1181,7 +1182,9 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         if not rels:
             return {"meses": [], "vendedores": []}
         meses = sorted({r["mes"][:7] for r in rels})
-        mes = q.get("mes") if q.get("mes") in meses else meses[-1]
+        # sem mês pedido: o último mês FECHADO (o parcial tem poucos dias e poucos vendedores)
+        fechados = sorted({r["mes"][:7] for r in rels if not r.get("ate")})
+        mes = q.get("mes") if q.get("mes") in meses else (fechados[-1] if fechados else meses[-1])
         do_mes = [r for r in rels if r["mes"][:7] == mes]
         vends, matriz = [], {}
         todas_chaves = set()
@@ -1196,7 +1199,10 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
             antes = [x for x in rels if x["vendedor"] == r["vendedor"] and x["mes"][:7] < mes]
             if antes:
                 za = vendedores.resumo(_vend_linhas(repo, antes[-1]["id"]))
-                z["var_vendas"] = (z["vendas"] / za["vendas"] - 1) if za["vendas"] else None
+                # mês parcial: compara o ritmo por dia, não o total
+                d, da = vend_bi.dias_periodo(r), vend_bi.dias_periodo(antes[-1])
+                z["var_vendas"] = ((z["vendas"] / d) / (za["vendas"] / da) - 1) if za["vendas"] and d and da else None
+            z["parcial_ate"] = r.get("ate")
             por_m = {}
             for l in ls:
                 x = por_m.setdefault(l["marca_chave"], {"marca": l["marca"], "vendas": 0.0})
@@ -1216,6 +1222,7 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
                         "rk_posicao": rk["posicao"] if rk else None, "rk_vendas": rk["vendas"] if rk else None})
         vends.sort(key=lambda z: -z["vendas"])
         return {"mes": mes, "mes_nome": ranking.nome_mes(mes + "-01"), "meses": list(reversed(meses)),
+                "parciais": {r["mes"][:7]: r["ate"] for r in rels if r.get("ate")},
                 "vendedores": vends, "matriz": mat, "categoria": cat}
 
     if rota == "vend_nomes":
