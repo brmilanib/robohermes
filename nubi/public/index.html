@@ -384,13 +384,13 @@ const confHTML = c => `<span class="pill ${String(c).startsWith("Dúvida") ? "wa
 
 // Colunas: [chave, rótulo, formato, filtro? ("sel" = lista, "txt" = busca)]
 const COLUNAS = {
-  oportunidades: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["genero","Gênero","txt","sel"],
+  oportunidades: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["marca","Marca","txt","sel"],
     ["volume","Volume","txt","sel"],["nota","Nota","nota"],["sinais","Sinais","sinais","txt"],["giro","Giro/dia","dec"],
     ["var","Variação do giro","var"],["vendedores","Vendedores com venda","int"],["giro_por_vendedor","Giro por vendedor","dec"],
     ["anuncios","Anúncios","int"],["lider","Líder (share)","pct"],["pct_full","% FULL","pct"],["pct_catalogo","% catálogo","pct"],
     ["mediana","Preço mediano","moeda2"],["faixa","Faixa de preço","txt","sel"],["amplitude","Amplitude","x"]],
-  produtos: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["linha","Linha","txt","sel"],
-    ["tipo","Tipo","txt","sel"],["volume","Volume","txt","sel"],["gtins","GTINs","int"],["genero","Gênero","txt","sel"],
+  produtos: [["produto","Produto","txt","txt"],["categoria_l1","Categoria L1","txt","sel"],["categoria","Categoria","txt","sel"],["marca","Marca","txt","sel"],["linha","Linha","txt","sel"],
+    ["tipo","Tipo","txt","sel"],["volume","Volume","txt","sel"],["gtins","GTINs","int"],
     ["anuncios","Anúncios","int"],["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],
     ["preco_medio","Preço médio","moeda2"],["faixa","Faixa de preço","txt","sel"],["giro","Giro/dia","dec"],["proj30","Projeção 30d","int"],
     ["pct_volume","% do volume","pct"],["pct_acum","% acumulado","pct"],["abc","ABC","txt","sel"],["un_por_anuncio","Un. por anúncio","dec"],
@@ -399,7 +399,7 @@ const COLUNAS = {
     ["giro_ant","Giro/dia antes","dec"],["giro","Giro/dia agora","dec"],["var","Variação do giro","var"],
     ["preco_ant","Preço médio antes","moeda2"],["preco","Preço médio agora","moeda2"],["var_preco","Variação do preço","var"],
     ["vend_ant","Vendedores antes","int"],["vend","Vendedores agora","int"]],
-  precos: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["genero","Gênero","txt","sel"],
+  precos: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["marca","Marca","txt","sel"],
     ["faixa","Faixa (mediana)","txt","sel"],["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["minimo","Mínimo","moeda2"],
     ["q1","1º quartil","moeda2"],["mediana","Mediana","moeda2"],["q3","3º quartil","moeda2"],["maximo","Máximo","moeda2"],
     ["amplitude","Amplitude","x"],["ponderado","Preço médio ponderado","moeda2"],["abaixo_80","Un. abaixo de 80% da mediana","int"]],

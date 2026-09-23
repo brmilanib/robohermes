@@ -489,6 +489,19 @@ def categoria_de(tipo):
             TIPO_FORA: "Não perfume"}.get(tipo, "Perfume")
 
 
+
+def campos_do_arquivo(df, marca):
+    """
+    O que vem direto do arquivo tem prioridade: Categoria = coluna "Categoria final"
+    (e "Categoria L1"); Marca = a marca do export (grafia oficial) ou, para anúncios
+    de outra marca, o nome dela. Sem a linha original guardada, usa o tipo lido do título.
+    """
+    b = [x if isinstance(x, dict) else {} for x in (df["bruto"] if "bruto" in df.columns else [None] * len(df))]
+    df["cat"] = [x.get("Categoria final") or categoria_de(t) for x, t in zip(b, df["tipo"])]
+    df["cat_l1"] = [x.get("Categoria L1") or "-" for x in b]
+    df["marca_prod"] = [l if t == TIPO_OUTRA else nome_bonito(marca) for l, t in zip(df["linha"], df["tipo"])]
+    return df
+
 def ler_texto(t, linhas, palavras_marca):
     """Lê linha, volume, tipo e gênero de um texto já normalizado."""
     return {"linha": achar_linha(t, linhas, palavras_marca), "volume": achar_volume(t),
@@ -1251,7 +1264,7 @@ COLS_ANUNCIOS = [
     ("linha", "Linha", TXT, 24),
     ("tipo", "Tipo", TXT, 11),
     ("volume", "Volume", TXT, 9),
-    ("genero", "Gênero", TXT, 11),
+    ("cat_l1", "Categoria L1", TXT, 18),
     ("confianca", "Confiança do agrupamento", TXT, 26),
     ("titulo", "Título do anúncio", TXT, 60),
     ("cod", "Cód. vendedor", TXT, 10),
@@ -1318,13 +1331,15 @@ def atributos_produto(df):
     out = df.groupby("produto").agg(linha=("linha", "first"), tipo=("tipo", "first"),
                                     volume=("volume", "first"), un=("un", "sum"), fat=("fat", "sum"),
                                     vendedores=("vendedor_id", "nunique"))
-    votos = (df[~df["genero"].isin(NEUTROS)].assign(p=lambda d: d["un"] + 0.001)
-             .groupby(["produto", "genero"])["p"].sum())
-    melhor = votos.groupby(level=0).idxmax().map(lambda x: x[1]) if len(votos) else {}
-    out["genero"] = [melhor.get(p, "-") for p in out.index]
+    def moda(coluna):
+        """Valor da coluna que mais vendeu dentro de cada produto."""
+        v = df.assign(p=df["un"] + 0.001).groupby(["produto", coluna])["p"].sum()
+        return v.groupby(level=0).idxmax().map(lambda x: x[1])
+    out["cat"] = moda("cat") if "cat" in df.columns else out["tipo"].map(categoria_de)
+    out["cat_l1"] = moda("cat_l1") if "cat_l1" in df.columns else "-"
+    out["marca"] = moda("marca_prod") if "marca_prod" in df.columns else "-"
     peso = df.assign(p=df["un"] + 1).groupby(["produto", "confianca"])["p"].sum()
     out["confianca"] = peso.groupby(level=0).idxmax().map(lambda x: x[1])
-    out["cat"] = out["tipo"].map(categoria_de)
     # Cada GTIN é um produto físico de um tamanho só; a referência junta os GTINs dele.
     out["gtins"] = df[df["gtin"] != ""].groupby("produto")["gtin"].nunique().reindex(out.index).fillna(0).astype(int)
     return out.sort_values(["un", "fat"], ascending=False, kind="mergesort")
@@ -1417,7 +1432,7 @@ def calcular_oportunidades(df, attrs, df_ant, dias_ant):
     Métricas de oportunidade por produto da marca com venda, ordenadas pela nota.
     A mesma conta aparece como fórmula na aba Oportunidades e como valor na web.
     """
-    alvo = attrs[~attrs["cat"].isin(["Outra marca", "Não perfume"]) & (attrs["un"] > 0)]
+    alvo = attrs[~attrs["tipo"].isin([TIPO_OUTRA, TIPO_FORA]) & (attrs["un"] > 0)]
     dias = float(df.attrs["dias"])
     un_ant = df_ant.groupby("produto")["un"].sum() if df_ant is not None else None
     dados = []
@@ -1474,7 +1489,7 @@ def aba_oportunidades(ws, df, attrs, df_ant, dias_ant):
     concorrência + 0,15 × FULL livre + 0,10 × líder fraco + 0,10 × aceleração).
     """
     ws.title = "Oportunidades"
-    cols = [("Produto", TXT, 44), ("Categoria", TXT, 12), ("Gênero", TXT, 10), ("Volume", TXT, 9),
+    cols = [("Produto", TXT, 44), ("Categoria", TXT, 12), ("Marca", TXT, 14), ("Volume", TXT, 9),
             ("Giro/dia", DEC, 9), ("Giro/dia anterior", DEC, 10), ("Variação do giro", PCT, 10),
             ("Vendedores com venda", INT, 10), ("Giro por vendedor", DEC, 10), ("Anúncios", INT, 9),
             ("Líder: share do maior vendedor", PCT, 12), ("% FULL", PCT, 8), ("% catálogo", PCT, 9),
@@ -1497,7 +1512,7 @@ def aba_oportunidades(ws, df, attrs, df_ant, dias_ant):
                       f'&IF(AND(ISNUMBER(G{r}),G{r}<-0.2)," · Perdendo giro","")'
                       f'&IF(AND(ISNUMBER(F{r}),F{r}=0)," · Novo no período","")'
                       f'&IF(P{r}>=2," · Preço disperso","")')
-            return [x["prod"], a["cat"], a["genero"], a["volume"],
+            return [x["prod"], a["cat"], a["marca"], a["volume"],
                     f"=IFERROR(SUMIFS({AN('un')},{P},$A{r})/{R_DIAS},0)",
                     None if x["giro_ant"] is None else round(x["giro_ant"], 4),
                     f'=IF(AND(ISNUMBER(F{r}),F{r}>0),E{r}/F{r}-1,"")',
@@ -1536,7 +1551,7 @@ def aba_oportunidades(ws, df, attrs, df_ant, dias_ant):
 def aba_produtos(ws, attrs, df):
     ws.title = "Produtos"
     cols = [("Produto", TXT, 44), ("Categoria", TXT, 12), ("Linha", TXT, 22), ("Tipo", TXT, 10),
-            ("Volume", TXT, 8), ("GTINs", INT, 7), ("Gênero", TXT, 10),
+            ("Volume", TXT, 8), ("GTINs", INT, 7), ("Marca", TXT, 14),
             ("Anúncios", INT, 9), ("Vendedores", INT, 10),
             ("Un. vendidas", INT, 11), ("Faturamento", MOEDA, 14), ("Preço médio", MOEDA2, 11),
             ("Faixa de preço", TXT, 12), ("Giro/dia", DEC, 9), ("Projeção 30d", INT, 11),
@@ -1549,7 +1564,7 @@ def aba_produtos(ws, attrs, df):
 
     def fazer(prod, a):
         def f(r):
-            return [prod, a["cat"], a["linha"], a["tipo"], a["volume"], int(a["gtins"]), a["genero"],
+            return [prod, a["cat"], a["linha"], a["tipo"], a["volume"], int(a["gtins"]), a["marca"],
                     f"=COUNTIFS({P},$A{r})", int(a["vendedores"]),
                     f"=SUMIFS({U},{P},$A{r})", f"=SUMIFS({F},{P},$A{r})",
                     f"=IFERROR(K{r}/J{r},0)", faixa_preco(f"L{r}"),
@@ -1573,7 +1588,7 @@ def aba_produtos(ws, attrs, df):
     nota(ws, r + 3, "Curva ABC pelo % acumulado: até 80% = A, até 95% = B, resto = C (o produto que "
                     "cruza a linha dos 80% ainda é A). "
                     "Un. por anúncio alto = poucos anúncios levando muito volume.")
-    nota(ws, r + 4, "Use os filtros do cabeçalho (Categoria, Volume, Gênero, Faixa de preço, Curva ABC) "
+    nota(ws, r + 4, "Use os filtros do cabeçalho (Categoria, Marca, Volume, Faixa de preço, Curva ABC) "
                     "para recortar o mercado.")
 
 
@@ -1690,7 +1705,7 @@ def aba_precos(ws, df, attrs):
             ("Mínimo", MOEDA2, 11), ("1º quartil", MOEDA2, 11), ("Mediana", MOEDA2, 11),
             ("3º quartil", MOEDA2, 11), ("Máximo", MOEDA2, 11), ("Amplitude (máx ÷ mín)", VEZES, 12),
             ("Preço médio ponderado", MOEDA2, 13), ("Un. vendidas abaixo de 80% da mediana", INT, 16),
-            ("Categoria", TXT, 12), ("Gênero", TXT, 10), ("Faixa de preço", TXT, 12)]
+            ("Categoria", TXT, 12), ("Marca", TXT, 14), ("Faixa de preço", TXT, 12)]
     v = df[(df["un"] > 0) & (df["preco"] > 0)]
     grupos = []
     for prod, g in v.groupby("produto"):
@@ -1707,7 +1722,7 @@ def aba_precos(ws, df, attrs):
         return lambda r: [prod, nv, f"=SUMIFS({U},{filtro(r)})", *[round(x, 2) for x in q],
                           f"=IFERROR(H{r}/D{r},0)", f"=IFERROR(SUMIFS({RC},{filtro(r)})/C{r},0)",
                           f'=SUMIFS({U},{filtro(r)},{PR},"<"&(0.8*F{r}))',
-                          a["cat"], a["genero"], faixa_preco(f"F{r}")]
+                          a["cat"], a["marca"], faixa_preco(f"F{r}")]
 
     r = tabela(ws, 1, cols, [fazer(p, nv, q) for _, p, nv, q in grupos])
     nota(ws, r + 2, "Só anúncios com venda no período e preço > 0; referências com menos de 2 "
@@ -1731,7 +1746,7 @@ def aba_evolucao(ws, ant, atu, snap_ant, snap_atu, attrs):
             ("Vendedores antes", INT, 11), ("Vendedores agora", INT, 11), ("Movimento", TXT, 16),
             ("Un. anterior (base)", INT, 12), ("Un. atual (base)", INT, 12),
             ("Faturamento anterior (base)", MOEDA, 15), ("Faturamento atual (base)", MOEDA, 15),
-            ("Categoria", TXT, 12), ("Gênero", TXT, 10)]
+            ("Categoria", TXT, 12), ("Marca", TXT, 14)]
     agg = lambda d: d.groupby("produto").agg(un=("un", "sum"), fat=("fat", "sum"),
                                              vend=("vendedor_id", "nunique"))
     j = agg(ant).join(agg(atu), how="outer", lsuffix="_a", rsuffix="_b").fillna(0)
@@ -1741,9 +1756,9 @@ def aba_evolucao(ws, ant, atu, snap_ant, snap_atu, attrs):
 
     def fazer(prod, x):
         if prod in attrs.index:
-            cat, gen = attrs.at[prod, "cat"], attrs.at[prod, "genero"]
+            cat, gen = attrs.at[prod, "cat"], attrs.at[prod, "marca"]
         else:
-            cat, gen = categoria_de(extra.at[prod, "tipo"]), extra.at[prod, "genero"] or "-"
+            cat, gen = extra.at[prod, "cat"], extra.at[prod, "marca_prod"]
         return lambda r: [
             prod, f"=IFERROR(K{r}/$D$2,0)", f"=IFERROR(L{r}/$D$3,0)",
             f"=IF(B{r}=0,0,IFERROR(C{r}/B{r}-1,0))",
@@ -1798,8 +1813,6 @@ def aba_anuncios(ws, df, vend):
     cols = [(t, f, l) for _, t, f, l in COLS_ANUNCIOS]
     d = df.sort_values(["produto", "un"], ascending=[True, False], kind="mergesort").copy()
     d["cod"] = d["vendedor_id"].map(vend["cod"])
-    d["cat"] = d["tipo"].map(categoria_de)
-    d["genero"] = d["genero"].fillna("-")
     d["confianca"] = d["confianca"].fillna("")
     chaves = [k for k, *_ in COLS_ANUNCIOS]
     iL, iJ = col(IDX_AN["preco"]), col(IDX_AN["un"])
@@ -1822,8 +1835,8 @@ def aba_anuncios(ws, df, vend):
     tabela(ws, 1, cols, [fazer(reg) for reg in registros])
 
 
-def ler_snapshot(repo, sid):
-    return preparar(repo.anuncios(sid))
+def ler_snapshot(repo, sid, marca=""):
+    return campos_do_arquivo(preparar(repo.anuncios(sid)), marca)
 
 
 def montar_planilha_marca(repo, marca):
@@ -1832,7 +1845,7 @@ def montar_planilha_marca(repo, marca):
     if snaps.empty:
         return None, None
     atual = snaps.iloc[-1]
-    df = ler_snapshot(repo, atual["id"])
+    df = ler_snapshot(repo, atual["id"], marca)
     df.attrs["dias"] = int(atual["dias"])
     vend = codigos_vendedor(df)
     attrs = atributos_produto(df)
@@ -1840,7 +1853,7 @@ def montar_planilha_marca(repo, marca):
     df_ant, anterior = None, None
     if len(snaps) >= 2:
         anterior = snaps.iloc[-2]
-        df_ant = ler_snapshot(repo, anterior["id"])
+        df_ant = ler_snapshot(repo, anterior["id"], marca)
 
     wb = Workbook()
     resumo = wb.active

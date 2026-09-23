@@ -229,10 +229,10 @@ def relatorio(repo, marca):
         raise ErroNuvem(f"Nenhum período importado para {marca}.", 404)
     atual = snaps.iloc[-1]
     anterior = snaps.iloc[-2] if len(snaps) >= 2 else None
-    df = nubi.ler_snapshot(repo, atual["id"])
+    df = nubi.ler_snapshot(repo, atual["id"], marca)
     dias = int(atual["dias"])
     df.attrs["dias"] = dias
-    df_ant = nubi.ler_snapshot(repo, anterior["id"]) if anterior is not None else None
+    df_ant = nubi.ler_snapshot(repo, anterior["id"], marca) if anterior is not None else None
     attrs = nubi.atributos_produto(df)
     vend = nubi.codigos_vendedor(df)
     df["cod"] = df["vendedor_id"].map(vend["cod"])
@@ -252,8 +252,8 @@ def relatorio(repo, marca):
         acum += pct
         pm = _div(a["fat"], un)
         produtos.append({
-            "produto": prod, "categoria": a["cat"], "linha": a["linha"], "tipo": a["tipo"],
-            "volume": a["volume"], "gtins": int(a["gtins"]), "genero": a["genero"],
+            "produto": prod, "categoria_l1": a["cat_l1"], "categoria": a["cat"], "marca": a["marca"],
+            "linha": a["linha"], "tipo": a["tipo"], "volume": a["volume"], "gtins": int(a["gtins"]),
             "anuncios": int(anun[prod]), "vendedores": int(a["vendedores"]), "un": un,
             "fat": float(a["fat"]), "preco_medio": pm, "faixa": faixa(pm), "giro": un / dias,
             "proj30": un / dias * 30, "pct_volume": pct, "pct_acum": acum,
@@ -267,7 +267,7 @@ def relatorio(repo, marca):
                                          float(anterior["dias"]) if anterior is not None else None):
         a = x["a"]
         oport.append({
-            "produto": x["prod"], "categoria": a["cat"], "genero": a["genero"], "volume": a["volume"],
+            "produto": x["prod"], "categoria": a["cat"], "marca": a["marca"], "volume": a["volume"],
             "giro": x["giro"], "giro_ant": x["giro_ant"], "var": x["var"], "vendedores": x["vend"],
             "giro_por_vendedor": _div(x["giro"], x["vend"]), "anuncios": x["anuncios"],
             "lider": float(x["lider"]), "pct_full": float(x["full"]), "pct_catalogo": float(x["catalogo"]),
@@ -302,7 +302,7 @@ def relatorio(repo, marca):
             "minimo": q[0], "q1": q[1], "mediana": q[2], "q3": q[3], "maximo": q[4],
             "amplitude": _div(q[4], q[0]), "ponderado": _div((gp["preco"] * gp["un"]).sum(), un),
             "abaixo_80": int(gp.loc[gp["preco"] < 0.8 * q[2], "un"].sum()),
-            "categoria": a["cat"], "genero": a["genero"], "faixa": faixa(q[2])})
+            "categoria": a["cat"], "marca": a["marca"], "faixa": faixa(q[2])})
     precos.sort(key=lambda x: -x["un"])
 
     # GTINs
@@ -355,7 +355,7 @@ def relatorio(repo, marca):
                 "preco_ant": pa, "preco": pb, "var_preco": (pb / pa - 1) if pa and pb else None,
                 "vend_ant": int(x["vend_a"]), "vend": int(x["vend_b"]), "movimento": mov,
                 "categoria": (attrs.at[prod, "cat"] if prod in attrs.index else
-                              nubi.categoria_de(df_ant.loc[df_ant["produto"] == prod, "tipo"].iloc[0]))})
+                              df_ant.loc[df_ant["produto"] == prod, "cat"].iloc[0])})
         evolucao.sort(key=lambda x: (-x["giro"], -x["giro_ant"]))
 
     # Histórico (até os 30 últimos períodos)
