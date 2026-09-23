@@ -174,19 +174,52 @@ function telaLogin(msg) {
     <h1>nubi</h1>
     <p class="muted" style="margin:4px 0 16px">Explorador de anúncios · monitoramento de mercado</p>
     <form id="fl">
-      <input type="email" id="em" placeholder="seu e-mail" required autocomplete="email">
-      <button class="btn primary" style="width:100%;justify-content:center">Receber link de acesso</button>
+      <input type="email" id="em" placeholder="e-mail" required autocomplete="username">
+      <input type="password" id="pw" placeholder="senha" required autocomplete="current-password">
+      <button class="btn primary" id="bent" style="width:100%;justify-content:center">Entrar</button>
     </form>
-    <p id="lm" class="muted" style="margin-top:12px">${esc(msg || "Enviamos um link para o seu e-mail. Abra o link neste mesmo navegador.")}</p>
+    <p id="lm" class="${msg ? "alerta" : "muted"}" style="margin-top:12px">${esc(msg || "")}</p>
+    <p style="margin:6px 0 0;font-size:12.5px"><a href="#" id="blink">Entrar com link no e-mail</a></p>
   </div>`;
   $("#fl").onsubmit = async e => {
     e.preventDefault();
-    const email = $("#em").value.trim();
-    $("#lm").innerHTML = '<span class="spin"></span> Enviando…';
-    const {error} = await sb.auth.signInWithOtp({email, options: {emailRedirectTo: location.origin, shouldCreateUser: true}});
-    $("#lm").textContent = error ? "Não foi possível enviar: " + error.message
-      : "Pronto! Abra o e-mail de " + email + " e clique no link. Pode fechar esta aba.";
+    const bt = $("#bent"); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> Entrando…';
+    const {error} = await sb.auth.signInWithPassword({email: $("#em").value.trim(), password: $("#pw").value});
+    if (error) {
+      $("#lm").className = "alerta";
+      $("#lm").textContent = /invalid/i.test(error.message) ? "E-mail ou senha incorretos." : "Não foi possível entrar: " + error.message;
+      bt.disabled = false; bt.textContent = "Entrar";
+    }
   };
+  $("#blink").onclick = async e => {
+    e.preventDefault();
+    const email = $("#em").value.trim();
+    if (!email) { $("#lm").className = "alerta"; $("#lm").textContent = "Digite o e-mail primeiro."; return; }
+    $("#lm").className = "muted"; $("#lm").innerHTML = '<span class="spin"></span> Enviando…';
+    const {error} = await sb.auth.signInWithOtp({email, options: {emailRedirectTo: location.origin, shouldCreateUser: false}});
+    $("#lm").textContent = error ? "Não foi possível enviar: " + error.message
+      : "Enviamos um link para " + email + ". Abra-o neste mesmo navegador.";
+  };
+}
+
+function trocarSenha() {
+  modal(`<h2>Trocar senha</h2>
+    <label class="f">Nova senha (mínimo 8 caracteres)<input type="password" id="ns1" autocomplete="new-password"></label>
+    <label class="f" style="margin-top:10px">Repita a nova senha<input type="password" id="ns2" autocomplete="new-password"></label>
+    <p id="nsm" class="alerta" style="min-height:1em"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" data-fechar>Cancelar</button><button class="btn primary" id="nsok">Salvar</button></div>`,
+    m => {
+      $("#nsok", m).onclick = async () => {
+        const a = $("#ns1", m).value, b = $("#ns2", m).value;
+        if (a.length < 8) return $("#nsm", m).textContent = "Use pelo menos 8 caracteres.";
+        if (a !== b) return $("#nsm", m).textContent = "As duas senhas não são iguais.";
+        $("#nsok", m).disabled = true;
+        const {error} = await sb.auth.updateUser({password: a});
+        if (error) { $("#nsm", m).textContent = error.message; $("#nsok", m).disabled = false; return; }
+        m.remove(); toast("Senha trocada.");
+      };
+    });
 }
 
 // ---------- Estrutura ----------
@@ -202,6 +235,7 @@ function moldura() {
     <button class="btn ghost" id="bup">⬆ Importar CSV</button>
     <button class="btn ghost" id="bxl">⬇ Excel</button>
     <span style="opacity:.8;font-size:12.5px">${esc(email)}</span>
+    <button class="btn ghost small" id="bsenha">Trocar senha</button>
     <button class="btn ghost small" id="bsair">Sair</button>
   </header>
   <main id="main"></main>`;
@@ -209,6 +243,7 @@ function moldura() {
   $("#selm").onchange = e => irPara(e.target.value);
   $("#bup").onclick = abrirUpload;
   $("#bxl").onclick = baixarExcel;
+  $("#bsenha").onclick = trocarSenha;
   $("#bsair").onclick = async () => { await sb.auth.signOut(); location.hash = ""; };
 }
 const nome = m => (m || "").toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()).replace(/ (De|Da|Do|Di|Du) /g, x => x.toLowerCase());
