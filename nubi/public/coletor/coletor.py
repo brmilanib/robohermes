@@ -65,6 +65,7 @@ PADRAO_CONFIG = {
     "mostrar_navegador": False,
     "hashes": {},                            # hash do vendedor -> {nome, primeiro, ultimo} (conferir estabilidade)
     "hash_por_nome": {},                     # apelido -> hash (se mudar, o hash não é estável)
+    "config_versao": 2,
 }
 MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto",
          "Setembro", "Outubro", "Novembro", "Dezembro"]
@@ -124,9 +125,15 @@ def devagar(seg=2.0):
 def ler_config():
     cfg = dict(PADRAO_CONFIG)
     if CONFIG.exists():
-        cfg.update(json.loads(CONFIG.read_text(encoding="utf-8")))
+        salvo = json.loads(CONFIG.read_text(encoding="utf-8"))
+        cfg.update(salvo)
+        cfg["config_versao"] = salvo.get("config_versao", 1)
     if not str(cfg.get("grupo") or "").isdigit():      # ex.: alguém respondeu "sim" na pergunta do grupo
         cfg["grupo"] = PADRAO_CONFIG["grupo"]
+    if int(cfg.get("config_versao") or 1) < 2:
+        # a 1ª versão gravava mes_atual=False no config; agora o mês em andamento é baixado todo dia
+        cfg["mes_atual"] = True
+        cfg["config_versao"] = 2
     return cfg
 
 
@@ -541,7 +548,7 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
         salvar_config(cfg)
         try:
             estado["ctx"].close()
-        except Exception:  # noqa: BLE001
+        except BaseException:  # noqa: BLE001 — inclusive um 2º Ctrl+C enquanto fecha
             pass
     return arquivos, importados, erros
 
@@ -751,6 +758,10 @@ def executar(tarefa, func):
         if not ok:
             aviso_mac("Coletor nubi", msg)
         return 0 if ok else 1
+    except KeyboardInterrupt:
+        log("Interrompido (Ctrl+C). O que já foi importado fica no nubi; rode de novo que ele continua de onde parou.")
+        registrar(token, tarefa, inicio, False, 0, 0, 0, "interrompido à mão (Ctrl+C)")
+        return 130
     except Exception as e:  # noqa: BLE001
         msg = str(e) if isinstance(e, Falha) else f"{e.__class__.__name__}: {e}"
         log("FALHOU: " + msg)
