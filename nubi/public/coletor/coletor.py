@@ -66,7 +66,7 @@ PADRAO_CONFIG = {
 }
 MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto",
          "Setembro", "Outubro", "Novembro", "Dezembro"]
-OFUSCADO = re.compile(r"^[A-Z]+\.[A-Z]+\.[A-Z]+$")                   # BANTENG.PRETO.DEMONSTRATIVO
+OFUSCADO = re.compile(r"^[A-Z]+[.\-][A-Z]+[.\-][A-Z]+$")                   # BANTENG.PRETO.DEMONSTRATIVO
 ESCONDER = "#intercom-container, .intercom-lightweight-app, .intercom-launcher {display: none !important}"
 
 
@@ -428,11 +428,31 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
 def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pular=None, avisos=None):
     """Para cada vendedor do grupo, baixa cada período (mês fechado ou mês atual parcial) e envia ao nubi.
     pular(hash, nome, periodo) -> True quando o nubi já tem exatamente esse período."""
-    ctx = abrir_navegador(p, cfg)
+    estado = {"ctx": abrir_navegador(p, cfg)}
+    estado["pg"] = estado["ctx"].pages[0] if estado["ctx"].pages else estado["ctx"].new_page()
+
+    def reabrir(motivo):
+        """A aba ou o navegador fechou no meio: abre de novo e segue."""
+        log(f"    (o navegador fechou: {motivo[:80]}; abrindo de novo)")
+        try:
+            estado["ctx"].close()
+        except Exception:  # noqa: BLE001
+            pass
+        estado["ctx"] = abrir_navegador(p, cfg)
+        estado["pg"] = estado["ctx"].new_page()
+
+    def pagina():
+        pg = estado["pg"]
+        if pg.is_closed():
+            try:
+                estado["pg"] = estado["ctx"].new_page()
+            except Exception as e:  # noqa: BLE001
+                reabrir(str(e))
+        return estado["pg"]
+
     arquivos = importados = erros = 0
     try:
-        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-        lista, av = listar_vendedores(pg, cfg)
+        lista, av = listar_vendedores(pagina(), cfg)
         if avisos is not None:
             avisos.extend(av)
         salvar_config(cfg)
@@ -446,34 +466,46 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                     continue
                 destino = PASTA / "arquivos" / (mes + ("-parcial" if ate else ""))
                 destino.mkdir(parents=True, exist_ok=True)
-                try:
-                    arq = baixar_vendedor(pg, h, per["ini"], per["fim"], per["rng"], destino)
-                    arquivos += 1
-                    log(f"  {nome} {rotulo}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
-                    manifesto_arq = destino / "manifest.json"
-                    manifesto = json.loads(manifesto_arq.read_text(encoding="utf-8")) if manifesto_arq.exists() else []
-                    manifesto = [m for m in manifesto if m["arquivo"] != arq.name] + [{
-                        "arquivo": arq.name, "nome_exibido": nome, "seller_hash": h, "mes": mes, "ate": ate,
-                        "baixado_em": datetime.now(timezone.utc).isoformat()}]
-                    manifesto_arq.write_text(json.dumps(manifesto, ensure_ascii=False, indent=2), encoding="utf-8")
-                    if enviar:
-                        # nome do arquivo = nome exibido; o hash é a identidade do vendedor no nubi
-                        params = {"arquivo": arq.name, "mes": mes, "seller_hash": h}
-                        if ate:
-                            params["ate"] = ate
-                        r = api(token, "vend_importar", params, arq.read_bytes())
-                        importados += 1
-                        log("    " + " ".join(r.get("log", [])))
-                except SessaoExpirada:
-                    raise
-                except Exception as e:  # noqa: BLE001
-                    erros += 1
-                    log(f"  {nome} {rotulo}: ERRO {e}")
+                for tentativa in (1, 2):
+                    try:
+                        arq = baixar_vendedor(pagina(), h, per["ini"], per["fim"], per["rng"], destino)
+                        arquivos += 1
+                        log(f"  {nome} {rotulo}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
+                        manifesto_arq = destino / "manifest.json"
+                        manifesto = (json.loads(manifesto_arq.read_text(encoding="utf-8"))
+                                     if manifesto_arq.exists() else [])
+                        manifesto = [m for m in manifesto if m["arquivo"] != arq.name] + [{
+                            "arquivo": arq.name, "nome_exibido": nome, "seller_hash": h, "mes": mes, "ate": ate,
+                            "baixado_em": datetime.now(timezone.utc).isoformat()}]
+                        manifesto_arq.write_text(json.dumps(manifesto, ensure_ascii=False, indent=2), encoding="utf-8")
+                        if enviar:
+                            # nome do arquivo = nome exibido; o hash é a identidade do vendedor no nubi
+                            params = {"arquivo": arq.name, "mes": mes, "seller_hash": h}
+                            if ate:
+                                params["ate"] = ate
+                            r = api(token, "vend_importar", params, arq.read_bytes())
+                            importados += 1
+                            log("    " + " ".join(r.get("log", [])))
+                        break
+                    except SessaoExpirada:
+                        raise
+                    except Exception as e:  # noqa: BLE001
+                        fechou = "has been closed" in str(e) or "Target closed" in str(e)
+                        if fechou and tentativa == 1:
+                            reabrir(str(e))
+                            continue
+                        erros += 1
+                        extra = "" if fechou else " " + diagnostico(pagina())
+                        log(f"  {nome} {rotulo}: ERRO {str(e)[:200]}{extra}")
+                        break
                 time.sleep(PAUSA)
-            guardar_sessao(ctx)
+            guardar_sessao(estado["ctx"])
     finally:
         salvar_config(cfg)
-        ctx.close()
+        try:
+            estado["ctx"].close()
+        except Exception:  # noqa: BLE001
+            pass
     return arquivos, importados, erros
 
 

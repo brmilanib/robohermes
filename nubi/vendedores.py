@@ -338,7 +338,7 @@ def cruzar_explorador(anuncios_por_marca, vendedor):
 #   Chave 1: o hash do vendedor no Nubimetrics (seller=<128 hex>), enviado pelo coletor.
 #   Chave 2 (reserva): a "impressão digital" dos anúncios — os itens que mais vendem.
 
-OFUSCADO = re.compile(r"^[A-Z]+\.[A-Z]+\.[A-Z]+$")
+OFUSCADO = re.compile(r"^[A-Z]+[.\-][A-Z]+[.\-][A-Z]+$")          # BANTENG.PRETO.DEMONSTRATIVO / BANTENG-PRETO-...
 LIMIAR_AUTO, LIMIAR_REVISAR = 0.60, 0.35
 
 

@@ -991,7 +991,11 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         if not vend or not re.fullmatch(r"\d{4}-\d{2}", mes or ""):
             raise ErroNuvem("Informe o vendedor e o mês do relatório.")
         h = ranking.hash_de(corpo)
-        ja = repo._req("GET", "vend_relatorios", {"select": "vendedor,mes", "hash": repo._eq(h)})
+        ja = repo._req("GET", "vend_relatorios", {"select": "id,vendedor,mes,seller_hash", "hash": repo._eq(h)})
+        if ja and q.get("seller_hash") and not ja[0].get("seller_hash"):
+            # mesmo arquivo importado antes à mão: só falta guardar o hash do vendedor
+            repo._req("PATCH", "vend_relatorios", {"vendedor": repo._eq(ja[0]["vendedor"]), "seller_hash": "is.null"},
+                      corpo={"seller_hash": q["seller_hash"]})
         if ja:
             return {"ok": True, "log": [f"Esse arquivo já foi importado ({ja[0]['vendedor']}, "
                                         f"{ranking.nome_mes(ja[0]['mes'])})."],
