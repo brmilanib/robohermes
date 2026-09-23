@@ -166,12 +166,18 @@ class RepoSupabase:
         return {nubi.chave_marca(r["marca"]): {"linhas": r["linhas"] or []}
                 for r in self._todos("marcas_config", {"select": "marca,linhas"})}
 
-    def salvar_config(self, cfg, marca=None):
+    def salvar_config(self, cfg, marca=None, apagar=None):
         marcas = [marca] if marca else list(cfg)
         corpo = [{"marca": m, "linhas": cfg[m].get("linhas", []),
                   "atualizado_em": datetime.now().isoformat()} for m in marcas]
         self._req("POST", "marcas_config", corpo=corpo,
                   prefer="resolution=merge-duplicates,return=minimal")
+        if apagar:
+            self._req("DELETE", "marcas_config", {"marca": self._eq(apagar)})
+
+    def renomear_marca(self, antiga, nova):
+        self._req("PATCH", "snapshots", {"marca": self._eq(antiga)}, corpo={"marca": nova},
+                  prefer="return=minimal")
 
     def carregar_gtins(self):
         return {r["gtin"]: {"nome": r["nome"] or "", "marca": r["marca"] or "", "fonte": r["fonte"] or "",
@@ -445,6 +451,25 @@ def atender(metodo, rota, q, corpo, token):
             # Marcas já cadastradas (com dados ou só com linhas configuradas), para o upload.
             return _json(sorted(set(repo.carregar_config()) | set(repo.marcas())))
 
+        if rota == "analisar" and metodo == "POST":
+            # Antes de importar: de qual marca é o arquivo (conteúdo + GTIN) e quais outras há nele.
+            _preparar(repo)
+            try:
+                df, _ = nubi.ler_csv(corpo)
+            except nubi.ErroArquivo as e:
+                raise ErroNuvem(f"Não parece um export do Nubimetrics: {e}.")
+            existentes = sorted(set(repo.carregar_config()) | set(repo.marcas()))
+            ident = nubi.identificar_marca(df, existentes)
+            if ident and ident["pesquisados"]:
+                repo.salvar_gtins(nubi.INFO_GTIN, ident["pesquisados"])
+            m = nubi.PADRAO_NOME.match(re.sub(r"\.csv$", "", q.get("arquivo", ""), flags=re.I))
+            return _json({"marca": ident and ident["marca"], "nome": ident and nubi.nome_bonito(ident["marca"]),
+                          "oficial": ident and ident["oficial"], "fonte": ident and ident["fonte"],
+                          "gtin": ident and ident["gtin"], "grafia_arquivo": ident and ident["grafia_arquivo"],
+                          "existente": ident and ident["existente"], "outras": (ident or {}).get("outras", []),
+                          "anuncios": len(df), "un": int(df["un"].sum()),
+                          "inicio": m.group(2) if m else None, "fim": m.group(3) if m else None})
+
         if rota == "redetectar" and metodo == "POST":
             # Refaz a detecção automática das linhas pelo período mais recente e reprocessa.
             marca = nubi.chave_marca(q["marca"])
@@ -470,9 +495,10 @@ def atender(metodo, rota, q, corpo, token):
             m = nubi.PADRAO_NOME.match(re.sub(r"\.csv$", "", nome, flags=re.I))
 
             def marca_periodo(sugestao):
-                marca = nubi.chave_marca(q.get("marca") or (m.group(1).replace("_", " ") if m else sugestao))
+                # Escolha manual na página > marca do conteúdo do arquivo > nome do arquivo.
+                marca = nubi.chave_marca(q.get("marca") or sugestao or (m.group(1).replace("_", " ") if m else ""))
                 if not marca:
-                    raise ErroNuvem("Informe a marca.")
+                    raise ErroNuvem("Não achei a marca na coluna Marca do arquivo. Escolha a marca na lista.")
                 ini = _data(q.get("inicio") or (m.group(2) if m else ""), "Data inicial")
                 fim = _data(q.get("fim") or (m.group(3) if m else ""), "Data final")
                 if fim < ini:

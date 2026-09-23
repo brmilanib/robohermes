@@ -69,7 +69,7 @@ COLUNAS_OPCIONAIS = [
 CATEGORIA_PERFUMARIA = "beleza e cuidado pessoal"
 TIPO_FORA = "Não perfume"
 TIPO_OUTRA = "Outra marca"   # anúncio de outra marca (contratipo, erro de cadastro)
-TIPO_PADRAO = "EDT?"
+TIPO_PADRAO = "EDT?"   # título sem tipo escrito: EDT por padrão, mas não vota na etapa 2
 
 # Grau de confiança do agrupamento de cada anúncio (coluna "Confiança").
 CONF_PESQ = "Pesquisado (GTIN)"
@@ -79,7 +79,7 @@ DUV_DIVERG = "Dúvida: títulos divergentes"
 DUV_LINHA = "Dúvida: linha não identificada"
 
 # Especificações pesquisadas por GTIN (gtins.json). Carregado no main().
-INFO_GTIN = {}   # título sem tipo escrito: EDT por padrão, mas não vota na etapa 2
+INFO_GTIN = {}
 
 # Prefixos GS1 plausíveis para achar um GTIN dentro de uma string de dígitos colados.
 PREFIXOS_GS1 = ("789", "332", "542", "629", "608", "500", "871", "400", "301", "760", "335")
@@ -546,6 +546,59 @@ def dono_do_anuncio(df, marca, pesquisados=None):
     return dono
 
 
+def identificar_marca(df, existentes=(), consultar=True, max_gtins=3):
+    """
+    Descobre de qual marca é o export, sem ninguém digitar:
+    1. A marca dominante da coluna Marca, pesando por unidades vendidas (grafias como
+       "MONT BLANC" e "MONTBLANC" contam juntas).
+    2. A grafia oficial: pesquisa os GTINs mais vendidos dessa marca nas bases de
+       produtos (gtin_info / Cosmos / Open Beauty Facts / UPCitemdb) e usa a marca
+       como está escrita lá. Sem resposta, fica a grafia mais comum no arquivo.
+    3. Se já existe marca cadastrada com a mesma grafia compacta, aponta qual é
+       (para renomear para a oficial, se for diferente).
+    As demais marcas da coluna Marca são listadas em `outras` — na consolidação elas
+    viram "Outra marca: ...".
+    Devolve dict com marca, grafia_arquivo, oficial, fonte, gtin, existente, outras,
+    e `pesquisados` (GTINs consultados agora, para gravar).
+    """
+    d = df.assign(m=df["marca_anuncio"].fillna("").str.strip())
+    d = d[d["m"] != ""].assign(c=lambda x: x["m"].map(compacta), p=lambda x: x["un"] + 1)
+    if d.empty:
+        return None
+    pesos = d.groupby("c")["p"].sum().sort_values(ascending=False)
+    dom = pesos.index[0]
+    grafia = d[d["c"] == dom]["m"].value_counts().index[0]
+    oficial = fonte = gtin_ok = None
+    pesquisados = []
+    gtins = (d[(d["c"] == dom) & (d["gtin"] != "")].groupby("gtin")["un"].sum()
+             .sort_values(ascending=False).index[:max_gtins])
+    token = os.environ.get("NUBI_COSMOS_TOKEN", "")
+    for g in gtins:
+        info = INFO_GTIN.get(g)
+        if info is None and consultar:
+            r, falhas, _ = consultar_gtin(g, token)
+            if r:
+                info = INFO_GTIN[g] = {"nome": r["nome"], "marca": r["marca"], "fonte": r["fonte"],
+                                       "consultado_em": datetime.now().isoformat(timespec="seconds")}
+                pesquisados.append(g)
+        m = (info or {}).get("marca", "").split(",")[0].strip()
+        if m and compacta(m) == dom:
+            oficial, fonte, gtin_ok = m, (info or {}).get("fonte", ""), g
+            break
+    nome_final = oficial or grafia
+    existente = next((e for e in existentes if compacta(e) == dom), None)
+    # "Outras marcas" com a mesma regra da consolidação: GTIN + coluna Marca. Uma loja que
+    # escreve o próprio nome na coluna Marca, mas usa o GTIN da marca, não entra aqui.
+    dono = dono_do_anuncio(df, nome_final)
+    fora = df.assign(dono=dono)[dono != ""]
+    outras = [{"marca": nome_bonito(m), "un": int(g["un"].sum()), "anuncios": len(g)}
+              for m, g in fora.groupby("dono")]
+    outras.sort(key=lambda x: (-x["un"], -x["anuncios"]))
+    return {"marca": chave_marca(nome_final), "grafia_arquivo": grafia, "oficial": oficial,
+            "fonte": fonte, "gtin": gtin_ok, "existente": existente, "outras": outras,
+            "pesquisados": pesquisados}
+
+
 def consolidar(df, marca, cfg, info=None):
     """Devolve df com linha, volume, tipo, gênero, produto e confiança preenchidos."""
     df = df.copy()
@@ -753,10 +806,14 @@ class RepoLocal:
                            f"WHERE snapshot_id IN ({ph}) GROUP BY snapshot_id, produto",
                            self.con, params=[int(x) for x in sids])
 
+    def renomear_marca(self, antiga, nova):
+        self.con.execute("UPDATE snapshots SET marca=? WHERE marca=?", (nova, antiga))
+        self.con.commit()
+
     def carregar_config(self):
         return carregar_config()
 
-    def salvar_config(self, cfg, marca=None):
+    def salvar_config(self, cfg, marca=None, apagar=None):
         salvar_config(cfg)
 
     def carregar_gtins(self):
@@ -1000,9 +1057,10 @@ def marca_e_periodo(caminho, sugestao, informado=None):
     if m:
         ini, fim = data_valida(m.group(2)), data_valida(m.group(3))
         if ini and fim and ini <= fim:
-            return chave_marca(m.group(1).replace("_", " ")), ini, fim
+            # A marca do conteúdo (coluna Marca + GTIN) vale mais que a do nome do arquivo.
+            return chave_marca(sugestao or m.group(1).replace("_", " ")), ini, fim
     if informado and informado[1] and informado[2]:
-        marca = chave_marca(informado[0] or sugestao)
+        marca = chave_marca(sugestao or informado[0] or "")
         if marca:
             return marca, informado[1], informado[2]
     avisar("    O nome do arquivo não traz marca e período "
@@ -1065,10 +1123,28 @@ def importar_dados(repo, cfg, nome, dados, obter_marca_periodo):
         avisar(f"    Não importado: {e}.")
         return None
     avisar(f"    {fmt_int(len(df))} anúncios · {fmt_int(df['un'].sum())} unidades")
+    # A marca vem do próprio arquivo (coluna Marca + grafia oficial pelo GTIN).
+    existentes = sorted(set(cfg) | set(repo.marcas()))
+    ident = identificar_marca(df, existentes)
+    if ident:
+        sugestao = ident["marca"]
+        if ident["pesquisados"]:
+            repo.salvar_gtins(INFO_GTIN, ident["pesquisados"])
     mp = obter_marca_periodo(sugestao)
     if not mp:
         return None
     marca, ini, fim = mp
+    if ident and ident["oficial"] and compacta(marca) == compacta(ident["marca"]):
+        marca = ident["marca"]    # grafia oficial vence a digitada/do nome do arquivo
+    # Mesma marca já cadastrada com outra grafia ("MONT BLANC" x "MONTBLANC"): renomeia.
+    for antiga in existentes:
+        if antiga != marca and compacta(antiga) == compacta(marca):
+            repo.renomear_marca(antiga, marca)
+            if antiga in cfg:
+                cfg[marca] = cfg.pop(antiga)
+                repo.salvar_config(cfg, marca, apagar=antiga)
+            avisar(f"    Marca {antiga} renomeada para {marca} (grafia oficial).")
+            reconsolidar(repo, cfg, [marca])
     dias = (fim - ini).days + 1          # inclusive nas pontas: 01/08 a 16/09 = 47 dias
     garantir_config(cfg, marca, df, repo)
     df = consolidar(df, marca, cfg)
