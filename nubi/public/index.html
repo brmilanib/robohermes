@@ -344,17 +344,21 @@ function telaMarca() {
       <div class="card pad">
         <h2>Melhores oportunidades</h2>
         ${top.length ? `<ol class="top5" style="margin:0;padding-left:20px">${top.map(o => `
-          <li><b>${prodLink(o.produto)}</b> ${notaHTML(o.nota)} <span class="muted">${nf1.format(o.giro)}/dia · ${o.vendedores} vendedor(es)</span><br>${sinaisHTML(o.sinais)}</li>`).join("")}</ol>`
+          <li><b>${prodLink(o.produto)}</b> ${notaHTML(o.nota)} <span class="muted">${nf1.format(o.giro)}/dia · ${o.vendedores} vendedor(es)${o.lider_codigo ? ` · líder: ${vendLink(o.lider_codigo, o.lider_nome)} (${FMT.pct(o.lider)})` : ""}</span><br>${sinaisHTML(o.sinais)}</li>`).join("")}</ol>`
           : `<p class="muted">Sem produtos com venda no período.</p>`}
       </div>
       <div class="card pad">
-        <h2>Concentração entre vendedores</h2>
+        <h2>Maiores vendedores</h2>
         <table class="t" style="font-size:13px"><tbody>
-        ${r.concentracao.map(c => `<tr><td>${c.faixa}</td><td class="num">${nf0.format(c.vendedores)} vend.</td>
-          <td class="num">${nf0.format(c.un)} un.</td><td style="width:40%"><div style="background:var(--soft);border-radius:4px;height:10px">
-          <div style="width:${(c.share * 100).toFixed(1)}%;background:var(--accent);height:10px;border-radius:4px"></div></div></td>
-          <td class="num">${FMT.pct(c.share)}</td></tr>`).join("")}
+        ${r.tabelas.vendedores.slice(0, 10).map((v, i) => `<tr><td class="num muted">${i + 1}</td>
+          <td class="first">${vendLink(v.codigo, v.vendedor)}</td>
+          <td class="num">${nf0.format(v.un)} un.</td><td class="num">R$ ${nf0.format(v.fat)}</td>
+          <td style="width:18%;min-width:70px"><div style="background:var(--soft);border-radius:4px;height:8px">
+          <div style="width:${Math.min(100, v.share / Math.max(r.tabelas.vendedores[0].share, 0.0001) * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:4px"></div></div></td>
+          <td class="num">${FMT.pct(v.share)}</td></tr>`).join("")}
         </tbody></table>
+        <div class="muted" style="font-size:12px;margin-top:10px">Concentração do volume:
+          ${r.concentracao.map(c => `<span class="sinal">${c.faixa === "Todos" ? nf0.format(c.vendedores) + " vendedores" : c.faixa + ": " + FMT.pct(c.share)}</span>`).join("")}</div>
       </div>
     </div>
     <nav class="tabs" id="tabs">${ABAS.map(([k, l]) => {
@@ -406,7 +410,7 @@ const COLUNAS = {
     ["faixa","Faixa (mediana)","txt","sel"],["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["minimo","Mínimo","moeda2"],
     ["q1","1º quartil","moeda2"],["mediana","Mediana","moeda2"],["q3","3º quartil","moeda2"],["maximo","Máximo","moeda2"],
     ["amplitude","Amplitude","x"],["ponderado","Preço médio ponderado","moeda2"],["abaixo_80","Un. abaixo de 80% da mediana","int"]],
-  vendedores: [["codigo","Código","txt","txt"],["vendedor","Vendedor","txt","txt"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],
+  vendedores: [["codigo","Código","txt","txt"],["vendedor","Vendedor","vend","txt"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],
     ["share","Share","pct"],["share_acum","Share acumulado","pct"],["anuncios","Anúncios","int"],["referencias","Referências","int"],
     ["preco_medio","Preço médio","moeda2"],["un_por_anuncio","Un. por anúncio","dec"],["pct_catalogo","% catálogo","pct"],
     ["pct_full","% FULL","pct"],["loja_oficial","Anúncios loja oficial","int"],["internacional","Internacional","int"]],
@@ -433,7 +437,7 @@ const EXTRAS = {
 function colunasAnuncios() {
   const num = new Set(["Unidades vendidas", "Unidades vendidas históricas", "Dias publicados"]);
   return [["produto","Produto (consolidado)","txt","txt"],["confianca","Confiança","conf","sel"],["codigo","Cód. vendedor","txt","txt"],
-    ...(S.rel.colunas_arquivo || []).map((c, i) => [`c${i}`, c, num.has(c) ? "numtxt" : "txt", "auto"])];
+    ...(S.rel.colunas_arquivo || []).map((c, i) => [`c${i}`, c, c === "Vendedor" ? "vend" : num.has(c) ? "numtxt" : "txt", "auto"])];
 }
 
 function tabela(el, chave, linhas, cols, extra = {}) {
@@ -502,11 +506,14 @@ function tabela(el, chave, linhas, cols, extra = {}) {
   if (extra.acoes) $("#bpesq", el).onclick = () => pesquisarGtins($("#plog", el));
   desenhar();
 }
+const vendLink = (cod, nomeV) => cod && S.rel && S.rel.produtos_vendedor && S.rel.produtos_vendedor[cod]
+  ? `<a href="#" class="plink vlink" data-cod="${esc(cod)}" title="Ver os produtos deste vendedor">${esc(nomeV)}</a>` : esc(nomeV);
 const prodLink = v => S.rel && S.rel.vendedores_produto && S.rel.vendedores_produto[v]
   ? `<a href="#" class="plink" data-prod="${esc(v)}" title="Ver os vendedores deste produto">${esc(v)}</a>` : esc(v);
 function celula(r, k, f, i) {
   const v = r[k];
   if (k === "produto") return `<td class="first">${prodLink(v)}</td>`;
+  if (f === "vend") return `<td>${vendLink(r.codigo, v)}</td>`;
   if (f === "nota") return `<td class="num">${notaHTML(v)}</td>`;
   if (f === "sinais") return `<td>${sinaisHTML(v)}</td>`;
   if (f === "mov") return `<td>${movHTML(v)}</td>`;
@@ -536,7 +543,7 @@ function abrirVendedoresProduto(prod) {
       <th class="num">Share</th><th class="num" title="Faturamento ÷ unidades">Preço médio</th><th class="num" title="Mediana do último preço dos anúncios do vendedor">Preço atual</th>
       <th class="num">Anúncios</th><th class="num" title="Anúncios em FULL">FULL</th><th class="num" title="Anúncios em catálogo">Catál.</th><th>Loja of.</th></tr></thead><tbody>
       ${lista.map((v, i) => `<tr>
-        <td class="num">${i + 1}</td><td>${esc(v.codigo)}</td><td class="first">${esc(v.vendedor)}</td>
+        <td class="num">${i + 1}</td><td>${esc(v.codigo)}</td><td class="first">${vendLink(v.codigo, v.vendedor)}</td>
         <td class="num">${nf0.format(v.un)}</td><td class="num">R$ ${nf0.format(v.fat)}</td>
         <td class="num"><div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
           <div style="width:60px;background:var(--soft);border-radius:3px;height:8px"><div style="width:${(v.share * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:3px"></div></div>
@@ -549,6 +556,38 @@ function abrirVendedoresProduto(prod) {
     <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).</p>`);
   $(".modal", bg).classList.add("larga");
 }
+// ---------- Produtos de um vendedor ----------
+function abrirProdutosVendedor(cod) {
+  const lista = (S.rel.produtos_vendedor || {})[cod] || [];
+  const v = S.rel.tabelas.vendedores.find(x => x.codigo === cod) || {vendedor: cod};
+  const tot = lista.reduce((a, p) => ({un: a.un + p.un, fat: a.fat + p.fat, an: a.an + p.anuncios}), {un: 0, fat: 0, an: 0});
+  const maior = Math.max(...lista.map(p => p.share_do_vendedor), 0.0001);
+  const bg = modal(`
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <div style="flex:1"><h2 style="margin-bottom:2px">${esc(v.vendedor)} <span class="muted" style="font-weight:500">${esc(cod)}</span></h2>
+        <div class="muted">${nf0.format(lista.length)} produtos · ${nf0.format(tot.an)} anúncios · ${nf0.format(tot.un)} un. · R$ ${nf0.format(tot.fat)}
+          ${v.share != null ? ` · ${FMT.pct(v.share)} do mercado da marca` : ""} · período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)}</div></div>
+      <button class="btn small" data-fechar>Fechar</button>
+    </div>
+    <div class="tw" style="margin-top:12px;max-height:62vh"><table class="t"><thead><tr>
+      <th class="num">#</th><th>Produto</th><th>Categoria</th><th class="num">Un. vendidas</th><th class="num">Faturamento</th>
+      <th class="num" title="Quanto este produto pesa nas vendas do vendedor">% do vendedor</th>
+      <th class="num" title="Fatia deste vendedor nas vendas do produto">Share no produto</th>
+      <th class="num">Preço médio</th><th class="num">Preço atual</th><th class="num">Anúncios</th><th class="num">FULL</th><th class="num">Catál.</th></tr></thead><tbody>
+      ${lista.map((p, i) => `<tr>
+        <td class="num">${i + 1}</td><td class="first">${prodLink(p.produto)}</td><td>${esc(p.categoria)}</td>
+        <td class="num">${nf0.format(p.un)}</td><td class="num">R$ ${nf0.format(p.fat)}</td>
+        <td class="num"><div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+          <div style="width:60px;background:var(--soft);border-radius:3px;height:8px"><div style="width:${(p.share_do_vendedor / maior * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:3px"></div></div>
+          ${FMT.pct(p.share_do_vendedor)}</div></td>
+        <td class="num">${FMT.pct(p.share_no_produto)}</td>
+        <td class="num">${p.un ? "R$ " + nf2.format(p.preco_medio) : "—"}</td><td class="num">R$ ${nf2.format(p.ultimo_preco)}</td>
+        <td class="num">${p.anuncios}</td><td class="num">${p.full}</td><td class="num">${p.catalogo}</td></tr>`).join("")
+        || `<tr><td colspan="12" class="empty">Nenhum produto.</td></tr>`}
+    </tbody></table></div>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Clique num produto para ver os concorrentes dele.</p>`);
+  $(".modal", bg).classList.add("larga");
+}
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") { const ms = document.querySelectorAll(".modal-bg"); if (ms.length) ms[ms.length - 1].remove(); }
 });
@@ -556,7 +595,8 @@ document.addEventListener("click", e => {
   const a = e.target.closest("a.plink");
   if (!a) return;
   e.preventDefault();
-  abrirVendedoresProduto(a.dataset.prod);
+  if (a.classList.contains("vlink")) abrirProdutosVendedor(a.dataset.cod);
+  else abrirVendedoresProduto(a.dataset.prod);
 });
 
 // ---------- Histórico ----------

@@ -404,6 +404,26 @@ def relatorio(repo, marca):
             v["share"] = _div(v["un"], tot)
         lista.sort(key=lambda v: (-v["un"], -v["fat"], v["codigo"]))
 
+    # Produtos de cada vendedor (janela que abre ao clicar no vendedor), pelo código V01…
+    prod_vend = {}
+    for prod, lista in vend_prod.items():
+        for v in lista:
+            prod_vend.setdefault(v["codigo"], []).append({
+                "produto": prod, "un": v["un"], "fat": v["fat"], "anuncios": v["anuncios"],
+                "preco_medio": v["preco_medio"], "ultimo_preco": v["ultimo_preco"], "full": v["full"],
+                "catalogo": v["catalogo"], "share_no_produto": v["share"],
+                "categoria": attrs["cat"].get(prod, ""), "marca": attrs["marca"].get(prod, "")})
+    for lista in prod_vend.values():
+        tot = sum(p["un"] for p in lista)
+        for p in lista:
+            p["share_do_vendedor"] = _div(p["un"], tot)
+        lista.sort(key=lambda p: (-p["un"], -p["fat"], p["produto"]))
+    # Líder de cada oportunidade (nome na lista das melhores oportunidades)
+    for o in oport:
+        lista = vend_prod.get(o["produto"]) or []
+        if lista and lista[0]["un"] > 0:
+            o["lider_codigo"], o["lider_nome"] = lista[0]["codigo"], lista[0]["vendedor"]
+
     # Resumo
     n = len(df)
     conc = []
@@ -432,6 +452,7 @@ def relatorio(repo, marca):
                     "duvidas": _registros(duvidas), "anuncios": _registros(anuncios)},
         "historico": historico,
         "vendedores_produto": {k: _registros(v) for k, v in vend_prod.items()},
+        "produtos_vendedor": {k: _registros(v) for k, v in prod_vend.items()},
         "colunas_arquivo": colunas,
     }
 
