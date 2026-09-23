@@ -15,6 +15,8 @@ Dependências: pandas e openpyxl.
 
 import argparse
 import hashlib
+import io
+import os
 import json
 import re
 import sqlite3
@@ -99,6 +101,15 @@ contratipo inspiracao essencia intensa oriental floral frutado aromatico citrico
 presente vaporizador tradicional fixacao alta longa duracao cheiroso cheirosa melhor mais
 de da do das dos di du la le the and em por
 """.split())
+
+
+# Mensagens ao usuário: no terminal vão para o print; na versão web, para uma lista
+# que volta como resposta da página.
+_SAIDA = [print]
+
+
+def avisar(msg=""):
+    _SAIDA[0](msg)
 
 
 # ---------------------------------------------------------------------------
@@ -206,11 +217,13 @@ class ErroArquivo(Exception):
     """Erro de leitura que vira uma linha amigável no terminal."""
 
 
-def ler_csv(caminho):
+def ler_csv(fonte):
+    """`fonte`: caminho do arquivo ou o conteúdo em bytes (upload pela web)."""
     df = None
     for enc in ("utf-8-sig", "latin-1"):
         try:
-            df = pd.read_csv(caminho, sep=";", encoding=enc, dtype=str,
+            entrada = io.BytesIO(fonte) if isinstance(fonte, (bytes, bytearray)) else fonte
+            df = pd.read_csv(entrada, sep=";", encoding=enc, dtype=str,
                              keep_default_na=False, on_bad_lines="skip")
             break
         except UnicodeDecodeError:
@@ -344,21 +357,24 @@ def detectar_linhas(df, marca):
     return [[t, nome_bonito(t)] for t in escolhidos]
 
 
-def garantir_config(cfg, marca, df):
-    """Se a marca não está no marcas.json, detecta as linhas, grava e avisa."""
+def garantir_config(cfg, marca, df, repo=None):
+    """Se a marca não está na configuração, detecta as linhas, grava e avisa."""
     chave = chave_marca(marca)
     if chave in cfg:
         return
     linhas = detectar_linhas(df, marca)
     cfg[chave] = {"linhas": linhas}
-    salvar_config(cfg)
-    print(f"    Marca nova: {chave}. Linhas detectadas e gravadas em marcas.json:")
+    if repo is not None:
+        repo.salvar_config(cfg, chave)
+    else:
+        salvar_config(cfg)
+    avisar(f"    Marca nova: {chave}. Linhas de produto detectadas e gravadas na configuração:")
     if linhas:
         for _, rotulo in linhas:
-            print(f"      - {rotulo}")
+            avisar(f"      - {rotulo}")
     else:
-        print("      (nenhuma — todos os anúncios vão para \"Outros\")")
-    print("    Você pode ajustar essa lista à mão no marcas.json e rodar de novo.")
+        avisar("      (nenhuma — todos os anúncios vão para \"Outros\")")
+    avisar("    Você pode ajustar essa lista (marcas.json ou tela Configuração) e reprocessar.")
 
 
 # ---------------------------------------------------------------------------
@@ -658,43 +674,113 @@ def abrir_banco():
     return con
 
 
-def gravar_snapshot(con, marca, inicio, fim, dias, arquivo, hash_, df):
-    # Mesmo marca+período vindo num arquivo diferente (novo export): substitui o antigo.
-    antigos = con.execute("SELECT id FROM snapshots WHERE marca=? AND inicio=? AND fim=?",
-                          (marca, inicio, fim)).fetchall()
-    for (sid,) in antigos:
-        con.execute("DELETE FROM anuncios WHERE snapshot_id=?", (sid,))
-        con.execute("DELETE FROM snapshots WHERE id=?", (sid,))
-    cur = con.execute(
-        "INSERT INTO snapshots(marca, inicio, fim, dias, arquivo, hash, importado_em) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (marca, inicio, fim, dias, arquivo, hash_, datetime.now().isoformat(timespec="seconds")))
-    sid = cur.lastrowid
-    linhas = [(sid, *r) for r in df[CAMPOS_ANUNCIO].itertuples(index=False, name=None)]
-    con.executemany(f"INSERT INTO anuncios(snapshot_id, {', '.join(CAMPOS_ANUNCIO)}) "
-                    f"VALUES ({', '.join('?' * (len(CAMPOS_ANUNCIO) + 1))})", linhas)
-    con.commit()
-    return len(antigos) > 0
+class RepoLocal:
+    """
+    Onde os dados moram no uso local: SQLite em dados/base.db e os arquivos
+    marcas.json / gtins.json. A versão web (nubi_web.py) tem uma classe com os
+    mesmos métodos que fala com o Supabase.
+    """
+
+    def __init__(self):
+        self.con = abrir_banco()
+
+    def fechar(self):
+        self.con.close()
+
+    def marcas(self):
+        return [m for (m,) in self.con.execute("SELECT DISTINCT marca FROM snapshots ORDER BY marca")]
+
+    def snapshot_por_hash(self, hash_):
+        r = self.con.execute("SELECT importado_em, marca, inicio, fim FROM snapshots WHERE hash=?",
+                             (hash_,)).fetchone()
+        return dict(zip(("importado_em", "marca", "inicio", "fim"), r)) if r else None
+
+    def snapshots(self, marca=None):
+        sql = "SELECT * FROM snapshots" + (" WHERE marca=?" if marca else "") + \
+              " ORDER BY marca, fim, inicio, id"
+        return pd.read_sql(sql, self.con, params=(marca,) if marca else ())
+
+    def gravar_snapshot(self, marca, inicio, fim, dias, arquivo, hash_, df):
+        con = self.con
+        # Mesmo marca+período vindo num arquivo diferente (novo export): substitui o antigo.
+        antigos = con.execute("SELECT id FROM snapshots WHERE marca=? AND inicio=? AND fim=?",
+                              (marca, inicio, fim)).fetchall()
+        for (sid,) in antigos:
+            con.execute("DELETE FROM anuncios WHERE snapshot_id=?", (sid,))
+            con.execute("DELETE FROM snapshots WHERE id=?", (sid,))
+        cur = con.execute(
+            "INSERT INTO snapshots(marca, inicio, fim, dias, arquivo, hash, importado_em) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (marca, inicio, fim, dias, arquivo, hash_, datetime.now().isoformat(timespec="seconds")))
+        sid = cur.lastrowid
+        linhas = [(sid, *r) for r in df[CAMPOS_ANUNCIO].itertuples(index=False, name=None)]
+        con.executemany(f"INSERT INTO anuncios(snapshot_id, {', '.join(CAMPOS_ANUNCIO)}) "
+                        f"VALUES ({', '.join('?' * (len(CAMPOS_ANUNCIO) + 1))})", linhas)
+        con.commit()
+        return len(antigos) > 0
+
+    def anuncios(self, sid):
+        """Anúncios de um período, com `rid` (identificador da linha para atualizar)."""
+        return pd.read_sql("SELECT rowid AS rid, * FROM anuncios WHERE snapshot_id=?",
+                           self.con, params=(int(sid),))
+
+    def atualizar_consolidacao(self, df):
+        self.con.executemany(
+            "UPDATE anuncios SET produto=?, linha=?, volume=?, tipo=?, genero=?, confianca=? WHERE rowid=?",
+            list(df[CAMPOS_CONSOLIDACAO + ["rid"]].itertuples(index=False, name=None)))
+        self.con.commit()
+
+    def un_por_produto(self, sids):
+        """Unidades por produto em cada período (para a aba Histórico)."""
+        ph = ",".join("?" * len(sids))
+        return pd.read_sql(f"SELECT snapshot_id, produto, SUM(un) AS un FROM anuncios "
+                           f"WHERE snapshot_id IN ({ph}) GROUP BY snapshot_id, produto",
+                           self.con, params=[int(x) for x in sids])
+
+    def carregar_config(self):
+        return carregar_config()
+
+    def salvar_config(self, cfg, marca=None):
+        salvar_config(cfg)
+
+    def carregar_gtins(self):
+        return carregar_gtins()
+
+    def salvar_gtins(self, info, alterados=None):
+        salvar_gtins(info)
 
 
-def reconsolidar(con, cfg):
+CAMPOS_CONSOLIDACAO = ["produto", "linha", "volume", "tipo", "genero", "confianca"]
+
+
+def preparar(df):
+    """Anúncios lidos do banco: troca vazios (None) pelos valores que a consolidação espera."""
+    for c in ("gtin", "marca_anuncio", "categoria", "confianca", "titulo", "vendedor"):
+        if c in df.columns:
+            df[c] = df[c].fillna("")
+    if "genero" in df.columns:
+        df["genero"] = df["genero"].fillna("-")
+    return df
+
+
+def reconsolidar(repo, cfg, marcas=None):
     """
-    Refaz a consolidação de todo o histórico com o marcas.json atual — assim uma
-    correção feita à mão no arquivo vale também para os períodos já importados.
+    Refaz a consolidação do histórico com a configuração atual — assim uma correção
+    nas linhas (marcas.json) ou num GTIN vale também para os períodos já importados.
+    `marcas`: só estas marcas (padrão: todas).
     """
-    for marca, sid in con.execute("SELECT marca, id FROM snapshots").fetchall():
-        df = pd.read_sql("SELECT rowid AS rid, * FROM anuncios WHERE snapshot_id=?", con, params=(sid,))
+    snaps = repo.snapshots()
+    for _, s in snaps.iterrows():
+        if marcas and s["marca"] not in marcas:
+            continue
+        df = preparar(repo.anuncios(s["id"]))
         if df.empty:
             continue
-        for c in ("gtin", "marca_anuncio", "categoria"):
-            df[c] = df[c].fillna("")
-        garantir_config(cfg, marca, df)
-        novo = consolidar(df, marca, cfg)
-        con.executemany("UPDATE anuncios SET produto=?, linha=?, volume=?, tipo=?, genero=?, "
-                        "confianca=? WHERE rowid=?",
-                        list(novo[["produto", "linha", "volume", "tipo", "genero", "confianca", "rid"]]
-                             .itertuples(index=False, name=None)))
-    con.commit()
+        garantir_config(cfg, s["marca"], df, repo)
+        novo = consolidar(df, s["marca"], cfg)
+        mudou = (novo[CAMPOS_CONSOLIDACAO].astype(str) != df[CAMPOS_CONSOLIDACAO].astype(str)).any(axis=1)
+        if mudou.any():
+            repo.atualizar_consolidacao(novo[mudou])
 
 
 # ---------------------------------------------------------------------------
@@ -804,31 +890,34 @@ def consultar_gtin(gtin, token=""):
     return None, falhas, len(fontes)
 
 
-def gtins_em_duvida(con):
+def gtins_em_duvida(repo, marca=None):
     """GTINs cujo agrupamento está em dúvida, no período mais recente de cada marca."""
-    return con.execute(f"""
-        SELECT a.gtin, s.marca, SUM(a.un) AS un
-        FROM anuncios a JOIN snapshots s ON s.id = a.snapshot_id
-        WHERE a.gtin <> '' AND a.confianca LIKE 'Dúvida%'
-          AND s.id IN (SELECT id FROM snapshots s2 WHERE s2.marca = s.marca
-                       ORDER BY fim DESC, inicio DESC, id DESC LIMIT 1)
-        GROUP BY a.gtin, s.marca ORDER BY un DESC""").fetchall()
+    snaps = repo.snapshots(marca)
+    saida = []
+    for m, grupo in snaps.groupby("marca"):
+        df = preparar(repo.anuncios(grupo.iloc[-1]["id"]))
+        d = df[(df["gtin"] != "") & df["confianca"].str.startswith("Dúvida")]
+        for gtin, un in d.groupby("gtin")["un"].sum().items():
+            saida.append((gtin, m, int(un)))
+    return sorted(saida, key=lambda x: -x[2])
 
 
-def pesquisar_gtins(con, limite, lista=None):
+def pesquisar_gtins(repo, limite, lista=None, marca=None):
     if lista:
         alvos = [(normalizar_gtin(g) or re.sub(r"\D", "", g), "", 0) for g in lista]
     else:
-        alvos = [a for a in gtins_em_duvida(con) if a[0] not in INFO_GTIN]
+        alvos = [a for a in gtins_em_duvida(repo, marca) if a[0] not in INFO_GTIN]
     if not alvos:
-        print("\n  Nenhum GTIN em dúvida esperando pesquisa.")
+        avisar("\n  Nenhum GTIN em dúvida esperando pesquisa.")
         return
-    token = ARQ_TOKEN_COSMOS.read_text(encoding="utf-8").strip() if ARQ_TOKEN_COSMOS.exists() else ""
+    token = (ARQ_TOKEN_COSMOS.read_text(encoding="utf-8").strip() if ARQ_TOKEN_COSMOS.exists()
+             else os.environ.get("NUBI_COSMOS_TOKEN", ""))
+    alterados = []
     lote = alvos[:limite]
     if lista:
-        print(f"\nPesquisando {len(lote)} GTIN(s):")
+        avisar(f"Pesquisando {len(lote)} GTIN(s):")
     else:
-        print(f"\nPesquisando {len(lote)} GTIN(s) em dúvida (de {len(alvos)}), "
+        avisar(f"Pesquisando {len(lote)} GTIN(s) em dúvida (de {len(alvos)}), "
               f"dos que mais vendem para os que menos vendem:")
     sem_rede = 0
     for gtin, _, _ in lote:
@@ -837,29 +926,30 @@ def pesquisar_gtins(con, limite, lista=None):
         if r:
             INFO_GTIN[gtin] = {"nome": r["nome"], "marca": r["marca"], "fonte": r["fonte"],
                                "consultado_em": agora}
-            print(f"    {gtin}  {r['nome']}  ({r['fonte']})")
+            alterados.append(gtin)
+            avisar(f"    {gtin}  {r['nome']}  ({r['fonte']})")
             sem_rede = 0
         elif len(falhas) == n_fontes:
-            print(f"    {gtin}  sem resposta das bases ({'; '.join(falhas)})")
+            avisar(f"    {gtin}  sem resposta das bases ({'; '.join(falhas)})")
             sem_rede += 1
             if sem_rede >= 3:
-                print("    Sem conexão com as bases de GTIN agora. Tente de novo mais tarde.")
+                avisar("    Sem conexão com as bases de GTIN agora. Tente de novo mais tarde.")
                 break
         elif falhas:
-            print(f"    {gtin}  não encontrado, mas nem todas as bases responderam "
+            avisar(f"    {gtin}  não encontrado, mas nem todas as bases responderam "
                   f"({'; '.join(falhas)}). Fica para a próxima pesquisa.")
             sem_rede = 0
         else:
             INFO_GTIN[gtin] = {"nome": "", "marca": "", "fonte": "não encontrado", "consultado_em": agora}
-            print(f"    {gtin}  não encontrado nas bases — confira: {link_pesquisa(gtin)}")
+            alterados.append(gtin)
+            avisar(f"    {gtin}  não encontrado nas bases — confira: {link_pesquisa(gtin)}")
             sem_rede = 0
         time.sleep(0.5)
-    salvar_gtins(INFO_GTIN)
+    repo.salvar_gtins(INFO_GTIN, alterados)
     if len(alvos) > len(lote):
-        print(f"    Faltam {len(alvos) - len(lote)}. Rode de novo para continuar "
-              f"(ou use --limite para pesquisar mais de uma vez).")
-    print("    Resultados gravados em gtins.json. Se algum nome estiver errado, corrija ali "
-          "(ou preencha à mão os não encontrados) e rode de novo.")
+        avisar(f"    Faltam {len(alvos) - len(lote)}. Pesquise de novo para continuar.")
+    avisar("    Resultados gravados (gtins.json no computador; aba Dúvidas na web). Se algum nome "
+           "estiver errado, ou não foi encontrado, corrija à mão e reprocesse.")
 
 
 # ---------------------------------------------------------------------------
@@ -899,7 +989,7 @@ def marca_e_periodo(caminho, sugestao, informado=None):
         marca = chave_marca(informado[0] or sugestao)
         if marca:
             return marca, informado[1], informado[2]
-    print("    O nome do arquivo não traz marca e período "
+    avisar("    O nome do arquivo não traz marca e período "
           "(padrão MARCA__AAAA-MM-DD_AAAA-MM-DD.csv).")
     try:
         marca = ""
@@ -908,60 +998,69 @@ def marca_e_periodo(caminho, sugestao, informado=None):
             if marca:
                 break
         if not marca:
-            print("    Marca não informada. Arquivo pulado.")
+            avisar("    Marca não informada. Arquivo pulado.")
             return None
         ini = fim = None
         for _ in range(3):
             ini = data_valida(perguntar("Data inicial (AAAA-MM-DD)"))
             if ini:
                 break
-            print("    Data inválida. Use o formato AAAA-MM-DD, ex.: 2026-08-01")
+            avisar("    Data inválida. Use o formato AAAA-MM-DD, ex.: 2026-08-01")
         for _ in range(3):
             if not ini:
                 break
             fim = data_valida(perguntar("Data final (AAAA-MM-DD)"))
             if fim and fim >= ini:
                 break
-            print("    Data inválida ou anterior à inicial. Use AAAA-MM-DD.")
+            avisar("    Data inválida ou anterior à inicial. Use AAAA-MM-DD.")
             fim = None
         if not (ini and fim):
-            print("    Datas não informadas corretamente. Arquivo pulado.")
+            avisar("    Datas não informadas corretamente. Arquivo pulado.")
             return None
         return marca, ini, fim
     except SemTerminal:
-        print("    Sem terminal para perguntar. Renomeie o arquivo no padrão "
+        avisar("    Sem terminal para perguntar. Renomeie o arquivo no padrão "
               "MARCA__AAAA-MM-DD_AAAA-MM-DD.csv. Arquivo pulado.")
         return None
 
 
-def importar(con, cfg, caminho, informado=None):
-    print(f"\n  {caminho.name}")
-    hash_ = hashlib.sha256(caminho.read_bytes()).hexdigest()
-    ja = con.execute("SELECT importado_em, marca, inicio, fim FROM snapshots WHERE hash=?",
-                     (hash_,)).fetchone()
+def importar(repo, cfg, caminho, informado=None):
+    avisar(f"\n  {caminho.name}")
+    return importar_dados(repo, cfg, caminho.name, caminho.read_bytes(),
+                          lambda sugestao: marca_e_periodo(caminho, sugestao, informado))
+
+
+def importar_dados(repo, cfg, nome, dados, obter_marca_periodo):
+    """
+    Importa um CSV (conteúdo em bytes). `obter_marca_periodo(sugestao)` devolve
+    (marca, inicio, fim) ou None — pelo nome do arquivo, pela linha de comando,
+    perguntando no terminal ou pelo formulário da página.
+    """
+    hash_ = hashlib.sha256(dados).hexdigest()
+    ja = repo.snapshot_por_hash(hash_)
     if ja:
-        quando = datetime.fromisoformat(ja[0]).strftime("%d/%m/%Y %H:%M")
-        print(f"    Já importado em {quando} ({ja[1]}, {fmt_data(ja[2])} a {fmt_data(ja[3])}). Pulado.")
+        quando = datetime.fromisoformat(str(ja["importado_em"])[:19]).strftime("%d/%m/%Y %H:%M")
+        avisar(f"    Já importado em {quando} ({ja['marca']}, {fmt_data(str(ja['inicio']))} a "
+               f"{fmt_data(str(ja['fim']))}). Pulado.")
         return None
     try:
-        df, sugestao = ler_csv(caminho)
+        df, sugestao = ler_csv(dados)
     except ErroArquivo as e:
-        print(f"    Não importado: {e}.")
+        avisar(f"    Não importado: {e}.")
         return None
-    print(f"    {fmt_int(len(df))} anúncios · {fmt_int(df['un'].sum())} unidades")
-    mp = marca_e_periodo(caminho, sugestao, informado)
+    avisar(f"    {fmt_int(len(df))} anúncios · {fmt_int(df['un'].sum())} unidades")
+    mp = obter_marca_periodo(sugestao)
     if not mp:
         return None
     marca, ini, fim = mp
     dias = (fim - ini).days + 1          # inclusive nas pontas: 01/08 a 16/09 = 47 dias
-    garantir_config(cfg, marca, df)
+    garantir_config(cfg, marca, df, repo)
     df = consolidar(df, marca, cfg)
-    substituiu = gravar_snapshot(con, marca, ini.isoformat(), fim.isoformat(), dias,
-                                 caminho.name, hash_, df)
+    substituiu = repo.gravar_snapshot(marca, ini.isoformat(), fim.isoformat(), dias, nome, hash_, df)
     if substituiu:
-        print("    (substituiu uma importação anterior do mesmo período)")
-    print(f"    OK: {marca} · {ini:%d/%m/%Y} a {fim:%d/%m/%Y} ({dias} dias) · "
-          f"{df['produto'].nunique()} referências")
+        avisar("    (substituiu uma importação anterior do mesmo período)")
+    avisar(f"    OK: {marca} · {ini:%d/%m/%Y} a {fim:%d/%m/%Y} ({dias} dias) · "
+           f"{df['produto'].nunique()} referências")
     return marca
 
 
@@ -1140,7 +1239,7 @@ def aba_resumo(ws, marca, snap, n_vend, n_prod, n_gtin, n_duvida, n_oport):
     cel(ws, 1, 1, f"Explorador de anúncios — {nome_bonito(marca)}", fonte=FONTE_TIT, borda=False)
     cel(ws, 2, 1, "Números do mercado inteiro (todos os vendedores), não da sua loja.",
         fonte=FONTE_ALERTA, borda=False)
-    cel(ws, 3, 1, f"Período: {fmt_data(snap['inicio'])} a {fmt_data(snap['fim'])} "
+    cel(ws, 3, 1, f"Período: {fmt_data(str(snap['inicio']))} a {fmt_data(str(snap['fim']))} "
                   f"({snap['dias']} dias) · arquivo {snap['arquivo']}", borda=False)
 
     v_fim, p_fim, g_fim = n_vend + 1, n_prod + 1, n_gtin + 1
@@ -1213,6 +1312,60 @@ def aba_resumo(ws, marca, snap, n_vend, n_prod, n_gtin, n_duvida, n_oport):
     nota(ws, r0 + 1, "Giro/dia e projeções usam os dias reais do período, nunca 30 fixo.")
 
 
+def calcular_oportunidades(df, attrs, df_ant, dias_ant):
+    """
+    Métricas de oportunidade por produto da marca com venda, ordenadas pela nota.
+    A mesma conta aparece como fórmula na aba Oportunidades e como valor na web.
+    """
+    alvo = attrs[~attrs["cat"].isin(["Outra marca", "Não perfume"]) & (attrs["un"] > 0)]
+    dias = float(df.attrs["dias"])
+    un_ant = df_ant.groupby("produto")["un"].sum() if df_ant is not None else None
+    dados = []
+    for prod, a in alvo.iterrows():
+        g = df[df["produto"] == prod]
+        com_venda = g[g["un"] > 0]
+        por_vend = com_venda.groupby("vendedor_id")["un"].sum()
+        precos = com_venda.loc[com_venda["preco"] > 0, "preco"]
+        giro = a["un"] / dias
+        giro_ant = (float(un_ant.get(prod, 0)) / dias_ant) if un_ant is not None else None
+        x = {"prod": prod, "a": a, "giro": giro, "giro_ant": giro_ant, "vend": len(por_vend),
+             "lider": por_vend.max() / a["un"] if a["un"] else 0,
+             "full": g["full"].mean(), "catalogo": g["catalogo"].mean(), "anuncios": len(g),
+             "mediana": round(float(precos.median()), 2) if len(precos) else 0,
+             "amp": round(float(precos.max() / precos.min()), 2) if len(precos) >= 2 else 0}
+        dados.append(x)
+    # Mesma conta da fórmula da coluna Nota, só para ordenar a aba.
+    gmax = max([x["giro"] for x in dados] or [1]) or 1
+    for x in dados:
+        var = (x["giro"] / x["giro_ant"] - 1) if x["giro_ant"] else 0
+        x["nota"] = 100 * (x["giro"] / gmax) ** 0.5 * (
+            0.4 + 0.25 / max(x["vend"], 1) + 0.15 * (1 - x["full"])
+            + 0.1 * (1 - x["lider"]) + 0.1 * max(0, min(var, 1)))
+    dados.sort(key=lambda x: -x["nota"])
+    media = sum(x["giro"] for x in dados) / len(dados) if dados else 0
+    for x in dados:
+        x["var"] = (x["giro"] / x["giro_ant"] - 1) if x["giro_ant"] else None
+        s = []
+        if x["vend"] <= 3 and x["giro"] >= media:
+            s.append("Pouca concorrência")
+        if x["full"] < 0.2 and x["giro"] >= media:
+            s.append("FULL livre")
+        if x["catalogo"] < 0.3:
+            s.append("Catálogo pouco disputado")
+        if x["lider"] >= 0.6:
+            s.append("Líder domina")
+        if x["var"] is not None and x["var"] > 0.2:
+            s.append("Acelerando")
+        if x["var"] is not None and x["var"] < -0.2:
+            s.append("Perdendo giro")
+        if x["giro_ant"] is not None and x["giro_ant"] == 0:
+            s.append("Novo no período")
+        if x["amp"] >= 2:
+            s.append("Preço disperso")
+        x["sinais"] = " · ".join(s)
+    return dados
+
+
 def aba_oportunidades(ws, df, attrs, df_ant, dias_ant):
     """
     Onde entrar: produtos da marca com venda, com uma nota de 0 a 100 e sinais.
@@ -1227,30 +1380,7 @@ def aba_oportunidades(ws, df, attrs, df_ant, dias_ant):
             ("Líder: share do maior vendedor", PCT, 12), ("% FULL", PCT, 8), ("% catálogo", PCT, 9),
             ("Preço mediano", MOEDA2, 11), ("Faixa de preço", TXT, 12), ("Amplitude de preço", VEZES, 10),
             ("Nota (0–100)", INT, 9), ("Sinais", TXT, 60)]
-    alvo = attrs[~attrs["cat"].isin(["Outra marca", "Não perfume"]) & (attrs["un"] > 0)]
-    dias = float(df.attrs["dias"])
-    un_ant = df_ant.groupby("produto")["un"].sum() if df_ant is not None else None
-    dados = []
-    for prod, a in alvo.iterrows():
-        g = df[df["produto"] == prod]
-        com_venda = g[g["un"] > 0]
-        por_vend = com_venda.groupby("vendedor_id")["un"].sum()
-        precos = com_venda.loc[com_venda["preco"] > 0, "preco"]
-        giro = a["un"] / dias
-        giro_ant = (float(un_ant.get(prod, 0)) / dias_ant) if un_ant is not None else None
-        x = {"prod": prod, "a": a, "giro": giro, "giro_ant": giro_ant, "vend": len(por_vend),
-             "lider": por_vend.max() / a["un"] if a["un"] else 0,
-             "full": g["full"].mean(), "mediana": round(float(precos.median()), 2) if len(precos) else 0,
-             "amp": round(float(precos.max() / precos.min()), 2) if len(precos) >= 2 else 0}
-        dados.append(x)
-    # Mesma conta da fórmula da coluna Nota, só para ordenar a aba.
-    gmax = max([x["giro"] for x in dados] or [1]) or 1
-    for x in dados:
-        var = (x["giro"] / x["giro_ant"] - 1) if x["giro_ant"] else 0
-        x["nota"] = 100 * (x["giro"] / gmax) ** 0.5 * (
-            0.4 + 0.25 / max(x["vend"], 1) + 0.15 * (1 - x["full"])
-            + 0.1 * (1 - x["lider"]) + 0.1 * max(0, min(var, 1)))
-    dados.sort(key=lambda x: -x["nota"])
+    dados = calcular_oportunidades(df, attrs, df_ant, dias_ant)
     n = len(dados) + 1
     P = AN("produto")
     E = f"E$2:E${max(n, 2)}"
@@ -1492,7 +1622,7 @@ def aba_evolucao(ws, ant, atu, snap_ant, snap_atu, attrs):
         fonte=FONTE_B, borda=False)
     for r, rot, s in ((2, "Período anterior", snap_ant), (3, "Período atual", snap_atu)):
         cel(ws, r, 1, rot, fonte=FONTE_B)
-        cel(ws, r, 2, f"{fmt_data(s['inicio'])} a {fmt_data(s['fim'])}")
+        cel(ws, r, 2, f"{fmt_data(str(s['inicio']))} a {fmt_data(str(s['fim']))}")
         cel(ws, r, 3, "Dias", fonte=FONTE_B)
         cel(ws, r, 4, int(s["dias"]), fmt=INT)
     cols = [("Produto", TXT, 44), ("Giro/dia anterior", DEC, 12), ("Giro/dia atual", DEC, 12),
@@ -1532,16 +1662,17 @@ def aba_evolucao(ws, ant, atu, snap_ant, snap_atu, attrs):
     nota(ws, r + 4, NOTA_FAT)
 
 
-def aba_historico(ws, con, snaps, attrs):
+def aba_historico(ws, repo, snaps, attrs):
     """Giro/dia de cada referência em cada período importado (até os 30 últimos)."""
     ws.title = "Histórico"
     snaps = snaps.tail(30)
     series, rotulos = [], []
+    un = repo.un_por_produto(list(snaps["id"]))
     for _, s in snaps.iterrows():
-        d = pd.read_sql("SELECT produto, un FROM anuncios WHERE snapshot_id=?", con, params=(int(s["id"]),))
+        d = un[un["snapshot_id"] == s["id"]]
         series.append(d.groupby("produto")["un"].sum() / float(s["dias"]))
-        ini, fim = fmt_data(s["inicio"])[:5], fmt_data(s["fim"])[:5]
-        rotulos.append(f"Giro/dia {fim}" if s["inicio"] == s["fim"] else f"Giro/dia {ini} a {fim}")
+        ini, fim = fmt_data(str(s["inicio"]))[:5], fmt_data(str(s["fim"]))[:5]
+        rotulos.append(f"Giro/dia {fim}" if ini == fim else f"Giro/dia {ini} a {fim}")
     tab = pd.concat(series, axis=1).fillna(0)
     tab = tab.iloc[(-tab.iloc[:, -1].values).argsort(kind="mergesort")]   # maior giro atual primeiro
     k = len(series)
@@ -1592,21 +1723,17 @@ def aba_anuncios(ws, df, vend):
     tabela(ws, 1, cols, [fazer(reg) for reg in registros])
 
 
-def ler_snapshot(con, sid):
-    df = pd.read_sql("SELECT * FROM anuncios WHERE snapshot_id=?", con, params=(int(sid),))
-    for c in ("gtin", "marca_anuncio", "categoria", "confianca"):
-        df[c] = df[c].fillna("")
-    df["genero"] = df["genero"].fillna("-")
-    return df
+def ler_snapshot(repo, sid):
+    return preparar(repo.anuncios(sid))
 
 
-def gerar_planilha_marca(con, marca):
-    snaps = pd.read_sql("SELECT * FROM snapshots WHERE marca=? ORDER BY fim, inicio, id",
-                        con, params=(marca,))
+def montar_planilha_marca(repo, marca):
+    """Monta o Excel da marca e devolve (workbook, nome do arquivo)."""
+    snaps = repo.snapshots(marca)
     if snaps.empty:
-        return None
+        return None, None
     atual = snaps.iloc[-1]
-    df = ler_snapshot(con, atual["id"])
+    df = ler_snapshot(repo, atual["id"])
     df.attrs["dias"] = int(atual["dias"])
     vend = codigos_vendedor(df)
     attrs = atributos_produto(df)
@@ -1614,7 +1741,7 @@ def gerar_planilha_marca(con, marca):
     df_ant, anterior = None, None
     if len(snaps) >= 2:
         anterior = snaps.iloc[-2]
-        df_ant = ler_snapshot(con, anterior["id"])
+        df_ant = ler_snapshot(repo, anterior["id"])
 
     wb = Workbook()
     resumo = wb.active
@@ -1622,7 +1749,7 @@ def gerar_planilha_marca(con, marca):
                                 float(anterior["dias"]) if anterior is not None else None)
     if df_ant is not None:
         aba_evolucao(wb.create_sheet(), df_ant, df, anterior, atual, attrs)
-        aba_historico(wb.create_sheet(), con, snaps, attrs)
+        aba_historico(wb.create_sheet(), repo, snaps, attrs)
     aba_produtos(wb.create_sheet(), attrs, df)
     aba_precos(wb.create_sheet(), df, attrs)
     aba_vendedores(wb.create_sheet(), df, vend)
@@ -1633,14 +1760,20 @@ def gerar_planilha_marca(con, marca):
         wb.remove(ws_duv)
     aba_anuncios(wb.create_sheet(), df, vend)
     aba_resumo(resumo, marca, atual, len(vend), len(attrs), n_gtin, n_duvida, n_oport)
+    return wb, f"{slug(marca)}-explorador-de-anuncios.xlsx"
 
-    destino = SAIDA / f"{slug(marca)}-explorador-de-anuncios.xlsx"
+
+def gerar_planilha_marca(repo, marca):
+    wb, nome = montar_planilha_marca(repo, marca)
+    if wb is None:
+        return None
+    destino = SAIDA / nome
     salvar(wb, destino)
     return destino
 
 
-def gerar_painel(con):
-    snaps = pd.read_sql("SELECT * FROM snapshots ORDER BY marca, fim, inicio, id", con)
+def montar_painel(repo):
+    snaps = repo.snapshots()
     if snaps.empty:
         return None
     ultimos = snaps.groupby("marca").tail(1)
@@ -1654,11 +1787,10 @@ def gerar_painel(con):
             ("Anúncios em catálogo (base)", INT, 13)]
     linhas, todos_vend = [], set()
     for _, s in ultimos.iterrows():
-        d = pd.read_sql("SELECT vendedor_id, produto, un, fat, catalogo FROM anuncios "
-                        "WHERE snapshot_id=?", con, params=(int(s["id"]),))
+        d = repo.anuncios(s["id"])
         todos_vend |= set(d["vendedor_id"])
         linhas.append((d["un"].sum(), nome_bonito(s["marca"]),
-                       f"{fmt_data(s['inicio'])} a {fmt_data(s['fim'])}", int(s["dias"]), len(d),
+                       f"{fmt_data(str(s['inicio']))} a {fmt_data(str(s['fim']))}", int(s["dias"]), len(d),
                        d["vendedor_id"].nunique(), d["produto"].nunique(), int(d["un"].sum()),
                        float(d["fat"].sum()), int(d["catalogo"].sum())))
     linhas.sort(key=lambda x: -x[0])
@@ -1678,6 +1810,13 @@ def gerar_painel(con):
                     "distintos somando todas as marcas (quem vende duas marcas conta uma vez).")
     nota(ws, r + 3, "Números do mercado inteiro (todos os vendedores), não da sua loja.", FONTE_ALERTA)
     nota(ws, r + 4, NOTA_FAT)
+    return wb
+
+
+def gerar_painel(repo):
+    wb = montar_painel(repo)
+    if wb is None:
+        return None
     destino = SAIDA / "painel-geral.xlsx"
     salvar(wb, destino)
     return destino
@@ -1720,7 +1859,6 @@ def ler_argumentos():
 
 
 def main():
-    global INFO_GTIN
     args = ler_argumentos()
     for p in (ENTRADA, SAIDA, DADOS):
         p.mkdir(parents=True, exist_ok=True)
@@ -1731,50 +1869,50 @@ def main():
         print(f"\n  Nenhum CSV na pasta entrada/. Coloque os exports lá e rode de novo.")
         return 0
 
+    repo = RepoLocal()
     try:
-        cfg = carregar_config()
-        INFO_GTIN = carregar_gtins()
+        cfg = repo.carregar_config()
+        INFO_GTIN.update(repo.carregar_gtins())
     except ErroArquivo as e:
         print(f"\n  {e}")
         return 1
 
-    con = abrir_banco()
     try:
         if arquivos:
             print(f"\nImportando {len(arquivos)} arquivo(s):")
         for arq in arquivos:
             try:
-                importar(con, cfg, arq, args.informado)
+                importar(repo, cfg, arq, args.informado)
             except ErroArquivo as e:
                 print(f"    Não importado: {e}.")
 
-        marcas = [m for (m,) in con.execute("SELECT DISTINCT marca FROM snapshots ORDER BY marca")]
+        marcas = repo.marcas()
         if not marcas:
             print("\n  Nada no histórico ainda — nenhuma planilha gerada.")
             return 0
 
-        reconsolidar(con, cfg)
+        reconsolidar(repo, cfg)
         if args.pesquisar:
-            pesquisar_gtins(con, max(1, args.limite), args.gtin)
-            reconsolidar(con, cfg)
+            pesquisar_gtins(repo, max(1, args.limite), args.gtin)
+            reconsolidar(repo, cfg)
         print("\nPlanilhas geradas:")
         for marca in marcas + [None]:
             try:
-                destino = gerar_planilha_marca(con, marca) if marca else gerar_painel(con)
+                destino = gerar_planilha_marca(repo, marca) if marca else gerar_painel(repo)
                 if destino:
                     print(f"  saida/{destino.name}")
             except ErroArquivo as e:
                 print(f"  {e}.")
 
         # Sempre que houver agrupamento em dúvida, mostrar o comando que resolve.
-        pendentes = [g for g in gtins_em_duvida(con) if g[0] not in INFO_GTIN]
+        pendentes = [g for g in gtins_em_duvida(repo) if g[0] not in INFO_GTIN]
         if pendentes:
             un = sum(g[2] for g in pendentes)
             print(f"\n  Em dúvida: {len(pendentes)} GTIN(s) com títulos que não batem entre si "
                   f"({fmt_int(un)} unidades). Veja a aba Dúvidas.")
             print(f"  Para pesquisar as especificações e agrupar certo:  {COMANDO_PESQUISA}")
     finally:
-        con.close()
+        repo.fechar()
     return 0
 
 

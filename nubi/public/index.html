@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nubi · Explorador de anúncios</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231F3864'/><path d='M8 22V10l8 8 8-8v12' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f5f6f8; --card:#ffffff; --ink:#1c2230; --muted:#667085; --line:#e4e7ec; --soft:#f0f2f5;
+  --brand:#1F3864; --brand-ink:#ffffff; --accent:#2563eb; --good:#16794c; --good-bg:#e5f5ec;
+  --bad:#b42318; --bad-bg:#fdecea; --warn:#9a6700; --warn-bg:#fff5d6; --focus:#93b4f5;
+  --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f141c; --card:#171d27; --ink:#e6e9ef; --muted:#98a2b3; --line:#2a3342; --soft:#1e2531;
+    --brand:#3b5b99; --accent:#6b9cff; --good:#4fc987; --good-bg:#153526; --bad:#ff7a6e; --bad-bg:#3a1a18;
+    --warn:#f2c14e; --warn-bg:#3a3014; --focus:#3b5b99; --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f141c; --card:#171d27; --ink:#e6e9ef; --muted:#98a2b3; --line:#2a3342; --soft:#1e2531;
+  --brand:#3b5b99; --accent:#6b9cff; --good:#4fc987; --good-bg:#153526; --bad:#ff7a6e; --bad-bg:#3a1a18;
+  --warn:#f2c14e; --warn-bg:#3a3014; --focus:#3b5b99; --shadow:none;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+a{color:var(--accent)}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.hidden{display:none!important}
+header.top{position:sticky;top:0;z-index:20;background:var(--brand);color:var(--brand-ink);display:flex;align-items:center;gap:12px;padding:10px 20px;flex-wrap:wrap}
+header.top .logo{font-weight:700;font-size:16px;letter-spacing:.2px;display:flex;align-items:center;gap:8px;cursor:pointer}
+header.top .logo small{font-weight:500;opacity:.8}
+header.top .sp{flex:1}
+header.top select{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:6px 10px;max-width:240px}
+header.top select option{color:#000}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:7px 12px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--soft)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(.95)}
+.btn.ghost{background:transparent;border-color:rgba(255,255,255,.35);color:#fff}
+.btn.ghost:hover{background:rgba(255,255,255,.1)}
+.btn.small{padding:4px 9px;font-size:12.5px}
+.btn:disabled{opacity:.55;cursor:default}
+main{max-width:1500px;margin:0 auto;padding:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+.pad{padding:16px 18px}
+h1{font-size:22px;margin:0}
+h2{font-size:16px;margin:0 0 10px}
+.muted{color:var(--muted)}
+.alerta{color:var(--bad);font-weight:600}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:10px;margin:14px 0}
+.kpi{padding:12px}
+.kpi .v{font-size:17px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpi .l{font-size:12px;color:var(--muted)}
+.kpi .o{font-size:11.5px;color:var(--muted);margin-top:2px}
+.grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+.tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);margin:18px 0 0;padding-bottom:0}
+.tab{padding:9px 13px;border:none;background:none;border-bottom:2px solid transparent;color:var(--muted);font-weight:600;white-space:nowrap}
+.tab.on{color:var(--ink);border-color:var(--accent)}
+.tab .n{font-size:11px;background:var(--soft);border-radius:10px;padding:1px 7px;margin-left:5px;color:var(--muted)}
+.tab .n.warn{background:var(--warn-bg);color:var(--warn)}
+.painel{margin-top:14px}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--line)}
+.toolbar input[type=search]{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 10px;min-width:220px}
+.tw{overflow:auto;max-height:70vh}
+table.t{border-collapse:separate;border-spacing:0;width:100%;font-variant-numeric:tabular-nums}
+table.t th{position:sticky;top:0;background:var(--brand);color:#fff;font-weight:600;font-size:12px;text-align:left;padding:8px 10px;white-space:nowrap;cursor:pointer;z-index:2;vertical-align:bottom}
+table.t th.num{text-align:right}
+table.t th .ar{opacity:.8;margin-left:3px}
+table.t tr.f th{background:var(--soft);padding:4px 6px;cursor:default;top:33px}
+table.t tr.f select,table.t tr.f input{width:100%;min-width:70px;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:3px 5px;font-size:12px;font-weight:400}
+table.t td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.t td.num{text-align:right}
+table.t td.wrap{white-space:normal;min-width:260px}
+table.t tr:hover td{background:var(--soft)}
+table.t td.first{font-weight:500}
+.pill{display:inline-block;border-radius:10px;padding:1px 8px;font-size:12px;background:var(--soft);color:var(--muted)}
+.pill.good{background:var(--good-bg);color:var(--good)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.sinal{display:inline-block;border-radius:6px;padding:0 6px;margin:1px 3px 1px 0;font-size:11.5px;background:var(--soft)}
+.sinal.good{background:var(--good-bg);color:var(--good)}
+.sinal.bad{background:var(--bad-bg);color:var(--bad)}
+.nota{display:inline-block;min-width:34px;text-align:center;border-radius:6px;padding:1px 6px;font-weight:700}
+.pos{color:var(--good)} .neg{color:var(--bad)}
+.more{padding:10px;text-align:center}
+.login{max-width:420px;margin:12vh auto;padding:28px}
+.login input{width:100%;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:10px 0;background:var(--bg)}
+.log{background:var(--soft);border-radius:8px;padding:10px 12px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;max-height:300px;overflow:auto;margin-top:10px}
+.modal-bg{position:fixed;inset:0;background:rgba(10,15,25,.45);display:flex;align-items:flex-start;justify-content:center;z-index:50;padding:6vh 16px;overflow:auto}
+.modal{max-width:640px;width:100%;padding:22px}
+.form-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px}
+@media (max-width:600px){.form-row{grid-template-columns:1fr}}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+label.f input,label.f select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg);color:var(--ink)}
+.drop{display:block;margin-top:12px;border:2px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted);cursor:pointer}
+.drop.on{border-color:var(--accent);background:var(--soft)}
+.files .fi{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:14px}
+.bcard{padding:16px;cursor:pointer;transition:border-color .15s}
+.bcard:hover{border-color:var(--accent)}
+.bcard .nm{font-weight:700;font-size:16px}
+.bcard .mini{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin-top:10px;font-size:12.5px}
+.bcard .mini b{display:block;font-size:15px}
+.cfg-row{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:6px}
+.cfg-row input{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--bg)}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:s .8s linear infinite;vertical-align:-2px}
+@keyframes s{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;z-index:60;max-width:90vw}
+svg.spark{display:block}
+.top5 li{margin:6px 0}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://ivsmadbyzbmugwfadwtg.supabase.co";
+const SUPABASE_KEY = "sb_publishable_hlLuzIP8GMxjwTfY-otJQQ_LbMPm7Yt";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const nf0 = new Intl.NumberFormat("pt-BR", {maximumFractionDigits: 0});
+const nf1 = new Intl.NumberFormat("pt-BR", {minimumFractionDigits: 1, maximumFractionDigits: 1});
+const nf2 = new Intl.NumberFormat("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const FMT = {
+  int: v => v == null ? "" : nf0.format(v),
+  dec: v => v == null ? "" : nf1.format(v),
+  moeda: v => v == null ? "" : "R$ " + nf0.format(v),
+  moeda2: v => v == null ? "" : "R$ " + nf2.format(v),
+  pct: v => v == null ? "" : nf1.format(v * 100) + "%",
+  var: v => v == null ? "—" : (v > 0 ? "+" : "") + nf1.format(v * 100) + "%",
+  x: v => v == null || v === 0 ? "" : nf1.format(v) + "x",
+  txt: v => v ?? "",
+};
+const NUM = new Set(["int","dec","moeda","moeda2","pct","var","x","nota"]);
+const dataBR = s => s ? s.split("-").reverse().join("/") : "";
+
+let S = { sessao: null, painel: [], marca: null, rel: null, aba: "oportunidades", tabelas: {} };
+
+// ---------- API ----------
+async function api(rota, params = {}, opts = {}) {
+  const {data} = await sb.auth.getSession();
+  const token = data.session?.access_token;
+  const q = new URLSearchParams({r: rota, ...params});
+  const res = await fetch("/api/app?" + q, {method: opts.method || "GET", body: opts.body,
+    headers: {Authorization: "Bearer " + token, ...(opts.headers || {})}});
+  if (opts.blob && res.ok) return res.blob();
+  let j; try { j = await res.json(); } catch { j = {erro: "Resposta inválida do servidor (" + res.status + ")."}; }
+  if (!res.ok || j.erro) { if (res.status === 401) await sb.auth.signOut(); throw new Error(j.erro || "Erro " + res.status); }
+  return j;
+}
+function toast(msg, ms = 3500) {
+  document.querySelectorAll(".toast").forEach(x => x.remove());
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), ms);
+}
+
+// ---------- Login ----------
+function telaLogin(msg) {
+  $("#app").innerHTML = `
+  <div class="card login">
+    <h1>nubi</h1>
+    <p class="muted" style="margin:4px 0 16px">Explorador de anúncios · monitoramento de mercado</p>
+    <form id="fl">
+      <input type="email" id="em" placeholder="seu e-mail" required autocomplete="email">
+      <button class="btn primary" style="width:100%;justify-content:center">Receber link de acesso</button>
+    </form>
+    <p id="lm" class="muted" style="margin-top:12px">${esc(msg || "Enviamos um link para o seu e-mail. Abra o link neste mesmo navegador.")}</p>
+  </div>`;
+  $("#fl").onsubmit = async e => {
+    e.preventDefault();
+    const email = $("#em").value.trim();
+    $("#lm").innerHTML = '<span class="spin"></span> Enviando…';
+    const {error} = await sb.auth.signInWithOtp({email, options: {emailRedirectTo: location.origin, shouldCreateUser: true}});
+    $("#lm").textContent = error ? "Não foi possível enviar: " + error.message
+      : "Pronto! Abra o e-mail de " + email + " e clique no link. Pode fechar esta aba.";
+  };
+}
+
+// ---------- Estrutura ----------
+function moldura() {
+  const email = S.sessao?.user?.email || "";
+  $("#app").innerHTML = `
+  <header class="top">
+    <div class="logo" id="home">nubi <small>Explorador de anúncios</small></div>
+    <select id="selm" title="Marca"><option value="">Todas as marcas</option>
+      ${S.painel.map(p => `<option value="${esc(p.marca)}" ${p.marca === S.marca ? "selected" : ""}>${esc(nome(p.marca))}</option>`).join("")}
+    </select>
+    <div class="sp"></div>
+    <button class="btn ghost" id="bup">⬆ Importar CSV</button>
+    <button class="btn ghost" id="bxl">⬇ Excel</button>
+    <span style="opacity:.8;font-size:12.5px">${esc(email)}</span>
+    <button class="btn ghost small" id="bsair">Sair</button>
+  </header>
+  <main id="main"></main>`;
+  $("#home").onclick = () => irPara("");
+  $("#selm").onchange = e => irPara(e.target.value);
+  $("#bup").onclick = abrirUpload;
+  $("#bxl").onclick = baixarExcel;
+  $("#bsair").onclick = async () => { await sb.auth.signOut(); location.hash = ""; };
+}
+const nome = m => (m || "").toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()).replace(/ (De|Da|Do|Di|Du) /g, x => x.toLowerCase());
+
+function irPara(marca) { location.hash = marca ? "#/" + encodeURIComponent(marca) : "#/"; }
+async function rotear() {
+  const m = decodeURIComponent((location.hash.match(/^#\/(.+)$/) || [])[1] || "");
+  S.marca = m || null;
+  if ($("#selm")) $("#selm").value = S.marca || "";
+  if (S.marca) await abrirMarca(S.marca); else telaPainel();
+}
+
+// ---------- Painel geral ----------
+async function carregarPainel() {
+  S.painel = await api("painel");
+}
+function telaPainel() {
+  const p = S.painel;
+  const tot = p.reduce((a, x) => ({un: a.un + x.un, fat: a.fat + x.fat, an: a.an + x.anuncios}), {un: 0, fat: 0, an: 0});
+  $("#main").innerHTML = `
+    <h1>Painel geral</h1>
+    <p class="alerta" style="margin:6px 0 0">Números do mercado inteiro (todos os vendedores), não da sua loja.</p>
+    ${p.length ? `
+    <div class="kpis">
+      ${kpi("Marcas monitoradas", nf0.format(p.length))}
+      ${kpi("Anúncios", nf0.format(tot.an))}
+      ${kpi("Unidades (último período)", nf0.format(tot.un))}
+      ${kpi("Faturamento (último período)", "R$ " + nf0.format(tot.fat))}
+    </div>
+    <div class="cards">
+      ${p.map(x => `
+      <div class="card bcard" data-m="${esc(x.marca)}">
+        <div class="nm">${esc(nome(x.marca))}</div>
+        <div class="muted" style="font-size:12.5px">${dataBR(x.inicio)} a ${dataBR(x.fim)} · ${x.dias} dias · ${x.periodos} período(s)</div>
+        <div class="mini">
+          <div>Giro/dia<b>${nf1.format(x.un / x.dias)}</b></div>
+          <div>Unidades<b>${nf0.format(x.un)}</b></div>
+          <div>Faturamento<b>R$ ${nf0.format(x.fat)}</b></div>
+          <div>Vendedores<b>${nf0.format(x.vendedores)}</b></div>
+          <div>Referências<b>${nf0.format(x.referencias)}</b></div>
+          <div>GTINs em dúvida<b>${x.duvidas ? `<span class="pill warn">${x.duvidas}</span>` : "0"}</b></div>
+        </div>
+      </div>`).join("")}
+    </div>` : `
+    <div class="card empty" style="margin-top:16px">
+      <h2>Nenhum dado ainda</h2>
+      <p>Importe o primeiro export do Nubimetrics para começar.</p>
+      <button class="btn primary" onclick="abrirUpload()">⬆ Importar CSV</button>
+    </div>`}`;
+  document.querySelectorAll(".bcard").forEach(c => c.onclick = () => irPara(c.dataset.m));
+}
+const kpi = (l, v, o = "") => `<div class="card kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
+
+// ---------- Marca ----------
+async function abrirMarca(marca, manterAba = false) {
+  $("#main").innerHTML = `<div class="empty"><span class="spin"></span> Carregando ${esc(nome(marca))}…</div>`;
+  try { S.rel = await api("relatorio", {marca}); }
+  catch (e) { $("#main").innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!manterAba) S.aba = "oportunidades";
+  S.tabelas = {};
+  telaMarca();
+}
+
+const ABAS = [
+  ["oportunidades", "Oportunidades"], ["evolucao", "Evolução"], ["historico", "Histórico"], ["produtos", "Produtos"],
+  ["precos", "Preços"], ["vendedores", "Vendedores"], ["gtins", "GTINs"], ["duvidas", "Dúvidas"],
+  ["anuncios", "Anúncios"], ["config", "Configuração"], ["periodos", "Períodos"],
+];
+
+function telaMarca() {
+  const r = S.rel, z = r.resumo;
+  const ant = r.anterior;
+  const top = r.tabelas.oportunidades.slice(0, 5);
+  $("#main").innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h1>${esc(r.nome)}</h1>
+      <span class="muted">${dataBR(r.atual.inicio)} a ${dataBR(r.atual.fim)} · ${r.atual.dias} dias${ant ? ` · comparando com ${dataBR(ant.inicio)} a ${dataBR(ant.fim)}` : ""}</span>
+    </div>
+    <p class="alerta" style="margin:4px 0 0">Números do mercado inteiro (todos os vendedores), não da sua loja.</p>
+    <div class="kpis">
+      ${kpi("Unidades no período", nf0.format(z.un), "giro " + nf1.format(z.giro) + "/dia")}
+      ${kpi("Faturamento", "R$ " + nf0.format(z.fat), "aproximado (faixas da plataforma)")}
+      ${kpi("Preço médio", "R$ " + nf2.format(z.preco_medio))}
+      ${kpi("Projeção 30 dias", nf0.format(z.proj30) + " un.", "anual R$ " + nf0.format(z.proj_ano_fat))}
+      ${kpi("Vendedores", nf0.format(z.vendedores), z.vend_loja_oficial + " com loja oficial")}
+      ${kpi("Referências", nf0.format(z.referencias), nf0.format(z.anuncios) + " anúncios · " + nf0.format(z.gtins) + " GTINs")}
+      ${kpi("Em catálogo / FULL", FMT.pct(z.pct_catalogo) + " / " + FMT.pct(z.pct_full))}
+      ${kpi("GTINs em dúvida", z.gtins_duvida ? `<span class="pill warn">${z.gtins_duvida}</span>` : "0",
+            nf0.format(z.un_sem_gtin) + " un. sem GTIN · " + nf0.format(z.un_outras_marcas) + " de outras marcas")}
+    </div>
+    <div class="grid2">
+      <div class="card pad">
+        <h2>Melhores oportunidades</h2>
+        ${top.length ? `<ol class="top5" style="margin:0;padding-left:20px">${top.map(o => `
+          <li><b>${esc(o.produto)}</b> ${notaHTML(o.nota)} <span class="muted">${nf1.format(o.giro)}/dia · ${o.vendedores} vendedor(es)</span><br>${sinaisHTML(o.sinais)}</li>`).join("")}</ol>`
+          : `<p class="muted">Sem produtos com venda no período.</p>`}
+      </div>
+      <div class="card pad">
+        <h2>Concentração entre vendedores</h2>
+        <table class="t" style="font-size:13px"><tbody>
+        ${r.concentracao.map(c => `<tr><td>${c.faixa}</td><td class="num">${nf0.format(c.vendedores)} vend.</td>
+          <td class="num">${nf0.format(c.un)} un.</td><td style="width:40%"><div style="background:var(--soft);border-radius:4px;height:10px">
+          <div style="width:${(c.share * 100).toFixed(1)}%;background:var(--accent);height:10px;border-radius:4px"></div></div></td>
+          <td class="num">${FMT.pct(c.share)}</td></tr>`).join("")}
+        </tbody></table>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">${ABAS.map(([k, l]) => {
+      const n = k === "duvidas" ? r.tabelas.duvidas.length : null;
+      if ((k === "evolucao" || k === "historico") && !ant) return "";
+      return `<button class="tab ${S.aba === k ? "on" : ""}" data-k="${k}">${l}${n ? `<span class="n warn">${n}</span>` : ""}</button>`;
+    }).join("")}</nav>
+    <div id="conteudo" class="painel"></div>`;
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { S.aba = b.dataset.k; telaMarcaAba(); });
+  telaMarcaAba();
+}
+function telaMarcaAba() {
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.k === S.aba));
+  const c = $("#conteudo");
+  const k = S.aba;
+  if (k === "config") return telaConfig(c);
+  if (k === "periodos") return telaPeriodos(c);
+  if (k === "historico") return telaHistorico(c);
+  tabela(c, k, S.rel.tabelas[k] || [], COLUNAS[k], EXTRAS[k]);
+}
+
+const notaHTML = n => {
+  const a = Math.max(0, Math.min(100, n)) / 100;
+  return `<span class="nota" style="background:color-mix(in srgb, var(--good) ${Math.round(a * 45)}%, transparent);color:${a > .45 ? "var(--ink)" : "var(--muted)"}">${n}</span>`;
+};
+const BOM = new Set(["Pouca concorrência", "FULL livre", "Catálogo pouco disputado", "Acelerando", "Preço disperso", "Novo no período"]);
+const sinaisHTML = s => (s || "").split(" · ").filter(Boolean).map(x => `<span class="sinal ${BOM.has(x) ? "good" : "bad"}">${esc(x)}</span>`).join("");
+const movHTML = m => `<span class="pill ${m === "acelerando" || m === "novo no período" ? "good" : m === "perdendo giro" || m === "sumiu" ? "bad" : ""}">${esc(m)}</span>`;
+const confHTML = c => `<span class="pill ${String(c).startsWith("Dúvida") ? "warn" : c === "Pesquisado (GTIN)" || c === "Confirmado por GTIN" ? "good" : ""}">${esc(c)}</span>`;
+
+// Colunas: [chave, rótulo, formato, filtro? ("sel" = lista, "txt" = busca)]
+const COLUNAS = {
+  oportunidades: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["genero","Gênero","txt","sel"],
+    ["tamanho","Tamanho","txt","sel"],["nota","Nota","nota"],["sinais","Sinais","sinais","txt"],["giro","Giro/dia","dec"],
+    ["var","Variação do giro","var"],["vendedores","Vendedores com venda","int"],["giro_por_vendedor","Giro por vendedor","dec"],
+    ["anuncios","Anúncios","int"],["lider","Líder (share)","pct"],["pct_full","% FULL","pct"],["pct_catalogo","% catálogo","pct"],
+    ["mediana","Preço mediano","moeda2"],["faixa","Faixa de preço","txt","sel"],["amplitude","Amplitude","x"]],
+  produtos: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["linha","Linha","txt","sel"],
+    ["tipo","Tipo","txt","sel"],["volume","Volume","txt","sel"],["tamanho","Tamanho","txt","sel"],["genero","Gênero","txt","sel"],
+    ["anuncios","Anúncios","int"],["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],
+    ["preco_medio","Preço médio","moeda2"],["faixa","Faixa de preço","txt","sel"],["giro","Giro/dia","dec"],["proj30","Projeção 30d","int"],
+    ["pct_volume","% do volume","pct"],["pct_acum","% acumulado","pct"],["abc","ABC","txt","sel"],["un_por_anuncio","Un. por anúncio","dec"],
+    ["pct_catalogo","% catálogo","pct"],["pct_full","% FULL","pct"],["confianca","Confiança","conf","sel"]],
+  evolucao: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["movimento","Movimento","mov","sel"],
+    ["giro_ant","Giro/dia antes","dec"],["giro","Giro/dia agora","dec"],["var","Variação do giro","var"],
+    ["preco_ant","Preço médio antes","moeda2"],["preco","Preço médio agora","moeda2"],["var_preco","Variação do preço","var"],
+    ["vend_ant","Vendedores antes","int"],["vend","Vendedores agora","int"]],
+  precos: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["genero","Gênero","txt","sel"],
+    ["faixa","Faixa (mediana)","txt","sel"],["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["minimo","Mínimo","moeda2"],
+    ["q1","1º quartil","moeda2"],["mediana","Mediana","moeda2"],["q3","3º quartil","moeda2"],["maximo","Máximo","moeda2"],
+    ["amplitude","Amplitude","x"],["ponderado","Preço médio ponderado","moeda2"],["abaixo_80","Un. abaixo de 80% da mediana","int"]],
+  vendedores: [["codigo","Código","txt","txt"],["vendedor","Vendedor","txt","txt"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],
+    ["share","Share","pct"],["share_acum","Share acumulado","pct"],["anuncios","Anúncios","int"],["referencias","Referências","int"],
+    ["preco_medio","Preço médio","moeda2"],["un_por_anuncio","Un. por anúncio","dec"],["pct_catalogo","% catálogo","pct"],
+    ["pct_full","% FULL","pct"],["loja_oficial","Anúncios loja oficial","int"],["internacional","Internacional","int"]],
+  gtins: [["gtin","GTIN","txt","txt"],["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["anuncios","Anúncios","int"],
+    ["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],["preco_medio","Preço médio","moeda2"],
+    ["pct_volume","% do volume","pct"],["confianca","Confiança","conf","sel"],["especificacao","Especificação pesquisada","txt","txt"],["link","","link"]],
+  duvidas: [["gtin","GTIN","txt","txt"],["produto","Produto atribuído","txt","txt"],["motivo","Motivo","txt","sel"],["un","Un. vendidas","int"],
+    ["anuncios","Anúncios","int"],["titulos_diferentes","Títulos diferentes","int"],["titulos","Principais títulos","wrap","txt"],
+    ["pesquisa","Pesquisa automática","txt","txt"],["link","","link"],["editar","","editar"]],
+  anuncios: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["genero","Gênero","txt","sel"],["confianca","Confiança","conf","sel"],
+    ["titulo","Título","txt","txt"],["codigo","Cód.","txt","txt"],["vendedor","Vendedor","txt","txt"],["marca_anuncio","Marca no anúncio","txt","sel"],
+    ["gtin","GTIN","txt","txt"],["un","Un.","int"],["fat","Faturamento","moeda"],["preco","Preço","moeda2"],["catalogo","Catálogo","int"],
+    ["full","FULL","int"],["loja_oficial","Loja oficial","int"],["internacional","Internacional","int"]],
+};
+const EXTRAS = {
+  oportunidades: {ordem: ["nota", -1], nota: "Nota = 100 × √(giro ÷ maior giro) × (0,40 + 0,25 × pouca concorrência + 0,15 × FULL livre + 0,10 × líder fraco + 0,10 × aceleração). A demanda multiplica: sem venda, sem nota. Verde = sinal a favor; vermelho = atenção."},
+  produtos: {nota: "Curva ABC pelo acumulado: até 80% = A, até 95% = B, resto = C. Un. por anúncio alto = poucos anúncios levando muito volume."},
+  evolucao: {nota: "Tudo por dia, porque os períodos podem ter durações diferentes. Produto que sumiu com giro alto antes pode ser ruptura dos concorrentes: oportunidade."},
+  precos: {nota: "Só anúncios com venda e preço > 0; referências com menos de 2 anúncios ficam de fora. Amplitude alta = sem faixa de preço definida."},
+  vendedores: {nota: "Códigos V01, V02… por ordem de volume."},
+  gtins: {nota: () => `${nf0.format(S.rel.resumo.un_sem_gtin)} unidades estão em anúncios sem GTIN válido (aparecem só em Produtos) — é a medida de quão sujo está o cadastro da marca.`},
+  duvidas: {acoes: true, nota: "Os títulos do mesmo GTIN não batem entre si. O produto atribuído foi escolhido pelo anúncio que mais vende. Pesquise para confirmar pelo nome oficial, ou corrija à mão em “Corrigir”."},
+  anuncios: {limite: 300},
+};
+
+function tabela(el, chave, linhas, cols, extra = {}) {
+  const st = S.tabelas[chave] ||= {busca: "", filtros: {}, ordem: extra.ordem || null, limite: extra.limite || 500};
+  const opcoes = {};
+  cols.forEach(([k, , , f]) => { if (f === "sel") opcoes[k] = [...new Set(linhas.map(r => r[k]).filter(v => v != null && v !== ""))].sort(); });
+  const nota = typeof extra.nota === "function" ? extra.nota() : extra.nota;
+  el.innerHTML = `<div class="card">
+    <div class="toolbar">
+      <input type="search" id="tb-busca" placeholder="Buscar em toda a tabela…" value="${esc(st.busca)}">
+      <span class="muted" id="tb-cont"></span>
+      <div style="flex:1"></div>
+      ${extra.acoes ? `<button class="btn primary" id="bpesq">🔎 Pesquisar GTINs em dúvida</button>` : ""}
+      <button class="btn small" id="tb-limpar">Limpar filtros</button>
+    </div>
+    ${nota ? `<div class="muted pad" style="padding:8px 14px;font-size:12.5px;border-bottom:1px solid var(--line)">${esc(nota)}</div>` : ""}
+    ${extra.acoes ? `<div id="plog"></div>` : ""}
+    <div class="tw"><table class="t"><thead>
+      <tr>${cols.map(([k, l, f]) => `<th class="${NUM.has(f) ? "num" : ""}" data-k="${k}">${esc(l)}<span class="ar">${st.ordem && st.ordem[0] === k ? (st.ordem[1] > 0 ? "▲" : "▼") : ""}</span></th>`).join("")}</tr>
+      <tr class="f">${cols.map(([k, , , f]) => `<th>${f === "sel" ? `<select data-f="${k}"><option value="">todos</option>${opcoes[k].map(o => `<option ${st.filtros[k] === String(o) ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+        : f === "txt" ? `<input data-f="${k}" placeholder="contém…" value="${esc(st.filtros[k] || "")}">` : ""}</th>`).join("")}</tr>
+    </thead><tbody id="tb-corpo"></tbody></table></div>
+    <div class="more hidden" id="tb-mais"><button class="btn small">Mostrar mais</button></div>
+  </div>`;
+  const desenhar = () => {
+    const b = st.busca.toLowerCase();
+    let rs = linhas.filter(r => {
+      for (const [k, v] of Object.entries(st.filtros)) {
+        if (!v) continue;
+        const col = cols.find(c => c[0] === k);
+        const val = String(r[k] ?? "");
+        if (col[3] === "sel" ? val !== v : !val.toLowerCase().includes(v.toLowerCase())) return false;
+      }
+      return !b || cols.some(([k]) => String(r[k] ?? "").toLowerCase().includes(b));
+    });
+    if (st.ordem) {
+      const [k, d] = st.ordem;
+      rs = [...rs].sort((x, y) => { const a = x[k], c = y[k];
+        if (a == null) return 1; if (c == null) return -1;
+        return (typeof a === "number" ? a - c : String(a).localeCompare(String(c), "pt-BR")) * d; });
+    }
+    $("#tb-cont", el).textContent = `${nf0.format(rs.length)} de ${nf0.format(linhas.length)} linhas`;
+    $("#tb-corpo", el).innerHTML = rs.slice(0, st.limite).map(r => `<tr>${cols.map(([k, , f], i) => celula(r, k, f, i)).join("")}</tr>`).join("")
+      || `<tr><td colspan="${cols.length}" class="empty">Nada para mostrar.</td></tr>`;
+    $("#tb-mais", el).classList.toggle("hidden", rs.length <= st.limite);
+    el.querySelectorAll("[data-edit]").forEach(bt => bt.onclick = () => corrigirGtin(linhas.find(x => x.gtin === bt.dataset.edit)));
+  };
+  $("#tb-busca", el).oninput = e => { st.busca = e.target.value; desenhar(); };
+  el.querySelectorAll("[data-f]").forEach(i => i[i.tagName === "SELECT" ? "onchange" : "oninput"] = e => { st.filtros[i.dataset.f] = e.target.value; desenhar(); });
+  el.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => {
+    const k = th.dataset.k; st.ordem = st.ordem && st.ordem[0] === k ? [k, -st.ordem[1]] : [k, NUM.has(cols.find(c => c[0] === k)[2]) ? -1 : 1];
+    tabela(el, chave, linhas, cols, extra);
+  });
+  $("#tb-limpar", el).onclick = () => { st.busca = ""; st.filtros = {}; tabela(el, chave, linhas, cols, extra); };
+  $("#tb-mais button", el).onclick = () => { st.limite += 500; desenhar(); };
+  if (extra.acoes) $("#bpesq", el).onclick = () => pesquisarGtins($("#plog", el));
+  desenhar();
+}
+function celula(r, k, f, i) {
+  const v = r[k];
+  if (f === "nota") return `<td class="num">${notaHTML(v)}</td>`;
+  if (f === "sinais") return `<td>${sinaisHTML(v)}</td>`;
+  if (f === "mov") return `<td>${movHTML(v)}</td>`;
+  if (f === "conf") return `<td>${confHTML(v)}</td>`;
+  if (f === "link") return `<td><a href="${esc(v)}" target="_blank" rel="noopener">pesquisar ↗</a></td>`;
+  if (f === "editar") return `<td><button class="btn small" data-edit="${esc(r.gtin)}">Corrigir</button></td>`;
+  if (f === "wrap") return `<td class="wrap">${esc(v)}</td>`;
+  if (f === "var") return `<td class="num ${v > 0.2 ? "pos" : v < -0.2 ? "neg" : ""}">${FMT.var(v)}</td>`;
+  const cls = [NUM.has(f) ? "num" : "", i === 0 ? "first" : ""].join(" ");
+  return `<td class="${cls}">${esc((FMT[f] || FMT.txt)(v))}</td>`;
+}
+
+// ---------- Histórico ----------
+function telaHistorico(el) {
+  const h = S.rel.historico;
+  const per = h.periodos;
+  const rot = p => p.inicio === p.fim ? dataBR(p.fim).slice(0, 5) : dataBR(p.inicio).slice(0, 5) + "–" + dataBR(p.fim).slice(0, 5);
+  const linhas = h.linhas.map(l => ({...l, ultimo: l.serie[l.serie.length - 1]}));
+  const spark = s => {
+    const w = 120, hh = 26, mx = Math.max(...s, 0.0001);
+    const pts = s.map((v, i) => `${(s.length === 1 ? w / 2 : i * w / (s.length - 1)).toFixed(1)},${(hh - 3 - v / mx * (hh - 6)).toFixed(1)}`).join(" ");
+    return `<svg class="spark" width="${w}" height="${hh}" viewBox="0 0 ${w} ${hh}"><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.6"/></svg>`;
+  };
+  el.innerHTML = `<div class="card">
+    <div class="toolbar"><input type="search" id="hb" placeholder="Buscar produto…"><span class="muted">${per.length} períodos · giro/dia de cada produto</span></div>
+    <div class="tw"><table class="t"><thead><tr><th>Produto</th><th>Categoria</th><th>Tendência</th>
+      ${per.map(p => `<th class="num">${rot(p)}</th>`).join("")}<th class="num">Média anterior</th><th class="num">Último vs média</th><th class="num">Períodos com venda</th></tr></thead>
+    <tbody id="hc"></tbody></table></div></div>`;
+  const desenhar = () => {
+    const b = $("#hb", el).value.toLowerCase();
+    $("#hc", el).innerHTML = linhas.filter(l => !b || l.produto.toLowerCase().includes(b)).map(l => `<tr>
+      <td class="first">${esc(l.produto)}</td><td>${esc(l.categoria)}</td><td>${spark(l.serie)}</td>
+      ${l.serie.map(v => `<td class="num">${v ? nf1.format(v) : "·"}</td>`).join("")}
+      <td class="num">${nf1.format(l.media_ant)}</td>
+      <td class="num ${l.ultimo_vs_media > 0.2 ? "pos" : l.ultimo_vs_media < -0.2 ? "neg" : ""}">${FMT.var(l.ultimo_vs_media)}</td>
+      <td class="num">${l.com_venda}</td></tr>`).join("");
+  };
+  $("#hb", el).oninput = desenhar;
+  desenhar();
+}
+
+// ---------- Dúvidas: pesquisa e correção ----------
+async function pesquisarGtins(logEl) {
+  const bt = $("#bpesq"); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> Pesquisando…';
+  logEl.innerHTML = `<div class="log pad">Consultando as bases de GTIN (pode levar até 1 minuto)…</div>`;
+  try {
+    const r = await api("pesquisar", {marca: S.marca, limite: 15}, {method: "POST"});
+    logEl.innerHTML = `<div class="log">${esc(r.log.join("\n"))}</div>`;
+    toast("Pesquisa concluída. Atualizando…");
+    await abrirMarca(S.marca, true);
+  } catch (e) { logEl.innerHTML = `<div class="log">${esc(e.message)}</div>`; bt.disabled = false; bt.textContent = "🔎 Pesquisar GTINs em dúvida"; }
+}
+function corrigirGtin(d) {
+  modal(`<h2>Corrigir GTIN ${esc(d.gtin)}</h2>
+    <p class="muted" style="margin-top:0">Escreva o nome oficial do produto (marca, linha, tipo e volume). Ele passa a valer mais que os títulos dos anúncios.</p>
+    <p style="font-size:12.5px"><b>Títulos:</b> ${esc(d.titulos)}</p>
+    <label class="f">Nome oficial<input id="gn" value="${esc(d.nome_pesquisado || "")}" placeholder="ex.: Montblanc Starwalker Eau de Toilette 75 ml"></label>
+    <label class="f" style="margin-top:10px">Marca<input id="gm" value="${esc(d.marca_pesquisada || nome(S.marca))}"></label>
+    <p style="margin:12px 0 0"><a href="${esc(d.link)}" target="_blank" rel="noopener">Pesquisar este GTIN no Google ↗</a></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" data-fechar>Cancelar</button><button class="btn primary" id="gs">Salvar e reprocessar</button></div>`,
+    async m => {
+      $("#gs", m).onclick = async () => {
+        $("#gs", m).disabled = true; $("#gs", m).innerHTML = '<span class="spin"></span> Salvando…';
+        try { await api("gtin", {marca: S.marca}, {method: "POST", body: JSON.stringify({gtin: d.gtin, nome: $("#gn", m).value, marca: $("#gm", m).value})});
+          m.remove(); toast("GTIN corrigido."); await abrirMarca(S.marca, true);
+        } catch (e) { toast(e.message); $("#gs", m).disabled = false; $("#gs", m).textContent = "Salvar e reprocessar"; }
+      };
+    });
+}
+
+// ---------- Configuração de linhas ----------
+async function telaConfig(el) {
+  el.innerHTML = `<div class="card pad"><span class="spin"></span> Carregando…</div>`;
+  let linhas;
+  try { linhas = (await api("config", {marca: S.marca})).linhas; } catch (e) { el.innerHTML = `<div class="card pad">${esc(e.message)}</div>`; return; }
+  const desenhar = () => {
+    el.innerHTML = `<div class="card pad">
+      <h2>Linhas de produto de ${esc(nome(S.marca))}</h2>
+      <p class="muted" style="margin-top:0">Texto a procurar no título (minúsculo, sem acento) → nome que aparece no relatório. Nomes compostos antes dos curtos; duas chaves podem apontar para o mesmo nome (apelidos).</p>
+      <div id="cfl">${linhas.map((p, i) => `<div class="cfg-row"><input data-i="${i}" data-j="0" value="${esc(p[0])}" placeholder="texto no título">
+        <input data-i="${i}" data-j="1" value="${esc(p[1])}" placeholder="nome no relatório"><button class="btn small" data-del="${i}">✕</button></div>`).join("")}</div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn" id="cfa">+ Adicionar linha</button><div style="flex:1"></div>
+        <button class="btn primary" id="cfs">Salvar e reprocessar</button></div>
+      <div id="cflog"></div></div>`;
+    el.querySelectorAll("#cfl input").forEach(i => i.oninput = () => { linhas[i.dataset.i][i.dataset.j] = i.value; });
+    el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { linhas.splice(+b.dataset.del, 1); desenhar(); });
+    $("#cfa", el).onclick = () => { linhas.unshift(["", ""]); desenhar(); $("#cfl input", el).focus(); };
+    $("#cfs", el).onclick = async () => {
+      const bt = $("#cfs", el); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> Reprocessando…';
+      try { await api("config", {marca: S.marca}, {method: "POST", body: JSON.stringify({linhas: linhas.filter(p => p[0].trim())})});
+        toast("Configuração salva e histórico reprocessado."); await abrirMarca(S.marca, true);
+      } catch (e) { $("#cflog", el).innerHTML = `<div class="log">${esc(e.message)}</div>`; bt.disabled = false; bt.textContent = "Salvar e reprocessar"; }
+    };
+  };
+  desenhar();
+}
+
+// ---------- Períodos ----------
+function telaPeriodos(el) {
+  const ps = S.rel.periodos;
+  el.innerHTML = `<div class="card"><div class="tw"><table class="t"><thead><tr><th>Período</th><th class="num">Dias</th><th>Arquivo</th><th></th></tr></thead><tbody>
+    ${ps.map(p => `<tr><td class="first">${dataBR(p.inicio)} a ${dataBR(p.fim)}</td><td class="num">${p.dias}</td><td>${esc(p.arquivo)}</td>
+      <td><button class="btn small" data-apagar="${p.id}">Apagar</button></td></tr>`).join("")}
+    </tbody></table></div></div>`;
+  el.querySelectorAll("[data-apagar]").forEach(b => b.onclick = async () => {
+    if (!confirm("Apagar este período e todos os anúncios dele? Não dá para desfazer.")) return;
+    b.disabled = true;
+    try { await api("apagar", {id: b.dataset.apagar}, {method: "POST"}); toast("Período apagado.");
+      await carregarPainel(); moldura(); await rotear();
+    } catch (e) { toast(e.message); b.disabled = false; }
+  });
+}
+
+// ---------- Upload ----------
+const PADRAO = /^(.+?)__(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.csv$/i;
+function abrirUpload() {
+  const itens = [];
+  modal(`<h2>Importar exports do Nubimetrics</h2>
+    <p class="muted" style="margin-top:0">Arraste um ou mais CSVs. Se o nome seguir o padrão <code>MARCA__AAAA-MM-DD_AAAA-MM-DD.csv</code>, marca e período já vêm preenchidos.</p>
+    <label class="drop" id="dz"><input type="file" id="fi" accept=".csv,text/csv" multiple hidden>Clique ou arraste os arquivos aqui</label>
+    <div class="files" id="fl"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn" data-fechar>Fechar</button><button class="btn primary" id="fgo" disabled>Importar</button></div>`,
+    m => {
+      const dz = $("#dz", m), fi = $("#fi", m);
+      const add = files => {
+        for (const f of files) {
+          const p = f.name.match(PADRAO);
+          itens.push({f, marca: p ? p[1].replace(/_/g, " ").toUpperCase() : (S.marca || ""), inicio: p ? p[2] : "", fim: p ? p[3] : "", log: ""});
+        }
+        desenhar();
+      };
+      const desenhar = () => {
+        $("#fl", m).innerHTML = itens.map((it, i) => `<div class="fi">
+          <b>${esc(it.f.name)}</b> <span class="muted">${nf0.format(it.f.size / 1024)} KB</span>
+          <div class="form-row">
+            <label class="f">Marca<input data-i="${i}" data-k="marca" value="${esc(it.marca)}" list="lm"></label>
+            <label class="f">Início<input type="date" data-i="${i}" data-k="inicio" value="${it.inicio}"></label>
+            <label class="f">Fim<input type="date" data-i="${i}" data-k="fim" value="${it.fim}"></label>
+          </div>${it.log ? `<div class="log">${esc(it.log)}</div>` : ""}</div>`).join("") +
+          `<datalist id="lm">${S.painel.map(p => `<option value="${esc(p.marca)}">`).join("")}</datalist>`;
+        m.querySelectorAll("[data-k]").forEach(inp => inp.oninput = () => { itens[inp.dataset.i][inp.dataset.k] = inp.value; });
+        $("#fgo", m).disabled = !itens.length;
+      };
+      fi.onchange = () => add(fi.files);
+      dz.ondragover = e => { e.preventDefault(); dz.classList.add("on"); };
+      dz.ondragleave = () => dz.classList.remove("on");
+      dz.ondrop = e => { e.preventDefault(); dz.classList.remove("on"); add(e.dataTransfer.files); };
+      $("#fgo", m).onclick = async () => {
+        const bt = $("#fgo", m); bt.disabled = true;
+        let ultima = null;
+        for (const it of itens) {
+          if (it.feito) continue;
+          if (!it.marca || !it.inicio || !it.fim) { it.log = "Preencha marca, início e fim."; desenhar(); continue; }
+          it.log = "Importando…"; desenhar();
+          try {
+            const r = await api("importar", {arquivo: it.f.name, marca: it.marca, inicio: it.inicio, fim: it.fim},
+              {method: "POST", body: await it.f.arrayBuffer(), headers: {"Content-Type": "text/csv"}});
+            it.log = r.log.join("\n").trim(); it.feito = true; if (r.marca) ultima = r.marca;
+          } catch (e) { it.log = e.message; }
+          desenhar();
+        }
+        bt.textContent = "Concluído";
+        await carregarPainel(); moldura();
+        if (ultima && ultima !== S.marca) irPara(ultima); else await rotear();
+      };
+    });
+}
+
+// ---------- Excel ----------
+async function baixarExcel() {
+  toast("Gerando o Excel…", 2500);
+  try {
+    const blob = await api("excel", S.marca ? {marca: S.marca} : {}, {blob: true});
+    if (!(blob instanceof Blob)) throw new Error("Falha ao gerar o Excel.");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = S.marca ? S.marca.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-") + "-explorador-de-anuncios.xlsx" : "painel-geral.xlsx";
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (e) { toast(e.message); }
+}
+
+// ---------- Modal ----------
+function modal(html, init) {
+  const bg = document.createElement("div"); bg.className = "modal-bg";
+  bg.innerHTML = `<div class="card modal">${html}</div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener("click", e => { if (e.target === bg || e.target.hasAttribute("data-fechar")) bg.remove(); });
+  init && init(bg);
+  return bg;
+}
+
+// ---------- Início ----------
+async function iniciar(sessao) {
+  S.sessao = sessao;
+  if (!sessao) return telaLogin();
+  $("#app").innerHTML = `<div class="empty"><span class="spin"></span> Carregando…</div>`;
+  try { await carregarPainel(); }
+  catch (e) {
+    await sb.auth.signOut();
+    return telaLogin(e.message);
+  }
+  moldura();
+  await rotear();
+}
+window.addEventListener("hashchange", () => S.sessao && rotear());
+let iniciado = false;
+sb.auth.onAuthStateChange((ev, sessao) => {
+  if (ev === "INITIAL_SESSION" || ev === "SIGNED_IN" || ev === "SIGNED_OUT") {
+    if (ev === "SIGNED_IN" && iniciado && S.sessao) { S.sessao = sessao; return; }
+    iniciado = true; iniciar(sessao);
+  }
+});
+</script>
+</body>
+</html>

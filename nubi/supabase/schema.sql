@@ -1,0 +1,130 @@
+-- Esquema do nubi no Supabase (Explorador de anúncios).
+-- Acesso: só os e-mails listados em public.acesso veem e alteram os dados (RLS).
+
+create table if not exists public.acesso (
+  email text primary key
+);
+
+-- Checagem de acesso num schema privado (fora da API REST).
+create schema if not exists privado;
+grant usage on schema privado to authenticated;
+
+create or replace function privado.nubi_autorizado() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.acesso
+    where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  );
+$$;
+revoke execute on function privado.nubi_autorizado() from public;
+grant execute on function privado.nubi_autorizado() to authenticated;
+
+create table if not exists public.snapshots (
+  id bigserial primary key,
+  marca text not null,
+  inicio date not null,
+  fim date not null,
+  dias int not null,
+  arquivo text,
+  hash text unique,
+  importado_em timestamptz not null default now()
+);
+create index if not exists snapshots_marca_fim on public.snapshots (marca, fim);
+
+create table if not exists public.anuncios (
+  id bigserial primary key,
+  snapshot_id bigint not null references public.snapshots (id) on delete cascade,
+  titulo text, vendedor text, vendedor_id text, marca_anuncio text, categoria text,
+  produto text, linha text, volume text, tipo text, genero text, confianca text,
+  gtin text, sku text,
+  un int, fat double precision, preco double precision,
+  un_hist int, fat_hist double precision, dias_pub int, exposicao text,
+  catalogo smallint, "full" smallint, flex smallint, internacional smallint,
+  loja_oficial smallint, frete_gratis smallint
+);
+create index if not exists anuncios_snapshot on public.anuncios (snapshot_id);
+
+create table if not exists public.marcas_config (
+  marca text primary key,
+  linhas jsonb not null default '[]'::jsonb,
+  atualizado_em timestamptz not null default now()
+);
+
+create table if not exists public.gtin_info (
+  gtin text primary key,
+  nome text not null default '',
+  marca text not null default '',
+  fonte text,
+  consultado_em timestamptz
+);
+
+alter table public.acesso enable row level security;
+alter table public.snapshots enable row level security;
+alter table public.anuncios enable row level security;
+alter table public.marcas_config enable row level security;
+alter table public.gtin_info enable row level security;
+
+create policy "autorizado le acesso" on public.acesso
+  for select to authenticated using ((select privado.nubi_autorizado()));
+create policy "autorizado" on public.snapshots
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create policy "autorizado" on public.anuncios
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create policy "autorizado" on public.marcas_config
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create policy "autorizado" on public.gtin_info
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Atualiza a consolidação de muitos anúncios numa chamada só (RLS continua valendo).
+create or replace function public.atualizar_consolidacao(dados jsonb) returns int
+language sql security invoker set search_path = public as $$
+  with x as (
+    select * from jsonb_to_recordset(dados)
+      as t(id bigint, produto text, linha text, volume text, tipo text, genero text, confianca text)
+  ), u as (
+    update public.anuncios a
+       set produto = x.produto, linha = x.linha, volume = x.volume, tipo = x.tipo,
+           genero = x.genero, confianca = x.confianca
+      from x where a.id = x.id
+    returning 1
+  )
+  select count(*)::int from u;
+$$;
+
+-- Unidades por produto em cada período (aba Histórico).
+create or replace function public.un_por_produto(ids bigint[])
+returns table (snapshot_id bigint, produto text, un bigint)
+language sql stable security invoker set search_path = public as $$
+  select a.snapshot_id, a.produto, sum(a.un)::bigint
+    from public.anuncios a
+   where a.snapshot_id = any (ids)
+   group by 1, 2;
+$$;
+
+revoke execute on function public.atualizar_consolidacao(jsonb) from public, anon;
+revoke execute on function public.un_por_produto(bigint[]) from public, anon;
+grant execute on function public.atualizar_consolidacao(jsonb) to authenticated;
+grant execute on function public.un_por_produto(bigint[]) to authenticated;
+
+-- Painel geral: o período mais recente de cada marca, já somado.
+create or replace function public.painel()
+returns table (marca text, snapshot_id bigint, inicio date, fim date, dias int, periodos bigint,
+               anuncios bigint, vendedores bigint, referencias bigint, un bigint,
+               fat double precision, catalogo bigint, duvidas bigint)
+language sql stable security invoker set search_path = public as $$
+  with ultimo as (
+    select distinct on (s.marca) s.*
+      from public.snapshots s
+     order by s.marca, s.fim desc, s.inicio desc, s.id desc
+  )
+  select u.marca, u.id, u.inicio, u.fim, u.dias,
+         (select count(*) from public.snapshots s2 where s2.marca = u.marca),
+         count(a.id), count(distinct a.vendedor_id), count(distinct a.produto),
+         coalesce(sum(a.un), 0)::bigint, coalesce(sum(a.fat), 0), coalesce(sum(a.catalogo), 0)::bigint,
+         count(distinct a.gtin) filter (where a.confianca like 'Dúvida%' and a.gtin <> '')
+    from ultimo u join public.anuncios a on a.snapshot_id = u.id
+   group by u.marca, u.id, u.inicio, u.fim, u.dias
+   order by sum(a.un) desc nulls last;
+$$;
+revoke execute on function public.painel() from public, anon;
+grant execute on function public.painel() to authenticated;
