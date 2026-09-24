@@ -566,8 +566,11 @@ def atender(metodo, rota, q, corpo, token):
             return _json(rodar_agente(RepoSupabase(login_agente()), "agendado"))
         if rota in ("rotinas_cron", "rotina_8h") and CRON_SECRET and token == CRON_SECRET:
             # de hora em hora (Vercel Cron): as tarefas de rotina do servidor cujo dia e horário chegaram
-            return _json(rodar_rotinas(RepoSupabase(login_agente())))
+            rc = RepoSupabase(login_agente())
+            ligar_registro_uso(rc, "rotinas")
+            return _json(rodar_rotinas(rc))
         repo = RepoSupabase(token)
+        ligar_registro_uso(repo, rota)
         if rota == "agente" and metodo == "POST":
             seg = min(TEMPO_MAX, int(q.get("segundos") or 60))
             return _json(rodar_agente(repo, q.get("origem") or "manual", q.get("marca") or None, seg))
@@ -699,6 +702,8 @@ def atender(metodo, rota, q, corpo, token):
         if rota.startswith("vend_"):
             return _json(rota_vendedores(repo, metodo, rota, q, corpo))
 
+        if rota.startswith("agentes"):
+            return _json(rota_agentes(repo, metodo, rota, q, corpo))
         if rota.startswith("rotina") or rota.startswith("ops_"):
             return _json(rota_rotinas(repo, metodo, rota, q, corpo))
 
@@ -707,7 +712,12 @@ def atender(metodo, rota, q, corpo, token):
             msgs = repo._todos("reuniao_mensagens", {"select": "id,autor,texto,criado_em,meta", "id": f"gt.{apos}", "order": "id"})
             if not apos:
                 msgs = msgs[-200:]
+            try:
+                apel = {a["nome"]: a["apelido"] for a in repo._todos("agentes", {"select": "nome,apelido"}) if a.get("apelido")}
+            except ErroNuvem:
+                apel = {}
             return _json({"mensagens": msgs, "agentes": {k: ia.tem(k) for k in ("chatgpt", "deepseek", "claude", "ollama")},
+                          "apelidos": apel,
                           **({"sistema": agentes.SISTEMA} if q.get("sistema") else {})})
         if rota == "reuniao_postar" and metodo == "POST":
             # agentes locais do Mac mini (Hermes e outros via Ollama) postam a resposta sem abrir uma rodada nova
@@ -717,6 +727,20 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem(f"Autor não permitido: {autor or '?'}.")
             if not texto:
                 raise ErroNuvem("Mensagem vazia.")
+            aid = {"Hermes": "hermes"}.get(autor)
+            if aid:
+                agora_ = datetime.now(timezone.utc).isoformat()
+                try:
+                    repo._req("POST", "agentes_uso", corpo=[{
+                        "agente": aid, "modelo": str(d.get("modelo") or "")[:60], "origem": "sala (Mac)",
+                        "inicio": d.get("inicio") or agora_, "fim": agora_, "ok": True, "custo_usd": 0,
+                        "tokens_in": int(d.get("tokens_in") or 0), "tokens_out": int(d.get("tokens_out") or 0)}],
+                        prefer="return=minimal")
+                    if str(d.get("apelido") or "").strip():
+                        repo._req("PATCH", "agentes", {"id": f"eq.{aid}"}, corpo={
+                            "apelido": str(d["apelido"]).strip()[:30], "atualizado_em": agora_}, prefer="return=minimal")
+                except ErroNuvem:
+                    pass
             r = repo._req("POST", "reuniao_mensagens", corpo=[{"autor": autor, "texto": texto[:8000],
                           "meta": {"local": True, "modelo": str(d.get("modelo") or "")[:60]},
                           "criado_em": datetime.now(timezone.utc).isoformat()}], prefer="return=representation")
@@ -1821,6 +1845,7 @@ def rodar_rotinas(repo, so=None):
         if not r or (so and rid != so) or (not so and not rotina_pendente(r, agora)):
             continue
         inicio = datetime.now(timezone.utc).isoformat()
+        ia.USO["origem"] = f"rotina {rid}"
         try:
             if rid == "reuniao":
                 au = (repo._req("GET", "auditorias", {"select": "*", "order": "data.desc", "limit": 1}) or [None])[0]
@@ -1919,6 +1944,147 @@ def _ops_erros(repo):
 def rotina_8h(repo):
     """Compatibilidade com a agenda antiga (r=rotina_8h): roda as tarefas de rotina pendentes."""
     return rodar_rotinas(repo)
+
+
+# ---------------------------------------------------------------------------
+# Agentes: quem são, custo (tokens × preço), se estão rodando algo, teste de versão e apelido
+# ---------------------------------------------------------------------------
+
+AGENTE_QUAL = {"chatgpt": "codex", "deepseek": "deepseek", "gptoss": "ollama", "claude": "claude"}   # testáveis daqui
+AGENTE_AUTOR = {"chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss", "claude": "Claude",
+                "hermes": "Hermes", "claude_code": "Claude (código)"}
+
+
+def _precos(repo):
+    try:
+        return {p["modelo"]: p for p in repo._todos("ia_precos", {"select": "*"})}
+    except ErroNuvem:
+        return {}
+
+
+def _preco_de(precos, modelo):
+    """Preço do modelo exato ou do mais parecido cadastrado (ex.: 'gpt-5.3-codex-2026...' usa 'gpt-5.3-codex')."""
+    if modelo in precos:
+        return precos[modelo]
+    cands = [k for k in precos if modelo.startswith(k)]
+    return precos[max(cands, key=len)] if cands else None
+
+
+def ligar_registro_uso(repo, origem):
+    """Cada chamada de IA desta requisição vira uma linha em agentes_uso (aba Agentes)."""
+    cache = {}
+
+    def gravar(fase, d):
+        if fase == "inicio":
+            r = repo._req("POST", "agentes_uso", corpo=[dict(d, inicio=datetime.now(timezone.utc).isoformat())],
+                          prefer="return=representation")
+            return (r or [{}])[0].get("id")
+        if not d.get("id"):
+            return None
+        reg = {k: d[k] for k in ("ok", "erro", "modelo", "tokens_in", "tokens_out") if k in d}
+        reg["fim"] = datetime.now(timezone.utc).isoformat()
+        if d.get("ok") and d.get("modelo"):
+            if "p" not in cache:
+                cache["p"] = _precos(repo)
+            p = _preco_de(cache["p"], d["modelo"])
+            if p and p.get("entrada") is not None and p.get("saida") is not None:
+                reg["custo_usd"] = round((d.get("tokens_in", 0) * float(p["entrada"]) + d.get("tokens_out", 0) * float(p["saida"])) / 1e6, 6)
+        repo._req("PATCH", "agentes_uso", {"id": f"eq.{d['id']}"}, corpo=reg, prefer="return=minimal")
+        return None
+    ia.USO.update({"gravar": gravar, "origem": origem})
+
+
+def _agentes_painel(repo):
+    ags = repo._todos("agentes", {"select": "*", "order": "ordem"})
+    agora = datetime.now(timezone.utc)
+    inicio_mes = agora.replace(day=1, hour=3, minute=0, second=0, microsecond=0)    # 00h de Brasília do dia 1
+    usos = repo._todos("agentes_uso", {"select": "agente,modelo,origem,inicio,fim,ok,tokens_in,tokens_out,custo_usd,erro",
+                                       "inicio": f"gte.{(min(inicio_mes, agora - timedelta(days=1))).isoformat()}",
+                                       "order": "inicio"})
+    hoje = _agora_br().date()
+    ult_msg = {}
+    for m in repo._req("GET", "reuniao_mensagens", {"select": "autor,criado_em", "order": "id.desc", "limit": 400}) or []:
+        ult_msg.setdefault(m["autor"], m["criado_em"])
+    for a in ags:
+        u = [x for x in usos if x["agente"] == a["id"]]
+        dia = [x for x in u if _br(x["inicio"]).date() == hoje]
+        mes = [x for x in u if str(x["inicio"]) >= inicio_mes.isoformat()]
+        soma = lambda xs, k: sum(int(x.get(k) or 0) for x in xs)
+        custo = lambda xs: round(sum(float(x.get("custo_usd") or 0) for x in xs), 4)
+        sem_preco = any(x.get("ok") and x.get("custo_usd") is None and (x.get("tokens_in") or x.get("tokens_out")) for x in mes)
+        rodando = [x for x in u if not x.get("fim") and str(x["inicio"]) > (agora - timedelta(minutes=10)).isoformat()]
+        erros = [x for x in u if x.get("ok") is False and str(x["inicio"]) > (agora - timedelta(hours=24)).isoformat()]
+        qual = AGENTE_QUAL.get(a["id"])
+        chave = ia.tem(qual) if qual else None
+        ultima = max([str(x["inicio"]) for x in u] + [str(ult_msg.get(AGENTE_AUTOR.get(a["id"]), ""))] or [""])
+        a.update({
+            "hoje": {"chamadas": len(dia), "tokens_in": soma(dia, "tokens_in"), "tokens_out": soma(dia, "tokens_out"), "custo": custo(dia)},
+            "mes": {"chamadas": len(mes), "tokens_in": soma(mes, "tokens_in"), "tokens_out": soma(mes, "tokens_out"), "custo": custo(mes)},
+            "sem_preco": sem_preco, "rodando": [{"origem": x.get("origem"), "desde": x["inicio"]} for x in rodando],
+            "erros_24h": len(erros), "ultimo_erro": erros[-1]["erro"] if erros else None,
+            "modelo_atual": next((x["modelo"] for x in reversed(u) if x.get("modelo") and x.get("ok")), None),
+            "ultima_atividade": ultima or None, "chave": chave, "testavel": bool(qual),
+            "status": "executando" if rodando else "sem chave" if chave is False else "com erro" if erros
+            else "ativo" if qual or (ultima and ultima > (agora - timedelta(hours=24)).isoformat()) else "parado"})
+    return {"agentes": ags, "precos": sorted(_precos(repo).values(), key=lambda p: p["modelo"])}
+
+
+def _perguntar_agente(aid, texto, max_tokens=300):
+    qual = AGENTE_QUAL[aid]
+    modelo = "pro" if aid == "deepseek" else None
+    return ia.perguntar(texto, web=False, max_tokens=max_tokens, qual=qual, modelo=modelo)
+
+
+def rota_agentes(repo, metodo, rota, q, corpo):
+    d = json.loads(corpo or b"{}") if metodo == "POST" else {}
+    if rota == "agentes":
+        return _agentes_painel(repo)
+    if rota == "agentes_testar" and metodo == "POST":
+        aid = d.get("id") or ""
+        if aid not in AGENTE_QUAL:
+            raise ErroNuvem("Este agente roda fora do servidor: o Hermes testa no Mac (coletor hermes) e o Claude (código) "
+                            "na sessão de código.")
+        ia.USO["origem"] = "teste (aba Agentes)"
+        t0 = time.monotonic()
+        try:
+            txt, _, _ = _perguntar_agente(aid, "Teste de funcionamento do nubi. Responda em uma linha, em português: "
+                                               "'OK' e o nome exato do seu modelo/versão.", 400)
+            ok, erro = bool(txt.strip()), None
+        except Exception as e:  # noqa: BLE001
+            txt, ok, erro = "", False, str(e)[:300]
+        ult = (repo._req("GET", "agentes_uso", {"select": "modelo,tokens_in,tokens_out,custo_usd", "agente": f"eq.{aid}",
+                                                 "order": "id.desc", "limit": 1}) or [{}])[0]
+        res = {"ok": ok, "resposta": txt[:400], "erro": erro, "ms": int((time.monotonic() - t0) * 1000),
+               "modelo_api": ult.get("modelo"), "quando": datetime.now(timezone.utc).isoformat()}
+        repo._req("PATCH", "agentes", {"id": f"eq.{aid}"}, corpo={"ultimo_teste": res}, prefer="return=minimal")
+        return res
+    if rota == "agentes_apelido" and metodo == "POST":
+        aid = d.get("id") or ""
+        apelido = str(d.get("apelido") or "").strip()
+        if d.get("pedir"):
+            if aid not in AGENTE_QUAL:
+                raise ErroNuvem("O Hermes escolhe o apelido dele na próxima vez que rodar no Mac (coletor hermes).")
+            ag = (repo._req("GET", "agentes", {"select": "nome,papel", "id": f"eq.{aid}"}) or [{}])[0]
+            ia.USO["origem"] = "apelido (aba Agentes)"
+            txt, _, _ = _perguntar_agente(aid, f"Você é o {ag.get('nome')} no time de agentes de IA do nubi ({ag.get('papel')}). "
+                                               "Escolha um apelido curto para você no time (1 ou 2 palavras, em português, "
+                                               "criativo e profissional). Responda SOMENTE o apelido, sem aspas.", 200)
+            apelido = re.sub(r"[\"'*_`]", "", txt.strip().splitlines()[0] if txt.strip() else "").strip()[:30]
+        if not apelido:
+            raise ErroNuvem("Apelido vazio.")
+        repo._req("PATCH", "agentes", {"id": f"eq.{aid}"}, corpo={"apelido": apelido,
+                  "atualizado_em": datetime.now(timezone.utc).isoformat()}, prefer="return=minimal")
+        return {"ok": True, "apelido": apelido}
+    if rota == "agentes_preco" and metodo == "POST":
+        modelo = str(d.get("modelo") or "").strip()
+        if not modelo:
+            raise ErroNuvem("Informe o modelo.")
+        num = lambda v: None if v in (None, "") else float(str(v).replace(",", "."))
+        repo._req("POST", "ia_precos", corpo=[{"modelo": modelo, "entrada": num(d.get("entrada")), "saida": num(d.get("saida")),
+                                               "obs": str(d.get("obs") or "")[:200]}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True}
+    raise ErroNuvem("Rota desconhecida.", 404)
 
 
 def rota_rotinas(repo, metodo, rota, q, corpo):

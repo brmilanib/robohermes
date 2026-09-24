@@ -1355,10 +1355,24 @@ def cmd_hermes(args, cfg):
     corpo = {"model": args.modelo, "stream": False,
              "messages": [{"role": "system", "content": sala.get("sistema") or ""}, {"role": "user", "content": pedido}]}
     print(f"Hermes ({args.modelo}) lendo as últimas {min(len(msgs), args.ultimas)} mensagens da Sala…", flush=True)
-    try:
-        req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+    inicio = datetime.now(timezone.utc).isoformat()
+
+    def chamar(c):
+        req = urllib.request.Request(OLLAMA, data=json.dumps(c).encode(), headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=900) as r:
-            texto = json.loads(r.read().decode())["choices"][0]["message"]["content"].strip()
+            j = json.loads(r.read().decode())
+        u = j.get("usage") or {}
+        return j["choices"][0]["message"]["content"].strip(), int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+    apelido = ""
+    try:
+        texto, t_in, t_out = chamar(corpo)
+        if not (sala.get("apelidos") or {}).get("Hermes"):
+            # primeira vez: o Hermes escolhe o próprio apelido no time
+            ap, _, _ = chamar({"model": args.modelo, "stream": False, "messages": [{"role": "user", "content":
+                              "Você é o Hermes, agente de IA do nubi que roda no Mac mini (vigia, logs, testes, memória). "
+                              "Escolha um apelido curto para você no time (1 ou 2 palavras, em português). "
+                              "Responda SOMENTE o apelido."}]})
+            apelido = re.sub(r"[\"'*_`.]", "", (ap.splitlines() or [""])[0]).strip()[:30]
     except urllib.error.URLError as e:
         print(f"Não consegui falar com o Ollama ({e}). Abra o app Ollama (lhama na barra de cima) e confira: "
               f"ollama list  (o modelo {args.modelo} precisa aparecer).")
@@ -1367,8 +1381,9 @@ def cmd_hermes(args, cfg):
         print("O Hermes devolveu resposta vazia; nada foi postado.")
         return 1
     print("\n" + texto + "\n", flush=True)
-    api(token, "reuniao_postar", corpo={"autor": "Hermes", "texto": texto, "modelo": args.modelo}, metodo="POST")
-    print("OK: resposta do Hermes postada na Sala de reunião.")
+    api(token, "reuniao_postar", corpo={"autor": "Hermes", "texto": texto, "modelo": args.modelo, "inicio": inicio,
+                                         "tokens_in": t_in, "tokens_out": t_out, "apelido": apelido}, metodo="POST")
+    print("OK: resposta do Hermes postada na Sala de reunião." + (f" Apelido escolhido: {apelido}" if apelido else ""))
     return 0
 
 

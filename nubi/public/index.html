@@ -313,6 +313,21 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .wa-in button{width:42px;height:42px;border-radius:50%;border:0;background:#00a884;color:#fff;font-size:18px;cursor:pointer}
 .wa-in button:disabled{opacity:.5}
 .wa-dig{align-self:flex-start;font-size:12px;color:#667781;font-style:italic;padding:4px 8px}
+.ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:4px}
+.ag-card{display:grid;gap:6px;align-content:start}
+.ag-cab{display:flex;align-items:center;gap:10px}
+.ag-cab h2{margin:0;font-size:16px}
+.ag-av{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-size:21px;flex:none;color:#fff}
+.ag-ap{font-weight:500;color:var(--muted);font-size:13.5px}
+.ag-papel{margin:2px 0;font-size:13px;color:var(--muted)}
+.ag-m{font-size:12.8px;font-variant-numeric:tabular-nums}
+.ag-m .l{display:inline-block;min-width:142px;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+.ag-teste{font-size:12.5px;border-radius:8px;padding:7px 9px;background:var(--soft)}
+.ag-teste.no{background:var(--bad-bg,#fdecea)}
+.ag-bts{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.ag-pulso{animation:agp 1.4s ease-in-out infinite} @keyframes agp{50%{opacity:.45}}
+@media (prefers-reduced-motion: reduce){.ag-pulso{animation:none}}
+@media (max-width:420px){.ag-grid{grid-template-columns:1fr}}
 .ops-abas{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:0 0 14px;padding-bottom:0}
 .ops-abas a{padding:7px 12px;font-size:13px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
 .ops-abas a:hover{color:var(--ink)} .ops-abas a.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent,#2d6cdf)}
@@ -664,6 +679,7 @@ async function rotear() {
   }
   if (sec === "nomes" && location.hash.startsWith("#/central/execucoes")) return telaExecucoes();
   if (sec === "nomes" && location.hash.startsWith("#/central/erros")) return telaErros();
+  if (sec === "nomes" && location.hash.startsWith("#/central/agentes")) return telaAgentes();
   if (sec === "nomes" && location.hash.startsWith("#/central")) return telaDev();
   if (sec === "nomes" && location.hash.startsWith("#/auditoria")) return telaAuditoria();
   if (sec === "nomes" && location.hash.startsWith("#/reuniao")) return location.hash.startsWith("#/reuniao/dev") ? telaDev() : telaReuniao();
@@ -1864,6 +1880,7 @@ const OPS_ABAS = [
   {k: "erros", h: "#/central/erros", t: "🚨 Erros", on: h => h.startsWith("#/central/erros")},
   {k: "auditoria", h: "#/auditoria", t: "🧪 Auditoria", on: h => h.startsWith("#/auditoria")},
   {k: "sala", h: "#/reuniao", t: "💬 Sala de reunião", on: h => h === "#/reuniao"},
+  {k: "agentes", h: "#/central/agentes", t: "🤖 Agentes", on: h => h.startsWith("#/central/agentes")},
   {k: "coletor", h: "#/coletor", t: "📥 Coletor", on: h => h === "#/coletor"},
 ];
 function opsAbas(ativa) {
@@ -1919,13 +1936,99 @@ async function telaErros() {
     <p class="muted" style="font-size:12px;margin:10px 0 0">Os erros de dados e de código são discutidos na reunião diária dos agentes; o que o Claude aprova vai para 📋 Desenvolvimento.</p>`;
   desenharMenu();
 }
+// ---------- Agentes: status, custo (tokens × preço), teste de versão e apelido ----------
+const AG_ST = {"executando": ["warn", "⚙️ executando"], "ativo": ["good", "● ativo"], "com erro": ["bad", "com erro"], "sem chave": ["", "sem chave"], "parado": ["", "○ sem atividade 24h"]};
+const nfmt = n => (+n || 0).toLocaleString("pt-BR");
+const usd = v => "US$ " + (+v || 0).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: v && v < 0.01 ? 4 : 2});
+function agCard(a) {
+  const st = AG_ST[a.status] || ["", a.status];
+  const t = a.ultimo_teste;
+  const quandoBR = x => x ? new Date(x).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
+  const bloco = (rot, m) => `<div class="ag-m"><span class="l">${rot}</span><b>${nfmt(m.chamadas)}</b> chamadas ·
+    ${nfmt(m.tokens_in)} / ${nfmt(m.tokens_out)} tokens · <b>${usd(m.custo)}</b></div>`;
+  return `<div class="card pad ag-card" data-ag="${esc(a.id)}">
+    <div class="ag-cab"><div class="ag-av" style="background:${esc(a.cor || "#667781")}">${esc(a.icone || "🤖")}</div>
+      <div style="min-width:0"><h2>${esc(a.nome)}${a.apelido ? ` <span class="ag-ap">“${esc(a.apelido)}”</span>` : ""}</h2>
+        <div class="muted" style="font-size:12.5px">${esc(a.onde || "")}</div></div><div style="flex:1"></div>
+      <span class="st ${st[0]} ${a.status === "executando" ? "ag-pulso" : ""}">${st[1]}</span></div>
+    <p class="ag-papel">${esc(a.papel || "")}</p>
+    <div class="ag-m"><span class="l">Modelo</span>${a.modelo_atual ? `<code>${esc(a.modelo_atual)}</code>` : `<span class="muted">ainda sem uso registrado</span>`}</div>
+    ${bloco("Hoje", a.hoje)}${bloco("No mês", a.mes)}
+    ${a.sem_preco ? `<div class="ag-m muted" style="font-size:12px">⚠️ há chamadas de um modelo sem preço cadastrado (tabela de preços abaixo): o custo está incompleto.</div>` : ""}
+    ${a.rodando.length ? `<div class="ag-m"><span class="l">Agora</span>${a.rodando.map(r => esc(r.origem || "tarefa")).join(", ")}</div>` : ""}
+    ${a.erros_24h ? `<div class="ag-m" style="color:var(--bad)"><span class="l">Erros 24h</span>${a.erros_24h} · ${esc((a.ultimo_erro || "").slice(0, 160))}</div>` : ""}
+    <div class="ag-m"><span class="l">Última atividade</span>${esc(quandoBR(a.ultima_atividade))}</div>
+    ${t ? `<div class="ag-teste ${t.ok ? "ok" : "no"}">Último teste (${esc(quandoBR(t.quando))}): ${t.ok ? "✅ funcionando" : "❌ falhou"}
+      ${t.modelo_api ? ` · modelo que respondeu: <code>${esc(t.modelo_api)}</code>` : ""} · ${nfmt(t.ms)} ms
+      ${t.resposta ? `<div class="muted">“${esc(t.resposta)}”</div>` : ""}${t.erro ? `<div style="color:var(--bad)">${esc(t.erro)}</div>` : ""}</div>` : ""}
+    <div class="ag-bts">
+      ${a.testavel ? `<button class="btn small" data-testar="${esc(a.id)}">🔍 Testar versão</button>
+        <button class="btn small" data-pedir="${esc(a.id)}">🎲 Deixar escolher apelido</button>` :
+        `<span class="muted" style="font-size:12px">${a.id === "hermes" ? "Testa no Mac: <code>~/.nubi-coletor/coletor hermes</code> (e escolhe o apelido na primeira vez)" : "Trabalha na sessão de código"}</span>`}
+      <button class="btn small" data-apelido="${esc(a.id)}">✏️ Apelido</button></div>
+  </div>`;
+}
+async function telaAgentes(silencioso) {
+  const main = $("#main");
+  if (!silencioso) main.innerHTML = opsAbas("agentes") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando os agentes</div></div>`;
+  let r;
+  try { r = await api("agentes"); } catch (e) { if (!silencioso) main.innerHTML = opsAbas("agentes") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (silencioso && !location.hash.startsWith("#/central/agentes")) return;
+  const tot = k => r.agentes.reduce((s, a) => s + (+a[k].custo || 0), 0);
+  main.innerHTML = opsAbas("agentes") + `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>🤖 Agentes</h1>
+      <span class="muted">quem está no time, o que custa e se está funcionando · atualiza sozinho a cada 15 s</span></div>
+    <div class="kpis">${kpi("Custo hoje", usd(tot("hoje")), "todas as APIs")}${kpi("Custo no mês", usd(tot("mes")), "desde o dia 1")}
+      ${kpi("Executando agora", String(r.agentes.filter(a => a.status === "executando").length), "agentes com tarefa em andamento")}
+      ${kpi("Com erro (24h)", String(r.agentes.filter(a => a.erros_24h).length), "veja também 🚨 Erros")}</div>
+    <div class="ag-grid">${r.agentes.map(agCard).join("")}</div>
+    <div class="card pad" style="margin-top:14px"><h2>Preços por modelo (US$ por 1 milhão de tokens)</h2>
+      <div class="sub">O custo de cada chamada = tokens de entrada × preço de entrada + tokens de saída × preço de saída. Um modelo com nome mais longo usa o preço do nome cadastrado que ele começa (ex.: <code>gpt-oss:120b</code> usa <code>gpt-oss</code>). Deixe em branco o que ainda não souber.</div>
+      <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Modelo</th><th>Entrada</th><th>Saída</th><th>Observação</th><th></th></tr></thead>
+      <tbody>${r.precos.map(p => `<tr><td class="first"><code>${esc(p.modelo)}</code></td>
+        <td><input class="mes" style="width:80px" data-pe="${esc(p.modelo)}" value="${p.entrada ?? ""}" inputmode="decimal"></td>
+        <td><input class="mes" style="width:80px" data-ps="${esc(p.modelo)}" value="${p.saida ?? ""}" inputmode="decimal"></td>
+        <td class="wrap muted">${esc(p.obs || "")}</td><td><button class="btn small" data-psalvar="${esc(p.modelo)}">Salvar</button></td></tr>`).join("")}
+        <tr><td><input class="mes" id="pn-m" placeholder="novo modelo" style="width:150px"></td><td><input class="mes" id="pn-e" style="width:80px"></td>
+          <td><input class="mes" id="pn-s" style="width:80px"></td><td></td><td><button class="btn small" id="pn-add">Adicionar</button></td></tr></tbody></table></div></div>`;
+  main.querySelectorAll("[data-testar]").forEach(b => b.onclick = async () => {
+    const c = carregando("Testando o agente");
+    try { const x = await api("agentes_testar", {}, {method: "POST", body: JSON.stringify({id: b.dataset.testar})});
+      x.ok ? c.ok(`Funcionando${x.modelo_api ? " · " + x.modelo_api : ""}`, 2500) : c.erro(x.erro || "Sem resposta"); telaAgentes(true); }
+    catch (e) { c.erro(e.message); }
+  });
+  main.querySelectorAll("[data-pedir]").forEach(b => b.onclick = async () => {
+    const c = carregando("O agente está escolhendo o apelido");
+    try { const x = await api("agentes_apelido", {}, {method: "POST", body: JSON.stringify({id: b.dataset.pedir, pedir: true})}); c.ok("Apelido: " + x.apelido, 2500); telaAgentes(true); }
+    catch (e) { c.erro(e.message); }
+  });
+  main.querySelectorAll("[data-apelido]").forEach(b => b.onclick = async () => {
+    const ap = prompt("Apelido do agente:"); if (!ap) return;
+    try { await api("agentes_apelido", {}, {method: "POST", body: JSON.stringify({id: b.dataset.apelido, apelido: ap})}); toast("Apelido salvo"); telaAgentes(true); }
+    catch (e) { toast(e.message, 6000); }
+  });
+  const salvarPreco = async (modelo, entrada, saida) => {
+    try { await api("agentes_preco", {}, {method: "POST", body: JSON.stringify({modelo, entrada, saida})}); toast("Preço salvo"); telaAgentes(true); }
+    catch (e) { toast(e.message, 6000); }
+  };
+  main.querySelectorAll("[data-psalvar]").forEach(b => b.onclick = () => {
+    const m = b.dataset.psalvar;
+    salvarPreco(m, main.querySelector(`[data-pe="${CSS.escape(m)}"]`).value, main.querySelector(`[data-ps="${CSS.escape(m)}"]`).value);
+  });
+  $("#pn-add").onclick = () => { const m = $("#pn-m").value.trim(); if (m) salvarPreco(m, $("#pn-e").value, $("#pn-s").value); };
+  clearInterval(S.agT); S.agT = setInterval(() => {
+    if (!location.hash.startsWith("#/central/agentes")) return clearInterval(S.agT);
+    if (!document.activeElement || document.activeElement.tagName !== "INPUT") telaAgentes(true);
+  }, 15000);
+  desenharMenu();
+}
 // ---------- Sala de reunião dos agentes (grupo tipo WhatsApp; o Claude decide) ----------
 const AG_COR = {"Hermes": "#a2741a", "gpt-oss": "#6b4fb3", "ChatGPT": "#10a37f", "DeepSeek": "#4d6bfe", "Claude": "#d97757", "Claude (código)": "#b3541e", "sistema": "#667781", "voce": "#00a884"};
 function waBolha(m) {
   const hr = new Date(m.criado_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
   if (m.autor === "sistema") return `<div class="wa-b sis">${mdSimples(m.texto)}<span class="hr">${hr}</span></div>`;
   const eu = m.autor === "voce", cor = AG_COR[m.autor] || (m.autor.startsWith("Claude") ? "#d97757" : "#8e44ad");
-  return `<div class="wa-b ${eu ? "eu" : ""} ${m.meta && m.meta.decisao ? "dec" : ""}">${eu ? "" : `<div class="nm" style="color:${cor}">${esc(m.autor)}${m.meta && m.meta.decisao ? " · decisão" : ""}</div>`}
+  const ap = (S.reu && S.reu.apel || {})[m.autor];
+  return `<div class="wa-b ${eu ? "eu" : ""} ${m.meta && m.meta.decisao ? "dec" : ""}">${eu ? "" : `<div class="nm" style="color:${cor}">${esc(m.autor)}${ap ? ` “${esc(ap)}”` : ""}${m.meta && m.meta.decisao ? " · decisão" : ""}</div>`}
     <div class="md">${mdSimples(m.texto)}</div><span class="hr">${hr}</span></div>`;
 }
 function waDesenhar(msgs) {
@@ -1942,7 +2045,7 @@ async function telaReuniao() {
   main.innerHTML = opsAbas("sala") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a sala de reunião</div></div>`;
   let r;
   try { r = await api("reuniao"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  S.reu = {msgs: r.mensagens, ult: r.mensagens.length ? r.mensagens[r.mensagens.length - 1].id : 0};
+  S.reu = {msgs: r.mensagens, ult: r.mensagens.length ? r.mensagens[r.mensagens.length - 1].id : 0, apel: r.apelidos || {}};
   const ag = r.agentes, on = k => ag[k] ? "" : " (sem chave)";
   main.innerHTML = opsAbas("sala") + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px"><h1 style="margin:0">💬 Sala de reunião</h1></div>
     <div class="wa"><div class="wa-top"><div class="av">🤖</div><div><b>Agentes do nubi</b><br>

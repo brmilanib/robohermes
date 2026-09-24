@@ -455,3 +455,43 @@ create index if not exists rotinas_execucoes_inicio on public.rotinas_execucoes 
 alter table public.rotinas_execucoes enable row level security;
 create policy "autorizado" on public.rotinas_execucoes
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Agentes de IA (aba Central → Agentes): cadastro, apelido, uso (tokens/custo) e preços por modelo
+create table if not exists public.agentes (
+  id text primary key, nome text not null, apelido text, icone text, cor text, papel text, onde text,
+  ordem int default 100, ultimo_teste jsonb, atualizado_em timestamptz default now()
+);
+create table if not exists public.agentes_uso (
+  id bigint generated always as identity primary key,
+  agente text not null, modelo text, origem text, inicio timestamptz not null default now(), fim timestamptz,
+  ok boolean, tokens_in int, tokens_out int, custo_usd numeric, erro text
+);
+create index if not exists agentes_uso_inicio on public.agentes_uso (inicio desc);
+create table if not exists public.ia_precos (modelo text primary key, entrada numeric, saida numeric, obs text);
+alter table public.agentes enable row level security;
+alter table public.agentes_uso enable row level security;
+alter table public.ia_precos enable row level security;
+create policy "autorizado" on public.agentes for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create policy "autorizado" on public.agentes_uso for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create policy "autorizado" on public.ia_precos for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+insert into public.agentes (id, nome, icone, cor, papel, onde, ordem) values
+  ('claude', 'Claude', '✴️', '#d97757', 'Coordena a Sala e decide; revisa a auditoria', 'API Anthropic', 1),
+  ('chatgpt', 'ChatGPT', '🧠', '#10a37f', 'Código (Codex), resumos, auditoria de código, marcas em lote e produtos iguais', 'API OpenAI', 2),
+  ('deepseek', 'DeepSeek', '🐋', '#4d6bfe', 'Matemática e revisão: contas, totais, casos de borda e custo', 'API DeepSeek', 3),
+  ('gptoss', 'gpt-oss', '🦙', '#6b4fb3', 'Segunda opinião barata: caminhos simples, escala, planos passo a passo', 'Ollama Cloud (cota grátis)', 4),
+  ('hermes', 'Hermes', '🪽', '#a2741a', 'Vigia 24h, logs, testes, documentação e memória', 'Mac mini (Ollama local, grátis)', 5),
+  ('claude_code', 'Claude (código)', '💻', '#b3541e', 'Programa, testa e publica o nubi (tarefas aprovadas)', 'Sessão Claude Code (plano)', 6)
+on conflict (id) do nothing;
+insert into public.ia_precos (modelo, entrada, saida, obs) values
+  ('claude-opus-5-5', 4, 20, 'US$ por 1M tokens (tabela da Anthropic)'),
+  ('claude-sonnet-5', 2, 10, 'US$ por 1M tokens (tabela da Anthropic)'),
+  ('gpt-oss', 0, 0, 'cota grátis do Ollama Cloud'),
+  ('hermes3', 0, 0, 'roda no Mac mini'),
+  ('gpt-5.3-codex', null, null, 'preencher com o preço da OpenAI'),
+  ('gpt-4.1', null, null, 'preencher com o preço da OpenAI'),
+  ('text-embedding-3-small', null, null, 'preencher com o preço da OpenAI'),
+  ('deepseek', null, null, 'preencher com o preço do DeepSeek')
+on conflict (modelo) do nothing;

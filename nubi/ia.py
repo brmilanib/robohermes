@@ -121,11 +121,54 @@ def _ollama(pergunta, max_tokens, modelo=None, sistema=None):
     raise SemIA(f"Ollama sem resposta: {ultimo}")
 
 
-def _post_json(url, corpo, cab, timeout=90):
+# Registro de uso (aba Agentes): nubi_web liga USO["gravar"]; cada chamada grava início, fim, tokens e modelo.
+USO = {"gravar": None, "origem": ""}
+PROVEDOR = (("api.anthropic.com", "claude"), ("api.openai.com", "chatgpt"), ("api.deepseek.com", "deepseek"),
+            ("ollama.com", "gptoss"))
+
+
+def _tokens(r):
+    """(tokens de entrada, tokens de saída) da resposta de qualquer provedor."""
+    u = r.get("usage") or {}
+    ent = u.get("input_tokens", u.get("prompt_tokens", r.get("prompt_eval_count"))) or 0
+    ent += (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+    sai = u.get("output_tokens", u.get("completion_tokens", r.get("eval_count"))) or 0
+    return int(ent), int(sai)
+
+
+def _http_json(url, corpo, cab, timeout=90):
     req = urllib.request.Request(url, data=json.dumps(corpo).encode(), method="POST",
                                  headers={"Content-Type": "application/json", **cab})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
+
+
+def _post_json(url, corpo, cab, timeout=90):
+    agente = next((a for h, a in PROVEDOR if h in url), None)
+    gravar = USO["gravar"] if agente else None
+    rid = None
+    if gravar:
+        try:
+            rid = gravar("inicio", {"agente": agente, "modelo": str(corpo.get("model") or ""), "origem": USO["origem"]})
+        except Exception:  # noqa: BLE001 — o registro nunca derruba a chamada
+            rid = None
+    try:
+        r = _http_json(url, corpo, cab, timeout)
+    except Exception as e:
+        if gravar:
+            try:
+                gravar("fim", {"id": rid, "ok": False, "erro": str(e)[:300]})
+            except Exception:  # noqa: BLE001
+                pass
+        raise
+    if gravar:
+        try:
+            ent, sai = _tokens(r)
+            gravar("fim", {"id": rid, "ok": True, "modelo": str(r.get("model") or corpo.get("model") or ""),
+                           "tokens_in": ent, "tokens_out": sai})
+        except Exception:  # noqa: BLE001
+            pass
+    return r
 
 
 def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sistema=None):
