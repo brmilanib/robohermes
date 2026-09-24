@@ -29,6 +29,7 @@ import categorias
 import ia
 import pesquisa_marca
 import produtos_iguais
+import auditoria
 import vend_bi
 import vendedores
 
@@ -666,6 +667,15 @@ def atender(metodo, rota, q, corpo, token):
 
         if rota.startswith("rotina"):
             return _json(rota_rotinas(repo, metodo, rota, q, corpo))
+
+        if rota == "auditoria":
+            # relatório da auditoria de dados e código (o mais recente, ou o de ?data=)
+            lista = repo._req("GET", "auditorias", {"select": "data,resumo", "order": "data.desc", "limit": 30}) or []
+            d = q.get("data") or (lista[0]["data"] if lista else None)
+            atual = (repo._req("GET", "auditorias", {"select": "*", "data": repo._eq(d)}) or [None])[0] if d else None
+            return _json({"atual": atual, "datas": [x["data"] for x in lista],
+                          "ias": {"chatgpt": ia.tem("chatgpt"), "claude": ia.tem("claude")},
+                          "modelo_codigo": os.environ.get("NUBI_IA_CODIGO") or os.environ.get("NUBI_IA_MODELO") or "gpt-4.1"})
 
         if rota == "resumo_semana":
             if metodo == "POST":
@@ -1687,7 +1697,7 @@ def resumos_marcas_pendentes(repo):
 # A coleta roda no Mac mini (launchd) e só consulta se está ligada no dia.
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
-NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
+NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "auditoria", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
 
@@ -1733,7 +1743,11 @@ def rodar_rotinas(repo, so=None):
         if not r or (so and rid != so) or (not so and not rotina_pendente(r, agora)):
             continue
         try:
-            if rid == "categorias_lote":
+            if rid == "auditoria":
+                reg = auditoria.rodar(repo, (r.get("observacao") or "").strip())
+                repo._req("POST", "auditorias", corpo=[reg], prefer="resolution=merge-duplicates,return=minimal")
+                res = reg["resumo"]
+            elif rid == "categorias_lote":
                 res = categorias_lote(repo)
             elif rid == "produtos_ia":
                 res = agrupar_produtos(repo)

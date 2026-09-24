@@ -400,3 +400,22 @@ create table if not exists public.marca_sugestoes (
 alter table public.marca_sugestoes enable row level security;
 create policy "autorizado" on public.marca_sugestoes
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Tabela do grupo por dia (Nubimetrics > Comparar concorrentes): vendas, unidades, visitas, conversão e share
+create table if not exists public.vend_grupo_dia (
+  data date not null, vendedor text not null, nome_exibido text,
+  v numeric, u int, visitas int, conversao numeric, share_v numeric, share_u numeric, bruto jsonb,
+  atualizado_em timestamptz not null default now(), primary key (data, vendedor)
+);
+alter table public.vend_grupo_dia enable row level security;
+create policy "autorizado" on public.vend_grupo_dia
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Auditoria diária de dados e código (conferências + conversa ChatGPT/Claude)
+create table if not exists public.auditorias (
+  data date primary key, resumo text, modulo text, conferencias jsonb, conversa jsonb,
+  criado_em timestamptz not null default now()
+);
+alter table public.auditorias enable row level security;
+create policy "autorizado" on public.auditorias
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

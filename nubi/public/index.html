@@ -291,6 +291,10 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .cc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .cc-seg button{border:0;background:var(--card);color:var(--muted);padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
 .cc-seg button.on{background:var(--soft);color:var(--ink);font-weight:600}
+.au-msg{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:10px;background:var(--card)}
+.au-msg .quem{font-weight:700;font-size:13px;margin-bottom:4px}
+.au-msg.gpt{border-left:4px solid #10a37f} .au-msg.claude{border-left:4px solid #d97757} .au-msg.sis{border-left:4px solid var(--muted);color:var(--muted)}
+.au-msg pre{white-space:pre-wrap;background:var(--soft);padding:8px;border-radius:8px;font-size:12px;overflow:auto}
 .rot-card{margin-top:12px}
 .rot-card .cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .rot-card .cab h2{margin:0;font-size:15px}
@@ -488,7 +492,7 @@ const SECOES = [
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -573,6 +577,7 @@ function desenharMenu() {
     ${it("#/nomes-marcas", "🔗", "Nomes de marcas", h.startsWith("#/nomes-marcas"))}
     ${it("#/nomes-vendedores", "🔗", "Nomes de vendedores", h.startsWith("#/nomes-vendedores"))}
     ${it("#/produtos-iguais", "🧩", "Produtos iguais (IA)", h.startsWith("#/produtos-iguais"))}
+    ${it("#/auditoria", "🧪", "Auditoria (dados e código)", h.startsWith("#/auditoria"))}
     ${it("#/coletor", "📥", "Coletor e agentes", h === "#/coletor")}
     <div class="subnav"><a class="${h.startsWith("#/coletor/rotinas") ? "on" : ""}" href="#/coletor/rotinas">🗓️ Tarefas de rotina</a></div>`;
   desenharVendMenu();
@@ -627,6 +632,7 @@ async function rotear() {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
   }
+  if (sec === "nomes" && location.hash.startsWith("#/auditoria")) return telaAuditoria();
   if (sec === "nomes") return location.hash.startsWith("#/coletor/rotinas") ? telaRotinas() : location.hash.startsWith("#/coletor") ? telaColetor() : telaNomesMarcas();
   if (sec === "vendedores") {
     if (!S.vendLista) await carregarVendLista();
@@ -1805,22 +1811,63 @@ async function telaConcVendedor(vend) {
   desenhar(); desenharMenu();
 }
 
+// ---------- Auditoria de dados e código (ChatGPT analisa, Claude revisa; ninguém muda nada sozinho) ----------
+function mdCodigo(t) {
+  // markdown simples + blocos ``` de código
+  return (t || "").split(/```[a-z]*\n?/).map((parte, i) => i % 2 ? `<pre>${esc(parte)}</pre>` : `<div class="md">${mdSimples(parte)}</div>`).join("");
+}
+async function telaAuditoria(data) {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando a auditoria</div></div>`;
+  let r;
+  try { r = await api("auditoria", data ? {data} : {}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const a = r.atual, dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
+  const NIV = {erro: ["bad", "Erro"], alerta: ["warn", "Alerta"], info: ["", "Info"]};
+  const conf = a ? a.conferencias || [] : [];
+  const cont = k => conf.filter(x => x.nivel === k).length;
+  main.innerHTML = `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>🧪 Auditoria de dados e código</h1>
+      ${r.datas.length > 1 ? `<select id="au-data" class="mes">${r.datas.map(d => `<option value="${d}" ${a && a.data === d ? "selected" : ""}>${dm(d)}</option>`).join("")}</select>` : ""}
+      <div style="flex:1"></div><button class="btn primary" id="au-rodar">▶ Rodar agora</button></div>
+    <p class="muted" style="margin:4px 0 0;font-size:13px">Todo dia às 10h30 (Tarefas de rotina) o nubi confere os números sem IA; depois o ChatGPT
+      (${esc(r.modelo_codigo)}) analisa os achados e revisa um módulo do código, e o Claude revisa a análise do ChatGPT. Nada é mudado sozinho:
+      o Claude da sessão de código lê este relatório, confirma e corrige com testes.</p>
+    <p style="margin:8px 0 0">${["chatgpt", "claude"].map(k => `<span class="st ${r.ias[k] ? "good" : "warn"}">${k === "chatgpt" ? "ChatGPT" : "Claude"}: ${r.ias[k] ? "ligado" : "sem chave"}</span>`).join(" ")}
+      ${!r.ias.claude ? `<span class="muted" style="font-size:12.5px"> · para o Claude revisar, coloque <code>ANTHROPIC_API_KEY</code> na Vercel (Settings → Environment Variables) e faça Redeploy.</span>` : ""}</p>
+    ${!a ? `<div class="card empty" style="margin-top:14px"><h2>Nenhuma auditoria ainda</h2><p>Roda sozinha às 10h30, ou clique em Rodar agora (leva 1 a 3 minutos).</p></div>` : `
+    <div class="kpis">${kpi("Erros", `<span class="${cont("erro") ? "neg" : "pos"}">${cont("erro")}</span>`, "números que não batem ou dados faltando")}
+      ${kpi("Alertas", String(cont("alerta")), "fora do padrão: conferir")}${kpi("Informações", String(cont("info")), "")}
+      ${kpi("Código revisado", esc(a.modulo || "—"), "um módulo por noite, em rodízio")}</div>
+    <div class="card pad"><h2>Conferências dos dados · ${dm(a.data)}</h2>
+      <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Nível</th><th>Área</th><th>O quê</th><th>Detalhe</th></tr></thead>
+      <tbody>${conf.map(x => `<tr><td><span class="st ${NIV[x.nivel][0]}">${NIV[x.nivel][1]}</span></td><td>${esc(x.area)}</td>
+        <td class="first wrap">${esc(x.titulo)}</td><td class="wrap">${esc(x.detalhe)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nenhum achado. 👏</td></tr>`}</tbody></table></div></div>
+    <div class="card pad" style="margin-top:14px"><h2>Conversa dos agentes</h2><div class="sub">O ChatGPT analisa; o Claude revisa. Sugestões de correção só entram depois de conferidas e testadas.</div>
+      ${(a.conversa || []).map(m => `<div class="au-msg ${m.autor.startsWith("ChatGPT") ? "gpt" : m.autor === "Claude" ? "claude" : "sis"}"><div class="quem">${esc(m.autor)}</div>${mdCodigo(m.texto)}</div>`).join("")}</div>`}`;
+  if ($("#au-data")) $("#au-data").onchange = e => telaAuditoria(e.target.value);
+  $("#au-rodar").onclick = async () => {
+    const c = carregando("Auditando os dados e o código (1 a 3 minutos)");
+    try { const x = await api("rotina_rodar", {}, {method: "POST", body: JSON.stringify({id: "auditoria"})}); c.ok(x.resultado || "Pronto", 2500); telaAuditoria(); }
+    catch (e) { c.erro(e.message); }
+  };
+  desenharMenu();
+}
+
 // ---------- Tarefas de rotina (editável: responsável, horário, dias, ligada/desligada e observação) ----------
-const RESPONSAVEIS = ["Coletor (Mac mini)", "Robô nubi (servidor)", "ChatGPT", "Claude", "Você"];
+const RESPONSAVEIS = ["Coletor (Mac mini)", "Robô nubi (servidor)", "ChatGPT", "Claude", "ChatGPT + Claude", "Você"];
 const DIAS_NOME = {seg: "Seg", ter: "Ter", qua: "Qua", qui: "Qui", sex: "Sex", sab: "Sáb", dom: "Dom"};
 async function telaRotinas() {
   const main = $("#main");
   main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando tarefas</div></div>`;
   let r;
   try { r = await api("rotinas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  const sistema = id => ["coleta", "agente", "produtos_ia", "categorias_lote", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
+  const sistema = id => ["coleta", "agente", "produtos_ia", "categorias_lote", "auditoria", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
   const quandoTxt = t => t.dia_mes ? `todo dia ${t.dia_mes} do mês (e depois, se faltar)` : (t.dias_semana || []).length === 7 ? "todo dia"
     : (t.dias_semana || []).length ? (t.dias_semana || []).map(d => DIAS_NOME[d]).join(", ") : "nenhum dia";
   const card = t => `<div class="card pad rot-card" data-id="${esc(t.id)}">
     <div class="cab"><h2>${t.ativo ? "🟢" : "⚪️"} ${esc(t.nome)}</h2><span class="st">${esc(t.responsavel)}</span>
       <span class="muted" style="font-size:12.5px">${t.id === "coleta" ? "07:00 (no Mac)" : esc(t.horario)} · ${esc(quandoTxt(t))}</span>
       ${t.pendente ? `<span class="st warn">na fila desta hora</span>` : ""}<div style="flex:1"></div>
-      ${["agente", "produtos_ia", "categorias_lote", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(t.id) ? `<button class="btn small" data-rodar="${esc(t.id)}">▶ Rodar agora</button>` : ""}
+      ${["agente", "produtos_ia", "categorias_lote", "auditoria", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(t.id) ? `<button class="btn small" data-rodar="${esc(t.id)}">▶ Rodar agora</button>` : ""}
       ${sistema(t.id) ? "" : `<button class="btn small" data-apagar="${esc(t.id)}" title="Apagar tarefa">🗑</button>`}</div>
     <div class="rot-form">
       <label class="l2">Tarefa<input data-f="nome" value="${esc(t.nome)}"></label>

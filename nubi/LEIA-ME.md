@@ -472,6 +472,10 @@ Com `OPENAI_API_KEY` (ou `ANTHROPIC_API_KEY`) nas variáveis da Vercel, o nubi u
   títulos sem GTIN do mesmo perfume (`produto_grupos`); conferir e separar em Ajustes > Produtos iguais.
 - **Marcas em lote (IA)**: às 4h, as marcas do ranking em Outros/sem categoria vão num lote da OpenAI (Batch, metade
   do preço); as sugestões aparecem em Ranking > Categorias para aplicar ou ignorar.
+- **Auditoria de dados e código** (Ajustes > Auditoria): às 10h30 confere os números sem IA (dias faltando, tabela do
+  grupo x exports do dia, soma dos dias x mês, dias fora do padrão, saltos de preço, junções fracas, tarefas com erro);
+  depois o ChatGPT (`NUBI_IA_CODIGO`, padrão = `NUBI_IA_MODELO`) analisa e revisa um módulo do código por noite, e o
+  Claude (`ANTHROPIC_API_KEY`) revisa a análise. Nada é mudado sozinho: o relatório fica guardado em `auditorias`.
 - **Análise da semana**: toda segunda às 8h, com os resumos diários guardados e as vendas de cada dia x semana anterior.
 - **Tarefas de rotina** (Coletor e agentes → Tarefas de rotina, tabela `rotinas`): quem faz, horário, dias, ligada e
   observação (a observação das tarefas do ChatGPT vai no prompt). A Vercel chama `r=rotinas_cron` de hora em hora (24 agendas diárias, uma por hora: o plano Hobby só aceita agenda diária) e roda
