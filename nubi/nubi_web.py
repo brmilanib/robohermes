@@ -724,6 +724,25 @@ def atender(metodo, rota, q, corpo, token):
                     {"Content-Disposition": f'attachment; filename="{nome}"', "X-Nome-Arquivo": nome})
         if rota.startswith("estoque") or rota.startswith("gestor_") or rota == "coleta_pendente":
             return _json(rota_estoque(repo, metodo, rota, q, corpo))
+        if rota == "conhecimento":
+            p = {"select": "id,tipo,titulo,texto,autor,fonte,fixo,atualizado_em", "order": "fixo.desc,atualizado_em.desc", "limit": 200}
+            if q.get("q"):
+                termo = re.sub(r"[,()*%]", " ", q["q"])[:80].strip()
+                p["or"] = f"(titulo.ilike.*{termo}*,texto.ilike.*{termo}*)"
+            return _json({"itens": repo._req("GET", "conhecimento", p) or []})
+        if rota == "conhecimento_salvar" and metodo == "POST":
+            d = json.loads(corpo or b"{}")
+            reg = {k: str(d[k]).strip()[:20000] for k in ("titulo", "texto", "tipo", "fonte") if d.get(k)}
+            if not reg.get("titulo") or not reg.get("texto"):
+                raise ErroNuvem("Título e texto são obrigatórios.")
+            reg["atualizado_em"] = datetime.now(timezone.utc).isoformat()
+            if d.get("id"):
+                repo._req("PATCH", "conhecimento", {"id": repo._eq(int(d["id"]))}, corpo=reg, prefer="return=minimal")
+            else:
+                reg.setdefault("tipo", "aprendizado")
+                reg["autor"] = str(d.get("autor") or "Bruno")[:60]
+                repo._req("POST", "conhecimento", corpo=[reg], prefer="return=minimal")
+            return _json({"ok": True})
         if rota.startswith("mac_"):
             return _json(rota_mac(repo, metodo, rota, q, corpo, token))
         if rota.startswith("agentes"):
@@ -2368,11 +2387,17 @@ def responder_card(repo, tid):
     online = bool(est and est.get("visto_em") and (datetime.now(timezone.utc) - datetime.fromisoformat(
         str(est["visto_em"]).replace("Z", "+00:00"))).total_seconds() < 300)
     lista = "\n".join(f"- {k}: {v}" for k, v in COMANDOS_MAC.items() if k != "baixar_modelo")
+    try:
+        caixa = "\n\n".join(f"### {c['titulo']}\n{c['texto'][:2500]}" for c in repo._req("GET", "conhecimento", {
+            "select": "titulo,texto", "fixo": "eq.true", "order": "atualizado_em.desc", "limit": 6}) or [])
+    except ErroNuvem:
+        caixa = ""
     pedido = (PAPEL_CARD + f"\n\nTAREFA #{t['id']} ({t.get('status')}, responsável {t.get('responsavel') or 'claude_code'}): "
               f"{t.get('titulo')}\n{t.get('descricao') or ''}\nNota: {t.get('notas') or '-'}"
               f"\n\nMAC MINI: {'online' if online else 'OFFLINE (não peça comando; diga que o Mac está sem sinal)'}"
               f"\nCOMANDOS PERMITIDOS (chave: o que faz):\n{lista}"
-              f"\n\nCONVERSA DO CARD (mais antiga primeiro; 'voce' é o dono):\n{hist}"
+              + (f"\n\nCAIXA DE CONHECIMENTO (fixos):\n{caixa}" if caixa else "")
+              + f"\n\nCONVERSA DO CARD (mais antiga primeiro; 'voce' é o dono):\n{hist}"
               '\n\nResponda SOMENTE com JSON: {"resposta": "<texto para o dono>", "comando": "<chave da lista ou null>"}')
     ia.USO["origem"] = f"card #{tid}"
     j, _, qual = ia.perguntar_json(pedido, web=False, max_tokens=1500, qual="claude" if ia.tem("claude") else None,

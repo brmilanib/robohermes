@@ -978,6 +978,7 @@ async function rotear() {
   if (sec === "nomes" && location.hash.startsWith("#/central/erros")) return telaErros();
   if (sec === "nomes" && location.hash.startsWith("#/central/agentes")) return telaAgentes();
   if (sec === "nomes" && location.hash.startsWith("#/central/terminal")) return telaTerminal();
+  if (sec === "nomes" && location.hash.startsWith("#/central/conhecimento")) return telaConhecimento();
   if (sec === "nomes" && location.hash.startsWith("#/central")) return telaDev();
   if (sec === "nomes" && location.hash.startsWith("#/auditoria")) return telaAuditoria();
   if (sec === "nomes" && location.hash.startsWith("#/reuniao")) return location.hash.startsWith("#/reuniao/dev") ? telaDev() : telaReuniao();
@@ -2178,6 +2179,7 @@ const OPS_ABAS = [
   {k: "erros", h: "#/central/erros", t: "🚨 Erros", on: h => h.startsWith("#/central/erros")},
   {k: "auditoria", h: "#/auditoria", t: "🧪 Auditoria", on: h => h.startsWith("#/auditoria")},
   {k: "sala", h: "#/reuniao", t: "💬 Sala de reunião", on: h => h === "#/reuniao"},
+  {k: "conhecimento", h: "#/central/conhecimento", t: "📚 Conhecimento", on: h => h.startsWith("#/central/conhecimento")},
   {k: "agentes", h: "#/central/agentes", t: "🤖 Agentes", on: h => h.startsWith("#/central/agentes")},
   {k: "terminal", h: "#/central/terminal", t: "🖥️ Terminal do Mac", on: h => h.startsWith("#/central/terminal")},
   {k: "coletor", h: "#/coletor", t: "📥 Coletor", on: h => h === "#/coletor"},
@@ -2396,6 +2398,33 @@ function ligarEstoque() {
     S.esFiltro = b.dataset.esf; S.esMax = 60;
     document.querySelectorAll("[data-esf]").forEach(x => x.classList.toggle("on", x === b)); desenharTabEstoque();
   });
+}
+// ---------- Caixa de conhecimento: a memória que todos os agentes (e o programador automático) leem antes de trabalhar ----------
+const CON_TIPOS = {briefing: "📌 Briefing", regra: "⚖️ Regra", procedimento: "🛠️ Procedimento", decisao: "✅ Decisão", aprendizado: "💡 Aprendizado", conversa: "💬 Conversa"};
+async function telaConhecimento() {
+  const main = $("#main");
+  main.innerHTML = opsAbas("conhecimento") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a caixa de conhecimento</div></div>`;
+  let r;
+  try { r = await api("conhecimento", S.conQ ? {q: S.conQ} : {}); } catch (e) { main.innerHTML = opsAbas("conhecimento") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/central/conhecimento")) return;
+  main.innerHTML = opsAbas("conhecimento") + `<div class="es-cab"><h1>📚 Caixa de conhecimento</h1>
+      <span class="muted">o que os agentes leem antes de trabalhar · o Hermes documenta as conversas aqui</span>
+      <div class="acoes"><button class="btn small primary" id="con-novo">+ Adicionar</button></div></div>
+    <div class="es-filtros"><input type="search" id="con-q" placeholder="Buscar no conhecimento…" value="${esc(S.conQ || "")}"></div>
+    ${r.itens.length ? r.itens.map(c => `<details class="card pad con-it" style="margin-top:10px" ${c.fixo ? "open" : ""}><summary><b>${esc(CON_TIPOS[c.tipo] || c.tipo)}</b> · ${esc(c.titulo)}
+        ${c.fixo ? `<span class="chip" style="background:var(--soft)">sempre lido</span>` : ""}<span class="muted" style="font-size:12px"> · ${esc(c.autor || "")} · ${esc(desde(c.atualizado_em))}</span></summary>
+        ${mdCodigo(c.texto)}<div class="muted" style="font-size:12px;margin-top:6px">${c.fonte ? "fonte: " + esc(c.fonte) + " · " : ""}<a href="#" data-con-ed="${c.id}">editar</a></div></details>`).join("")
+      : `<div class="card empty"><p>Nada encontrado.</p></div>`}`;
+  const ed = c => {
+    const titulo = prompt("Título:", c?.titulo || ""); if (!titulo) return;
+    const texto = prompt("Texto (pode colar vários parágrafos):", c?.texto || ""); if (!texto) return;
+    const tipo = prompt("Tipo (" + Object.keys(CON_TIPOS).join(", ") + "):", c?.tipo || "aprendizado") || "aprendizado";
+    api("conhecimento_salvar", {}, {method: "POST", body: JSON.stringify({id: c?.id, titulo, texto, tipo})}).then(() => telaConhecimento()).catch(e => toast(e.message, 6000));
+  };
+  $("#con-novo").onclick = () => ed(null);
+  main.querySelectorAll("[data-con-ed]").forEach(a => a.onclick = e => { e.preventDefault(); ed(r.itens.find(x => x.id === +a.dataset.conEd)); });
+  let tq; $("#con-q").oninput = e => { clearTimeout(tq); tq = setTimeout(() => { S.conQ = e.target.value.trim(); telaConhecimento().then(() => { const i = $("#con-q"); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 400); };
+  desenharMenu();
 }
 // ---------- Agentes: status, custo (tokens × preço), teste de versão e apelido ----------
 const AG_ST = {"executando": ["warn", "⚙️ executando"], "ativo": ["good", "● ativo"], "com erro": ["bad", "com erro"], "sem chave": ["", "sem chave"], "parado": ["", "○ sem atividade 24h"]};

@@ -566,3 +566,15 @@ on conflict (id) do nothing;
 update public.rotinas set horario = '01:00' where id = 'coleta';   -- 25/09: a coleta roda de madrugada (o vigia segue este horário)
 update public.rotinas set horario = '00:40', ativo = true where id = 'gestor';
 alter table public.mac_comandos add column if not exists tarefa_id bigint;   -- comando pedido pelo agente de um card: a saída volta para o card
+
+-- Caixa de conhecimento: a memória que todos os agentes e o programador automático leem antes de trabalhar
+create table if not exists public.conhecimento (
+  id bigint generated always as identity primary key,
+  criado_em timestamptz not null default now(), atualizado_em timestamptz not null default now(),
+  tipo text not null default 'aprendizado', titulo text not null, texto text not null,
+  autor text, fonte text, fixo boolean not null default false, tags text[]
+);
+create index if not exists conhecimento_data on public.conhecimento (fixo desc, atualizado_em desc);
+alter table public.conhecimento enable row level security;
+create policy "autorizado" on public.conhecimento for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
