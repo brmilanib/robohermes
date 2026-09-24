@@ -1792,7 +1792,7 @@ def cmd_vigiar():
         print(f"{datetime.now():%d/%m %H:%M} despachante: {e}", flush=True)
     marca = PASTA / "vigia.ultimo"
     try:
-        if time.time() - marca.stat().st_mtime < 14 * 60:
+        if time.time() - marca.stat().st_mtime < 4 * 60:      # a cada ~5 min: versão nova, pedidos e horários das rotinas
             return 0
     except OSError:
         pass
@@ -1833,6 +1833,9 @@ def cmd_vigiar():
         if not motivo and _estoque_na_hora(cfg, token):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do estoque do UpSeller -> atualizando", flush=True)
             os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "estoque"])
+        if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas"):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Gestor Seller -> importando a planilha", flush=True)
+            os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "gestor"])
     except Exception as e:  # noqa: BLE001
         print(f"{datetime.now():%d/%m %H:%M} vigia: sem contato com o nubi ({e})", flush=True)
     if not motivo:
@@ -1878,15 +1881,23 @@ def _coleta_na_hora(cfg, token):
 
 def _estoque_na_hora(cfg, token):
     """Rotina 'estoque' (madrugada): o nubi diz se está na hora e ainda não rodou hoje; no máximo 3 tentativas por dia."""
-    r = api(token, "estoque_pendente", timeout=30)
+    return _na_hora(cfg, token, "estoque_pendente", "estoque_tentativas")
+
+
+def _na_hora(cfg, token, rota, chave):
+    """Rotina do Mac com horário no nubi (estoque, gestor): está na hora e ainda não deu certo hoje? Máx. 3 tentativas/dia."""
+    try:
+        r = api(token, rota, timeout=30)
+    except Exception:  # noqa: BLE001
+        return False
     if not r.get("rodar"):
         return False
     hoje = date.today().isoformat()
-    tent = {k: v for k, v in (cfg.get("estoque_tentativas") or {}).items() if k == hoje}
+    tent = {k: v for k, v in (cfg.get(chave) or {}).items() if k == hoje}
     if tent.get(hoje, 0) >= 3:
         return False
     tent[hoje] = tent.get(hoje, 0) + 1
-    cfg["estoque_tentativas"] = tent
+    cfg[chave] = tent
     salvar_config(cfg)
     return True
 
@@ -2074,15 +2085,7 @@ def main():
     if args.cmd in ("diario", "vendedores", "marcas", "dias", "estoque"):
         instalar_vigia()
     if args.cmd == "estoque":
-        rc = executar("estoque", lambda p, cfg, token: coletar_estoque(p, cfg, token, not args.sem_enviar))
-        if rc == 0 and not args.sem_enviar:
-            try:
-                auto = api(token_nubi(ler_config()), "gestor_auto", timeout=30).get("ligado")
-            except Exception:  # noqa: BLE001
-                auto = False
-            if auto:                                      # rotina 'gestor' ligada: importa no Gestor logo depois do estoque
-                return executar("gestor", coletar_gestor)
-        return rc
+        return executar("estoque", lambda p, cfg, token: coletar_estoque(p, cfg, token, not args.sem_enviar))
     if args.cmd == "gestor":
         return executar("gestor", coletar_gestor)
     if args.cmd == "atualizar":

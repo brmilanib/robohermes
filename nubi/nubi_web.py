@@ -2282,6 +2282,18 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         com = [it for it in _estoque_itens_ordem(repo, ult["id"]) if it.get("custo_medio") and float(it["custo_medio"]) > 0]
         idx = sorted({0, len(com) // 2, len(com) - 1}) if com else []
         return {"skus": [{"sku": com[i]["sku"], "custo": round(float(com[i]["custo_medio"]), 2)} for i in idx]}
+    if rota == "gestor_pendente":
+        # rotina 'gestor' (ex.: 00:40, 10 min depois do estoque): importa 1 vez por dia, só se o estoque de hoje já entrou
+        rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.gestor"}) or [None])[0]
+        agora = _agora_br()
+        na_hora = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "00:40"))
+        ok = (repo._req("GET", "coletor_execucoes", {"select": "iniciado_em", "tarefa": "eq.gestor", "ok": "eq.true", "order": "id.desc", "limit": 1})
+              or [None])[0]
+        feito = bool(ok and _br(ok["iniciado_em"]).date() == agora.date())
+        est = (repo._req("GET", "estoque_atualizacoes", {"select": "criado_em", "origem": "eq.coletor", "order": "id.desc", "limit": 1}) or [None])[0]
+        estoque_hoje = bool(est and _br(est["criado_em"]).date() == agora.date())
+        return {"rodar": na_hora and not feito and estoque_hoje, "feito_hoje": feito, "estoque_hoje": estoque_hoje,
+                "horario": (rot or {}).get("horario")}
     if rota == "gestor_auto":
         # depois de cada estoque, o coletor pergunta se importa no Gestor Seller sozinho (rotina 'gestor' ligada)
         rot = (repo._req("GET", "rotinas", {"select": "ativo", "id": "eq.gestor"}) or [None])[0]
@@ -2317,10 +2329,10 @@ def rota_estoque(repo, metodo, rota, q, corpo):
                                                          "order": "id.desc", "limit": 1}) or [None])[0]
         gestor = repo._req("GET", "coletor_execucoes", {"select": "iniciado_em,terminado_em,ok,mensagem,em_andamento", "tarefa": "eq.gestor",
                                                         "order": "id.desc", "limit": 8}) or []
-        rot_g = (repo._req("GET", "rotinas", {"select": "ativo", "id": "eq.gestor"}) or [None])[0]
+        rot_g = (repo._req("GET", "rotinas", {"select": "ativo,horario", "id": "eq.gestor"}) or [None])[0]
         pend_g = repo._req("GET", "coletor_pedidos", {"select": "id,pedido_em", "atendido_em": "is.null", "tarefa": "eq.gestor", "limit": 1}) or []
         return {"atual": atual, "itens": _estoque_itens(repo, aid), "historico": hist, "rotina": rot, "ultima_execucao": falha,
-                "gestor": {"importacoes": gestor, "automatico": bool(rot_g and rot_g.get("ativo")), "pedido": pend_g[0] if pend_g else None}}
+                "gestor": {"importacoes": gestor, "automatico": bool(rot_g and rot_g.get("ativo")), "horario": (rot_g or {}).get("horario"), "pedido": pend_g[0] if pend_g else None}}
     raise ErroNuvem("Rota desconhecida.", 404)
 
 

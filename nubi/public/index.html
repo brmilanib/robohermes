@@ -2324,8 +2324,8 @@ async function telaGestor() {
         <div class="acoes"><button class="btn small primary" id="gs-importar" ${g.pedido ? "disabled" : ""}>${g.pedido ? "⏳ Pedido na fila…" : "Importar agora"}</button></div></div>
       <p class="muted" style="font-size:12.5px;margin:6px 0 10px">O coletor do Mac baixa esta planilha e importa em <b>Gerenciamento → Produtos internos → Importar por planilha</b>,
         com o período de atualização <b>padrão</b> (custos só nas novas vendas a partir de hoje). ${g.automatico
-          ? "<b>Automático ligado:</b> importa sozinho logo depois de cada atualização do estoque."
-          : "Automático <b>desligado</b>: só importa quando você pedir. Para ligar depois de cada estoque, ative “Planilha no Gestor Seller” em Central → Rotinas."}</p>
+          ? `<b>Automático ligado:</b> importa sozinho todo dia às ${esc(g.horario || "00:40")}, depois do estoque do UpSeller, e confere o custo de 3 SKUs no Gestor.`
+          : "Automático <b>desligado</b>: só importa quando você pedir. Para ligar, ative “Planilha no Gestor Seller” em Central → Rotinas."}</p>
       ${(g.importacoes || []).length ? `<ul class="es-log">${g.importacoes.map(x => `<li><b>${esc(quandoES(x.iniciado_em))}</b> · ${x.em_andamento ? "⏳ importando…" : x.ok ? "✅" : "⚠️"} ${esc((x.mensagem || "").slice(0, 220))}</li>`).join("")}</ul>`
         : `<p class="muted" style="font-size:12.5px;margin:0">Nenhuma importação ainda.</p>`}</div>
     <div class="card pad" style="margin-top:14px"><h2>Prévia (primeiras 20 linhas)</h2>

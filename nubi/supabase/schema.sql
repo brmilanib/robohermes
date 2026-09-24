@@ -558,9 +558,10 @@ insert into public.agentes (id, nome, icone, cor, papel, onde, ordem) values
   ('estoquista', 'Estoquista', '📦', '#2f7d5b', 'Analisa cada atualização do estoque: o que entrou, saiu, zerou, estoque baixo e sem custo', 'gpt-oss grátis (DeepSeek/Claude de reserva)', 7)
 on conflict (id) do nothing;
 alter table public.estoque_itens add column if not exists ordem int;   -- posição na planilha do UpSeller (a planilha do Gestor Seller segue a mesma ordem)
--- Gestor Seller: importar a planilha (Produtos internos) logo depois do estoque; começa desligada (o Bruno liga quando confiar)
+-- Gestor Seller: importar a planilha (Produtos internos) às 00:40, 10 min depois do estoque (ligada pelo Bruno em 25/09)
 insert into public.rotinas (id, nome, descricao, responsavel, horario, dias_semana, ativo, ordem) values
   ('gestor', 'Planilha no Gestor Seller', 'Depois de cada estoque do UpSeller, o coletor importa a planilha do nubi em Gestor Seller → Produtos internos (período padrão: custos só nas novas vendas).',
    'Mac mini (coletor)', '03:00', array['seg','ter','qua','qui','sex','sab','dom'], false, 6)
 on conflict (id) do nothing;
 update public.rotinas set horario = '01:00' where id = 'coleta';   -- 25/09: a coleta roda de madrugada (o vigia segue este horário)
+update public.rotinas set horario = '00:40', ativo = true where id = 'gestor';
