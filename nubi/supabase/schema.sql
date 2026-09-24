@@ -373,3 +373,14 @@ language sql stable security invoker set search_path = public as $$
   from vend_vendas_dia d where d.data between desde and ate order by d.data, d.vendedor;
 $$;
 -- vend_dia_produtos(desde, ate, so_vendedor, lim) e vend_dia_semana(desde, ate, so_vendedor): ver migration vend_dia_funcoes
+
+-- Produtos iguais: títulos sem GTIN que são o mesmo perfume (embeddings + regras), juntados nas análises
+create table if not exists public.produto_grupos (
+  chave text primary key, grupo text not null, titulo text, marca text, grupo_titulo text,
+  similaridade real, metodo text not null default 'ia', atualizado_em timestamptz not null default now()
+);
+alter table public.produto_grupos enable row level security;
+create policy "autorizado" on public.produto_grupos
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+-- vend_dia_produtos junta pelo grupo (left join produto_grupos, metodo = 'ia'): ver migration produto_grupos
+alter table public.ia_resumos add column if not exists dados jsonb;

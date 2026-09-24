@@ -28,6 +28,7 @@ import ranking
 import categorias
 import ia
 import pesquisa_marca
+import produtos_iguais
 import vend_bi
 import vendedores
 
@@ -1109,7 +1110,9 @@ def _comparativo(repo, fotos=None):
         x["var"] = (x["v"] / x["v_ant"] - 1) if x["v_ant"] else None
     # produtos que mais ganharam e perderam vendas (só com foto exata do mês anterior)
     por_chave = {}
+    grp = _mapa_grupos(repo)
     for (v, k), p in prod.items():
+        k = grp.get(k, k)
         if not vend.get(v, {}).get("exato"):
             continue
         c = por_chave.setdefault(k, {"chave": k, "u": 0, "u_ant": 0, "v": 0.0, "v_ant": 0.0, "vendedores": set()})
@@ -1156,6 +1159,47 @@ def _vendas_dias(repo, desde, ate):
                                                         "order": "data,vendedor"}) if str(r["data"])[:10] <= ate]
 
 
+def _mapa_grupos(repo):
+    """{chave: grupo} dos produtos iguais juntados pela IA (títulos diferentes do mesmo perfume)."""
+    try:
+        return {r["chave"]: r["grupo"] for r in repo._todos("produto_grupos", {"select": "chave,grupo", "metodo": "eq.ia"})}
+    except ErroNuvem:
+        return {}
+
+
+def agrupar_produtos(repo):
+    """Tarefa de rotina: junta os títulos sem GTIN que são o mesmo perfume (embeddings + regras) em produto_grupos."""
+    rels = _vend_rels(repo)
+    if not rels:
+        return "nenhum vendedor importado"
+    meses = sorted({r["mes"][:7] for r in rels})[-2:]
+    ids = [r["id"] for r in rels if r["mes"][:7] in meses]
+    por = {}
+    for l in _prod_mes(repo, ids):
+        x = por.setdefault(l["chave"], {"chave": l["chave"], "titulo": "", "marca": l.get("marca") or "", "v": 0.0, "_v": -1})
+        v = float(l.get("vendas") or 0)
+        x["v"] += v
+        if v > x["_v"]:
+            x["titulo"], x["marca"], x["_v"] = l.get("titulo") or "", l.get("marca") or x["marca"], v
+    itens = sorted(por.values(), key=lambda x: -x["v"])
+    sem = [x for x in itens if x["chave"].startswith("T:")]
+    if not sem:
+        return "nenhum produto sem GTIN"
+    marcas_sem = {x["marca"].upper() for x in sem}
+    itens = [x for x in itens if x["marca"].upper() in marcas_sem][:4000]
+    bloqueados = {r["chave"] for r in repo._todos("produto_grupos", {"select": "chave", "metodo": "eq.separado"})}
+    vet = ia.embeddings([produtos_iguais.texto_embedding(x) for x in itens])
+    res = produtos_iguais.agrupar(itens, vet, bloqueados)
+    nomes = {x["chave"]: x for x in itens}
+    repo._req("DELETE", "produto_grupos", {"metodo": "eq.ia"})
+    regs = [{"chave": k, "grupo": g, "titulo": nomes[k]["titulo"][:200], "marca": nomes[k]["marca"],
+             "grupo_titulo": nomes[g]["titulo"][:200], "similaridade": round(sim, 4), "metodo": "ia",
+             "atualizado_em": datetime.now(timezone.utc).isoformat()} for k, (g, sim) in res.items()]
+    for i in range(0, len(regs), 500):
+        repo._req("POST", "produto_grupos", corpo=regs[i:i + 500], prefer="resolution=merge-duplicates,return=minimal")
+    return f"{len(regs)} título(s) juntado(s) a outro do mesmo produto ({len(sem)} produtos sem GTIN conferidos)"
+
+
 def _painel_dia(repo, d=None):
     """
     Venda isolada do último dia liberado (export de 1 dia de cada vendedor): quem mais vendeu, quem mais caiu e os
@@ -1168,8 +1212,11 @@ def _painel_dia(repo, d=None):
         d = str(ult[0]["data"])[:10]
     desde = (date.fromisoformat(d) - timedelta(days=7)).isoformat()
     rows = _vendas_dias(repo, desde, d)
+    grp = _mapa_grupos(repo)
     for r in rows:
         r["data"] = str(r["data"])[:10]
+        for it in r["itens"] or []:
+            it["k"] = grp.get(it["k"], it["k"])
     ant = sorted({r["data"] for r in rows if r["data"] < d})
     n = len(ant)
     base, pbase, hoje, prod = {}, {}, {}, {}
@@ -1200,7 +1247,8 @@ def _painel_dia(repo, d=None):
     for r in (_vendas_dias(repo, d_mes, d_mes) if d_mes else []):
         vm[r["vendedor"]] = float(r["v"] or 0)
         for it in r["itens"] or []:
-            pm[it["k"]] = pm.get(it["k"], 0.0) + float(it.get("v") or 0)
+            k = grp.get(it["k"], it["k"])
+            pm[k] = pm.get(k, 0.0) + float(it.get("v") or 0)
     ritmo = {}
     if not n:                                            # sem dias anteriores: ritmo do mês (fotos acumuladas)
         try:
@@ -1544,7 +1592,7 @@ def resumos_marcas_pendentes(repo):
 # A coleta roda no Mac mini (launchd) e só consulta se está ligada no dia.
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
-NO_SERVIDOR = ("resumo_dia", "resumo_semana", "resumo_marcas", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
+NO_SERVIDOR = ("produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
 
@@ -1590,7 +1638,9 @@ def rodar_rotinas(repo, so=None):
         if not r or (so and rid != so) or (not so and not rotina_pendente(r, agora)):
             continue
         try:
-            if rid == "resumo_dia":
+            if rid == "produtos_ia":
+                res = agrupar_produtos(repo)
+            elif rid == "resumo_dia":
                 x = gerar_resumo_dia(repo, forcar=bool(so))
                 res = f"dados até {_ddmm(x['atual']['chave'].split('|')[1])}: " + ("gerado" if x["novo"] else "já existia")
             elif rid == "resumo_semana":
@@ -2122,6 +2172,30 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
                 "dias": dias, "coletados": sorted(coletados), "vendedores": vs, "semana": sem, "produtos": prods,
                 "dia": dia, "painel": pnl, "itens_dia": itens, "vendedor": vend,
                 "todos_vendedores": todos}
+
+    if rota == "vend_produtos_iguais":
+        # grupos que a IA juntou (para conferir e separar o que estiver errado)
+        rs = repo._todos("produto_grupos", {"select": "*", "order": "marca,grupo"})
+        grupos = {}
+        for r in rs:
+            if r["metodo"] != "ia":
+                continue
+            g = grupos.setdefault(r["grupo"], {"grupo": r["grupo"], "titulo": r.get("grupo_titulo") or r["grupo"],
+                                               "marca": r.get("marca") or "", "membros": []})
+            g["membros"].append({"chave": r["chave"], "titulo": r.get("titulo"), "similaridade": r.get("similaridade")})
+        separados = [r for r in rs if r["metodo"] == "separado"]
+        return {"grupos": sorted(grupos.values(), key=lambda g: (g["marca"], g["titulo"] or "")), "separados": separados}
+
+    if rota == "vend_produto_separar" and metodo == "POST":
+        d = json.loads(corpo or b"{}")
+        k = d.get("chave") or ""
+        if d.get("desfazer"):
+            repo._req("DELETE", "produto_grupos", {"chave": repo._eq(k), "metodo": "eq.separado"})
+        else:
+            repo._req("POST", "produto_grupos", corpo=[{"chave": k, "grupo": k, "titulo": d.get("titulo") or "", "metodo": "separado",
+                                                         "atualizado_em": datetime.now(timezone.utc).isoformat()}],
+                      prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True}
 
     if rota == "vend_periodo":
         return _comparativo(repo)

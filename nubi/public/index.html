@@ -476,7 +476,7 @@ const SECOES = [
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -559,6 +559,7 @@ function desenharMenu() {
     <div class="grupo">Ajustes</div>
     ${it("#/nomes-marcas", "🔗", "Nomes de marcas", h.startsWith("#/nomes-marcas"))}
     ${it("#/nomes-vendedores", "🔗", "Nomes de vendedores", h.startsWith("#/nomes-vendedores"))}
+    ${it("#/produtos-iguais", "🧩", "Produtos iguais (IA)", h.startsWith("#/produtos-iguais"))}
     ${it("#/coletor", "📥", "Coletor e agentes", h === "#/coletor")}
     <div class="subnav"><a class="${h.startsWith("#/coletor/rotinas") ? "on" : ""}" href="#/coletor/rotinas">🗓️ Tarefas de rotina</a></div>`;
   desenharVendMenu();
@@ -619,6 +620,7 @@ async function rotear() {
     if (location.hash.startsWith("#/nomes-vendedores")) return telaNomesVendedores();
     if (location.hash.startsWith("#/alertas")) return telaAlertas();
     if (location.hash.startsWith("#/vendas-dia")) return telaVendasDia();
+    if (location.hash.startsWith("#/produtos-iguais")) return telaProdutosIguais();
     const h = decodeURIComponent(location.hash);
     const m = h.match(/^#\/vendedores\/([^/?]+)(?:\/(\d{4}-\d{2}|alertas))?/);
     if (m) return m[2] && m[2] !== "alertas" ? telaVendedor(m[1], m[2]) : telaVendedorAno(m[1], m[2] === "alertas");
@@ -1550,6 +1552,42 @@ async function telaVendasDia() {
   desenharMenu();
 }
 
+// ---------- Produtos iguais: títulos diferentes do mesmo perfume que a IA juntou (conferir e separar) ----------
+async function telaProdutosIguais() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando os produtos juntados</div></div>`;
+  let r;
+  try { r = await api("vend_produtos_iguais"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const q = (S.piBusca || "").toLowerCase();
+  const gs = r.grupos.filter(g => !q || (g.titulo + " " + g.marca + " " + g.membros.map(m => m.titulo).join(" ")).toLowerCase().includes(q));
+  main.innerHTML = `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>🧩 Produtos iguais</h1>
+      <span class="muted">${r.grupos.length} produto(s) com títulos juntados · ${r.grupos.reduce((a, g) => a + g.membros.length, 0)} título(s)</span><div style="flex:1"></div>
+      <input type="search" id="pi-busca" placeholder="Buscar produto ou marca…" value="${esc(S.piBusca || "")}" style="min-width:240px"></div>
+    <p class="muted" style="margin:4px 0 0;font-size:13px">Anúncios sem GTIN que são o mesmo perfume escrito de outro jeito. A IA compara o sentido dos títulos e só junta
+      quando marca, tamanho, concentração (EDT/EDP/Elixir), gênero e o nome do perfume batem. Nas análises (vendas diárias, resumo do dia, mesmo período)
+      eles contam como um produto só. Achou um errado? <b>Separar</b> tira o título do grupo e a IA não junta mais. Roda todo dia às 5h30 (Tarefas de rotina).</p>
+    ${!r.grupos.length ? `<div class="card empty" style="margin-top:14px"><h2>Nada juntado ainda</h2><p>A tarefa "Juntar produtos iguais (IA)" roda de madrugada. Para rodar agora: Coletor e agentes → Tarefas de rotina → ▶ Rodar agora.</p></div>` : ""}
+    <div class="bi-grid">${gs.slice(0, 200).map(g => `<div class="card pad bi-card"><h2 style="font-size:14px">${vprodLink(g.grupo, g.titulo, "")}</h2>
+      <div class="sub">${esc(g.marca)} · ${g.grupo.startsWith("T:") ? "sem GTIN (o título que mais vende dá o nome)" : "GTIN " + esc(g.grupo)}</div>
+      <table class="t" style="font-size:12.5px"><tbody>${g.membros.map(m => `<tr><td class="first wrap">${esc(m.titulo || m.chave)}</td>
+        <td class="num muted" title="parecença dos títulos (1 = igual)">${m.similaridade != null ? nf2.format(m.similaridade) : ""}</td>
+        <td class="num"><button class="btn small" data-sep="${esc(m.chave)}" data-tit="${esc(m.titulo || "")}">Separar</button></td></tr>`).join("")}</tbody></table></div>`).join("")}</div>
+    ${r.separados.length ? `<div class="card pad" style="margin-top:14px"><h2>Separados à mão (${r.separados.length})</h2><div class="sub">A IA não junta estes títulos. Desfazer deixa ela avaliar de novo na próxima rodada.</div>
+      <table class="t" style="font-size:12.5px"><tbody>${r.separados.map(x => `<tr><td class="first wrap">${esc(x.titulo || x.chave)}</td>
+        <td class="num"><button class="btn small" data-desf="${esc(x.chave)}">Desfazer</button></td></tr>`).join("")}</tbody></table></div>` : ""}`;
+  const b = $("#pi-busca");
+  b.oninput = e => { S.piBusca = e.target.value; clearTimeout(S.piT); S.piT = setTimeout(async () => { await telaProdutosIguais(); const n = $("#pi-busca"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 300); };
+  main.querySelectorAll("[data-sep]").forEach(x => x.onclick = async () => {
+    try { await api("vend_produto_separar", {}, {method: "POST", body: JSON.stringify({chave: x.dataset.sep, titulo: x.dataset.tit})}); toast("Separado. A IA não junta mais este título."); telaProdutosIguais(); }
+    catch (e) { toast(e.message, 6000); }
+  });
+  main.querySelectorAll("[data-desf]").forEach(x => x.onclick = async () => {
+    try { await api("vend_produto_separar", {}, {method: "POST", body: JSON.stringify({chave: x.dataset.desf, desfazer: 1})}); telaProdutosIguais(); }
+    catch (e) { toast(e.message, 6000); }
+  });
+  desenharMenu();
+}
+
 // ---------- Tarefas de rotina (editável: responsável, horário, dias, ligada/desligada e observação) ----------
 const RESPONSAVEIS = ["Coletor (Mac mini)", "Robô nubi (servidor)", "ChatGPT", "Claude", "Você"];
 const DIAS_NOME = {seg: "Seg", ter: "Ter", qua: "Qua", qui: "Qui", sex: "Sex", sab: "Sáb", dom: "Dom"};
@@ -1558,14 +1596,14 @@ async function telaRotinas() {
   main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando tarefas</div></div>`;
   let r;
   try { r = await api("rotinas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  const sistema = id => ["coleta", "agente", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
+  const sistema = id => ["coleta", "agente", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
   const quandoTxt = t => t.dia_mes ? `todo dia ${t.dia_mes} do mês (e depois, se faltar)` : (t.dias_semana || []).length === 7 ? "todo dia"
     : (t.dias_semana || []).length ? (t.dias_semana || []).map(d => DIAS_NOME[d]).join(", ") : "nenhum dia";
   const card = t => `<div class="card pad rot-card" data-id="${esc(t.id)}">
     <div class="cab"><h2>${t.ativo ? "🟢" : "⚪️"} ${esc(t.nome)}</h2><span class="st">${esc(t.responsavel)}</span>
       <span class="muted" style="font-size:12.5px">${t.id === "coleta" ? "07:00 (no Mac)" : esc(t.horario)} · ${esc(quandoTxt(t))}</span>
       ${t.pendente ? `<span class="st warn">na fila desta hora</span>` : ""}<div style="flex:1"></div>
-      ${["agente", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(t.id) ? `<button class="btn small" data-rodar="${esc(t.id)}">▶ Rodar agora</button>` : ""}
+      ${["agente", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(t.id) ? `<button class="btn small" data-rodar="${esc(t.id)}">▶ Rodar agora</button>` : ""}
       ${sistema(t.id) ? "" : `<button class="btn small" data-apagar="${esc(t.id)}" title="Apagar tarefa">🗑</button>`}</div>
     <div class="rot-form">
       <label class="l2">Tarefa<input data-f="nome" value="${esc(t.nome)}"></label>
