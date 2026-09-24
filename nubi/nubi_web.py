@@ -30,6 +30,7 @@ import ia
 import pesquisa_marca
 import produtos_iguais
 import auditoria
+import agentes
 import reuniao
 import vend_bi
 import vendedores
@@ -494,6 +495,7 @@ def _preparar(repo):
 # ---------------------------------------------------------------------------
 
 AGENTE_EMAIL = os.environ.get("NUBI_AGENTE_EMAIL", "")
+AGENTES_LOCAIS = ("Hermes", "Qwen Coder", "DeepSeek R1 (Mac)")   # modelos grátis que rodam no Mac mini (Ollama)
 AGENTE_SENHA = os.environ.get("NUBI_AGENTE_SENHA", "")
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 TEMPO_MAX = 240          # segundos por rodada (a função da Vercel tem 300)
@@ -705,7 +707,20 @@ def atender(metodo, rota, q, corpo, token):
             msgs = repo._todos("reuniao_mensagens", {"select": "id,autor,texto,criado_em,meta", "id": f"gt.{apos}", "order": "id"})
             if not apos:
                 msgs = msgs[-200:]
-            return _json({"mensagens": msgs, "agentes": {k: ia.tem(k) for k in ("chatgpt", "deepseek", "claude")}})
+            return _json({"mensagens": msgs, "agentes": {k: ia.tem(k) for k in ("chatgpt", "deepseek", "claude")},
+                          **({"sistema": agentes.SISTEMA} if q.get("sistema") else {})})
+        if rota == "reuniao_postar" and metodo == "POST":
+            # agentes locais do Mac mini (Hermes e outros via Ollama) postam a resposta sem abrir uma rodada nova
+            d = json.loads(corpo or b"{}")
+            autor, texto = str(d.get("autor") or "").strip(), str(d.get("texto") or "").strip()
+            if autor not in AGENTES_LOCAIS:
+                raise ErroNuvem(f"Autor não permitido: {autor or '?'}.")
+            if not texto:
+                raise ErroNuvem("Mensagem vazia.")
+            r = repo._req("POST", "reuniao_mensagens", corpo=[{"autor": autor, "texto": texto[:8000],
+                          "meta": {"local": True, "modelo": str(d.get("modelo") or "")[:60]},
+                          "criado_em": datetime.now(timezone.utc).isoformat()}], prefer="return=representation")
+            return _json({"ok": True, "id": (r or [{}])[0].get("id")})
         if rota == "reuniao_enviar" and metodo == "POST":
             d = json.loads(corpo or b"{}")
             texto = str(d.get("texto") or "").strip()

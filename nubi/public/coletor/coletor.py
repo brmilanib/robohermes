@@ -17,6 +17,7 @@ Depois, os comandos ficam em ~/.nubi-coletor/coletor (ex.: ~/.nubi-coletor/colet
   python coletor.py marcas [--mes AAAA-MM] [--sem-enviar]
   python coletor.py status          última coleta e o que já está no nubi
   python coletor.py atualizar       baixa a versão mais nova do coletor
+  python coletor.py hermes          o Hermes (Ollama, no Mac) lê a Sala de reunião e dá a opinião dele
   (qualquer coleta aceita --ver para mostrar a janela do navegador e acompanhar)
 
 Os caminhos, botões e endereços do Nubimetrics seguem o mapeamento feito com o Claude do
@@ -1323,6 +1324,42 @@ def auto_atualizar():
     os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve())] + sys.argv[1:])
 
 
+OLLAMA = "http://localhost:11434/v1/chat/completions"
+PAPEL_HERMES = ("Você é o Hermes, agente de IA do nubi que roda de graça no Mac mini do dono (Ollama). Seu forte: trabalho de "
+                "volume e rotina 24h (vigiar erros, ler logs, criar testes, documentar, organizar a memória do projeto). "
+                "Está no grupo com o dono, ChatGPT (Codex), DeepSeek e Claude (que coordena e decide). Responda à última "
+                "mensagem ou pauta do grupo: português, direto, até 10 linhas, com a sua opinião, riscos e no máximo 3 "
+                "sugestões concretas. Diga com honestidade o que um modelo local pequeno faz bem e o que não deve fazer. "
+                "Não invente números.")
+
+
+def cmd_hermes(args, cfg):
+    """Hermes (Ollama, no Mac) lê a Sala de reunião do nubi e posta a opinião dele."""
+    token = token_nubi(cfg)
+    sala = api(token, "reuniao", {"sistema": "1"})
+    msgs = sala.get("mensagens") or []
+    hist = "\n".join(f"[{m['autor']}] {m['texto'][:2500]}" for m in msgs[-args.ultimas:])
+    pedido = PAPEL_HERMES + (f"\nPERGUNTA DO DONO PARA VOCÊ: {args.pergunta}" if args.pergunta else "") + f"\n\nCONVERSA:\n{hist}"
+    corpo = {"model": args.modelo, "stream": False,
+             "messages": [{"role": "system", "content": sala.get("sistema") or ""}, {"role": "user", "content": pedido}]}
+    print(f"Hermes ({args.modelo}) lendo as últimas {min(len(msgs), args.ultimas)} mensagens da Sala…", flush=True)
+    try:
+        req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=900) as r:
+            texto = json.loads(r.read().decode())["choices"][0]["message"]["content"].strip()
+    except urllib.error.URLError as e:
+        print(f"Não consegui falar com o Ollama ({e}). Abra o app Ollama (lhama na barra de cima) e confira: "
+              f"ollama list  (o modelo {args.modelo} precisa aparecer).")
+        return 1
+    if not texto:
+        print("O Hermes devolveu resposta vazia; nada foi postado.")
+        return 1
+    print("\n" + texto + "\n", flush=True)
+    api(token, "reuniao_postar", corpo={"autor": "Hermes", "texto": texto, "modelo": args.modelo}, metodo="POST")
+    print("OK: resposta do Hermes postada na Sala de reunião.")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="Coletor do Nubimetrics para o nubi")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1346,6 +1383,10 @@ def main():
     ds.add_argument("--desde", help="primeiro dia, ex.: 2026-08-01")
     ds.add_argument("--ate", help="último dia (padrão: o último liberado)")
     ds.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
+    hm = sub.add_parser("hermes", help="o Hermes (Ollama, no Mac) lê a Sala de reunião e posta a opinião dele")
+    hm.add_argument("pergunta", nargs="?", default="", help="pergunta para o Hermes (opcional)")
+    hm.add_argument("--modelo", default="hermes3:8b")
+    hm.add_argument("--ultimas", type=int, default=20, help="quantas mensagens da Sala ele lê")
     mk = sub.add_parser("marcas")
     mk.add_argument("--mes")
     mk.add_argument("--sem-enviar", action="store_true")
@@ -1376,8 +1417,10 @@ def main():
         return 0
     if args.cmd == "vigiar":
         return cmd_vigiar()
-    if args.cmd in ("diario", "vendedores", "marcas", "dias") and not os.environ.get("NUBI_ATUALIZADO"):
+    if args.cmd in ("diario", "vendedores", "marcas", "dias", "hermes") and not os.environ.get("NUBI_ATUALIZADO"):
         auto_atualizar()
+    if args.cmd == "hermes":
+        return cmd_hermes(args, cfg)
     if args.cmd in ("diario", "vendedores", "marcas", "dias"):
         instalar_vigia()
     if args.cmd == "atualizar":
