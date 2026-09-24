@@ -787,8 +787,11 @@ def atender(metodo, rota, q, corpo, token):
             agora_ = datetime.now(timezone.utc).isoformat()
             repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": tid, "autor": "voce", "tipo": "resposta", "texto": texto[:4000],
                                                         "criado_em": agora_}], prefer="return=minimal")
-            repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo={"aguardando": None, "atualizado_em": agora_},
-                      prefer="return=minimal")
+            mud = {"aguardando": None, "atualizado_em": agora_}
+            atual = (repo._req("GET", "reuniao_tarefas", {"select": "status", "id": repo._eq(tid)}) or [{}])[0]
+            if atual.get("status") == "proposta" and dec in ("aprovar", "recusar"):
+                mud.update(status="aprovada" if dec == "aprovar" else "recusada", decidido_por="Bruno")
+            repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo=mud, prefer="return=minimal")
             return _json({"ok": True})
         if rota == "reuniao_tarefa_salvar" and metodo == "POST":
             d = json.loads(corpo or b"{}")

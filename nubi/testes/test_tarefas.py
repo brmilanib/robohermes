@@ -114,6 +114,47 @@ def test_17_uso_sem_numero_fica_nulo():
     assert ia._tokens({"usage": {"input_tokens": 10, "output_tokens": 3, "cache_read_input_tokens": 5}}) == (15, 3)
 
 
+def test_aprovacao_automatica_por_risco():
+    import reuniao
+    reuniao.ia.tem = lambda q: q == "claude"
+    decisao = {"resposta": "ok", "tarefas": [
+        {"titulo": "Ajustar texto do alerta", "descricao": "trocar a frase", "status": "aprovada", "risco": "baixo"},
+        {"titulo": "Mudar a senha do agente", "descricao": "trocar a senha", "status": "aprovada", "risco": "baixo"},
+        {"titulo": "Reescrever o cálculo de comissão", "descricao": "regra nova", "status": "aprovada", "risco": "alto",
+         "pergunta": "Posso mudar a regra?"}],
+        "atualizar": [{"id": 50, "status": "aprovada", "risco": "medio", "nota": "ok"},
+                      {"id": 51, "status": "aprovada", "risco": "baixo", "nota": "apagar dados antigos"}]}
+    reuniao._decidir = lambda *a, **k: (decisao, "claude")
+    reuniao.participantes = lambda texto: []
+
+    class R:
+        def __init__(s):
+            s.t = {"reuniao_mensagens": [], "reuniao_tarefas": [
+                {"id": 50, "titulo": "Tela de alertas mais limpa", "descricao": "cards", "status": "proposta", "prioridade": "media"},
+                {"id": 51, "titulo": "Limpeza", "descricao": "apagar dados antigos de vend_vendas_dia", "status": "proposta", "prioridade": "media"}]}
+            s.patch = {}
+
+        def _req(s, m, tab, f=None, corpo=None, prefer=None):
+            if m == "POST":
+                for r in corpo:
+                    r["id"] = 100 + len(s.t[tab])
+                    s.t[tab].append(r)
+                return corpo
+            if m == "PATCH":
+                s.patch[int(f["id"][3:])] = corpo
+
+        def _todos(s, tab, p):
+            return s.t[tab]
+    r = R()
+    reuniao.rodada(r, "teste")
+    novas = {t["titulo"]: t for t in r.t["reuniao_tarefas"] if t.get("id", 0) >= 100}
+    assert novas["Ajustar texto do alerta"]["status"] == "aprovada", novas
+    assert novas["Mudar a senha do agente"]["status"] == "proposta" and novas["Mudar a senha do agente"]["aguardando"], novas
+    assert novas["Reescrever o cálculo de comissão"]["aguardando"] == "Posso mudar a regra?", novas
+    assert r.patch[50]["status"] == "aprovada" and "automático" in r.patch[50]["decidido_por"], r.patch
+    assert "status" not in r.patch[51] and r.patch[51]["aguardando"], r.patch
+
+
 if __name__ == "__main__":
     falhou = 0
     for nome, f in list(globals().items()):

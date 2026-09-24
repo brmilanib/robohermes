@@ -49,7 +49,8 @@ resumo_marcas (dia 3), auditoria 10:30 (conferências de dados + revisão de có
 3. Corrigiu, já roda: toda correção publicada é aplicada na hora (reprocessar o dado, rodar a rotina), sem esperar
    a coleta do dia seguinte, e depois conferir.
 4. Segurança: nunca pedir, guardar ou repetir senhas, chaves, tokens ou cookies. Nada muda em produção sem teste.
-5. Quem escreve o código é o Claude da sessão de código; as tarefas aprovadas aqui vão para a fila dele.
+5. Quem escreve o código é o Claude da sessão de código; as tarefas aprovadas aqui vão para a fila dele. O Claude
+   coordenador aprova as tarefas de risco baixo/médio; as de risco alto esperam o Bruno.
 
 ## Próximas fases
 Conectar as lojas do dono (Mercado Livre, Shopee, Amazon, TikTok Shop), monitorar a posição dos anúncios dele nas

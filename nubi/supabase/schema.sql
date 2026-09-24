@@ -510,3 +510,4 @@ create index if not exists tarefa_eventos_tarefa on public.tarefa_eventos (taref
 alter table public.tarefa_eventos enable row level security;
 create policy "autorizado" on public.tarefa_eventos for all to authenticated
   using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+alter table public.reuniao_tarefas add column if not exists risco text;

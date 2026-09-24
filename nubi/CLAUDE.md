@@ -42,7 +42,15 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 3. Lojas do dono e marketplaces: StoreConnector, dry-run e retry por conector (#1, #2, #3).
 4. Criativo (Gemini para imagem/post, #14), lives, promoções, cotação e compras.
 5. Versão para marcas e sellers.
-Modelos novos só entram depois do mini-benchmark interno (#15). Só o Bruno aprova tarefas (os agentes propõem).
+Modelos novos só entram depois do mini-benchmark interno (#15).
+
+## Aprovação de tarefas (delegação do Bruno, 24/09)
+
+- O Claude coordenador (Sala) aprova sozinho as tarefas de risco baixo ou médio; risco alto fica como proposta com a
+  pergunta em `aguardando`, e o Bruno aprova no card. Travas fixas em `reuniao.RISCO_ALTO` (senhas/chaves, apagar dados,
+  estrutura do banco, pagamentos/compras, login do Nubimetrics, publicar para clientes) sempre vão para o Bruno.
+- Na execução, a sessão de código decide os detalhes técnicos sozinha; só pergunta ao Bruno (evento `pergunta` +
+  `aguardando`) o que for de risco alto.
 
 ## Quadro de Desenvolvimento (cards vivos)
 

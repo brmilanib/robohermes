@@ -56,7 +56,12 @@ def _decidir(historico, tarefas, opinioes, extra):
         "dizendo o que foi decidido e por quê) e registre o que vai para desenvolvimento.\n"
         "Você não executa nada: não diga que pediu coleta, rodou ou corrigiu algo; diga o que foi decidido e registre "
         "como tarefa (quem executa é o Claude da sessão de código e os agentes do despachante).\n"
-        "Só o dono (Bruno) aprova tarefas: você registra como proposta (ou recusa, explicando).\n"
+        "Aprovação: o Bruno delegou a você aprovar as tarefas de risco BAIXO ou MÉDIO (status 'aprovada'). Classifique o "
+        "risco de cada tarefa: ALTO quando mexe em dinheiro/custo relevante, senhas/chaves/acessos, apagar ou reescrever "
+        "dados, estrutura do banco, coletor/login do Nubimetrics, publicação para clientes ou decisões de negócio do Bruno; "
+        "MÉDIO quando muda telas ou regras de cálculo com teste; BAIXO para ajustes pequenos, textos, testes e documentação. "
+        "Risco ALTO fica 'proposta' com a pergunta para o Bruno em 'pergunta'. Revise também as propostas em aberto e aprove "
+        "as de risco baixo/médio que fizerem sentido (em 'atualizar').\n"
         "Critérios: prioridade para o que evita erro nos números e para o que o dono pediu; recuse o que for arriscado, "
         "caro ou fora do escopo, explicando; não crie tarefa repetida (veja as tarefas em aberto); tarefa = algo concreto "
         "que o Claude da sessão de código consegue implementar e testar.\n"
@@ -64,13 +69,31 @@ def _decidir(historico, tarefas, opinioes, extra):
         + ("\n".join(f"[{k}] {v}" for k, v in opinioes.items()) or "nenhuma")
         + '\n\nResponda SOMENTE com um JSON: {"resposta": "<mensagem para o grupo>", "tarefas": [{"titulo": "<curto>", '
         '"descricao": "<o que fazer e como saber que está pronto>", "tipo": "tarefa|sugestao|decisao", '
-        '"status": "proposta|recusada", "prioridade": "alta|media|baixa", "area": "<coletor|dados|site|ia|outro>", '
-        '"proposto_por": "<quem sugeriu>"}], "atualizar": [{"id": <número da tarefa em aberto>, "status": "recusada", '
-        '"nota": "<por quê>"}]}. Listas vazias quando não houver nada.')
+        '"status": "aprovada|proposta|recusada", "risco": "baixo|medio|alto", "motivo_risco": "<1 frase>", '
+        '"pergunta": "<só se risco alto: o que o Bruno precisa decidir>", "prioridade": "alta|media|baixa", '
+        '"area": "<coletor|dados|site|ia|outro>", "proposto_por": "<quem sugeriu>"}], "atualizar": [{"id": <número da '
+        'tarefa proposta>, "status": "aprovada|recusada", "risco": "baixo|medio|alto", "nota": "<por quê>"}]}. '
+        'Listas vazias quando não houver nada.')
     j, _, q = ia.perguntar_json(pedido, web=False, max_tokens=2500, qual=qual, sistema=agentes.SISTEMA)
     if not j.get("resposta"):
         raise ia.SemIA("o coordenador não devolveu a decisão")
     return j, q
+
+
+# Travas que valem mesmo se a IA classificar errado: isso sempre vai para o Bruno aprovar
+RISCO_ALTO = re.compile(r"senha|chave|token|cookie|credencia|acesso d[eo]|apagar|excluir|deletar|delete|drop |truncate|"
+                        r"migra[çc][ãa]o|schema|estrutura do banco|pagamento|cobran[çc]a|cart[ãa]o|compra|pre[çc]o de venda|"
+                        r"login do nubimetrics|publicar para|clientes? externo|vender para marcas|contrato", re.I)
+
+
+def avaliar_risco(t):
+    """(aprovar?, risco, motivo). A IA sugere; a trava de palavras e o risco alto sempre mandam para o dono."""
+    risco = str(t.get("risco") or "medio").lower().replace("é", "e")
+    risco = risco if risco in ("baixo", "medio", "alto") else "medio"
+    texto = f"{t.get('titulo', '')} {t.get('descricao', '')}"
+    if RISCO_ALTO.search(texto):
+        return False, "alto", "mexe em algo sensível (" + RISCO_ALTO.search(texto).group(0) + ")"
+    return risco != "alto", risco, str(t.get("motivo_risco") or "")[:200]
 
 
 def rodada(repo, texto_dono=None, extra="", autor_extra=None):
@@ -125,13 +148,21 @@ def rodada(repo, texto_dono=None, extra="", autor_extra=None):
         ja.add(chave)
         reg = {"titulo": str(t["titulo"])[:200], "descricao": str(t.get("descricao") or "")[:2000],
                "tipo": t.get("tipo") if t.get("tipo") in ("tarefa", "sugestao", "decisao") else "tarefa",
-               # só o dono aprova (aba Desenvolvimento): o coordenador propõe ou recusa
-               "status": t.get("status") if t.get("status") in ("proposta", "recusada") else "proposta",
+               "status": "proposta",
                "prioridade": t.get("prioridade") if t.get("prioridade") in ("alta", "media", "baixa") else "media",
                "area": str(t.get("area") or "")[:40], "proposto_por": str(t.get("proposto_por") or "")[:40],
                "decidido_por": coord, "mensagem_id": msg.get("id"), "criado_em": agora(), "atualizado_em": agora()}
+        # risco baixo/médio: o Claude aprova sozinho (delegação do Bruno); alto: fica esperando o Bruno
+        ok, risco, motivo = avaliar_risco(t)
+        reg["risco"] = risco
+        if t.get("status") == "recusada":
+            reg["status"] = "recusada"
+        elif t.get("status") == "aprovada" and ok:
+            reg["status"], reg["decidido_por"] = "aprovada", f"{coord} (automático, risco {risco})"
+        elif risco == "alto":
+            reg["aguardando"] = (str(t.get("pergunta") or "").strip() or f"Risco alto: {motivo}. Aprova?")[:500]
         repo._req("POST", "reuniao_tarefas", corpo=[reg], prefer="return=minimal")
-        registradas.append(f"{reg['titulo']} ({reg['status']})")
+        registradas.append(f"{reg['titulo']} ({reg['status']}{', risco ' + risco if reg['status'] != 'recusada' else ''})")
     # o coordenador só mexe no que ainda é proposta (recusar); o que o dono aprovou ou está em código não volta atrás
     abertas = {t["id"] for t in tarefas if t["status"] == "proposta"}
     for u in (j.get("atualizar") or [])[:10]:
@@ -139,11 +170,20 @@ def rodada(repo, texto_dono=None, extra="", autor_extra=None):
             tid = int(u.get("id"))
         except (TypeError, ValueError):
             continue
-        if tid in abertas and u.get("status") == "recusada":
-            repo._req("PATCH", "reuniao_tarefas", {"id": f"eq.{tid}"},
-                      corpo={"status": u["status"], "notas": str(u.get("nota") or "")[:500], "atualizado_em": agora()},
-                      prefer="return=minimal")
-            registradas.append(f"#{tid} -> {u['status']}")
+        if tid not in abertas or u.get("status") not in ("aprovada", "recusada"):
+            continue
+        reg = {"status": u["status"], "notas": str(u.get("nota") or "")[:500], "atualizado_em": agora()}
+        if u["status"] == "aprovada":
+            orig = next(t for t in tarefas if t["id"] == tid)
+            ok, risco, motivo = avaliar_risco(dict(orig, risco=u.get("risco"), motivo_risco=u.get("nota")))
+            if not ok:
+                repo._req("PATCH", "reuniao_tarefas", {"id": f"eq.{tid}"}, corpo={"risco": "alto", "atualizado_em": agora(),
+                          "aguardando": f"Risco alto: {motivo}. Aprova?"[:500]}, prefer="return=minimal")
+                registradas.append(f"#{tid} espera o Bruno (risco alto)")
+                continue
+            reg.update(risco=risco, decidido_por=f"{coord} (automático, risco {risco})")
+        repo._req("PATCH", "reuniao_tarefas", {"id": f"eq.{tid}"}, corpo=reg, prefer="return=minimal")
+        registradas.append(f"#{tid} -> {u['status']}")
     if registradas:
         gravar("sistema", "📋 Registrado em Desenvolvimento: " + "; ".join(registradas))
     return novas

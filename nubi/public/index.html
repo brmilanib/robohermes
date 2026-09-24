@@ -2325,7 +2325,7 @@ async function atualizarReuniao(rolar) {
   if (noFim) box.scrollTop = box.scrollHeight;
 }
 const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em execução", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"]};
-const DEV_COLS = [["proposta", "Propostas", "esperando você aprovar"], ["aprovada", "Aprovadas", "na fila para desenvolver"],
+const DEV_COLS = [["proposta", "Propostas", "o Claude aprova as de risco baixo/médio; as de risco alto esperam você"], ["aprovada", "Aprovadas", "na fila para desenvolver"],
   ["em_desenvolvimento", "Em execução", "um agente está trabalhando"], ["feita", "Feitas", "publicadas e conferidas"]];
 const AG_INFO = {claude_code: ["💻", "Claude (código)", "#b3541e"], claude: ["✴️", "Claude", "#d97757"], chatgpt: ["🧠", "ChatGPT", "#10a37f"],
   deepseek: ["🐋", "DeepSeek", "#4d6bfe"], gptoss: ["🦙", "gpt-oss", "#6b4fb3"], hermes: ["🪽", "Hermes", "#a2741a"], astra: ["🎨", "Astra", "#e0457b"],
@@ -2335,10 +2335,11 @@ const quem = x => !x ? "?" : /^voc[eê]$/i.test(x) ? "Você" : x;
 const desde = t => { if (!t) return ""; const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
   return m < 1 ? "agora" : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h ${m % 60} min` : `há ${Math.floor(m / 1440)} d`; };
 function devCard(t) {
-  const PRI = {alta: "bad", media: "warn", baixa: ""};
+  const PRI = {alta: "", media: "", baixa: ""};
   const vivo = t.status === "em_desenvolvimento", ag = agInfo(t.responsavel || "claude_code"), ev = t.ultimo_evento;
   return `<div class="dev-card ${vivo ? "vivo" : ""} ${t.aguardando ? "pede" : ""}" data-abrir="${t.id}" tabindex="0" role="button" aria-label="Abrir tarefa ${t.id}">
     <div class="dc-top"><span class="dc-id">#${t.id}</span><span class="st ${PRI[t.prioridade] || ""}">${esc(t.prioridade || "")}</span>${t.area ? `<span class="st">${esc(t.area)}</span>` : ""}
+      ${t.risco ? `<span class="st ${t.risco === "alto" ? "bad" : t.risco === "medio" ? "warn" : "good"}" title="risco avaliado pelo Claude">risco ${esc(t.risco === "medio" ? "médio" : t.risco)}</span>` : ""}
       ${t.n_eventos ? `<span class="dc-n" title="passos registrados">💬 ${t.n_eventos}</span>` : ""}</div>
     <h4>${esc(t.titulo)}</h4>
     ${t.aguardando ? `<div class="dc-pede">⏳ Precisa de você: ${esc(t.aguardando.slice(0, 120))}</div>` : ""}
