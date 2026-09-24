@@ -27,7 +27,7 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
 2. **Contexto.** Leia `select titulo, texto from conhecimento where fixo or atualizado_em > now() - interval '14 days' order by fixo desc, atualizado_em desc limit 60`
    e as últimas 30 mensagens de `reuniao_mensagens`.
 3. **Escolher o card.** `reuniao_tarefas` com `status='aprovada'`, `aguardando is null`, `coalesce(risco,'medio') <> 'alto'`,
-   ordem: prioridade (alta, media, baixa) e depois `id`. Pule cards que dependem do Bruno no Mac (login, instalar algo) ou
+   ordem: prioridade (urgente, alta, media, baixa) e depois `id`. Pule cards que dependem do Bruno no Mac (login, instalar algo) ou
    de dados que você não tem; registre no card por que pulou (evento `tipo='passo'`) e vá para o próximo. Sem card: termine.
    **Cards de design** (layout, tela, navegação, menu, visual, celular): o Astra (designer, gpt-6-astra) escreve de hora em
    hora uma **Especificação de design** dentro do card (evento do autor `astra`). Só pegue card de design que já tenha essa
