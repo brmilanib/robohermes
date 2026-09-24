@@ -390,3 +390,72 @@ def decidir(c):
     if c["itens"] >= LIMIAR_REVISAR:
         return "revisar"
     return "novo"
+
+
+def ler_grupo(dados, nome_arquivo=""):
+    """
+    Export da tabela do grupo (Nubimetrics > Comparar concorrentes): uma linha por vendedor com vendas, unidades,
+    visitas, conversão e share. Acha as colunas pelo nome (a ordem pode mudar). Devolve [{vendedor, v, u, visitas,
+    conversao, share_v, share_u, bruto}].
+    """
+    if (nome_arquivo or "").lower().endswith(".csv"):
+        import pandas as pd
+        texto = dados.decode("utf-8-sig", errors="replace")
+        sep = ";" if texto.count(";") > texto.count(",") else ","
+        df = pd.read_csv(io.StringIO(texto), sep=sep, dtype=str, keep_default_na=False)
+        brutas = [list(df.columns)] + df.values.tolist()
+    else:
+        from openpyxl import load_workbook
+        try:
+            wb = load_workbook(io.BytesIO(dados), read_only=True, data_only=True)
+        except Exception:  # noqa: BLE001
+            raise ErroVendedor("não consegui abrir a tabela do grupo (.xlsx)")
+        brutas = [list(r) for r in wb.worksheets[0].iter_rows(values_only=True)]
+    norm = lambda c: nubi.sem_acento(str(c or "")).lower().strip()
+    ini = next((i for i, r in enumerate(brutas[:20]) if any("vendedor" in norm(c) or "concorrente" in norm(c) for c in r)
+                and any("venda" in norm(c) for c in r)), None)
+    if ini is None:
+        raise ErroVendedor("não achei o cabeçalho (Vendedor, Vendas...) na tabela do grupo")
+    cab = [norm(c) for c in brutas[ini]]
+
+    def idx(*pads, evita=()):
+        for i, c in enumerate(cab):
+            if any(p in c for p in pads) and not any(e in c for e in evita):
+                return i
+        return None
+    iv = idx("vendedor", "concorrente")
+    ivs = idx("vendas em $", "vendas $", "faturamento", evita=("share", "unid", "var"))
+    iu = idx("unid", evita=("share", "var"))
+    ivi = idx("visita", evita=("var",))
+    ico = idx("convers", evita=("var",))
+    isv = idx("share em $", "share $", "share vendas", evita=("unid",))
+    isu = idx("share unid", "share em unid")
+
+    def num(x, pct=False):
+        if x is None or x == "":
+            return None
+        if isinstance(x, (int, float)):
+            return float(x) / (100 if pct and x > 1 else 1)
+        t = str(x).strip().replace("+", "").replace("R$", "").replace("$", "").strip()
+        eh_pct = "%" in t
+        t = t.replace("%", "").strip()
+        if "," in t:
+            t = t.replace(".", "").replace(",", ".")
+        elif t.count(".") >= 1 and len(t.split(".")[-1]) == 3:
+            t = t.replace(".", "")
+        try:
+            v = float(t)
+        except ValueError:
+            return None
+        return v / 100 if (pct or eh_pct) and (eh_pct or v > 1) else v
+    saida = []
+    for r in brutas[ini + 1:]:
+        if iv is None or iv >= len(r) or not str(r[iv] or "").strip():
+            continue
+        g = lambda i, pct=False: num(r[i], pct) if i is not None and i < len(r) else None
+        saida.append({"vendedor": str(r[iv]).strip(), "v": g(ivs), "u": g(iu), "visitas": g(ivi), "conversao": g(ico, True),
+                      "share_v": g(isv, True), "share_u": g(isu, True),
+                      "bruto": {str(brutas[ini][i]): ("" if c is None else str(c)) for i, c in enumerate(r) if i < len(brutas[ini])}})
+    if not saida:
+        raise ErroVendedor("a tabela do grupo veio vazia")
+    return saida

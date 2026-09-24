@@ -486,6 +486,109 @@ def listar_vendedores(pg, cfg):
     return list(vistos.items()), avisos
 
 
+def baixar_grupo(pg, cfg, dia, destino):
+    """
+    Tabela do grupo no dia (a tela 'Comparar concorrentes' do Nubimetrics): vendas, unidades, visitas, conversão e share
+    de TODOS os vendedores num arquivo só. Devolve o arquivo exportado.
+    """
+    alvo = ((int(dia[8:10]), int(dia[5:7])), (int(dia[8:10]), int(dia[5:7])))
+    url = f"{BASE}/competition/dashboardbycompetitor?group={cfg['grupo']}&range=CUSTOM&from={dia}&to={dia}"
+    ir(pg, url, 'td a[aria-label="Analise um concorrente"]')
+    fim_t = time.time() + 40
+    while periodo_na_tela(pg) != alvo and time.time() < fim_t:
+        pg.wait_for_timeout(700)
+    if periodo_na_tela(pg) != alvo:
+        aplicar_periodo(pg, dia, dia)
+        fim_t = time.time() + 40
+        while periodo_na_tela(pg) != alvo and time.time() < fim_t:
+            pg.wait_for_timeout(700)
+        if periodo_na_tela(pg) != alvo:
+            tela = resumo_tela(pg)
+            enviar_foto(pg, f"grupo {dia}: período não mudou", tela)
+            raise Falha(f"a tabela do grupo não mudou para {dia} (na tela: {periodo_na_tela(pg)}) " + diagnostico(pg))
+    devagar(4)                                          # a tabela recarrega com o período novo
+    botao = pg.locator("button, [role=button]", has_text=re.compile(r"^\s*EXPORTAR\s*$", re.I))
+    if not botao.count():
+        tela = resumo_tela(pg)
+        enviar_foto(pg, f"grupo {dia}: sem botão EXPORTAR", tela)
+        raise Falha("não achei o botão EXPORTAR da tabela do grupo " + diagnostico(pg))
+    with pg.expect_download(timeout=120000) as d:
+        botao.last.click()
+    arq = destino / d.value.suggested_filename
+    d.value.save_as(str(arq))
+    devagar(2)
+    return arq
+
+
+def coletar_grupo(p, cfg, token, dias, prazo=None):
+    """Baixa a tabela do grupo de cada dia (1 arquivo por dia, todos os vendedores) e manda ao nubi."""
+    feitos = cfg.setdefault("grupo_dias", [])
+    fila = [d for d in dias if d not in feitos]
+    if not fila:
+        return 0, 0, 0
+    log(f"Tabela do grupo (visitas, conversão, todos os vendedores): {len(fila)} dia(s)")
+    ctx = abrir_navegador(p, cfg)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    a = i = e = 0
+    try:
+        for dia in fila:
+            if prazo and time.time() > prazo:
+                break
+            destino = PASTA / "arquivos" / "grupo" / dia
+            destino.mkdir(parents=True, exist_ok=True)
+            try:
+                arq = baixar_grupo(pg, cfg, dia, destino)
+                a += 1
+                r = api(token, "vend_grupo", {"arquivo": arq.name, "ate": dia}, arq.read_bytes())
+                i += 1
+                feitos.append(dia)
+                del feitos[:-400]
+                log(f"  grupo {dia[8:10]}/{dia[5:7]}: " + " ".join(r.get("log", [])))
+            except SessaoExpirada:
+                raise
+            except Exception as ex:  # noqa: BLE001
+                e += 1
+                log(f"  grupo {dia[8:10]}/{dia[5:7]}: ERRO {str(ex)[:200]}")
+                if e >= 3 and not i:
+                    log("  (a tabela do grupo falhou 3 vezes: paro por hoje; a foto da tela foi para o nubi)")
+                    break
+            time.sleep(PAUSA * random.uniform(0.8, 1.4))
+        guardar_sessao(ctx)
+    finally:
+        salvar_config(cfg)
+        try:
+            ctx.close()
+        except BaseException:  # noqa: BLE001
+            pass
+    return a, i, e
+
+
+def reenviar_dias(cfg, token):
+    """Uma vez: reenvia os arquivos de 1 dia já baixados, para o nubi guardar o preço do Nubimetrics e cada anúncio."""
+    if cfg.get("reenvio_dias") == 1:
+        return 0
+    n = 0
+    for man in sorted((PASTA / "arquivos" / "dias").glob("*/manifest.json")):
+        try:
+            itens = json.loads(man.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        for m in itens:
+            arq = man.parent / m["arquivo"]
+            if not arq.exists() or not m.get("ate"):
+                continue
+            try:
+                api(token, "vend_dia", {"arquivo": arq.name, "mes": m["mes"], "ate": m["ate"], "seller_hash": m["seller_hash"]},
+                    arq.read_bytes())
+                n += 1
+            except Exception as ex:  # noqa: BLE001
+                log(f"  reenvio {arq.parent.name}/{arq.name}: {str(ex)[:120]}")
+    cfg["reenvio_dias"] = 1
+    salvar_config(cfg)
+    log(f"Reenviados {n} arquivo(s) de dia (preço do Nubimetrics e anúncios)")
+    return n
+
+
 def aplicar_periodo(pg, ini, fim):
     """
     Plano B: escolher o período no calendário da tela. Abre o seletor de período; se aparecerem só os atalhos
@@ -1117,8 +1220,16 @@ def cmd_dias(args, segundos=None):
     def f(p, cfg, token):
         dias_ok = cfg.setdefault("dias", {})
         pers = periodos_intervalo(desde, ate)
+        reenviar_dias(cfg, token)
         a, i, e = coletar_vendedores(p, cfg, token, pers, rota="vend_dia", por_dia=True, prazo=prazo,
                                      pular=lambda h, nome, per: per["ate"] in dias_ok.get(h, []))
+        try:
+            a2, i2, _ = coletar_grupo(p, cfg, token, [x["ate"] for x in pers], prazo=prazo)
+            a, i = a + a2, i + i2
+        except SessaoExpirada:
+            raise
+        except Exception as ex:  # noqa: BLE001
+            log(f"  tabela do grupo: ERRO {str(ex)[:200]}")
         # terminou tudo (sem parar pelo prazo e sem erro)? -> não precisa mais continuar na coleta diária
         falta = FALTARAM[0] + e
         if not falta:
@@ -1283,6 +1394,17 @@ def main():
                                          pular=lambda h, nome, per: per["ate"] in dias_ok.get(h, []))
             A, I, E = A + a, I + i, E + e
             partes.append(f"vendas do dia: {i} arquivo(s)")
+            reenviar_dias(cfg, token)
+            # tabela do grupo (visitas, conversão e o total de todos os vendedores) dos mesmos dias
+            try:
+                a, i, e = coletar_grupo(p, cfg, token, [x["ate"] for x in pdias + dias_comparacao(pdias[:1])])
+                A, I, E = A + a, I + i, E + e
+                if a or e:
+                    partes.append(f"tabela do grupo: {i} dia(s)" + (f", {e} erro(s)" if e else ""))
+            except SessaoExpirada:
+                raise
+            except Exception as ex:  # noqa: BLE001
+                log(f"  tabela do grupo: ERRO {str(ex)[:200]}")
             if avisos:
                 partes.append(f"{len(avisos)} aviso(s): " + "; ".join(avisos)[:300])
                 aviso_mac("Coletor nubi — conferir", avisos[0])

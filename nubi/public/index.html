@@ -1673,10 +1673,11 @@ async function telaConcorrentes() {
     const q = st.busca.toLowerCase();
     const lin = vs.filter(v => !q || v.vendedor.toLowerCase().includes(q)).sort((a, b) => (st.asc ? 1 : -1) * ((a[st.ord] ?? -1e18) - (b[st.ord] ?? -1e18)));
     $("#cc-tab").innerHTML = `<table class="t cc-t" style="font-size:12.5px"><thead><tr><th style="width:28px"></th><th>Vendedor</th>
-      ${[["v", "Vendas em $"], ["u", "Vendas em Unid."], ["share_v", "Share em $"], ["share_u", "Share unid."]].map(([k, t]) => `<th class="num" data-ord="${k}">${t}${st.ord === k ? (st.asc ? " ↑" : " ↓") : ""}</th>`).join("")}</tr></thead>
+      ${[["v", "Vendas em $"], ["u", "Vendas em Unid."], ...(r.com_visitas ? [["visitas", "Visitas"], ["conversao", "Conversão"]] : []), ["share_v", "Share em $"], ["share_u", "Share unid."]].map(([k, t]) => `<th class="num" data-ord="${k}">${t}${st.ord === k ? (st.asc ? " ↑" : " ↓") : ""}</th>`).join("")}</tr></thead>
       <tbody>${lin.map(v => `<tr><td><input type="checkbox" data-sel="${esc(v.vendedor)}" ${st.sel.includes(v.vendedor) ? "checked" : ""}></td>
         <td class="first"><a href="#/concorrentes/${encodeURIComponent(v.vendedor)}?desde=${r.desde}&ate=${r.ate}">${esc(v.vendedor)}</a>${v.completo ? "" : ` <span class="st warn" title="faltam dias desse vendedor no período">${v.dias} de ${n} dias</span>`}</td>
         <td class="num"><b>${abrev(v.v)}</b>${varH(v.var_v)}</td><td class="num"><b>${nf0.format(v.u)}</b>${varH(v.var_u)}</td>
+        ${r.com_visitas ? `<td class="num"><b>${v.visitas != null ? nf0.format(v.visitas) : "—"}</b>${varH(v.var_visitas)}</td><td class="num"><b>${v.conversao != null ? nf2.format(v.conversao * 100) + "%" : "—"}</b>${varH(v.var_conversao)}</td>` : ""}
         <td class="num">${FMT.pct(v.share_v)}</td><td class="num">${FMT.pct(v.share_u)}</td></tr>`).join("")}</tbody></table>`;
     $("#cc-tab").querySelectorAll("[data-ord]").forEach(th => th.onclick = () => { st.asc = st.ord === th.dataset.ord ? !st.asc : false; st.ord = th.dataset.ord; desenhar(); });
     $("#cc-tab").querySelectorAll("[data-sel]").forEach(cb => cb.onchange = () => {
@@ -1725,7 +1726,7 @@ async function telaConcorrentes() {
     </div>
     <div class="card pad" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <input type="search" id="cc-busca" placeholder="Buscar por vendedor" value="${esc(st.busca)}" style="min-width:240px"><div style="flex:1"></div>
-      <span class="muted" style="font-size:12.5px">Setas: variação contra ${dm(r.desde_ant)} a ${dm(r.ate_ant)} · clique no vendedor para ver os produtos</span></div>
+      <span class="muted" style="font-size:12.5px">Setas: variação contra ${dm(r.desde_ant)} a ${dm(r.ate_ant)} · clique no vendedor para ver os produtos${r.com_visitas ? "" : " · visitas e conversão aparecem quando o coletor trouxer a tabela do grupo"}</span></div>
       <div class="rolar" id="cc-tab" style="margin-top:8px"></div></div></div>`;
   $("#cc-ok").onclick = () => ir($("#cc-de").value, $("#cc-ate").value);
   main.querySelectorAll("[data-pre]").forEach(b => b.onclick = () => { const [a, c] = b.dataset.pre.split("|"); ir(a, c); });
@@ -1744,7 +1745,7 @@ async function telaConcVendedor(vend) {
     r = await api("vend_conc_vendedor", {vendedor: vend, desde: qs.get("desde"), ate: qs.get("ate")});
   } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
-  S.ccp = S.ccp || {ord: "v", asc: false, busca: "", so: ""};
+  S.ccp = S.ccp || {ord: "v", asc: false, busca: "", so: "", modo: "produto"};
   const st = S.ccp;
   const volta = `#/concorrentes?desde=${r.desde}&ate=${r.ate}`;
   main.innerHTML = `<p style="margin:0"><a href="${volta}">← Comparar concorrentes</a></p>
@@ -1762,11 +1763,28 @@ async function telaConcVendedor(vend) {
       <select id="cp-so" class="mes"><option value="">Todos</option><option value="pausado" ${st.so === "pausado" ? "selected" : ""}>Só pausados</option>
         <option value="ativo" ${st.so === "ativo" ? "selected" : ""}>Só ativos</option><option value="subiu" ${st.so === "subiu" ? "selected" : ""}>Preço acima da média de 30 dias</option>
         <option value="baixou" ${st.so === "baixou" ? "selected" : ""}>Preço abaixo da média de 30 dias</option></select>
-      <div style="flex:1"></div><span class="muted" style="font-size:12.5px">Preço atual = o do último dia em que o produto vendeu</span></div>
+      <div class="cc-seg"><button data-modo="produto" class="${st.modo === "produto" ? "on" : ""}">Por produto (GTIN)</button><button data-modo="anuncio" class="${st.modo === "anuncio" ? "on" : ""}">Por anúncio (como no Nubimetrics)</button></div>
+      <div style="flex:1"></div><span class="muted" style="font-size:12.5px">Preço = preço médio do Nubimetrics no último dia em que vendeu</span></div>
+      ${!r.com_anuncios ? `<p class="aviso warn" style="margin:8px 0 0">Os dias deste período foram coletados antes do detalhe por anúncio: o coletor reenvia os arquivos na próxima rodada e a visão por anúncio e o preço do Nubimetrics aparecem completos.</p>` : ""}
       <div class="rolar" id="cp-tab" style="margin-top:8px"></div></div>`;
   const cols = [["produto", "Produto", 0], ["marca", "Marca", 0], ["u", "Unid.", 1], ["v", "Vendas", 1], ["preco_atual", "Preço atual", 1],
     ["preco_30d", "Preço médio 30 dias", 1], ["dif_preco", "Atual x 30 dias", 1], ["pausado", "Anúncio", 0], ["dias", "Dias com venda", 1]];
+  const desenharAnuncios = () => {
+    const q = st.busca.toLowerCase();
+    const cA = [["titulo", "Título", 0], ["marca", "Marca", 0], ["v", "Vendas em $", 1], ["u", "Vendas em Unid.", 1], ["preco", "Preço médio", 1],
+      ["tipo", "Tipo de publicação", 0], ["full", "Fulfillment", 0], ["estado", "Estado", 0]];
+    const lin = r.anuncios.filter(a => (!q || (a.titulo + " " + a.marca).toLowerCase().includes(q))
+        && (!st.so || (st.so === "pausado" ? a.estado.toLowerCase() !== "active" : st.so === "ativo" ? a.estado.toLowerCase() === "active" : true)))
+      .sort((a, b) => { const x = a[st.ord], y = b[st.ord]; const k = typeof x === "string" || typeof y === "string" ? String(x ?? "").localeCompare(String(y ?? "")) : (x ?? -1e18) - (y ?? -1e18); return st.asc ? k : -k; });
+    $("#cp-tab").innerHTML = `<table class="t cc-t" style="font-size:12.5px"><thead><tr>${cA.map(([k, t, nm]) => `<th class="${nm ? "num" : ""}" data-ord="${k}">${t}${st.ord === k ? (st.asc ? " ↑" : " ↓") : ""}</th>`).join("")}</tr></thead>
+      <tbody>${lin.map(a => `<tr><td class="first wrap">${vprodLink(a.chave, a.titulo, vend)}</td><td>${esc(a.marca)}</td><td class="num"><b>${abrev(a.v)}</b></td>
+        <td class="num">${nf0.format(a.u)}</td><td class="num">${a.preco ? "R$ " + nf2.format(a.preco) : "—"}</td><td>${esc(a.tipo)}</td><td>${a.full ? "Sim" : "Não"}</td>
+        <td>${a.estado.toLowerCase() === "active" ? `<span class="st good">Ativo</span>` : `<span class="st bad">${esc(a.estado || "?")}</span>`}</td></tr>`).join("")
+        || `<tr><td colspan="8" class="muted">${r.com_anuncios ? "Nenhum anúncio." : "Ainda sem o detalhe por anúncio neste período."}</td></tr>`}</tbody></table>`;
+    $("#cp-tab").querySelectorAll("[data-ord]").forEach(th => th.onclick = () => { st.asc = st.ord === th.dataset.ord ? !st.asc : false; st.ord = th.dataset.ord; desenharAnuncios(); });
+  };
   const desenhar = () => {
+    if (st.modo === "anuncio") return desenharAnuncios();
     const q = st.busca.toLowerCase();
     const lin = r.produtos.filter(p => (!q || (p.produto + " " + p.marca).toLowerCase().includes(q))
         && (!st.so || (st.so === "pausado" ? p.pausado : st.so === "ativo" ? !p.pausado : st.so === "subiu" ? p.dif_preco > 0.02 : p.dif_preco < -0.02)))
@@ -1782,6 +1800,8 @@ async function telaConcVendedor(vend) {
   };
   $("#cp-busca").oninput = e => { st.busca = e.target.value; desenhar(); };
   $("#cp-so").onchange = e => { st.so = e.target.value; desenhar(); };
+  main.querySelectorAll("[data-modo]").forEach(b => b.onclick = () => { st.modo = b.dataset.modo; st.ord = "v";
+    main.querySelectorAll("[data-modo]").forEach(x => x.classList.toggle("on", x === b)); desenhar(); });
   desenhar(); desenharMenu();
 }
 

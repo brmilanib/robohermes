@@ -59,21 +59,39 @@ def fotos(linhas, vendedor, mes, ate):
 
 
 def itens_dia(linhas):
-    """Export de um dia -> um item por produto: {k, t (título), m (marca), u, v, a (anúncios ativos), n (anúncios)}."""
+    """
+    Export de um dia -> um item por produto (GTIN; sem GTIN, o título): {k, t (título do anúncio que mais vendeu),
+    m (marca), u, v, p (preço médio do Nubimetrics, ponderado pelas unidades), a (anúncios ativos), n (anúncios),
+    l (os anúncios: t, u, v, p, e = estado, tp = tipo de publicação, f = FULL)}.
+    """
     por = {}
     for l in linhas:
         k = chave(l)
-        x = por.setdefault(k, {"k": k, "t": "", "m": l.get("marca") or "", "u": 0, "v": 0.0, "a": 0, "n": 0, "_u": -1})
+        x = por.setdefault(k, {"k": k, "t": "", "m": l.get("marca") or "", "u": 0, "v": 0.0, "a": 0, "n": 0, "_u": -1,
+                               "_pu": 0.0, "_pn": 0.0, "l": []})
         u = int(l.get("unidades") or 0)
+        v = float(l.get("vendas") or 0)
+        pr = float(l.get("preco") or 0)
         if u > x["_u"]:                      # título/marca do anúncio que mais vendeu
             x["t"], x["_u"] = (l.get("titulo") or "")[:90], u
             x["m"] = l.get("marca") or x["m"]
         x["u"] += u
-        x["v"] += float(l.get("vendas") or 0)
+        x["v"] += v
         x["n"] += 1
         x["a"] += 1 if (l.get("estado") or "").lower() == "active" else 0
-    saida = [{k: (round(v, 2) if k == "v" else v) for k, v in x.items() if k != "_u"} for x in por.values()]
-    return sorted([x for x in saida if x["u"] or x["v"]], key=lambda x: -x["v"])
+        if pr:
+            x["_pu"] += pr * max(u, 1)
+            x["_pn"] += max(u, 1)
+        x["l"].append({"t": (l.get("titulo") or "")[:90], "u": u, "v": round(v, 2), "p": round(pr, 2),
+                       "e": (l.get("estado") or "")[:12], "tp": (l.get("tipo_pub") or "")[:20], "f": bool(l.get("full"))})
+    saida = []
+    for x in por.values():
+        if not (x["u"] or x["v"]):
+            continue
+        x["p"] = round(x["_pu"] / x["_pn"], 2) if x["_pn"] else (round(x["v"] / x["u"], 2) if x["u"] else 0)
+        x["l"].sort(key=lambda a: -a["v"])
+        saida.append({k: (round(v, 2) if k == "v" else v) for k, v in x.items() if not k.startswith("_")})
+    return sorted(saida, key=lambda x: -x["v"])
 
 
 def diario(dias, mes):

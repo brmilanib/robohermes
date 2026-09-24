@@ -2220,6 +2220,28 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
             f"Vendas de {vend} em {dia[8:10]}/{dia[5:7]}: {len(itens)} produto(s), "
             f"R$ {sum(i['v'] for i in itens):,.0f}".replace(",", ".")]}
 
+    if rota == "vend_grupo" and metodo == "POST":
+        # tabela do grupo no dia (Comparar concorrentes do Nubimetrics): vendas, unidades, visitas e conversão de todos
+        dia = q.get("ate") or ""
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", dia):
+            raise ErroNuvem("Informe o dia (ate).")
+        try:
+            linhas = vendedores.ler_grupo(corpo, q.get("arquivo") or "grupo.xlsx")
+        except vendedores.ErroVendedor as e:
+            raise ErroNuvem(f"Não importado: {e}.")
+        conhecidos = {re.sub(r"[^A-Z0-9]", "", v.upper()): v for v in
+                      {r["vendedor"] for r in _vend_rels(repo)} | {r["vendedor"] for r in repo._req("GET", "vend_vendas_dia", {"select": "vendedor", "limit": 500}) or []}}
+        regs = []
+        for l in linhas:
+            nome = conhecidos.get(re.sub(r"[^A-Z0-9]", "", l["vendedor"].upper()), l["vendedor"].upper())
+            regs.append({"data": dia, "vendedor": nome, "nome_exibido": l["vendedor"], "v": l["v"],
+                         "u": int(l["u"]) if l["u"] is not None else None, "visitas": int(l["visitas"]) if l["visitas"] is not None else None,
+                         "conversao": l["conversao"], "share_v": l["share_v"], "share_u": l["share_u"], "bruto": l["bruto"],
+                         "atualizado_em": datetime.now(timezone.utc).isoformat()})
+        repo._req("POST", "vend_grupo_dia", corpo=regs, prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True, "log": [f"{len(regs)} vendedor(es), R$ {sum(r['v'] or 0 for r in regs):,.0f}".replace(",", ".")
+                                    + (f", {sum(r['visitas'] or 0 for r in regs):,} visitas".replace(",", ".") if any(r['visitas'] for r in regs) else "")]}
+
     if rota == "vend_dia_vazio" and metodo == "POST":
         # o vendedor não vendeu nada no dia (o Nubimetrics exportou vazio): guarda o dia zerado (diferente de "sem coleta")
         dia = q.get("ate") or ""
@@ -2256,23 +2278,52 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         ate_ant = (date.fromisoformat(desde) - timedelta(days=1)).isoformat()
         desde_ant = (date.fromisoformat(desde) - timedelta(days=n)).isoformat()
         linhas = repo._todos("rpc/vend_dia_serie", {}, "POST", {"desde": desde_ant, "ate": ate})
+        # a tabela do grupo (Nubimetrics > Comparar concorrentes) manda quando existe: são os números da própria tela
+        # deles, com visitas e conversão; sem ela, a soma do export de 1 dia de cada vendedor
+        try:
+            grupo = [g for g in repo._todos("vend_grupo_dia", {"select": "data,vendedor,v,u,visitas,conversao", "data": f"gte.{desde_ant}"})
+                     if str(g["data"])[:10] <= ate]
+        except ErroNuvem:
+            grupo = []
+        dia_v = {}
+        for l in linhas:
+            dia_v[(l["vendedor"], str(l["data"])[:10])] = {"v": float(l["v"] or 0), "u": int(l["u"] or 0), "visitas": None,
+                                                            "conv": None, "fonte": "dia"}
+        for g in grupo:
+            k = (g["vendedor"], str(g["data"])[:10])
+            x = dia_v.setdefault(k, {"v": 0.0, "u": 0, "visitas": None, "conv": None, "fonte": "grupo"})
+            if g.get("v") is not None:
+                x["v"], x["fonte"] = float(g["v"]), "grupo"
+            if g.get("u") is not None:
+                x["u"] = int(g["u"])
+            x["visitas"] = g.get("visitas")
+            x["conv"] = float(g["conversao"]) if g.get("conversao") is not None else None
         dias = [(date.fromisoformat(desde) + timedelta(days=i)).isoformat() for i in range(n)]
         pos = {d: i for i, d in enumerate(dias)}
         por = {}
-        for l in linhas:
-            d = str(l["data"])[:10]
-            x = por.setdefault(l["vendedor"], {"vendedor": l["vendedor"], "v": 0.0, "u": 0, "v_ant": 0.0, "u_ant": 0,
-                                               "dias": 0, "dias_ant": 0, "serie_v": [None] * n, "serie_u": [None] * n})
+        for (vd, d), l in sorted(dia_v.items(), key=lambda kv: kv[0][1]):
+            x = por.setdefault(vd, {"vendedor": vd, "v": 0.0, "u": 0, "v_ant": 0.0, "u_ant": 0, "visitas": 0, "com_visitas": 0,
+                                    "visitas_ant": 0, "u_vis": 0, "u_vis_ant": 0,
+                                    "dias": 0, "dias_ant": 0, "serie_v": [None] * n, "serie_u": [None] * n, "fonte_grupo": 0})
             if d >= desde:
-                x["v"] += float(l["v"] or 0)
-                x["u"] += int(l["u"] or 0)
+                x["v"] += l["v"]
+                x["u"] += l["u"]
                 x["dias"] += 1
-                x["serie_v"][pos[d]] = float(l["v"] or 0)
-                x["serie_u"][pos[d]] = int(l["u"] or 0)
+                x["serie_v"][pos[d]] = l["v"]
+                x["serie_u"][pos[d]] = l["u"]
+                x["fonte_grupo"] += 1 if l["fonte"] == "grupo" else 0
+                if l["visitas"] is not None:
+                    x["visitas"] += l["visitas"]
+                    # conversão do Nubimetrics, ponderada pelas visitas (sem ela: unidades / visitas)
+                    x["u_vis"] += (l["conv"] * l["visitas"]) if l["conv"] is not None else l["u"]
+                    x["com_visitas"] += 1
             else:
-                x["v_ant"] += float(l["v"] or 0)
-                x["u_ant"] += int(l["u"] or 0)
+                x["v_ant"] += l["v"]
+                x["u_ant"] += l["u"]
                 x["dias_ant"] += 1
+                if l["visitas"] is not None:
+                    x["visitas_ant"] += l["visitas"]
+                    x["u_vis_ant"] += (l["conv"] * l["visitas"]) if l["conv"] is not None else l["u"]
         vs = [x for x in por.values() if x["dias"]]
         tv, tu = sum(x["v"] for x in vs), sum(x["u"] for x in vs)
         for x in vs:
@@ -2283,9 +2334,16 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
             x["share_v"] = x["v"] / tv if tv else 0
             x["share_u"] = x["u"] / tu if tu else 0
             x["completo"] = x["dias"] >= n
+            x["conversao"] = x["u_vis"] / x["visitas"] if x["com_visitas"] and x["visitas"] else None
+            conv_ant = x["u_vis_ant"] / x["visitas_ant"] if x["visitas_ant"] else None
+            x["var_visitas"] = (x["visitas"] / x["visitas_ant"] - 1) if comp and x["com_visitas"] and x["visitas_ant"] else None
+            x["var_conversao"] = (x["conversao"] / conv_ant - 1) if comp and x["conversao"] and conv_ant else None
+            if not x["com_visitas"]:
+                x["visitas"] = None
         vs.sort(key=lambda x: -x["v"])
-        coletados = sorted({str(l["data"])[:10] for l in linhas if str(l["data"])[:10] >= desde})
+        coletados = sorted({d for (_, d) in dia_v if d >= desde})
         return {"tem": True, "desde": desde, "ate": ate, "desde_ant": desde_ant, "ate_ant": ate_ant, "dias": dias,
+                "com_visitas": any(x["visitas"] is not None for x in vs),
                 "coletados": coletados, "primeiro": pri, "ultimo": ult, "vendedores": vs,
                 "total": {"v": tv, "u": tu, "v_ant": sum(x["v_ant"] for x in vs), "u_ant": sum(x["u_ant"] for x in vs)}}
 
@@ -2301,38 +2359,50 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         rows = [r for r in repo._todos("vend_vendas_dia", {"select": "data,v,u,itens", "vendedor": repo._eq(vend),
                                                             "data": f"gte.{inicio}", "order": "data"})
                 if str(r["data"])[:10] <= ate]
-        grp = _mapa_grupos(repo)
+        # por produto = GTIN (como o nubi agrupa); sem os "produtos iguais" da IA, para bater com o Nubimetrics
         dias = [(date.fromisoformat(desde) + timedelta(days=i)).isoformat()
                 for i in range((date.fromisoformat(ate) - date.fromisoformat(desde)).days + 1)]
         pos = {d: i for i, d in enumerate(dias)}
-        prods = {}
+        prods, anuncios = {}, {}
         for r in rows:
             d = str(r["data"])[:10]
             for it in r["itens"] or []:
-                k = grp.get(it["k"], it["k"])
+                k = it["k"]
                 p = prods.setdefault(k, {"chave": k, "produto": it.get("t") or k, "marca": it.get("m") or "", "v": 0.0, "u": 0,
-                                         "v30": 0.0, "u30": 0, "dias": 0, "ult_dia": None, "preco_atual": None,
-                                         "ativos": None, "anuncios": None, "serie": [None] * len(dias)})
+                                         "pu30": 0.0, "u30": 0, "v30": 0.0, "dias": 0, "ult_dia": None, "preco_atual": None,
+                                         "ativos": None, "anuncios": None, "serie": [None] * len(dias), "_tu": -1})
                 v, u = float(it.get("v") or 0), int(it.get("u") or 0)
-                if d >= ini30:
-                    p["v30"] += v
+                pr = float(it.get("p") or 0) or (v / u if u else 0)
+                if d >= ini30 and u:
+                    p["pu30"] += pr * u
                     p["u30"] += u
+                    p["v30"] += v
                 if d >= desde:
                     p["v"] += v
                     p["u"] += u
                     p["dias"] += 1
                     p["serie"][pos[d]] = (p["serie"][pos[d]] or 0) + v
+                    if u > p["_tu"]:                       # título do anúncio que mais vendeu no período
+                        p["produto"], p["_tu"] = it.get("t") or p["produto"], u
+                    for a in it.get("l") or []:            # anúncio a anúncio (como a tela do Nubimetrics)
+                        x = anuncios.setdefault((k, a["t"]), {"titulo": a["t"], "chave": k, "marca": it.get("m") or "",
+                                                              "v": 0.0, "u": 0, "preco": None, "estado": "", "tipo": "",
+                                                              "full": False, "ult": ""})
+                        x["v"] += float(a.get("v") or 0)
+                        x["u"] += int(a.get("u") or 0)
+                        if d >= x["ult"]:
+                            x.update(preco=a.get("p") or None, estado=a.get("e") or "", tipo=a.get("tp") or "",
+                                     full=bool(a.get("f")), ult=d)
                 if u and (p["ult_dia"] is None or d >= p["ult_dia"]):
-                    p["ult_dia"], p["preco_atual"] = d, v / u
+                    p["ult_dia"], p["preco_atual"] = d, pr
                     p["ativos"], p["anuncios"] = it.get("a"), it.get("n")
-                    if u > 0 and len(it.get("t") or "") > len(p["produto"]):
-                        p["produto"] = it.get("t")
         lista = []
         for p in prods.values():
             if not p["u"]:
                 continue
+            p.pop("_tu", None)
             p["preco_medio"] = p["v"] / p["u"]
-            p["preco_30d"] = p["v30"] / p["u30"] if p["u30"] else None
+            p["preco_30d"] = p["pu30"] / p["u30"] if p["u30"] else None
             p["dif_preco"] = (p["preco_atual"] / p["preco_30d"] - 1) if p["preco_atual"] and p["preco_30d"] else None
             p["pausado"] = p["ativos"] == 0
             lista.append(p)
@@ -2341,7 +2411,8 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
                "pausados": sum(1 for p in lista if p["pausado"])}
         coletados = sorted({str(r["data"])[:10] for r in rows if str(r["data"])[:10] >= desde})
         return {"vendedor": vend, "desde": desde, "ate": ate, "dias": dias, "coletados": coletados, "produtos": lista,
-                "total": tot, "ini30": ini30}
+                "anuncios": sorted(anuncios.values(), key=lambda a: -a["v"]), "total": tot, "ini30": ini30,
+                "com_anuncios": any(it.get("l") for r in rows for it in (r["itens"] or [])[:1])}
 
     if rota == "vend_diario":
         # aba Vendas diárias: série dia a dia por vendedor, dia da semana, produtos do período e o dia escolhido
