@@ -511,3 +511,17 @@ alter table public.tarefa_eventos enable row level security;
 create policy "autorizado" on public.tarefa_eventos for all to authenticated
   using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
 alter table public.reuniao_tarefas add column if not exists risco text;
+
+-- Terminal do Mac na Central: comandos da lista fechada pedidos no site e executados pelo despachante do Mac
+create table if not exists public.mac_comandos (
+  id bigint generated always as identity primary key,
+  comando text not null, arg text, pedido_por text, status text not null default 'pendente',
+  saida text, criado_em timestamptz not null default now(), iniciado_em timestamptz, fim timestamptz
+);
+create table if not exists public.mac_estado (id int primary key default 1, visto_em timestamptz, info jsonb);
+alter table public.mac_comandos enable row level security;
+alter table public.mac_estado enable row level security;
+create policy "autorizado" on public.mac_comandos for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create policy "autorizado" on public.mac_estado for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

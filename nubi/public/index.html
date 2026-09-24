@@ -380,6 +380,11 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
   body{padding-bottom:64px}
 }
 .side .navi span:not(.ic){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mac-bts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.mac-mod{display:inline-flex;gap:6px;align-items:center}
+.mac-lista{display:grid;gap:6px}
+.mac-it{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--card)}
+.mac-it summary{display:flex;gap:8px;align-items:center;flex-wrap:wrap;cursor:pointer;font-size:13px}
+.mac-out{margin:8px 0 0;background:#0f141c;color:#d7e0ea;border-radius:8px;padding:10px;font-size:12px;max-height:360px;overflow:auto;white-space:pre-wrap;word-break:break-word}
 .ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:4px}
 .ag-card{display:grid;gap:6px;align-content:start}
 .ag-cab{display:flex;align-items:center;gap:10px}
@@ -937,6 +942,7 @@ async function rotear() {
   if (sec === "nomes" && location.hash.startsWith("#/central/execucoes")) return telaExecucoes();
   if (sec === "nomes" && location.hash.startsWith("#/central/erros")) return telaErros();
   if (sec === "nomes" && location.hash.startsWith("#/central/agentes")) return telaAgentes();
+  if (sec === "nomes" && location.hash.startsWith("#/central/terminal")) return telaTerminal();
   if (sec === "nomes" && location.hash.startsWith("#/central")) return telaDev();
   if (sec === "nomes" && location.hash.startsWith("#/auditoria")) return telaAuditoria();
   if (sec === "nomes" && location.hash.startsWith("#/reuniao")) return location.hash.startsWith("#/reuniao/dev") ? telaDev() : telaReuniao();
@@ -2138,6 +2144,7 @@ const OPS_ABAS = [
   {k: "auditoria", h: "#/auditoria", t: "🧪 Auditoria", on: h => h.startsWith("#/auditoria")},
   {k: "sala", h: "#/reuniao", t: "💬 Sala de reunião", on: h => h === "#/reuniao"},
   {k: "agentes", h: "#/central/agentes", t: "🤖 Agentes", on: h => h.startsWith("#/central/agentes")},
+  {k: "terminal", h: "#/central/terminal", t: "🖥️ Terminal do Mac", on: h => h.startsWith("#/central/terminal")},
   {k: "coletor", h: "#/coletor", t: "📥 Coletor", on: h => h === "#/coletor"},
 ];
 function opsAbas(ativa) {
@@ -2276,6 +2283,46 @@ async function telaAgentes(silencioso) {
     if (!location.hash.startsWith("#/central/agentes")) return clearInterval(S.agT);
     if (!document.activeElement || document.activeElement.tagName !== "INPUT") telaAgentes(true);
   }, 15000);
+  desenharMenu();
+}
+// ---------- Terminal do Mac: estado do Mac mini e comandos da lista fechada, com a saída ao vivo ----------
+const MAC_ST = {pendente: ["", "na fila"], rodando: ["warn", "rodando"], ok: ["good", "ok"], erro: ["bad", "erro"], recusado: ["bad", "recusado"]};
+async function telaTerminal(silencioso) {
+  const main = $("#main");
+  if (!silencioso) main.innerHTML = opsAbas("terminal") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Conectando ao Mac</div></div>`;
+  let r;
+  try { r = await api("mac_painel"); } catch (e) { if (!silencioso) main.innerHTML = opsAbas("terminal") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/central/terminal")) return;
+  const i = (r.estado && r.estado.info) || {}, visto = r.estado && r.estado.visto_em;
+  const quandoBR = t => t ? new Date(t).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit"}) : "—";
+  const aberto = S.macAberto;
+  main.innerHTML = opsAbas("terminal") + `<div class="dev-cab"><h1 style="margin:0">🖥️ Terminal do Mac</h1>
+      <span class="muted">comandos de uma lista fechada, executados pelo despachante do Mac mini (confere a fila a cada minuto)</span></div>
+    <div class="kpis">${kpi("Mac mini", `<span class="${r.online ? "pos" : "neg"}">${r.online ? "● online" : "○ offline"}</span>`, visto ? "último sinal " + desde(visto) : "ainda sem sinal: rode coletor atualizar no Mac")}
+      ${kpi("Ollama", i.ollama ? `<span class="pos">ligado</span>` : `<span class="neg">${visto ? "desligado" : "—"}</span>`, (i.modelos || []).join(", ") || "sem modelos")}
+      ${kpi("Coleta", i.coleta_rodando ? `<span class="st warn">rodando</span>` : "parada", i.vigia_ativo === false ? "⚠️ vigia desligado" : i.vigia_ativo ? "vigia ativo" : "")}
+      ${kpi("Disco livre", i.disco_livre_gb != null ? nf1.format(i.disco_livre_gb) + " GB" : "—", i.versao ? "coletor " + i.versao : "")}</div>
+    <div class="card pad"><h2>Comandos</h2><div class="sub">Cada botão roda um comando fixo no Mac. Não existe campo livre: comando fora da lista é recusado aqui e no Mac.</div>
+      <div class="mac-bts">${r.lista.filter(c => c.k !== "baixar_modelo").map(c => `<button class="btn small" data-mac="${c.k}">${esc(c.nome)}</button>`).join("")}
+        <span class="mac-mod"><select id="mac-mod" class="mes">${r.modelos.map(m => `<option>${esc(m)}</option>`).join("")}</select>
+        <button class="btn small" data-mac="baixar_modelo">Baixar modelo</button></span></div></div>
+    <div class="card pad" style="margin-top:14px"><h2>Execuções</h2>
+      ${r.comandos.length ? `<div class="mac-lista">${r.comandos.map(c => `<details class="mac-it" data-id="${c.id}" ${aberto === c.id ? "open" : ""}>
+        <summary><span class="st ${MAC_ST[c.status]?.[0] || ""} ${c.status === "rodando" ? "ag-pulso" : ""}">${esc(MAC_ST[c.status]?.[1] || c.status)}</span>
+          <b>${esc((r.lista.find(x => x.k === c.comando) || {nome: c.comando}).nome)}${c.arg ? " · " + esc(c.arg) : ""}</b>
+          <span class="muted">${esc(c.pedido_por || "")} · ${esc(quandoBR(c.criado_em))}${c.fim ? " · " + esc(duracao(c.iniciado_em || c.criado_em, c.fim)) : ""}</span></summary>
+        <pre class="mac-out">${esc(c.saida || (c.status === "pendente" ? "Esperando o Mac pegar o comando (até 1 minuto)…" : "sem saída ainda"))}</pre></details>`).join("")}</div>`
+        : `<p class="muted">Nenhum comando ainda.</p>`}</div>`;
+  main.querySelectorAll("[data-mac]").forEach(b => b.onclick = async () => {
+    const comando = b.dataset.mac, arg = comando === "baixar_modelo" ? $("#mac-mod").value : "";
+    try { const x = await api("mac_pedir", {}, {method: "POST", body: JSON.stringify({comando, arg})}); S.macAberto = x.id; toast("Pedido enviado ao Mac"); telaTerminal(true); }
+    catch (e) { toast(e.message, 6000); }
+  });
+  main.querySelectorAll("details.mac-it").forEach(d => d.ontoggle = () => { S.macAberto = d.open ? +d.dataset.id : null; });
+  main.querySelectorAll(".mac-out").forEach(p => p.scrollTop = p.scrollHeight);
+  clearInterval(S.macT);
+  const vivo = r.comandos.some(c => c.status === "pendente" || c.status === "rodando");
+  S.macT = setInterval(() => { if (!location.hash.startsWith("#/central/terminal")) return clearInterval(S.macT); telaTerminal(true); }, vivo ? 3000 : 20000);
   desenharMenu();
 }
 // ---------- Sala de reunião dos agentes (grupo tipo WhatsApp; o Claude decide) ----------

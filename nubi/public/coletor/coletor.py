@@ -29,6 +29,7 @@ carga e não são usados).
 import argparse
 import calendar
 import getpass
+import hashlib
 import json
 import os
 import random
@@ -1275,12 +1276,16 @@ def instalar_vigia():
   <key>Label</key><string>com.nubi.coletor.vigia</string>
   <key>ProgramArguments</key>
   <array><string>{wrapper}</string><string>vigiar</string></array>
-  <key>StartInterval</key><integer>900</integer>
+  <key>StartInterval</key><integer>60</integer>
+  <key>EnvironmentVariables</key><dict><key>NUBI_VIGIA</key><string>1</string>
+    <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
   <key>StandardOutPath</key><string>{PASTA}/vigia.log</string>
   <key>StandardErrorPath</key><string>{PASTA}/vigia.log</string>
 </dict>
 </plist>
 """
+    if os.environ.get("NUBI_VIGIA") or os.environ.get("XPC_SERVICE_NAME") == "com.nubi.coletor.vigia":
+        return                                          # dentro do próprio vigia: recarregar o launchd o mataria
     try:
         ativo = subprocess.run(["launchctl", "list", "com.nubi.coletor.vigia"], check=False, capture_output=True).returncode == 0
         if ativo and VIGIA_PLIST.exists() and VIGIA_PLIST.read_text(encoding="utf-8") == xml:
@@ -1328,8 +1333,134 @@ def _parar_coleta_velha():
         return False
 
 
+# ---------------------------------------------------------------------------
+# Despachante: a cada minuto executa os comandos pedidos na Central (lista fechada), manda a saída ao vivo,
+# faz o Hermes/Qwen responderem na Sala quando chamados e informa o estado do Mac.
+# ---------------------------------------------------------------------------
+
+def _ollama_bin():
+    for c in ("/usr/local/bin/ollama", "/opt/homebrew/bin/ollama", "/Applications/Ollama.app/Contents/Resources/ollama"):
+        if Path(c).exists():
+            return c
+    return "ollama"
+
+
+MODELOS_OK = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
+
+
+def comando_mac(chave, arg=""):
+    """Lista FECHADA: cada chave vira um comando fixo; nada vindo de fora vira comando livre."""
+    c = str(PASTA / "coletor")
+    ol = _ollama_bin()
+    tabela = {
+        "status": [c, "status"], "diario": [c, "diario"], "atualizar": [c, "atualizar"],
+        "parar_coleta": [c, "parar"], "vigia_reativar": [c, "vigia-reativar"],
+        "hermes": [c, "hermes"], "qwen": [c, "qwen"],
+        "vigia_status": ["/bin/launchctl", "list"],
+        "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
+        "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
+        "ollama_modelos": [ol, "list"], "ollama_rodando": [ol, "ps"],
+        "espaco": ["/bin/df", "-h", str(Path.home())],
+    }
+    if chave == "baixar_modelo":
+        return [ol, "pull", arg] if arg in MODELOS_OK else None
+    return tabela.get(chave)
+
+
+def _estado_desp():
+    try:
+        return json.loads((PASTA / "despachante.json").read_text())
+    except (OSError, ValueError):
+        return {"rodando": {}, "sala_ult": 0}
+
+
+def _salvar_desp(e):
+    try:
+        (PASTA / "despachante.json").write_text(json.dumps(e))
+    except OSError:
+        pass
+
+
+def _info_mac():
+    import shutil
+    info = {"coleta_rodando": bool(_outra_rodando()), "disco_livre_gb": round(shutil.disk_usage(str(Path.home())).free / 1e9, 1)}
+    try:
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=4) as r:
+            info["ollama"] = True
+            info["modelos"] = [m.get("name") for m in json.loads(r.read().decode()).get("models", [])]
+    except Exception:  # noqa: BLE001
+        info["ollama"] = False
+    try:
+        info["vigia_ativo"] = subprocess.run(["/bin/launchctl", "list", "com.nubi.coletor.vigia"], capture_output=True).returncode == 0
+    except OSError:
+        pass
+    info["versao"] = hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:10]
+    return info
+
+
+def despachar(cfg):
+    """Um ciclo do despachante (roda dentro do vigia, a cada minuto)."""
+    est = _estado_desp()
+    saidas = []
+    for cid, r in list(est["rodando"].items()):          # comandos em andamento: manda a saída; terminou = status
+        logf, rcf = Path(r["log"]), Path(r["log"] + ".rc")
+        txt = logf.read_text(errors="replace")[-12000:] if logf.exists() else ""
+        fim = rcf.exists()
+        rc = int((rcf.read_text().strip() or "1")) if fim else None
+        if not fim and time.time() - r["inicio"] > 3 * 3600:
+            fim, rc, txt = True, 124, txt + "\n(parado: passou de 3 horas)"
+        saidas.append({"id": int(cid), "saida": txt, "status": ("ok" if rc == 0 else "erro") if fim else "rodando"})
+        if fim:
+            est["rodando"].pop(cid, None)
+    token = token_nubi(cfg)
+    r = api(token, "mac_tick", corpo={"info": _info_mac(), "saidas": saidas, "sala_ult": est.get("sala_ult", 0)}, timeout=40)
+    for p in r.get("pendentes", []):
+        argv = comando_mac(p.get("comando"), p.get("arg") or "")
+        if not argv:
+            api(token, "mac_tick", corpo={"saidas": [{"id": p["id"], "status": "recusado",
+                                                     "saida": "Comando fora da lista permitida: recusado."}]}, timeout=30)
+            continue
+        logf = PASTA / "comandos" / f"{p['id']}.log"
+        logf.parent.mkdir(parents=True, exist_ok=True)
+        import shlex
+        linha = " ".join(shlex.quote(a) for a in argv)
+        subprocess.Popen(["/bin/sh", "-c", f"{linha} > {shlex.quote(str(logf))} 2>&1; echo $? > {shlex.quote(str(logf))}.rc"],
+                         start_new_session=True)
+        est["rodando"][str(p["id"])] = {"log": str(logf), "inicio": time.time()}
+    # Sala: o Hermes/Qwen respondem quando alguém chama (@hermes, @qwen) e na reunião diária
+    info = _info_mac() if r.get("sala") else {}
+    for m in r.get("sala", []):
+        est["sala_ult"] = max(est.get("sala_ult", 0), m["id"])
+        t = (m.get("texto") or "").lower()
+        for chave in ("hermes", "qwen"):
+            if f"@{chave}" in t or t.startswith("reunião diária"):
+                modelo = LOCAIS[chave][1]
+                if info.get("ollama") and any(str(x).startswith(modelo.split(":")[0]) for x in (info.get("modelos") or [])):
+                    try:
+                        cmd_hermes(argparse.Namespace(agente=chave, modelo=None, ultimas=20, pergunta=""), cfg)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"{datetime.now():%d/%m %H:%M} despachante: {chave} não respondeu ({e})", flush=True)
+    _salvar_desp(est)
+    return 0
+
+
 def cmd_vigiar():
-    """Chamado pelo launchd a cada 15 min: roda a coleta se houver versão nova do coletor ou pedido no site."""
+    """Chamado pelo launchd a cada minuto: despachante; a cada 15 min, versão nova do coletor ou pedido de coleta."""
+    cfg0 = ler_config()
+    try:
+        despachar(cfg0)
+    except Exception as e:  # noqa: BLE001
+        print(f"{datetime.now():%d/%m %H:%M} despachante: {e}", flush=True)
+    marca = PASTA / "vigia.ultimo"
+    try:
+        if time.time() - marca.stat().st_mtime < 14 * 60:
+            return 0
+    except OSError:
+        pass
+    try:
+        marca.touch()
+    except OSError:
+        pass
     _parar_coleta_velha()
     if _outra_rodando():
         return 0
@@ -1444,6 +1575,9 @@ def main():
     sub.add_parser("status")
     sub.add_parser("atualizar", help="baixa a versão mais nova do coletor")
     sub.add_parser("vigiar", help="(automático) roda a coleta se houver versão nova ou pedido no site")
+    sub.add_parser("despachar", help="(automático) executa os comandos pedidos na Central")
+    sub.add_parser("parar", help="para a coleta que estiver rodando neste Mac")
+    sub.add_parser("vigia-reativar", help="instala/ativa de novo o vigia (launchd)")
     ag = sub.add_parser("agendar", help="muda o horário da coleta diária")
     ag.add_argument("hora", type=int)
     ag.add_argument("minuto", type=int, nargs="?", default=0)
@@ -1502,6 +1636,23 @@ def main():
         return 0
     if args.cmd == "vigiar":
         return cmd_vigiar()
+    if args.cmd == "despachar":
+        return despachar(cfg)
+    if args.cmd == "parar":
+        pid = _outra_rodando()
+        if not pid:
+            print("Nenhuma coleta rodando.")
+            return 0
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except OSError:
+            os.kill(pid, signal.SIGTERM)
+        print(f"Coleta {pid} parada. A próxima continua de onde parou.")
+        return 0
+    if args.cmd == "vigia-reativar":
+        os.environ.pop("NUBI_VIGIA", None)
+        instalar_vigia()
+        return 0
     if args.cmd in ("diario", "vendedores", "marcas", "dias", "hermes", "qwen") and not os.environ.get("NUBI_ATUALIZADO"):
         auto_atualizar()
     if args.cmd in ("hermes", "qwen"):
@@ -1513,6 +1664,8 @@ def main():
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro
         Path(__file__).write_bytes(novo)
         print("OK: coletor atualizado.")
+        if not os.environ.get("NUBI_VIGIA"):
+            subprocess.run([str(PASTA / "coletor"), "vigia-reativar"], check=False)   # já com a versão nova
         return 0
     if args.cmd == "vendedores":
         def f(p, cfg, token):

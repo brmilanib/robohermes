@@ -702,6 +702,8 @@ def atender(metodo, rota, q, corpo, token):
         if rota.startswith("vend_"):
             return _json(rota_vendedores(repo, metodo, rota, q, corpo))
 
+        if rota.startswith("mac_"):
+            return _json(rota_mac(repo, metodo, rota, q, corpo, token))
         if rota.startswith("agentes"):
             return _json(rota_agentes(repo, metodo, rota, q, corpo))
         if rota.startswith("rotina") or rota.startswith("ops_"):
@@ -2143,6 +2145,71 @@ def _perguntar_agente(aid, texto, max_tokens=300):
     modelo = AGENTE_MODELO.get(aid)
     return ia.perguntar(texto, web=False, max_tokens=max(max_tokens, 4000) if aid == "astra" else max_tokens,
                         qual=qual, modelo=modelo)
+
+
+# Terminal do Mac: lista FECHADA (o Mac confere de novo do lado dele); nada vira comando livre
+COMANDOS_MAC = {
+    "status": "Status das coletas", "diario": "Rodar a coleta agora", "parar_coleta": "Parar a coleta em andamento",
+    "atualizar": "Atualizar o coletor", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia",
+    "log_vigia": "Últimas linhas do vigia", "log_coleta": "Últimas linhas da coleta",
+    "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
+    "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco",
+    "baixar_modelo": "Baixar modelo do Ollama",
+}
+MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
+
+
+def rota_mac(repo, metodo, rota, q, corpo, token):
+    d = json.loads(corpo or b"{}") if metodo == "POST" else {}
+    agora_ = datetime.now(timezone.utc).isoformat()
+    if rota == "mac_painel":
+        est = (repo._req("GET", "mac_estado", {"select": "*", "id": "eq.1"}) or [None])[0]
+        cmds = repo._req("GET", "mac_comandos", {"select": "*", "order": "id.desc", "limit": int(q.get("n") or 25)}) or []
+        online = bool(est and est.get("visto_em") and _br(est["visto_em"]) > _br(agora_) - timedelta(minutes=3))
+        return {"estado": est, "online": online, "comandos": cmds,
+                "lista": [{"k": k, "nome": v} for k, v in COMANDOS_MAC.items()], "modelos": MODELOS_MAC}
+    if rota == "mac_pedir" and metodo == "POST":
+        k, arg = str(d.get("comando") or ""), str(d.get("arg") or "")
+        if k not in COMANDOS_MAC:
+            raise ErroNuvem("Comando fora da lista permitida.")
+        if k == "baixar_modelo" and arg not in MODELOS_MAC:
+            raise ErroNuvem("Modelo fora da lista permitida.")
+        quem = "Bruno"
+        r = repo._req("POST", "mac_comandos", corpo=[{"comando": k, "arg": arg or None, "pedido_por": quem, "status": "pendente",
+                                                      "criado_em": agora_}], prefer="return=representation")
+        return {"ok": True, "id": (r or [{}])[0].get("id")}
+    if rota == "mac_comando":
+        return (repo._req("GET", "mac_comandos", {"select": "*", "id": repo._eq(int(q.get("id") or 0))}) or [None])[0] or {}
+    if rota == "mac_tick" and metodo == "POST":
+        # o Mac: estado + saídas dos comandos em andamento; recebe os pendentes e as mensagens novas da Sala
+        if d.get("info") is not None:
+            repo._req("POST", "mac_estado", corpo=[{"id": 1, "visto_em": agora_, "info": d["info"]}],
+                      prefer="resolution=merge-duplicates,return=minimal")
+        for sd in d.get("saidas") or []:
+            reg = {"saida": str(sd.get("saida") or "")[-12000:], "status": sd.get("status") or "rodando"}
+            if reg["status"] in ("ok", "erro", "recusado"):
+                reg["fim"] = agora_
+            repo._req("PATCH", "mac_comandos", {"id": repo._eq(int(sd["id"]))}, corpo=reg, prefer="return=minimal")
+        pend = []
+        if d.get("info") is not None:
+            pend = repo._req("GET", "mac_comandos", {"select": "id,comando,arg", "status": "eq.pendente", "order": "id", "limit": 3}) or []
+            for p in pend:
+                repo._req("PATCH", "mac_comandos", {"id": repo._eq(p["id"])}, corpo={"status": "rodando", "iniciado_em": agora_},
+                          prefer="return=minimal")
+        ult = int(d.get("sala_ult") or 0)
+        sala = []
+        if d.get("info") is not None:
+            if not ult:          # primeira vez: começa do fim (não responde ao histórico)
+                u = repo._req("GET", "reuniao_mensagens", {"select": "id", "order": "id.desc", "limit": 1}) or []
+                sala = [{"id": u[0]["id"], "texto": ""}] if u else []
+            else:
+                sala = repo._req("GET", "reuniao_mensagens", {"select": "id,autor,texto", "id": f"gt.{ult}", "order": "id",
+                                                               "autor": "in.(voce,sistema)", "limit": 20}) or []
+                if not sala:
+                    u = repo._req("GET", "reuniao_mensagens", {"select": "id", "order": "id.desc", "limit": 1}) or []
+                    sala = [{"id": u[0]["id"], "texto": ""}] if u and u[0]["id"] > ult else []
+        return {"pendentes": pend, "sala": sala}
+    raise ErroNuvem("Rota desconhecida.", 404)
 
 
 def rota_agentes(repo, metodo, rota, q, corpo):
