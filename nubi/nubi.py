@@ -174,6 +174,13 @@ def fmt_data(d):
     return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
 
 
+def chave_anuncio(bruto, vendedor_id="", titulo=""):
+    """Identidade do anúncio: o ID do anúncio do Nubimetrics; sem ele, vendedor + título."""
+    b = bruto if isinstance(bruto, dict) else {}
+    i = limpar_celula(b.get("ID do anúncio") or b.get("ID do anuncio") or "")
+    return "ID:" + i if i else f"VT:{vendedor_id}|{titulo}".upper()
+
+
 def limpar_celula(v):
     """Tira o lixo de fórmula do Excel: =\"\"\"3355...\"\"\"  ->  3355..."""
     v = "" if v is None else str(v)
@@ -301,6 +308,12 @@ def ler_csv(fonte):
     })
     # O ID do vendedor é a chave; se vier vazio, o nome faz o papel.
     out.loc[out["vendedor_id"] == "", "vendedor_id"] = out["vendedor"]
+    # ID do anúncio: o mesmo anúncio repetido no arquivo conta uma vez só
+    out["anuncio"] = [chave_anuncio(b, v, t) for b, v, t in zip(out["bruto"], out["vendedor_id"], out["titulo"])]
+    repetidos = out["anuncio"].str.startswith("ID:") & out["anuncio"].duplicated()
+    if repetidos.any():
+        avisar(f"    {int(repetidos.sum())} linha(s) repetida(s) (mesmo ID do anúncio) contadas uma vez só.")
+        out = out[~repetidos]
     # GTIN: coluna Gtin; se não der nada, tenta a coluna Sku (às vezes o GTIN está lá).
     # 1ª passada só com GTINs limpos, para saber qual prefixo de empresa é o da marca.
     unidades = out["un"].values
@@ -1256,6 +1269,7 @@ def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes):
             avisar(f"    Marca {antiga} renomeada para {marca} (grafia oficial).")
             reconsolidar(repo, cfg, [marca])
     dias = (fim - ini).days + 1          # inclusive nas pontas: 01/08 a 16/09 = 47 dias
+    df = _juntar_por_id(repo, cfg, marca, ini.isoformat(), fim.isoformat(), df)
     garantir_config(cfg, marca, df, repo)
     df = consolidar(df, marca, cfg)
     substituiu = repo.gravar_snapshot(marca, ini.isoformat(), fim.isoformat(), dias, nome, hash_, df)
@@ -2228,3 +2242,60 @@ def importar_por_marca(repo, cfg, nome, dados, ini, fim, escolhidas, apelidos=No
         avisar(f"    Não importadas (poucos anúncios ou desmarcadas): " +
                ", ".join(f"{g['nome']} ({g['anuncios']})" for g in fora[:12]) + (" …" if len(fora) > 12 else ""))
     return feitas
+
+
+
+def _ids(df):
+    if "anuncio" not in df.columns:
+        df = df.assign(anuncio=[chave_anuncio(b, v, t) for b, v, t in zip(df["bruto"], df["vendedor_id"], df["titulo"])])
+    return df
+
+
+def _juntar_por_id(repo, cfg, marca, ini, fim, df):
+    """
+    Pelo ID do anúncio, para não sobrepor, somar nem duplicar:
+      - mesma marca e mesmo período já importado de outro arquivo: junta os dois (anúncio que está nos
+        dois fica com os números do arquivo novo; os que só existiam no antigo continuam);
+      - anúncio que estava no card de OUTRA marca no mesmo período (arquivo misturado importado antes)
+        sai de lá e fica só nesta.
+    """
+    df = _ids(df)
+    novos = set(df["anuncio"])
+    snaps = repo.snapshots()
+    if snaps.empty:
+        return df
+    mesmo = snaps[(snaps["inicio"].astype(str).str[:10] == ini) & (snaps["fim"].astype(str).str[:10] == fim)]
+    colunas = list(df.columns)
+    for _, sn in mesmo.iterrows():
+        antigo = _ids(repo.anuncios(sn["id"]))
+        if antigo.empty:
+            continue
+        if sn["marca"] == marca:
+            resto = antigo[~antigo["anuncio"].isin(novos)]
+            # do arquivo anterior só ficam anúncios desta marca (um arquivo misturado deixava outras marcas aqui)
+            grupo = _chave_grupo(marca)
+            dela = resto["marca_anuncio"].fillna("").map(lambda m: not m.strip() or _chave_grupo(m) == grupo)
+            if (~dela).any():
+                avisar(f"    {int((~dela).sum())} anúncio(s) de outras marcas que estavam misturados no card de {marca} foram retirados.")
+            resto = resto[dela]
+            if len(resto):
+                for c in colunas:
+                    if c not in resto.columns:
+                        resto = resto.assign(**{c: None})
+                df = pd.concat([df, resto[colunas]], ignore_index=True)
+            avisar(f"    Mesmo período já importado ({sn['arquivo']}): juntei pelo ID do anúncio — "
+                   f"{len(novos & set(antigo['anuncio']))} atualizado(s), {len(novos - set(antigo['anuncio']))} novo(s), "
+                   f"{len(resto)} mantido(s) do arquivo anterior.")
+            continue
+        fora = antigo["anuncio"].str.startswith("ID:") & antigo["anuncio"].isin(novos)
+        if not fora.any():
+            continue
+        fica = antigo[~fora].drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in antigo.columns])
+        outra = sn["marca"]
+        avisar(f"    {int(fora.sum())} anúncio(s) estavam no card de {outra} no mesmo período e passaram para {marca}.")
+        if fica.empty:
+            repo.apagar_snapshot(sn["id"])
+        else:
+            fica = consolidar(fica, outra, cfg) if outra in cfg else fica
+            repo.gravar_snapshot(outra, ini, fim, int(sn["dias"]), sn["arquivo"], sn["hash"], fica)
+    return df
