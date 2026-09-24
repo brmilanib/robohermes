@@ -178,13 +178,27 @@ def rodar(repo, obs=""):
             conversa.append({"autor": "ChatGPT" + (f" ({modelo_cod})" if modelo_cod else ""), "texto": t})
         except Exception as e:  # noqa: BLE001
             conversa.append({"autor": "sistema", "texto": f"O ChatGPT não respondeu: {str(e)[:200]}"})
-    if ia.tem("claude") and conversa and conversa[-1]["autor"] != "sistema":
+    if ia.tem("deepseek"):
         try:
             t, _, _ = ia.perguntar(
-                "Você é o revisor técnico do nubi. Outro engenheiro (ChatGPT) analisou as conferências de dados e um trecho "
-                "de código. Revise a análise dele: diga com o que concorda, o que está errado ou arriscado, o que ele deixou "
-                "passar e qual correção você faria. Seja concreto e curto. Português.\n\n"
-                f"CONFERÊNCIAS:\n{lista}\n\nANÁLISE DO CHATGPT:\n{conversa[-1]['texto']}\n\n"
+                "Você é o DeepSeek, engenheiro de software do nubi. Revise o trecho de código abaixo procurando bugs que "
+                "distorçam números, casos não tratados, desempenho e custo. Liste no máximo 5 pontos, cada um com a função, "
+                "o problema e a correção em poucas linhas. Se o ChatGPT já apontou algo, diga se concorda. Português.\n\n"
+                f"CONFERÊNCIAS:\n{lista}\n\nANÁLISE DO CHATGPT:\n{conversa[-1]['texto'][:6000] if conversa else '—'}\n\n"
+                f"CÓDIGO ({modulo}, parte {parte}/{partes}):\n```python\n{codigo}\n```",
+                web=False, max_tokens=2500, qual="deepseek")
+            conversa.append({"autor": "DeepSeek", "texto": t})
+        except Exception as e:  # noqa: BLE001
+            conversa.append({"autor": "sistema", "texto": f"O DeepSeek não respondeu: {str(e)[:200]}"})
+    gpt = next((m["texto"] for m in conversa if m["autor"].startswith("ChatGPT")), None)
+    ds = next((m["texto"] for m in conversa if m["autor"] == "DeepSeek"), None)
+    if ia.tem("claude") and (gpt or ds):
+        try:
+            t, _, _ = ia.perguntar(
+                "Você é o revisor técnico e coordenador do nubi. O ChatGPT e o DeepSeek analisaram as conferências de dados e "
+                "um trecho de código. Revise as análises: diga com o que concorda, o que está errado ou arriscado, o que "
+                "deixaram passar e qual correção você faria. Seja concreto e curto. Português.\n\n"
+                f"CONFERÊNCIAS:\n{lista}\n\nANÁLISE DO CHATGPT:\n{gpt or '—'}\n\nANÁLISE DO DEEPSEEK:\n{ds or '—'}\n\n"
                 f"CÓDIGO ({modulo}, parte {parte}/{partes}):\n```python\n{codigo}\n```",
                 web=False, max_tokens=2500, qual="claude")
             conversa.append({"autor": "Claude", "texto": t})

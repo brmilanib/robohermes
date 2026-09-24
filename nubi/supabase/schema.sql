@@ -428,3 +428,19 @@ create table if not exists public.coletor_pedidos (
 alter table public.coletor_pedidos enable row level security;
 create policy "autorizado" on public.coletor_pedidos
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Sala de reunião dos agentes e tarefas de desenvolvimento decididas nela
+create table if not exists public.reuniao_mensagens (
+  id bigserial primary key, criado_em timestamptz not null default now(), autor text not null, texto text not null, meta jsonb
+);
+alter table public.reuniao_mensagens enable row level security;
+create policy "autorizado" on public.reuniao_mensagens
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create table if not exists public.reuniao_tarefas (
+  id bigserial primary key, criado_em timestamptz not null default now(), atualizado_em timestamptz not null default now(),
+  titulo text not null, descricao text, tipo text not null default 'tarefa', status text not null default 'proposta',
+  prioridade text not null default 'media', area text, proposto_por text, decidido_por text, mensagem_id bigint, notas text
+);
+alter table public.reuniao_tarefas enable row level security;
+create policy "autorizado" on public.reuniao_tarefas
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

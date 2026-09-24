@@ -477,6 +477,11 @@ Com `OPENAI_API_KEY` (ou `ANTHROPIC_API_KEY`) nas variáveis da Vercel, o nubi u
   grupo x exports do dia, soma dos dias x mês, dias fora do padrão, saltos de preço, junções fracas, tarefas com erro);
   depois o ChatGPT (`NUBI_IA_CODIGO`, padrão = `NUBI_IA_MODELO`) analisa e revisa um módulo do código por noite, e o
   Claude (`ANTHROPIC_API_KEY`) revisa a análise. Nada é mudado sozinho: o relatório fica guardado em `auditorias`.
+- **Sala de reunião dos agentes** (Ajustes > Sala de reunião): grupo tipo WhatsApp com você, ChatGPT (dados),
+  DeepSeek (código, `DEEPSEEK_API_KEY`, modelo `NUBI_IA_MODELO_DEEPSEEK`, padrão deepseek-flash) e Claude (coordena e
+  decide). A cada mensagem, ChatGPT e DeepSeek opinam (ou só o citado com @chatgpt/@deepseek) e o Claude fecha e
+  registra as tarefas em **Desenvolvimento** (`reuniao_tarefas`: proposta, aprovada, em desenvolvimento, feita,
+  recusada). Às 11h, reunião automática sobre a auditoria. O DeepSeek também revisa o código na auditoria.
 - **Análise da semana**: toda segunda às 8h, com os resumos diários guardados e as vendas de cada dia x semana anterior.
 - **Tarefas de rotina** (Coletor e agentes → Tarefas de rotina, tabela `rotinas`): quem faz, horário, dias, ligada e
   observação (a observação das tarefas do ChatGPT vai no prompt). A Vercel chama `r=rotinas_cron` de hora em hora (24 agendas diárias, uma por hora: o plano Hobby só aceita agenda diária) e roda

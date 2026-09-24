@@ -23,13 +23,38 @@ def disponivel():
     return "chatgpt" if os.environ.get("OPENAI_API_KEY") else "claude" if os.environ.get("ANTHROPIC_API_KEY") else None
 
 
+CHAVES = {"claude": "ANTHROPIC_API_KEY", "chatgpt": "OPENAI_API_KEY", "deepseek": "DEEPSEEK_API_KEY"}
+DEEPSEEK_MODELOS = ["deepseek-flash", "deepseek-v4-flash", "deepseek-chat"]   # nomes mudam; tenta na ordem
+
+
 def tem(qual):
-    return bool(os.environ.get({"claude": "ANTHROPIC_API_KEY", "chatgpt": "OPENAI_API_KEY"}[qual]))
+    return bool(os.environ.get(CHAVES[qual]))
+
+
+def _deepseek(pergunta, max_tokens, modelo=None, sistema=None):
+    """DeepSeek (API no formato da OpenAI). Se o nome do modelo for recusado, tenta o próximo da lista."""
+    import urllib.error
+    modelos = [modelo or os.environ.get("NUBI_IA_MODELO_DEEPSEEK")] if (modelo or os.environ.get("NUBI_IA_MODELO_DEEPSEEK")) else DEEPSEEK_MODELOS
+    msgs = ([{"role": "system", "content": sistema}] if sistema else []) + [{"role": "user", "content": pergunta}]
+    ultimo = None
+    for m in modelos:
+        try:
+            r = _post_json("https://api.deepseek.com/chat/completions",
+                           {"model": m, "messages": msgs, "max_tokens": max_tokens, "stream": False},
+                           {"Authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"}, timeout=150)
+            return (r.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        except urllib.error.HTTPError as e:
+            corpo = e.read().decode(errors="replace")[:300]
+            ultimo = f"{e.code}: {corpo}"
+            if e.code in (400, 404) and "model" in corpo.lower():
+                continue
+            raise SemIA(f"DeepSeek respondeu {ultimo}")
+    raise SemIA(f"DeepSeek recusou os modelos {modelos}: {ultimo}")
 
 
 def nome(ia=None):
     ia = ia or disponivel()
-    return {"claude": "IA (Claude)", "chatgpt": "IA (ChatGPT)"}.get(ia, "IA")
+    return {"claude": "IA (Claude)", "chatgpt": "IA (ChatGPT)", "deepseek": "IA (DeepSeek)"}.get(ia, "IA")
 
 
 def _post_json(url, corpo, cab, timeout=90):
@@ -44,6 +69,8 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None):
     ia = qual or disponivel()
     if not ia or not tem(ia):
         raise SemIA("nenhuma chave de IA configurada" if not ia else f"falta a chave da IA {nome(ia)}")
+    if ia == "deepseek":
+        return _deepseek(pergunta, max_tokens, modelo).strip(), [], ia
     if ia == "claude":
         corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO_CLAUDE", "claude-sonnet-5"), "max_tokens": max_tokens,
                  "messages": [{"role": "user", "content": pergunta}]}
@@ -65,8 +92,8 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None):
     return texto.strip(), list(dict.fromkeys(l for l in links if l)), ia
 
 
-def perguntar_json(pergunta, web=True, max_tokens=1500):
-    texto, links, ia = perguntar(pergunta, web, max_tokens)
+def perguntar_json(pergunta, web=True, max_tokens=1500, qual=None):
+    texto, links, ia = perguntar(pergunta, web, max_tokens, qual=qual)
     m = re.search(r"\{.*\}", texto, re.S)
     try:
         j = json.loads(m.group(0)) if m else {}

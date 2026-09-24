@@ -30,6 +30,7 @@ import ia
 import pesquisa_marca
 import produtos_iguais
 import auditoria
+import reuniao
 import vend_bi
 import vendedores
 
@@ -699,13 +700,44 @@ def atender(metodo, rota, q, corpo, token):
         if rota.startswith("rotina"):
             return _json(rota_rotinas(repo, metodo, rota, q, corpo))
 
+        if rota == "reuniao":
+            apos = int(q.get("apos") or 0)
+            msgs = repo._todos("reuniao_mensagens", {"select": "id,autor,texto,criado_em,meta", "id": f"gt.{apos}", "order": "id"})
+            if not apos:
+                msgs = msgs[-200:]
+            return _json({"mensagens": msgs, "agentes": {k: ia.tem(k) for k in ("chatgpt", "deepseek", "claude")}})
+        if rota == "reuniao_enviar" and metodo == "POST":
+            d = json.loads(corpo or b"{}")
+            texto = str(d.get("texto") or "").strip()
+            if not texto:
+                raise ErroNuvem("Escreva a mensagem.")
+            if not (ia.tem("chatgpt") or ia.tem("claude") or ia.tem("deepseek")):
+                raise ErroNuvem("Nenhuma IA configurada na Vercel.")
+            return _json({"novas": reuniao.rodada(repo, texto[:4000])})
+        if rota == "reuniao_tarefas":
+            return _json({"tarefas": repo._todos("reuniao_tarefas", {"select": "*", "order": "id.desc"}), "status": reuniao.STATUS})
+        if rota == "reuniao_tarefa_salvar" and metodo == "POST":
+            d = json.loads(corpo or b"{}")
+            reg = {k: d[k] for k in ("titulo", "descricao", "status", "prioridade", "area", "notas", "tipo") if k in d}
+            if "status" in reg and reg["status"] not in reuniao.STATUS:
+                raise ErroNuvem("Status inválido.")
+            reg["atualizado_em"] = datetime.now(timezone.utc).isoformat()
+            if d.get("id"):
+                repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(int(d["id"]))}, corpo=reg, prefer="return=minimal")
+            else:
+                if not str(reg.get("titulo") or "").strip():
+                    raise ErroNuvem("Dê um título para a tarefa.")
+                reg.update(proposto_por="voce", decidido_por="voce")
+                repo._req("POST", "reuniao_tarefas", corpo=[reg], prefer="return=minimal")
+            return _json({"ok": True})
+
         if rota == "auditoria":
             # relatório da auditoria de dados e código (o mais recente, ou o de ?data=)
             lista = repo._req("GET", "auditorias", {"select": "data,resumo", "order": "data.desc", "limit": 30}) or []
             d = q.get("data") or (lista[0]["data"] if lista else None)
             atual = (repo._req("GET", "auditorias", {"select": "*", "data": repo._eq(d)}) or [None])[0] if d else None
             return _json({"atual": atual, "datas": [x["data"] for x in lista],
-                          "ias": {"chatgpt": ia.tem("chatgpt"), "claude": ia.tem("claude")},
+                          "ias": {"chatgpt": ia.tem("chatgpt"), "claude": ia.tem("claude"), "deepseek": ia.tem("deepseek")},
                           "modelo_codigo": os.environ.get("NUBI_IA_CODIGO") or os.environ.get("NUBI_IA_MODELO") or "gpt-4.1"})
 
         if rota == "resumo_semana":
@@ -1728,7 +1760,7 @@ def resumos_marcas_pendentes(repo):
 # A coleta roda no Mac mini (launchd) e só consulta se está ligada no dia.
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
-NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "auditoria", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
+NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "auditoria", "reuniao", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
 
@@ -1774,7 +1806,18 @@ def rodar_rotinas(repo, so=None):
         if not r or (so and rid != so) or (not so and not rotina_pendente(r, agora)):
             continue
         try:
-            if rid == "auditoria":
+            if rid == "reuniao":
+                au = (repo._req("GET", "auditorias", {"select": "*", "order": "data.desc", "limit": 1}) or [None])[0]
+                extra = ""
+                if au:
+                    extra = ("AUDITORIA DE " + str(au["data"]) + ": " + (au.get("resumo") or "") + "\n"
+                             + "\n".join(f"[{c['nivel']}] {c['titulo']} — {c['detalhe']}" for c in (au.get("conferencias") or [])[:25])
+                             + "\n" + "\n".join(f"({m['autor']}) {m['texto'][:1500]}" for m in (au.get("conversa") or [])))
+                obs = (r.get("observacao") or "").strip()
+                x = reuniao.rodada(repo, "Reunião diária: discutam a auditoria de hoje e decidam o que vai para desenvolvimento."
+                                   + (f" Pauta do dono: {obs}" if obs else ""), extra, autor_extra="sistema")
+                res = f"{len(x)} mensagem(ns) na Sala de reunião"
+            elif rid == "auditoria":
                 reg = auditoria.rodar(repo, (r.get("observacao") or "").strip())
                 repo._req("POST", "auditorias", corpo=[reg], prefer="resolution=merge-duplicates,return=minimal")
                 res = reg["resumo"]

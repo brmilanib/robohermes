@@ -291,9 +291,35 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .cc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .cc-seg button{border:0;background:var(--card);color:var(--muted);padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
 .cc-seg button.on{background:var(--soft);color:var(--ink);font-weight:600}
+.wa{display:flex;flex-direction:column;height:calc(100vh - 190px);min-height:420px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card)}
+.wa-top{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#075e54;color:#fff}
+.wa-top .av{width:34px;height:34px;border-radius:50%;background:#25d366;display:grid;place-items:center;font-size:18px}
+.wa-top small{opacity:.85}
+.wa-msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:6px;
+  background:#efeae2 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ccircle cx='2' cy='2' r='1' fill='%23d9d2c5'/%3E%3C/svg%3E")}
+:root[data-theme="dark"] .wa-msgs{background:#0b141a}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .wa-msgs{background:#0b141a}}
+.wa-b{max-width:78%;padding:6px 10px 4px;border-radius:10px;box-shadow:0 1px .5px rgba(0,0,0,.13);font-size:13.5px;line-height:1.4;background:#fff;color:#111b21;align-self:flex-start;position:relative}
+.wa-b.eu{align-self:flex-end;background:#d9fdd3}
+.wa-b.sis{align-self:center;background:#fff5c4;color:#54656f;font-size:12px;max-width:90%;text-align:center}
+.wa-b .nm{font-weight:700;font-size:12.5px;margin-bottom:2px}
+.wa-b .hr{float:right;font-size:10.5px;color:#667781;margin:6px 0 0 10px}
+.wa-b .md p{margin:2px 0} .wa-b .md ul{margin:2px 0;padding-left:18px} .wa-b .md h3{font-size:13px;margin:4px 0 2px}
+.wa-b.dec{border-left:3px solid #d97757}
+.wa-dia{align-self:center;background:#fff;color:#54656f;font-size:11.5px;border-radius:8px;padding:3px 10px;margin:6px 0;box-shadow:0 1px .5px rgba(0,0,0,.1)}
+.wa-in{display:flex;gap:8px;padding:8px 10px;background:#f0f2f5;align-items:flex-end}
+:root[data-theme="dark"] .wa-in{background:#202c33}
+.wa-in textarea{flex:1;resize:none;border:0;border-radius:18px;padding:9px 14px;font:inherit;max-height:120px;min-height:40px;background:#fff;color:#111b21}
+.wa-in button{width:42px;height:42px;border-radius:50%;border:0;background:#00a884;color:#fff;font-size:18px;cursor:pointer}
+.wa-in button:disabled{opacity:.5}
+.wa-dig{align-self:flex-start;font-size:12px;color:#667781;font-style:italic;padding:4px 8px}
+.dev-col{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px}
+@media (max-width:1000px){.dev-col{grid-template-columns:1fr 1fr}} @media (max-width:640px){.dev-col{grid-template-columns:1fr}}
+.dev-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card);margin-top:8px}
+.dev-card h4{margin:0 0 4px;font-size:13.5px} .dev-card p{margin:4px 0;font-size:12.5px;color:var(--muted)}
 .au-msg{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:10px;background:var(--card)}
 .au-msg .quem{font-weight:700;font-size:13px;margin-bottom:4px}
-.au-msg.gpt{border-left:4px solid #10a37f} .au-msg.claude{border-left:4px solid #d97757} .au-msg.sis{border-left:4px solid var(--muted);color:var(--muted)}
+.au-msg.gpt{border-left:4px solid #10a37f} .au-msg.ds{border-left:4px solid #4d6bfe} .au-msg.claude{border-left:4px solid #d97757} .au-msg.sis{border-left:4px solid var(--muted);color:var(--muted)}
 .au-msg pre{white-space:pre-wrap;background:var(--soft);padding:8px;border-radius:8px;font-size:12px;overflow:auto}
 .rot-card{margin-top:12px}
 .rot-card .cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -492,7 +518,7 @@ const SECOES = [
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -577,6 +603,7 @@ function desenharMenu() {
     ${it("#/nomes-marcas", "🔗", "Nomes de marcas", h.startsWith("#/nomes-marcas"))}
     ${it("#/nomes-vendedores", "🔗", "Nomes de vendedores", h.startsWith("#/nomes-vendedores"))}
     ${it("#/produtos-iguais", "🧩", "Produtos iguais (IA)", h.startsWith("#/produtos-iguais"))}
+    ${it("#/reuniao", "💬", "Sala de reunião (agentes)", h.startsWith("#/reuniao"))}
     ${it("#/auditoria", "🧪", "Auditoria (dados e código)", h.startsWith("#/auditoria"))}
     ${it("#/coletor", "📥", "Coletor e agentes", h === "#/coletor")}
     <div class="subnav"><a class="${h.startsWith("#/coletor/rotinas") ? "on" : ""}" href="#/coletor/rotinas">🗓️ Tarefas de rotina</a></div>`;
@@ -633,6 +660,7 @@ async function rotear() {
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
   }
   if (sec === "nomes" && location.hash.startsWith("#/auditoria")) return telaAuditoria();
+  if (sec === "nomes" && location.hash.startsWith("#/reuniao")) return location.hash.startsWith("#/reuniao/dev") ? telaDev() : telaReuniao();
   if (sec === "nomes") return location.hash.startsWith("#/coletor/rotinas") ? telaRotinas() : location.hash.startsWith("#/coletor") ? telaColetor() : telaNomesMarcas();
   if (sec === "vendedores") {
     if (!S.vendLista) await carregarVendLista();
@@ -1823,6 +1851,103 @@ async function telaConcVendedor(vend) {
   desenhar(); desenharMenu();
 }
 
+// ---------- Sala de reunião dos agentes (grupo tipo WhatsApp; o Claude decide) ----------
+const AG_COR = {"ChatGPT": "#10a37f", "DeepSeek": "#4d6bfe", "Claude": "#d97757", "Claude (código)": "#b3541e", "sistema": "#667781", "voce": "#00a884"};
+function waBolha(m) {
+  const hr = new Date(m.criado_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
+  if (m.autor === "sistema") return `<div class="wa-b sis">${mdSimples(m.texto)}<span class="hr">${hr}</span></div>`;
+  const eu = m.autor === "voce", cor = AG_COR[m.autor] || (m.autor.startsWith("Claude") ? "#d97757" : "#8e44ad");
+  return `<div class="wa-b ${eu ? "eu" : ""} ${m.meta && m.meta.decisao ? "dec" : ""}">${eu ? "" : `<div class="nm" style="color:${cor}">${esc(m.autor)}${m.meta && m.meta.decisao ? " · decisão" : ""}</div>`}
+    <div class="md">${mdSimples(m.texto)}</div><span class="hr">${hr}</span></div>`;
+}
+function waDesenhar(msgs) {
+  let html = "", dia = "";
+  for (const m of msgs) {
+    const d = new Date(m.criado_em).toLocaleDateString("pt-BR");
+    if (d !== dia) { dia = d; html += `<div class="wa-dia">${d === new Date().toLocaleDateString("pt-BR") ? "Hoje" : d}</div>`; }
+    html += waBolha(m);
+  }
+  return html || `<div class="wa-b sis">A sala está vazia. Escreva uma pergunta ou uma ideia: o ChatGPT e o DeepSeek opinam e o Claude decide e registra as tarefas.</div>`;
+}
+async function telaReuniao() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a sala de reunião</div></div>`;
+  let r;
+  try { r = await api("reuniao"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  S.reu = {msgs: r.mensagens, ult: r.mensagens.length ? r.mensagens[r.mensagens.length - 1].id : 0};
+  const ag = r.agentes, on = k => ag[k] ? "" : " (sem chave)";
+  main.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px"><h1 style="margin:0">💬 Sala de reunião</h1>
+      <div class="seg"><button class="on">💬 Sala</button><button onclick="location.hash='#/reuniao/dev'">📋 Desenvolvimento</button></div></div>
+    <div class="wa"><div class="wa-top"><div class="av">🤖</div><div><b>Agentes do nubi</b><br>
+      <small>você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, Claude${on("claude")} (coordena e decide) · @chatgpt ou @deepseek chama só um</small></div></div>
+      <div class="wa-msgs" id="wa-msgs">${waDesenhar(S.reu.msgs)}</div>
+      <div class="wa-in"><textarea id="wa-txt" rows="1" placeholder="Mensagem para os agentes (Enter envia, Shift+Enter quebra linha)"></textarea><button id="wa-env" title="Enviar">➤</button></div></div>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">Todo dia às 11h (Tarefas de rotina) eles se reúnem sozinhos para discutir a auditoria. O que o Claude aprova vai para 📋 Desenvolvimento, e o Claude da sessão de código implementa.</p>`;
+  const box = $("#wa-msgs"); box.scrollTop = box.scrollHeight;
+  const ta = $("#wa-txt");
+  ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; };
+  const enviar = async () => {
+    const texto = ta.value.trim(); if (!texto) return;
+    ta.value = ""; ta.oninput(); $("#wa-env").disabled = true;
+    const agora = new Date().toISOString();
+    box.insertAdjacentHTML("beforeend", waBolha({autor: "voce", texto, criado_em: agora}) + `<div class="wa-dig" id="wa-dig">ChatGPT, DeepSeek e Claude estão digitando…</div>`);
+    box.scrollTop = box.scrollHeight;
+    try { await api("reuniao_enviar", {}, {method: "POST", body: JSON.stringify({texto})}); }
+    catch (e) { toast(e.message, 7000); }
+    const d = $("#wa-dig"); if (d) d.remove();
+    $("#wa-env").disabled = false;
+    await atualizarReuniao(true);
+  };
+  $("#wa-env").onclick = enviar;
+  ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } };
+  clearInterval(S.reuT); S.reuT = setInterval(() => { if (!location.hash.startsWith("#/reuniao") || location.hash.startsWith("#/reuniao/dev")) return clearInterval(S.reuT); atualizarReuniao(); }, 10000);
+  desenharMenu();
+}
+async function atualizarReuniao(rolar) {
+  let r;
+  try { r = await api("reuniao", {apos: S.reu.ult}); } catch { return; }
+  if (!r.mensagens.length) return;
+  S.reu.msgs = S.reu.msgs.concat(r.mensagens); S.reu.ult = r.mensagens[r.mensagens.length - 1].id;
+  const box = $("#wa-msgs"); if (!box) return;
+  const noFim = rolar || box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const dig = $("#wa-dig") ? $("#wa-dig").outerHTML : "";
+  box.innerHTML = waDesenhar(S.reu.msgs) + dig;
+  if (noFim) box.scrollTop = box.scrollHeight;
+}
+const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em desenvolvimento", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"]};
+async function telaDev() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o desenvolvimento</div></div>`;
+  let r;
+  try { r = await api("reuniao_tarefas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const ts = r.tarefas, PRI = {alta: "bad", media: "warn", baixa: ""};
+  const card = t => `<div class="dev-card"><h4>#${t.id} ${esc(t.titulo)}</h4>
+    <div><span class="st ${PRI[t.prioridade] || ""}">${esc(t.prioridade)}</span> <span class="st">${esc(t.tipo)}</span>${t.area ? ` <span class="st">${esc(t.area)}</span>` : ""}</div>
+    ${t.descricao ? `<p>${esc(t.descricao)}</p>` : ""}${t.notas ? `<p><b>Nota:</b> ${esc(t.notas)}</p>` : ""}
+    <p style="font-size:11.5px">Sugerido por ${esc(t.proposto_por || "?")} · decidido por ${esc(t.decidido_por || "?")} · ${esc(quando(t.atualizado_em || t.criado_em))}</p>
+    <select data-st="${t.id}" class="mes" style="font-size:12px">${r.status.map(x => `<option value="${x}" ${x === t.status ? "selected" : ""}>${DEV_ST[x][0]}</option>`).join("")}</select></div>`;
+  const cols = ["aprovada", "em_desenvolvimento", "proposta", "feita"];
+  main.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h1 style="margin:0">📋 Desenvolvimento</h1>
+      <div class="seg"><button onclick="location.hash='#/reuniao'">💬 Sala</button><button class="on">📋 Desenvolvimento</button></div><div style="flex:1"></div>
+      <button class="btn" id="dev-nova">+ Nova tarefa</button></div>
+    <p class="muted" style="font-size:12.5px;margin:6px 0 0">O que os agentes discutiram e o Claude decidiu. Aprovadas entram na fila do Claude da sessão de código; você pode mudar o status de qualquer uma.</p>
+    <div class="dev-col">${cols.map(c => `<div><h3 style="margin:0;font-size:14px">${DEV_ST[c][0]} <span class="muted">(${ts.filter(t => t.status === c).length})</span></h3>
+      ${ts.filter(t => t.status === c).map(card).join("") || `<p class="muted" style="font-size:12.5px">Nada aqui.</p>`}</div>`).join("")}</div>
+    ${ts.some(t => t.status === "recusada") ? `<details style="margin-top:14px"><summary class="muted">Recusadas (${ts.filter(t => t.status === "recusada").length})</summary>
+      <div class="dev-col">${ts.filter(t => t.status === "recusada").map(card).join("")}</div></details>` : ""}`;
+  main.querySelectorAll("[data-st]").forEach(sel => sel.onchange = async () => {
+    try { await api("reuniao_tarefa_salvar", {}, {method: "POST", body: JSON.stringify({id: +sel.dataset.st, status: sel.value})}); toast("Status atualizado"); telaDev(); }
+    catch (e) { toast(e.message, 6000); }
+  });
+  $("#dev-nova").onclick = async () => {
+    const titulo = prompt("Título da tarefa:"); if (!titulo) return;
+    const descricao = prompt("O que fazer (opcional):") || "";
+    try { await api("reuniao_tarefa_salvar", {}, {method: "POST", body: JSON.stringify({titulo, descricao, status: "aprovada", prioridade: "media"})}); telaDev(); }
+    catch (e) { toast(e.message, 6000); }
+  };
+  desenharMenu();
+}
+
 // ---------- Auditoria de dados e código (ChatGPT analisa, Claude revisa; ninguém muda nada sozinho) ----------
 function mdCodigo(t) {
   // markdown simples + blocos ``` de código
@@ -1854,7 +1979,7 @@ async function telaAuditoria(data) {
       <tbody>${conf.map(x => `<tr><td><span class="st ${NIV[x.nivel][0]}">${NIV[x.nivel][1]}</span></td><td>${esc(x.area)}</td>
         <td class="first wrap">${esc(x.titulo)}</td><td class="wrap">${esc(x.detalhe)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nenhum achado. 👏</td></tr>`}</tbody></table></div></div>
     <div class="card pad" style="margin-top:14px"><h2>Conversa dos agentes</h2><div class="sub">O ChatGPT analisa; o Claude revisa. Sugestões de correção só entram depois de conferidas e testadas.</div>
-      ${(a.conversa || []).map(m => `<div class="au-msg ${m.autor.startsWith("ChatGPT") ? "gpt" : m.autor === "Claude" ? "claude" : "sis"}"><div class="quem">${esc(m.autor)}</div>${mdCodigo(m.texto)}</div>`).join("")}</div>`}`;
+      ${(a.conversa || []).map(m => `<div class="au-msg ${m.autor.startsWith("ChatGPT") ? "gpt" : m.autor === "DeepSeek" ? "ds" : m.autor === "Claude" ? "claude" : "sis"}"><div class="quem">${esc(m.autor)}</div>${mdCodigo(m.texto)}</div>`).join("")}</div>`}`;
   if ($("#au-data")) $("#au-data").onchange = e => telaAuditoria(e.target.value);
   $("#au-rodar").onclick = async () => {
     const c = carregando("Auditando os dados e o código (1 a 3 minutos)");
@@ -1865,21 +1990,21 @@ async function telaAuditoria(data) {
 }
 
 // ---------- Tarefas de rotina (editável: responsável, horário, dias, ligada/desligada e observação) ----------
-const RESPONSAVEIS = ["Coletor (Mac mini)", "Robô nubi (servidor)", "ChatGPT", "Claude", "ChatGPT + Claude", "Você"];
+const RESPONSAVEIS = ["Coletor (Mac mini)", "Robô nubi (servidor)", "ChatGPT", "Claude", "DeepSeek", "ChatGPT + Claude", "ChatGPT + DeepSeek + Claude", "Você"];
 const DIAS_NOME = {seg: "Seg", ter: "Ter", qua: "Qua", qui: "Qui", sex: "Sex", sab: "Sáb", dom: "Dom"};
 async function telaRotinas() {
   const main = $("#main");
   main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando tarefas</div></div>`;
   let r;
   try { r = await api("rotinas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  const sistema = id => ["coleta", "agente", "produtos_ia", "categorias_lote", "auditoria", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
+  const sistema = id => ["coleta", "agente", "produtos_ia", "categorias_lote", "auditoria", "reuniao", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
   const quandoTxt = t => t.dia_mes ? `todo dia ${t.dia_mes} do mês (e depois, se faltar)` : (t.dias_semana || []).length === 7 ? "todo dia"
     : (t.dias_semana || []).length ? (t.dias_semana || []).map(d => DIAS_NOME[d]).join(", ") : "nenhum dia";
   const card = t => `<div class="card pad rot-card" data-id="${esc(t.id)}">
     <div class="cab"><h2>${t.ativo ? "🟢" : "⚪️"} ${esc(t.nome)}</h2><span class="st">${esc(t.responsavel)}</span>
       <span class="muted" style="font-size:12.5px">${t.id === "coleta" ? "07:00 (no Mac)" : esc(t.horario)} · ${esc(quandoTxt(t))}</span>
       ${t.pendente ? `<span class="st warn">na fila desta hora</span>` : ""}<div style="flex:1"></div>
-      ${["agente", "produtos_ia", "categorias_lote", "auditoria", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(t.id) ? `<button class="btn small" data-rodar="${esc(t.id)}">▶ Rodar agora</button>` : ""}
+      ${["agente", "produtos_ia", "categorias_lote", "auditoria", "reuniao", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(t.id) ? `<button class="btn small" data-rodar="${esc(t.id)}">▶ Rodar agora</button>` : ""}
       ${sistema(t.id) ? "" : `<button class="btn small" data-apagar="${esc(t.id)}" title="Apagar tarefa">🗑</button>`}</div>
     <div class="rot-form">
       <label class="l2">Tarefa<input data-f="nome" value="${esc(t.nome)}"></label>

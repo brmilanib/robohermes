@@ -25,3 +25,9 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 - Nunca guardar a senha do Nubimetrics nem copiar tokens, cookies ou chaves; nunca renomear os .xlsx.
 - Branch de trabalho: `claude/wizardly-ritchie-5fig5i`; sem PR se não pedirem; não mexer no "Branch Tracking" da Vercel.
 - Testar no servidor falso (fake_rest + servidor.py) e no mock do Nubimetrics antes de publicar.
+
+## Sala de reunião e Desenvolvimento
+
+- A cada sessão, ler `reuniao_tarefas` com status `aprovada` (fila de desenvolvimento) e as últimas mensagens de
+  `reuniao_mensagens`; ao terminar uma tarefa, mudar para `feita` com uma nota e postar na sala como "Claude (código)".
+- O Claude (API) coordena a sala e decide; a sessão de código confere cada tarefa aprovada antes de implementar.
