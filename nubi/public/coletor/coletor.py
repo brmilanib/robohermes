@@ -489,7 +489,8 @@ def listar_vendedores(pg, cfg):
         x = hs.setdefault(h, {"nome": nome, "primeiro": hoje})
         x.update(nome=nome, ultimo=hoje)
         if OFUSCADO.match(nome):
-            avisos.append(f"{nome} está com nome aleatório: dê um apelido a ele no Nubimetrics (ícone de lápis)")
+            # nome aleatório do Nubimetrics é normal: o vendedor é reconhecido pelo hash (e o dono renomeia quando souber)
+            log(f"  · {nome}: nome aleatório, identificado pelo hash {h[:10]}…")
         elif por_nome.get(nome) and por_nome[nome] != h:
             avisos.append(f"o hash de {nome} mudou desde {hs.get(por_nome[nome], {}).get('ultimo', '?')}: "
                           "o nubi vai reconhecê-lo pelos anúncios")

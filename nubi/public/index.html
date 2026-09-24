@@ -3226,7 +3226,7 @@ async function telaNomesVendedores(silencioso) {
       </div>
       <div class="card pad"><h2>Vendedores <span class="muted" style="font-weight:400">(${r.vendedores.length})</span></h2>
         <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Vendedor</th><th>Meses</th><th>Outros nomes</th><th>Hash</th></tr></thead><tbody>
-        ${r.vendedores.map(v => `<tr><td class="first">${vendLinkV(v.vendedor)} ${v.ofuscado ? `<span class="st warn">nome aleatório</span>` : ""}</td>
+        ${r.vendedores.map(v => `<tr><td class="first">${vendLinkV(v.vendedor)} ${v.ofuscado ? `<span class="st" title="Nome gerado pelo Nubimetrics; o nubi reconhece o vendedor pelo hash. Renomeie quando souber o nome de verdade.">nome aleatório</span>` : ""}</td>
           <td>${v.meses.map(mesCurto).join(", ")}</td><td class="muted">${esc(v.nomes.join(", "))}</td><td class="muted">${esc(v.hashes.join(", ") || "—")}</td></tr>`).join("")}</tbody></table></div>
       </div>
     </div>
