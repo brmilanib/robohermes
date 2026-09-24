@@ -34,6 +34,9 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
    especificação e implemente **seguindo ela** (os "Critérios de pronto" são o seu checklist; confira cada um no celular e
    no computador com `ui_exemplo.mjs`). Sem especificação ainda: pule, ela sai em até 1 h. Se discordar de algo da
    especificação, registre no card o motivo e siga a regra do dono (dados certos e simplicidade primeiro).
+   **Cards de dados** (números, totais, vendas, estoque, coleta, banco, desempenho, custo de IA): o DeepSeek escreve de hora
+   em hora um **Plano técnico** no card (autor `deepseek`: regras de cálculo, invariantes, casos de borda e testes). Siga o
+   plano e transforme os testes dele em testes de verdade em `nubi/testes/`. Sem plano ainda: pule, ele sai em até 1 h.
 4. **Risco.** Antes de mexer, avalie. É **risco alto** (não faça; pergunte ao Bruno) qualquer coisa das travas de
    `reuniao.RISCO_ALTO`: senhas/chaves/tokens, apagar ou sobrescrever dados, **mudar a estrutura do banco** (tabela ou coluna
    nova também), pagamentos/compras/preço de venda, login do Nubimetrics/UpSeller/Gestor, publicar para clientes, e também

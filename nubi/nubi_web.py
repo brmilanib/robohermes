@@ -2004,7 +2004,7 @@ def rodar_rotinas(repo, so=None):
     for rid in NO_SERVIDOR:
         r = rot.get(rid)
         if rid == "design" and r and not so:
-            # de hora em hora (não 1 vez por dia): o Astra especifica os cards de design que chegaram
+            # de hora em hora (não 1 vez por dia): o Astra (design) e o DeepSeek (dados) especificam os cards que chegaram
             ult = r.get("ultima_execucao")
             if not r.get("ativo") or not rotina_no_dia(r, agora) or (ult and (datetime.now(timezone.utc) - datetime.fromisoformat(
                     str(ult).replace("Z", "+00:00"))).total_seconds() < 50 * 60):
@@ -2030,7 +2030,7 @@ def rodar_rotinas(repo, so=None):
                 repo._req("POST", "auditorias", corpo=[reg], prefer="resolution=merge-duplicates,return=minimal")
                 res = reg["resumo"]
             elif rid == "design":
-                res = design_astra(repo)
+                res = especificar_cards(repo)
             elif rid == "categorias_lote":
                 res = categorias_lote(repo)
             elif rid == "produtos_ia":
@@ -2428,9 +2428,11 @@ def responder_card(repo, tid):
 
 
 # ---------------------------------------------------------------------------
-# Astra (designer): escreve a especificação de design dos cards de layout/tela/navegação antes do programador pegar.
+# Especialistas: o Astra (design) e o DeepSeek (dados) escrevem o plano dos cards antes do programador pegar.
 # ---------------------------------------------------------------------------
 DESIGN_RE = re.compile(r"layout|design|\bux\b|\bui\b|tela|navega|menu|visual|celular|mobile|responsiv|cabe[çc]alho|card|bot[ãa]o|cores|tipografia", re.I)
+DADOS_RE = re.compile(r"n[úu]mero|total|venda|c[áa]lcul|conta|reconcilia|dados|pre[çc]o|custo|estoque|coleta|banco|consulta|"
+                      r"desempenho|performance|lento|cache|token|schema|json|ia\.py|auditoria|confer[êe]ncia|gate|teto", re.I)
 PAPEL_DESIGN = ("Você é o Astra, designer de produto e UX do nubi (o programador é o Claude Code, que vai implementar exatamente "
                 "o que você especificar, em HTML/CSS/JS puro no public/index.html). Escreva a ESPECIFICAÇÃO DE DESIGN deste card, "
                 "em português do Brasil, em markdown curto, com estas seções: ## Objetivo (1 frase) · ## Onde (tela e rota, ex.: "
@@ -2438,37 +2440,60 @@ PAPEL_DESIGN = ("Você é o Astra, designer de produto e UX do nubi (o programad
                 "· ## Celular (como fica em 390 px; sem rolagem para o lado) · ## Critérios de pronto (3 a 6 itens verificáveis). "
                 "Minimalista, dados mais importantes primeiro, navegação fácil, consistente com o resto do nubi (cards, chips, "
                 "barra de baixo no celular). Não invente dados que o sistema não tem; se faltar informação, diga o que perguntar ao Bruno.")
+PAPEL_DADOS = ("Você é o DeepSeek, engenheiro de dados e revisor de contas do nubi (o programador é o Claude Code, que vai "
+               "implementar seguindo o seu plano em Python no servidor nubi_web.py/módulos e Supabase/PostgREST). Escreva o PLANO "
+               "TÉCNICO deste card, em português do Brasil, markdown curto, com estas seções: ## Objetivo (1 frase) · ## Onde "
+               "(arquivo/função/tabela prováveis; diga 'a confirmar no código' quando não tiver certeza) · ## Regras de cálculo "
+               "(fórmulas exatas e de onde vem cada número) · ## Invariantes (o que tem que bater: dia × mês × grupo, soma de "
+               "partes = total etc.) · ## Casos de borda (dia sem arquivo = pendente, zero, nulo, arredondamento do Nubimetrics, "
+               "duplicados, fuso de Brasília) · ## Testes (3 a 6 testes concretos com entrada e saída esperada) · ## Custo "
+               "(consultas ao banco e chamadas de IA; evite N+1). Regra do dono: zero erro nos números; na dúvida 'sem dados'. "
+               "Não invente tabelas ou colunas: se não souber, diga o que conferir.")
+# agente -> (quem, papel, regex dos cards, título do bloco, qual/modelo na IA, tokens)
+ESPECIALISTAS = [
+    ("astra", "Astra", PAPEL_DESIGN, DESIGN_RE, "📐 **Especificação de design (Astra)**", "Especificação de design", "chatgpt", "gpt-6-astra", 4000, ("site", "design", "layout", "ux")),
+    ("deepseek", "DeepSeek", PAPEL_DADOS, DADOS_RE, "🧮 **Plano técnico (DeepSeek)**", "Plano técnico", "deepseek", "pro", 6000, ("dados", "numeros", "desempenho", "custo")),
+]
 
 
-def design_astra(repo, limite=2):
-    if not ia.tem("chatgpt"):
-        return "sem chave da OpenAI (Astra)"
-    cards = [t for t in (repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,descricao,area,notas,risco",
-                                                              "status": "eq.aprovada", "aguardando": "is.null", "order": "id"}) or [])
-             if (t.get("area") in ("site", "design", "layout", "ux")) or DESIGN_RE.search(f"{t.get('titulo')} {t.get('descricao') or ''}")]
-    feitos = []
-    for t in cards:
-        if len(feitos) >= limite:
-            break
-        ja = repo._req("GET", "tarefa_eventos", {"select": "id", "tarefa_id": repo._eq(t["id"]), "autor": "eq.astra",
-                                                  "texto": "like.*Especificação de design*", "limit": 1}) or []
-        if ja:
+def especificar_cards(repo, limite=2):
+    """De hora em hora: o Astra (design) e o DeepSeek (dados) escrevem o plano dos cards aprovados da área deles."""
+    cards = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,descricao,area,notas,risco", "status": "eq.aprovada",
+                                                 "aguardando": "is.null", "order": "id"}) or []
+    saida = []
+    for aid, nome, papel, rx, cab, marca, qual, modelo, toks, areas in ESPECIALISTAS:
+        if not ia.tem(qual):
+            saida.append(f"{nome}: sem chave")
             continue
-        evs = repo._req("GET", "tarefa_eventos", {"select": "autor,texto", "tarefa_id": repo._eq(t["id"]), "order": "id.desc", "limit": 10}) or []
-        conversa = "\n".join(f"[{e['autor']}] {e['texto'][:800]}" for e in reversed(evs))
-        ia.USO["origem"] = f"design card #{t['id']}"
-        txt, _, _ = ia.perguntar(PAPEL_DESIGN + f"\n\nCARD #{t['id']}: {t['titulo']}\n{t.get('descricao') or ''}\nNota: {t.get('notas') or '-'}"
-                                 + (f"\n\nCONVERSA DO CARD:\n{conversa}" if conversa else ""),
-                                 web=False, max_tokens=4000, qual="chatgpt", modelo="gpt-6-astra", sistema=agentes.SISTEMA)
-        if not (txt or "").strip():
-            continue
-        repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": t["id"], "autor": "astra", "tipo": "passo",
-                                                    "texto": "📐 **Especificação de design (Astra)**\n\n" + txt.strip()[:8000]}],
-                  prefer="return=minimal")
-        repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(t["id"])}, corpo={"atualizado_em": datetime.now(timezone.utc).isoformat()},
-                  prefer="return=minimal")
-        feitos.append(f"#{t['id']}")
-    return f"especificação escrita: {', '.join(feitos)}" if feitos else "nenhum card de design esperando especificação"
+        feitos = []
+        for t in cards:
+            if len(feitos) >= limite:
+                break
+            if not (t.get("area") in areas or rx.search(f"{t.get('titulo')} {t.get('descricao') or ''}")):
+                continue
+            if repo._req("GET", "tarefa_eventos", {"select": "id", "tarefa_id": repo._eq(t["id"]), "autor": repo._eq(aid),
+                                                    "texto": f"like.*{marca}*", "limit": 1}):
+                continue
+            evs = repo._req("GET", "tarefa_eventos", {"select": "autor,texto", "tarefa_id": repo._eq(t["id"]), "order": "id.desc", "limit": 10}) or []
+            conversa = "\n".join(f"[{e['autor']}] {e['texto'][:800]}" for e in reversed(evs))
+            ia.USO["origem"] = f"{marca.lower()} card #{t['id']}"
+            try:
+                txt, _, _ = ia.perguntar(papel + f"\n\nCARD #{t['id']}: {t['titulo']}\n{t.get('descricao') or ''}\nNota: {t.get('notas') or '-'}"
+                                         + (f"\n\nCONVERSA DO CARD:\n{conversa}" if conversa else ""),
+                                         web=False, max_tokens=toks, qual=qual, modelo=modelo, sistema=agentes.SISTEMA)
+            except Exception as e:  # noqa: BLE001
+                saida.append(f"{nome} #{t['id']}: erro {str(e)[:80]}")
+                continue
+            if not (txt or "").strip():
+                continue
+            repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": t["id"], "autor": aid, "tipo": "passo",
+                                                        "texto": f"{cab}\n\n" + txt.strip()[:8000]}], prefer="return=minimal")
+            repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(t["id"])}, corpo={"atualizado_em": datetime.now(timezone.utc).isoformat()},
+                      prefer="return=minimal")
+            feitos.append(f"#{t['id']}")
+        if feitos:
+            saida.append(f"{nome}: {', '.join(feitos)}")
+    return "; ".join(saida) or "nenhum card esperando especificação"
 
 
 # Terminal do Mac: lista FECHADA (o Mac confere de novo do lado dele); nada vira comando livre
