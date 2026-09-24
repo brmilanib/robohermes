@@ -263,6 +263,9 @@ select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;f
 .dia-ln .dt{grid-column:2/4;font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip{display:inline-block;border-radius:999px;padding:0 7px;font-size:11.5px;font-weight:600;margin-left:6px}
 .chip.up{background:var(--good-bg);color:var(--good)} .chip.down{background:var(--bad-bg);color:var(--bad)} .chip.nt{background:var(--soft);color:var(--muted)}
+.md-lk{display:inline-block;font-size:11px;font-weight:600;padding:0 7px;border-radius:999px;background:var(--soft);color:var(--accent);text-decoration:none;margin-left:4px;white-space:nowrap}
+.md-lk,.md-lk.plink{color:var(--accent)!important;border-bottom:none!important;text-decoration:none!important}
+.md-lk:hover{background:color-mix(in srgb,var(--accent) 14%,var(--card))}
 .md-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:12px}
 .mdc{border:1px solid var(--line);border-radius:12px;padding:10px 14px;background:var(--card)}
 .mdc h3{margin:0 0 6px!important;font-size:14px!important}
@@ -997,6 +1000,13 @@ function mdSimples(t) {
   const linhas = esc(t || "").split(/\n/);
   let html = "", lista = false;
   for (let l of linhas) {
+    // links que o nubi põe nos tópicos da IA: vendedor (#/…), produto (vprod:chave) e marca (marca:nome)
+    l = l.replace(/\[([^\]]+)\]\(((?:#\/|vprod:|marca:)[^)\s]+)\)/g, (m, t, u) => {
+      const v = u.includes(":") && !u.startsWith("#") ? esc(decodeURIComponent(u.slice(u.indexOf(":") + 1))) : "";
+      return u.startsWith("#/") ? `<a class="md-lk" href="${u}">${t}</a>`
+        : u.startsWith("vprod:") ? `<a href="#" class="plink md-lk" data-vprod="${v}" data-vend="">${t}</a>`
+        : `<a href="#" class="plink rklink md-lk" data-rkm="${v}">${t}</a>`;
+    });
     l = l.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[\s(])\*([^*\n]+?)\*(?=[\s:.,;)]|$)/g, "$1<b>$2</b>").replace(/\*/g, "");
     if (/^\s*#{1,4}\s/.test(l)) { if (lista) { html += "</ul>"; lista = false; } html += `<h3>${l.replace(/^\s*#+\s*/, "")}</h3>`; }
     else if (/^\s*[-*•]\s/.test(l)) { if (!lista) { html += "<ul>"; lista = true; } html += `<li>${l.replace(/^\s*[-*•]\s*/, "")}</li>`; }

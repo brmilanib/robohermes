@@ -67,3 +67,41 @@ def perguntar_json(pergunta, web=True, max_tokens=1500):
     except ValueError:
         j = {}
     return j, links, ia
+
+
+def perguntar_estruturado(pergunta, schema, nome="resposta", max_tokens=2500):
+    """
+    Resposta em JSON que segue `schema` (JSON Schema) -> (dict, nome_da_ia).
+    ChatGPT: structured outputs (o modelo é obrigado a seguir o formato). Claude: pede o JSON e confere.
+    """
+    ia = disponivel()
+    if not ia:
+        raise SemIA("nenhuma chave de IA configurada")
+    if ia == "chatgpt":
+        corpo = {"model": os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "input": pergunta, "max_output_tokens": max_tokens,
+                 "text": {"format": {"type": "json_schema", "name": nome, "schema": schema, "strict": True}}}
+        r = _post_json("https://api.openai.com/v1/responses", corpo,
+                       {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}, timeout=150)
+        texto = " ".join(c.get("text", "") for o in r.get("output", []) if o.get("type") == "message"
+                         for c in o.get("content", []))
+        return json.loads(texto), ia
+    pedido = (pergunta + "\n\nResponda SOMENTE com um JSON válido que siga exatamente este JSON Schema, sem texto antes "
+              "ou depois:\n" + json.dumps(schema, ensure_ascii=False))
+    for _ in range(2):
+        j, _, qual = perguntar_json(pedido, web=False, max_tokens=max_tokens)
+        if j:
+            return j, qual
+    raise SemIA("a IA não devolveu o JSON pedido")
+
+
+def embeddings(textos, modelo=None):
+    """Vetores de significado dos textos (OpenAI), na mesma ordem; lotes de 500."""
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SemIA("embeddings precisam da OPENAI_API_KEY")
+    saida = []
+    for i in range(0, len(textos), 500):
+        r = _post_json("https://api.openai.com/v1/embeddings",
+                       {"model": modelo or os.environ.get("NUBI_IA_EMBED", "text-embedding-3-small"), "input": textos[i:i + 500]},
+                       {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}, timeout=120)
+        saida.extend(d["embedding"] for d in sorted(r["data"], key=lambda d: d["index"]))
+    return saida

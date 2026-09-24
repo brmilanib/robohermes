@@ -878,27 +878,125 @@ def _linhas(repo, rid):
                                                                  "order": "posicao"}), somar=True)
 
 
-def _guardar_resumo(repo, chave, texto, qual):
-    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": texto, "ia": ia.nome(qual),
-                                            "criado_em": datetime.now(timezone.utc).isoformat()}],
-              prefer="resolution=merge-duplicates,return=minimal")
+def _guardar_resumo(repo, chave, texto, qual, dados=None):
+    reg = {"chave": chave, "texto": texto, "ia": ia.nome(qual), "criado_em": datetime.now(timezone.utc).isoformat()}
+    if dados is not None:
+        reg["dados"] = dados
+    repo._req("POST", "ia_resumos", corpo=[reg], prefer="resolution=merge-duplicates,return=minimal")
+
+
+# Resumos em FORMATO FIXO: a IA devolve JSON (structured outputs) com as seções abaixo; o nubi monta o texto dos cards
+# sempre igual e liga cada tópico ao vendedor, produto ou marca citado.
+SECOES_DIA = [("resumo", "📊", "O dia em resumo"), ("alta", "🔥", "Produtos que puxaram o dia"),
+              ("queda", "📉", "Quedas e sinais de atenção"), ("periodo", "📆", "Mesmo período no mês"),
+              ("estoque", "📦", "Estoque dos concorrentes"), ("oportunidade", "💡", "Oportunidades"),
+              ("alerta", "⚠️", "Alertas"), ("acao", "✅", "O que fazer hoje")]
+SECOES_SEMANA = [("numeros", "🗓️", "A semana em números"), ("cresceram", "🏆", "Vendedores que cresceram"),
+                 ("cairam", "📉", "Vendedores que caíram"), ("produtos", "🔥", "Produtos da semana"),
+                 ("estoque", "📦", "Estoque e rupturas"), ("confirmou", "🔁", "O que se confirmou dos alertas"),
+                 ("oportunidade", "💡", "Oportunidades para esta semana"), ("acao", "✅", "Plano da semana")]
+SECOES_MARCAS = [("mercado", "📊", "Mercado no mês"), ("categorias", "🧭", "Categorias"), ("alta", "🔥", "Marcas em alta"),
+                 ("queda", "📉", "Marcas em queda"), ("entradas", "🔁", "Entraram e saíram do top"),
+                 ("oportunidade", "💡", "Oportunidades"), ("concorrentes", "📦", "Concorrentes e sinais de compra"),
+                 ("acao", "✅", "Plano para o próximo mês")]
+
+
+def _schema_secoes(secoes):
+    item = {"type": "object", "additionalProperties": False, "required": ["texto", "vendedor", "produto", "marca"],
+            "properties": {"texto": {"type": "string"}, "vendedor": {"type": "string"}, "produto": {"type": "string"},
+                           "marca": {"type": "string"}}}
+    sec = {"type": "object", "additionalProperties": False, "required": ["tipo", "itens"],
+           "properties": {"tipo": {"type": "string", "enum": [s[0] for s in secoes]},
+                          "itens": {"type": "array", "items": item}}}
+    return {"type": "object", "additionalProperties": False, "required": ["secoes"],
+            "properties": {"secoes": {"type": "array", "items": sec}}}
+
+
+def _formato_secoes(secoes, detalhe=""):
+    return ("FORMATO DA RESPOSTA (JSON, o site monta um card por seção):\n"
+            "- 'secoes': uma entrada para cada seção abaixo, nesta ordem, cada uma com 2 a 5 'itens'" + detalhe + ":\n"
+            + "\n".join(f"  · {t} = {n}" for t, _, n in secoes) + "\n"
+            "- Cada item: 'texto' = uma frase curta com números (R$ 1,2 mi, R$ 350 mil, +12%), sem markdown, sem asteriscos "
+            "(pode usar **negrito** só no número principal); 'vendedor' = o nome EXATO do vendedor citado, como aparece nos "
+            "dados (ou ''); 'produto' = o nome do produto como aparece nos dados (ou ''); 'marca' = a marca citada (ou '').\n")
+
+
+def _chave_prod(nomes, produto):
+    """Acha a chave do produto citado pela IA entre os produtos que foram nos dados: nome igual, ou um único produto
+    cujo nome começa igual (na dúvida, sem link — melhor nenhum link do que o produto errado)."""
+    p = re.sub(r"\s+", " ", (produto or "").lower()).strip()
+    if len(p) < 8:
+        return None
+    if p in nomes:
+        return nomes[p]
+    achados = {k for n, k in nomes.items() if n.startswith(p) or p.startswith(n)}
+    return achados.pop() if len(achados) == 1 else None
+
+
+def _md_secoes(j, secoes, vendedores=(), produtos=None):
+    """JSON das seções -> markdown dos cards, com links para vendedor (#/vendedores/X), produto (vprod:) e marca (marca:)."""
+    por = {}
+    for sc in (j or {}).get("secoes") or []:
+        por.setdefault(sc.get("tipo"), []).extend(sc.get("itens") or [])
+    vset = {v.upper(): v for v in vendedores}
+    nomes = {re.sub(r"\s+", " ", (n or "").lower()).strip(): k for n, k in (produtos or {}).items() if n}
+    out = []
+    for tid, emo, tit in secoes:
+        itens = [i for i in por.get(tid, []) if (i.get("texto") or "").strip()]
+        if not itens:
+            continue
+        out.append(f"## {emo} {tit}")
+        for it in itens[:6]:
+            txt = re.sub(r"^[\-•*\s]+", "", it["texto"].strip()).replace("\n", " ")
+            lk = []
+            v = vset.get((it.get("vendedor") or "").strip().upper())
+            if v:
+                lk.append(f"[{v} ↗](#/vendedores/{urllib.parse.quote(v)})")
+            k = _chave_prod(nomes, it.get("produto"))
+            if k:
+                lk.append(f"[ver produto ↗](vprod:{urllib.parse.quote(k)})")
+            elif (it.get("marca") or "").strip() and not v:
+                lk.append(f"[{it['marca'].strip()} ↗](marca:{urllib.parse.quote(it['marca'].strip())})")
+            out.append("- " + txt + ("  " + " ".join(lk) if lk else ""))
+    return "\n".join(out)
+
+
+def _sem_links(t):
+    """Texto de um resumo guardado sem os links dos cards (para voltar a ser lido pela IA)."""
+    return re.sub(r"\s*\[[^\]]*↗\]\([^)]*\)", "", t or "")
+
+
+def _escrever_resumo(pedido, secoes, vendedores=(), produtos=None, max_tokens=2600):
+    """Pede o resumo em JSON (formato fixo) e devolve (markdown, json, ia). Sem JSON válido: texto livre."""
+    try:
+        j, qual = ia.perguntar_estruturado(pedido + "\n" + _formato_secoes(secoes), _schema_secoes(secoes),
+                                           "resumo_nubi", max_tokens=max_tokens)
+        md = _md_secoes(j, secoes, vendedores, produtos)
+        if md.strip():
+            return md, j, qual
+    except Exception:  # noqa: BLE001 — cai para o texto livre
+        pass
+    texto, _, qual = ia.perguntar(pedido + "\nFormato: markdown simples, uma seção '## ' para cada item: "
+                                  + "; ".join(f"{e} {n}" for _, e, n in secoes) + ".", web=False, max_tokens=max_tokens)
+    return texto, None, qual
 
 
 def gerar_resumo_marcas(repo, cat, rels, chave):
-    """Resumo MENSAL e detalhado das marcas (ranking MARCAS do mês fechado)."""
+    """Resumo MENSAL e detalhado das marcas (ranking MARCAS do mês fechado), em formato fixo."""
     mes = rels[-1]["mes"][:7]
     try:
-        texto, _, qual = ia.perguntar(
+        texto, dados, qual = _escrever_resumo(
             "Você é analista de e-commerce de perfumes no Mercado Livre Brasil. Com os dados abaixo (do sistema nubi), "
             f"escreva a análise MENSAL das marcas de {ranking.nome_mes(mes + '-01')} (mês fechado) para o dono de uma loja de "
-            "perfumes, em português simples e com números. Seções: **Mercado no mês**, **Categorias** (quem ganhou e perdeu "
-            "espaço), **Marcas em alta**, **Marcas em queda**, **Entraram e saíram do top**, **Oportunidades** (marcas subindo "
-            "em que vale investir e por quê), **Concorrentes e sinais de compra**, **Plano para o próximo mês** (4 ações práticas). "
-            "Use só os dados fornecidos, não invente números. Formato: markdown simples (## para seções, - para tópicos).\n\n"
-            + _obs_rotina(repo, "resumo_marcas") + "\n\n" + _dados_resumo(repo, cat, rels, detalhado=True), web=False, max_tokens=2600)
+            "perfumes, em português simples e com números: o mercado no mês, as categorias (quem ganhou e perdeu espaço), "
+            "marcas em alta e em queda, quem entrou e saiu do top, oportunidades (marcas subindo em que vale investir e por "
+            "quê), concorrentes e sinais de compra, e um plano para o próximo mês (4 ações práticas). "
+            "Use só os dados fornecidos, não invente números."
+            + _obs_rotina(repo, "resumo_marcas") + "\n\nDADOS:\n" + _dados_resumo(repo, cat, rels, detalhado=True),
+            SECOES_MARCAS, max_tokens=3000)
     except Exception as e:  # noqa: BLE001
         raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
-    _guardar_resumo(repo, chave, texto, qual)
+    _guardar_resumo(repo, chave, texto, qual, dados)
     return texto, qual
 
 
@@ -1244,19 +1342,11 @@ def _dados_resumo_dia(repo):
     return d1, "\n".join(linhas), pnl
 
 
-FORMATO_IA = (
-    "FORMATO (o site mostra cada seção num card):\n"
-    "- Cada seção começa com '## ' + emoji + título, exatamente como na lista de seções.\n"
-    "- Até 5 tópicos curtos por seção, cada um começando com '- ' e com número (R$ 1,2 mi, R$ 350 mil, +12%).\n"
-    "- Negrito só com **texto** (dois asteriscos). Nunca use um asterisco sozinho, tabelas ou títulos com #.\n"
-    "- Nomes de vendedores e produtos em texto normal (sem asteriscos em volta).\n")
-
-
 def gerar_resumo_dia(repo, forcar=False):
     """Resumo do dia dos vendedores (guardado por data dos dados; forcar=True escreve de novo)."""
     if not ia.disponivel():
         raise ErroNuvem("Configure uma chave de IA (OPENAI_API_KEY) na Vercel para gerar o resumo.")
-    d1, dados, _ = _dados_resumo_dia(repo)
+    d1, dados, pnl = _dados_resumo_dia(repo)
     if not d1:
         raise ErroNuvem(f"Sem dados para o resumo do dia: {dados}.")
     chave = f"vendedores|{d1}"
@@ -1268,7 +1358,7 @@ def gerar_resumo_dia(repo, forcar=False):
                                             "order": "chave.desc", "limit": 2}) or []
     ontem = next((x for x in ontem if x["chave"] != chave), None)
     try:
-        texto, _, qual = ia.perguntar(
+        texto, dados_ia, qual = _escrever_resumo(
             "Você é o analista de mercado do dono de uma loja de perfumes no Mercado Livre Brasil. Todo dia você acompanha "
             "os vendedores concorrentes que ele monitora (dados do Nubimetrics, liberados com 2 dias de atraso) e escreve o "
             "RESUMO DO DIA: curto, direto, em português simples e sempre com números.\n"
@@ -1287,18 +1377,49 @@ def gerar_resumo_dia(repo, forcar=False):
             "na loja dele (ex.: confira se você tem estoque de X).\n"
             "- Use só os dados fornecidos; não invente números; quando um dado for estimado, avise.\n"
             "- O site já mostra os cards 'quem mais vendeu' e 'quem mais caiu' com os números de cada vendedor: não repita "
-            "a lista inteira, comente só o que importa.\n"
-            "Seções (nesta ordem): ## 📊 O dia em resumo (2 ou 3 tópicos), ## 🔥 Produtos que puxaram o dia, "
-            "## 📉 Quedas e sinais de atenção, ## 📆 Mesmo período no mês, ## 📦 Estoque dos concorrentes, "
-            "## 💡 Oportunidades, ## ⚠️ Alertas, ## ✅ O que fazer hoje (2 ou 3 ações).\n"
-            + FORMATO_IA + _obs_rotina(repo, "resumo_dia") + "\n\nDADOS:\n"
-            + dados + (f"\n\nRESUMO DE ONTEM ({ontem['chave'].split('|')[1]}):\n{ontem['texto'][:3000]}" if ontem else ""),
-            web=False, max_tokens=2200)
+            "a lista inteira, comente só o que importa. Em 'O que fazer hoje' dê 2 ou 3 ações.\n"
+            + _obs_rotina(repo, "resumo_dia") + "\n\nDADOS:\n"
+            + dados + (f"\n\nRESUMO DE ONTEM ({ontem['chave'].split('|')[1]}):\n{_sem_links(ontem['texto'])[:3000]}" if ontem else ""),
+            SECOES_DIA, *_links_resumo(repo, pnl), max_tokens=2600)
     except Exception as e:  # noqa: BLE001
         raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
-    _guardar_resumo(repo, chave, texto, qual)
+    _guardar_resumo(repo, chave, texto, qual, dados_ia)
     return {"atual": {"chave": chave, "texto": texto, "ia": ia.nome(qual),
                       "criado_em": datetime.now(timezone.utc).isoformat()}, "novo": True}
+
+
+def _links_resumo(repo, pnl=None):
+    """Vendedores monitorados e {nome do produto: chave} que foram nos dados, para ligar os tópicos da IA."""
+    vend = {r["vendedor"] for r in _vend_rels(repo)} | {x["vendedor"] for x in (pnl or {}).get("vendedores") or []}
+    try:
+        vend |= {r["vendedor"] for r in repo._req("GET", "vend_vendas_dia", {"select": "vendedor", "order": "data.desc",
+                                                                              "limit": 60}) or []}
+    except ErroNuvem:
+        pass
+    vend = sorted(vend)
+    prods = {}
+    for lista in ((pnl or {}).get("produtos_alta") or [], (pnl or {}).get("produtos_queda") or []):
+        for p in lista:
+            prods.setdefault(p.get("produto"), p.get("chave"))
+    try:
+        c = _comparativo(repo)
+        for p in c.get("ganhos", []) + c.get("perdas", []):
+            prods.setdefault(p.get("produto"), p.get("chave"))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        for p in rota_vendedores(repo, "GET", "vend_alertas", {}, b"").get("produtos", [])[:40]:
+            prods.setdefault(p.get("produto"), p.get("chave"))
+    except Exception:  # noqa: BLE001
+        pass
+    return vend, prods
+
+
+def _links_semana(repo, sem):
+    vend, prods = _links_resumo(repo)
+    for k, p in list(sem["prod"]["atual"].items()) + list(sem["prod"]["ant"].items()):
+        prods.setdefault(p["produto"], k)
+    return vend, prods
 
 
 def _semana(repo):
@@ -1375,13 +1496,13 @@ def gerar_resumo_semana(repo, forcar=False):
                                               "limit": 8}) or []
     diarios = [x for x in diarios if s["ini"] <= x["chave"].split("|")[1] <= s["fim"]]
     for x in reversed(diarios):
-        L.append(f"\nRESUMO DO DIA {_ddmm(x['chave'].split('|')[1])}:\n{x['texto'][:1400]}")
+        L.append(f"\nRESUMO DO DIA {_ddmm(x['chave'].split('|')[1])}:\n{_sem_links(x['texto'])[:1400]}")
     ant = repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": "like.semana|*", "order": "chave.desc", "limit": 2}) or []
     ant = next((x for x in ant if x["chave"] != chave), None)
     if ant:
-        L.append(f"\nANÁLISE DA SEMANA PASSADA:\n{ant['texto'][:2500]}")
+        L.append(f"\nANÁLISE DA SEMANA PASSADA:\n{_sem_links(ant['texto'])[:2500]}")
     try:
-        texto, _, qual = ia.perguntar(
+        texto, dados_ia, qual = _escrever_resumo(
             "Você é o analista de mercado do dono de uma loja de perfumes no Mercado Livre Brasil. Toda segunda de manhã "
             "você escreve a ANÁLISE DA SEMANA dos vendedores concorrentes que ele monitora, com base nas vendas de cada dia "
             "e nos resumos diários que você mesmo escreveu. Seja direto, em português simples e sempre com números.\n"
@@ -1389,15 +1510,12 @@ def gerar_resumo_semana(repo, forcar=False):
             "- Mostre tendências (o que se repetiu vários dias), não fatos de um dia só.\n"
             "- Confira os alertas e oportunidades dos resumos diários: o que se confirmou, o que não.\n"
             "- Termine com um plano prático para a semana que começa.\n"
-            "- Use só os dados fornecidos; não invente números.\n"
-            "Seções (nesta ordem): ## 🗓️ A semana em números, ## 🏆 Vendedores que cresceram, ## 📉 Vendedores que caíram, "
-            "## 🔥 Produtos da semana, ## 📦 Estoque e rupturas, ## 🔁 O que se confirmou dos alertas, "
-            "## 💡 Oportunidades para esta semana, ## ✅ Plano da semana (3 a 5 ações).\n"
-            + FORMATO_IA + _obs_rotina(repo, "resumo_semana") + "\n\nDADOS:\n" + "\n".join(L),
-            web=False, max_tokens=2600)
+            "- Use só os dados fornecidos; não invente números. No plano da semana dê 3 a 5 ações.\n"
+            + _obs_rotina(repo, "resumo_semana") + "\n\nDADOS:\n" + "\n".join(L),
+            SECOES_SEMANA, *_links_semana(repo, s), max_tokens=3000)
     except Exception as e:  # noqa: BLE001
         raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
-    _guardar_resumo(repo, chave, texto, qual)
+    _guardar_resumo(repo, chave, texto, qual, dados_ia)
     return {"atual": {"chave": chave, "texto": texto, "ia": ia.nome(qual),
                       "criado_em": datetime.now(timezone.utc).isoformat()}, "novo": True}
 
