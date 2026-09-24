@@ -81,8 +81,8 @@ def _decidir(historico, tarefas, opinioes, extra):
 
 
 # Travas que valem mesmo se a IA classificar errado: isso sempre vai para o Bruno aprovar
-RISCO_ALTO = re.compile(r"senha|chave|token|cookie|credencia|acesso d[eo]|apagar|excluir|deletar|delete|drop |truncate|"
-                        r"migra[çc][ãa]o|schema|estrutura do banco|pagamento|cobran[çc]a|cart[ãa]o|compra|pre[çc]o de venda|"
+RISCO_ALTO = re.compile(r"senha|chave d[ae] api|api key|chave secreta|token de acesso|access token|cookie|credencia|acesso d[eo]|apagar|excluir|deletar|delete|drop |truncate|"
+                        r"migra[çc][ãa]o d[oe] banco|schema do banco|estrutura do banco|drop table|alter table|pagamento|cobran[çc]a|cart[ãa]o|compra|pre[çc]o de venda|"
                         r"login do nubimetrics|publicar para|clientes? externo|vender para marcas|contrato", re.I)
 
 

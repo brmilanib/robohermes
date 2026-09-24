@@ -314,11 +314,13 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .wa-in button:disabled{opacity:.5}
 .wa-dig{align-self:flex-start;font-size:12px;color:#667781;font-style:italic;padding:4px 8px}
 .inicio{display:grid;gap:14px;max-width:1280px}
-.in-topo{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:stretch}
-.in-ola{display:flex;flex-direction:column;justify-content:center;gap:2px}
-.in-ola h1{margin:0;font-size:clamp(24px,3.2vw,34px);letter-spacing:-.01em}
+.in-topo{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.in-ola{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.in-ola h1{margin:0;font-size:clamp(20px,2.4vw,26px);letter-spacing:-.01em}
+.in-hora{display:flex;align-items:baseline;gap:12px}
+.in-agora{font-size:14px;color:var(--muted)}
 .in-data{font-size:13px}
-.in-relogio{font-size:clamp(30px,4.6vw,52px);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--brand);line-height:1.1;margin-top:4px}
+.in-relogio{font-size:clamp(20px,2.4vw,26px);font-weight:700;font-variant-numeric:tabular-nums;color:var(--brand)}
 .in-tempo{display:grid;gap:10px;align-content:center}
 .in-tempo-agora{display:flex;align-items:center;gap:12px}
 .in-tempo-agora b{font-size:30px;line-height:1}
@@ -345,7 +347,8 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .in-datas li{display:grid;grid-template-columns:74px minmax(0,1fr) auto;gap:10px;align-items:center;font-size:13.5px}
 .in-dias{font-size:12px;font-weight:700;text-align:center;border-radius:999px;padding:3px 0;background:var(--soft);color:var(--ink);font-variant-numeric:tabular-nums}
 .in-dias.perto{background:var(--accent);color:#fff}
-.in-resumo .md{font-size:13.5px}
+.in-resumo-lado .md{font-size:13.5px}
+@media (min-width:1001px){.in-baixo{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
 .in-pede{display:block;background:#fff4e5;border:1px solid #f5c26b;color:#7a4b00;border-radius:12px;padding:10px 14px;font-size:13.5px;text-decoration:none}
 .in-dev{display:grid;gap:8px}.in-dev-cab{display:flex;align-items:baseline;justify-content:space-between;gap:10px}.in-dev h2{margin:0;font-size:15px}
 .in-dev-it{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit;padding:6px 8px;border-radius:10px;font-size:13.5px}
@@ -370,6 +373,10 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
   .rolar:has(> table.t:not(.no-card)){max-height:none}
 }
 @media (max-width:900px){.bi-grid{grid-template-columns:1fr !important}}
+@media (max-width:640px){
+  table.t.mat th:nth-child(2),table.t.mat td:nth-child(2){position:sticky;left:0;background:var(--card);z-index:1;box-shadow:1px 0 0 var(--line)}
+  table.t.mat td{white-space:nowrap} table.t.mat th:first-child,table.t.mat td:first-child{display:none}
+}
 #barra-baixo{display:none}
 @media (max-width:900px){
   #barra-baixo{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--card);
@@ -731,6 +738,7 @@ async function carregarTempo(box) {
   try {
     const r = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${cid.lat}&longitude=${cid.lon}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=America%2FSao_Paulo&forecast_days=3`)).json();
     const [ic, tx] = tempoDe(r.current.weather_code), dsem = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+    const ag = $("#in-agora"); if (ag) ag.textContent = `${ic} ${Math.round(r.current.temperature_2m)}° ${cid.nome}`;
     box.innerHTML = `<div class="in-tempo-agora"><span class="in-tempo-ic">${ic}</span><div><b>${Math.round(r.current.temperature_2m)}°</b>
         <div class="muted">${esc(tx)}</div></div><button class="in-cidade" id="in-cidade" title="Trocar a cidade">${esc(cid.nome)} ✎</button></div>
       <div class="in-tempo-dias">${r.daily.time.map((t, i) => `<div><span class="muted">${i ? dsem[new Date(t + "T12:00").getDay()] : "hoje"}</span>
@@ -766,9 +774,8 @@ async function telaInicio() {
   const resumoLinhas = r.resumo ? r.resumo.texto.split("\n").filter(x => x.trim() && !/^#/.test(x.trim())).slice(0, 5).join("\n") : "";
   main.innerHTML = `<div class="inicio">
     <section class="in-topo">
-      <div class="in-ola"><div class="muted in-data" id="in-data"></div><h1>${esc(saud)}</h1>
-        <div class="in-relogio" id="in-relogio"></div></div>
-      <div class="card pad in-tempo" id="in-tempo"><div class="muted">Carregando a previsão…</div></div>
+      <div class="in-ola"><h1>${esc(saud)}</h1><span class="muted in-data" id="in-data"></span></div>
+      <div class="in-hora"><span class="in-relogio" id="in-relogio"></span><span class="in-agora" id="in-agora"></span></div>
     </section>
     ${(r.aguardando_voce || []).length ? `<a class="in-pede" href="#/central">⏳ ${r.aguardando_voce.length} tarefa(s) esperando sua resposta: ${r.aguardando_voce.map(t => esc("#" + t.id + " " + t.titulo)).join(" · ")}</a>` : ""}
     ${(r.andamento || []).length || (r.feitas_recentes || []).length ? `<section class="card pad in-dev"><div class="in-dev-cab"><h2>Novidades no nubi</h2><a class="in-mais" style="margin:0" href="#/central">Ver o desenvolvimento →</a></div>
@@ -790,11 +797,14 @@ async function telaInicio() {
           ${(d.sem_coleta || []).length ? `<p class="muted" style="font-size:12px;margin:8px 0 0">⚠️ ${d.sem_coleta.length} vendedor(es) com o dia ainda não coletado (fora dos totais).</p>` : ""}`
         : `<p class="muted">As vendas do dia aparecem aqui quando o coletor trouxer o primeiro dia.</p>`}
         <a class="in-mais" href="#/vendas-dia">Ver vendas diárias →</a></div>
+      <div class="card pad in-resumo-lado">${r.resumo ? `<h2>Resumo da IA · dados até ${ddmm(r.resumo.data)}</h2><div class="md">${mdSimples(resumoLinhas)}</div>
+        <a class="in-mais" href="#/vendedores">Ler o resumo completo →</a>` : `<h2>Resumo da IA</h2><p class="muted">O resumo do dia aparece aqui quando for gerado.</p>`}</div>
+    </section>
+    <section class="in-grade in-baixo">
       <div class="card pad"><h2>Próximas datas de vendas</h2><ul class="in-datas">${datasVendas(agora).map(x => `<li><span class="in-dias ${x.dias <= 15 ? "perto" : ""}">${x.dias === 0 ? "hoje" : x.dias + (x.dias === 1 ? " dia" : " dias")}</span>
         <b>${esc(x.n)}</b><span class="muted">${x.dt.toLocaleDateString("pt-BR", {day: "2-digit", month: "short", weekday: "short"})}</span></li>`).join("")}</ul></div>
+      <div class="card pad in-tempo" id="in-tempo"><div class="muted">Carregando a previsão…</div></div>
     </section>
-    ${r.resumo ? `<section class="card pad in-resumo"><h2>Resumo da IA · dados até ${ddmm(r.resumo.data)}</h2><div class="md">${mdSimples(resumoLinhas)}</div>
-      <a class="in-mais" href="#/vendedores">Ler o resumo completo →</a></section>` : ""}
     <section class="in-ops">
       <a class="card in-op" href="#/coletor"><span class="l">Coleta</span><span class="st ${colTxt[0]}">${esc(colTxt[1])}</span></a>
       <a class="card in-op" href="#/central"><span class="l">Esperando você aprovar</span><b>${nf0.format(tf.proposta || 0)}</b></a>
@@ -2002,7 +2012,7 @@ async function telaConcorrentes() {
   const desenhar = () => {
     const q = st.busca.toLowerCase();
     const lin = vs.filter(v => !q || v.vendedor.toLowerCase().includes(q)).sort((a, b) => (st.asc ? 1 : -1) * ((a[st.ord] ?? -1e18) - (b[st.ord] ?? -1e18)));
-    $("#cc-tab").innerHTML = `<table class="t cc-t" style="font-size:12.5px"><thead><tr><th style="width:28px"></th><th>Vendedor</th>
+    $("#cc-tab").innerHTML = `<table class="t cc-t no-card mat" style="font-size:12.5px"><thead><tr><th style="width:28px"></th><th>Vendedor</th>
       ${[["v", "Vendas em $"], ["u", "Vendas em Unid."], ...(r.com_visitas ? [["visitas", "Visitas"], ["conversao", "Conversão"]] : []), ["share_v", "Share em $"], ["share_u", "Share unid."]].map(([k, t]) => `<th class="num" data-ord="${k}">${t}${st.ord === k ? (st.asc ? " ↑" : " ↓") : ""}</th>`).join("")}</tr></thead>
       <tbody>${lin.map(v => `<tr><td><input type="checkbox" data-sel="${esc(v.vendedor)}" ${st.sel.includes(v.vendedor) ? "checked" : ""}></td>
         <td class="first"><a href="#/concorrentes/${encodeURIComponent(v.vendedor)}?desde=${r.desde}&ate=${r.ate}">${esc(v.vendedor)}</a>${v.completo ? "" : ` <span class="st warn" title="faltam dias desse vendedor no período">${v.dias} de ${n} dias</span>`}</td>
