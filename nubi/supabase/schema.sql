@@ -578,3 +578,6 @@ create index if not exists conhecimento_data on public.conhecimento (fixo desc, 
 alter table public.conhecimento enable row level security;
 create policy "autorizado" on public.conhecimento for all to authenticated
   using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+insert into public.rotinas (id, nome, descricao, responsavel, horario, dias_semana, ativo, ordem) values
+ ('design', 'Astra: especificação de design', 'De hora em hora o Astra escreve a especificação de design dos cards aprovados de layout/tela/navegação.', 'Astra (design)', '00:00', array['seg','ter','qua','qui','sex','sab','dom'], true, 9)
+on conflict (id) do nothing;

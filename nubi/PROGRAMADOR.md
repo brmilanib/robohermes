@@ -29,6 +29,11 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
 3. **Escolher o card.** `reuniao_tarefas` com `status='aprovada'`, `aguardando is null`, `coalesce(risco,'medio') <> 'alto'`,
    ordem: prioridade (alta, media, baixa) e depois `id`. Pule cards que dependem do Bruno no Mac (login, instalar algo) ou
    de dados que você não tem; registre no card por que pulou (evento `tipo='passo'`) e vá para o próximo. Sem card: termine.
+   **Cards de design** (layout, tela, navegação, menu, visual, celular): o Astra (designer, gpt-6-astra) escreve de hora em
+   hora uma **Especificação de design** dentro do card (evento do autor `astra`). Só pegue card de design que já tenha essa
+   especificação e implemente **seguindo ela** (os "Critérios de pronto" são o seu checklist; confira cada um no celular e
+   no computador com `ui_exemplo.mjs`). Sem especificação ainda: pule, ela sai em até 1 h. Se discordar de algo da
+   especificação, registre no card o motivo e siga a regra do dono (dados certos e simplicidade primeiro).
 4. **Risco.** Antes de mexer, avalie. É **risco alto** (não faça; pergunte ao Bruno) qualquer coisa das travas de
    `reuniao.RISCO_ALTO`: senhas/chaves/tokens, apagar ou sobrescrever dados, **mudar a estrutura do banco** (tabela ou coluna
    nova também), pagamentos/compras/preço de venda, login do Nubimetrics/UpSeller/Gestor, publicar para clientes, e também

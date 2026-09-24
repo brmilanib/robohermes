@@ -1960,7 +1960,7 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor")            # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "auditoria", "reuniao", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
+NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
 
@@ -2003,7 +2003,13 @@ def rodar_rotinas(repo, so=None):
     out = {}
     for rid in NO_SERVIDOR:
         r = rot.get(rid)
-        if not r or (so and rid != so) or (not so and not rotina_pendente(r, agora)):
+        if rid == "design" and r and not so:
+            # de hora em hora (não 1 vez por dia): o Astra especifica os cards de design que chegaram
+            ult = r.get("ultima_execucao")
+            if not r.get("ativo") or not rotina_no_dia(r, agora) or (ult and (datetime.now(timezone.utc) - datetime.fromisoformat(
+                    str(ult).replace("Z", "+00:00"))).total_seconds() < 50 * 60):
+                continue
+        elif not r or (so and rid != so) or (not so and not rotina_pendente(r, agora)):
             continue
         inicio = datetime.now(timezone.utc).isoformat()
         ia.USO["origem"] = f"rotina {rid}"
@@ -2023,6 +2029,8 @@ def rodar_rotinas(repo, so=None):
                 reg = auditoria.rodar(repo, (r.get("observacao") or "").strip())
                 repo._req("POST", "auditorias", corpo=[reg], prefer="resolution=merge-duplicates,return=minimal")
                 res = reg["resumo"]
+            elif rid == "design":
+                res = design_astra(repo)
             elif rid == "categorias_lote":
                 res = categorias_lote(repo)
             elif rid == "produtos_ia":
@@ -2417,6 +2425,50 @@ def responder_card(repo, tid):
                         "texto": f"🖥️ Na fila do Mac: **{COMANDOS_MAC[cmd]}** (comando #{novo[0]['id']}). A saída aparece aqui."})
     repo._req("POST", "tarefa_eventos", corpo=eventos, prefer="return=minimal")
     repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(int(tid))}, corpo={"atualizado_em": agora_}, prefer="return=minimal")
+
+
+# ---------------------------------------------------------------------------
+# Astra (designer): escreve a especificação de design dos cards de layout/tela/navegação antes do programador pegar.
+# ---------------------------------------------------------------------------
+DESIGN_RE = re.compile(r"layout|design|\bux\b|\bui\b|tela|navega|menu|visual|celular|mobile|responsiv|cabe[çc]alho|card|bot[ãa]o|cores|tipografia", re.I)
+PAPEL_DESIGN = ("Você é o Astra, designer de produto e UX do nubi (o programador é o Claude Code, que vai implementar exatamente "
+                "o que você especificar, em HTML/CSS/JS puro no public/index.html). Escreva a ESPECIFICAÇÃO DE DESIGN deste card, "
+                "em português do Brasil, em markdown curto, com estas seções: ## Objetivo (1 frase) · ## Onde (tela e rota, ex.: "
+                "#/estoque) · ## Mudanças (lista numerada, concreta: componente, hierarquia, texto, ordem, estados vazio/carregando/erro) "
+                "· ## Celular (como fica em 390 px; sem rolagem para o lado) · ## Critérios de pronto (3 a 6 itens verificáveis). "
+                "Minimalista, dados mais importantes primeiro, navegação fácil, consistente com o resto do nubi (cards, chips, "
+                "barra de baixo no celular). Não invente dados que o sistema não tem; se faltar informação, diga o que perguntar ao Bruno.")
+
+
+def design_astra(repo, limite=2):
+    if not ia.tem("chatgpt"):
+        return "sem chave da OpenAI (Astra)"
+    cards = [t for t in (repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,descricao,area,notas,risco",
+                                                              "status": "eq.aprovada", "aguardando": "is.null", "order": "id"}) or [])
+             if (t.get("area") in ("site", "design", "layout", "ux")) or DESIGN_RE.search(f"{t.get('titulo')} {t.get('descricao') or ''}")]
+    feitos = []
+    for t in cards:
+        if len(feitos) >= limite:
+            break
+        ja = repo._req("GET", "tarefa_eventos", {"select": "id", "tarefa_id": repo._eq(t["id"]), "autor": "eq.astra",
+                                                  "texto": "like.*Especificação de design*", "limit": 1}) or []
+        if ja:
+            continue
+        evs = repo._req("GET", "tarefa_eventos", {"select": "autor,texto", "tarefa_id": repo._eq(t["id"]), "order": "id.desc", "limit": 10}) or []
+        conversa = "\n".join(f"[{e['autor']}] {e['texto'][:800]}" for e in reversed(evs))
+        ia.USO["origem"] = f"design card #{t['id']}"
+        txt, _, _ = ia.perguntar(PAPEL_DESIGN + f"\n\nCARD #{t['id']}: {t['titulo']}\n{t.get('descricao') or ''}\nNota: {t.get('notas') or '-'}"
+                                 + (f"\n\nCONVERSA DO CARD:\n{conversa}" if conversa else ""),
+                                 web=False, max_tokens=4000, qual="chatgpt", modelo="gpt-6-astra", sistema=agentes.SISTEMA)
+        if not (txt or "").strip():
+            continue
+        repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": t["id"], "autor": "astra", "tipo": "passo",
+                                                    "texto": "📐 **Especificação de design (Astra)**\n\n" + txt.strip()[:8000]}],
+                  prefer="return=minimal")
+        repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(t["id"])}, corpo={"atualizado_em": datetime.now(timezone.utc).isoformat()},
+                  prefer="return=minimal")
+        feitos.append(f"#{t['id']}")
+    return f"especificação escrita: {', '.join(feitos)}" if feitos else "nenhum card de design esperando especificação"
 
 
 # Terminal do Mac: lista FECHADA (o Mac confere de novo do lado dele); nada vira comando livre

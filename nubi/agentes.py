@@ -41,7 +41,8 @@ Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reuni�
 
 ## Rotinas (horário de Brasília)
 estoque 00:30 (Mac: exporta o estoque do UpSeller), coleta 01:00 (Mac, a madrugada toda), categorias_lote 04:00, produtos_ia 05:30, agente 06:00, resumo_dia, resumo_semana (segunda),
-resumo_marcas (dia 3), auditoria 10:30 (conferências de dados + revisão de código) e reunião diária 11:00.
+resumo_marcas (dia 3), auditoria 10:30 (conferências de dados + revisão de código), reunião diária 11:00 e, de hora em hora, o Astra
+especifica os cards de design (o programador automático, Claude Code, pega 1 card aprovado a cada 2 h e publica).
 
 ## Regras que ninguém quebra
 1. Zero erro nos números. Dia sem arquivo de um vendedor = coleta pendente (fica fora dos totais e aparece como
