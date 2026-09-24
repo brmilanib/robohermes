@@ -58,6 +58,24 @@ def fotos(linhas, vendedor, mes, ate):
     return [{"vendedor": vendedor, "mes": str(mes)[:7] + "-01", "chave": k, "dias": {dia: v}} for k, v in por.items()]
 
 
+def itens_dia(linhas):
+    """Export de um dia -> um item por produto: {k, t (título), m (marca), u, v, a (anúncios ativos), n (anúncios)}."""
+    por = {}
+    for l in linhas:
+        k = chave(l)
+        x = por.setdefault(k, {"k": k, "t": "", "m": l.get("marca") or "", "u": 0, "v": 0.0, "a": 0, "n": 0, "_u": -1})
+        u = int(l.get("unidades") or 0)
+        if u > x["_u"]:                      # título/marca do anúncio que mais vendeu
+            x["t"], x["_u"] = (l.get("titulo") or "")[:90], u
+            x["m"] = l.get("marca") or x["m"]
+        x["u"] += u
+        x["v"] += float(l.get("vendas") or 0)
+        x["n"] += 1
+        x["a"] += 1 if (l.get("estado") or "").lower() == "active" else 0
+    saida = [{k: (round(v, 2) if k == "v" else v) for k, v in x.items() if k != "_u"} for x in por.values()]
+    return sorted([x for x in saida if x["u"] or x["v"]], key=lambda x: -x["v"])
+
+
 def diario(dias, mes):
     """
     dias: {"AAAA-MM-DD": {"u": acumulado, ...}} de um produto num mês.

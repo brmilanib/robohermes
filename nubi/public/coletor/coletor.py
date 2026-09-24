@@ -62,6 +62,7 @@ PADRAO_CONFIG = {
     "mes_atual": True,                       # manter o mês em andamento atualizado (parcial), todo dia
     "desde": "2026-01",                      # primeiro mês do histórico de vendedores
     "atraso_dias": 2,                        # o Nubimetrics libera os dados com 2 dias de atraso
+    "dias_atras": 7,                         # venda isolada: baixa os últimos 7 dias liberados que faltarem
     "mostrar_navegador": False,
     "hashes": {},                            # hash do vendedor -> {nome, primeiro, ultimo} (conferir estabilidade)
     "hash_por_nome": {},                     # apelido -> hash (se mudar, o hash não é estável)
@@ -323,6 +324,16 @@ def periodo_comparativo(cfg, hoje=None):
     return {"mes": mes, "ini": f"{mes}-01", "fim": fim, "ate": fim, "rng": "CUSTOM"}
 
 
+def periodos_dia(cfg, hoje=None):
+    """Os últimos dias liberados, um de cada vez (21/09 a 21/09): a venda isolada do dia com os itens de cada vendedor."""
+    d = ultimo_dia_liberado(cfg, hoje)
+    saida = []
+    for n in range(int(cfg.get("dias_atras", 7))):
+        x = (d - timedelta(days=n)).isoformat()
+        saida.append({"mes": x[:7], "ini": x, "fim": x, "ate": x, "rng": "CUSTOM"})
+    return saida
+
+
 def limites(mes):
     a, m = map(int, mes.split("-"))
     return f"{mes}-01", f"{mes}-{calendar.monthrange(a, m)[1]:02d}"
@@ -567,6 +578,14 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
             pass
 
 
+def feito(cfg, rota, h, ate):
+    """Guarda as fotos/dias já enviados (só os últimos 90 de cada vendedor)."""
+    if rota in ("vend_foto", "vend_dia"):
+        lista = cfg.setdefault("fotos" if rota == "vend_foto" else "dias", {}).setdefault(h, [])
+        lista.append(ate)
+        del lista[:-90]
+
+
 def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pular=None, avisos=None, rota="vend_importar"):
     """Para cada vendedor do grupo, baixa cada período (mês fechado ou mês atual parcial) e envia ao nubi.
     pular(hash, nome, periodo) -> True quando o nubi já tem exatamente esse período."""
@@ -608,11 +627,13 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                 continue
             for per in lista_periodos:
                 mes, ate = per["mes"], per["ate"]
-                rotulo = mes + (f" até {ate[8:10]}/{ate[5:7]}" if ate else "")
+                rotulo = (f"dia {ate[8:10]}/{ate[5:7]}" if rota == "vend_dia" else
+                          mes + (f" até {ate[8:10]}/{ate[5:7]}" if ate else ""))
                 if pular and pular(h, nome, per):
                     continue
                 ao_vivo(True, atual=f"{nome} · {rotulo}")
-                destino = PASTA / "arquivos" / (mes + ("-comparativo" if rota == "vend_foto" else "-parcial" if ate else ""))
+                destino = PASTA / "arquivos" / (f"dias/{ate}" if rota == "vend_dia" else
+                                                mes + ("-comparativo" if rota == "vend_foto" else "-parcial" if ate else ""))
                 destino.mkdir(parents=True, exist_ok=True)
                 for tentativa in (1, 2):
                     try:
@@ -639,15 +660,14 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                                 raise
                             importados += 1
                             log("    " + " ".join(r.get("log", [])))
-                            if rota == "vend_foto":
-                                cfg.setdefault("fotos", {}).setdefault(h, []).append(ate)
+                            feito(cfg, rota, h, ate)
                         break
                     except SessaoExpirada:
                         raise
                     except SemDados:
                         log(f"  {nome} {rotulo}: sem vendas nesse período (nada para importar)")
-                        if rota == "vend_foto":
-                            cfg.setdefault("fotos", {}).setdefault(h, []).append(ate)
+                        if rota in ("vend_foto", "vend_dia"):
+                            feito(cfg, rota, h, ate)
                         elif not ate:     # mês fechado vazio não muda mais: não tenta de novo
                             cfg.setdefault("vazios", {}).setdefault(h, []).append(mes)
                         break
@@ -982,6 +1002,12 @@ def main():
     if args.cmd == "diario":
         def f(p, cfg, token):
             pend = api(token, "coletor_pendencias")
+            rot = pend.get("rotina") or {}
+            hoje = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"][date.today().weekday()]
+            if rot and (not rot.get("ativo", True) or (hoje not in (rot.get("dias_semana") or [])
+                                                       and rot.get("dia_mes") != date.today().day)):
+                log("Coleta diária desligada para hoje em Tarefas de rotina (site): nada a fazer.")
+                return 0, 0, 0, "desligada hoje em Tarefas de rotina"
             d = ultimo_dia_liberado(cfg)
             pers = periodos(cfg)
             A = I = E = 0
@@ -1028,6 +1054,12 @@ def main():
                                              pular=lambda h, nome, per: per["ate"] in feitas.get(h, []))
                 A, I, E = A + a, I + i, E + e
                 partes.append(f"mesmo período de {comp['mes']} (até {comp['ate'][8:10]}/{comp['ate'][5:7]}): {i} vendedor(es)")
+            # venda isolada de cada um dos últimos dias (21/09 a 21/09), com todos os itens vendidos de cada vendedor
+            dias_ok = cfg.get("dias", {})
+            a, i, e = coletar_vendedores(p, cfg, token, periodos_dia(cfg), rota="vend_dia",
+                                         pular=lambda h, nome, per: per["ate"] in dias_ok.get(h, []))
+            A, I, E = A + a, I + i, E + e
+            partes.append(f"vendas do dia: {i} arquivo(s)")
             if avisos:
                 partes.append(f"{len(avisos)} aviso(s): " + "; ".join(avisos)[:300])
                 aviso_mac("Coletor nubi — conferir", avisos[0])

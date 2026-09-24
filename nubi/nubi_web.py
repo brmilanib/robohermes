@@ -559,9 +559,9 @@ def atender(metodo, rota, q, corpo, token):
         if rota == "agente" and CRON_SECRET and token == CRON_SECRET:
             # Chamada da agenda (Vercel Cron manda "Authorization: Bearer CRON_SECRET").
             return _json(rodar_agente(RepoSupabase(login_agente()), "agendado"))
-        if rota == "rotina_8h" and CRON_SECRET and token == CRON_SECRET:
-            # 8h (Brasília): resumo do dia dos vendedores; a partir do dia 3, o resumo mensal das marcas
-            return _json(rotina_8h(RepoSupabase(login_agente())))
+        if rota in ("rotinas_cron", "rotina_8h") and CRON_SECRET and token == CRON_SECRET:
+            # de hora em hora (Vercel Cron): as tarefas de rotina do servidor cujo dia e horário chegaram
+            return _json(rodar_rotinas(RepoSupabase(login_agente())))
         repo = RepoSupabase(token)
         if rota == "agente" and metodo == "POST":
             seg = min(TEMPO_MAX, int(q.get("segundos") or 60))
@@ -603,9 +603,16 @@ def atender(metodo, rota, q, corpo, token):
             if d.get("id"):
                 repo._req("PATCH", "coletor_execucoes", {"id": repo._eq(int(d["id"]))}, corpo=reg,
                           prefer="return=minimal")
-                if d.get("em_andamento") is False and d.get("tarefa") == "diario" and datetime.now(timezone.utc).hour >= 11:
+                if d.get("em_andamento") is False and d.get("tarefa") == "diario":
                     try:
-                        gerar_resumo_dia(repo)      # coleta terminou depois das 8h: o resumo sai agora
+                        rt = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.resumo_dia"}) or [None])[0]
+                        ag = _agora_br()
+                        # coleta terminou depois do horário do resumo: o resumo dos dados novos sai agora
+                        if rt and rt.get("ativo") and rotina_no_dia(rt, ag) and ag.strftime("%H:%M") >= rt["horario"]:
+                            x = gerar_resumo_dia(repo)
+                            if x["novo"]:
+                                _marcar_rotina(repo, "resumo_dia", f"dados até {_ddmm(x['atual']['chave'].split('|')[1])}: "
+                                                                   "gerado quando a coleta terminou")
                     except Exception:  # noqa: BLE001
                         pass
                 return _json({"ok": True, "id": int(d["id"])})
@@ -621,7 +628,11 @@ def atender(metodo, rota, q, corpo, token):
             rk = {}
             for r in _relatorios(repo):
                 rk.setdefault(r["categoria"], []).append(r["mes"][:7])
-            return _json({"vendedores": vend, "hashes": por_hash, "ranking": rk})
+            try:
+                rot = (repo._req("GET", "rotinas", {"select": "ativo,dias_semana,dia_mes", "id": "eq.coleta"}) or [None])[0]
+            except ErroNuvem:
+                rot = None
+            return _json({"vendedores": vend, "hashes": por_hash, "ranking": rk, "rotina": rot})
 
         if rota == "apelido_ia" and metodo == "POST":
             d = json.loads(corpo or b"{}")
@@ -645,6 +656,17 @@ def atender(metodo, rota, q, corpo, token):
         if rota.startswith("vend_"):
             return _json(rota_vendedores(repo, metodo, rota, q, corpo))
 
+        if rota.startswith("rotina"):
+            return _json(rota_rotinas(repo, metodo, rota, q, corpo))
+
+        if rota == "resumo_semana":
+            if metodo == "POST":
+                return _json(gerar_resumo_semana(repo, forcar=bool(q.get("novo"))))
+            lista = repo._req("GET", "ia_resumos", {"select": "chave,texto,ia,criado_em", "chave": "like.semana|*",
+                                                    "order": "chave.desc", "limit": 12}) or []
+            esc = next((x for x in lista if x["chave"].endswith(q.get("data") or "#")), lista[0] if lista else None)
+            return _json({"atual": esc, "datas": [x["chave"].split("|")[1] for x in lista]})
+
         if rota == "resumo_dia":
             # resumo diário dos vendedores monitorados (o mais recente, ou o de ?data=AAAA-MM-DD)
             if metodo == "POST":
@@ -653,8 +675,13 @@ def atender(metodo, rota, q, corpo, token):
                                                     "order": "chave.desc", "limit": 15}) or []
             esc = next((x for x in lista if x["chave"].endswith(q.get("data", ""))), lista[0] if lista else None) \
                 if q.get("data") else (lista[0] if lista else None)
+            data = esc["chave"].split("|")[1] if esc else None
+            try:
+                pnl = _painel_dia(repo, data)
+            except ErroNuvem:
+                pnl = {"tem": False}
             return _json({"atual": esc, "datas": [x["chave"].split("|")[1] for x in lista],
-                          "disponivel": bool(ia.disponivel())})
+                          "disponivel": bool(ia.disponivel()), "painel": pnl})
 
         if rota.startswith("ranking"):
             return _json(rota_ranking(repo, metodo, rota, q, corpo))
@@ -861,7 +888,7 @@ def gerar_resumo_marcas(repo, cat, rels, chave):
             "espaço), **Marcas em alta**, **Marcas em queda**, **Entraram e saíram do top**, **Oportunidades** (marcas subindo "
             "em que vale investir e por quê), **Concorrentes e sinais de compra**, **Plano para o próximo mês** (4 ações práticas). "
             "Use só os dados fornecidos, não invente números. Formato: markdown simples (## para seções, - para tópicos).\n\n"
-            + _dados_resumo(repo, cat, rels, detalhado=True), web=False, max_tokens=2600)
+            + _obs_rotina(repo, "resumo_marcas") + "\n\n" + _dados_resumo(repo, cat, rels, detalhado=True), web=False, max_tokens=2600)
     except Exception as e:  # noqa: BLE001
         raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
     _guardar_resumo(repo, chave, texto, qual)
@@ -1005,120 +1032,201 @@ def _comparativo(repo, fotos=None):
             "exatos": sum(1 for x in vs if x["exato"]), "vendedores": vs, "total": tot, "ganhos": ganhos, "perdas": perdas}
 
 
+def _fm(v):
+    v = v or 0
+    if abs(v) >= 1e6:
+        return f"R$ {v / 1e6:.1f} mi".replace(".", ",")
+    if abs(v) >= 1e3:
+        return f"R$ {v / 1e3:.1f} mil".replace(".", ",")
+    return f"R$ {v:.0f}"
+
+
+def _ddmm(d):
+    return f"{d[8:10]}/{d[5:7]}"
+
+
+def _vendas_dias(repo, desde, ate):
+    """Linhas de vend_vendas_dia entre desde e ate (inclusive)."""
+    return [r for r in repo._todos("vend_vendas_dia", {"select": "vendedor,data,v,u,itens", "data": f"gte.{desde}",
+                                                        "order": "data,vendedor"}) if str(r["data"])[:10] <= ate]
+
+
+def _painel_dia(repo, d=None):
+    """
+    Venda isolada do último dia liberado (export de 1 dia de cada vendedor): quem mais vendeu, quem mais caiu e os
+    produtos em alta e em queda, contra a média dos 7 dias anteriores (sem esses dias: o ritmo do mês).
+    """
+    if not d:
+        ult = repo._req("GET", "vend_vendas_dia", {"select": "data", "order": "data.desc", "limit": 1}) or []
+        if not ult:
+            return {"tem": False}
+        d = str(ult[0]["data"])[:10]
+    desde = (date.fromisoformat(d) - timedelta(days=7)).isoformat()
+    rows = _vendas_dias(repo, desde, d)
+    for r in rows:
+        r["data"] = str(r["data"])[:10]
+    ant = sorted({r["data"] for r in rows if r["data"] < d})
+    n = len(ant)
+    base, pbase, hoje, prod = {}, {}, {}, {}
+    for r in rows:
+        if r["data"] < d:
+            b = base.setdefault(r["vendedor"], [0.0, 0])
+            b[0] += float(r["v"] or 0)
+            b[1] += int(r["u"] or 0)
+            for it in r["itens"] or []:
+                pb = pbase.setdefault(it["k"], {"v": 0.0, "u": 0, "t": it.get("t"), "m": it.get("m")})
+                pb["v"] += float(it.get("v") or 0)
+                pb["u"] += int(it.get("u") or 0)
+        else:
+            hoje[r["vendedor"]] = r
+            for it in r["itens"] or []:
+                p = prod.setdefault(it["k"], {"chave": it["k"], "produto": it.get("t") or it["k"], "marca": it.get("m") or "",
+                                              "v": 0.0, "u": 0, "vendedores": []})
+                p["v"] += float(it.get("v") or 0)
+                p["u"] += int(it.get("u") or 0)
+                p["vendedores"].append(r["vendedor"])
+    if not hoje:
+        return {"tem": False}
+    ritmo = {}
+    if not n:                                            # sem dias anteriores: ritmo do mês (fotos acumuladas)
+        try:
+            c = _comparativo(repo)
+            if c.get("tem") and c.get("dia"):
+                ritmo = {x["vendedor"]: x["v"] / c["dia"] for x in c["vendedores"]}
+        except Exception:  # noqa: BLE001
+            ritmo = {}
+    vs = []
+    for v in sorted(set(hoje) | set(base)):
+        r = hoje.get(v)
+        med = (base[v][0] / n) if n and v in base else ritmo.get(v)
+        x = {"vendedor": v, "v": float(r["v"] or 0) if r else 0.0, "u": int(r["u"] or 0) if r else 0,
+             "itens": len(r["itens"] or []) if r else 0, "media": med, "sem_dados": not r,
+             "top": [{"produto": it.get("t"), "marca": it.get("m"), "u": it.get("u"), "v": it.get("v")}
+                     for it in (r["itens"] or [])[:3]] if r else []}
+        x["dif"] = (x["v"] - med) if med is not None else None
+        x["var"] = (x["v"] / med - 1) if med else None
+        vs.append(x)
+    ps = []
+    for k, p in prod.items():
+        med = pbase[k]["v"] / n if n and k in pbase else None
+        ps.append(dict(p, vendedores=len(set(p["vendedores"])), media=med,
+                       dif=(p["v"] - med) if med is not None else None, var=(p["v"] / med - 1) if med else None))
+    queda = []
+    if n:
+        for k, pb in pbase.items():
+            med = pb["v"] / n
+            hj = prod.get(k, {}).get("v", 0.0)
+            if med >= 300 and hj < med * 0.85:                # caiu pelo menos 15%
+                queda.append({"chave": k, "produto": pb["t"] or k, "marca": pb["m"] or "", "v": hj, "media": med,
+                              "dif": hj - med, "var": hj / med - 1})
+    tot = {"v": sum(x["v"] for x in vs), "u": sum(x["u"] for x in vs)}
+    meds = [x["media"] for x in vs if x["media"] is not None]
+    tot["media"] = sum(meds) if meds else None
+    tot["var"] = (tot["v"] / tot["media"] - 1) if tot["media"] else None
+    return {"tem": True, "data": d, "base": "7 dias" if n else ("ritmo do mês" if ritmo else None), "dias_base": n,
+            "total": tot, "vendedores": sorted(vs, key=lambda x: -x["v"]),
+            "mais_venderam": sorted([x for x in vs if x["v"] > 0], key=lambda x: -x["v"])[:8],
+            "mais_cairam": sorted([x for x in vs if (x["dif"] or 0) < 0], key=lambda x: x["dif"])[:8],
+            "produtos_alta": sorted(ps, key=lambda p: -p["v"])[:10],
+            "produtos_queda": sorted(queda, key=lambda p: p["dif"])[:10]}
+
+
+def _obs_rotina(repo, rid):
+    """Observação que o dono escreveu na tarefa de rotina (vira instrução no prompt da IA)."""
+    try:
+        r = repo._req("GET", "rotinas", {"select": "observacao", "id": repo._eq(rid)}) or []
+    except ErroNuvem:
+        return ""
+    o = ((r[0].get("observacao") or "") if r else "").strip()
+    return f"\n\nINSTRUÇÕES DO DONO PARA ESTA TAREFA (siga à risca):\n{o[:2000]}" if o else ""
+
+
 def _dados_resumo_dia(repo):
     """
-    O que aconteceu no último dia coletado (dados de 2 dias atrás) com os vendedores monitorados:
-    vendas do dia (diferença entre as duas últimas fotos diárias), ritmo do mês vs mês anterior,
-    produtos que mais venderam no dia e produtos que ficaram sem estoque de ontem para hoje.
-    Devolve (data, texto) ou (None, motivo).
+    O que aconteceu no último dia liberado (dados de 2 dias atrás) com os vendedores monitorados: a venda isolada do
+    dia de cada vendedor com os itens vendidos (export de 1 dia), o mesmo período x mês anterior e o estoque.
+    Devolve (data, texto, painel) ou (None, motivo, None).
     """
     rels = _vend_rels(repo)
     if not rels:
-        return None, "nenhum vendedor importado"
+        return None, "nenhum vendedor importado", None
     mes = max(r["mes"] for r in rels)[:7]
-    ant_mes = (date.fromisoformat(mes + "-01") - timedelta(days=1)).strftime("%Y-%m")
     fotos = _fotos_mes(repo, mes)
     datas = sorted({d for f in fotos for d in f["dias"]})
-    if not datas:
-        return None, "ainda sem fotos diárias do mês"
-    d1 = datas[-1]
-    d0 = datas[-2] if len(datas) > 1 else None
-    prev = repo._todos("vend_produto_dia", {"select": "vendedor,chave,dias", "mes": repo._eq(ant_mes + "-01"),
-                                            "order": "vendedor,chave"})
-    tot_ant = {}
-    for f in prev:
-        if f["dias"]:
-            ult = f["dias"][max(f["dias"])]
-            tot_ant[f["vendedor"]] = tot_ant.get(f["vendedor"], 0) + float(ult.get("v") or 0)
-    dias_ant = vend_bi.dias_do_mes(ant_mes)
-    por_v, prod, sem_est = {}, {}, []
-    for f in fotos:
-        dd = f["dias"]
-        x = por_v.setdefault(f["vendedor"], {"mtd": 0.0, "dia_v": 0.0, "dia_u": 0, "tem_d0": False, "tem_d1": False})
-        a1 = dd.get(d1)
-        if a1:
-            x["tem_d1"] = True
-            x["mtd"] += float(a1.get("v") or 0)
-        if d0 and d0 in dd:
-            x["tem_d0"] = True
-        if a1 and d0:
-            a0 = dd.get(d0) or {}
-            du, dv = int(a1.get("u") or 0) - int(a0.get("u") or 0), float(a1.get("v") or 0) - float(a0.get("v") or 0)
-            if du > 0:
-                x["dia_u"] += du
-                x["dia_v"] += dv
-                p = prod.setdefault(f["chave"], {"u": 0, "v": 0.0, "vendedores": set()})
-                p["u"] += du
-                p["v"] += dv
-                p["vendedores"].add(f["vendedor"])
-            if (a0.get("a") or 0) > 0 and (a1.get("a") or 0) == 0 and int(a1.get("u") or 0) >= 15:
-                sem_est.append((f["vendedor"], f["chave"], int(a1.get("u") or 0)))
-    # nomes dos produtos
-    chaves = sorted(prod, key=lambda k: -prod[k]["u"])[:12]
-    chaves_sem = [c for _, c, _ in sorted(sem_est, key=lambda t: -t[2])[:10]]
-    gt = [c for c in set(chaves + chaves_sem) if not c.startswith("T:")]
-    nomes = {}
-    if gt:
-        ult_ids = ",".join(str(r["id"]) for r in rels if r["mes"][:7] == mes)
-        for r in repo._todos("vend_anuncios", {"select": "gtin,titulo,marca,unidades", "relatorio_id": f"in.({ult_ids})",
-                                               "gtin": f"in.({','.join(gt)})", "order": "unidades.desc"}):
-            nomes.setdefault(r["gtin"], f"{r['titulo'][:55]} ({r['marca']})")
-    nome = lambda c: nomes.get(c) or c.replace("T:", "")[:60]
-    fm = lambda v: f"R$ {v / 1e6:.1f} mi".replace(".", ",") if v >= 1e6 else f"R$ {v / 1e3:.1f} mil".replace(".", ",")
-    dia_n = int(d1[8:10])
-    ddmm = f"{d1[8:10]}/{d1[5:7]}"
-    linhas = [f"DADOS ATÉ {ddmm} (o Nubimetrics libera com 2 dias de atraso). "
-              + (f"Dia analisado: vendas entre {d0[8:10]}/{d0[5:7]} e {ddmm}." if d0 else
-                 "ATENÇÃO: só existe UMA foto diária deste mês, então NÃO há como saber as vendas do dia (não diga que "
-                 "foram zero). Fale do acumulado do mês e da comparação com o mesmo período do mês anterior.")]
-    tot_dia = sum(x["dia_v"] for x in por_v.values())
-    linhas.append(f"TOTAL DOS VENDEDORES MONITORADOS: " + (f"{fm(tot_dia)} no dia; " if d0 else "")
-                  + f"{fm(sum(x['mtd'] for x in por_v.values()))} no mês até {ddmm}.")
+    pnl = _painel_dia(repo)
+    d1 = max([x for x in (datas[-1] if datas else None, pnl.get("data")) if x], default=None)
+    if not d1:
+        return None, "ainda sem dados diários do mês", None
+    if pnl.get("tem") and pnl["data"] != d1:
+        pnl = _painel_dia(repo, d1) if pnl["data"] > d1 else {"tem": False}
+    linhas = [f"DADOS ATÉ {_ddmm(d1)} (o Nubimetrics libera com 2 dias de atraso; hoje o dono lê sobre {_ddmm(d1)})."]
+    if pnl.get("tem"):
+        t = pnl["total"]
+        base = f"média dos {pnl['dias_base']} dias anteriores" if pnl["dias_base"] else "ritmo diário do mês"
+        linhas.append(f"VENDA ISOLADA DO DIA {_ddmm(d1)} (exata: export só desse dia de cada vendedor). Comparação com a {base}.")
+        linhas.append(f"TOTAL DO DIA: {_fm(t['v'])}, {t['u']} un." + (f" x {_fm(t['media'])} de média ({t['var'] * 100:+.0f}%)"
+                                                                         if t["var"] is not None else ""))
+        for x in pnl["vendedores"]:
+            cab = (f"- {x['vendedor']}: " + ("SEM VENDA REGISTRADA NO DIA" if x["sem_dados"] else f"{_fm(x['v'])}, {x['u']} un., {x['itens']} produto(s)")
+                   + (f"; média {_fm(x['media'])} ({x['var'] * 100:+.0f}%)" if x["var"] is not None else ""))
+            linhas.append(cab)
+        # itens vendidos de cada vendedor no dia (os 12 maiores)
+        hoje = {r["vendedor"]: r for r in _vendas_dias(repo, d1, d1)}
+        linhas.append("ITENS VENDIDOS NO DIA POR VENDEDOR (maiores primeiro):")
+        for v, r in sorted(hoje.items(), key=lambda kv: -float(kv[1]["v"] or 0)):
+            its = r["itens"] or []
+            linhas.append(f"  {v}: " + "; ".join(f"{(it.get('t') or '')[:48]} ({it.get('m')}) {it.get('u')} un. {_fm(it.get('v'))}"
+                                                  + (" [anúncios pausados]" if not it.get("a") else "") for it in its[:12])
+                          + (f"; e mais {len(its) - 12} produto(s)" if len(its) > 12 else ""))
+        linhas.append("PRODUTOS QUE MAIS VENDERAM NO DIA (todos os vendedores): " + "; ".join(
+            f"{p['produto'][:50]} ({p['marca']}): {p['u']} un., {_fm(p['v'])}, {p['vendedores']} vendedor(es)"
+            + (f", {p['var'] * 100:+.0f}% vs média" if p["var"] is not None else ", novo no período") for p in pnl["produtos_alta"]))
+        if pnl["produtos_queda"]:
+            linhas.append("PRODUTOS QUE MAIS CAÍRAM NO DIA (vs média): " + "; ".join(
+                f"{p['produto'][:50]} ({p['marca']}): {_fm(p['v'])} x média {_fm(p['media'])}" for p in pnl["produtos_queda"]))
+    else:
+        linhas.append("ATENÇÃO: ainda não há a venda isolada do dia (o coletor começa a baixar o export de 1 dia por "
+                      "vendedor na próxima coleta). Fale do acumulado do mês e do mesmo período; NÃO diga que as vendas do dia foram zero.")
     cmp_ = _comparativo(repo, fotos)
     if cmp_.get("tem"):
         t = cmp_["total"]
-        ea = f"{cmp_['ate_ant'][8:10]}/{cmp_['ate_ant'][5:7]}"
-        linhas.append(f"MESMO PERÍODO (01 a {ddmm} x 01 a {ea}): {fm(t['v'])} x {fm(t['v_ant'])}"
+        linhas.append(f"MESMO PERÍODO (01 a {_ddmm(cmp_['ate'])} x 01 a {_ddmm(cmp_['ate_ant'])}): {_fm(t['v'])} x {_fm(t['v_ant'])}"
                       + (f" ({t['var'] * 100:+.0f}%)" if t["var"] is not None else "")
                       + ("" if cmp_["exatos"] == len(cmp_["vendedores"]) else
                          f" — {len(cmp_['vendedores']) - cmp_['exatos']} vendedor(es) com o mês anterior ESTIMADO pela proporção do mês"))
         for x in cmp_["vendedores"]:
-            linhas.append(f"  · {x['vendedor']}: {fm(x['v'])} x {fm(x['v_ant'])}"
+            linhas.append(f"  · {x['vendedor']}: {_fm(x['v'])} x {_fm(x['v_ant'])}"
                           + (f" ({x['var'] * 100:+.0f}%)" if x["var"] is not None else "") + ("" if x["exato"] else " [estimado]"))
         if cmp_["ganhos"]:
             linhas.append("PRODUTOS QUE MAIS GANHARAM VENDAS no mesmo período: " + "; ".join(
-                f"{c['produto'][:50]} ({c['marca']}): {fm(c['v'])} x {fm(c['v_ant'])}" for c in cmp_["ganhos"][:8]))
+                f"{c['produto'][:50]} ({c['marca']}): {_fm(c['v'])} x {_fm(c['v_ant'])}" for c in cmp_["ganhos"][:8]))
         if cmp_["perdas"]:
             linhas.append("PRODUTOS QUE MAIS PERDERAM VENDAS no mesmo período: " + "; ".join(
-                f"{c['produto'][:50]} ({c['marca']}): {fm(c['v'])} x {fm(c['v_ant'])}" for c in cmp_["perdas"][:8]))
-    for v, x in sorted(por_v.items(), key=lambda kv: -kv[1]["dia_v"]):
-        if not x["tem_d1"]:
-            continue
-        ritmo, r_ant = x["mtd"] / dia_n, (tot_ant.get(v) or 0) / dias_ant
-        linhas.append(f"- {v}: {fm(x['dia_v'])} no dia ({x['dia_u']} un.)"
-                      + ("" if x["tem_d0"] else " [sem foto do dia anterior]")
-                      + f"; mês {fm(x['mtd'])}, ritmo {fm(ritmo)}/dia"
-                      + (f" vs {fm(r_ant)}/dia no mês anterior ({(ritmo / r_ant - 1) * 100:+.0f}%)" if r_ant else ""))
-    linhas.append("PRODUTOS QUE MAIS VENDERAM NO DIA: " + "; ".join(
-        f"{nome(c)}: {prod[c]['u']} un., {fm(prod[c]['v'])}, {len(prod[c]['vendedores'])} vendedor(es)" for c in chaves))
-    linhas.append("FICARAM SEM ESTOQUE NO DIA (todos os anúncios pausaram): " + ("; ".join(
-        f"{nome(c)} em {v} (vendeu {u} un. no mês)" for v, c, u in sorted(sem_est, key=lambda t: -t[2])[:10]) or "nenhum"))
+                f"{c['produto'][:50]} ({c['marca']}): {_fm(c['v'])} x {_fm(c['v_ant'])}" for c in cmp_["perdas"][:8]))
     try:
         al = rota_vendedores(repo, "GET", "vend_alertas", {}, b"")
         top = [p for p in al["produtos"] if p["sem_estoque"] > 0][:6]
         linhas.append("ALERTAS DE ESTOQUE EM ABERTO (maiores): " + "; ".join(
             f"{p['produto'][:50]} ({p['marca']}): sem estoque em {', '.join(a['vendedor'] for a in p['alertas'][:3])}; "
-            f"ainda vendem {len(p['ainda_vendem'])}; {fm(p['perda_dia'])}/dia parado" for p in top))
+            f"ainda vendem {len(p['ainda_vendem'])}; {_fm(p['perda_dia'])}/dia parado" for p in top))
     except Exception:  # noqa: BLE001
         pass
-    return d1, "\n".join(linhas)
+    return d1, "\n".join(linhas), pnl
+
+
+FORMATO_IA = (
+    "FORMATO (o site mostra cada seção num card):\n"
+    "- Cada seção começa com '## ' + emoji + título, exatamente como na lista de seções.\n"
+    "- Até 5 tópicos curtos por seção, cada um começando com '- ' e com número (R$ 1,2 mi, R$ 350 mil, +12%).\n"
+    "- Negrito só com **texto** (dois asteriscos). Nunca use um asterisco sozinho, tabelas ou títulos com #.\n"
+    "- Nomes de vendedores e produtos em texto normal (sem asteriscos em volta).\n")
 
 
 def gerar_resumo_dia(repo, forcar=False):
     """Resumo do dia dos vendedores (guardado por data dos dados; forcar=True escreve de novo)."""
     if not ia.disponivel():
         raise ErroNuvem("Configure uma chave de IA (OPENAI_API_KEY) na Vercel para gerar o resumo.")
-    d1, dados = _dados_resumo_dia(repo)
+    d1, dados, _ = _dados_resumo_dia(repo)
     if not d1:
         raise ErroNuvem(f"Sem dados para o resumo do dia: {dados}.")
     chave = f"vendedores|{d1}"
@@ -1135,20 +1243,25 @@ def gerar_resumo_dia(repo, forcar=False):
             "os vendedores concorrentes que ele monitora (dados do Nubimetrics, liberados com 2 dias de atraso) e escreve o "
             "RESUMO DO DIA: curto, direto, em português simples e sempre com números.\n"
             "Como analisar:\n"
-            "- A comparação principal é o MESMO PERÍODO: do dia 1 até o último dia com dados no mês atual contra os mesmos "
-            "dias do mês anterior (ex.: 01/09–22/09 x 01/08–22/08). Nunca compare um mês parcial com um mês fechado.\n"
-            "- Diga quem está crescendo e quem está caindo nesse comparativo, e os produtos que mais ganharam ou perderam vendas.\n"
-            "- Procure OPORTUNIDADES (produto vendendo mais no mercado, concorrente sem estoque de um produto que vende bem, "
-            "marca subindo) e dê ALERTAS (queda forte, concorrente acelerando muito, muitos vendedores no mesmo produto).\n"
-            "- Se houver o resumo de ontem, diga o que mudou e acompanhe os alertas de ontem (resolveu? piorou?).\n"
-            "- No futuro o nubi vai ter as vendas e o estoque da própria loja; por enquanto recomende o que ele deve olhar na "
-            "loja dele (ex.: \"confira se você tem estoque de X\").\n"
+            "- O DIA: use a VENDA ISOLADA DO DIA (export só daquele dia, com os itens de cada vendedor). Compare cada "
+            "vendedor e produto com a média dos dias anteriores: quem acelerou, quem caiu, que produto puxou a venda de "
+            "cada um, produto novo aparecendo, produto que sumiu ou com anúncios pausados (sem estoque).\n"
+            "- O MÊS: a comparação é o MESMO PERÍODO (dia 1 até o último dia com dados x os mesmos dias do mês anterior). "
+            "Nunca compare um mês parcial com um mês fechado.\n"
+            "- OPORTUNIDADES: produto vendendo mais no mercado, concorrente sem estoque de um produto que vende bem, marca subindo.\n"
+            "- ALERTAS: queda forte, concorrente acelerando muito, muitos vendedores brigando no mesmo produto.\n"
+            "- Se houver o resumo de ontem, acompanhe os alertas de ontem (confirmou? piorou? resolveu?).\n"
+            "- No futuro o nubi vai ter as vendas e o estoque da própria loja; por enquanto recomende o que ele deve olhar "
+            "na loja dele (ex.: confira se você tem estoque de X).\n"
             "- Use só os dados fornecidos; não invente números; quando um dado for estimado, avise.\n"
-            "Seções: **Mesmo período** (total e por vendedor), **Destaques do dia**, **Produtos em alta e em queda**, "
-            "**Estoque dos concorrentes e oportunidades**, **Alertas**, **O que fazer hoje** (2 ou 3 ações). "
-            "Formato: markdown simples (## para seções, - para tópicos).\n\n"
+            "- O site já mostra os cards 'quem mais vendeu' e 'quem mais caiu' com os números de cada vendedor: não repita "
+            "a lista inteira, comente só o que importa.\n"
+            "Seções (nesta ordem): ## 📊 O dia em resumo (2 ou 3 tópicos), ## 🔥 Produtos que puxaram o dia, "
+            "## 📉 Quedas e sinais de atenção, ## 📆 Mesmo período no mês, ## 📦 Estoque dos concorrentes, "
+            "## 💡 Oportunidades, ## ⚠️ Alertas, ## ✅ O que fazer hoje (2 ou 3 ações).\n"
+            + FORMATO_IA + _obs_rotina(repo, "resumo_dia") + "\n\nDADOS:\n"
             + dados + (f"\n\nRESUMO DE ONTEM ({ontem['chave'].split('|')[1]}):\n{ontem['texto'][:3000]}" if ontem else ""),
-            web=False, max_tokens=2000)
+            web=False, max_tokens=2200)
     except Exception as e:  # noqa: BLE001
         raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
     _guardar_resumo(repo, chave, texto, qual)
@@ -1156,28 +1269,249 @@ def gerar_resumo_dia(repo, forcar=False):
                       "criado_em": datetime.now(timezone.utc).isoformat()}, "novo": True}
 
 
-def rotina_8h(repo):
-    """Agenda das 8h: resumo do dia dos vendedores; do dia 3 em diante, o resumo mensal das marcas que faltar."""
-    out = {}
+def _semana(repo):
+    """A semana que terminou no último dia liberado x a semana anterior (vendas isoladas de cada dia)."""
+    ult = repo._req("GET", "vend_vendas_dia", {"select": "data", "order": "data.desc", "limit": 1}) or []
+    fim = str(ult[0]["data"])[:10] if ult else None
+    if not fim:
+        rs = repo._req("GET", "ia_resumos", {"select": "chave", "chave": "like.vendedores|*", "order": "chave.desc", "limit": 1}) or []
+        fim = rs[0]["chave"].split("|")[1] if rs else None
+    if not fim:
+        return None
+    f = date.fromisoformat(fim)
+    ini, ini_ant = (f - timedelta(days=6)).isoformat(), (f - timedelta(days=13)).isoformat()
+    rows = _vendas_dias(repo, ini_ant, fim)
+    sem = {"fim": fim, "ini": ini, "ini_ant": ini_ant, "fim_ant": (f - timedelta(days=7)).isoformat()}
+    agg = {"atual": {}, "ant": {}}
+    prod = {"atual": {}, "ant": {}}
+    dias = {"atual": set(), "ant": set()}
+    for r in rows:
+        k = "atual" if str(r["data"])[:10] >= ini else "ant"
+        dias[k].add(str(r["data"])[:10])
+        a = agg[k].setdefault(r["vendedor"], [0.0, 0])
+        a[0] += float(r["v"] or 0)
+        a[1] += int(r["u"] or 0)
+        for it in r["itens"] or []:
+            p = prod[k].setdefault(it["k"], {"produto": it.get("t") or it["k"], "marca": it.get("m") or "", "v": 0.0, "u": 0})
+            p["v"] += float(it.get("v") or 0)
+            p["u"] += int(it.get("u") or 0)
+    sem.update(dias_atual=len(dias["atual"]), dias_ant=len(dias["ant"]), agg=agg, prod=prod)
+    return sem
+
+
+def gerar_resumo_semana(repo, forcar=False):
+    """Toda segunda: a semana que passou (resumos diários guardados + vendas de cada dia) x a semana anterior."""
+    if not ia.disponivel():
+        raise ErroNuvem("Configure uma chave de IA (OPENAI_API_KEY) na Vercel para gerar a análise.")
+    s = _semana(repo)
+    if not s:
+        raise ErroNuvem("Ainda não há dados diários para a análise da semana.")
+    chave = f"semana|{s['fim']}"
+    if not forcar:
+        ja = repo._req("GET", "ia_resumos", {"select": "chave,texto,ia,criado_em", "chave": repo._eq(chave)}) or []
+        if ja:
+            return {"atual": ja[0], "novo": False}
+    L = [f"SEMANA ANALISADA: {_ddmm(s['ini'])} a {_ddmm(s['fim'])} ({s['dias_atual']} dia(s) com venda isolada coletada); "
+         f"SEMANA ANTERIOR: {_ddmm(s['ini_ant'])} a {_ddmm(s['fim_ant'])} ({s['dias_ant']} dia(s) coletados)."]
+    at, an = s["agg"]["atual"], s["agg"]["ant"]
+    if at:
+        tv, ta = sum(x[0] for x in at.values()), sum(x[0] for x in an.values())
+        L.append(f"TOTAL DOS VENDEDORES: {_fm(tv)} na semana" + (f" x {_fm(ta)} na anterior ({(tv / ta - 1) * 100:+.0f}%)" if ta else ""))
+        for v in sorted(set(at) | set(an), key=lambda v: -(at.get(v, [0])[0])):
+            a, b = at.get(v, [0.0, 0]), an.get(v, [0.0, 0])
+            L.append(f"- {v}: {_fm(a[0])} ({a[1]} un.)" + (f" x {_fm(b[0])} ({(a[0] / b[0] - 1) * 100:+.0f}%)" if b[0] else ""))
+        pa, pn = s["prod"]["atual"], s["prod"]["ant"]
+        top = sorted(pa.items(), key=lambda kv: -kv[1]["v"])[:15]
+        L.append("PRODUTOS MAIS VENDIDOS NA SEMANA: " + "; ".join(
+            f"{p['produto'][:50]} ({p['marca']}): {p['u']} un., {_fm(p['v'])}" + (f" x {_fm(pn[k]['v'])}" if k in pn else " (novo)" if pn else "")
+            for k, p in top))
+        if pn:
+            difs = [(k, pa.get(k, {}).get("v", 0.0) - p["v"], p) for k, p in pn.items()]
+            L.append("MAIORES QUEDAS DE PRODUTO x SEMANA ANTERIOR: " + "; ".join(
+                f"{p['produto'][:50]} ({p['marca']}): {_fm(pa.get(k, {}).get('v', 0.0))} x {_fm(p['v'])}"
+                for k, d, p in sorted(difs, key=lambda t: t[1])[:10] if d < 0))
+            L.append("MAIORES ALTAS DE PRODUTO x SEMANA ANTERIOR: " + "; ".join(
+                f"{pa[k]['produto'][:50]} ({pa[k]['marca']}): {_fm(pa[k]['v'])} x {_fm(pn.get(k, {}).get('v', 0.0))}"
+                for k in sorted(pa, key=lambda k: -(pa[k]["v"] - pn.get(k, {}).get("v", 0.0)))[:10]))
+    else:
+        L.append("Ainda não há a venda isolada de cada dia; use os resumos diários e o mesmo período do mês.")
+    c = _comparativo(repo)
+    if c.get("tem") and c["total"]["var"] is not None:
+        L.append(f"MESMO PERÍODO NO MÊS (01 a {_ddmm(c['ate'])} x 01 a {_ddmm(c['ate_ant'])}): {_fm(c['total']['v'])} x "
+                 f"{_fm(c['total']['v_ant'])} ({c['total']['var'] * 100:+.0f}%)")
+    diarios = repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": "like.vendedores|*", "order": "chave.desc",
+                                              "limit": 8}) or []
+    diarios = [x for x in diarios if s["ini"] <= x["chave"].split("|")[1] <= s["fim"]]
+    for x in reversed(diarios):
+        L.append(f"\nRESUMO DO DIA {_ddmm(x['chave'].split('|')[1])}:\n{x['texto'][:1400]}")
+    ant = repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": "like.semana|*", "order": "chave.desc", "limit": 2}) or []
+    ant = next((x for x in ant if x["chave"] != chave), None)
+    if ant:
+        L.append(f"\nANÁLISE DA SEMANA PASSADA:\n{ant['texto'][:2500]}")
     try:
-        r = gerar_resumo_dia(repo)
-        out["dia"] = r["atual"]["chave"] + (" (gerado)" if r["novo"] else " (já existia)")
-    except ErroNuvem as e:
-        out["dia"] = str(e)
-    if date.today().day >= 3:
-        cats = {}
-        for r in _relatorios(repo):
-            cats.setdefault(r["categoria"], []).append(r)
-        for cat, rels in cats.items():
-            chave = f"ranking|{cat}|{rels[-1]['mes'][:7]}"
-            if repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave)}):
-                continue
-            try:
-                gerar_resumo_marcas(repo, cat, rels, chave)
-                out[chave] = "gerado"
-            except ErroNuvem as e:
-                out[chave] = str(e)
+        texto, _, qual = ia.perguntar(
+            "Você é o analista de mercado do dono de uma loja de perfumes no Mercado Livre Brasil. Toda segunda de manhã "
+            "você escreve a ANÁLISE DA SEMANA dos vendedores concorrentes que ele monitora, com base nas vendas de cada dia "
+            "e nos resumos diários que você mesmo escreveu. Seja direto, em português simples e sempre com números.\n"
+            "- Compare a semana com a anterior (quando houver os dois períodos) e com o mesmo período do mês anterior.\n"
+            "- Mostre tendências (o que se repetiu vários dias), não fatos de um dia só.\n"
+            "- Confira os alertas e oportunidades dos resumos diários: o que se confirmou, o que não.\n"
+            "- Termine com um plano prático para a semana que começa.\n"
+            "- Use só os dados fornecidos; não invente números.\n"
+            "Seções (nesta ordem): ## 🗓️ A semana em números, ## 🏆 Vendedores que cresceram, ## 📉 Vendedores que caíram, "
+            "## 🔥 Produtos da semana, ## 📦 Estoque e rupturas, ## 🔁 O que se confirmou dos alertas, "
+            "## 💡 Oportunidades para esta semana, ## ✅ Plano da semana (3 a 5 ações).\n"
+            + FORMATO_IA + _obs_rotina(repo, "resumo_semana") + "\n\nDADOS:\n" + "\n".join(L),
+            web=False, max_tokens=2600)
+    except Exception as e:  # noqa: BLE001
+        raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
+    _guardar_resumo(repo, chave, texto, qual)
+    return {"atual": {"chave": chave, "texto": texto, "ia": ia.nome(qual),
+                      "criado_em": datetime.now(timezone.utc).isoformat()}, "novo": True}
+
+
+def resumos_marcas_pendentes(repo):
+    """Análise mensal das marcas de cada categoria cujo mês fechado ainda não tem análise."""
+    out = {}
+    cats = {}
+    for r in _relatorios(repo):
+        cats.setdefault(r["categoria"], []).append(r)
+    for cat, rels in cats.items():
+        chave = f"ranking|{cat}|{rels[-1]['mes'][:7]}"
+        if repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave)}):
+            continue
+        try:
+            gerar_resumo_marcas(repo, cat, rels, chave)
+            out[chave] = "gerado"
+        except ErroNuvem as e:
+            out[chave] = str(e)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Tarefas de rotina (tabela rotinas, editável no site). A Vercel chama r=rotinas de hora em hora;
+# roda aqui as tarefas do servidor cujo dia e horário (Brasília) chegaram e que ainda não rodaram hoje.
+# A coleta roda no Mac mini (launchd) e só consulta se está ligada no dia.
+# ---------------------------------------------------------------------------
+DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
+NO_SERVIDOR = ("resumo_dia", "resumo_semana", "resumo_marcas", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
+CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
+
+
+def _agora_br():
+    return datetime.now(timezone.utc) - timedelta(hours=3)
+
+
+def _br(ts):
+    return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).astimezone(timezone.utc) - timedelta(hours=3)
+
+
+def rotina_no_dia(r, agora=None):
+    agora = agora or _agora_br()
+    if r.get("dia_mes"):
+        return agora.day >= int(r["dia_mes"])          # mensal: do dia marcado em diante (a tarefa só faz o que falta)
+    return DIAS_SEM[agora.weekday()] in (r.get("dias_semana") or [])
+
+
+def rotina_pendente(r, agora=None):
+    agora = agora or _agora_br()
+    if not r.get("ativo") or not rotina_no_dia(r, agora) or agora.strftime("%H:%M") < (r.get("horario") or "00:00"):
+        return False
+    return not (r.get("ultima_execucao") and _br(r["ultima_execucao"]).date() == agora.date())
+
+
+def _marcar_rotina(repo, rid, resultado):
+    try:
+        repo._req("PATCH", "rotinas", {"id": repo._eq(rid)}, corpo={
+            "ultima_execucao": datetime.now(timezone.utc).isoformat(), "ultimo_resultado": str(resultado)[:600]},
+            prefer="return=minimal")
+    except ErroNuvem:
+        pass
+
+
+def rodar_rotinas(repo, so=None):
+    """Roda as tarefas do servidor que chegaram na hora (ou só a tarefa 'so', agora)."""
+    t0 = time.monotonic()
+    agora = _agora_br()
+    rot = {r["id"]: r for r in repo._todos("rotinas", {"select": "*", "order": "ordem,id"})}
+    out = {}
+    for rid in NO_SERVIDOR:
+        r = rot.get(rid)
+        if not r or (so and rid != so) or (not so and not rotina_pendente(r, agora)):
+            continue
+        try:
+            if rid == "resumo_dia":
+                x = gerar_resumo_dia(repo, forcar=bool(so))
+                res = f"dados até {_ddmm(x['atual']['chave'].split('|')[1])}: " + ("gerado" if x["novo"] else "já existia")
+            elif rid == "resumo_semana":
+                x = gerar_resumo_semana(repo, forcar=bool(so))
+                res = f"semana até {_ddmm(x['atual']['chave'].split('|')[1])}: " + ("gerada" if x["novo"] else "já existia")
+            elif rid == "resumo_marcas":
+                x = resumos_marcas_pendentes(repo)
+                res = "; ".join(f"{k.split('|')[1]} {k.split('|')[2]}: {v}" for k, v in x.items()) or "nada novo (análises do mês já feitas)"
+            else:
+                seg = min(TEMPO_MAX, 280 - (time.monotonic() - t0))
+                if seg < 40:
+                    continue                                   # sem tempo nesta chamada: roda na próxima hora
+                x = rodar_agente(repo, "agendado" if not so else "manual", segundos=seg)
+                res = f"{x['pesquisados']} GTIN(s) pesquisado(s), {x['encontrados']} encontrado(s)"
+        except ErroNuvem as e:
+            res = f"erro: {e}"
+        except Exception as e:  # noqa: BLE001
+            res = f"erro: {str(e)[:200]}"
+        _marcar_rotina(repo, rid, res)
+        out[rid] = res
+    return out
+
+
+def rotina_8h(repo):
+    """Compatibilidade com a agenda antiga (r=rotina_8h): roda as tarefas de rotina pendentes."""
+    return rodar_rotinas(repo)
+
+
+def rota_rotinas(repo, metodo, rota, q, corpo):
+    if rota == "rotinas":
+        rs = repo._todos("rotinas", {"select": "*", "order": "ordem,id"})
+        ag = _agora_br()
+        for r in rs:
+            r["automatica"] = r["id"] in NO_SERVIDOR or r["id"] == "coleta"
+            r["pendente"] = r["id"] in NO_SERVIDOR and rotina_pendente(r, ag)
+        return {"rotinas": rs, "agora": ag.strftime("%Y-%m-%d %H:%M"), "dias": DIAS_SEM}
+    if rota == "rotina_salvar" and metodo == "POST":
+        d = json.loads(corpo or b"{}")
+        reg = {k: d[k] for k in CAMPOS_ROTINA if k in d}
+        if "horario" in reg and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(reg["horario"])):
+            raise ErroNuvem("Horário no formato HH:MM (ex.: 08:00).")
+        if "dias_semana" in reg:
+            reg["dias_semana"] = [x for x in DIAS_SEM if x in (reg["dias_semana"] or [])]
+        if "dia_mes" in reg:
+            reg["dia_mes"] = int(reg["dia_mes"]) if reg["dia_mes"] not in (None, "", 0, "0") else None
+            if reg["dia_mes"] is not None and not 1 <= reg["dia_mes"] <= 28:
+                raise ErroNuvem("Dia do mês de 1 a 28.")
+        if "nome" in reg and not str(reg["nome"]).strip():
+            raise ErroNuvem("Dê um nome para a tarefa.")
+        reg["atualizado_em"] = datetime.now(timezone.utc).isoformat()
+        if d.get("id"):
+            repo._req("PATCH", "rotinas", {"id": repo._eq(d["id"])}, corpo=reg, prefer="return=minimal")
+            return {"ok": True, "id": d["id"]}
+        reg.setdefault("responsavel", "Você")
+        reg.setdefault("nome", "Nova tarefa")
+        reg["id"] = "t" + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        reg.setdefault("ordem", 100)
+        repo._req("POST", "rotinas", corpo=[reg], prefer="return=minimal")
+        return {"ok": True, "id": reg["id"]}
+    if rota == "rotina_apagar" and metodo == "POST":
+        rid = json.loads(corpo or b"{}").get("id") or ""
+        if rid in NO_SERVIDOR or rid == "coleta":
+            raise ErroNuvem("As tarefas do sistema não podem ser apagadas; desligue-a (Ativa) se não quiser que rode.")
+        repo._req("DELETE", "rotinas", {"id": repo._eq(rid)})
+        return {"ok": True}
+    if rota == "rotina_rodar" and metodo == "POST":
+        rid = json.loads(corpo or b"{}").get("id") or ""
+        if rid not in NO_SERVIDOR:
+            raise ErroNuvem("Esta tarefa não roda no servidor (a coleta roda no Mac mini).")
+        return {"ok": True, "resultado": rodar_rotinas(repo, so=rid).get(rid, "")}
+    raise ErroNuvem("Rota desconhecida.", 404)
 
 
 def rota_ranking(repo, metodo, rota, q, corpo):
@@ -1547,6 +1881,34 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
             repo._req("POST", "rpc/vend_dia_gravar", corpo={"dados": fts[i:i + LOTE]})
         return {"ok": True, "log": [f"Foto de {vend} até {ate[8:10]}/{ate[5:7]} gravada ({len(fts)} produtos), "
                                     "para comparar com o mesmo período do mês atual."], "vendedor": vend}
+
+    if rota == "vend_dia" and metodo == "POST":
+        # export de UM dia (ex.: 21/09 a 21/09): a venda isolada do dia do vendedor, com todos os itens vendidos
+        nome = q.get("arquivo") or "vendedor.xlsx"
+        try:
+            linhas, vend, _ = vendedores.ler_vendedor(corpo, nome)
+        except vendedores.ErroVendedor as e:
+            raise ErroNuvem(f"Não importado: {e}.")
+        dia = q.get("ate") or ""
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", dia):
+            raise ErroNuvem("Informe o dia (ate).")
+        vend = (vend or "").strip().upper()
+        if q.get("seller_hash"):
+            r = repo._req("GET", "vend_relatorios", {"select": "vendedor", "seller_hash": repo._eq(q["seller_hash"]),
+                                                     "order": "mes.desc", "limit": 1}) or []
+            if r:
+                vend = r[0]["vendedor"]
+        itens = vend_bi.itens_dia(linhas)
+        repo._req("POST", "vend_vendas_dia", corpo=[{
+            "vendedor": vend, "data": dia, "v": round(sum(i["v"] for i in itens), 2), "u": sum(i["u"] for i in itens),
+            "anuncios": len(linhas), "itens": itens, "atualizado_em": datetime.now(timezone.utc).isoformat()}],
+            prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True, "vendedor": vend, "log": [
+            f"Vendas de {vend} em {dia[8:10]}/{dia[5:7]}: {len(itens)} produto(s), "
+            f"R$ {sum(i['v'] for i in itens):,.0f}".replace(",", ".")]}
+
+    if rota == "vend_painel_dia":
+        return _painel_dia(repo)
 
     if rota == "vend_periodo":
         return _comparativo(repo)

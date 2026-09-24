@@ -330,3 +330,28 @@ create table if not exists public.ia_resumos (
 alter table public.ia_resumos enable row level security;
 create policy "autorizado" on public.ia_resumos
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Venda isolada de cada dia por vendedor (export de 1 dia do Nubimetrics), com os itens vendidos
+create table if not exists public.vend_vendas_dia (
+  vendedor text not null, data date not null,
+  v numeric not null default 0, u int not null default 0, anuncios int not null default 0,
+  itens jsonb not null default '[]'::jsonb,   -- [{"k": chave, "t": título, "m": marca, "u": unidades, "v": vendas, "a": anúncios ativos, "n": anúncios}]
+  atualizado_em timestamptz not null default now(),
+  primary key (vendedor, data)
+);
+alter table public.vend_vendas_dia enable row level security;
+create policy "autorizado" on public.vend_vendas_dia
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Tarefas de rotina (editáveis no site: Coletor e agentes > Tarefas de rotina)
+create table if not exists public.rotinas (
+  id text primary key, ordem int not null default 0, nome text not null, descricao text,
+  responsavel text not null, horario text not null default '08:00',
+  dias_semana text[] not null default '{seg,ter,qua,qui,sex,sab,dom}', dia_mes int,
+  ativo boolean not null default true, observacao text,
+  ultima_execucao timestamptz, ultimo_resultado text, atualizado_em timestamptz not null default now()
+);
+alter table public.rotinas enable row level security;
+create policy "autorizado" on public.rotinas
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+-- (as 5 tarefas iniciais: coleta, agente, resumo_dia, resumo_semana, resumo_marcas — ver migration vend_vendas_dia_rotinas)

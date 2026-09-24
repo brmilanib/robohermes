@@ -249,6 +249,38 @@ select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;f
 .cmpbar>i{display:block;height:100%;border-radius:4px;background:var(--s1)}
 .cmpbar.ant>i{background:color-mix(in srgb,var(--s1) 35%,transparent)}
 .resumo-ia .md h3{font-size:14px;margin:12px 0 4px}
+.dia-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
+@media (max-width:800px){.dia-grid{grid-template-columns:1fr}}
+.dia-card{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--card)}
+.dia-card h3{margin:0 0 2px;font-size:14px}
+.dia-card .sub{font-size:12px;color:var(--muted);margin-bottom:8px}
+.dia-card.up{border-top:3px solid var(--good)} .dia-card.down{border-top:3px solid var(--bad)}
+.dia-ln{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:4px 8px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line)}
+.dia-ln:first-of-type{border-top:none}
+.dia-ln .n{color:var(--muted);font-size:12px;text-align:right}
+.dia-ln .nm{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dia-ln .vl{font-weight:600;font-size:13px;text-align:right;white-space:nowrap}
+.dia-ln .dt{grid-column:2/4;font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip{display:inline-block;border-radius:999px;padding:0 7px;font-size:11.5px;font-weight:600;margin-left:6px}
+.chip.up{background:var(--good-bg);color:var(--good)} .chip.down{background:var(--bad-bg);color:var(--bad)} .chip.nt{background:var(--soft);color:var(--muted)}
+.md-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:12px}
+.mdc{border:1px solid var(--line);border-radius:12px;padding:10px 14px;background:var(--card)}
+.mdc h3{margin:0 0 6px!important;font-size:14px!important}
+.mdc.m-al{border-left:4px solid var(--bad)} .mdc.m-op{border-left:4px solid var(--good)} .mdc.m-ac{border-left:4px solid var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--card))}
+.mdc.m-top{grid-column:1/-1;background:var(--soft)}
+.rot-card{margin-top:12px}
+.rot-card .cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rot-card .cab h2{margin:0;font-size:15px}
+.rot-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px}
+.rot-form label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+.rot-form .l2{grid-column:span 2} .rot-form .l4{grid-column:1/-1}
+@media (max-width:800px){.rot-form{grid-template-columns:1fr 1fr}.rot-form .l2,.rot-form .l4{grid-column:1/-1}}
+.rot-form input,.rot-form select,.rot-form textarea{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px;width:100%}
+.rot-form textarea{min-height:64px;resize:vertical}
+.dias{display:flex;gap:4px;flex-wrap:wrap}
+.dias button{border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:8px;padding:4px 8px;font:inherit;font-size:12px;cursor:pointer}
+.dias button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.rot-res{font-size:12px;color:var(--muted);margin-top:8px}
 .resumo-ia .md ul{margin:0;padding-left:20px} .resumo-ia .md li{margin:2px 0;font-size:13.5px} .resumo-ia .md p{margin:6px 0;font-size:13.5px}
 .iares{margin-top:6px;font-size:12px;white-space:normal}
 select.catsel{border:1px solid var(--line);border-radius:6px;padding:3px 6px;background:var(--card);font-size:12.5px}
@@ -515,7 +547,8 @@ function desenharMenu() {
     <div class="grupo">Ajustes</div>
     ${it("#/nomes-marcas", "🔗", "Nomes de marcas", h.startsWith("#/nomes-marcas"))}
     ${it("#/nomes-vendedores", "🔗", "Nomes de vendedores", h.startsWith("#/nomes-vendedores"))}
-    ${it("#/coletor", "📥", "Coletor e agente", h.startsWith("#/coletor"))}`;
+    ${it("#/coletor", "📥", "Coletor e agentes", h === "#/coletor")}
+    <div class="subnav"><a class="${h.startsWith("#/coletor/rotinas") ? "on" : ""}" href="#/coletor/rotinas">🗓️ Tarefas de rotina</a></div>`;
   desenharVendMenu();
   if ($("#mtodas")) $("#mtodas").onclick = e => { e.preventDefault(); S.marcasTodas = !S.marcasTodas; desenharMenu(); };
   document.querySelectorAll("[data-seta]").forEach(b => b.onclick = e => {
@@ -568,7 +601,7 @@ async function rotear() {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
   }
-  if (sec === "nomes") return location.hash.startsWith("#/coletor") ? telaColetor() : telaNomesMarcas();
+  if (sec === "nomes") return location.hash.startsWith("#/coletor/rotinas") ? telaRotinas() : location.hash.startsWith("#/coletor") ? telaColetor() : telaNomesMarcas();
   if (sec === "vendedores") {
     if (!S.vendLista) await carregarVendLista();
     if (location.hash.startsWith("#/nomes-vendedores")) return telaNomesVendedores();
@@ -952,12 +985,50 @@ function mdSimples(t) {
   const linhas = esc(t || "").split(/\n/);
   let html = "", lista = false;
   for (let l of linhas) {
-    l = l.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    l = l.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[\s(])\*([^*\n]+?)\*(?=[\s:.,;)]|$)/g, "$1<b>$2</b>").replace(/\*/g, "");
     if (/^\s*#{1,4}\s/.test(l)) { if (lista) { html += "</ul>"; lista = false; } html += `<h3>${l.replace(/^\s*#+\s*/, "")}</h3>`; }
     else if (/^\s*[-*•]\s/.test(l)) { if (!lista) { html += "<ul>"; lista = true; } html += `<li>${l.replace(/^\s*[-*•]\s*/, "")}</li>`; }
     else if (l.trim()) { if (lista) { html += "</ul>"; lista = false; } html += `<p>${l}</p>`; }
   }
   return html + (lista ? "</ul>" : "");
+}
+// Texto da IA em cards: uma seção (## título) por card; alertas, oportunidades e ações com cor própria
+function mdCards(t) {
+  const partes = (t || "").split(/\n(?=\s*#{1,4}\s)/);
+  if (partes.length < 3) return `<div class="md">${mdSimples(t)}</div>`;
+  return `<div class="md-cards">${partes.map((p, i) => {
+    const tit = (p.match(/^\s*#{1,4}\s*(.+)/) || [])[1] || "";
+    if (!tit && !p.trim()) return "";
+    const cls = /⚠|alerta/i.test(tit) ? "m-al" : /💡|oportunidade/i.test(tit) ? "m-op" : /✅|fazer|plano/i.test(tit) ? "m-ac"
+      : /📊|🗓|resumo|em números/i.test(tit) && i <= 1 ? "m-top" : "";
+    return tit ? `<div class="mdc md ${cls}">${mdSimples(p)}</div>` : `<div class="mdc md m-top">${mdSimples(p)}</div>`;
+  }).join("")}</div>`;
+}
+// Cards do dia: quem mais vendeu x quem mais caiu (vendedores) e os produtos em alta x em queda
+function cardsDia(p) {
+  if (!p || !p.tem) return "";
+  const dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
+  const chip = v => v == null ? `<span class="chip nt">novo</span>` : `<span class="chip ${v >= 0 ? "up" : "down"}">${v >= 0 ? "▲" : "▼"} ${nf0.format(Math.abs(v * 100))}%</span>`;
+  const base = p.dias_base ? `média dos ${p.dias_base} dias anteriores` : p.base === "ritmo do mês" ? "ritmo diário do mês" : "";
+  const vend = (x, i, cair) => `<div class="dia-ln"><span class="n">${i + 1}</span><a class="nm" href="#/vendedores/${encodeURIComponent(x.vendedor)}" title="${esc(x.vendedor)}">${esc(x.vendedor)}</a>
+    <span class="vl">${cair ? `<span class="neg">${"−" + abrev(Math.abs(x.dif))}</span>` : abrev(x.v)}${chip(x.var)}</span>
+    <span class="dt">${cair ? `${abrev(x.v)} no dia x ${abrev(x.media)} de média` : `${nf0.format(x.u)} un. · ${x.itens} produto(s)`}${x.top && x.top[0] ? ` · ${esc((x.top[0].produto || "").slice(0, 60))}` : x.sem_dados ? " · sem venda registrada no dia" : ""}</span></div>`;
+  const prod = (x, i, cair) => `<div class="dia-ln"><span class="n">${i + 1}</span><span class="nm" title="${esc(x.produto)}">${vprodLink(x.chave, (x.produto || "").slice(0, 70), "")}</span>
+    <span class="vl">${cair ? `<span class="neg">${"−" + abrev(Math.abs(x.dif))}</span>` : abrev(x.v)}${chip(x.var)}</span>
+    <span class="dt">${esc(x.marca || "")}${cair ? ` · ${abrev(x.v)} no dia x ${abrev(x.media)} de média` : ` · ${nf0.format(x.u)} un. · ${x.vendedores} vendedor(es)`}</span></div>`;
+  const t = p.total;
+  return `<p class="muted" style="margin:10px 0 0;font-size:12.5px">Venda isolada de <b>${dm(p.data)}</b>: <b>${abrev(t.v)}</b> · ${nf0.format(t.u)} un.
+      ${t.var != null ? ` · ${chip(t.var)} vs ${base}` : ""}</p>
+    <div class="dia-grid">
+      <div class="dia-card up"><h3>🏆 Quem mais vendeu em ${dm(p.data)}</h3><div class="sub">Vendas do dia${base ? `, variação vs ${base}` : ""}</div>
+        ${p.mais_venderam.map((x, i) => vend(x, i)).join("") || `<div class="muted">Sem vendas no dia.</div>`}</div>
+      <div class="dia-card down"><h3>📉 Quem mais caiu em ${dm(p.data)}</h3><div class="sub">${base ? `Quanto vendeu a menos que a ${base}` : "Aparece quando houver dias anteriores para comparar"}</div>
+        ${p.mais_cairam.map((x, i) => vend(x, i, true)).join("") || `<div class="muted">${base ? "Ninguém vendeu abaixo da média. 👏" : "—"}</div>`}</div>
+      <div class="dia-card up"><h3>🔥 Produtos que mais venderam</h3><div class="sub">Somando todos os vendedores monitorados</div>
+        ${p.produtos_alta.map((x, i) => prod(x, i)).join("")}</div>
+      <div class="dia-card down"><h3>🧊 Produtos que mais caíram</h3><div class="sub">${p.dias_base ? `Vendas do dia x ${base}` : "Aparece quando houver dias anteriores para comparar"}</div>
+        ${p.produtos_queda.map((x, i) => prod(x, i, true)).join("") || `<div class="muted">${p.dias_base ? "Nenhuma queda relevante." : "—"}</div>`}</div>
+    </div>`;
 }
 async function resumoIA(cat, gerar, novo) {
   const box = $("#bi-resumo");
@@ -1344,11 +1415,77 @@ async function cicloColetor() {
   S.coletorT = setTimeout(cicloColetor, S.coletorVivo ? 4000 : 60000);
 }
 function telaColetor() {
-  $("#main").innerHTML = `<h1>📥 Coletor e agente</h1>
+  $("#main").innerHTML = `<h1>📥 Coletor e agentes</h1>
+    <p style="margin:4px 0 0"><a class="btn small" href="#/coletor/rotinas">🗓️ Tarefas de rotina: o que roda, quem faz, quando</a></p>
     <p class="muted" style="margin-top:4px">O coletor roda no Mac mini e baixa do Nubimetrics os vendedores seguidos e o ranking MARCAS. O agente de GTIN roda aqui no nubi.</p>
     ${cartaoColetor()}
     <div class="card pad" style="margin-top:14px"><h2>🤖 Agente de GTIN</h2><div id="agente-box" class="muted" style="font-size:13px"></div></div>`;
   desenharAgente();
+}
+// ---------- Tarefas de rotina (editável: responsável, horário, dias, ligada/desligada e observação) ----------
+const RESPONSAVEIS = ["Coletor (Mac mini)", "Robô nubi (servidor)", "ChatGPT", "Claude", "Você"];
+const DIAS_NOME = {seg: "Seg", ter: "Ter", qua: "Qua", qui: "Qui", sex: "Sex", sab: "Sáb", dom: "Dom"};
+async function telaRotinas() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando tarefas</div></div>`;
+  let r;
+  try { r = await api("rotinas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const sistema = id => ["coleta", "agente", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
+  const quandoTxt = t => t.dia_mes ? `todo dia ${t.dia_mes} do mês (e depois, se faltar)` : (t.dias_semana || []).length === 7 ? "todo dia"
+    : (t.dias_semana || []).length ? (t.dias_semana || []).map(d => DIAS_NOME[d]).join(", ") : "nenhum dia";
+  const card = t => `<div class="card pad rot-card" data-id="${esc(t.id)}">
+    <div class="cab"><h2>${t.ativo ? "🟢" : "⚪️"} ${esc(t.nome)}</h2><span class="st">${esc(t.responsavel)}</span>
+      <span class="muted" style="font-size:12.5px">${t.id === "coleta" ? "07:00 (no Mac)" : esc(t.horario)} · ${esc(quandoTxt(t))}</span>
+      ${t.pendente ? `<span class="st warn">na fila desta hora</span>` : ""}<div style="flex:1"></div>
+      ${["agente", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(t.id) ? `<button class="btn small" data-rodar="${esc(t.id)}">▶ Rodar agora</button>` : ""}
+      ${sistema(t.id) ? "" : `<button class="btn small" data-apagar="${esc(t.id)}" title="Apagar tarefa">🗑</button>`}</div>
+    <div class="rot-form">
+      <label class="l2">Tarefa<input data-f="nome" value="${esc(t.nome)}"></label>
+      <label>Quem faz<select data-f="responsavel">${[...new Set([...RESPONSAVEIS, t.responsavel])].map(x => `<option ${x === t.responsavel ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label>
+      <label>Horário (Brasília)<input type="time" data-f="horario" value="${esc(t.horario)}" ${t.id === "coleta" ? `disabled title="O horário da coleta fica no Mac mini (7h). Aqui você liga, desliga e escolhe os dias."` : ""}></label>
+      <label class="l2">Dias da semana<div class="dias">${r.dias.map(d => `<button type="button" data-dia="${d}" class="${(t.dias_semana || []).includes(d) ? "on" : ""}">${DIAS_NOME[d]}</button>`).join("")}</div></label>
+      <label>Ou dia do mês<input type="number" min="0" max="28" data-f="dia_mes" value="${t.dia_mes || ""}" placeholder="—"></label>
+      <label>Ligada<select data-f="ativo"><option value="1" ${t.ativo ? "selected" : ""}>Sim, roda sozinha</option><option value="" ${t.ativo ? "" : "selected"}>Não (desligada)</option></select></label>
+      <label class="l4">O que faz<textarea data-f="descricao" style="min-height:44px">${esc(t.descricao || "")}</textarea></label>
+      <label class="l4">📝 Observação ${t.responsavel === "ChatGPT" ? "(vai junto no pedido para o ChatGPT toda vez que a tarefa rodar)" : "(para quem cuida da tarefa ler e ver como implementar)"}
+        <textarea data-f="observacao" placeholder="Ex.: no resumo, destacar sempre os perfumes árabes; comparar com a minha loja quando estiver conectada…">${esc(t.observacao || "")}</textarea></label>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="btn primary small" data-salvar>Salvar</button>
+      <span class="rot-res">${t.ultima_execucao ? `Última vez: ${esc(quando(t.ultima_execucao))} — ${esc(t.ultimo_resultado || "")}` : t.id === "coleta" ? "O resultado de cada coleta aparece em Coletor e agentes." : "Ainda não rodou."}</span></div>
+  </div>`;
+  main.innerHTML = `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>🗓️ Tarefas de rotina</h1><span class="muted">agora: ${esc(r.agora.slice(11))} (Brasília)</span><div style="flex:1"></div>
+      <button class="btn" id="rot-nova">+ Nova tarefa</button></div>
+    <p class="muted" style="margin:4px 0 0;font-size:13px">O que roda sozinho no nubi, quem faz, o horário e os dias. O servidor confere a lista de hora em hora e roda o que chegou na hora.
+      A coleta roda no Mac mini às 7h; aqui você escolhe os dias em que ela roda ou desliga. Tarefas novas ficam registradas com a sua observação,
+      para o ChatGPT (quando for dele) ou o Claude ver como implementar.</p>
+    ${r.rotinas.map(card).join("")}`;
+  main.querySelectorAll(".dias button").forEach(b => b.onclick = () => b.classList.toggle("on"));
+  main.querySelectorAll("[data-salvar]").forEach(b => b.onclick = async () => {
+    const c = b.closest(".rot-card"), d = {id: c.dataset.id};
+    c.querySelectorAll("[data-f]").forEach(x => { if (!x.disabled) d[x.dataset.f] = x.value; });
+    d.ativo = !!d.ativo;
+    d.dia_mes = d.dia_mes ? +d.dia_mes : null;
+    d.dias_semana = [...c.querySelectorAll(".dias button.on")].map(x => x.dataset.dia);
+    const o = carregando("Salvando a tarefa");
+    try { await api("rotina_salvar", {}, {method: "POST", body: JSON.stringify(d)}); o.ok("Tarefa salva"); telaRotinas(); }
+    catch (e) { o.erro(e.message); }
+  });
+  main.querySelectorAll("[data-rodar]").forEach(b => b.onclick = async () => {
+    const o = carregando("Rodando a tarefa agora (a IA pode levar até 1 minuto)");
+    try { const x = await api("rotina_rodar", {}, {method: "POST", body: JSON.stringify({id: b.dataset.rodar})}); o.ok(x.resultado || "Feito", 2500); telaRotinas(); }
+    catch (e) { o.erro(e.message); }
+  });
+  main.querySelectorAll("[data-apagar]").forEach(b => b.onclick = async () => {
+    if (!confirm("Apagar esta tarefa?")) return;
+    try { await api("rotina_apagar", {}, {method: "POST", body: JSON.stringify({id: b.dataset.apagar})}); toast("Tarefa apagada"); telaRotinas(); }
+    catch (e) { toast(e.message, 6000); }
+  });
+  $("#rot-nova").onclick = async () => {
+    try { await api("rotina_salvar", {}, {method: "POST", body: JSON.stringify({nome: "Nova tarefa", responsavel: "Claude", horario: "08:00",
+      dias_semana: ["seg", "ter", "qua", "qui", "sex", "sab", "dom"], ativo: false, descricao: "Descreva o que a tarefa deve fazer."})}); telaRotinas(); }
+    catch (e) { toast(e.message, 6000); }
+  };
+  desenharMenu();
 }
 function vendVazio(main) {
   main.innerHTML = `<h1>Vendedores monitorados</h1>
@@ -1422,15 +1559,46 @@ async function resumoDia(data, gerar, novo) {
       <span class="muted" style="font-size:12px">${esc(a.ia || "IA")} · ${esc(quando(a.criado_em))}</span><div style="flex:1"></div>
       ${r.datas.length > 1 ? `<select id="rd-data" class="mes" style="font-size:12.5px">${r.datas.map(d => `<option value="${d}" ${a.chave.endsWith(d) ? "selected" : ""}>${d.slice(8, 10)}/${d.slice(5, 7)}</option>`).join("")}</select>` : ""}
       <button class="btn small" id="rd-novo">Escrever de novo</button><button class="btn small" id="rd-min">${S.resumoDiaMin ? "Mostrar" : "Esconder"}</button></div>
-      <div class="md ${S.resumoDiaMin ? "hidden" : ""}">${mdSimples(a.texto)}</div>`
+      <div class="${S.resumoDiaMin ? "hidden" : ""}">${cardsDia(r.painel)}${mdCards(a.texto)}</div>`
     : r.disponivel ? `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1"><b>🤖 Resumo do dia</b>
       <div class="muted" style="font-size:12.5px">Todo dia às 8h a IA lê o que os vendedores monitorados venderam (dados de 2 dias atrás), quem acelerou,
-      os produtos que mais saíram e quem ficou sem estoque. Se quiser agora, gere aqui.</div></div><button class="btn primary" id="rd-gerar">Gerar resumo do dia</button></div>` : "";
+      os produtos que mais saíram e quem ficou sem estoque. Se quiser agora, gere aqui.</div></div><button class="btn primary" id="rd-gerar">Gerar resumo do dia</button></div>${cardsDia(r.painel)}` : cardsDia(r.painel);
   if (!box.innerHTML) { box.remove(); return; }
   if ($("#rd-gerar")) $("#rd-gerar").onclick = () => resumoDia("", true);
   if ($("#rd-novo")) $("#rd-novo").onclick = () => resumoDia("", true, true);
   if ($("#rd-min")) $("#rd-min").onclick = () => { S.resumoDiaMin = !S.resumoDiaMin; resumoDia(a.chave.split("|").pop()); };
   if ($("#rd-data")) $("#rd-data").onchange = e => resumoDia(e.target.value);
+  resumoSemana();
+}
+// Análise da semana (toda segunda às 8h): card logo abaixo do resumo do dia
+async function resumoSemana(data, gerar, novo) {
+  const dia = $("#v-resumo");
+  if (!dia) return;
+  let box = $("#v-semana");
+  if (!box) { dia.insertAdjacentHTML("afterend", `<div class="card pad resumo-ia" id="v-semana" style="margin-top:10px;border-left-color:#7c3aed"></div>`); box = $("#v-semana"); }
+  let r;
+  const c = gerar ? carregando("A IA está lendo a semana inteira e escrevendo a análise") : null;
+  try {
+    if (gerar) { await api("resumo_semana", novo ? {novo: 1} : {}, {method: "POST"}); data = ""; }
+    r = await api("resumo_semana", data ? {data} : {});
+  } catch (e) { if (c) c.erro(e.message); else box.remove(); return; }
+  if (c) c.ok("Análise da semana pronta");
+  const a = r.atual;
+  const dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
+  const ini = d => { const x = new Date(d + "T12:00:00"); x.setDate(x.getDate() - 6); return x.toISOString().slice(0, 10); };
+  if (S.semanaMin == null) S.semanaMin = ![1, 2].includes(new Date().getDay());    // aberta na segunda e na terça
+  box.innerHTML = a ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🗓️ Análise da semana · ${dm(ini(a.chave.split("|")[1]))} a ${dm(a.chave.split("|")[1])}</h2>
+      <span class="muted" style="font-size:12px">${esc(a.ia || "IA")} · ${esc(quando(a.criado_em))} · sai toda segunda às 8h</span><div style="flex:1"></div>
+      ${r.datas.length > 1 ? `<select id="rs-data" class="mes" style="font-size:12.5px">${r.datas.map(d => `<option value="${d}" ${a.chave.endsWith(d) ? "selected" : ""}>semana até ${dm(d)}</option>`).join("")}</select>` : ""}
+      <button class="btn small" id="rs-novo">Escrever de novo</button><button class="btn small" id="rs-min">${S.semanaMin ? "Mostrar" : "Esconder"}</button></div>
+      <div class="${S.semanaMin ? "hidden" : ""}">${mdCards(a.texto)}</div>`
+    : `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1"><b>🗓️ Análise da semana</b>
+      <div class="muted" style="font-size:12.5px">Toda segunda às 8h a IA junta os resumos diários e as vendas de cada dia da semana e compara com a semana anterior.</div></div>
+      <button class="btn" id="rs-gerar">Gerar agora</button></div>`;
+  if ($("#rs-gerar")) $("#rs-gerar").onclick = () => resumoSemana("", true);
+  if ($("#rs-novo")) $("#rs-novo").onclick = () => resumoSemana("", true, true);
+  if ($("#rs-min")) $("#rs-min").onclick = () => { S.semanaMin = !S.semanaMin; resumoSemana(a.chave.split("|")[1]); };
+  if ($("#rs-data")) $("#rs-data").onchange = e => resumoSemana(e.target.value);
 }
 async function telaVendedores(mes) {
   const main = $("#main");

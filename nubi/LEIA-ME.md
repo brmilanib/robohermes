@@ -454,8 +454,14 @@ Com `OPENAI_API_KEY` (ou `ANTHROPIC_API_KEY`) nas variáveis da Vercel, o nubi u
 - **Agente de GTIN**: quando o código de barras não está em nenhuma base, a IA procura o produto (até 15 por rodada, `NUBI_IA_GTIN_MAX`).
 - **Categorias de marca**: pesquisa a origem e o tipo da marca e sugere a categoria.
 - **Nomes de marcas**: "Perguntar à IA" / "Conferir todas com IA" dizem se duas grafias são a mesma marca.
-- **Resumo do dia** (Vendedores → Visão geral): todo dia às 8h (cron `rotina_8h`, 11h UTC) a IA lê as fotos diárias
-  dos vendedores (dados de 2 dias atrás): vendas do dia, ritmo do mês, produtos que mais venderam, quem ficou sem estoque.
-  Se o coletor terminar depois das 8h, o resumo sai quando a coleta termina.
+- **Resumo do dia** (Vendedores → Visão geral): às 8h a IA lê a **venda isolada do dia** (o coletor baixa o export de
+  1 dia de cada vendedor → `vend_vendas_dia`, com os itens vendidos), o mesmo período x mês anterior e o estoque.
+  O site mostra os cards "quem mais vendeu / quem mais caiu" e "produtos em alta / em queda" (vs média dos 7 dias
+  anteriores) e o texto da IA em cards por seção. Se o coletor terminar depois das 8h, o resumo sai quando a coleta termina.
+- **Análise da semana**: toda segunda às 8h, com os resumos diários guardados e as vendas de cada dia x semana anterior.
+- **Tarefas de rotina** (Coletor e agentes → Tarefas de rotina, tabela `rotinas`): quem faz, horário, dias, ligada e
+  observação (a observação das tarefas do ChatGPT vai no prompt). A Vercel chama `r=rotinas_cron` de hora em hora e roda
+  o que chegou na hora (resumo do dia, semana, marcas e o agente de GTIN). A coleta roda no Mac às 7h e só confere se
+  está ligada no dia.
 - **Análise mensal das marcas** (Ranking → B.I.): do dia 3 em diante, às 8h, com o relatório MARCAS do mês fechado,
   mais detalhada (categorias, entradas e saídas, oportunidades, plano do mês). Tudo fica guardado em `ia_resumos`.
