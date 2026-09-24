@@ -1220,11 +1220,16 @@ def _painel_dia(repo, d=None):
     ant = sorted({r["data"] for r in rows if r["data"] < d})
     n = len(ant)
     base, pbase, hoje, prod = {}, {}, {}, {}
+    # dia sem linha de um vendedor = coleta que falhou (dia sem venda vem como linha zerada): não conta como venda zero
+    hoje_v = {r["vendedor"] for r in rows if r["data"] == d}
     for r in rows:
         if r["data"] < d:
-            b = base.setdefault(r["vendedor"], [0.0, 0])
+            b = base.setdefault(r["vendedor"], [0.0, 0, 0])
             b[0] += float(r["v"] or 0)
             b[1] += int(r["u"] or 0)
+            b[2] += 1                                      # dias com dado desse vendedor
+            if r["vendedor"] not in hoje_v:
+                continue                                   # produtos de quem não tem o dia não entram nas quedas
             for it in r["itens"] or []:
                 pb = pbase.setdefault(it["k"], {"v": 0.0, "u": 0, "t": it.get("t"), "m": it.get("m")})
                 pb["v"] += float(it.get("v") or 0)
@@ -1258,9 +1263,10 @@ def _painel_dia(repo, d=None):
         except Exception:  # noqa: BLE001
             ritmo = {}
     vs = []
-    for v in sorted(set(hoje) | set(base)):
+    faltam = sorted(set(base) - set(hoje))                 # sem o arquivo do dia (coleta pendente)
+    for v in sorted(hoje):
         r = hoje.get(v)
-        med = (base[v][0] / n) if n and v in base else ritmo.get(v)
+        med = (base[v][0] / base[v][2]) if n and v in base and base[v][2] else ritmo.get(v)
         x = {"vendedor": v, "v": float(r["v"] or 0) if r else 0.0, "u": int(r["u"] or 0) if r else 0,
              "itens": len(r["itens"] or []) if r else 0, "media": med, "sem_dados": not r,
              "top": [{"produto": it.get("t"), "marca": it.get("m"), "u": it.get("u"), "v": it.get("v")}
@@ -1290,7 +1296,11 @@ def _painel_dia(repo, d=None):
     tot["var"] = (tot["v"] / tot["media"] - 1) if tot["media"] else None
     tot["v_mes"] = sum(vm.values()) if vm else None
     tot["var_mes"] = (tot["v"] / tot["v_mes"] - 1) if tot["v_mes"] else None
+    if vm:                                                 # mesmo dia do mês anterior só dos vendedores que têm o dia
+        tot["v_mes"] = sum(vm.get(x["vendedor"], 0.0) for x in vs)
+        tot["var_mes"] = (tot["v"] / tot["v_mes"] - 1) if tot["v_mes"] else None
     return {"tem": True, "data": d, "data_mes": d_mes if vm else None, "base": "7 dias" if n else ("ritmo do mês" if ritmo else None), "dias_base": n,
+            "sem_coleta": faltam,
             "total": tot, "vendedores": sorted(vs, key=lambda x: -x["v"]),
             "mais_venderam": sorted([x for x in vs if x["v"] > 0], key=lambda x: -x["v"])[:8],
             "mais_cairam": sorted([x for x in vs if (x["dif"] or 0) < 0], key=lambda x: x["dif"])[:8],
@@ -1341,10 +1351,14 @@ def _dados_resumo_dia(repo):
                                                                          if t["var"] is not None else "")
                       + (f"; x {_fm(t['v_mes'])} em {_ddmm(dm_)} ({t['var_mes'] * 100:+.0f}%)" if t.get("var_mes") is not None else ""))
         for x in pnl["vendedores"]:
-            cab = (f"- {x['vendedor']}: " + ("SEM VENDA REGISTRADA NO DIA" if x["sem_dados"] else f"{_fm(x['v'])}, {x['u']} un., {x['itens']} produto(s)")
+            cab = (f"- {x['vendedor']}: " + ("NÃO VENDEU NADA NO DIA" if not x["itens"] else f"{_fm(x['v'])}, {x['u']} un., {x['itens']} produto(s)")
                    + (f"; média {_fm(x['media'])} ({x['var'] * 100:+.0f}%)" if x["var"] is not None else "")
                    + (f"; em {_ddmm(dm_)}: {_fm(x['v_mes'])} ({x['var_mes'] * 100:+.0f}%)" if x.get("var_mes") is not None else ""))
             linhas.append(cab)
+        if pnl.get("sem_coleta"):
+            linhas.append("AINDA SEM O ARQUIVO DO DIA (a coleta falhou e vai tentar de novo; NÃO é venda zero, NÃO comente "
+                          "como queda, só avise que faltam): " + ", ".join(pnl["sem_coleta"]) + ". Os totais do dia são só dos "
+                          "outros vendedores.")
         # itens vendidos de cada vendedor no dia (os 12 maiores)
         hoje = {r["vendedor"]: r for r in _vendas_dias(repo, d1, d1)}
         linhas.append("ITENS VENDIDOS NO DIA POR VENDEDOR (maiores primeiro):")
@@ -1366,7 +1380,8 @@ def _dados_resumo_dia(repo):
     cmp_ = _comparativo(repo, fotos)
     if cmp_.get("tem"):
         t = cmp_["total"]
-        linhas.append(f"MESMO PERÍODO (01 a {_ddmm(cmp_['ate'])} x 01 a {_ddmm(cmp_['ate_ant'])}): {_fm(t['v'])} x {_fm(t['v_ant'])}"
+        linhas.append(f"MESMO PERÍODO ({ranking.nome_mes(cmp_['mes'] + '-01')} x {ranking.nome_mes(cmp_['mes_ant'] + '-01')}; "
+                      f"01 a {_ddmm(cmp_['ate'])} x 01 a {_ddmm(cmp_['ate_ant'])}): {_fm(t['v'])} x {_fm(t['v_ant'])}"
                       + (f" ({t['var'] * 100:+.0f}%)" if t["var"] is not None else "")
                       + ("" if cmp_["exatos"] == len(cmp_["vendedores"]) else
                          f" — {len(cmp_['vendedores']) - cmp_['exatos']} vendedor(es) com o mês anterior ESTIMADO pela proporção do mês"))
@@ -2205,6 +2220,24 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
             f"Vendas de {vend} em {dia[8:10]}/{dia[5:7]}: {len(itens)} produto(s), "
             f"R$ {sum(i['v'] for i in itens):,.0f}".replace(",", ".")]}
 
+    if rota == "vend_dia_vazio" and metodo == "POST":
+        # o vendedor não vendeu nada no dia (o Nubimetrics exportou vazio): guarda o dia zerado (diferente de "sem coleta")
+        dia = q.get("ate") or ""
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", dia):
+            raise ErroNuvem("Informe o dia (ate).")
+        vend = (q.get("nome") or "").strip().upper()
+        if q.get("seller_hash"):
+            r = repo._req("GET", "vend_relatorios", {"select": "vendedor", "seller_hash": repo._eq(q["seller_hash"]),
+                                                     "order": "mes.desc", "limit": 1}) or []
+            if r:
+                vend = r[0]["vendedor"]
+        if not vend:
+            raise ErroNuvem("Vendedor não identificado.")
+        repo._req("POST", "vend_vendas_dia", corpo=[{"vendedor": vend, "data": dia, "v": 0, "u": 0, "anuncios": 0, "itens": [],
+                                                      "atualizado_em": datetime.now(timezone.utc).isoformat()}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True}
+
     if rota == "vend_painel_dia":
         return _painel_dia(repo)
 
@@ -2236,15 +2269,15 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         por_v = {}
         for l in linhas:
             dd = str(l["data"])[:10]
-            x = por_v.setdefault(l["vendedor"], {"vendedor": l["vendedor"], "v": [0.0] * len(dias), "u": [0] * len(dias)})
+            x = por_v.setdefault(l["vendedor"], {"vendedor": l["vendedor"], "v": [None] * len(dias), "u": [0] * len(dias)})
             i = dias.index(dd)
             x["v"][i] = float(l["v"] or 0)
             x["u"][i] = int(l["u"] or 0)
         vs = []
         for x in por_v.values():
-            tv = sum(x["v"])
-            nd = sum(1 for dd in dias if dd in coletados)
-            com = [(dias[i], v) for i, v in enumerate(x["v"]) if dias[i] in coletados]
+            tv = sum(v for v in x["v"] if v is not None)
+            nd = sum(1 for v in x["v"] if v is not None)      # dias com o arquivo desse vendedor
+            com = [(dias[i], v) for i, v in enumerate(x["v"]) if v is not None]
             melhor = max(com, key=lambda t: t[1]) if com else (None, 0)
             vs.append(dict(x, total=tv, unidades=sum(x["u"]), media=tv / nd if nd else 0,
                            melhor_dia=melhor[0], melhor_v=melhor[1],

@@ -1036,13 +1036,15 @@ function cardsDia(p) {
   const base = p.dias_base ? `média dos ${p.dias_base} dias anteriores` : p.base === "ritmo do mês" ? "ritmo diário do mês" : "";
   const vend = (x, i, cair) => `<div class="dia-ln"><span class="n">${i + 1}</span><a class="nm" href="#/vendedores/${encodeURIComponent(x.vendedor)}" title="${esc(x.vendedor)}">${esc(x.vendedor)}</a>
     <span class="vl">${cair ? `<span class="neg">${"−" + abrev(Math.abs(x.dif))}</span>` : abrev(x.v)}${chip(x.var)}</span>
-    <span class="dt">${cair ? `${abrev(x.v)} no dia x ${abrev(x.media)} de média` : `${nf0.format(x.u)} un. · ${x.itens} produto(s)`}${mesAnt(x)}${x.top && x.top[0] ? ` · ${esc((x.top[0].produto || "").slice(0, 60))}` : x.sem_dados ? " · sem venda registrada no dia" : ""}</span></div>`;
+    <span class="dt">${cair ? `${abrev(x.v)} no dia x ${abrev(x.media)} de média` : `${nf0.format(x.u)} un. · ${x.itens} produto(s)`}${mesAnt(x)}${x.top && x.top[0] ? ` · ${esc((x.top[0].produto || "").slice(0, 60))}` : !x.itens ? " · não vendeu nada no dia" : ""}</span></div>`;
   const prod = (x, i, cair) => `<div class="dia-ln"><span class="n">${i + 1}</span><span class="nm" title="${esc(x.produto)}">${vprodLink(x.chave, (x.produto || "").slice(0, 70), "")}</span>
     <span class="vl">${cair ? `<span class="neg">${"−" + abrev(Math.abs(x.dif))}</span>` : abrev(x.v)}${chip(x.var)}</span>
     <span class="dt">${esc(x.marca || "")}${cair ? ` · ${abrev(x.v)} no dia x ${abrev(x.media)} de média` : ` · ${nf0.format(x.u)} un. · ${x.vendedores} vendedor(es)${mesAnt(x)}`}</span></div>`;
   const t = p.total;
   const mesAnt = x => p.data_mes && x.v_mes != null ? ` · ${dm(p.data_mes)}: ${abrev(x.v_mes)}${x.var_mes != null ? ` (${x.var_mes >= 0 ? "+" : ""}${nf0.format(x.var_mes * 100)}%)` : ""}` : "";
-  return `<p class="muted" style="margin:10px 0 0;font-size:12.5px">Venda isolada de <b>${dm(p.data)}</b>: <b>${abrev(t.v)}</b> · ${nf0.format(t.u)} un.
+  const falta = (p.sem_coleta || []).length ? `<p class="aviso warn" style="margin:8px 0 0">Ainda sem o arquivo de ${dm(p.data)} de ${p.sem_coleta.map(esc).join(", ")}:
+    a coleta tenta de novo na próxima rodada. Os totais do dia são só dos outros vendedores.</p>` : "";
+  return falta + `<p class="muted" style="margin:10px 0 0;font-size:12.5px">Venda isolada de <b>${dm(p.data)}</b>: <b>${abrev(t.v)}</b> · ${nf0.format(t.u)} un.
       ${t.var != null ? ` · ${chip(t.var)} vs ${base}` : ""}${p.data_mes && t.var_mes != null ? ` · ${chip(t.var_mes)} vs ${dm(p.data_mes)} (${abrev(t.v_mes)})` : ""}</p>
     <div class="dia-grid">
       <div class="dia-card up"><h3>🏆 Quem mais vendeu em ${dm(p.data)}</h3><div class="sub">Vendas do dia${base ? `, variação vs ${base}` : ""}</div>
@@ -1529,12 +1531,12 @@ async function telaVendasDia() {
         <tbody>${vs.map(v => `<tr><td class="first"><a href="#/vendas-dia?${new URLSearchParams({...par, vendedor: v.vendedor})}">${esc(v.vendedor)}</a></td>
           <td class="num">${abrev(v.total)}</td><td class="num">${abrev(v.media)}</td>
           <td class="num">${v.melhor_dia ? `${dm(v.melhor_dia)} <span class="muted">${abrev(v.melhor_v)}</span>` : "—"}</td>
-          <td>${sparkSerie(v.v.map((x, i) => col.has(dias[i]) ? x : null))}</td></tr>`).join("")}</tbody></table></div></div>
+          <td>${sparkSerie(v.v.map(x => x))}</td></tr>`).join("")}</tbody></table></div></div>
       <div class="card pad bi-card" style="grid-column:1/-1"><h2>Mapa do dia a dia</h2>
         <div class="sub">Cada célula é a venda do vendedor no dia (mais escuro = dia mais forte dele). Clique para abrir o dia. ${heatDias.length < dias.length ? "Últimos 31 dias do período." : ""}</div>
         <div class="rolar"><table class="heat vd-heat"><thead><tr><th style="text-align:left">Vendedor</th>${heatDias.map(d => `<th class="d ${["sáb", "dom"].includes(dsem(d)) ? "fds" : ""} ${d === r.dia ? "sel" : ""}">${dsem(d)}<br>${d.slice(8, 10)}</th>`).join("")}</tr></thead>
         <tbody>${vs.map(v => `<tr><td class="nm">${esc(v.vendedor)}</td>${heatDias.map(d => { const i = dias.indexOf(d), x = v.v[i];
-          if (!col.has(d)) return `<td class="c muted" title="sem dados">·</td>`;
+          if (!col.has(d) || x == null) return `<td class="c muted" title="sem o arquivo desse dia">·</td>`;
           const t = Math.round(8 + 72 * x / maxV[v.vendedor]);
           return `<td class="c ${d === r.dia ? "sel" : ""}" data-dia="${d}" style="background:color-mix(in oklab, var(--s1) ${x ? t : 0}%, var(--card));${t > 50 ? "color:#fff" : ""}" title="${esc(v.vendedor)} · ${dm(d)} ${dsem(d)}: ${abrev(x)}">${x ? abrev(x).replace("R$ ", "").replace(" mil", "k").replace(" mi", "M") : "–"}</td>`; }).join("")}</tr>`).join("")}</tbody></table></div></div>
       <div class="card pad bi-card" style="grid-column:1/-1">

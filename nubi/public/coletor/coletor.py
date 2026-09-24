@@ -802,6 +802,11 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                 except SemDados:
                     seguidos = 0
                     log(f"  {nome} {rotulo}: sem vendas nesse período (nada para importar)")
+                    if rota == "vend_dia" and enviar:
+                        try:                       # guarda o dia zerado: "não vendeu" é diferente de "não coletado"
+                            api(token, "vend_dia_vazio", {"ate": ate, "seller_hash": h, "nome": nome}, metodo="POST")
+                        except Exception:  # noqa: BLE001
+                            pass
                     if rota in ("vend_foto", "vend_dia"):
                         feito(cfg, rota, h, ate)
                     elif not ate:     # mês fechado vazio não muda mais: não tenta de novo
