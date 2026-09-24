@@ -70,10 +70,17 @@ def _deepseek(pergunta, max_tokens, modelo=None, sistema=None, modelos=None):
     ultimo = None
     for m in modelos:
         try:
+            # modelos que raciocinam antes (pro/reasoner) gastam tokens pensando: dá folga para sobrar resposta
+            mt = max(max_tokens, 6000) if re.search(r"pro|reason", m) else max_tokens
             r = _post_json("https://api.deepseek.com/chat/completions",
-                           {"model": m, "messages": msgs, "max_tokens": max_tokens, "stream": False},
+                           {"model": m, "messages": msgs, "max_tokens": mt, "stream": False},
                            {"Authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"}, timeout=150)
-            return (r.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+            c = (r.get("choices") or [{}])[0]
+            texto = (c.get("message") or {}).get("content") or ""
+            if texto.strip():
+                return texto
+            ultimo = f"{m} devolveu resposta vazia (fim: {c.get('finish_reason')})"
+            continue                                       # vazio: tenta o próximo modelo da lista
         except urllib.error.HTTPError as e:
             corpo = e.read().decode(errors="replace")[:300]
             ultimo = f"{e.code}: {corpo}"

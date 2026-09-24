@@ -189,6 +189,8 @@ def rodar(repo, obs=""):
                 "com a função, o problema e a correção em poucas linhas. Se o ChatGPT já apontou algo, diga se concorda.\n\n"
                 f"CONFERÊNCIAS:\n{lista}\n\nANÁLISE DO CHATGPT:\n{conversa[-1]['texto'][:6000] if conversa else '—'}\n\n"
                 f"CÓDIGO ({modulo}, parte {parte}/{partes}):\n```python\n{codigo}\n```", max_tokens=3000)
+            if not t.strip():
+                raise ia.SemIA("resposta vazia")
             conversa.append({"autor": "DeepSeek", "texto": t})
         except Exception as e:  # noqa: BLE001
             conversa.append({"autor": "sistema", "texto": f"O DeepSeek não respondeu: {str(e)[:200]}"})

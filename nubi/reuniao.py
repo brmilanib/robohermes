@@ -54,6 +54,8 @@ def _decidir(historico, tarefas, opinioes, extra):
         "Você é o Claude, coordenador dos agentes do nubi: você decide e todos seguem a sua decisão. "
         "Leia a conversa e as opiniões desta rodada, responda ao grupo (curto, até 8 linhas, português, tom de WhatsApp, "
         "dizendo o que foi decidido e por quê) e registre o que vai para desenvolvimento.\n"
+        "Você não executa nada: não diga que pediu coleta, rodou ou corrigiu algo; diga o que foi decidido e registre "
+        "como tarefa (quem executa é o Claude da sessão de código e os agentes do despachante).\n"
         "Critérios: prioridade para o que evita erro nos números e para o que o dono pediu; recuse o que for arriscado, "
         "caro ou fora do escopo, explicando; não crie tarefa repetida (veja as tarefas em aberto); tarefa = algo concreto "
         "que o Claude da sessão de código consegue implementar e testar.\n"
@@ -97,6 +99,10 @@ def rodada(repo, texto_dono=None, extra="", autor_extra=None):
                 opinioes[AGENTES[k]] = f.result(timeout=170)
             except Exception as e:  # noqa: BLE001
                 gravar("sistema", f"{AGENTES[k]} não respondeu: {str(e)[:200]}")
+    for k, v in list(opinioes.items()):
+        if not (v or "").strip():
+            del opinioes[k]
+            gravar("sistema", f"{k} não respondeu: resposta vazia")
     for k in quem:
         if AGENTES[k] in opinioes:
             gravar(AGENTES[k], opinioes[AGENTES[k]])
