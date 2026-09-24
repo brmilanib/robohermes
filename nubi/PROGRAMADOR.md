@@ -59,8 +59,9 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
    - **Aprovou**: evento `tipo='teste_ok'` com o que foi conferido. Se ele apontar risco alto, pare e pergunte (passo 4).
 9. **Publicar**: commit (mensagem em português dizendo o que muda para o Bruno, com as linhas
    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` e `Claude-Session: <link desta sessão>`), `git pull --rebase`,
-   `git push -u origin claude/wizardly-ritchie-5fig5i` (se falhar por rede, tente de novo em 2, 4, 8, 16 s), deploy na Vercel
-   e espere `READY`. **Corrigiu, já roda**: aplique na hora (rotina com `ultima_execucao` de ontem, reprocessar o dado) e confira.
+   `git push -u origin claude/wizardly-ritchie-5fig5i` (se falhar por rede, tente de novo em 2, 4, 8, 16 s). **Deploy na
+   Vercel uma vez só por rodada**, no fim (depois do último card; cada deploy ocupa espaço no plano grátis da Vercel), e
+   espere `READY`; se precisar publicar antes (correção urgente de algo quebrado), pode. **Corrigiu, já roda**: aplique na hora (rotina com `ultima_execucao` de ontem, reprocessar o dado) e confira.
 10. **Concluir com relatório**: `status='feita'`, `notas` com o que mudou em 1 ou 2 frases, e **`relatorio`** (markdown) com:
     ## O que foi feito · ## Arquivos e funções mexidos · ## Testes (os seus e os do revisor, com resultado) · ## Revisão
     (o que o revisor apontou e o que foi corrigido) · ## Publicação (commit e deploy) · ## Como conferir (onde o Bruno vê)
