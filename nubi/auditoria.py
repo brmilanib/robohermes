@@ -20,6 +20,7 @@ import os
 import statistics
 from datetime import date, timedelta
 
+import agentes
 import ia
 
 MODULOS = ["nubi_web.py", "vend_bi.py", "vendedores.py", "produtos_iguais.py", "ia.py", "categorias.py", "ranking.py"]
@@ -171,22 +172,23 @@ def rodar(repo, obs=""):
         "Não invente: se não der para saber pelo que foi mostrado, diga o que precisa ser verificado. Português, direto.\n"
         + (f"\nOBSERVAÇÃO DO DONO: {obs}\n" if obs else "")
         + f"\nCONFERÊNCIAS DE HOJE:\n{lista}\n\nCÓDIGO ({modulo}, parte {parte}/{partes}):\n```python\n{codigo}\n```")
-    modelo_cod = os.environ.get("NUBI_IA_CODIGO") or None
-    if ia.tem("chatgpt"):
+    sis = agentes.SISTEMA
+    if ia.tem("codex"):
         try:
-            t, _, _ = ia.perguntar(pedido, web=False, max_tokens=3500, qual="chatgpt", modelo=modelo_cod)
-            conversa.append({"autor": "ChatGPT" + (f" ({modelo_cod})" if modelo_cod else ""), "texto": t})
+            mc = ia.modelo_codex()
+            t, _, _ = ia.perguntar(pedido, web=False, max_tokens=5000, qual="codex", sistema=sis)
+            conversa.append({"autor": f"ChatGPT ({mc})", "texto": t})
         except Exception as e:  # noqa: BLE001
             conversa.append({"autor": "sistema", "texto": f"O ChatGPT não respondeu: {str(e)[:200]}"})
     if ia.tem("deepseek"):
         try:
-            t, _, _ = ia.perguntar(
-                "Você é o DeepSeek, engenheiro de software do nubi. Revise o trecho de código abaixo procurando bugs que "
-                "distorçam números, casos não tratados, desempenho e custo. Liste no máximo 5 pontos, cada um com a função, "
-                "o problema e a correção em poucas linhas. Se o ChatGPT já apontou algo, diga se concorda. Português.\n\n"
+            t = agentes.perguntar(
+                "deepseek",
+                "Revise o trecho de código abaixo e as conferências: confira as contas e a consistência entre totais, "
+                "procure bugs que distorçam números, casos de borda, desempenho e custo. Liste no máximo 5 pontos, cada um "
+                "com a função, o problema e a correção em poucas linhas. Se o ChatGPT já apontou algo, diga se concorda.\n\n"
                 f"CONFERÊNCIAS:\n{lista}\n\nANÁLISE DO CHATGPT:\n{conversa[-1]['texto'][:6000] if conversa else '—'}\n\n"
-                f"CÓDIGO ({modulo}, parte {parte}/{partes}):\n```python\n{codigo}\n```",
-                web=False, max_tokens=2500, qual="deepseek")
+                f"CÓDIGO ({modulo}, parte {parte}/{partes}):\n```python\n{codigo}\n```", max_tokens=3000)
             conversa.append({"autor": "DeepSeek", "texto": t})
         except Exception as e:  # noqa: BLE001
             conversa.append({"autor": "sistema", "texto": f"O DeepSeek não respondeu: {str(e)[:200]}"})
@@ -200,7 +202,7 @@ def rodar(repo, obs=""):
                 "deixaram passar e qual correção você faria. Seja concreto e curto. Português.\n\n"
                 f"CONFERÊNCIAS:\n{lista}\n\nANÁLISE DO CHATGPT:\n{gpt or '—'}\n\nANÁLISE DO DEEPSEEK:\n{ds or '—'}\n\n"
                 f"CÓDIGO ({modulo}, parte {parte}/{partes}):\n```python\n{codigo}\n```",
-                web=False, max_tokens=2500, qual="claude")
+                web=False, max_tokens=3000, qual="claude", sistema=sis)
             conversa.append({"autor": "Claude", "texto": t})
         except Exception as e:  # noqa: BLE001
             conversa.append({"autor": "sistema", "texto": f"O Claude não respondeu: {str(e)[:200]}"})

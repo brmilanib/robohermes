@@ -2,10 +2,10 @@
 """
 Sala de reunião dos agentes (como um grupo de WhatsApp).
 
-Quem fala: o dono (voce), ChatGPT, DeepSeek e Claude. A cada mensagem do dono (ou na reunião diária depois da
+Quem fala: o dono (voce), os agentes de agentes.AGENTES (ChatGPT/Codex, DeepSeek; Hermes depois) e o Claude. A cada mensagem do dono (ou na reunião diária depois da
 auditoria), o ChatGPT e o DeepSeek dão a opinião deles e o Claude fecha: responde, decide e registra o que vai para
 desenvolvimento (tarefas e sugestões em reuniao_tarefas). Todos seguem a decisão do Claude.
-@chatgpt / @deepseek na mensagem: só esse(s) agente(s) opinam antes do Claude.
+@chatgpt / @deepseek (a chave do agente) na mensagem: só esse(s) agente(s) opinam antes do Claude.
 """
 
 import json
@@ -14,20 +14,11 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
+import agentes
 import ia
 
-AGENTES = {"chatgpt": "ChatGPT", "deepseek": "DeepSeek", "claude": "Claude"}
+AGENTES = {k: a["nome"] for k, a in agentes.AGENTES.items()} | {"claude": "Claude"}
 STATUS = ["proposta", "aprovada", "em_desenvolvimento", "feita", "recusada"]
-
-CONTEXTO = (
-    "Vocês são os agentes do nubi, um sistema de análise de vendas de perfumes no Mercado Livre: um coletor (Python + "
-    "Playwright no Mac mini do dono) baixa do Nubimetrics as vendas de 16 vendedores concorrentes (mês, mesmo período, "
-    "venda isolada de cada dia, tabela do grupo com visitas e conversão) e o ranking de marcas; o site (Python na Vercel "
-    "+ Supabase) mostra vendas diárias, comparação de concorrentes, alertas de estoque, ranking e categorias de marca, e "
-    "a IA escreve resumos diários, semanais e mensais. O código é escrito pelo Claude (sessão de código); a próxima fase "
-    "é conectar as lojas do dono (Mercado Livre, Shopee, Amazon, TikTok Shop) e monitorar o ranking dos anúncios dele.\n"
-    "Regras do projeto: zero erro nos números (na dúvida, 'sem dados', nunca zero inventado); toda correção publicada "
-    "roda na hora; nunca guardar senhas nem chaves; nada muda sozinho em produção sem teste.\n")
 
 
 def _historico(msgs, n=30):
@@ -42,22 +33,16 @@ def _tarefas_txt(tarefas):
 def participantes(texto):
     """Quem opina antes do Claude: os citados com @, senão todos os que têm chave."""
     t = (texto or "").lower()
-    citados = [k for k in ("chatgpt", "deepseek") if f"@{k}" in t]
-    base = citados or ["chatgpt", "deepseek"]
-    return [k for k in base if ia.tem(k)]
+    return agentes.ativos([k for k in agentes.AGENTES if f"@{k}" in t])
 
 
 def _opinar(qual, historico, tarefas, extra):
-    papel = {"chatgpt": "Você é o ChatGPT, engenheiro de dados do nubi: foque em dados, números e análise.",
-             "deepseek": "Você é o DeepSeek, engenheiro de software do nubi: foque em código, desempenho, custo e riscos técnicos."}[qual]
-    t, _, _ = ia.perguntar(
-        CONTEXTO + papel + " Está num grupo com o dono e os outros agentes; o Claude coordena e decide no final.\n"
-        "Responda à última mensagem do grupo como numa conversa de WhatsApp: curto (até 6 linhas), direto, em português, "
-        "com a sua opinião e no máximo 2 sugestões concretas. Não repita o que outro agente já disse; discorde se tiver "
-        "motivo. Não invente números.\n"
-        f"{extra}\nTAREFAS EM ABERTO:\n{tarefas}\n\nCONVERSA:\n{historico}",
-        web=False, max_tokens=700, qual=qual)
-    return t.strip()
+    return agentes.perguntar(
+        qual,
+        "Você está no grupo com o dono e os outros agentes; o Claude coordena e decide no final.\n"
+        "Responda à última mensagem do grupo como numa conversa de WhatsApp: curto (até 6 linhas), direto, "
+        "com a sua opinião e no máximo 2 sugestões concretas. Não repita o que outro agente já disse.\n"
+        f"{extra}\nTAREFAS EM ABERTO:\n{tarefas}\n\nCONVERSA:\n{historico}", max_tokens=900)
 
 
 def _decidir(historico, tarefas, opinioes, extra):
@@ -66,7 +51,7 @@ def _decidir(historico, tarefas, opinioes, extra):
     if not qual:
         raise ia.SemIA("nenhuma IA configurada")
     pedido = (
-        CONTEXTO + "Você é o Claude, coordenador dos agentes do nubi: você decide e todos seguem a sua decisão. "
+        "Você é o Claude, coordenador dos agentes do nubi: você decide e todos seguem a sua decisão. "
         "Leia a conversa e as opiniões desta rodada, responda ao grupo (curto, até 8 linhas, português, tom de WhatsApp, "
         "dizendo o que foi decidido e por quê) e registre o que vai para desenvolvimento.\n"
         "Critérios: prioridade para o que evita erro nos números e para o que o dono pediu; recuse o que for arriscado, "
@@ -79,7 +64,7 @@ def _decidir(historico, tarefas, opinioes, extra):
         '"status": "aprovada|proposta|recusada", "prioridade": "alta|media|baixa", "area": "<coletor|dados|site|ia|outro>", '
         '"proposto_por": "<quem sugeriu>"}], "atualizar": [{"id": <número da tarefa em aberto>, "status": "<novo status>", '
         '"nota": "<por quê>"}]}. Listas vazias quando não houver nada.')
-    j, _, q = ia.perguntar_json(pedido, web=False, max_tokens=1800, qual=qual)
+    j, _, q = ia.perguntar_json(pedido, web=False, max_tokens=2500, qual=qual, sistema=agentes.SISTEMA)
     if not j.get("resposta"):
         raise ia.SemIA("o coordenador não devolveu a decisão")
     return j, q
@@ -105,7 +90,7 @@ def rodada(repo, texto_dono=None, extra="", autor_extra=None):
     hist, tt = _historico(msgs), _tarefas_txt(tarefas)
     quem = participantes(texto_dono or "")
     opinioes = {}
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         futs = {k: ex.submit(_opinar, k, hist, tt, extra) for k in quem}
         for k, f in futs.items():
             try:

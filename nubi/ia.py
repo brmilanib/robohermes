@@ -5,7 +5,8 @@ IA do nubi: ChatGPT (OPENAI_API_KEY) ou Claude (ANTHROPIC_API_KEY), a que tiver 
 perguntar(pergunta, web=True) -> (texto, links, nome_da_ia)
 perguntar_json(pergunta, web=True) -> (dict, links, nome_da_ia)   # a pergunta pede um JSON na resposta
 Com web=True a IA pesquisa na internet antes de responder (web search das duas APIs).
-Modelo: NUBI_IA_MODELO (ChatGPT, padrão gpt-4.1) e NUBI_IA_MODELO_CLAUDE (padrão claude-sonnet-5).
+Modelo: NUBI_IA_MODELO (ChatGPT, padrão gpt-4.1), NUBI_IA_MODELO_CLAUDE (padrão claude-opus-5-5),
+NUBI_IA_CODIGO (Codex; padrão: o Codex mais novo da conta) e NUBI_IA_MODELO_DEEPSEEK.
 """
 
 import json
@@ -28,13 +29,43 @@ DEEPSEEK_MODELOS = ["deepseek-flash", "deepseek-v4-flash", "deepseek-chat"]   # 
 
 
 def tem(qual):
-    return bool(os.environ.get(CHAVES[qual]))
+    qual = "chatgpt" if qual == "codex" else qual
+    return qual in CHAVES and bool(os.environ.get(CHAVES[qual]))
 
 
-def _deepseek(pergunta, max_tokens, modelo=None, sistema=None):
+DEEPSEEK_PRO = ["deepseek-v4-pro"] + DEEPSEEK_MODELOS                           # tarefas pesadas (revisão de código)
+_CODEX = {}
+
+
+def modelo_codex():
+    """
+    O Codex (modelo de código da OpenAI) mais novo que a conta tem: lê /v1/models e escolhe o id com 'codex' mais
+    recente (o completo antes do mini). NUBI_IA_CODIGO manda, se existir. Sem Codex na conta: o modelo padrão.
+    """
+    if os.environ.get("NUBI_IA_CODIGO"):
+        return os.environ["NUBI_IA_CODIGO"]
+    if "id" in _CODEX:
+        return _CODEX["id"]
+    escolhido = None
+    try:
+        req = urllib.request.Request("https://api.openai.com/v1/models",
+                                     headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            ms = json.loads(r.read().decode()).get("data", [])
+        cod = [m for m in ms if "codex" in m.get("id", "")]
+        cod.sort(key=lambda m: ("mini" in m["id"], -int(m.get("created") or 0)))
+        escolhido = cod[0]["id"] if cod else None
+    except Exception:  # noqa: BLE001
+        escolhido = None
+    _CODEX["id"] = escolhido or os.environ.get("NUBI_IA_MODELO", "gpt-4.1")
+    return _CODEX["id"]
+
+
+def _deepseek(pergunta, max_tokens, modelo=None, sistema=None, modelos=None):
     """DeepSeek (API no formato da OpenAI). Se o nome do modelo for recusado, tenta o próximo da lista."""
     import urllib.error
-    modelos = [modelo or os.environ.get("NUBI_IA_MODELO_DEEPSEEK")] if (modelo or os.environ.get("NUBI_IA_MODELO_DEEPSEEK")) else DEEPSEEK_MODELOS
+    fixo = modelo or os.environ.get("NUBI_IA_MODELO_DEEPSEEK")
+    modelos = [fixo] if fixo else (modelos or DEEPSEEK_MODELOS)
     msgs = ([{"role": "system", "content": sistema}] if sistema else []) + [{"role": "user", "content": pergunta}]
     ultimo = None
     for m in modelos:
@@ -64,16 +95,33 @@ def _post_json(url, corpo, cab, timeout=90):
         return json.loads(r.read().decode())
 
 
-def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None):
-    """qual: 'chatgpt' ou 'claude' para escolher a IA (padrão: disponivel()); modelo: troca o modelo só nesta pergunta."""
+def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sistema=None):
+    """
+    qual: 'chatgpt', 'claude', 'deepseek' ou 'codex' (ChatGPT com o modelo de código) — padrão: disponivel();
+    modelo: troca o modelo só nesta pergunta ('pro' no DeepSeek = o modelo maior); sistema: instruções fixas do agente.
+    """
     ia = qual or disponivel()
+    if ia == "codex":
+        if not tem("chatgpt"):
+            raise SemIA("falta a chave da OpenAI")
+        mc = modelo_codex()
+        try:
+            t, l, _ = perguntar(pergunta, web=False, max_tokens=max(max_tokens, 4000), qual="chatgpt", modelo=mc, sistema=sistema)
+            if t:
+                return t, l, "chatgpt"
+        except Exception:  # noqa: BLE001 — Codex fora do ar ou sem acesso: o modelo padrão responde
+            pass
+        return perguntar(pergunta, web=False, max_tokens=max_tokens, qual="chatgpt", sistema=sistema)
     if not ia or not tem(ia):
         raise SemIA("nenhuma chave de IA configurada" if not ia else f"falta a chave da IA {nome(ia)}")
     if ia == "deepseek":
-        return _deepseek(pergunta, max_tokens, modelo).strip(), [], ia
+        return _deepseek(pergunta, max_tokens, None if modelo == "pro" else modelo, sistema,
+                         DEEPSEEK_PRO if modelo == "pro" else None).strip(), [], ia
     if ia == "claude":
-        corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO_CLAUDE", "claude-sonnet-5"), "max_tokens": max_tokens,
+        corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO_CLAUDE", "claude-opus-5-5"), "max_tokens": max_tokens,
                  "messages": [{"role": "user", "content": pergunta}]}
+        if sistema:
+            corpo["system"] = sistema
         if web:
             corpo["tools"] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]
         r = _post_json("https://api.anthropic.com/v1/messages", corpo,
@@ -82,6 +130,8 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None):
         links = [c.get("url") for b in r.get("content", []) for c in (b.get("citations") or []) if c.get("url")]
     else:
         corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "input": pergunta, "max_output_tokens": max_tokens}
+        if sistema:
+            corpo["instructions"] = sistema
         if web:
             corpo["tools"] = [{"type": "web_search_preview"}]
         r = _post_json("https://api.openai.com/v1/responses", corpo,
@@ -92,8 +142,8 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None):
     return texto.strip(), list(dict.fromkeys(l for l in links if l)), ia
 
 
-def perguntar_json(pergunta, web=True, max_tokens=1500, qual=None):
-    texto, links, ia = perguntar(pergunta, web, max_tokens, qual=qual)
+def perguntar_json(pergunta, web=True, max_tokens=1500, qual=None, sistema=None):
+    texto, links, ia = perguntar(pergunta, web, max_tokens, qual=qual, sistema=sistema)
     m = re.search(r"\{.*\}", texto, re.S)
     try:
         j = json.loads(m.group(0)) if m else {}
