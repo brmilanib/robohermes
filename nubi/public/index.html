@@ -430,9 +430,14 @@ document.addEventListener("click", e => {
 function desenharMenu() {
   const sec = secaoAtual(), h = decodeURIComponent(location.hash);
   const it = (href, ic, txt, on, extra = "") => `<a class="navi ${on ? "on" : ""}" href="${href}"><span class="ic">${ic}</span><span>${esc(txt)}</span>${extra}</a>`;
-  const sub = itens => itens.length ? `<div class="subnav">${itens.map(i => `<a class="${i.on ? "on" : ""}" href="${i.href}" title="${esc(i.nome)}">${esc(i.nome)}</a>`).join("")}</div>` : "";
+  const sub = itens => itens.length ? `<div class="subnav">${itens.map(i => i.mais ? `<a class="mais" id="mtodas">${esc(i.nome)}</a>`
+    : `<a class="${i.on ? "on" : ""}" href="${i.href}" title="${esc(i.nome)}">${esc(i.nome)}</a>`).join("")}</div>` : "";
   const cats = (S.rankLista || []).map(c => ({href: `#/ranking/${encodeURIComponent(c.categoria)}`, nome: c.nome.split(" > ").pop(), on: h.startsWith(`#/ranking/${c.categoria}`)}));
-  const marcas = S.painel.map(p => ({href: "#/" + encodeURIComponent(p.marca), nome: nome(p.marca), on: h === "#/" + p.marca}));
+  const ordenadas = [...S.painel].sort((a, b) => b.fat - a.fat);
+  const atualM = ordenadas.find(p => h === "#/" + p.marca);
+  const visiveis = S.marcasTodas ? ordenadas : ordenadas.slice(0, 10).concat(atualM && !ordenadas.slice(0, 10).includes(atualM) ? [atualM] : []);
+  const marcas = visiveis.map(p => ({href: "#/" + encodeURIComponent(p.marca), nome: nome(p.marca), on: h === "#/" + p.marca}));
+  if (ordenadas.length > 10) marcas.push({href: "#/", nome: S.marcasTodas ? "mostrar menos" : `ver todas (${ordenadas.length})`, mais: true});
   const vendOn = h.startsWith("#/vendedores/");
   const nAl = S.alertasN || 0;
   $("#side").innerHTML = `
@@ -452,6 +457,7 @@ function desenharMenu() {
     ${it("#/nomes-vendedores", "🔗", "Nomes de vendedores", h.startsWith("#/nomes-vendedores"))}
     ${it("#/coletor", "📥", "Coletor e agente", h.startsWith("#/coletor"))}`;
   desenharVendMenu();
+  if ($("#mtodas")) $("#mtodas").onclick = e => { e.preventDefault(); S.marcasTodas = !S.marcasTodas; desenharMenu(); };
   desenharAgente();
 }
 // Lista de vendedores no menu: busca + os 8 maiores (ou todos com "ver todos").
@@ -1687,18 +1693,22 @@ async function carregarPainel() {
   S.painel = await api("painel");
 }
 function telaPainel() {
-  const p = S.painel;
-  const tot = p.reduce((a, x) => ({un: a.un + x.un, fat: a.fat + x.fat, an: a.an + x.anuncios}), {un: 0, fat: 0, an: 0});
+  const q = (S.buscaMarca || "").toUpperCase();
+  const p = [...S.painel].sort((a, b) => b.fat - a.fat).filter(x => !q || x.marca.includes(q) || nome(x.marca).toUpperCase().includes(q));
+  const tot = S.painel.reduce((a, x) => ({un: a.un + x.un, fat: a.fat + x.fat, an: a.an + x.anuncios}), {un: 0, fat: 0, an: 0});
   $("#main").innerHTML = `
     <h1>Painel geral</h1>
     <p class="aviso">Mercado inteiro (todos os vendedores), não só a sua loja.</p>
-    ${p.length ? `
+    ${S.painel.length ? `
     <div class="kpis">
-      ${kpi("Marcas monitoradas", nf0.format(p.length))}
+      ${kpi("Marcas monitoradas", nf0.format(S.painel.length))}
       ${kpi("Anúncios", nf0.format(tot.an))}
       ${kpi("Unidades (último período)", nf0.format(tot.un))}
       ${kpi("Faturamento (último período)", "R$ " + nf0.format(tot.fat))}
     </div>
+    ${S.painel.length > 12 ? `<div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+      <input type="search" id="bmarca" placeholder="Buscar marca…" value="${esc(S.buscaMarca || "")}" style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--card);min-width:240px">
+      <span class="muted">${p.length} de ${S.painel.length} marcas · da que mais fatura para a que menos</span></div>` : ""}
     <div class="cards">
       ${p.map(x => `
       <div class="card bcard" data-m="${esc(x.marca)}">
@@ -1720,6 +1730,8 @@ function telaPainel() {
       <p>Importe o primeiro export do Nubimetrics para começar.</p>
       <button class="btn primary" onclick="abrirUpload()">⬆ Importar CSV</button>
     </div>`}`;
+  if ($("#bmarca")) $("#bmarca").oninput = e => { S.buscaMarca = e.target.value; const pos = e.target.selectionStart; telaPainel();
+    const n = $("#bmarca"); n.focus(); n.setSelectionRange(pos, pos); };
   document.querySelectorAll(".bcard").forEach(c => c.onclick = () => irPara(c.dataset.m));
   document.querySelectorAll("[data-del]").forEach(b => b.onclick = e => { e.stopPropagation(); excluirMarca(b.dataset.del); });
 }
@@ -2268,7 +2280,8 @@ async function abrirUpload() {
       };
       const blocoMulti = (it, i) => `<div class="f" style="font-size:12.5px;color:var(--muted);grid-column:1/-1">
         <b style="color:var(--ink)">Este arquivo mistura ${it.info.grupos.length} marcas.</b> Cada marca marcada vira um card próprio com os produtos dela
-        (grafias da mesma marca já foram juntadas). As pequenas vêm desmarcadas.
+        (grafias da mesma marca já foram juntadas). Todas vêm marcadas: cada marca e cada vendedor é mais dado para analisar; desmarque só o que não quiser.
+        <a href="#" data-todas="${i}">marcar/desmarcar todas</a>
         <div class="multi">${it.info.grupos.map(g => `<label class="${g.sugerida ? "" : "muted"}"><input type="checkbox" data-mg="${i}" value="${esc(g.chave)}" ${it.escolha.has(g.chave) ? "checked" : ""}>
           <b>${esc(g.nome)}</b> <span>${nf0.format(g.anuncios)} anúncios · R$ ${nf0.format(g.fat)} · ${FMT.pct(g.pct)}${g.existente ? " · já tem card" : ""}</span>
           ${g.grafias.length > 1 ? `<small title="grafias juntadas">(${esc(g.grafias.slice(0, 5).join(", "))})</small>` : ""}</label>`).join("")}</div></div>`;
@@ -2313,6 +2326,10 @@ async function abrirUpload() {
               if (it.nova) { desenhar(); $(`[data-i="${inp.dataset.i}"][data-k="marca"]`, m).focus(); }
             } else it[inp.dataset.k] = inp.dataset.k === "marca" ? inp.value.toUpperCase() : inp.value;
           };
+        });
+        m.querySelectorAll("[data-todas]").forEach(a => a.onclick = e => {
+          e.preventDefault(); const it = itens[a.dataset.todas];
+          it.escolha = it.escolha.size ? new Set() : new Set(it.info.grupos.filter(g => g.chave !== "SEMMARCA").map(g => g.chave)); desenhar();
         });
         m.querySelectorAll("[data-mg]").forEach(cb => {
           cb.disabled = rodando || itens[cb.dataset.mg].estado === "ok";

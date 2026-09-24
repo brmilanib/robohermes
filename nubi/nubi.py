@@ -1257,7 +1257,7 @@ def importar_dados(repo, cfg, nome, dados, obter_marca_periodo):
     return _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes)
 
 
-def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes):
+def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes, recem=()):
     """Grava os anúncios (df) como um período da marca: renomeia grafia antiga, consolida e salva."""
     # Mesma marca já cadastrada com outra grafia ("MONT BLANC" x "MONTBLANC"): renomeia.
     for antiga in existentes:
@@ -1269,7 +1269,7 @@ def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes):
             avisar(f"    Marca {antiga} renomeada para {marca} (grafia oficial).")
             reconsolidar(repo, cfg, [marca])
     dias = (fim - ini).days + 1          # inclusive nas pontas: 01/08 a 16/09 = 47 dias
-    df = _juntar_por_id(repo, cfg, marca, ini.isoformat(), fim.isoformat(), df)
+    df = _juntar_por_id(repo, cfg, marca, ini.isoformat(), fim.isoformat(), df, recem)
     garantir_config(cfg, marca, df, repo)
     df = consolidar(df, marca, cfg)
     substituiu = repo.gravar_snapshot(marca, ini.isoformat(), fim.isoformat(), dias, nome, hash_, df)
@@ -2208,7 +2208,7 @@ def agrupar_marcas(df, existentes=(), apelidos=None):
         grupos.append({"chave": k, "marca": marca, "nome": nome_bonito(marca),
                        "grafias": [str(m) for m in grafias.index[:8]], "anuncios": int(len(x)), "un": int(x["un"].sum()),
                        "fat": fat, "pct": fat / total, "existente": k in exist,
-                       "sugerida": k != "SEMMARCA" and (len(x) >= 15 or fat >= total * 0.03),
+                       "sugerida": k != "SEMMARCA",      # todas viram card: mais dados para analisar com o tempo
                        "linhas": list(x.index)})
     return sorted(grupos, key=lambda x: -x["fat"])
 
@@ -2234,12 +2234,12 @@ def importar_por_marca(repo, cfg, nome, dados, ini, fim, escolhidas, apelidos=No
             avisar(f"    {gr['nome']}: já importado deste arquivo. Pulado.")
             continue
         avisar(f"  {gr['nome']}: {fmt_int(len(sub))} anúncios · {fmt_int(sub['un'].sum())} unidades")
-        marca = _gravar_marca(repo, cfg, nome, hash_, sub, gr["marca"], ini, fim, existentes)
+        marca = _gravar_marca(repo, cfg, nome, hash_, sub, gr["marca"], ini, fim, existentes, feitas)
         feitas.append(marca)
         existentes = sorted(set(existentes) | {marca})
     fora = [g for g in grupos.values() if g["chave"] not in escolhidas]
     if fora:
-        avisar(f"    Não importadas (poucos anúncios ou desmarcadas): " +
+        avisar(f"    Não importadas (desmarcadas): " +
                ", ".join(f"{g['nome']} ({g['anuncios']})" for g in fora[:12]) + (" …" if len(fora) > 12 else ""))
     return feitas
 
@@ -2251,7 +2251,7 @@ def _ids(df):
     return df
 
 
-def _juntar_por_id(repo, cfg, marca, ini, fim, df):
+def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=()):
     """
     Pelo ID do anúncio, para não sobrepor, somar nem duplicar:
       - mesma marca e mesmo período já importado de outro arquivo: junta os dois (anúncio que está nos
@@ -2264,7 +2264,8 @@ def _juntar_por_id(repo, cfg, marca, ini, fim, df):
     snaps = repo.snapshots()
     if snaps.empty:
         return df
-    mesmo = snaps[(snaps["inicio"].astype(str).str[:10] == ini) & (snaps["fim"].astype(str).str[:10] == fim)]
+    mesmo = snaps[(snaps["inicio"].astype(str).str[:10] == ini) & (snaps["fim"].astype(str).str[:10] == fim)
+                  & ~snaps["marca"].isin(set(recem) - {marca})]   # cards gravados agora, deste mesmo arquivo, já estão separados
     colunas = list(df.columns)
     for _, sn in mesmo.iterrows():
         antigo = _ids(repo.anuncios(sn["id"]))
