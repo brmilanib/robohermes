@@ -2373,7 +2373,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
                 u = repo._req("GET", "reuniao_mensagens", {"select": "id", "order": "id.desc", "limit": 1}) or []
                 sala = [{"id": u[0]["id"], "texto": ""}] if u else []
             else:
-                sala = repo._req("GET", "reuniao_mensagens", {"select": "id,autor,texto", "id": f"gt.{ult}", "order": "id",
+                sala = repo._req("GET", "reuniao_mensagens", {"select": "id,autor,texto,criado_em", "id": f"gt.{ult}", "order": "id",
                                                                "autor": "in.(voce,sistema)", "limit": 20}) or []
                 if not sala:
                     u = repo._req("GET", "reuniao_mensagens", {"select": "id", "order": "id.desc", "limit": 1}) or []

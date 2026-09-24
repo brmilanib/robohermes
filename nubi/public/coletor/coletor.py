@@ -1718,19 +1718,33 @@ def despachar(cfg):
         subprocess.Popen(["/bin/sh", "-c", f"{linha} > {shlex.quote(str(logf))} 2>&1; echo $? > {shlex.quote(str(logf))}.rc"],
                          start_new_session=True)
         est["rodando"][str(p["id"])] = {"log": str(logf), "inicio": time.time()}
-    # Sala: o Hermes/Qwen respondem quando alguém chama (@hermes, @qwen) e na reunião diária
+    # Sala: o Hermes/Qwen respondem quando alguém chama (@hermes, @qwen) e na reunião diária. Rodam em SEGUNDO PLANO
+    # (o modelo local leva minutos e travava o vigia, que ficava sem pegar pedidos); mensagem com mais de 30 min é ignorada.
     info = _info_mac() if r.get("sala") else {}
+    chamar = []
     for m in r.get("sala", []):
         est["sala_ult"] = max(est.get("sala_ult", 0), m["id"])
+        try:
+            velha = (datetime.now(timezone.utc) - datetime.fromisoformat(str(m.get("criado_em")).replace("Z", "+00:00"))).total_seconds() > 1800
+        except ValueError:
+            velha = False
         t = (m.get("texto") or "").lower()
         for chave in ("hermes", "qwen"):
-            if f"@{chave}" in t or t.startswith("reunião diária"):
-                modelo = LOCAIS[chave][1]
-                if info.get("ollama") and any(str(x).startswith(modelo.split(":")[0]) for x in (info.get("modelos") or [])):
-                    try:
-                        cmd_hermes(argparse.Namespace(agente=chave, modelo=None, ultimas=20, pergunta=""), cfg)
-                    except Exception as e:  # noqa: BLE001
-                        print(f"{datetime.now():%d/%m %H:%M} despachante: {chave} não respondeu ({e})", flush=True)
+            if not velha and (f"@{chave}" in t or t.startswith("reunião diária")) and chave not in chamar:
+                chamar.append(chave)
+    for chave in chamar:
+        modelo = LOCAIS[chave][1]
+        pid = (est.get("sala_pid") or {}).get(chave)
+        try:
+            if pid:
+                os.kill(int(pid), 0)
+                continue                                 # ainda respondendo a chamada anterior
+        except (OSError, ValueError):
+            pass
+        if info.get("ollama") and any(str(x).startswith(modelo.split(":")[0]) for x in (info.get("modelos") or [])):
+            with open(PASTA / f"{chave}.log", "a") as saida:
+                pr = subprocess.Popen([str(PASTA / "coletor"), chave], stdout=saida, stderr=subprocess.STDOUT, start_new_session=True)
+            est.setdefault("sala_pid", {})[chave] = pr.pid
     _salvar_desp(est)
     return 0
 
