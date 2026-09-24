@@ -166,9 +166,13 @@ def senha_chaveiro(email):
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+TOKEN = {"cfg": None, "troca": {}}   # o login do nubi vale 1 h: nas coletas longas, api() entra de novo sozinho
+
+
 def token_nubi(cfg):
     if os.environ.get("NUBI_TOKEN"):                   # testes
         return os.environ["NUBI_TOKEN"]
+    TOKEN["cfg"] = cfg
     email = cfg.get("nubi_email") or ""
     senha = senha_chaveiro(email)
     if not email or not senha:
@@ -184,7 +188,8 @@ def token_nubi(cfg):
         raise Falha(f"Login no nubi recusado ({e.code}). Rode de novo: python coletor.py configurar")
 
 
-def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
+def api(token, rota, params=None, corpo=None, metodo=None, timeout=300, _de_novo=True):
+    token = TOKEN["troca"].get(token, token)
     q = urllib.parse.urlencode(dict(params or {}, r=rota))
     dados = corpo if isinstance(corpo, (bytes, type(None))) else json.dumps(corpo).encode()
     req = urllib.request.Request(f"{NUBI}/api/app?{q}", data=dados, method=metodo or ("POST" if dados else "GET"),
@@ -193,6 +198,12 @@ def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode() or "{}")
     except urllib.error.HTTPError as e:
+        if e.code == 401 and _de_novo and TOKEN["cfg"] is not None:
+            # login vencido no meio da coleta: entra de novo e repete o envio (antes, tudo depois de 1 h dava erro)
+            novo = token_nubi(TOKEN["cfg"])
+            for velho in [k for k, v in TOKEN["troca"].items() if v == token] + [token]:
+                TOKEN["troca"][velho] = novo
+            return api(novo, rota, params, corpo, metodo, timeout, _de_novo=False)
         try:
             msg = json.loads(e.read().decode()).get("erro")
         except Exception:  # noqa: BLE001
@@ -1391,6 +1402,9 @@ def main():
     mk.add_argument("--mes")
     mk.add_argument("--sem-enviar", action="store_true")
     mk.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
+    comandos = set(sub.choices)
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-") and sys.argv[1] not in comandos and not os.environ.get("NUBI_ATUALIZADO"):
+        auto_atualizar()                               # comando novo que esta versão ainda não conhece: atualiza antes
     args = ap.parse_args()
     cfg = ler_config()
     if getattr(args, "ver", False):
