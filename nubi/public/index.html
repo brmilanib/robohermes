@@ -232,7 +232,7 @@ h2{font-size:15px;font-weight:650}
 .card.pad table.t td{padding:6px 8px}
 .card .t td.first{max-width:280px;overflow:hidden;text-overflow:ellipsis}
 .card .t td.first.wrap{max-width:none}
-td.acoes{white-space:normal;min-width:120px} td.acoes .btn{margin:2px 0}
+td.acoes{white-space:normal;min-width:120px} td.acoes .btn{margin:2px 0;display:flex;width:100%;justify-content:center;white-space:nowrap}
 .form-row.fr-acao{grid-template-columns:1fr 1fr auto;align-items:end;margin-top:0}
 @media (max-width:600px){.form-row.fr-acao{grid-template-columns:1fr}}
 select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;font-weight:600;border-radius:var(--r)}
@@ -242,6 +242,9 @@ select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;f
 .navi{padding:7px 10px;margin-bottom:2px;font-weight:500;align-items:center;gap:9px}
 .navi .ic{font-size:16px}
 .navi.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);font-weight:600}
+.master{color:var(--good);font-weight:700}
+.reg{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:3px;border-radius:50%;
+  border:1.5px solid var(--accent);color:var(--accent);font-size:8.5px;font-weight:800;line-height:1;vertical-align:super}
 .navi .cont{margin-left:auto;font-size:12px;font-weight:500}
 .navi .seta{border:none;background:none;color:var(--muted);font-size:13px;padding:2px 4px;margin-left:2px;border-radius:6px;cursor:pointer;line-height:1}
 .navi .seta:hover{background:var(--soft);color:var(--ink)}
@@ -1549,6 +1552,8 @@ function abrirUploadVendedor() {
 }
 
 // ---------- Nomes de marcas (juntar YSL = Yves Saint Laurent) ----------
+// Marca oficial (master): o nome para onde vão as outras grafias.
+const master = m => `<span class="master" title="Marca oficial (master): as outras grafias viram esta">${esc(m)}<sup class="reg">R</sup></span>`;
 // Onde a grafia aparece, sempre no último mês/período de cada fonte (não é soma de meses).
 function infoMarca(inf) {
   if (!inf) return "";
@@ -1573,11 +1578,11 @@ async function telaNomesMarcas() {
     Vale para os dados já importados: não precisa importar de novo.</p>
     <div class="grid2" style="margin-top:14px">
       <div class="card pad"><h2>Sugestões para conferir <span class="muted" style="font-weight:400">(${r.sugestoes.length})</span></h2>
-        <div class="muted" style="font-size:12.5px;margin-bottom:8px">Pares que parecem a mesma marca. "Juntar" manda o primeiro nome para o segundo (o nome do ranking, quando existe). "Não é a mesma" esconde a sugestão.
+        <div class="muted" style="font-size:12.5px;margin-bottom:8px">Pares que parecem a mesma marca. "Juntar" manda o primeiro nome para a marca oficial <span class="master">em verde<sup class="reg">R</sup></span> (o nome do ranking, quando existe). "Não é a mesma" esconde a sugestão.
           Embaixo de cada nome: onde ele aparece, sempre no <b>último mês</b> de cada fonte — 🏆 ranking do Nubimetrics (mercado inteiro), 🏪 seus vendedores monitorados, 🔎 Explorador (período do arquivo).</div>
         ${r.sugestoes.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><tbody>${r.sugestoes.map((x, i) => `<tr>
-          <td class="first wrap" style="min-width:200px">${esc(x.apelido)}${infoMarca(x.info_apelido)}</td>
-          <td>→</td><td class="first wrap" style="min-width:200px">${esc(x.marca)}${infoMarca(x.info_marca)}</td>
+          <td class="first wrap" style="min-width:150px">${esc(x.apelido)}${infoMarca(x.info_apelido)}</td>
+          <td>→</td><td class="first wrap" style="min-width:150px">${master(x.marca)}${infoMarca(x.info_marca)}</td>
           <td><span class="st ${x.motivo === "nome contido" ? "warn" : ""}">${esc(MOT[x.motivo])}</span></td>
           <td class="acoes"><button class="btn small primary" data-j="${i}">Juntar</button> <button class="btn small" data-n="${i}">Não é a mesma</button></td></tr>`).join("")}</tbody></table></div>`
           : `<div class="muted">Nenhuma sugestão agora.</div>`}
@@ -1588,7 +1593,7 @@ async function telaNomesMarcas() {
           <label class="f">Nome oficial<input id="ap-b" list="ap-m" placeholder="YVES SAINT LAURENT"></label>
           <button class="btn primary" id="ap-add">Juntar</button></div>
         <datalist id="ap-m">${r.marcas.map(m => `<option value="${esc(m)}">`).join("")}</datalist>
-        <table class="t" style="font-size:12.5px;margin-top:12px"><tbody>${r.apelidos.map(x => `<tr><td class="first">${esc(x.apelido)}</td><td>→</td><td>${esc(x.marca)}</td>
+        <table class="t" style="font-size:12.5px;margin-top:12px"><tbody>${r.apelidos.map(x => `<tr><td class="first">${esc(x.apelido)}</td><td>→</td><td>${master(x.marca)}</td>
           <td><button class="btn small" data-x="${esc(x.apelido)}">desfazer</button></td></tr>`).join("") || `<tr><td class="muted">Nenhum ainda.</td></tr>`}</tbody></table>
         ${r.ignorados.length ? `<div class="muted" style="font-size:12px;margin-top:10px">Marcados como "não é a mesma": ${r.ignorados.map(x => `<a href="#" data-x="${esc(x.apelido)}">${esc(x.apelido)}</a>`).join(", ")} (clique para voltar a sugerir)</div>` : ""}
       </div>
