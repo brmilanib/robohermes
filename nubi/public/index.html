@@ -2409,7 +2409,21 @@ async function iniciar(sessao) {
   clearTimeout(S.agenteT); S.agenteT = setTimeout(cicloAgente, 20000);
   clearTimeout(S.coletorT); S.coletorT = setTimeout(cicloColetor, 4000);
   carregarAlertasN();
+  verificarVersao();
 }
+// Versão nova publicada: recarrega sozinho (sem precisar de Cmd+Shift+R). Se houver uma janela aberta
+// (importação, produto…), espera ela fechar para não perder nada.
+async function verificarVersao() {
+  clearTimeout(S.versaoT);
+  try {
+    const v = (await api("versao")).v;
+    if (v && S.versao && v !== S.versao) {
+      if (!document.querySelector(".modal-bg")) { toast("Nova versão do nubi: atualizando…", 2000); setTimeout(() => location.reload(), 1500); return; }
+    } else if (v && !S.versao) S.versao = v;
+  } catch { /* sem rede: tenta de novo depois */ }
+  S.versaoT = setTimeout(verificarVersao, 120000);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && S.sessao) verificarVersao(); });
 // Número do menu "Alertas de estoque": produtos sem estoque/parados em algum concorrente.
 async function carregarAlertasN(r) {
   try { r = r || await api("vend_alertas"); S.alertasN = r.produtos.filter(p => p.sem_estoque > 0).length; desenharMenu(); } catch { /* sem vendedores ainda */ }

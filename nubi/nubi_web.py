@@ -566,6 +566,9 @@ def atender(metodo, rota, q, corpo, token):
             for u in ult:
                 u["log"] = (u.get("log") or "")[-4000:]
             return _json({"execucoes": ult, "agendado": bool(CRON_SECRET and AGENTE_EMAIL)})
+        if rota == "versao":
+            # a página compara com a versão que carregou e se recarrega sozinha quando sai uma nova
+            return _json({"v": os.environ.get("VERCEL_GIT_COMMIT_SHA", "")[:12]})
         if rota == "painel":
             # A tabela acesso só devolve a linha de quem está liberado (RLS).
             if not repo._req("GET", "acesso", {"select": "email", "limit": 1}):
