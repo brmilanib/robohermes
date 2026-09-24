@@ -565,3 +565,4 @@ insert into public.rotinas (id, nome, descricao, responsavel, horario, dias_sema
 on conflict (id) do nothing;
 update public.rotinas set horario = '01:00' where id = 'coleta';   -- 25/09: a coleta roda de madrugada (o vigia segue este horário)
 update public.rotinas set horario = '00:40', ativo = true where id = 'gestor';
+alter table public.mac_comandos add column if not exists tarefa_id bigint;   -- comando pedido pelo agente de um card: a saída volta para o card

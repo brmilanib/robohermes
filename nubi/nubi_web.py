@@ -816,6 +816,14 @@ def atender(metodo, rota, q, corpo, token):
             if atual.get("status") == "proposta" and dec in ("aprovar", "recusar"):
                 mud.update(status="aprovada" if dec == "aprovar" else "recusada", decidido_por="Bruno")
             repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo=mud, prefer="return=minimal")
+            if d.get("texto"):
+                # o agente do card responde na hora (e pode pedir um comando da lista fechada ao Mac)
+                try:
+                    responder_card(repo, tid)
+                except Exception as e:  # noqa: BLE001
+                    repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": tid, "autor": "sistema", "tipo": "status",
+                                                                "texto": f"o agente não conseguiu responder agora ({str(e)[:150]})"}],
+                              prefer="return=minimal")
             return _json({"ok": True})
         if rota == "reuniao_tarefa_salvar" and metodo == "POST":
             d = json.loads(corpo or b"{}")
@@ -2336,6 +2344,56 @@ def rota_estoque(repo, metodo, rota, q, corpo):
     raise ErroNuvem("Rota desconhecida.", 404)
 
 
+# ---------------------------------------------------------------------------
+# Agente do card (Desenvolvimento): responde o dono na hora e, quando precisa, pede ao Mac um comando da lista
+# FECHADA (COMANDOS_MAC); o despachante do Mac executa e a saída volta como passo no próprio card.
+# ---------------------------------------------------------------------------
+PAPEL_CARD = ("Você é o agente responsável por esta tarefa de desenvolvimento do nubi e está conversando com o dono (Bruno) "
+              "dentro do card. Responda em português do Brasil, curto e direto (até 8 linhas), sempre sobre ESTA tarefa. "
+              "O que você PODE fazer agora: explicar, conferir o que já foi feito pelos passos do card, dizer o próximo passo e "
+              "pedir ao Mac mini UM comando da lista fechada abaixo (ele roda sozinho em até 1 minuto e a saída aparece no card). "
+              "O que você NÃO faz: escrever ou publicar código (isso é da sessão do Claude Code, que só anda quando está aberta; "
+              "diga isso com clareza quando for o caso), inventar comandos fora da lista, ou dizer que fez algo que não fez. "
+              "Nunca peça senhas, chaves ou tokens.")
+
+
+def responder_card(repo, tid):
+    t = (repo._req("GET", "reuniao_tarefas", {"select": "*", "id": repo._eq(int(tid))}) or [None])[0]
+    if not t:
+        return
+    evs = repo._req("GET", "tarefa_eventos", {"select": "autor,tipo,texto,criado_em", "tarefa_id": repo._eq(int(tid)),
+                                               "order": "id.desc", "limit": 20}) or []
+    hist = "\n".join(f"[{e['autor']}] {e['texto'][:1200]}" for e in reversed(evs))
+    est = (repo._req("GET", "mac_estado", {"select": "visto_em", "id": "eq.1"}) or [None])[0]
+    online = bool(est and est.get("visto_em") and (datetime.now(timezone.utc) - datetime.fromisoformat(
+        str(est["visto_em"]).replace("Z", "+00:00"))).total_seconds() < 300)
+    lista = "\n".join(f"- {k}: {v}" for k, v in COMANDOS_MAC.items() if k != "baixar_modelo")
+    pedido = (PAPEL_CARD + f"\n\nTAREFA #{t['id']} ({t.get('status')}, responsável {t.get('responsavel') or 'claude_code'}): "
+              f"{t.get('titulo')}\n{t.get('descricao') or ''}\nNota: {t.get('notas') or '-'}"
+              f"\n\nMAC MINI: {'online' if online else 'OFFLINE (não peça comando; diga que o Mac está sem sinal)'}"
+              f"\nCOMANDOS PERMITIDOS (chave: o que faz):\n{lista}"
+              f"\n\nCONVERSA DO CARD (mais antiga primeiro; 'voce' é o dono):\n{hist}"
+              '\n\nResponda SOMENTE com JSON: {"resposta": "<texto para o dono>", "comando": "<chave da lista ou null>"}')
+    ia.USO["origem"] = f"card #{tid}"
+    j, _, qual = ia.perguntar_json(pedido, web=False, max_tokens=1500, qual="claude" if ia.tem("claude") else None,
+                                   sistema=agentes.SISTEMA)
+    resposta = str(j.get("resposta") or "").strip()
+    if not resposta:
+        raise ErroNuvem("resposta vazia da IA")
+    autor = "claude" if qual == "claude" else {"chatgpt": "chatgpt", "codex": "chatgpt", "deepseek": "deepseek", "ollama": "gptoss"}.get(qual, "claude")
+    agora_ = datetime.now(timezone.utc).isoformat()
+    eventos = [{"tarefa_id": int(tid), "autor": autor, "tipo": "passo", "texto": resposta[:4000], "criado_em": agora_}]
+    cmd = j.get("comando")
+    if cmd and cmd in COMANDOS_MAC and cmd != "baixar_modelo" and online:
+        novo = repo._req("POST", "mac_comandos", corpo=[{"comando": cmd, "arg": None, "pedido_por": f"agente do card #{tid}",
+                                                          "status": "pendente", "criado_em": agora_, "tarefa_id": int(tid)}],
+                         prefer="return=representation")
+        eventos.append({"tarefa_id": int(tid), "autor": "mac", "tipo": "passo", "criado_em": agora_,
+                        "texto": f"🖥️ Na fila do Mac: **{COMANDOS_MAC[cmd]}** (comando #{novo[0]['id']}). A saída aparece aqui."})
+    repo._req("POST", "tarefa_eventos", corpo=eventos, prefer="return=minimal")
+    repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(int(tid))}, corpo={"atualizado_em": agora_}, prefer="return=minimal")
+
+
 # Terminal do Mac: lista FECHADA (o Mac confere de novo do lado dele); nada vira comando livre
 COMANDOS_MAC = {
     "status": "Status das coletas", "diario": "Rodar a coleta agora", "parar_coleta": "Parar a coleta em andamento",
@@ -2380,6 +2438,15 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             if reg["status"] in ("ok", "erro", "recusado"):
                 reg["fim"] = agora_
             repo._req("PATCH", "mac_comandos", {"id": repo._eq(int(sd["id"]))}, corpo=reg, prefer="return=minimal")
+            if reg["status"] in ("ok", "erro", "recusado"):
+                # comando pedido pelo agente de um card: a saída volta para o card
+                c = (repo._req("GET", "mac_comandos", {"select": "comando,tarefa_id", "id": repo._eq(int(sd["id"]))}) or [{}])[0]
+                if c.get("tarefa_id"):
+                    ic = {"ok": "✅", "erro": "⚠️", "recusado": "⛔"}[reg["status"]]
+                    fim = reg["saida"].strip()[-1500:] or "(sem saída)"
+                    repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": c["tarefa_id"], "autor": "mac", "tipo": "passo", "criado_em": agora_,
+                                                                "texto": f"{ic} Mac terminou **{COMANDOS_MAC.get(c['comando'], c['comando'])}**:\n```\n{fim}\n```"}],
+                              prefer="return=minimal")
         pend = []
         if d.get("info") is not None:
             pend = repo._req("GET", "mac_comandos", {"select": "id,comando,arg", "status": "eq.pendente", "order": "id", "limit": 3}) or []

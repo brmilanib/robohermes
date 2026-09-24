@@ -436,6 +436,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .dc-av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:16px;flex:none;background:var(--card);position:relative;box-shadow:0 0 0 2px var(--c)}
 .vivo .dc-av::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--c);opacity:.6;animation:dcp 1.6s ease-out infinite}
 @keyframes dcp{from{transform:scale(.85);opacity:.7}to{transform:scale(1.25);opacity:0}}
+.dc-parado{font-size:12.5px;color:var(--muted);background:var(--soft);border-radius:8px;padding:7px 9px;margin-top:6px}
 .dc-dig{display:inline-flex;gap:3px;vertical-align:middle}.dc-dig i{width:5px;height:5px;border-radius:50%;background:var(--muted);animation:dcd 1.2s infinite}
 .dc-dig i:nth-child(2){animation-delay:.2s}.dc-dig i:nth-child(3){animation-delay:.4s}
 @keyframes dcd{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
@@ -800,7 +801,7 @@ async function telaInicio() {
     ${(r.aguardando_voce || []).length ? `<a class="in-pede" href="#/central">⏳ ${r.aguardando_voce.length} tarefa(s) esperando sua resposta: ${r.aguardando_voce.map(t => esc("#" + t.id + " " + t.titulo)).join(" · ")}</a>` : ""}
     ${(r.andamento || []).length || (r.feitas_recentes || []).length ? `<section class="card pad in-dev"><div class="in-dev-cab"><h2>Novidades no nubi</h2><a class="in-mais" style="margin:0" href="#/central">Ver o desenvolvimento →</a></div>
       ${(r.andamento || []).map(t => { const a = agInfo(t.responsavel || "claude_code"); return `<a class="in-dev-it vivo" href="#/central"><span class="dc-av" style="--c:${a[2]}">${a[0]}</span>
-        <span><b>${esc(t.titulo)}</b><span class="muted"> · ${esc(a[1])} trabalhando</span></span><span class="dc-dig"><i></i><i></i><i></i></span></a>`; }).join("")}
+        <span><b>${esc(t.titulo)}</b><span class="muted"> · em execução com ${esc(a[1])}</span></span><span class="dc-dig"><i></i><i></i><i></i></span></a>`; }).join("")}
       ${(r.feitas_recentes || []).map(t => `<a class="in-dev-it" href="#/central"><span class="in-ok">✅</span><span><b>${esc(t.titulo)}</b><span class="muted"> · concluída ${esc(desde(t.atualizado_em))}</span></span></a>`).join("")}</section>` : ""}
     <section class="in-kpis">
       <a class="card in-kpi" href="#/vendas-dia"><span class="l">Vendas em ${ddmm(d.data)}</span><b>${d.tem ? abrev(t.v) : "—"}</b>
@@ -2599,14 +2600,17 @@ const DEV_COLS = [["proposta", "Propostas", "o Claude aprova as de risco baixo/m
 const AG_INFO = {claude_code: ["💻", "Claude (código)", "#b3541e"], claude: ["✴️", "Claude", "#d97757"], chatgpt: ["🧠", "ChatGPT", "#10a37f"],
   deepseek: ["🐋", "DeepSeek", "#4d6bfe"], gptoss: ["🦙", "gpt-oss", "#6b4fb3"], hermes: ["🪽", "Hermes", "#a2741a"], astra: ["🎨", "Astra", "#e0457b"],
   qwen: ["🔎", "Qwen", "#615ced"],
-  voce: ["👤", "Você", "#00a884"], sistema: ["⚙️", "Sistema", "#667781"]};
+  voce: ["👤", "Você", "#00a884"], sistema: ["⚙️", "Sistema", "#667781"], mac: ["🖥️", "Mac mini", "#3b4a54"]};
+// "trabalhando" só quando houve atividade de verdade nos últimos 20 min (antes o card piscava para sempre)
+const DEV_ATIVO_MIN = 20;
+const devAtivo = t => t.status === "em_desenvolvimento" && [t.ultimo_evento?.criado_em, t.iniciado_em].some(x => x && Date.now() - new Date(x) < DEV_ATIVO_MIN * 60000);
 const agInfo = k => AG_INFO[k] || AG_INFO[Object.keys(AG_INFO).find(x => AG_INFO[x][1] === k)] || ["🤖", k || "Agente", "#667781"];
 const quem = x => !x ? "?" : /^voc[eê]$/i.test(x) ? "Você" : x;
 const desde = t => { if (!t) return ""; const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
   return m < 1 ? "agora" : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h ${m % 60} min` : `há ${Math.floor(m / 1440)} d`; };
 function devCard(t) {
   const PRI = {alta: "", media: "", baixa: ""};
-  const vivo = t.status === "em_desenvolvimento", ag = agInfo(t.responsavel || "claude_code"), ev = t.ultimo_evento;
+  const vivo = devAtivo(t), parado = t.status === "em_desenvolvimento" && !vivo, ag = agInfo(t.responsavel || "claude_code"), ev = t.ultimo_evento;
   return `<div class="dev-card ${vivo ? "vivo" : ""} ${t.aguardando ? "pede" : ""}" data-abrir="${t.id}" tabindex="0" role="button" aria-label="Abrir tarefa ${t.id}">
     <div class="dc-top"><span class="dc-id">#${t.id}</span><span class="st ${PRI[t.prioridade] || ""}">${esc(t.prioridade || "")}</span>${t.area ? `<span class="st">${esc(t.area)}</span>` : ""}
       ${t.risco ? `<span class="st ${t.risco === "alto" ? "bad" : t.risco === "medio" ? "warn" : "good"}" title="risco avaliado pelo Claude">risco ${esc(t.risco === "medio" ? "médio" : t.risco)}</span>` : ""}
@@ -2616,6 +2620,8 @@ function devCard(t) {
     ${vivo ? `<div class="dc-vivo"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><div><b>${esc(ag[1])}</b> <span class="dc-dig"><i></i><i></i><i></i></span>
         <div class="dc-ev">${esc(ev ? ev.texto.slice(0, 110) : "trabalhando na tarefa")}</div>
         <div class="muted" style="font-size:11px">${t.iniciado_em ? "começou " + desde(t.iniciado_em) : ""}${ev ? " · último passo " + desde(ev.criado_em) : ""}</div></div></div>`
+      : parado ? `<div class="dc-parado">⏸ Parado ${ev ? "desde " + esc(desde(ev.criado_em)) : ""} · ${(t.responsavel || "claude_code") === "claude_code"
+          ? "código só anda com a sessão do Claude Code aberta" : "sem atividade do agente"}${ev ? `<div class="dc-ev">${esc(ev.texto.slice(0, 110))}</div>` : ""}</div>`
       : `<p class="dc-desc">${esc(t.descricao || "")}</p>`}
     <div class="dc-rod">${esc(quem(t.proposto_por))} → ${esc(quem(t.decidido_por))} · ${esc(desde(t.atualizado_em || t.criado_em))}</div></div>`;
 }
@@ -2656,18 +2662,20 @@ async function abrirTarefa(id) {
   document.querySelectorAll(".modal-bg.tarefa").forEach(x => x.remove());
   const bg = modal(`<div class="tf" id="tf"></div>`); bg.classList.add("tarefa");
   const desenhar = x => {
-    const t = x.tarefa, ag = agInfo(t.responsavel || "claude_code"), vivo = t.status === "em_desenvolvimento";
+    const t = x.tarefa, ag = agInfo(t.responsavel || "claude_code"), ue = x.eventos[x.eventos.length - 1];
+    const vivo = devAtivo({...t, ultimo_evento: ue}), parado = t.status === "em_desenvolvimento" && !vivo;
     const bolha = e => {
       if (e.tipo === "status") return `<div class="tf-sis">${esc(e.texto)} · ${esc(desde(e.criado_em))}</div>`;
       const a = agInfo(e.autor), eu = e.autor === "voce";
       return `<div class="tf-b ${eu ? "eu" : ""} ${e.tipo === "pergunta" ? "perg" : ""}">${eu ? "" : `<div class="tf-nm" style="color:${a[2]}">${a[0]} ${esc(a[1])}${e.tipo === "pergunta" ? " · pergunta" : ""}</div>`}
-        <div class="md">${mdSimples(e.texto)}</div><span class="tf-hr">${new Date(e.criado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</span></div>`;
+        ${mdCodigo(e.texto)}<span class="tf-hr">${new Date(e.criado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</span></div>`;
     };
     $("#tf", bg).innerHTML = `<div class="tf-cab"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><div style="min-width:0"><div class="muted" style="font-size:12px">#${t.id} · ${esc(DEV_ST[t.status][0])} · ${esc(ag[1])}</div>
         <h2 style="margin:0;font-size:17px">${esc(t.titulo)}</h2></div><div style="flex:1"></div><button class="btn small" data-fechar>✕</button></div>
       ${t.descricao ? `<details class="tf-desc" ${x.eventos.length ? "" : "open"}><summary>O que é para fazer</summary><p>${esc(t.descricao)}</p>${t.notas ? `<p><b>Nota:</b> ${esc(t.notas)}</p>` : ""}</details>` : ""}
       <div class="tf-lin" id="tf-lin">${x.eventos.map(bolha).join("") || `<div class="tf-sis">Ainda sem passos registrados.</div>`}
-        ${vivo ? `<div class="tf-b trab"><span class="dc-dig"><i></i><i></i><i></i></span> ${esc(ag[1])} está trabalhando…</div>` : ""}</div>
+        ${vivo ? `<div class="tf-b trab"><span class="dc-dig"><i></i><i></i><i></i></span> ${esc(ag[1])} está trabalhando…</div>` : ""}
+        ${parado ? `<div class="tf-sis">⏸ Sem atividade há mais de ${DEV_ATIVO_MIN} min. ${(t.responsavel || "claude_code") === "claude_code" ? "A parte de código só anda quando a sessão do Claude Code está aberta; " : ""}escreva aqui que o agente responde na hora.</div>` : ""}</div>
       ${t.aguardando ? `<div class="tf-pede"><b>⏳ ${esc(ag[1])} precisa de você:</b> ${esc(t.aguardando)}
         <div class="tf-bts"><button class="btn primary small" data-dec="aprovar">✅ Aprovar</button><button class="btn small" data-dec="recusar">❌ Não aprovar</button></div></div>` : ""}
       <div class="tf-in"><textarea id="tf-txt" rows="1" placeholder="Escreva para o agente desta tarefa…"></textarea><button class="btn primary" id="tf-env" title="Enviar">➤</button></div>
@@ -2676,8 +2684,12 @@ async function abrirTarefa(id) {
     const responder = async (decisao) => {
       const texto = $("#tf-txt", bg).value.trim();
       if (!decisao && !texto) return;
-      try { await api("tarefa_responder", {}, {method: "POST", body: JSON.stringify({id: t.id, texto, decisao})}); $("#tf-txt", bg).value = ""; atualizar(); }
-      catch (e) { toast(e.message, 6000); }
+      const lin = $("#tf-lin", bg), env = $("#tf-env", bg);
+      if (texto) { lin.insertAdjacentHTML("beforeend", `<div class="tf-b eu"><div class="md">${mdSimples(texto)}</div></div><div class="tf-b trab" id="tf-dig"><span class="dc-dig"><i></i><i></i><i></i></span> o agente está respondendo…</div>`); lin.scrollTop = lin.scrollHeight; }
+      $("#tf-txt", bg).value = ""; env.disabled = true; S.tfEnviando = true;
+      try { await api("tarefa_responder", {}, {method: "POST", body: JSON.stringify({id: t.id, texto, decisao})}); }
+      catch (e) { toast(e.message, 6000); $("#tf-txt", bg).value = texto; }
+      finally { S.tfEnviando = false; env.disabled = false; atualizar(); }
     };
     $("#tf-env", bg).onclick = () => responder();
     $("#tf-txt", bg).onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); responder(); } };
@@ -2690,7 +2702,7 @@ async function abrirTarefa(id) {
   const atualizar = async () => { try { const x = await api("tarefa_eventos", {id}); if (document.body.contains(bg)) desenhar(x); } catch { /* tenta de novo no próximo ciclo */ } };
   desenhar(r);
   const tm = setInterval(() => { if (!document.body.contains(bg)) { clearInterval(tm); telaDev(true); return; }
-    if (document.activeElement !== $("#tf-txt", bg)) atualizar(); }, 5000);
+    if (document.activeElement !== $("#tf-txt", bg) && !S.tfEnviando) atualizar(); }, 5000);
 }
 // ---------- Auditoria de dados e código (ChatGPT analisa, Claude revisa; ninguém muda nada sozinho) ----------
 function mdCodigo(t) {

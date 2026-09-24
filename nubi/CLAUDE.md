@@ -68,3 +68,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   estrutura do banco, pagamentos/compras, login do Nubimetrics, publicar para clientes) sempre vão para o Bruno.
 - Na execução, a sessão de código decide os detalhes técnicos sozinha; só pergunta ao Bruno (evento `pergunta` +
   `aguardando`) o que for de risco alto.
+
+## Agente do card (25/09)
+
+- Quando o Bruno escreve num card, `responder_card` (nubi_web.py) responde na hora com o Claude (API): lê a tarefa e os
+  passos, responde e pode pedir UM comando da lista fechada `COMANDOS_MAC` (grava em `mac_comandos` com `tarefa_id`).
+  O despachante do Mac executa e a saída volta ao card como passo do autor `mac`. O agente do card não escreve código.
+- "Em execução" só mostra "trabalhando" se houve passo nos últimos 20 min; senão o card aparece como ⏸ parado.
+  Tarefa de código parada volta para `aprovada`, não fica fingindo execução.
