@@ -52,6 +52,14 @@ def numeros(t):
     return set(achados), (achados[-1] if cortado and achados else None)
 
 
+def _final_cortado(t):
+    """Última palavra (pela metade) de um título cortado nos 40 caracteres, ou None."""
+    if len(t or "") < 39:
+        return None
+    m = re.search(r"([a-z]+)$", _norm(t).strip())
+    return m.group(1) if m else None
+
+
 def _numeros_batem(a, b):
     (na, pa), (nb, pb) = numeros(a), numeros(b)
     if not na or not nb:
@@ -101,6 +109,10 @@ def compativeis(a, b):
     if quantidade(a["titulo"]) != quantidade(b["titulo"]):
         return False                               # kit x unidade, kit de 3 x kit de 5
     if not _numeros_batem(a["titulo"], b["titulo"]):
+        return False
+    # os dois títulos cortados numa letra diferente ('Vodka D…' x 'Vodka M…'): variantes diferentes
+    fa, fb = _final_cortado(a["titulo"]), _final_cortado(b["titulo"])
+    if fa and fb and len(fa) <= 2 and len(fb) <= 2 and not (fa.startswith(fb) or fb.startswith(fa)):
         return False
     ca, cb = concentracoes(a["titulo"]), concentracoes(b["titulo"])
     if ca and cb and ca != cb:
