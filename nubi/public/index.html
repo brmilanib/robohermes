@@ -242,6 +242,10 @@ select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;f
 .navi{padding:7px 10px;margin-bottom:2px;font-weight:500;align-items:center;gap:9px}
 .navi .ic{font-size:16px}
 .navi.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);font-weight:600}
+.navi .cont{margin-left:auto;font-size:12px;font-weight:500}
+.navi .seta{border:none;background:none;color:var(--muted);font-size:13px;padding:2px 4px;margin-left:2px;border-radius:6px;cursor:pointer;line-height:1}
+.navi .seta:hover{background:var(--soft);color:var(--ink)}
+.navi .badge + .seta,.navi .cont + .seta{margin-left:2px}
 .navi .badge{margin-left:auto;background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:0 7px;font-size:11.5px;font-weight:700}
 .subnav{margin:0 0 6px 30px}
 .subnav a{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px}
@@ -440,25 +444,39 @@ function desenharMenu() {
   if (ordenadas.length > 10) marcas.push({href: "#/", nome: S.marcasTodas ? "mostrar menos" : `ver todas (${ordenadas.length})`, mais: true});
   const vendOn = h.startsWith("#/vendedores/");
   const nAl = S.alertasN || 0;
+  // listas que abrem e fecham (setinha); começam fechadas e o nubi lembra a escolha
+  const ab = menuAberto();
+  const cont = n => n ? `<span class="muted cont">${n}</span>` : "";
+  const seta = (k, tem) => tem ? `<button class="seta" data-seta="${k}" title="${ab[k] ? "Esconder a lista" : "Mostrar a lista"}">${ab[k] ? "▾" : "▸"}</button>` : "";
   $("#side").innerHTML = `
     <div class="grupo">Mercado</div>
-    ${it("#/ranking", "🏆", "Ranking de marcas", sec === "ranking")}
-    ${sec === "ranking" && cats.length > 1 ? sub(cats) : ""}
-    ${it("#/", "🔎", "Explorador de anúncios", sec === "explorador")}
-    ${sec === "explorador" ? sub(marcas) : ""}
+    ${it("#/ranking", "🏆", "Ranking de marcas", sec === "ranking", (cats.length > 1 ? cont(cats.length) : "") + seta("ranking", cats.length > 1))}
+    ${ab.ranking && cats.length > 1 ? sub(cats) : ""}
+    ${it("#/", "🔎", "Explorador de anúncios", sec === "explorador", cont(S.painel.length) + seta("explorador", S.painel.length > 0))}
+    ${ab.explorador ? sub(marcas) : ""}
     <div class="grupo">Concorrentes</div>
     ${it("#/vendedores", "📊", "Visão geral", h === "#/vendedores" || h.startsWith("#/vendedores?"))}
     ${it("#/alertas", "🚨", "Alertas de estoque", h.startsWith("#/alertas"), nAl ? `<span class="badge" title="produtos sem estoque ou parados nos concorrentes">${nAl}</span>` : "")}
     ${it((S.vendLista || []).length ? "#/vendedores/" + encodeURIComponent((S.vendLista.find(v => h.startsWith("#/vendedores/" + v.vendedor)) || S.vendLista[0]).vendedor) : "#/vendedores", "🏪", "Vendedores", vendOn,
-      `<span class="muted" style="margin-left:auto;font-size:12px">${(S.vendLista || []).length || ""}</span>`)}
-    <div class="subnav" id="sub-vend"></div>
+      cont((S.vendLista || []).length) + seta("vendedores", (S.vendLista || []).length > 0))}
+    ${ab.vendedores ? `<div class="subnav" id="sub-vend"></div>` : ""}
     <div class="grupo">Ajustes</div>
     ${it("#/nomes-marcas", "🔗", "Nomes de marcas", h.startsWith("#/nomes-marcas"))}
     ${it("#/nomes-vendedores", "🔗", "Nomes de vendedores", h.startsWith("#/nomes-vendedores"))}
     ${it("#/coletor", "📥", "Coletor e agente", h.startsWith("#/coletor"))}`;
   desenharVendMenu();
   if ($("#mtodas")) $("#mtodas").onclick = e => { e.preventDefault(); S.marcasTodas = !S.marcasTodas; desenharMenu(); };
+  document.querySelectorAll("[data-seta]").forEach(b => b.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const a = menuAberto(); a[b.dataset.seta] = !a[b.dataset.seta];
+    try { localStorage.setItem("nubi.menu", JSON.stringify(a)); } catch { /* sem armazenamento: vale só nesta visita */ }
+    S.menuAb = a; desenharMenu();
+  });
   desenharAgente();
+}
+function menuAberto() {
+  if (!S.menuAb) { try { S.menuAb = JSON.parse(localStorage.getItem("nubi.menu") || "{}"); } catch { S.menuAb = {}; } }
+  return S.menuAb;
 }
 // Lista de vendedores no menu: busca + os 8 maiores (ou todos com "ver todos").
 function desenharVendMenu() {
