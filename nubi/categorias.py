@@ -119,8 +119,9 @@ def relatorio(meses, linhas_por_mes, manuais=None):
             serie[cat]["marcas"][i] += 1
             total[i] += v
             m = marcas.setdefault(nubi.compacta(nome), {"marca": nome, "categoria": cat, "fonte": fonte,
-                                                         "vendas": [None] * n, "posicao": [None] * n})
+                                                         "vendas": [None] * n, "posicao": [None] * n, "un": [None] * n})
             m["vendas"][i] = v
+            m["un"][i] = int(l.get("unidades") or 0)
             m["posicao"][i] = l.get("posicao")
     for c in cats:
         s = serie[c]
@@ -132,6 +133,8 @@ def relatorio(meses, linhas_por_mes, manuais=None):
     for m in lista:
         u, a = m["vendas"][-1], (m["vendas"][-2] if n > 1 else None)
         m["ultimo"] = u
+        uu = m["un"][-1]
+        m["preco_medio"] = (u / uu) if u and uu else None
         m["var_mes"] = (u / a - 1) if u is not None and a else None
         m["share_cat"] = (u or 0) / serie[m["categoria"]]["vendas"][-1] if serie[m["categoria"]]["vendas"][-1] else 0
     return {"meses": [m[:7] for m in meses], "categorias": cats, "serie": serie, "total": total, "marcas": lista,

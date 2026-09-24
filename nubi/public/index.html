@@ -981,13 +981,21 @@ async function telaCategorias(cat) {
         <table class="t" style="font-size:12.5px"><tbody>${top.map(m => `<tr><td class="first">${rkLink(m.marca)}</td><td>${sparkSerie(m.vendas.map(v => v || 0))}</td>
           <td class="num">${abrev(m.ultimo)}</td><td class="num muted">${FMT.pct(m.share_cat)} da categoria</td><td class="num">${pctCor(m.var_mes)}</td></tr>`).join("")}</tbody></table></div>` : ""; }).join("")}
     </div>
+    ${(() => { const alvo = r.marcas.filter(m => (m.categoria === "Outros" || m.categoria === "Sem categoria") && m.fonte !== "manual");
+      return alvo.length ? `<div class="card pad" style="margin-top:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:260px"><b>🔎 Pesquisar a categoria certa</b><div class="muted" style="font-size:12.5px;margin-top:2px">
+        ${alvo.length} marca(s) em Outros ou Sem categoria. O nubi olha o país do código de barras dos produtos, pesquisa a marca na internet
+        (busca e Wikipédia) e o preço médio, e sugere a categoria. Você confere e aplica.</div></div>
+        <button class="btn primary" id="cat-pesq">Pesquisar ${alvo.length} marca(s)</button></div>` : ""; })()}
     <h2 style="margin:22px 0 0">Todas as marcas e a categoria de cada uma</h2>
     <p class="muted" style="margin:4px 0 0;font-size:12.5px">A categoria vem de uma lista de marcas conhecidas (<i>automática</i>). Troque na coluna Categoria quando quiser: a sua escolha vale para todos os meses.</p>
     <div id="cat-tab" class="painel"></div></div>`;
   const linhas = r.marcas.map(m => ({...m, spark: m.vendas.map(v => v || 0), pos: m.posicao[ult], origem: m.fonte === "manual" ? "sua escolha" : m.fonte === "auto" ? "automática" : "—"}));
   tabela($("#cat-tab"), "cat_marcas", linhas, [["marca","Marca","rkmarca","txt"],["categoria","Categoria","catsel","sel"],["origem","Origem","txt","sel"],
-    ["spark","Vendas mês a mês","sparku"],["ultimo",`Vendas ${mesCurto(M[ult])}`,"moeda"],["var_mes","Var. mês","var"],["share_cat","% da categoria","pct"],["pos",`# ${mesCurto(M[ult])}`,"int"]],
+    ["spark","Vendas mês a mês","sparku"],["ultimo",`Vendas ${mesCurto(M[ult])}`,"moeda"],["var_mes","Var. mês","var"],["share_cat","% da categoria","pct"],["pos",`# ${mesCurto(M[ult])}`,"int"],
+    ["pesq","Pesquisar","pesq"]],
     {ordem: ["ultimo", -1]});
+  if ($("#cat-pesq")) $("#cat-pesq").onclick = () => pesquisarCategorias(r.marcas.filter(m => (m.categoria === "Outros" || m.categoria === "Sem categoria") && m.fonte !== "manual"));
   biRedesenhar = [
     () => grafColunas($("#g-cat-v"), {rotulos: rot, fmt: abrev, fmtEixo: abrevEixo, altura: 260,
       series: cats.map(c => ({nome: c, cor: COR_CAT[c], v: r.serie[c].vendas})),
@@ -999,6 +1007,51 @@ async function telaCategorias(cat) {
   ];
   biRedesenhar.forEach(g => g());
   desenharMenu();
+}
+// Pesquisa a categoria de cada marca (código de barras + internet + preço) e mostra as sugestões para aplicar.
+async function pesquisarCategorias(lista) {
+  const res = [];
+  const bg = modal(`<div style="display:flex;gap:12px;align-items:flex-start"><div style="flex:1"><h2 style="margin:0">🔎 Pesquisando categorias</h2>
+      <div class="muted" id="pq-st" style="margin-top:4px"></div></div><button class="btn" data-fechar>Fechar</button></div>
+    <div class="prog" style="margin:12px 0"><i id="pq-bar" style="width:0%"></i></div><div id="pq-lista"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn primary hidden" id="pq-todas">Aplicar as sugestões de confiança alta e média</button></div>`);
+  bg.querySelector(".modal").classList.add("larga");
+  const CONF = {alta: "good", "média": "warn", baixa: ""};
+  const desenhar = () => {
+    $("#pq-lista", bg).innerHTML = `<div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Marca</th><th>Hoje</th><th>Sugestão</th><th>Confiança</th><th>Por quê</th><th></th></tr></thead><tbody>
+      ${res.map((x, i) => `<tr><td class="first">${esc(x.marca)}</td><td>${ICO_CAT[x.atual]} ${esc(x.atual)}</td>
+        <td>${x.erro ? `<span class="neg">${esc(x.erro)}</span>` : x.sugestao ? `<b style="color:${COR_CAT[x.sugestao]}">${ICO_CAT[x.sugestao]} ${esc(x.sugestao)}</b>` : `<span class="muted">sem pistas</span>`}</td>
+        <td>${x.confianca ? `<span class="st ${CONF[x.confianca]}">${esc(x.confianca)}</span>` : ""}</td>
+        <td class="wrap" style="min-width:300px">${(x.evidencias || []).slice(0, 4).map(e => `<div><small><b>${esc(e.fonte)}:</b> ${e.link ? `<a href="${esc(e.link)}" target="_blank" rel="noopener">${esc(e.texto)}</a>` : esc(e.texto)}</small></div>`).join("") || `<small class="muted">nada encontrado</small>`}</td>
+        <td class="acoes">${x.aplicado ? `<span class="st good">aplicado</span>` : x.sugestao && x.sugestao !== x.atual ? `<button class="btn small primary" data-apl="${i}">Aplicar</button>` : ""}
+          ${x.google ? `<a class="btn small" href="${esc(x.google)}" target="_blank" rel="noopener">Google ↗</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`;
+    bg.querySelectorAll("[data-apl]").forEach(b => b.onclick = () => aplicar([res[b.dataset.apl]]));
+  };
+  const aplicar = async xs => {
+    const c = carregando(`Aplicando ${xs.length} categoria(s)`);
+    try {
+      for (const x of xs) { await api("ranking_categoria_salvar", {}, {method: "POST", body: JSON.stringify({marca: x.marca, categoria: x.sugestao})}); x.aplicado = true; }
+      desenhar(); S.catsMudou = true; c.ok(xs.length === 1 ? `${xs[0].marca}: ${xs[0].sugestao}` : `${xs.length} marcas atualizadas`);
+    } catch (e) { c.erro(e.message); }
+  };
+  for (let i = 0; i < lista.length; i++) {
+    const m = lista[i];
+    $("#pq-st", bg).textContent = `${i + 1} de ${lista.length}: ${m.marca}`;
+    try {
+      const r = await api("ranking_categoria_pesquisar", {}, {method: "POST", body: JSON.stringify({marca: m.marca, preco_medio: m.preco_medio})});
+      res.push({...r, atual: m.categoria});
+    } catch (e) { res.push({marca: m.marca, atual: m.categoria, erro: e.message}); }
+    $("#pq-bar", bg).style.width = Math.round(100 * (i + 1) / lista.length) + "%";
+    desenhar();
+    if (!document.body.contains(bg)) return;         // fechou a janela: para
+  }
+  $("#pq-st", bg).textContent = `Pronto: ${res.filter(x => x.sugestao).length} de ${res.length} com sugestão. Confira as pistas antes de aplicar.`;
+  const boas = res.filter(x => x.sugestao && x.sugestao !== x.atual && x.confianca !== "baixa");
+  const bt = $("#pq-todas", bg);
+  if (boas.length) { bt.classList.remove("hidden"); bt.textContent = `Aplicar as ${boas.length} sugestões de confiança alta e média`; bt.onclick = () => aplicar(boas.filter(x => !x.aplicado)); }
+  // ao fechar, atualiza a tela se algo mudou
+  new MutationObserver((_, obs) => { if (!document.body.contains(bg)) { obs.disconnect(); if (S.catsMudou) { S.catsMudou = false; telaCategorias(S.cats.categoria); } } })
+    .observe(document.body, {childList: true});
 }
 async function trocarCategoria(marca, categoria) {
   const c = carregando(`Mudando ${marca} para ${categoria || "automática"}`);
@@ -2174,6 +2227,7 @@ function celula(r, k, f, i) {
   if (f === "editar") return `<td><button class="btn small" data-edit="${esc(r.gtin)}">Corrigir</button></td>`;
   if (f === "wrap") return `<td class="wrap">${esc(v)}</td>`;
   if (f === "sparku") return `<td>${sparkSerie(v)}</td>`;
+  if (f === "pesq") return `<td><button class="btn small" title="Pesquisar a categoria desta marca" onclick="pesquisarCategorias([S.cats.marcas.find(m => m.marca === ${esc(JSON.stringify(r.marca))})])">🔎</button></td>`;
   if (f === "catsel") return `<td><select class="catsel" data-cm="${esc(r.marca)}" style="border-left:4px solid ${COR_CAT[v]}">
     ${[...S.cats.opcoes, "Sem categoria"].map(o => `<option ${o === v ? "selected" : ""} value="${o === "Sem categoria" ? "" : esc(o)}">${ICO_CAT[o]} ${esc(o)}</option>`).join("")}
     ${r.fonte === "manual" ? `<option value="">↺ voltar para a automática</option>` : ""}</select></td>`;

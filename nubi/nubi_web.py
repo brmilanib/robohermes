@@ -26,6 +26,7 @@ import pandas as pd
 import nubi
 import ranking
 import categorias
+import pesquisa_marca
 import vend_bi
 import vendedores
 
@@ -942,6 +943,19 @@ def rota_ranking(repo, metodo, rota, q, corpo):
         r = categorias.relatorio([x["mes"] for x in rels], [por_rel[x["id"]] for x in rels], manuais)
         r.update({"categoria": cat, "categoria_nome": ranking.nome_categoria(cat), "opcoes": categorias.CATEGORIAS})
         return r
+
+    if rota == "ranking_categoria_pesquisar" and metodo == "POST":
+        # sugere a categoria: país do código de barras dos produtos da marca + internet + preço médio
+        d = json.loads(corpo or b"{}")
+        marca = (d.get("marca") or "").strip()
+        if not marca:
+            raise ErroNuvem("Informe a marca.")
+        gtins = [r["gtin"] for r in repo._req("GET", "vend_anuncios", {"select": "gtin", "marca": repo._eq(marca),
+                                                                        "gtin": "neq.", "limit": 400}) or []]
+        gtins += [r["gtin"] for r in repo._req("GET", "anuncios", {"select": "gtin", "marca_anuncio": repo._eq(marca),
+                                                                    "gtin": "neq.", "limit": 400}) or []]
+        preco = d.get("preco_medio")
+        return pesquisa_marca.sugerir(marca, gtins, float(preco) if preco else None)
 
     if rota == "ranking_categoria_salvar" and metodo == "POST":
         d = json.loads(corpo or b"{}")
