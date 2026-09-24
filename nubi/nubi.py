@@ -1241,6 +1241,11 @@ def importar_dados(repo, cfg, nome, dados, obter_marca_periodo):
     marca, ini, fim = mp
     if ident and ident["oficial"] and compacta(marca) == compacta(ident["marca"]):
         marca = ident["marca"]    # grafia oficial vence a digitada/do nome do arquivo
+    return _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes)
+
+
+def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes):
+    """Grava os anúncios (df) como um período da marca: renomeia grafia antiga, consolida e salva."""
     # Mesma marca já cadastrada com outra grafia ("MONT BLANC" x "MONTBLANC"): renomeia.
     for antiga in existentes:
         if antiga != marca and compacta(antiga) == compacta(marca):
@@ -2129,3 +2134,97 @@ if __name__ == "__main__":
         print("\nAlgo deu errado e o programa parou. O detalhe técnico foi salvo em "
               "dados/erro.log — mande esse arquivo para quem dá suporte.")
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Arquivo com várias marcas (ex.: busca "Dolce" traz Dolce & Gabbana e o Egeo Dolce do Boticário)
+# ---------------------------------------------------------------------------
+
+def _chave_grupo(m):
+    """DOLCE & GABBANA, DOLCE AND GABBANA, DOLCE E GABBANA, Dolce&Gabbana -> DOLCEGABBANA."""
+    t = sem_acento(str(m or "")).upper()
+    t = re.sub(r"\s*&\s*|\s+(AND|E|Y)\s+", " ", t)
+    return compacta(t)
+
+
+def agrupar_marcas(df, existentes=(), apelidos=None):
+    """
+    Separa os anúncios do arquivo por marca (coluna Marca), juntando grafias da mesma marca:
+      - '&', 'AND', 'E' e espaços não contam; apelidos cadastrados em Nomes de marcas valem;
+      - grafias quase iguais (erro de digitação: GABANNA x GABBANA) juntam na maior;
+      - marca pequena cujos GTINs são do mesmo fabricante (prefixo de 7 dígitos) de uma marca grande
+        do arquivo junta nela (ex.: EGEO -> O BOTICÁRIO).
+    Devolve grupos ordenados por vendas: {chave, marca, grafias, anuncios, un, fat, pct, sugerida, linhas}.
+    """
+    import difflib
+    apelidos = {compacta(k): v for k, v in (apelidos or {}).items()}
+    exist = {_chave_grupo(e): e for e in existentes}
+    d = df.assign(m=df["marca_anuncio"].fillna("").str.strip())
+    d = d.assign(m=d["m"].where(d["m"] != "", "(SEM MARCA)"))
+    d = d.assign(k=d["m"].map(lambda m: _chave_grupo(apelidos.get(compacta(m), m))))
+    tam = d.groupby("k")["fat"].sum() + d.groupby("k")["un"].sum()
+    # grafias quase iguais -> a de maior venda
+    chaves = list(tam.sort_values(ascending=False).index)
+    destino = {}
+    for i, k in enumerate(chaves):
+        for maior in chaves[:i]:
+            maior = destino.get(maior, maior)
+            if len(k) >= 6 and difflib.SequenceMatcher(None, k, maior).ratio() >= 0.88:
+                destino[k] = maior
+                break
+    d = d.assign(k=d["k"].map(lambda k: destino.get(k, k)))
+    # fabricante pelo GTIN: prefixo -> marca grande dona do prefixo
+    tot = d.groupby("k").agg(n=("m", "size"), fat=("fat", "sum"))
+    grandes = set(tot[(tot["n"] >= 20) | (tot["fat"] >= tot["fat"].sum() * 0.05)].index)
+    g = d[d["gtin"].fillna("").str.len() >= 12].assign(pre=lambda x: x["gtin"].str[:7])
+    dono = (g[g["k"].isin(grandes)].groupby(["pre", "k"])["un"].sum().reset_index()
+            .sort_values("un", ascending=False).drop_duplicates("pre").set_index("pre")["k"])
+    for k in set(tot.index) - grandes:
+        pres = g[g["k"] == k]["pre"]
+        if len(pres) >= 1:
+            alvo = pres.map(dono).dropna()
+            if len(alvo) and alvo.value_counts().iloc[0] >= 0.6 * len(pres):
+                d.loc[d["k"] == k, "k"] = alvo.value_counts().index[0]
+    total = float(d["fat"].sum()) or 1.0
+    grupos = []
+    for k, x in d.groupby("k"):
+        grafias = x.groupby("m")["un"].sum().sort_values(ascending=False)
+        marca = exist.get(k) or chave_marca(grafias.index[0])
+        fat = float(x["fat"].sum())
+        grupos.append({"chave": k, "marca": marca, "nome": nome_bonito(marca),
+                       "grafias": [str(m) for m in grafias.index[:8]], "anuncios": int(len(x)), "un": int(x["un"].sum()),
+                       "fat": fat, "pct": fat / total, "existente": k in exist,
+                       "sugerida": k != "SEMMARCA" and (len(x) >= 15 or fat >= total * 0.03),
+                       "linhas": list(x.index)})
+    return sorted(grupos, key=lambda x: -x["fat"])
+
+
+def importar_por_marca(repo, cfg, nome, dados, ini, fim, escolhidas, apelidos=None):
+    """Importa um arquivo misturado: cada marca escolhida vira um período (card) próprio. Devolve as marcas gravadas."""
+    try:
+        df, _ = ler_csv(dados)
+    except ErroArquivo as e:
+        avisar(f"    Não importado: {e}.")
+        return []
+    existentes = sorted(set(cfg) | set(repo.marcas()))
+    grupos = {g["chave"]: g for g in agrupar_marcas(df, existentes, apelidos)}
+    feitas = []
+    for k in escolhidas:
+        gr = grupos.get(k)
+        if not gr:
+            continue
+        sub = df.loc[gr["linhas"]].reset_index(drop=True)
+        hash_ = hashlib.sha256(dados + b"|" + gr["marca"].encode()).hexdigest()
+        ja = repo.snapshot_por_hash(hash_)
+        if ja:
+            avisar(f"    {gr['nome']}: já importado deste arquivo. Pulado.")
+            continue
+        avisar(f"  {gr['nome']}: {fmt_int(len(sub))} anúncios · {fmt_int(sub['un'].sum())} unidades")
+        marca = _gravar_marca(repo, cfg, nome, hash_, sub, gr["marca"], ini, fim, existentes)
+        feitas.append(marca)
+        existentes = sorted(set(existentes) | {marca})
+    fora = [g for g in grupos.values() if g["chave"] not in escolhidas]
+    if fora:
+        avisar(f"    Não importadas (poucos anúncios ou desmarcadas): " +
+               ", ".join(f"{g['nome']} ({g['anuncios']})" for g in fora[:12]) + (" …" if len(fora) > 12 else ""))
+    return feitas

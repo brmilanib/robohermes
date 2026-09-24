@@ -119,7 +119,13 @@ label.f input,label.f select{border:1px solid var(--line);border-radius:8px;padd
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:14px}
 .bcard{padding:16px;cursor:pointer;transition:border-color .15s}
 .bcard:hover{border-color:var(--accent)}
-.bcard .nm{font-weight:700;font-size:16px}
+.bcard .nm{font-weight:700;font-size:16px;padding-right:30px}
+.bcard{position:relative}
+.bdel{position:absolute;top:10px;right:10px;border:1px solid transparent;background:none;border-radius:8px;padding:3px 7px;font-size:14px;opacity:.35;cursor:pointer}
+.bcard:hover .bdel{opacity:.8} .bdel:hover{opacity:1!important;border-color:var(--bad);background:var(--bad-bg)}
+.multi{display:flex;flex-direction:column;gap:4px;margin-top:8px;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.multi label{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;color:var(--ink)} .multi label.muted b{font-weight:500}
+.multi small{color:var(--muted)}
 .bcard .mini{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin-top:10px;font-size:12.5px}
 .bcard .mini b{display:block;font-size:15px}
 .cfg-row{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:6px}
@@ -473,11 +479,13 @@ let secaoDesenhada = null;
 let rotaAnterior = null;
 async function rotear() {
   biRedesenhar = [];            // gráficos da tela anterior não redesenham mais
-  document.querySelectorAll(".modal-bg").forEach(x => x.remove());
   esconderTip();
   document.body.classList.remove("menu-aberto");
   const base = decodeURIComponent(location.hash).split("?")[0];
-  if (base !== rotaAnterior) { rotaAnterior = base; scrollTo(0, 0); }
+  if (base !== rotaAnterior) {          // mudou de tela: fecha janelas abertas e volta ao topo
+    if (rotaAnterior !== null) document.querySelectorAll(".modal-bg").forEach(x => x.remove());
+    rotaAnterior = base; scrollTo(0, 0);
+  }
   const sec = secaoAtual();
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   if (sec === "ranking") {
@@ -1694,6 +1702,7 @@ function telaPainel() {
     <div class="cards">
       ${p.map(x => `
       <div class="card bcard" data-m="${esc(x.marca)}">
+        <button class="bdel" data-del="${esc(x.marca)}" title="Excluir os dados desta marca">🗑</button>
         <div class="nm">${esc(nome(x.marca))}</div>
         <div class="muted" style="font-size:12.5px">${dataBR(x.inicio)} a ${dataBR(x.fim)} · ${x.dias} dias · ${x.periodos} período(s)</div>
         <div class="mini">
@@ -1712,6 +1721,18 @@ function telaPainel() {
       <button class="btn primary" onclick="abrirUpload()">⬆ Importar CSV</button>
     </div>`}`;
   document.querySelectorAll(".bcard").forEach(c => c.onclick = () => irPara(c.dataset.m));
+  document.querySelectorAll("[data-del]").forEach(b => b.onclick = e => { e.stopPropagation(); excluirMarca(b.dataset.del); });
+}
+async function excluirMarca(marca) {
+  const x = S.painel.find(p => p.marca === marca) || {};
+  if (!confirm(`Excluir ${nome(marca)} do Explorador?\n\nApaga ${x.periodos || "todos os"} período(s) importado(s), os anúncios e a configuração de linhas desta marca. Não dá para desfazer (para ter de volta, é só importar o CSV de novo).`)) return;
+  try {
+    const r = await api("apagar_marca", {marca}, {method: "POST"});
+    toast(`${nome(marca)} excluída (${r.periodos} período(s)).`);
+    if (S.marca === marca) S.marca = null;
+    await carregarPainel(); moldura();
+    if (location.hash.length > 2) irPara(""); else rotear();
+  } catch (e) { toast(e.message, 6000); }
 }
 const kpi = (l, v, o = "") => `<div class="card kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
 
@@ -2210,7 +2231,7 @@ async function abrirUpload() {
   let marcas = S.painel.map(p => p.marca);
   try { marcas = await api("marcas"); } catch {}
   modal(`<h2>Importar exports do Nubimetrics</h2>
-    <p class="muted" style="margin-top:0">Arraste um ou mais CSVs. A marca é lida do próprio arquivo (coluna Marca) e a grafia oficial é confirmada pelos GTINs. Anúncios de outras marcas no arquivo ficam separados como “Outra marca”.</p>
+    <p class="muted" style="margin-top:0">Arraste um ou mais CSVs. A marca é lida do próprio arquivo (coluna Marca) e a grafia oficial é confirmada pelos GTINs. Se o arquivo misturar marcas (ex.: a busca "Dolce" traz Dolce & Gabbana e o Egeo Dolce do Boticário), você escolhe quais viram card, cada uma com os seus produtos.</p>
     <label class="drop" id="dz"><input type="file" id="fi" accept=".csv,text/csv" multiple hidden>Clique ou arraste os arquivos aqui</label>
     <div id="up-status" class="muted" style="margin-top:10px"></div>
     <div class="files" id="fl"></div>
@@ -2224,6 +2245,10 @@ async function abrirUpload() {
         try {
           const r = await api("analisar", {arquivo: it.f.name}, {method: "POST", body: await it.f.arrayBuffer(), headers: {"Content-Type": "text/csv"}});
           it.info = r; it.marca = r.marca || ""; it.manual = !r.marca;
+          const gs = r.grupos || [], sug = gs.filter(g => g.sugerida);
+          // várias marcas relevantes no mesmo arquivo (ex.: busca "Dolce" trouxe D&G e Boticário): uma por card
+          it.multi = sug.length >= 2 || (gs.length > 1 && gs[0].pct < 0.9);
+          it.escolha = new Set(sug.map(g => g.chave));
           if (r.inicio && !it.inicio) { it.inicio = r.inicio; it.fim = r.fim; }
           it.estado = "";
         } catch (e) { it.estado = "erro"; it.log = e.message; }
@@ -2241,7 +2266,14 @@ async function abrirUpload() {
         terminou = false; desenhar();
         novos.reduce((pr, it) => pr.then(() => analisar(it)), Promise.resolve());
       };
+      const blocoMulti = (it, i) => `<div class="f" style="font-size:12.5px;color:var(--muted);grid-column:1/-1">
+        <b style="color:var(--ink)">Este arquivo mistura ${it.info.grupos.length} marcas.</b> Cada marca marcada vira um card próprio com os produtos dela
+        (grafias da mesma marca já foram juntadas). As pequenas vêm desmarcadas.
+        <div class="multi">${it.info.grupos.map(g => `<label class="${g.sugerida ? "" : "muted"}"><input type="checkbox" data-mg="${i}" value="${esc(g.chave)}" ${it.escolha.has(g.chave) ? "checked" : ""}>
+          <b>${esc(g.nome)}</b> <span>${nf0.format(g.anuncios)} anúncios · R$ ${nf0.format(g.fat)} · ${FMT.pct(g.pct)}${g.existente ? " · já tem card" : ""}</span>
+          ${g.grafias.length > 1 ? `<small title="grafias juntadas">(${esc(g.grafias.slice(0, 5).join(", "))})</small>` : ""}</label>`).join("")}</div></div>`;
       const blocoMarca = (it, i) => {
+        if (it.multi && it.info) return blocoMulti(it, i);
         if (it.estado === "analisando") return `<div class="f" style="font-size:12.5px;color:var(--muted)">Marca<div style="padding:8px 0"><span class="spin"></span> lendo o arquivo…</div></div>`;
         if (!it.manual && it.info && it.info.marca) {
           const inf = it.info;
@@ -2259,7 +2291,7 @@ async function abrirUpload() {
       const desenhar = () => {
         $("#fl", m).innerHTML = itens.map((it, i) => {
           const inf = it.info;
-          const outras = inf && inf.outras && inf.outras.length
+          const outras = inf && !it.multi && inf.outras && inf.outras.length
             ? `<div class="muted" style="font-size:12px;margin-top:8px">Outras marcas no arquivo (ficam separadas): ${inf.outras.slice(0, 6).map(o => `${esc(o.marca)} (${nf0.format(o.un)} un.)`).join(", ")}${inf.outras.length > 6 ? ` e mais ${inf.outras.length - 6}` : ""}</div>` : "";
           return `<div class="fi">
           <b>${esc(it.f.name)}</b> <span class="muted">${inf ? nf0.format(inf.anuncios) + " anúncios · " + nf0.format(inf.un) + " un." : nf0.format(it.f.size / 1024) + " KB"}</span>
@@ -2281,6 +2313,10 @@ async function abrirUpload() {
               if (it.nova) { desenhar(); $(`[data-i="${inp.dataset.i}"][data-k="marca"]`, m).focus(); }
             } else it[inp.dataset.k] = inp.dataset.k === "marca" ? inp.value.toUpperCase() : inp.value;
           };
+        });
+        m.querySelectorAll("[data-mg]").forEach(cb => {
+          cb.disabled = rodando || itens[cb.dataset.mg].estado === "ok";
+          cb.onchange = () => { const e = itens[cb.dataset.mg].escolha; cb.checked ? e.add(cb.value) : e.delete(cb.value); };
         });
         m.querySelectorAll("[data-alt]").forEach(a => a.onclick = e => {
           e.preventDefault(); const it = itens[a.dataset.alt]; it.manual = true;
@@ -2307,17 +2343,19 @@ async function abrirUpload() {
           feitos++;
           $("#up-status", m).innerHTML = `<span class="spin"></span> Importando ${feitos} de ${fila.length}…`;
           const marcaManual = it.manual ? (marcas.find(x => compacta(x) === compacta(it.marca)) || it.marca.trim().toUpperCase()) : "";
-          if ((it.manual && !marcaManual) || !it.inicio || !it.fim) {
-            it.estado = "erro"; it.log = it.inicio && it.fim ? "Escolha a marca." : "Preencha o início e o fim do período."; desenhar(); continue;
+          if ((it.manual && !it.multi && !marcaManual) || !it.inicio || !it.fim || (it.multi && !it.escolha.size)) {
+            it.estado = "erro"; it.log = !it.inicio || !it.fim ? "Preencha o início e o fim do período." : it.multi ? "Marque pelo menos uma marca." : "Escolha a marca."; desenhar(); continue;
           }
           it.estado = "rodando"; it.log = ""; desenhar();
           try {
             const q = {arquivo: it.f.name, inicio: it.inicio, fim: it.fim};
-            if (marcaManual) q.marca = marcaManual;   // sem escolha manual, o servidor usa a marca do arquivo
+            if (it.multi) q.marcas = [...it.escolha].join(",");
+            else if (marcaManual) q.marca = marcaManual;   // sem escolha manual, o servidor usa a marca do arquivo
             const r = await api("importar", q, {method: "POST", body: await it.f.arrayBuffer(), headers: {"Content-Type": "text/csv"}});
             it.log = r.log.join("\n").trim();
-            it.estado = r.marca || /Já importado/.test(it.log) ? "ok" : "erro";
-            if (r.marca) { ultima = r.marca; marcas = [...new Set([...marcas.filter(x => compacta(x) !== compacta(r.marca)), r.marca])].sort(); }
+            it.estado = r.marca || /Já importado|já importado/.test(it.log) ? "ok" : "erro";
+            for (const mm of r.marcas || (r.marca ? [r.marca] : [])) marcas = [...new Set([...marcas.filter(x => compacta(x) !== compacta(mm)), mm])].sort();
+            if (r.marca) ultima = (r.marcas || []).length > 1 ? "" : r.marca;
           } catch (e) { it.log = e.message; it.estado = "erro"; }
           desenhar();
         }
@@ -2326,7 +2364,7 @@ async function abrirUpload() {
         $("#up-status", m).textContent = `${ok} de ${itens.length} arquivo(s) importado(s).`;
         desenhar();
         await carregarPainel(); moldura();
-        if (ultima && ultima !== S.marca) irPara(ultima); else await rotear();
+        if (ultima && ultima !== S.marca) irPara(ultima); else if (itens.some(it => it.multi) && location.hash.length > 2) irPara(""); else await rotear();
       };
     });
 }

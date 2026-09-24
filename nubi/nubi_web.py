@@ -634,7 +634,9 @@ def atender(metodo, rota, q, corpo, token):
             if ident and ident["pesquisados"]:
                 repo.salvar_gtins(nubi.INFO_GTIN, ident["pesquisados"])
             m = nubi.PADRAO_NOME.match(re.sub(r"\.csv$", "", q.get("arquivo", ""), flags=re.I))
-            return _json({"marca": ident and ident["marca"], "nome": ident and nubi.nome_bonito(ident["marca"]),
+            grupos = nubi.agrupar_marcas(df, existentes, {k: v[1] for k, v in apelidos(repo).items()})
+            return _json({"grupos": [{k: v for k, v in g.items() if k != "linhas"} for g in grupos],
+                          "marca": ident and ident["marca"], "nome": ident and nubi.nome_bonito(ident["marca"]),
                           "oficial": ident and ident["oficial"], "fonte": ident and ident["fonte"],
                           "gtin": ident and ident["gtin"], "grafia_arquivo": ident and ident["grafia_arquivo"],
                           "existente": ident and ident["existente"], "outras": (ident or {}).get("outras", []),
@@ -678,6 +680,15 @@ def atender(metodo, rota, q, corpo, token):
 
             avisar = nubi.avisar
             avisar(nome)
+            if q.get("marcas"):
+                # arquivo com várias marcas: cada marca escolhida vira um card próprio
+                ini = _data(q.get("inicio") or (m.group(2) if m else ""), "Data inicial")
+                fim = _data(q.get("fim") or (m.group(3) if m else ""), "Data final")
+                if fim < ini:
+                    raise ErroNuvem("A data final é anterior à inicial.")
+                feitas = nubi.importar_por_marca(repo, cfg, nome, corpo, ini, fim, q["marcas"].split(","),
+                                                 {k: v[1] for k, v in apelidos(repo).items()})
+                return _json({"marca": feitas[0] if feitas else None, "marcas": feitas, "log": log, "duvidas": 0})
             marca = nubi.importar_dados(repo, cfg, nome, corpo, marca_periodo)
             restantes = 0
             if marca:
@@ -738,6 +749,14 @@ def atender(metodo, rota, q, corpo, token):
             repo.salvar_gtins(nubi.INFO_GTIN, [gtin])
             nubi.reconsolidar(repo, repo.carregar_config(), [q["marca"]] if q.get("marca") else None)
             return _json({"ok": True, "log": log})
+
+        if rota == "apagar_marca" and metodo == "POST":
+            marca = nubi.chave_marca(q["marca"])
+            snaps = repo.snapshots(marca)
+            for sid in ([] if snaps.empty else snaps["id"].tolist()):
+                repo.apagar_snapshot(sid)
+            repo._req("DELETE", "marcas_config", {"marca": repo._eq(marca)})
+            return _json({"ok": True, "periodos": 0 if snaps.empty else len(snaps)})
 
         if rota == "apagar" and metodo == "POST":
             repo.apagar_snapshot(q["id"])
