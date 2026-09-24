@@ -291,7 +291,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .cc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .cc-seg button{border:0;background:var(--card);color:var(--muted);padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
 .cc-seg button.on{background:var(--soft);color:var(--ink);font-weight:600}
-.wa{display:flex;flex-direction:column;height:calc(100vh - 190px);min-height:420px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card)}
+.wa{display:flex;flex-direction:column;height:calc(100dvh - 150px);min-height:360px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card)}
 .wa-top{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#075e54;color:#fff}
 .wa-top .av{width:34px;height:34px;border-radius:50%;background:#25d366;display:grid;place-items:center;font-size:18px}
 .wa-top small{opacity:.85}
@@ -328,7 +328,8 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .ag-pulso{animation:agp 1.4s ease-in-out infinite} @keyframes agp{50%{opacity:.45}}
 @media (prefers-reduced-motion: reduce){.ag-pulso{animation:none}}
 @media (max-width:420px){.ag-grid{grid-template-columns:1fr}}
-.ops-abas{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:0 0 14px;padding-bottom:0}
+.ops-abas{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:0 0 14px;padding-bottom:0;
+  position:sticky;top:var(--header-h,54px);z-index:15;background:var(--bg)}
 .ops-abas a{padding:7px 12px;font-size:13px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
 .ops-abas a:hover{color:var(--ink)} .ops-abas a.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent,#2d6cdf)}
 .ops-abas .badge{margin-left:4px}
@@ -2047,12 +2048,20 @@ async function telaReuniao() {
   try { r = await api("reuniao"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.reu = {msgs: r.mensagens, ult: r.mensagens.length ? r.mensagens[r.mensagens.length - 1].id : 0, apel: r.apelidos || {}};
   const ag = r.agentes, on = k => ag[k] ? "" : " (sem chave)";
-  main.innerHTML = opsAbas("sala") + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px"><h1 style="margin:0">💬 Sala de reunião</h1></div>
+  main.innerHTML = opsAbas("sala") + `
     <div class="wa"><div class="wa-top"><div class="av">🤖</div><div><b>Agentes do nubi</b><br>
       <small>você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, gpt-oss${on("ollama")}, Hermes (Mac), Claude${on("claude")} (coordena e decide) · @chatgpt, @deepseek ou @gptoss chama só um</small></div></div>
       <div class="wa-msgs" id="wa-msgs">${waDesenhar(S.reu.msgs)}</div>
       <div class="wa-in"><textarea id="wa-txt" rows="1" placeholder="Mensagem para os agentes (Enter envia, Shift+Enter quebra linha)"></textarea><button id="wa-env" title="Enviar">➤</button></div></div>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">Todo dia às 11h (Tarefas de rotina) eles se reúnem sozinhos para discutir a auditoria. O que o Claude aprova vai para 📋 Desenvolvimento, e o Claude da sessão de código implementa.</p>`;
+    <p class="muted" id="wa-nota" style="font-size:12px;margin:6px 0 0">Todo dia às 11h eles se reúnem sozinhos para discutir a auditoria. O que eles propõem vai para 📋 Desenvolvimento, você aprova e o Claude (código) implementa.</p>`;
+  // como no WhatsApp: a conversa ocupa a tela e só as mensagens rolam (cabeçalho e caixa de texto ficam fixos)
+  const ajustarWa = () => {
+    const wa = main.querySelector(".wa"); if (!wa) return window.removeEventListener("resize", ajustarWa);
+    window.scrollTo(0, 0);
+    const topo = wa.getBoundingClientRect().top, nota = ($("#wa-nota") || {offsetHeight: 0}).offsetHeight + 14;
+    wa.style.height = Math.max(360, window.innerHeight - topo - nota) + "px";
+  };
+  ajustarWa(); window.removeEventListener("resize", S.waAjuste || (() => {})); S.waAjuste = ajustarWa; window.addEventListener("resize", ajustarWa);
   const box = $("#wa-msgs"); box.scrollTop = box.scrollHeight;
   const ta = $("#wa-txt");
   ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; };

@@ -65,7 +65,7 @@ def _decidir(historico, tarefas, opinioes, extra):
         + '\n\nResponda SOMENTE com um JSON: {"resposta": "<mensagem para o grupo>", "tarefas": [{"titulo": "<curto>", '
         '"descricao": "<o que fazer e como saber que está pronto>", "tipo": "tarefa|sugestao|decisao", '
         '"status": "proposta|recusada", "prioridade": "alta|media|baixa", "area": "<coletor|dados|site|ia|outro>", '
-        '"proposto_por": "<quem sugeriu>"}], "atualizar": [{"id": <número da tarefa em aberto>, "status": "proposta|recusada|feita", '
+        '"proposto_por": "<quem sugeriu>"}], "atualizar": [{"id": <número da tarefa em aberto>, "status": "recusada", '
         '"nota": "<por quê>"}]}. Listas vazias quando não houver nada.')
     j, _, q = ia.perguntar_json(pedido, web=False, max_tokens=2500, qual=qual, sistema=agentes.SISTEMA)
     if not j.get("resposta"):
@@ -132,13 +132,14 @@ def rodada(repo, texto_dono=None, extra="", autor_extra=None):
                "decidido_por": coord, "mensagem_id": msg.get("id"), "criado_em": agora(), "atualizado_em": agora()}
         repo._req("POST", "reuniao_tarefas", corpo=[reg], prefer="return=minimal")
         registradas.append(f"{reg['titulo']} ({reg['status']})")
-    abertas = {t["id"] for t in tarefas}
+    # o coordenador só mexe no que ainda é proposta (recusar); o que o dono aprovou ou está em código não volta atrás
+    abertas = {t["id"] for t in tarefas if t["status"] == "proposta"}
     for u in (j.get("atualizar") or [])[:10]:
         try:
             tid = int(u.get("id"))
         except (TypeError, ValueError):
             continue
-        if tid in abertas and u.get("status") in ("proposta", "recusada", "feita"):
+        if tid in abertas and u.get("status") == "recusada":
             repo._req("PATCH", "reuniao_tarefas", {"id": f"eq.{tid}"},
                       corpo={"status": u["status"], "notas": str(u.get("nota") or "")[:500], "atualizado_em": agora()},
                       prefer="return=minimal")
