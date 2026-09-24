@@ -460,7 +460,7 @@ Com `OPENAI_API_KEY` (ou `ANTHROPIC_API_KEY`) nas variáveis da Vercel, o nubi u
   anteriores) e o texto da IA em cards por seção. Se o coletor terminar depois das 8h, o resumo sai quando a coleta termina.
 - **Análise da semana**: toda segunda às 8h, com os resumos diários guardados e as vendas de cada dia x semana anterior.
 - **Tarefas de rotina** (Coletor e agentes → Tarefas de rotina, tabela `rotinas`): quem faz, horário, dias, ligada e
-  observação (a observação das tarefas do ChatGPT vai no prompt). A Vercel chama `r=rotinas_cron` de hora em hora e roda
+  observação (a observação das tarefas do ChatGPT vai no prompt). A Vercel chama `r=rotinas_cron` de hora em hora (24 agendas diárias, uma por hora: o plano Hobby só aceita agenda diária) e roda
   o que chegou na hora (resumo do dia, semana, marcas e o agente de GTIN). A coleta roda no Mac às 7h e só confere se
   está ligada no dia.
 - **Análise mensal das marcas** (Ranking → B.I.): do dia 3 em diante, às 8h, com o relatório MARCAS do mês fechado,

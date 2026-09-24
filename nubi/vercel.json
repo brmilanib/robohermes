@@ -10,8 +10,100 @@
   },
   "crons": [
     {
-      "path": "/api/app?r=rotinas_cron",
-      "schedule": "0 * * * *"
+      "path": "/api/app?r=rotinas_cron&h=00",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=01",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=02",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=03",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=04",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=05",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=06",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=07",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=08",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=09",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=10",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=11",
+      "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=12",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=13",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=14",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=15",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=16",
+      "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=17",
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=18",
+      "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=19",
+      "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=20",
+      "schedule": "0 20 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=21",
+      "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=22",
+      "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/app?r=rotinas_cron&h=23",
+      "schedule": "0 23 * * *"
     }
   ]
 }
