@@ -346,6 +346,11 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .in-dias{font-size:12px;font-weight:700;text-align:center;border-radius:999px;padding:3px 0;background:var(--soft);color:var(--ink);font-variant-numeric:tabular-nums}
 .in-dias.perto{background:var(--accent);color:#fff}
 .in-resumo .md{font-size:13.5px}
+.in-pede{display:block;background:#fff4e5;border:1px solid #f5c26b;color:#7a4b00;border-radius:12px;padding:10px 14px;font-size:13.5px;text-decoration:none}
+.in-dev{display:grid;gap:8px}.in-dev-cab{display:flex;align-items:baseline;justify-content:space-between;gap:10px}.in-dev h2{margin:0;font-size:15px}
+.in-dev-it{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit;padding:6px 8px;border-radius:10px;font-size:13.5px}
+.in-dev-it:hover{background:var(--soft)}.in-dev-it .dc-dig{margin-left:auto}
+.in-ok{width:30px;text-align:center;font-size:18px}
 .in-ops{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
 .in-op{display:grid;gap:4px;padding:12px 14px;text-decoration:none;color:inherit;align-content:start}
 .in-op b{font-size:20px;font-variant-numeric:tabular-nums}
@@ -382,10 +387,53 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .ops-abas a:hover{color:var(--ink)} .ops-abas a.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent,#2d6cdf)}
 .ops-abas .badge{margin-left:4px}
 @media (max-width:640px){.ops-abas{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}}
-.dev-col{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px}
-@media (max-width:1000px){.dev-col{grid-template-columns:1fr 1fr}} @media (max-width:640px){.dev-col{grid-template-columns:1fr}}
-.dev-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card);margin-top:8px}
-.dev-card h4{margin:0 0 4px;font-size:13.5px} .dev-card p{margin:4px 0;font-size:12.5px;color:var(--muted)}
+.dev-cab{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.dev-alerta{margin-top:10px;background:#fff4e5;border:1px solid #f5c26b;color:#7a4b00;border-radius:10px;padding:8px 12px;font-size:13px}
+.dev-alerta a{color:inherit;font-weight:600}
+.dev-col{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px;align-items:start}
+.dev-coluna{background:var(--soft);border-radius:14px;padding:10px;display:grid;gap:8px;align-content:start;min-height:120px}
+.dev-coluna.c-em_desenvolvimento{background:linear-gradient(180deg,rgba(245,158,11,.10),var(--soft) 120px)}
+.dev-ct{padding:2px 4px 4px}.dev-ct .muted{font-size:11.5px}
+.dev-cn{display:inline-block;min-width:22px;text-align:center;border-radius:999px;background:var(--card);font-size:12px;padding:1px 7px;margin-left:4px}
+.dev-card{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--card);cursor:pointer;display:grid;gap:5px;transition:transform .12s, box-shadow .12s}
+.dev-card:hover,.dev-card:focus-visible{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.08);outline:none}
+.dev-card h4{margin:0;font-size:13.5px;line-height:1.3}
+.dev-card.vivo{border-color:#f59e0b;box-shadow:0 0 0 2px rgba(245,158,11,.18)}
+.dev-card.pede{border-color:#f97316}
+.dc-top{display:flex;gap:5px;align-items:center;flex-wrap:wrap}.dc-id{font-size:11.5px;color:var(--muted);font-weight:600}
+.dc-n{margin-left:auto;font-size:11px;color:var(--muted)}
+.dc-desc{margin:0;font-size:12.3px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dc-rod{font-size:11px;color:var(--muted)}
+.dc-pede{font-size:12px;background:#fff4e5;color:#7a4b00;border-radius:8px;padding:5px 8px}
+.dc-vivo{display:flex;gap:9px;align-items:flex-start;background:var(--soft);border-radius:10px;padding:8px}
+.dc-vivo b{font-size:12.5px}.dc-ev{font-size:12.3px;margin:2px 0}
+.dc-av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:16px;flex:none;background:var(--card);position:relative;box-shadow:0 0 0 2px var(--c)}
+.vivo .dc-av::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--c);opacity:.6;animation:dcp 1.6s ease-out infinite}
+@keyframes dcp{from{transform:scale(.85);opacity:.7}to{transform:scale(1.25);opacity:0}}
+.dc-dig{display:inline-flex;gap:3px;vertical-align:middle}.dc-dig i{width:5px;height:5px;border-radius:50%;background:var(--muted);animation:dcd 1.2s infinite}
+.dc-dig i:nth-child(2){animation-delay:.2s}.dc-dig i:nth-child(3){animation-delay:.4s}
+@keyframes dcd{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+@media (prefers-reduced-motion: reduce){.vivo .dc-av::after,.dc-dig i{animation:none}}
+@media (max-width:1000px){.dev-col{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.dev-col{grid-template-columns:1fr}}
+.modal-bg.tarefa{align-items:stretch;justify-content:flex-end;padding:0}
+.modal-bg.tarefa .modal{max-width:560px;border-radius:0;height:100%;display:flex;flex-direction:column;padding:0}
+.tf{display:flex;flex-direction:column;height:100%;min-height:0}
+.tf-cab{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+.tf-desc{padding:8px 16px;border-bottom:1px solid var(--line);font-size:13px}.tf-desc summary{cursor:pointer;color:var(--muted)}
+.tf-lin{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:var(--soft);min-height:0}
+.tf-b{max-width:88%;background:var(--card);border-radius:12px;padding:7px 10px 5px;font-size:13px;align-self:flex-start;box-shadow:0 1px .5px rgba(0,0,0,.1)}
+.tf-b.eu{align-self:flex-end;background:#d9fdd3;color:#111b21}
+.tf-b.perg{border-left:3px solid #f97316}
+.tf-b.trab{color:var(--muted);font-style:italic}
+.tf-nm{font-weight:700;font-size:12px;margin-bottom:2px}.tf-hr{display:block;text-align:right;font-size:10.5px;color:var(--muted)}
+.tf-sis{align-self:center;font-size:11.5px;color:var(--muted);background:var(--card);border-radius:8px;padding:3px 10px}
+.tf-pede{margin:0;padding:10px 16px;background:#fff4e5;color:#7a4b00;font-size:13px;border-top:1px solid #f5c26b}
+.tf-bts{display:flex;gap:8px;margin-top:8px}
+.tf-in{display:flex;gap:8px;padding:10px 16px;border-top:1px solid var(--line)}
+.tf-in textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:18px;padding:9px 14px;font:inherit;min-height:40px;max-height:120px;background:var(--card);color:var(--ink)}
+.tf-st{padding:0 16px 12px}
+@media (max-width:600px){.modal-bg.tarefa .modal{max-width:none}}
 .au-msg{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:10px;background:var(--card)}
 .au-msg .quem{font-weight:700;font-size:13px;margin-bottom:4px}
 .au-msg.gpt{border-left:4px solid #10a37f} .au-msg.ds{border-left:4px solid #4d6bfe} .au-msg.claude{border-left:4px solid #d97757} .au-msg.sis{border-left:4px solid var(--muted);color:var(--muted)}
@@ -597,7 +645,7 @@ function moldura() {
   <header class="top">
     <button class="btn ghost bmenu" id="bmenu" aria-label="Abrir menu">☰</button>
     <div class="logo" id="home"><svg viewBox="0 0 32 32" width="22" height="22" style="flex:none"><rect width="32" height="32" rx="8" fill="#fff" fill-opacity=".14"/>
-      <path d="M8 22V10l8 8 8-8v12" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>nubi <span style="font-weight:500;opacity:.85;margin-left:-4px">explorer</span> <small>${esc((SECOES.find(x => x.id === sec) || {nome: "Ajustes"}).nome)}</small></div>
+      <path d="M8 22V10l8 8 8-8v12" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>nubi <span style="font-weight:500;opacity:.85;margin-left:-4px">explorer</span> <small>${esc((SECOES.find(x => x.id === sec) || {nome: /^#\/(central|reuniao|auditoria|coletor)/.test(location.hash) ? "Central" : "Ajustes"}).nome)}</small></div>
     ${sec === "explorador" ? `<select id="selm" title="Marca"><option value="">Todas as marcas</option>
       ${S.painel.map(p => `<option value="${esc(p.marca)}" ${p.marca === S.marca ? "selected" : ""}>${esc(nome(p.marca))}</option>`).join("")}
     </select>` : ""}
@@ -703,6 +751,11 @@ async function telaInicio() {
         <div class="in-relogio" id="in-relogio"></div></div>
       <div class="card pad in-tempo" id="in-tempo"><div class="muted">Carregando a previsão…</div></div>
     </section>
+    ${(r.aguardando_voce || []).length ? `<a class="in-pede" href="#/central">⏳ ${r.aguardando_voce.length} tarefa(s) esperando sua resposta: ${r.aguardando_voce.map(t => esc("#" + t.id + " " + t.titulo)).join(" · ")}</a>` : ""}
+    ${(r.andamento || []).length || (r.feitas_recentes || []).length ? `<section class="card pad in-dev"><div class="in-dev-cab"><h2>Novidades no nubi</h2><a class="in-mais" style="margin:0" href="#/central">Ver o desenvolvimento →</a></div>
+      ${(r.andamento || []).map(t => { const a = agInfo(t.responsavel || "claude_code"); return `<a class="in-dev-it vivo" href="#/central"><span class="dc-av" style="--c:${a[2]}">${a[0]}</span>
+        <span><b>${esc(t.titulo)}</b><span class="muted"> · ${esc(a[1])} trabalhando</span></span><span class="dc-dig"><i></i><i></i><i></i></span></a>`; }).join("")}
+      ${(r.feitas_recentes || []).map(t => `<a class="in-dev-it" href="#/central"><span class="in-ok">✅</span><span><b>${esc(t.titulo)}</b><span class="muted"> · concluída ${esc(desde(t.atualizado_em))}</span></span></a>`).join("")}</section>` : ""}
     <section class="in-kpis">
       <a class="card in-kpi" href="#/vendas-dia"><span class="l">Vendas em ${ddmm(d.data)}</span><b>${d.tem ? abrev(t.v) : "—"}</b>
         <span class="o">${d.tem ? pct(t.var) + " vs média de 7 dias" : "ainda sem vendas diárias"}</span></a>
@@ -2271,29 +2324,49 @@ async function atualizarReuniao(rolar) {
   box.innerHTML = waDesenhar(S.reu.msgs) + dig;
   if (noFim) box.scrollTop = box.scrollHeight;
 }
-const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em desenvolvimento", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"]};
-async function telaDev() {
+const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em execução", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"]};
+const DEV_COLS = [["proposta", "Propostas", "esperando você aprovar"], ["aprovada", "Aprovadas", "na fila para desenvolver"],
+  ["em_desenvolvimento", "Em execução", "um agente está trabalhando"], ["feita", "Feitas", "publicadas e conferidas"]];
+const AG_INFO = {claude_code: ["💻", "Claude (código)", "#b3541e"], claude: ["✴️", "Claude", "#d97757"], chatgpt: ["🧠", "ChatGPT", "#10a37f"],
+  deepseek: ["🐋", "DeepSeek", "#4d6bfe"], gptoss: ["🦙", "gpt-oss", "#6b4fb3"], hermes: ["🪽", "Hermes", "#a2741a"], astra: ["🎨", "Astra", "#e0457b"],
+  voce: ["👤", "Você", "#00a884"], sistema: ["⚙️", "Sistema", "#667781"]};
+const agInfo = k => AG_INFO[k] || AG_INFO[Object.keys(AG_INFO).find(x => AG_INFO[x][1] === k)] || ["🤖", k || "Agente", "#667781"];
+const quem = x => !x ? "?" : /^voc[eê]$/i.test(x) ? "Você" : x;
+const desde = t => { if (!t) return ""; const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
+  return m < 1 ? "agora" : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h ${m % 60} min` : `há ${Math.floor(m / 1440)} d`; };
+function devCard(t) {
+  const PRI = {alta: "bad", media: "warn", baixa: ""};
+  const vivo = t.status === "em_desenvolvimento", ag = agInfo(t.responsavel || "claude_code"), ev = t.ultimo_evento;
+  return `<div class="dev-card ${vivo ? "vivo" : ""} ${t.aguardando ? "pede" : ""}" data-abrir="${t.id}" tabindex="0" role="button" aria-label="Abrir tarefa ${t.id}">
+    <div class="dc-top"><span class="dc-id">#${t.id}</span><span class="st ${PRI[t.prioridade] || ""}">${esc(t.prioridade || "")}</span>${t.area ? `<span class="st">${esc(t.area)}</span>` : ""}
+      ${t.n_eventos ? `<span class="dc-n" title="passos registrados">💬 ${t.n_eventos}</span>` : ""}</div>
+    <h4>${esc(t.titulo)}</h4>
+    ${t.aguardando ? `<div class="dc-pede">⏳ Precisa de você: ${esc(t.aguardando.slice(0, 120))}</div>` : ""}
+    ${vivo ? `<div class="dc-vivo"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><div><b>${esc(ag[1])}</b> <span class="dc-dig"><i></i><i></i><i></i></span>
+        <div class="dc-ev">${esc(ev ? ev.texto.slice(0, 110) : "trabalhando na tarefa")}</div>
+        <div class="muted" style="font-size:11px">${t.iniciado_em ? "começou " + desde(t.iniciado_em) : ""}${ev ? " · último passo " + desde(ev.criado_em) : ""}</div></div></div>`
+      : `<p class="dc-desc">${esc(t.descricao || "")}</p>`}
+    <div class="dc-rod">${esc(quem(t.proposto_por))} → ${esc(quem(t.decidido_por))} · ${esc(desde(t.atualizado_em || t.criado_em))}</div></div>`;
+}
+async function telaDev(silencioso) {
   const main = $("#main");
-  main.innerHTML = opsAbas("dev") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o desenvolvimento</div></div>`;
+  if (!silencioso) main.innerHTML = opsAbas("dev") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o desenvolvimento</div></div>`;
   let r;
-  try { r = await api("reuniao_tarefas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  const ts = r.tarefas, PRI = {alta: "bad", media: "warn", baixa: ""};
-  const card = t => `<div class="dev-card"><h4>#${t.id} ${esc(t.titulo)}</h4>
-    <div><span class="st ${PRI[t.prioridade] || ""}">${esc(t.prioridade)}</span> <span class="st">${esc(t.tipo)}</span>${t.area ? ` <span class="st">${esc(t.area)}</span>` : ""}</div>
-    ${t.descricao ? `<p>${esc(t.descricao)}</p>` : ""}${t.notas ? `<p><b>Nota:</b> ${esc(t.notas)}</p>` : ""}
-    <p style="font-size:11.5px">Sugerido por ${esc(t.proposto_por || "?")} · decidido por ${esc(t.decidido_por || "?")} · ${esc(quando(t.atualizado_em || t.criado_em))}</p>
-    <select data-st="${t.id}" class="mes" style="font-size:12px">${r.status.map(x => `<option value="${x}" ${x === t.status ? "selected" : ""}>${DEV_ST[x][0]}</option>`).join("")}</select></div>`;
-  const cols = ["aprovada", "em_desenvolvimento", "proposta", "feita"];
-  main.innerHTML = opsAbas("dev") + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h1 style="margin:0">📋 Desenvolvimento</h1><div style="flex:1"></div>
+  try { r = await api("reuniao_tarefas"); } catch (e) { if (!silencioso) main.innerHTML = opsAbas("dev") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (silencioso && !(location.hash === "#/central" || location.hash.startsWith("#/reuniao/dev"))) return;
+  const ts = r.tarefas, n = st => ts.filter(t => t.status === st).length;
+  const pedem = ts.filter(t => t.aguardando);
+  main.innerHTML = opsAbas("dev") + `<div class="dev-cab"><h1 style="margin:0">📋 Desenvolvimento</h1>
+      <span class="muted">propostas → aprovadas → em execução → feitas · clique num card para ver tudo e conversar</span><div style="flex:1"></div>
       <button class="btn" id="dev-nova">+ Nova tarefa</button></div>
-    <p class="muted" style="font-size:12.5px;margin:6px 0 0">O que os agentes discutiram e o Claude decidiu. Aprovadas entram na fila do Claude da sessão de código; você pode mudar o status de qualquer uma.</p>
-    <div class="dev-col">${cols.map(c => `<div><h3 style="margin:0;font-size:14px">${DEV_ST[c][0]} <span class="muted">(${ts.filter(t => t.status === c).length})</span></h3>
-      ${ts.filter(t => t.status === c).map(card).join("") || `<p class="muted" style="font-size:12.5px">Nada aqui.</p>`}</div>`).join("")}</div>
-    ${ts.some(t => t.status === "recusada") ? `<details style="margin-top:14px"><summary class="muted">Recusadas (${ts.filter(t => t.status === "recusada").length})</summary>
-      <div class="dev-col">${ts.filter(t => t.status === "recusada").map(card).join("")}</div></details>` : ""}`;
-  main.querySelectorAll("[data-st]").forEach(sel => sel.onchange = async () => {
-    try { await api("reuniao_tarefa_salvar", {}, {method: "POST", body: JSON.stringify({id: +sel.dataset.st, status: sel.value})}); toast("Status atualizado"); telaDev(); }
-    catch (e) { toast(e.message, 6000); }
+    ${pedem.length ? `<div class="dev-alerta">⏳ ${pedem.length} tarefa(s) esperando sua resposta: ${pedem.map(t => `<a href="#" data-abrir="${t.id}">#${t.id} ${esc(t.titulo)}</a>`).join(" · ")}</div>` : ""}
+    <div class="dev-col">${DEV_COLS.map(([c, tit, sub]) => `<section class="dev-coluna c-${c}"><div class="dev-ct"><b>${tit}</b> <span class="dev-cn">${n(c)}</span><div class="muted">${sub}</div></div>
+      ${ts.filter(t => t.status === c).map(devCard).join("") || `<p class="muted" style="font-size:12.5px">Nada aqui.</p>`}</section>`).join("")}</div>
+    ${n("recusada") ? `<details style="margin-top:14px"><summary class="muted">Recusadas (${n("recusada")})</summary>
+      <div class="dev-col" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${ts.filter(t => t.status === "recusada").map(devCard).join("")}</div></details>` : ""}`;
+  main.querySelectorAll("[data-abrir]").forEach(el => {
+    const abrir = e => { e.preventDefault(); abrirTarefa(+el.dataset.abrir); };
+    el.onclick = abrir; el.onkeydown = e => { if (e.key === "Enter") abrir(e); };
   });
   $("#dev-nova").onclick = async () => {
     const titulo = prompt("Título da tarefa:"); if (!titulo) return;
@@ -2301,9 +2374,53 @@ async function telaDev() {
     try { await api("reuniao_tarefa_salvar", {}, {method: "POST", body: JSON.stringify({titulo, descricao, status: "aprovada", prioridade: "media"})}); telaDev(); }
     catch (e) { toast(e.message, 6000); }
   };
+  clearInterval(S.devT);
+  S.devT = setInterval(() => { if (!(location.hash === "#/central" || location.hash.startsWith("#/reuniao/dev"))) return clearInterval(S.devT);
+    if (!document.querySelector(".modal-bg")) telaDev(true); }, ts.some(t => t.status === "em_desenvolvimento") ? 8000 : 30000);
   desenharMenu();
 }
-
+async function abrirTarefa(id) {
+  let r;
+  try { r = await api("tarefa_eventos", {id}); } catch (e) { return toast(e.message, 6000); }
+  document.querySelectorAll(".modal-bg.tarefa").forEach(x => x.remove());
+  const bg = modal(`<div class="tf" id="tf"></div>`); bg.classList.add("tarefa");
+  const desenhar = x => {
+    const t = x.tarefa, ag = agInfo(t.responsavel || "claude_code"), vivo = t.status === "em_desenvolvimento";
+    const bolha = e => {
+      if (e.tipo === "status") return `<div class="tf-sis">${esc(e.texto)} · ${esc(desde(e.criado_em))}</div>`;
+      const a = agInfo(e.autor), eu = e.autor === "voce";
+      return `<div class="tf-b ${eu ? "eu" : ""} ${e.tipo === "pergunta" ? "perg" : ""}">${eu ? "" : `<div class="tf-nm" style="color:${a[2]}">${a[0]} ${esc(a[1])}${e.tipo === "pergunta" ? " · pergunta" : ""}</div>`}
+        <div class="md">${mdSimples(e.texto)}</div><span class="tf-hr">${new Date(e.criado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</span></div>`;
+    };
+    $("#tf", bg).innerHTML = `<div class="tf-cab"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><div style="min-width:0"><div class="muted" style="font-size:12px">#${t.id} · ${esc(DEV_ST[t.status][0])} · ${esc(ag[1])}</div>
+        <h2 style="margin:0;font-size:17px">${esc(t.titulo)}</h2></div><div style="flex:1"></div><button class="btn small" data-fechar>✕</button></div>
+      ${t.descricao ? `<details class="tf-desc" ${x.eventos.length ? "" : "open"}><summary>O que é para fazer</summary><p>${esc(t.descricao)}</p>${t.notas ? `<p><b>Nota:</b> ${esc(t.notas)}</p>` : ""}</details>` : ""}
+      <div class="tf-lin" id="tf-lin">${x.eventos.map(bolha).join("") || `<div class="tf-sis">Ainda sem passos registrados.</div>`}
+        ${vivo ? `<div class="tf-b trab"><span class="dc-dig"><i></i><i></i><i></i></span> ${esc(ag[1])} está trabalhando…</div>` : ""}</div>
+      ${t.aguardando ? `<div class="tf-pede"><b>⏳ ${esc(ag[1])} precisa de você:</b> ${esc(t.aguardando)}
+        <div class="tf-bts"><button class="btn primary small" data-dec="aprovar">✅ Aprovar</button><button class="btn small" data-dec="recusar">❌ Não aprovar</button></div></div>` : ""}
+      <div class="tf-in"><textarea id="tf-txt" rows="1" placeholder="Escreva para o agente desta tarefa…"></textarea><button class="btn primary" id="tf-env" title="Enviar">➤</button></div>
+      <div class="tf-st"><label class="muted" style="font-size:12px">Status <select id="tf-status" class="mes">${Object.keys(DEV_ST).map(k => `<option value="${k}" ${k === t.status ? "selected" : ""}>${DEV_ST[k][0]}</option>`).join("")}</select></label></div>`;
+    const lin = $("#tf-lin", bg); lin.scrollTop = lin.scrollHeight;
+    const responder = async (decisao) => {
+      const texto = $("#tf-txt", bg).value.trim();
+      if (!decisao && !texto) return;
+      try { await api("tarefa_responder", {}, {method: "POST", body: JSON.stringify({id: t.id, texto, decisao})}); $("#tf-txt", bg).value = ""; atualizar(); }
+      catch (e) { toast(e.message, 6000); }
+    };
+    $("#tf-env", bg).onclick = () => responder();
+    $("#tf-txt", bg).onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); responder(); } };
+    bg.querySelectorAll("[data-dec]").forEach(b => b.onclick = () => responder(b.dataset.dec));
+    $("#tf-status", bg).onchange = async e => {
+      try { await api("reuniao_tarefa_salvar", {}, {method: "POST", body: JSON.stringify({id: t.id, status: e.target.value})}); toast("Status atualizado"); atualizar(); }
+      catch (er) { toast(er.message, 6000); }
+    };
+  };
+  const atualizar = async () => { try { const x = await api("tarefa_eventos", {id}); if (document.body.contains(bg)) desenhar(x); } catch { /* tenta de novo no próximo ciclo */ } };
+  desenhar(r);
+  const tm = setInterval(() => { if (!document.body.contains(bg)) { clearInterval(tm); telaDev(true); return; }
+    if (document.activeElement !== $("#tf-txt", bg)) atualizar(); }, 5000);
+}
 // ---------- Auditoria de dados e código (ChatGPT analisa, Claude revisa; ninguém muda nada sozinho) ----------
 function mdCodigo(t) {
   // markdown simples + blocos ``` de código

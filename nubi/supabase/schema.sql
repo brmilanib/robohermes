@@ -496,3 +496,17 @@ insert into public.ia_precos (modelo, entrada, saida, obs) values
   ('deepseek', null, null, 'preencher com o preço do DeepSeek')
 on conflict (modelo) do nothing;
 alter table public.agentes_uso add column if not exists latencia_ms int;
+
+-- Linha do tempo de cada tarefa de Desenvolvimento (o agente posta os passos; o dono responde quando pedirem)
+alter table public.reuniao_tarefas add column if not exists responsavel text;
+alter table public.reuniao_tarefas add column if not exists aguardando text;
+alter table public.reuniao_tarefas add column if not exists iniciado_em timestamptz;
+create table if not exists public.tarefa_eventos (
+  id bigint generated always as identity primary key,
+  tarefa_id bigint not null, autor text not null, tipo text not null default 'passo', texto text not null,
+  criado_em timestamptz not null default now()
+);
+create index if not exists tarefa_eventos_tarefa on public.tarefa_eventos (tarefa_id, id);
+alter table public.tarefa_eventos enable row level security;
+create policy "autorizado" on public.tarefa_eventos for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

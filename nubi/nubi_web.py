@@ -754,7 +754,42 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem("Nenhuma IA configurada na Vercel.")
             return _json({"novas": reuniao.rodada(repo, texto[:4000])})
         if rota == "reuniao_tarefas":
-            return _json({"tarefas": repo._todos("reuniao_tarefas", {"select": "*", "order": "id.desc"}), "status": reuniao.STATUS})
+            ts = repo._todos("reuniao_tarefas", {"select": "*", "order": "id.desc"})
+            try:
+                evs = repo._req("GET", "tarefa_eventos", {"select": "tarefa_id,autor,tipo,texto,criado_em", "order": "id.desc", "limit": 400}) or []
+            except ErroNuvem:
+                evs = []
+            ult = {}
+            for e in evs:
+                ult.setdefault(e["tarefa_id"], e)
+            for t in ts:
+                t["ultimo_evento"] = ult.get(t["id"])
+                t["n_eventos"] = sum(1 for e in evs if e["tarefa_id"] == t["id"])
+            return _json({"tarefas": ts, "status": reuniao.STATUS})
+        if rota == "tarefa_eventos":
+            tid = int(q.get("id") or 0)
+            t = (repo._req("GET", "reuniao_tarefas", {"select": "*", "id": repo._eq(tid)}) or [None])[0]
+            if not t:
+                raise ErroNuvem("Tarefa não encontrada.", 404)
+            evs = repo._todos("tarefa_eventos", {"select": "*", "tarefa_id": f"eq.{tid}", "order": "id"})
+            return _json({"tarefa": t, "eventos": evs})
+        if rota == "tarefa_responder" and metodo == "POST":
+            # o dono responde ao agente dentro do card (aprovar, recusar ou escrever)
+            d = json.loads(corpo or b"{}")
+            tid, texto = int(d.get("id") or 0), str(d.get("texto") or "").strip()
+            dec = d.get("decisao")
+            if dec == "aprovar":
+                texto = "✅ Aprovado" + (f": {texto}" if texto else "")
+            elif dec == "recusar":
+                texto = "❌ Não aprovado" + (f": {texto}" if texto else "")
+            if not texto:
+                raise ErroNuvem("Escreva a resposta.")
+            agora_ = datetime.now(timezone.utc).isoformat()
+            repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": tid, "autor": "voce", "tipo": "resposta", "texto": texto[:4000],
+                                                        "criado_em": agora_}], prefer="return=minimal")
+            repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo={"aguardando": None, "atualizado_em": agora_},
+                      prefer="return=minimal")
+            return _json({"ok": True})
         if rota == "reuniao_tarefa_salvar" and metodo == "POST":
             d = json.loads(corpo or b"{}")
             reg = {k: d[k] for k in ("titulo", "descricao", "status", "prioridade", "area", "notas", "tipo") if k in d}
@@ -762,7 +797,16 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem("Status inválido.")
             reg["atualizado_em"] = datetime.now(timezone.utc).isoformat()
             if d.get("id"):
+                if reg.get("status") == "em_desenvolvimento":
+                    reg["iniciado_em"] = reg["atualizado_em"]
                 repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(int(d["id"]))}, corpo=reg, prefer="return=minimal")
+                if "status" in reg:
+                    try:
+                        repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": int(d["id"]), "autor": "voce", "tipo": "status",
+                                  "texto": f"Status mudou para: {reg['status'].replace('_', ' ')}", "criado_em": reg["atualizado_em"]}],
+                                  prefer="return=minimal")
+                    except ErroNuvem:
+                        pass
             else:
                 if not str(reg.get("titulo") or "").strip():
                     raise ErroNuvem("Dê um título para a tarefa.")
@@ -1549,6 +1593,14 @@ def tela_inicio(repo):
     }
     tar = seguro(lambda: repo._todos("reuniao_tarefas", {"select": "status"}), []) or []
     out["tarefas"] = {k: sum(1 for t in tar if t["status"] == k) for k in ("proposta", "aprovada", "em_desenvolvimento", "feita")}
+    det = seguro(lambda: repo._todos("reuniao_tarefas", {"select": "id,titulo,status,responsavel,aguardando,atualizado_em",
+                                                         "status": "in.(em_desenvolvimento,feita)", "order": "atualizado_em.desc"}), []) or []
+    limite = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+    out["andamento"] = [t for t in det if t["status"] == "em_desenvolvimento"][:5]
+    out["feitas_recentes"] = [t for t in det if t["status"] == "feita" and str(t.get("atualizado_em") or "") > limite][:5]
+    out["aguardando_voce"] = seguro(lambda: [t for t in repo._todos("reuniao_tarefas", {"select": "id,titulo,aguardando",
+                                                                                          "aguardando": "not.is.null"})
+                                             if (t.get("aguardando") or "").strip()], []) or []
     hoje = _agora_br().date()
     usos = seguro(lambda: repo._todos("agentes_uso", {"select": "inicio,custo_usd,fim",
                                                       "inicio": f"gte.{hoje.replace(day=1).isoformat()}"}), []) or []
