@@ -2520,10 +2520,16 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
                 "lista": [{"k": k, "nome": v} for k, v in COMANDOS_MAC.items()], "modelos": MODELOS_MAC}
     if rota == "mac_pedir" and metodo == "POST":
         k, arg = str(d.get("comando") or ""), str(d.get("arg") or "")
+        msg = None
         if k not in COMANDOS_MAC:
-            raise ErroNuvem("Comando fora da lista permitida.")
-        if k == "baixar_modelo" and arg not in MODELOS_MAC:
-            raise ErroNuvem("Modelo fora da lista permitida.")
+            msg = "Comando fora da lista permitida."
+        elif k == "baixar_modelo" and arg not in MODELOS_MAC:
+            msg = "Modelo fora da lista permitida."
+        if msg:
+            repo._req("POST", "mac_comandos", corpo=[{"comando": k[:60] or "?", "arg": arg[:60] or None,
+                                                       "pedido_por": "Bruno", "status": "recusado", "criado_em": agora_,
+                                                       "fim": agora_, "saida": msg}], prefer="return=minimal")
+            raise ErroNuvem(msg)
         quem = "Bruno"
         r = repo._req("POST", "mac_comandos", corpo=[{"comando": k, "arg": arg or None, "pedido_por": quem, "status": "pendente",
                                                       "criado_em": agora_}], prefer="return=representation")

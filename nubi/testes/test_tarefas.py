@@ -14,6 +14,7 @@ os.environ.update(OPENAI_API_KEY="x", ANTHROPIC_API_KEY="x")
 
 import auditoria  # noqa: E402
 import ia  # noqa: E402
+import nubi_web  # noqa: E402
 
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["categoria", "confianca"],
           "properties": {"categoria": {"type": "string", "enum": ["Árabe", "Designer"]},
@@ -153,6 +154,39 @@ def test_aprovacao_automatica_por_risco():
     assert novas["Reescrever o cálculo de comissão"]["aguardando"] == "Posso mudar a regra?", novas
     assert r.patch[50]["status"] == "aprovada" and "automático" in r.patch[50]["decidido_por"], r.patch
     assert "status" not in r.patch[51] and r.patch[51]["aguardando"], r.patch
+
+
+class RepoMac:
+    def __init__(self):
+        self.mac_comandos = []
+
+    def _req(self, metodo, tab, params=None, corpo=None, prefer=None):
+        assert tab == "mac_comandos" and metodo == "POST"
+        linhas = [dict(l, id=len(self.mac_comandos) + i + 1) for i, l in enumerate(corpo)]
+        self.mac_comandos.extend(linhas)
+        return linhas if prefer and "representation" in prefer else None
+
+
+def test_11_terminal_recusa_comando_fora_da_lista_e_registra():
+    r = RepoMac()
+    try:
+        nubi_web.rota_mac(r, "POST", "mac_pedir", {}, json.dumps({"comando": "rm -rf /", "arg": ""}).encode(), "tok")
+        assert False, "devia recusar comando fora da lista"
+    except nubi_web.ErroNuvem as e:
+        assert "fora da lista" in str(e), e
+    assert len(r.mac_comandos) == 1 and r.mac_comandos[0]["status"] == "recusado" and r.mac_comandos[0]["comando"] == "rm -rf /", r.mac_comandos
+
+    r2 = RepoMac()
+    try:
+        nubi_web.rota_mac(r2, "POST", "mac_pedir", {}, json.dumps({"comando": "baixar_modelo", "arg": "modelo-malicioso"}).encode(), "tok")
+        assert False, "devia recusar modelo fora da lista"
+    except nubi_web.ErroNuvem as e:
+        assert "Modelo fora da lista" in str(e), e
+    assert r2.mac_comandos[0]["status"] == "recusado" and r2.mac_comandos[0]["comando"] == "baixar_modelo", r2.mac_comandos
+
+    r3 = RepoMac()
+    resp = nubi_web.rota_mac(r3, "POST", "mac_pedir", {}, json.dumps({"comando": "status", "arg": ""}).encode(), "tok")
+    assert resp["ok"] and r3.mac_comandos[0]["status"] == "pendente", (resp, r3.mac_comandos)
 
 
 if __name__ == "__main__":
