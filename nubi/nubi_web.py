@@ -19,7 +19,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -559,6 +559,9 @@ def atender(metodo, rota, q, corpo, token):
         if rota == "agente" and CRON_SECRET and token == CRON_SECRET:
             # Chamada da agenda (Vercel Cron manda "Authorization: Bearer CRON_SECRET").
             return _json(rodar_agente(RepoSupabase(login_agente()), "agendado"))
+        if rota == "rotina_8h" and CRON_SECRET and token == CRON_SECRET:
+            # 8h (Brasília): resumo do dia dos vendedores; a partir do dia 3, o resumo mensal das marcas
+            return _json(rotina_8h(RepoSupabase(login_agente())))
         repo = RepoSupabase(token)
         if rota == "agente" and metodo == "POST":
             seg = min(TEMPO_MAX, int(q.get("segundos") or 60))
@@ -600,6 +603,11 @@ def atender(metodo, rota, q, corpo, token):
             if d.get("id"):
                 repo._req("PATCH", "coletor_execucoes", {"id": repo._eq(int(d["id"]))}, corpo=reg,
                           prefer="return=minimal")
+                if d.get("em_andamento") is False and d.get("tarefa") == "diario" and datetime.now(timezone.utc).hour >= 11:
+                    try:
+                        gerar_resumo_dia(repo)      # coleta terminou depois das 8h: o resumo sai agora
+                    except Exception:  # noqa: BLE001
+                        pass
                 return _json({"ok": True, "id": int(d["id"])})
             novo = repo._req("POST", "coletor_execucoes", corpo=[reg], prefer="return=representation")
             return _json({"ok": True, "id": novo[0]["id"] if novo else None})
@@ -636,6 +644,17 @@ def atender(metodo, rota, q, corpo, token):
 
         if rota.startswith("vend_"):
             return _json(rota_vendedores(repo, metodo, rota, q, corpo))
+
+        if rota == "resumo_dia":
+            # resumo diário dos vendedores monitorados (o mais recente, ou o de ?data=AAAA-MM-DD)
+            if metodo == "POST":
+                return _json(gerar_resumo_dia(repo, forcar=bool(q.get("novo"))))
+            lista = repo._req("GET", "ia_resumos", {"select": "chave,texto,ia,criado_em", "chave": "like.vendedores|*",
+                                                    "order": "chave.desc", "limit": 15}) or []
+            esc = next((x for x in lista if x["chave"].endswith(q.get("data", ""))), lista[0] if lista else None) \
+                if q.get("data") else (lista[0] if lista else None)
+            return _json({"atual": esc, "datas": [x["chave"].split("|")[1] for x in lista],
+                          "disponivel": bool(ia.disponivel())})
 
         if rota.startswith("ranking"):
             return _json(rota_ranking(repo, metodo, rota, q, corpo))
@@ -825,7 +844,31 @@ def _linhas(repo, rid):
                                                                  "order": "posicao"}), somar=True)
 
 
-def _dados_resumo(repo, cat, rels):
+def _guardar_resumo(repo, chave, texto, qual):
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": texto, "ia": ia.nome(qual),
+                                            "criado_em": datetime.now(timezone.utc).isoformat()}],
+              prefer="resolution=merge-duplicates,return=minimal")
+
+
+def gerar_resumo_marcas(repo, cat, rels, chave):
+    """Resumo MENSAL e detalhado das marcas (ranking MARCAS do mês fechado)."""
+    mes = rels[-1]["mes"][:7]
+    try:
+        texto, _, qual = ia.perguntar(
+            "Você é analista de e-commerce de perfumes no Mercado Livre Brasil. Com os dados abaixo (do sistema nubi), "
+            f"escreva a análise MENSAL das marcas de {ranking.nome_mes(mes + '-01')} (mês fechado) para o dono de uma loja de "
+            "perfumes, em português simples e com números. Seções: **Mercado no mês**, **Categorias** (quem ganhou e perdeu "
+            "espaço), **Marcas em alta**, **Marcas em queda**, **Entraram e saíram do top**, **Oportunidades** (marcas subindo "
+            "em que vale investir e por quê), **Concorrentes e sinais de compra**, **Plano para o próximo mês** (4 ações práticas). "
+            "Use só os dados fornecidos, não invente números. Formato: markdown simples (## para seções, - para tópicos).\n\n"
+            + _dados_resumo(repo, cat, rels, detalhado=True), web=False, max_tokens=2600)
+    except Exception as e:  # noqa: BLE001
+        raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
+    _guardar_resumo(repo, chave, texto, qual)
+    return texto, qual
+
+
+def _dados_resumo(repo, cat, rels, detalhado=False):
     """Os números do mês (ranking, categorias e concorrentes) em texto curto, para a IA escrever o resumo."""
     ids = ",".join(str(r["id"]) for r in rels)
     linhas = unificar_marcas(repo, repo._todos("ranking_linhas", {
@@ -844,12 +887,13 @@ def _dados_resumo(repo, cat, rels):
     out.append(f"Crescimento no período: {pc(z.get('cresc_vendas'))}; entradas no top no período: {z.get('entradas')}; saídas: {z.get('saidas')}.")
     ms = [x for x in b["marcas"] if x.get("posicao")]
     alta = sorted([x for x in ms if x.get("status") in ("Subindo forte", "Crescimento consistente", "Nova")],
-                  key=lambda x: -(x.get("nota") or 0))[:8]
-    queda = sorted([x for x in ms if x.get("status") in ("Em queda", "Perdeu fôlego")], key=lambda x: -(x.get("vendas_atual") or 0))[:6]
+                  key=lambda x: -(x.get("nota") or 0))[:15 if detalhado else 8]
+    queda = sorted([x for x in ms if x.get("status") in ("Em queda", "Perdeu fôlego")],
+                   key=lambda x: -(x.get("vendas_atual") or 0))[:12 if detalhado else 6]
     out.append("MARCAS EM ALTA: " + "; ".join(f"{x['marca']} #{x['posicao']} {fm(x.get('vendas_atual'))} 3m {pc(x.get('cresc_3m'))} ({x['status']})" for x in alta))
     out.append("MARCAS EM QUEDA: " + "; ".join(f"{x['marca']} #{x['posicao']} {fm(x.get('vendas_atual'))} 3m {pc(x.get('cresc_3m'))}" for x in queda))
-    ent = [e for e in b.get("entradas", []) if str(e.get("mes"))[:7] == ult][:6]
-    sai = [e for e in b.get("saidas", []) if str(e.get("mes"))[:7] == ult][:6]
+    ent = [e for e in b.get("entradas", []) if str(e.get("mes"))[:7] == ult][:12 if detalhado else 6]
+    sai = [e for e in b.get("saidas", []) if str(e.get("mes"))[:7] == ult][:12 if detalhado else 6]
     out.append("ENTRARAM NO TOP NO MÊS: " + "; ".join(f"{e['marca']} #{e.get('posicao')}" for e in ent))
     out.append("SAÍRAM DO TOP NO MÊS: " + "; ".join(str(e.get("marca")) for e in sai))
     manuais = {r["marca_chave"]: r["categoria"] for r in repo._todos("marca_categorias", {"select": "marca_chave,categoria"})}
@@ -857,6 +901,11 @@ def _dados_resumo(repo, cat, rels):
     out.append("CATEGORIAS (fatia do mercado no mês e variação em pontos): " + "; ".join(
         f"{k} {c['serie'][k]['share'][-1] * 100:.1f}% ({(c['serie'][k]['var_share'] or 0) * 100:+.1f} p.p.)"
         for k in c["categorias"] if c["serie"][k]["vendas"][-1]))
+    if detalhado:
+        for k in c["categorias"]:
+            top = [m for m in c["marcas"] if m["categoria"] == k and m["ultimo"]][:5]
+            if top:
+                out.append(f"  {k}, maiores: " + "; ".join(f"{m['marca']} {fm(m['ultimo'])} ({pc(m['var_mes'])} no mês)" for m in top))
     try:
         al = rota_vendedores(repo, "GET", "vend_alertas", {}, b"")
         top = [p for p in al["produtos"] if p["sem_estoque"] > 0][:8]
@@ -866,6 +915,147 @@ def _dados_resumo(repo, cat, rels):
     except Exception:  # noqa: BLE001
         pass
     return "\n".join(out)
+
+
+def _dados_resumo_dia(repo):
+    """
+    O que aconteceu no último dia coletado (dados de 2 dias atrás) com os vendedores monitorados:
+    vendas do dia (diferença entre as duas últimas fotos diárias), ritmo do mês vs mês anterior,
+    produtos que mais venderam no dia e produtos que ficaram sem estoque de ontem para hoje.
+    Devolve (data, texto) ou (None, motivo).
+    """
+    rels = _vend_rels(repo)
+    if not rels:
+        return None, "nenhum vendedor importado"
+    mes = max(r["mes"] for r in rels)[:7]
+    ant_mes = (date.fromisoformat(mes + "-01") - timedelta(days=1)).strftime("%Y-%m")
+    fotos = repo._todos("vend_produto_dia", {"select": "vendedor,chave,dias", "mes": repo._eq(mes + "-01"),
+                                             "order": "vendedor,chave"})
+    datas = sorted({d for f in fotos for d in f["dias"]})
+    if not datas:
+        return None, "ainda sem fotos diárias do mês"
+    d1 = datas[-1]
+    d0 = datas[-2] if len(datas) > 1 else None
+    prev = repo._todos("vend_produto_dia", {"select": "vendedor,chave,dias", "mes": repo._eq(ant_mes + "-01"),
+                                            "order": "vendedor,chave"})
+    tot_ant = {}
+    for f in prev:
+        if f["dias"]:
+            ult = f["dias"][max(f["dias"])]
+            tot_ant[f["vendedor"]] = tot_ant.get(f["vendedor"], 0) + float(ult.get("v") or 0)
+    dias_ant = vend_bi.dias_do_mes(ant_mes)
+    por_v, prod, sem_est = {}, {}, []
+    for f in fotos:
+        dd = f["dias"]
+        x = por_v.setdefault(f["vendedor"], {"mtd": 0.0, "dia_v": 0.0, "dia_u": 0, "tem_d0": False, "tem_d1": False})
+        a1 = dd.get(d1)
+        if a1:
+            x["tem_d1"] = True
+            x["mtd"] += float(a1.get("v") or 0)
+        if d0 and d0 in dd:
+            x["tem_d0"] = True
+        if a1 and d0:
+            a0 = dd.get(d0) or {}
+            du, dv = int(a1.get("u") or 0) - int(a0.get("u") or 0), float(a1.get("v") or 0) - float(a0.get("v") or 0)
+            if du > 0:
+                x["dia_u"] += du
+                x["dia_v"] += dv
+                p = prod.setdefault(f["chave"], {"u": 0, "v": 0.0, "vendedores": set()})
+                p["u"] += du
+                p["v"] += dv
+                p["vendedores"].add(f["vendedor"])
+            if (a0.get("a") or 0) > 0 and (a1.get("a") or 0) == 0 and int(a1.get("u") or 0) >= 15:
+                sem_est.append((f["vendedor"], f["chave"], int(a1.get("u") or 0)))
+    # nomes dos produtos
+    chaves = sorted(prod, key=lambda k: -prod[k]["u"])[:12]
+    chaves_sem = [c for _, c, _ in sorted(sem_est, key=lambda t: -t[2])[:10]]
+    gt = [c for c in set(chaves + chaves_sem) if not c.startswith("T:")]
+    nomes = {}
+    if gt:
+        ult_ids = ",".join(str(r["id"]) for r in rels if r["mes"][:7] == mes)
+        for r in repo._todos("vend_anuncios", {"select": "gtin,titulo,marca,unidades", "relatorio_id": f"in.({ult_ids})",
+                                               "gtin": f"in.({','.join(gt)})", "order": "unidades.desc"}):
+            nomes.setdefault(r["gtin"], f"{r['titulo'][:55]} ({r['marca']})")
+    nome = lambda c: nomes.get(c) or c.replace("T:", "")[:60]
+    fm = lambda v: f"R$ {v / 1e6:.1f} mi".replace(".", ",") if v >= 1e6 else f"R$ {v / 1e3:.1f} mil".replace(".", ",")
+    dia_n = int(d1[8:10])
+    ddmm = f"{d1[8:10]}/{d1[5:7]}"
+    linhas = [f"DADOS ATÉ {ddmm} (o Nubimetrics libera com 2 dias de atraso). "
+              + (f"Dia analisado: vendas entre {d0[8:10]}/{d0[5:7]} e {ddmm}." if d0 else "Primeira foto do mês: sem comparação diária.")]
+    tot_dia = sum(x["dia_v"] for x in por_v.values())
+    linhas.append(f"TOTAL DOS VENDEDORES MONITORADOS: {fm(tot_dia)} no dia; {fm(sum(x['mtd'] for x in por_v.values()))} no mês até {ddmm}.")
+    for v, x in sorted(por_v.items(), key=lambda kv: -kv[1]["dia_v"]):
+        if not x["tem_d1"]:
+            continue
+        ritmo, r_ant = x["mtd"] / dia_n, (tot_ant.get(v) or 0) / dias_ant
+        linhas.append(f"- {v}: {fm(x['dia_v'])} no dia ({x['dia_u']} un.)"
+                      + ("" if x["tem_d0"] else " [sem foto do dia anterior]")
+                      + f"; mês {fm(x['mtd'])}, ritmo {fm(ritmo)}/dia"
+                      + (f" vs {fm(r_ant)}/dia no mês anterior ({(ritmo / r_ant - 1) * 100:+.0f}%)" if r_ant else ""))
+    linhas.append("PRODUTOS QUE MAIS VENDERAM NO DIA: " + "; ".join(
+        f"{nome(c)}: {prod[c]['u']} un., {fm(prod[c]['v'])}, {len(prod[c]['vendedores'])} vendedor(es)" for c in chaves))
+    linhas.append("FICARAM SEM ESTOQUE NO DIA (todos os anúncios pausaram): " + ("; ".join(
+        f"{nome(c)} em {v} (vendeu {u} un. no mês)" for v, c, u in sorted(sem_est, key=lambda t: -t[2])[:10]) or "nenhum"))
+    try:
+        al = rota_vendedores(repo, "GET", "vend_alertas", {}, b"")
+        top = [p for p in al["produtos"] if p["sem_estoque"] > 0][:6]
+        linhas.append("ALERTAS DE ESTOQUE EM ABERTO (maiores): " + "; ".join(
+            f"{p['produto'][:50]} ({p['marca']}): sem estoque em {', '.join(a['vendedor'] for a in p['alertas'][:3])}; "
+            f"ainda vendem {len(p['ainda_vendem'])}; {fm(p['perda_dia'])}/dia parado" for p in top))
+    except Exception:  # noqa: BLE001
+        pass
+    return d1, "\n".join(linhas)
+
+
+def gerar_resumo_dia(repo, forcar=False):
+    """Resumo do dia dos vendedores (guardado por data dos dados; forcar=True escreve de novo)."""
+    if not ia.disponivel():
+        raise ErroNuvem("Configure uma chave de IA (OPENAI_API_KEY) na Vercel para gerar o resumo.")
+    d1, dados = _dados_resumo_dia(repo)
+    if not d1:
+        raise ErroNuvem(f"Sem dados para o resumo do dia: {dados}.")
+    chave = f"vendedores|{d1}"
+    if not forcar:
+        ja = repo._req("GET", "ia_resumos", {"select": "chave,texto,ia,criado_em", "chave": repo._eq(chave)}) or []
+        if ja:
+            return {"atual": ja[0], "novo": False}
+    try:
+        texto, _, qual = ia.perguntar(
+            "Você é analista de e-commerce de perfumes no Mercado Livre Brasil e acompanha os concorrentes do dono de uma loja. "
+            "Com os dados abaixo (do sistema nubi), escreva o RESUMO DO DIA, curto e direto, em português simples e com números. "
+            "Seções: **Vendas do dia**, **Vendedores em destaque** (quem acelerou e quem desacelerou no mês), "
+            "**Produtos que mais venderam**, **Estoque dos concorrentes e sinais de compra**, **O que fazer hoje** (2 ou 3 ações). "
+            "Use só os dados fornecidos, não invente números. Formato: markdown simples (## para seções, - para tópicos).\n\n"
+            + dados, web=False, max_tokens=1600)
+    except Exception as e:  # noqa: BLE001
+        raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
+    _guardar_resumo(repo, chave, texto, qual)
+    return {"atual": {"chave": chave, "texto": texto, "ia": ia.nome(qual),
+                      "criado_em": datetime.now(timezone.utc).isoformat()}, "novo": True}
+
+
+def rotina_8h(repo):
+    """Agenda das 8h: resumo do dia dos vendedores; do dia 3 em diante, o resumo mensal das marcas que faltar."""
+    out = {}
+    try:
+        r = gerar_resumo_dia(repo)
+        out["dia"] = r["atual"]["chave"] + (" (gerado)" if r["novo"] else " (já existia)")
+    except ErroNuvem as e:
+        out["dia"] = str(e)
+    if date.today().day >= 3:
+        cats = {}
+        for r in _relatorios(repo):
+            cats.setdefault(r["categoria"], []).append(r)
+        for cat, rels in cats.items():
+            chave = f"ranking|{cat}|{rels[-1]['mes'][:7]}"
+            if repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave)}):
+                continue
+            try:
+                gerar_resumo_marcas(repo, cat, rels, chave)
+                out[chave] = "gerado"
+            except ErroNuvem as e:
+                out[chave] = str(e)
+    return out
 
 
 def rota_ranking(repo, metodo, rota, q, corpo):
@@ -1047,20 +1237,7 @@ def rota_ranking(repo, metodo, rota, q, corpo):
                         "criado_em": ja[0]["criado_em"] if ja else None, "disponivel": bool(ia.disponivel())}
         if not ia.disponivel():
             raise ErroNuvem("Configure uma chave de IA (OPENAI_API_KEY) na Vercel para gerar o resumo.")
-        texto_dados = _dados_resumo(repo, cat, rels)
-        try:
-            texto, _, qual = ia.perguntar(
-                "Você é analista de e-commerce de perfumes no Mercado Livre Brasil. Com os dados abaixo (do sistema nubi), "
-                f"escreva o resumo de {ranking.nome_mes(mes + '-01')} para o dono de uma loja de perfumes, em português simples. "
-                "Use estas seções, cada uma com 2 a 4 tópicos curtos e com números: **Mercado**, **Categorias**, "
-                "**Marcas em alta**, **Marcas em queda**, **Concorrentes e sinais de compra**, **O que fazer agora** (3 ações práticas). "
-                "Use só os dados fornecidos, não invente números. Formato: markdown simples (## para seções, - para tópicos).\n\n"
-                + texto_dados, web=False, max_tokens=1800)
-        except Exception as e:  # noqa: BLE001
-            raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
-        repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": texto, "ia": ia.nome(qual),
-                                                "criado_em": datetime.now(timezone.utc).isoformat()}],
-                  prefer="resolution=merge-duplicates,return=minimal")
+        texto, qual = gerar_resumo_marcas(repo, cat, rels, chave)
         return {"mes": mes, "texto": texto, "ia": ia.nome(qual), "criado_em": datetime.now(timezone.utc).isoformat(),
                 "disponivel": True}
 

@@ -12,6 +12,10 @@
     {
       "path": "/api/app?r=agente",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/app?r=rotina_8h",
+      "schedule": "0 11 * * *"
     }
   ]
 }

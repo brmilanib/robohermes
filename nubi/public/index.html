@@ -964,12 +964,12 @@ async function resumoIA(cat, gerar, novo) {
   try { r = await api("ranking_resumo_ia", {categoria: cat, ...(novo ? {novo: 1} : {})}, gerar ? {method: "POST"} : {}); }
   catch (e) { if (c) c.erro(e.message); else box.remove(); return; }
   if (c) c.ok("Resumo pronto");
-  box.innerHTML = r.texto ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🤖 Resumo de ${esc(mesCurto(r.mes))}</h2>
+  box.innerHTML = r.texto ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🤖 Análise mensal das marcas · ${esc(mesCurto(r.mes))}</h2>
       <span class="muted" style="font-size:12px">${esc(r.ia || "IA")} · ${esc(quando(r.criado_em))}</span><div style="flex:1"></div>
       <button class="btn small" id="ria-novo">Escrever de novo</button><button class="btn small" id="ria-min">${S.resumoMin ? "Mostrar" : "Esconder"}</button></div>
       <div class="md ${S.resumoMin ? "hidden" : ""}">${mdSimples(r.texto)}</div>`
-    : r.disponivel ? `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1"><b>🤖 Resumo de ${esc(mesCurto(r.mes))} com IA</b>
-      <div class="muted" style="font-size:12.5px">A IA lê o ranking, as categorias e os alertas dos concorrentes e escreve o que mudou e o que fazer.</div></div>
+    : r.disponivel ? `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1"><b>🤖 Análise mensal das marcas · ${esc(mesCurto(r.mes))}</b>
+      <div class="muted" style="font-size:12.5px">Sai sozinha todo dia 3 às 8h, com o relatório MARCAS do mês fechado. Se quiser agora, gere aqui.</div></div>
       <button class="btn primary" id="ria-gerar">Gerar resumo</button></div>` : "";
   if (!box.innerHTML) box.remove();
   if ($("#ria-gerar")) $("#ria-gerar").onclick = () => resumoIA(cat, true);
@@ -1354,6 +1354,32 @@ function vendVazio(main) {
     O nome do arquivo vira o nome do vendedor, por exemplo <code>AUMA_PERFUMARIA_P2.xlsx</code> → AUMA PERFUMARIA P2.</p>
     <button class="btn primary" onclick="abrirUploadVendedor()">⬆ Importar vendedor</button></div>` + cartaoColetor();
 }
+// Resumo do dia dos vendedores monitorados (a IA escreve às 8h com os dados que o coletor trouxe)
+async function resumoDia(data, gerar, novo) {
+  const box = $("#v-resumo");
+  if (!box) return;
+  let r;
+  const c = gerar ? carregando("A IA está lendo as vendas do dia e escrevendo o resumo") : null;
+  try {
+    if (gerar) { await api("resumo_dia", novo ? {novo: 1} : {}, {method: "POST"}); data = ""; }
+    r = await api("resumo_dia", data ? {data} : {});
+  } catch (e) { if (c) c.erro(e.message); else box.remove(); return; }
+  if (c) c.ok("Resumo do dia pronto");
+  const a = r.atual, dataDe = x => { const d = x.split("|").pop(); return d.slice(8, 10) + "/" + d.slice(5, 7); };
+  box.innerHTML = a ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🤖 Resumo do dia · dados até ${esc(dataDe(a.chave))}</h2>
+      <span class="muted" style="font-size:12px">${esc(a.ia || "IA")} · ${esc(quando(a.criado_em))}</span><div style="flex:1"></div>
+      ${r.datas.length > 1 ? `<select id="rd-data" class="mes" style="font-size:12.5px">${r.datas.map(d => `<option value="${d}" ${a.chave.endsWith(d) ? "selected" : ""}>${d.slice(8, 10)}/${d.slice(5, 7)}</option>`).join("")}</select>` : ""}
+      <button class="btn small" id="rd-novo">Escrever de novo</button><button class="btn small" id="rd-min">${S.resumoDiaMin ? "Mostrar" : "Esconder"}</button></div>
+      <div class="md ${S.resumoDiaMin ? "hidden" : ""}">${mdSimples(a.texto)}</div>`
+    : r.disponivel ? `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1"><b>🤖 Resumo do dia</b>
+      <div class="muted" style="font-size:12.5px">Todo dia às 8h a IA lê o que os vendedores monitorados venderam (dados de 2 dias atrás), quem acelerou,
+      os produtos que mais saíram e quem ficou sem estoque. Se quiser agora, gere aqui.</div></div><button class="btn primary" id="rd-gerar">Gerar resumo do dia</button></div>` : "";
+  if (!box.innerHTML) { box.remove(); return; }
+  if ($("#rd-gerar")) $("#rd-gerar").onclick = () => resumoDia("", true);
+  if ($("#rd-novo")) $("#rd-novo").onclick = () => resumoDia("", true, true);
+  if ($("#rd-min")) $("#rd-min").onclick = () => { S.resumoDiaMin = !S.resumoDiaMin; resumoDia(a.chave.split("|").pop()); };
+  if ($("#rd-data")) $("#rd-data").onchange = e => resumoDia(e.target.value);
+}
 async function telaVendedores(mes) {
   const main = $("#main");
   if (!S.vendLista) await carregarVendLista();
@@ -1370,6 +1396,7 @@ async function telaVendedores(mes) {
       <select id="vmes" class="mes">${r.meses.map(m => optMes(m, (r.parciais || {})[m], m === r.mes)).join("")}</select>
       <span class="muted">${vs.length} vendedor(es) com relatório em ${esc(mesCurto(r.mes))}${(r.parciais || {})[r.mes] ? ` · <span class="st warn">parcial: variação pelo ritmo por dia</span>` : ""}</span>
     </div>
+    <div class="card pad resumo-ia" id="v-resumo" style="margin-top:10px"></div>
     <div class="kpis">
       ${kpi("Vendas somadas", abrev(tot), "dos vendedores seguidos no mês")}
       ${kpi("Maior vendedor", esc(vs[0].vendedor), abrev(vs[0].vendas))}
@@ -1392,6 +1419,7 @@ async function telaVendedores(mes) {
         </tbody></table></div></div>
     </div>`;
   $("#vmes").onchange = e => { location.hash = `#/vendedores?mes=${e.target.value}`; };
+  resumoDia();
   const c = (S.coletor || [])[0];
   if (c && (coletorRodando(c) || (!c.ok && !c.em_andamento))) main.insertAdjacentHTML("afterbegin", `<p class="aviso ${coletorRodando(c) ? "" : "warn"}" style="margin:0 0 10px">
     ${coletorRodando(c) ? `Coletor baixando agora${c.total ? ` (${c.feito || 0} de ${c.total})` : ""}: ${esc(c.atual || "")}` : `A última coleta falhou: ${esc((c.mensagem || "").slice(0, 120))}`}
