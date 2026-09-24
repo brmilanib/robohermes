@@ -18,7 +18,7 @@ import agentes
 import ia
 
 AGENTES = {k: a["nome"] for k, a in agentes.AGENTES.items()} | {"claude": "Claude"}
-STATUS = ["proposta", "aprovada", "em_desenvolvimento", "feita", "recusada"]
+STATUS = ["proposta", "aprovada", "em_desenvolvimento", "em_teste", "feita", "recusada"]
 
 
 def _historico(msgs, n=30):

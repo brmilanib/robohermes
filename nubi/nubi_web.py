@@ -1650,7 +1650,7 @@ def tela_inicio(repo):
     det = seguro(lambda: repo._todos("reuniao_tarefas", {"select": "id,titulo,status,responsavel,aguardando,atualizado_em",
                                                          "status": "in.(em_desenvolvimento,feita)", "order": "atualizado_em.desc"}), []) or []
     limite = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
-    out["andamento"] = [t for t in det if t["status"] == "em_desenvolvimento"][:5]
+    out["andamento"] = [t for t in det if t["status"] in ("em_desenvolvimento", "em_teste")][:5]
     out["feitas_recentes"] = [t for t in det if t["status"] == "feita" and str(t.get("atualizado_em") or "") > limite][:5]
     out["aguardando_voce"] = seguro(lambda: [t for t in repo._todos("reuniao_tarefas", {"select": "id,titulo,aguardando",
                                                                                           "aguardando": "not.is.null"})

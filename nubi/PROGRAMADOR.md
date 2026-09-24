@@ -23,7 +23,7 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
 ## Passo a passo de cada rodada
 
 1. **Trava (uma rodada por vez).** `git fetch origin claude/wizardly-ritchie-5fig5i && git checkout claude/wizardly-ritchie-5fig5i && git pull --rebase`.
-   Se existir card com `status='em_desenvolvimento'`, `responsavel='claude_code'` e `atualizado_em` nos últimos 90 min,
+   Se existir card com `status in ('em_desenvolvimento','em_teste')`, `responsavel='claude_code'` e `atualizado_em` nos últimos 90 min,
    **outra rodada (ou a sessão do Bruno) está trabalhando: termine sem fazer nada.**
 2. **Contexto.** Leia `select titulo, texto from conhecimento where fixo or atualizado_em > now() - interval '14 days' order by fixo desc, atualizado_em desc limit 60`
    e as últimas 30 mensagens de `reuniao_mensagens`.
@@ -47,19 +47,26 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
    e um evento `autor='claude_code'`, `tipo='passo'`, texto curto do plano. **A cada passo relevante, um evento novo**
    (e `atualizado_em=now()` no card): é isso que mostra "trabalhando" no quadro.
 6. **Programar** o mínimo que resolve o card, no estilo do código em volta. Nada de reescrever o que não foi pedido.
-7. **Testar**: testes do repositório + servidor de teste + `ui_exemplo.mjs` nas telas mexidas (computador e celular).
+7. **Seus testes**: testes do repositório + servidor de teste + `ui_exemplo.mjs` nas telas mexidas (computador e celular).
    Coletor: teste contra uma página falsa, como os testes do UpSeller/Gestor (nunca contra os sites reais).
-8. **Revisão por outro agente**: rode um subagente revisor independente (ferramenta Agent) com a diferença (`git diff`)
-   pedindo bugs, números errados, segurança e regras do CLAUDE.md. Corrija o que ele achar. Se ele apontar risco alto,
-   pare e pergunte ao Bruno (passo 4). Registre no card: "Revisão: aprovado" ou o que foi corrigido.
+8. **Em teste (outro agente testa)**: passe o card para `status='em_teste'`, `testador='revisor'`, `atualizado_em=now()` e
+   rode um **subagente revisor/testador independente** (ferramenta Agent) com o `git diff`, o card (e a especificação do Astra
+   ou o plano do DeepSeek, se houver). Ele revisa bugs, números, segurança e as regras do CLAUDE.md, **roda os testes e o
+   servidor de teste de novo** e confere os critérios de pronto. Registre o resultado como evento `autor='revisor'`:
+   - **Reprovou**: evento `tipo='erro_teste'` com o erro e a explicação; card volta para `status='em_desenvolvimento'`;
+     corrija e volte ao passo 7 (no máximo 3 voltas; na 3ª reprovação, pare, deixe o card em `aprovada` com o motivo e
+     pergunte ao Bruno).
+   - **Aprovou**: evento `tipo='teste_ok'` com o que foi conferido. Se ele apontar risco alto, pare e pergunte (passo 4).
 9. **Publicar**: commit (mensagem em português dizendo o que muda para o Bruno, com as linhas
    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` e `Claude-Session: <link desta sessão>`), `git pull --rebase`,
    `git push -u origin claude/wizardly-ritchie-5fig5i` (se falhar por rede, tente de novo em 2, 4, 8, 16 s), deploy na Vercel
    e espere `READY`. **Corrigiu, já roda**: aplique na hora (rotina com `ultima_execucao` de ontem, reprocessar o dado) e confira.
-10. **Terminar o card**: `status='feita'`, `notas` com o que mudou em 1 ou 2 frases para o Bruno, evento final, e uma
-    linha na caixa de conhecimento (`insert into conhecimento (tipo, titulo, texto, autor, fonte)` com `tipo='aprendizado'`)
-    se aprendeu algo que os outros agentes devem saber. Poste na Sala (`reuniao_mensagens`, `autor='Claude (código)'`)
-    um resumo de 2 linhas.
+10. **Concluir com relatório**: `status='feita'`, `notas` com o que mudou em 1 ou 2 frases, e **`relatorio`** (markdown) com:
+    ## O que foi feito · ## Arquivos e funções mexidos · ## Testes (os seus e os do revisor, com resultado) · ## Revisão
+    (o que o revisor apontou e o que foi corrigido) · ## Publicação (commit e deploy) · ## Como conferir (onde o Bruno vê)
+    · ## Se der problema (como reverter). Grave também um evento `tipo='relatorio'` com o mesmo texto (fica no histórico do
+    card para o Hermes organizar). Se aprendeu algo que os outros agentes devem saber, uma linha na caixa de conhecimento
+    (`tipo='aprendizado'`). Poste na Sala (`reuniao_mensagens`, `autor='Claude (código)'`) um resumo de 2 linhas.
 11. **Deu errado?** Não deixe o nubi quebrado: reverta o seu commit (`git revert`), publique, volte o card para `aprovada`
     com o motivo em evento, e termine. Nunca deixe card "em execução" sem ninguém trabalhando.
 

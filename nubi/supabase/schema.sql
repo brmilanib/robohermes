@@ -581,3 +581,6 @@ create policy "autorizado" on public.conhecimento for all to authenticated
 insert into public.rotinas (id, nome, descricao, responsavel, horario, dias_semana, ativo, ordem) values
  ('design', 'Astra: especificação de design', 'De hora em hora o Astra escreve a especificação de design dos cards aprovados de layout/tela/navegação.', 'Astra (design)', '00:00', array['seg','ter','qua','qui','sex','sab','dom'], true, 9)
 on conflict (id) do nothing;
+-- Coluna "Em teste" no quadro: quem está testando e o relatório final do card (histórico para o Hermes organizar)
+alter table public.reuniao_tarefas add column if not exists testador text;
+alter table public.reuniao_tarefas add column if not exists relatorio text;

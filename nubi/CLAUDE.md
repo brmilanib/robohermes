@@ -76,3 +76,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   O despachante do Mac executa e a saída volta ao card como passo do autor `mac`. O agente do card não escreve código.
 - "Em execução" só mostra "trabalhando" se houve passo nos últimos 20 min; senão o card aparece como ⏸ parado.
   Tarefa de código parada volta para `aprovada`, não fica fingindo execução.
+
+## Quadro com teste e relatório (25/09)
+
+- Colunas: Propostas → Aprovadas → Em execução → **Em teste** → Feitas. Em teste: `status='em_teste'` + `testador`
+  (ex.: `revisor`); reprovou = evento `tipo='erro_teste'` e volta para `em_desenvolvimento`; aprovou = evento `teste_ok`.
+- Ao concluir: `reuniao_tarefas.relatorio` (markdown: o que foi feito, arquivos, testes, revisão, publicação, como conferir,
+  como reverter) + evento `tipo='relatorio'`. O programador automático segue `PROGRAMADOR.md` (rotina a cada 2 h, até 3 cards).

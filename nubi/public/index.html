@@ -416,8 +416,11 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .dev-cab{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
 .dev-alerta{margin-top:10px;background:#fff4e5;border:1px solid #f5c26b;color:#7a4b00;border-radius:10px;padding:8px 12px;font-size:13px}
 .dev-alerta a{color:inherit;font-weight:600}
-.dev-col{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px;align-items:start}
+.dev-col{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:12px;align-items:start}
 .dev-coluna{background:var(--soft);border-radius:14px;padding:10px;display:grid;gap:8px;align-content:start;min-height:120px}
+.dev-coluna.c-em_teste{background:linear-gradient(180deg,rgba(122,90,248,.10),var(--soft) 120px)}
+.tf-b.erro{border-left:3px solid #dc2626}.tf-b.rel{border-left:3px solid #16a34a}
+.tf-rel{margin:0 14px 10px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--card)}.tf-rel summary{cursor:pointer;font-weight:600}
 .dev-coluna.c-em_desenvolvimento{background:linear-gradient(180deg,rgba(245,158,11,.10),var(--soft) 120px)}
 .dev-ct{padding:2px 4px 4px}.dev-ct .muted{font-size:11.5px}
 .dev-cn{display:inline-block;min-width:22px;text-align:center;border-radius:999px;background:var(--card);font-size:12px;padding:1px 7px;margin-left:4px}
@@ -2623,34 +2626,36 @@ async function atualizarReuniao(rolar) {
   box.innerHTML = waDesenhar(S.reu.msgs) + dig;
   if (noFim) box.scrollTop = box.scrollHeight;
 }
-const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em execução", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"]};
+const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em execução", "warn"], em_teste: ["Em teste", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"]};
 const DEV_COLS = [["proposta", "Propostas", "o Claude aprova as de risco baixo/médio; as de risco alto esperam você"], ["aprovada", "Aprovadas", "na fila para desenvolver"],
-  ["em_desenvolvimento", "Em execução", "um agente está trabalhando"], ["feita", "Feitas", "publicadas e conferidas"]];
+  ["em_desenvolvimento", "Em execução", "um agente está trabalhando"], ["em_teste", "Em teste", "outro agente testa; erro volta para execução"],
+  ["feita", "Feitas", "testadas, publicadas e com relatório"]];
 const AG_INFO = {claude_code: ["💻", "Claude (código)", "#b3541e"], claude: ["✴️", "Claude", "#d97757"], chatgpt: ["🧠", "ChatGPT", "#10a37f"],
   deepseek: ["🐋", "DeepSeek", "#4d6bfe"], gptoss: ["🦙", "gpt-oss", "#6b4fb3"], hermes: ["🪽", "Hermes", "#a2741a"], astra: ["🎨", "Astra", "#e0457b"],
-  qwen: ["🔎", "Qwen", "#615ced"],
+  qwen: ["🔎", "Qwen", "#615ced"], revisor: ["🧪", "Revisor", "#7a5af8"],
   voce: ["👤", "Você", "#00a884"], sistema: ["⚙️", "Sistema", "#667781"], mac: ["🖥️", "Mac mini", "#3b4a54"]};
 // "trabalhando" só quando houve atividade de verdade nos últimos 20 min (antes o card piscava para sempre)
 const DEV_ATIVO_MIN = 20;
-const devAtivo = t => t.status === "em_desenvolvimento" && [t.ultimo_evento?.criado_em, t.iniciado_em].some(x => x && Date.now() - new Date(x) < DEV_ATIVO_MIN * 60000);
+const devAtivo = t => ["em_desenvolvimento", "em_teste"].includes(t.status) && [t.ultimo_evento?.criado_em, t.iniciado_em].some(x => x && Date.now() - new Date(x) < DEV_ATIVO_MIN * 60000);
 const agInfo = k => AG_INFO[k] || AG_INFO[Object.keys(AG_INFO).find(x => AG_INFO[x][1] === k)] || ["🤖", k || "Agente", "#667781"];
 const quem = x => !x ? "?" : /^voc[eê]$/i.test(x) ? "Você" : x;
 const desde = t => { if (!t) return ""; const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
   return m < 1 ? "agora" : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h ${m % 60} min` : `há ${Math.floor(m / 1440)} d`; };
 function devCard(t) {
   const PRI = {urgente: "bad", alta: "", media: "", baixa: ""};
-  const vivo = devAtivo(t), parado = t.status === "em_desenvolvimento" && !vivo, ag = agInfo(t.responsavel || "claude_code"), ev = t.ultimo_evento;
+  const vivo = devAtivo(t), parado = ["em_desenvolvimento", "em_teste"].includes(t.status) && !vivo, ev = t.ultimo_evento;
+  const ag = agInfo(t.status === "em_teste" ? (t.testador || "revisor") : (t.responsavel || "claude_code"));
   return `<div class="dev-card ${vivo ? "vivo" : ""} ${t.aguardando ? "pede" : ""}" data-abrir="${t.id}" tabindex="0" role="button" aria-label="Abrir tarefa ${t.id}">
     <div class="dc-top"><span class="dc-id">#${t.id}</span><span class="st ${PRI[t.prioridade] || ""}">${esc(t.prioridade || "")}</span>${t.area ? `<span class="st">${esc(t.area)}</span>` : ""}
       ${t.risco ? `<span class="st ${t.risco === "alto" ? "bad" : t.risco === "medio" ? "warn" : "good"}" title="risco avaliado pelo Claude">risco ${esc(t.risco === "medio" ? "médio" : t.risco)}</span>` : ""}
       ${t.n_eventos ? `<span class="dc-n" title="passos registrados">💬 ${t.n_eventos}</span>` : ""}</div>
     <h4>${esc(t.titulo)}</h4>
     ${t.aguardando ? `<div class="dc-pede">⏳ Precisa de você: ${esc(t.aguardando.slice(0, 120))}</div>` : ""}
-    ${vivo ? `<div class="dc-vivo"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><div><b>${esc(ag[1])}</b> <span class="dc-dig"><i></i><i></i><i></i></span>
+    ${vivo ? `<div class="dc-vivo"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><div><b>${esc(ag[1])}</b>${t.status === "em_teste" ? " testando" : ""} <span class="dc-dig"><i></i><i></i><i></i></span>
         <div class="dc-ev">${esc(ev ? ev.texto.slice(0, 110) : "trabalhando na tarefa")}</div>
         <div class="muted" style="font-size:11px">${t.iniciado_em ? "começou " + desde(t.iniciado_em) : ""}${ev ? " · último passo " + desde(ev.criado_em) : ""}</div></div></div>`
       : parado ? `<div class="dc-parado">⏸ Parado ${ev ? "desde " + esc(desde(ev.criado_em)) : ""} · ${(t.responsavel || "claude_code") === "claude_code"
-          ? "código só anda com a sessão do Claude Code aberta" : "sem atividade do agente"}${ev ? `<div class="dc-ev">${esc(ev.texto.slice(0, 110))}</div>` : ""}</div>`
+          ? "o programador automático retoma na próxima rodada (a cada 2 h)" : "sem atividade do agente"}${ev ? `<div class="dc-ev">${esc(ev.texto.slice(0, 110))}</div>` : ""}</div>`
       : `<p class="dc-desc">${esc(t.descricao || "")}</p>`}
     <div class="dc-rod">${esc(quem(t.proposto_por))} → ${esc(quem(t.decidido_por))} · ${esc(desde(t.atualizado_em || t.criado_em))}</div></div>`;
 }
@@ -2691,20 +2696,21 @@ async function abrirTarefa(id) {
   document.querySelectorAll(".modal-bg.tarefa").forEach(x => x.remove());
   const bg = modal(`<div class="tf" id="tf"></div>`); bg.classList.add("tarefa");
   const desenhar = x => {
-    const t = x.tarefa, ag = agInfo(t.responsavel || "claude_code"), ue = x.eventos[x.eventos.length - 1];
-    const vivo = devAtivo({...t, ultimo_evento: ue}), parado = t.status === "em_desenvolvimento" && !vivo;
+    const t = x.tarefa, ag = agInfo(t.status === "em_teste" ? (t.testador || "revisor") : (t.responsavel || "claude_code")), ue = x.eventos[x.eventos.length - 1];
+    const vivo = devAtivo({...t, ultimo_evento: ue}), parado = ["em_desenvolvimento", "em_teste"].includes(t.status) && !vivo;
     const bolha = e => {
       if (e.tipo === "status") return `<div class="tf-sis">${esc(e.texto)} · ${esc(desde(e.criado_em))}</div>`;
       const a = agInfo(e.autor), eu = e.autor === "voce";
-      return `<div class="tf-b ${eu ? "eu" : ""} ${e.tipo === "pergunta" ? "perg" : ""}">${eu ? "" : `<div class="tf-nm" style="color:${a[2]}">${a[0]} ${esc(a[1])}${e.tipo === "pergunta" ? " · pergunta" : ""}</div>`}
+      return `<div class="tf-b ${eu ? "eu" : ""} ${e.tipo === "pergunta" ? "perg" : ""} ${e.tipo === "erro_teste" ? "erro" : ""} ${e.tipo === "relatorio" || e.tipo === "teste_ok" ? "rel" : ""}">${eu ? "" : `<div class="tf-nm" style="color:${a[2]}">${a[0]} ${esc(a[1])}${e.tipo === "pergunta" ? " · pergunta" : e.tipo === "erro_teste" ? " · ❌ teste falhou" : e.tipo === "teste_ok" ? " · ✅ teste aprovado" : e.tipo === "relatorio" ? " · 📄 relatório final" : ""}</div>`}
         ${mdCodigo(e.texto)}<span class="tf-hr">${new Date(e.criado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</span></div>`;
     };
     $("#tf", bg).innerHTML = `<div class="tf-cab"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><div style="min-width:0"><div class="muted" style="font-size:12px">#${t.id} · ${esc(DEV_ST[t.status][0])} · ${esc(ag[1])}</div>
         <h2 style="margin:0;font-size:17px">${esc(t.titulo)}</h2></div><div style="flex:1"></div><button class="btn small" data-fechar>✕</button></div>
       ${t.descricao ? `<details class="tf-desc" ${x.eventos.length ? "" : "open"}><summary>O que é para fazer</summary><p>${esc(t.descricao)}</p>${t.notas ? `<p><b>Nota:</b> ${esc(t.notas)}</p>` : ""}</details>` : ""}
+      ${t.relatorio ? `<details class="tf-rel" open><summary>📄 Relatório final</summary>${mdCodigo(t.relatorio)}</details>` : ""}
       <div class="tf-lin" id="tf-lin">${x.eventos.map(bolha).join("") || `<div class="tf-sis">Ainda sem passos registrados.</div>`}
-        ${vivo ? `<div class="tf-b trab"><span class="dc-dig"><i></i><i></i><i></i></span> ${esc(ag[1])} está trabalhando…</div>` : ""}
-        ${parado ? `<div class="tf-sis">⏸ Sem atividade há mais de ${DEV_ATIVO_MIN} min. ${(t.responsavel || "claude_code") === "claude_code" ? "A parte de código só anda quando a sessão do Claude Code está aberta; " : ""}escreva aqui que o agente responde na hora.</div>` : ""}</div>
+        ${vivo ? `<div class="tf-b trab"><span class="dc-dig"><i></i><i></i><i></i></span> ${esc(ag[1])} ${t.status === "em_teste" ? "está testando" : "está trabalhando"}…</div>` : ""}
+        ${parado ? `<div class="tf-sis">⏸ Sem atividade há mais de ${DEV_ATIVO_MIN} min. ${(t.responsavel || "claude_code") === "claude_code" ? "O programador automático retoma na próxima rodada (a cada 2 h); " : ""}escreva aqui que o agente responde na hora.</div>` : ""}</div>
       ${t.aguardando ? `<div class="tf-pede"><b>⏳ ${esc(ag[1])} precisa de você:</b> ${esc(t.aguardando)}
         <div class="tf-bts"><button class="btn primary small" data-dec="aprovar">✅ Aprovar</button><button class="btn small" data-dec="recusar">❌ Não aprovar</button></div></div>` : ""}
       <div class="tf-in"><textarea id="tf-txt" rows="1" placeholder="Escreva para o agente desta tarefa…"></textarea><button class="btn primary" id="tf-env" title="Enviar">➤</button></div>
