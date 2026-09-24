@@ -230,6 +230,7 @@ h2{font-size:15px;font-weight:650}
 /* tabelas pequenas dentro de cards: cabeçalho leve (o azul-marinho fica para as tabelas de dados) */
 .card.pad table.t th,.modal table.t th{position:static;background:var(--th-leve);color:var(--muted);font-weight:600;font-size:11.5px;padding:6px 8px;cursor:default}
 .card.pad table.t td{padding:6px 8px}
+tr.novo td{animation:nnovo 2s ease-out} @keyframes nnovo{from{background:var(--good-bg)}}
 .card .t td.first{max-width:280px;overflow:hidden;text-overflow:ellipsis}
 .card .t td.first.wrap{max-width:none}
 td.acoes{white-space:normal;min-width:120px} td.acoes .btn{margin:2px 0;display:flex;width:100%;justify-content:center;white-space:nowrap}
@@ -243,6 +244,19 @@ select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;f
 .navi .ic{font-size:16px}
 .navi.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);font-weight:600}
 .master{color:var(--good);font-weight:700}
+.nlogo{display:flex;flex-direction:column;align-items:center;gap:8px}
+.nlogo svg{animation:npulso 1.2s ease-in-out infinite;filter:drop-shadow(0 4px 12px rgba(31,56,100,.25))}
+.nnome{font-size:18px;letter-spacing:.3px;color:var(--ink)} .nnome b{color:var(--accent)}
+.nload{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:50vh;color:var(--muted);text-align:center}
+.nmsg{font-size:13.5px;color:var(--muted)}
+.nover{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;background:rgba(10,15,25,.28);backdrop-filter:blur(2px);animation:nentra .15s ease-out}
+.nover .nbox{background:var(--card);border-radius:16px;padding:26px 34px;box-shadow:0 12px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:14px;min-width:260px}
+.nover.feito svg{animation:none}
+.nover.sai{opacity:0;transition:opacity .25s}
+.nok{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--good);color:#fff;font-weight:700;font-size:13px;margin-right:4px}
+.nover.feito .nmsg{color:var(--ink);font-weight:600}
+@keyframes npulso{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+@keyframes nentra{from{opacity:0}}
 .reg{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:3px;border-radius:50%;
   border:1.5px solid var(--accent);color:var(--accent);font-size:8.5px;font-weight:800;line-height:1;vertical-align:super}
 .navi .cont{margin-left:auto;font-size:12px;font-weight:500}
@@ -402,7 +416,8 @@ function moldura() {
   $("#app").innerHTML = `
   <header class="top">
     <button class="btn ghost bmenu" id="bmenu" aria-label="Abrir menu">☰</button>
-    <div class="logo" id="home">nubi <small>${esc((SECOES.find(x => x.id === sec) || {nome: "Ajustes"}).nome)}</small></div>
+    <div class="logo" id="home"><svg viewBox="0 0 32 32" width="22" height="22" style="flex:none"><rect width="32" height="32" rx="8" fill="#fff" fill-opacity=".14"/>
+      <path d="M8 22V10l8 8 8-8v12" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>nubi <span style="font-weight:500;opacity:.85;margin-left:-4px">explorer</span> <small>${esc((SECOES.find(x => x.id === sec) || {nome: "Ajustes"}).nome)}</small></div>
     ${sec === "explorador" ? `<select id="selm" title="Marca"><option value="">Todas as marcas</option>
       ${S.painel.map(p => `<option value="${esc(p.marca)}" ${p.marca === S.marca ? "selected" : ""}>${esc(nome(p.marca))}</option>`).join("")}
     </select>` : ""}
@@ -550,7 +565,7 @@ async function telaRanking(cat, mes) {
     desenharMenu(); return;
   }
   cat = cat || S.rankLista[0].categoria;
-  main.innerHTML = `<div class="empty"><span class="spin"></span> Carregando o ranking…</div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Carregando o ranking…</div></div>`;
   let r;
   try { r = await api("ranking_relatorio", mes ? {categoria: cat, mes} : {categoria: cat}); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -614,7 +629,7 @@ const BOM_RK = new Set(["Pouca saturação", "Crescendo", "Poucos vendedores p/ 
 const sinaisRk = s => (s || "").split(" · ").filter(Boolean).map(x => `<span class="sinal ${BOM_RK.has(x) ? "good" : "bad"}">${esc(x)}</span>`).join("");
 const rkLink = m => `<a href="#" class="plink rklink" data-rkm="${esc(m)}" title="Histórico da marca mês a mês">${esc(m)}</a>`;
 async function abrirMarcaRanking(marca) {
-  const bg = modal(`<div class="empty"><span class="spin"></span> Carregando ${esc(marca)}…</div>`);
+  const bg = modal(`<div class="nload">${LOGO}<div class="nmsg">Carregando ${esc(marca)}…</div></div>`);
   $(".modal", bg).classList.add("larga");
   let h;
   try { h = await api("ranking_marca", {categoria: S.rank.categoria, marca}); }
@@ -907,7 +922,7 @@ async function telaBI(cat) {
   cat = cat || S.rankLista[0].categoria;
   const f = S.biFiltro && S.biFiltro.categoria === cat ? S.biFiltro : (S.biFiltro = {categoria: cat, desde: "", ate: "", per: "3m"});
   if ($("#bi-raiz")) $("#bi-raiz").style.opacity = .5;
-  else main.innerHTML = `<div class="empty"><span class="spin"></span> Montando o B.I.…</div>`;
+  else main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Montando o B.I.…</div></div>`;
   let r;
   try { r = await api("ranking_bi", {categoria: cat, ...(f.desde ? {desde: f.desde} : {}), ...(f.ate ? {ate: f.ate} : {})}); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -1153,7 +1168,7 @@ async function telaVendedores(mes) {
   if (!S.vendLista) await carregarVendLista();
   if (!S.coletor) { try { S.coletor = (await api("coletor_status")).execucoes; } catch { S.coletor = []; } }
   if (!S.vendLista.length) { vendVazio(main); desenharMenu(); return; }
-  main.innerHTML = `<div class="empty"><span class="spin"></span> Comparando vendedores…</div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Comparando vendedores…</div></div>`;
   let r;
   try { r = await api("vend_comparar", mes ? {mes} : {}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const vs = r.vendedores, tot = vs.reduce((a, v) => a + v.vendas, 0);
@@ -1198,7 +1213,7 @@ async function telaVendedores(mes) {
 }
 async function telaVendedor(nomeV, mes) {
   const main = $("#main");
-  main.innerHTML = `<div class="empty"><span class="spin"></span> Montando o relatório de ${esc(nomeV)}…</div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Montando o relatório de ${esc(nomeV)}…</div></div>`;
   let r;
   try { r = await api("vend_relatorio", mes ? {vendedor: nomeV, mes} : {vendedor: nomeV}); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -1329,7 +1344,7 @@ function cabVendedor(nomeV, aba, extra = "", nAlertas) {
 }
 async function telaVendedorAno(nomeV, abaAlertas) {
   const main = $("#main");
-  main.innerHTML = `<div class="empty"><span class="spin"></span> Montando o ano de ${esc(nomeV)}…</div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Montando o ano de ${esc(nomeV)}…</div></div>`;
   let r;
   try { r = await api("vend_bi", {vendedor: nomeV}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.vbi = r; S.tabelas = {};
@@ -1412,7 +1427,7 @@ function telaVendedorAlertas(r, main) {
 }
 async function telaAlertas() {
   const main = $("#main");
-  main.innerHTML = `<div class="empty"><span class="spin"></span> Procurando produtos sem estoque nos concorrentes…</div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Procurando produtos sem estoque nos concorrentes…</div></div>`;
   let r;
   try { r = await api("vend_alertas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.tabelas = {};
@@ -1437,7 +1452,7 @@ async function telaAlertas() {
   desenharMenu();
 }
 async function abrirProdutoVend(chave, vend) {
-  const bg = modal(`<div class="empty"><span class="spin"></span> Carregando o produto…</div>`);
+  const bg = modal(`<div class="nload">${LOGO}<div class="nmsg">Carregando o produto…</div></div>`);
   bg.querySelector(".modal").classList.add("larga");
   let r;
   try { r = await api("vend_produto", {chave, vendedor: vend || ""}); } catch (e) { bg.querySelector(".modal").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
@@ -1565,19 +1580,40 @@ function infoMarca(inf) {
 }
 async function telaNomesMarcas() {
   const main = $("#main");
-  main.innerHTML = `<div class="empty"><span class="spin"></span> Procurando grafias parecidas…</div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Procurando grafias parecidas…</div></div>`;
   let r;
   try { r = await api("apelidos"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  const acao = async (rota, corpo, msg) => {
-    try { await api(rota, {}, {method: "POST", body: JSON.stringify(corpo)}); toast(msg); telaNomesMarcas(); }
-    catch (e) { toast(e.message, 6000); }
+  // salva e atualiza só o que mudou na tela (sem recarregar a página)
+  const acao = async (rota, corpo, espera, msg, depois) => {
+    const c = carregando(espera);
+    try { await api(rota, {}, {method: "POST", body: JSON.stringify(corpo)}); depois && depois(); c.ok(msg); }
+    catch (e) { c.erro(e.message); }
   };
+  const tiraSugestoes = apelido => {
+    main.querySelectorAll("[data-j]").forEach(b => { if (r.sugestoes[b.dataset.j].apelido === apelido) b.closest("tr").remove(); });
+    $("#n-sug").textContent = `(${main.querySelectorAll("[data-j]").length})`;
+  };
+  const poeJuntado = (apelido, marca) => {
+    const tb = $("#t-junt");
+    tb.querySelectorAll("td.muted").forEach(x => x.closest("tr").remove());
+    tb.insertAdjacentHTML("afterbegin", `<tr class="novo"><td class="first">${esc(apelido)}</td><td>→</td><td>${master(marca)}</td>
+      <td><button class="btn small" data-x="${esc(apelido)}">desfazer</button></td></tr>`);
+    ligarDesfazer(tb.querySelector("tr"));
+    $("#n-junt").textContent = `(${tb.querySelectorAll("[data-x]").length})`;
+  };
+  const ligarDesfazer = raiz => raiz.querySelectorAll("[data-x]").forEach(b => b.onclick = e => {
+    e.preventDefault();
+    acao("apelido_apagar", {apelido: b.dataset.x}, "Desfazendo…", `${b.dataset.x} voltou a ser uma marca separada`, () => {
+      const tr = b.closest("tr"); if (tr && tr.closest("#t-junt")) tr.remove(); else b.remove();
+      $("#n-junt").textContent = `(${$("#t-junt").querySelectorAll("[data-x]").length})`;
+    });
+  });
   const MOT = {"sigla": "sigla", "grafia parecida": "grafia parecida", "nome contido": "nome contido (confira)"};
   main.innerHTML = `<h1>Nomes de marcas</h1>
     <p class="muted" style="margin:4px 0 0">A mesma marca escrita de jeitos diferentes nos arquivos (ex.: YSL e Yves Saint Laurent) vira uma só no Ranking, no B.I. e nos Vendedores.
     Vale para os dados já importados: não precisa importar de novo.</p>
     <div class="grid2" style="margin-top:14px">
-      <div class="card pad"><h2>Sugestões para conferir <span class="muted" style="font-weight:400">(${r.sugestoes.length})</span></h2>
+      <div class="card pad"><h2>Sugestões para conferir <span class="muted" style="font-weight:400" id="n-sug">(${r.sugestoes.length})</span></h2>
         <div class="muted" style="font-size:12.5px;margin-bottom:8px">Pares que parecem a mesma marca. "Juntar" manda o primeiro nome para a marca oficial <span class="master">em verde<sup class="reg">R</sup></span> (o nome do ranking, quando existe). "Não é a mesma" esconde a sugestão.
           Embaixo de cada nome: onde ele aparece, sempre no <b>último mês</b> de cada fonte — 🏆 ranking do Nubimetrics (mercado inteiro), 🏪 seus vendedores monitorados, 🔎 Explorador (período do arquivo).</div>
         ${r.sugestoes.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><tbody>${r.sugestoes.map((x, i) => `<tr>
@@ -1587,33 +1623,46 @@ async function telaNomesMarcas() {
           <td class="acoes"><button class="btn small primary" data-j="${i}">Juntar</button> <button class="btn small" data-n="${i}">Não é a mesma</button></td></tr>`).join("")}</tbody></table></div>`
           : `<div class="muted">Nenhuma sugestão agora.</div>`}
       </div>
-      <div class="card pad"><h2>Nomes juntados <span class="muted" style="font-weight:400">(${r.apelidos.length})</span></h2>
+      <div class="card pad"><h2>Nomes juntados <span class="muted" style="font-weight:400" id="n-junt">(${r.apelidos.length})</span></h2>
         <div class="form-row fr-acao">
           <label class="f">Como aparece no arquivo<input id="ap-a" list="ap-m" placeholder="YSL"></label>
           <label class="f">Nome oficial<input id="ap-b" list="ap-m" placeholder="YVES SAINT LAURENT"></label>
           <button class="btn primary" id="ap-add">Juntar</button></div>
         <datalist id="ap-m">${r.marcas.map(m => `<option value="${esc(m)}">`).join("")}</datalist>
-        <table class="t" style="font-size:12.5px;margin-top:12px"><tbody>${r.apelidos.map(x => `<tr><td class="first">${esc(x.apelido)}</td><td>→</td><td>${master(x.marca)}</td>
+        <table class="t" style="font-size:12.5px;margin-top:12px"><tbody id="t-junt">${r.apelidos.map(x => `<tr><td class="first">${esc(x.apelido)}</td><td>→</td><td>${master(x.marca)}</td>
           <td><button class="btn small" data-x="${esc(x.apelido)}">desfazer</button></td></tr>`).join("") || `<tr><td class="muted">Nenhum ainda.</td></tr>`}</tbody></table>
         ${r.ignorados.length ? `<div class="muted" style="font-size:12px;margin-top:10px">Marcados como "não é a mesma": ${r.ignorados.map(x => `<a href="#" data-x="${esc(x.apelido)}">${esc(x.apelido)}</a>`).join(", ")} (clique para voltar a sugerir)</div>` : ""}
       </div>
     </div>`;
-  main.querySelectorAll("[data-j]").forEach(b => b.onclick = () => { const x = r.sugestoes[b.dataset.j]; acao("apelido_salvar", {apelido: x.apelido, marca: x.marca}, `${x.apelido} → ${x.marca}`); });
-  main.querySelectorAll("[data-n]").forEach(b => b.onclick = () => { const x = r.sugestoes[b.dataset.n]; acao("apelido_ignorar", {apelido: x.apelido}, "Sugestão escondida."); });
-  main.querySelectorAll("[data-x]").forEach(b => b.onclick = e => { e.preventDefault(); acao("apelido_apagar", {apelido: b.dataset.x}, "Desfeito."); });
-  $("#ap-add").onclick = () => acao("apelido_salvar", {apelido: $("#ap-a").value, marca: $("#ap-b").value}, "Nomes juntados.");
+  main.querySelectorAll("[data-j]").forEach(b => b.onclick = () => {
+    const x = r.sugestoes[b.dataset.j];
+    acao("apelido_salvar", {apelido: x.apelido, marca: x.marca}, `Juntando ${x.apelido} em ${x.marca}…`, `${x.apelido} agora é ${x.marca}`,
+      () => { tiraSugestoes(x.apelido); poeJuntado(x.apelido, x.marca); });
+  });
+  main.querySelectorAll("[data-n]").forEach(b => b.onclick = () => {
+    const x = r.sugestoes[b.dataset.n];
+    acao("apelido_ignorar", {apelido: x.apelido}, "Escondendo a sugestão…", `${x.apelido} fica como marca separada`, () => tiraSugestoes(x.apelido));
+  });
+  ligarDesfazer(main);
+  $("#ap-add").onclick = () => {
+    const a = $("#ap-a").value.trim().toUpperCase(), m = $("#ap-b").value.trim().toUpperCase();
+    if (!a || !m) return toast("Preencha os dois nomes.");
+    acao("apelido_salvar", {apelido: a, marca: m}, `Juntando ${a} em ${m}…`, `${a} agora é ${m}`,
+      () => { tiraSugestoes(a); poeJuntado(a, m); $("#ap-a").value = ""; $("#ap-b").value = ""; });
+  };
   desenharMenu();
 }
 
 // ---------- Nomes de vendedores (mesmo vendedor com nomes diferentes) ----------
-async function telaNomesVendedores() {
+async function telaNomesVendedores(silencioso) {
   const main = $("#main");
-  main.innerHTML = `<div class="empty"><span class="spin"></span> Carregando vendedores…</div>`;
+  if (!silencioso) main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Carregando vendedores…</div></div>`;
   let r;
   try { r = await api("vend_nomes"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const acao = async (rota, corpo, msg) => {
-    try { await api(rota, {}, {method: "POST", body: JSON.stringify(corpo)}); toast(msg); await carregarVendLista(); telaNomesVendedores(); }
-    catch (e) { toast(e.message, 6000); }
+    const c = carregando("Salvando…");
+    try { await api(rota, {}, {method: "POST", body: JSON.stringify(corpo)}); await carregarVendLista(); await telaNomesVendedores(true); c.ok(msg); }
+    catch (e) { c.erro(e.message); }
   };
   const TIPO = {hash: "hash do Nubimetrics", impressao: "anúncios parecidos", manual: "manual"};
   const nomesV = r.vendedores.map(v => v.vendedor);
@@ -1779,11 +1828,29 @@ async function excluirMarca(marca) {
     if (location.hash.length > 2) irPara(""); else rotear();
   } catch (e) { toast(e.message, 6000); }
 }
+// Marca do nubi explorer (o mesmo desenho do ícone da aba)
+const LOGO = `<div class="nlogo"><svg viewBox="0 0 32 32" width="46" height="46"><rect width="32" height="32" rx="8" fill="var(--brand)"/>
+  <path d="M8 22V10l8 8 8-8v12" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="nnome">nubi <b>explorer</b></div></div>`;
+// Tela de "carregando" por cima de tudo (ações rápidas: juntar, salvar…); devolve o fecha().
+function carregando(msg) {
+  document.querySelectorAll(".nover").forEach(x => x.remove());
+  const o = document.createElement("div"); o.className = "nover";
+  o.innerHTML = `<div class="nbox">${LOGO}<div class="nmsg"><span class="spin"></span> ${esc(msg)}</div></div>`;
+  document.body.appendChild(o);
+  return {
+    ok(txt, ms = 1300) {
+      o.querySelector(".nmsg").innerHTML = `<span class="nok">✓</span> ${esc(txt)}`;
+      o.classList.add("feito"); setTimeout(() => { o.classList.add("sai"); setTimeout(() => o.remove(), 250); }, ms);
+    },
+    erro(txt) { o.remove(); toast(txt, 6000); },
+  };
+}
 const kpi = (l, v, o = "") => `<div class="card kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
 
 // ---------- Marca ----------
 async function abrirMarca(marca, manterAba = false) {
-  $("#main").innerHTML = `<div class="empty"><span class="spin"></span> Carregando ${esc(nome(marca))}…</div>`;
+  $("#main").innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Carregando ${esc(nome(marca))}…</div></div>`;
   try { S.rel = await api("relatorio", {marca}); }
   catch (e) { $("#main").innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!manterAba) S.aba = "oportunidades";
@@ -2446,7 +2513,7 @@ function modal(html, init) {
 async function iniciar(sessao) {
   S.sessao = sessao;
   if (!sessao) return telaLogin();
-  $("#app").innerHTML = `<div class="empty"><span class="spin"></span> Carregando…</div>`;
+  $("#app").innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Carregando…</div></div>`;
   try { await carregarPainel(); await carregarRankLista(); await carregarVendLista(); }
   catch (e) {
     S.msgLogin = e.message;
