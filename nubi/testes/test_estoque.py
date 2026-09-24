@@ -27,7 +27,22 @@ def test_primeira_foto():
     assert not d["tem_anterior"] and "Primeira foto" in estoque.resumo_texto(d)[1]
 
 
+
+
+def test_planilha_gestor():
+    import io
+    import openpyxl
+    xs = [it("1050009143", 3, titulo="Home Spray", custo_medio=70.996), it("ARMAF-MEGA-200", 12, titulo="Body", custo_medio=48.0),
+          it("SEM-CUSTO", 0, titulo="X")]
+    ws = openpyxl.load_workbook(io.BytesIO(estoque.gerar_gestor(xs))).active
+    v = list(ws.iter_rows(values_only=True))
+    assert ws.title == "Planilha1" and v[0] == tuple(estoque.GESTOR_COLUNAS)
+    assert v[1] == ("1050009143", "1050009143", None, "Home Spray", 71, None, None)
+    assert v[2][4] == 48 and v[3][4] is None and ws["A2"].data_type == "s"
+
+
 if __name__ == "__main__":
     test_comparar()
     test_primeira_foto()
+    test_planilha_gestor()
     print("ok")

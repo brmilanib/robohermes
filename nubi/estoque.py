@@ -220,3 +220,44 @@ def analisar_ia(d, itens, sistema=""):
         except Exception as e:  # noqa: BLE001
             ultimo = f"{quem}: {str(e)[:120]}"
     return "", ultimo
+
+
+# ---------------------------------------------------------------------------
+# Planilha de importação do Gestor Seller (cadastro de produtos), feita a partir do estoque do UpSeller.
+# Mesmo formato do modelo do Gestor: aba "Planilha1", 7 colunas, custo com 2 casas, SKU como texto.
+# ---------------------------------------------------------------------------
+GESTOR_COLUNAS = ["SKU Interno", "SKU externo (opcional)", "Link da Imagem (opcional)", "Título", "Preço de Custo",
+                  "Custo Extra (opcional)", "EAN (opcional)"]
+
+
+def linhas_gestor(itens):
+    """Uma linha por SKU, na ordem do export do UpSeller: SKU interno = externo = SKU; custo = Custo Médio (2 casas)."""
+    out = []
+    for it in itens:
+        custo = it.get("custo_medio")
+        custo = round(float(custo), 2) if custo not in (None, "") and float(custo) > 0 else None
+        if custo is not None and custo == int(custo):
+            custo = int(custo)
+        sku = str(it["sku"])
+        out.append([sku, sku, None, it.get("titulo") or "", custo, None, None])
+    return out
+
+
+def gerar_gestor(itens):
+    """Bytes do .xlsx pronto para importar no Gestor Seller."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Planilha1"
+    ws.append(GESTOR_COLUNAS)
+    for lin in linhas_gestor(itens):
+        ws.append(lin)
+    for c in ws["A"][1:] + ws["B"][1:]:
+        c.number_format = "@"                          # SKU só de números (ex.: 1050009143) continua texto
+    for c in ws["E"][1:]:
+        c.number_format = "0.00"
+    for col, larg in zip("ABCDEFG", (20.8, 20.8, 18, 40, 14, 14, 16)):
+        ws.column_dimensions[col].width = larg
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

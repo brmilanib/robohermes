@@ -968,7 +968,7 @@ async function rotear() {
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   desenharBarraBaixo();
   if (sec === "inicio") return telaInicio();
-  if (sec === "lojas") return telaEstoque();
+  if (sec === "lojas") return location.hash.startsWith("#/estoque/gestor") ? telaGestor() : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -2239,6 +2239,8 @@ const ES_FILTROS = [["todos", "Todos"], ["com", "Com estoque"], ["zerados", "Zer
 const quandoES = t => t ? new Date(t).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
 const unES = v => v == null ? "—" : nf0.format(+v);
 const rsES = v => v == null || v === "" ? "—" : "R$ " + (+v).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const esAbas = ativa => `<div class="seg" style="margin-bottom:12px"><button class="${ativa === "estoque" ? "on" : ""}" onclick="location.hash='#/estoque'">📦 Estoque</button>
+  <button class="${ativa === "gestor" ? "on" : ""}" onclick="location.hash='#/estoque/gestor'">🧾 Planilha do Gestor Seller</button></div>`;
 async function telaEstoque() {
   const main = $("#main");
   const id = (decodeURIComponent(location.hash).match(/[?&]id=(\d+)/) || [])[1];
@@ -2254,7 +2256,7 @@ async function telaEstoque() {
     : ex && ex.em_andamento ? `<div class="es-aviso">⏳ O coletor está exportando o estoque do UpSeller agora…</div>` : "";
   const auto = `<span class="muted">${rot.ativo === false ? "atualização automática desligada (Central → Rotinas)" : `atualiza sozinho todo dia às ${esc(rot.horario || "03:00")}`}</span>`;
   if (!a) {
-    main.innerHTML = `<div class="es-cab"><h1>📦 Estoque</h1>${auto}${acoes}</div>${falhou}
+    main.innerHTML = esAbas("estoque") + `<div class="es-cab"><h1>📦 Estoque</h1>${auto}${acoes}</div>${falhou}
       <div class="card empty"><h2>Nenhuma atualização ainda</h2><p>O coletor do Mac mini exporta a Lista de Estoque do UpSeller (My Warehouse) de madrugada e ela aparece aqui.
       Para já ver, use <b>Atualizar agora</b> ou importe a planilha.</p></div>`;
     ligarEstoque(); desenharMenu(); return;
@@ -2266,7 +2268,7 @@ async function telaEstoque() {
     <ul>${(xs || []).slice(0, 10).map(x => `<li><span class="t" title="${esc(x.titulo)}"><span class="es-sku">${esc(x.sku)}</span> · ${esc(x.titulo)}</span>
       <b class="${cls}">${unES(x.antes)} → ${unES(x.agora)}</b></li>`).join("") || `<li class="muted">nenhum</li>`}</ul>
     ${(qtd || 0) > 10 ? `<div class="muted" style="font-size:12px;margin-top:6px">+ ${nf0.format(qtd - 10)} na lista abaixo</div>` : ""}</div>`;
-  main.innerHTML = `<div class="es-cab"><h1>📦 Estoque</h1>
+  main.innerHTML = esAbas("estoque") + `<div class="es-cab"><h1>📦 Estoque</h1>
       <span class="muted">${esc(a.loja || "UpSeller")} · ${r.historico[0].id === a.id ? "atualizado" : "foto de"} ${esc(quandoES(a.criado_em))} (${a.origem === "manual" ? "importado à mão" : "coletor"})</span>
       ${acoes}</div>
     <div>${auto}</div>${falhou}
@@ -2294,6 +2296,44 @@ async function telaEstoque() {
       ${r.historico.map(h => `<a href="#/estoque?id=${h.id}" class="${h.id === a.id ? "on" : ""}"><span>${esc(quandoES(h.criado_em))} · ${h.origem === "manual" ? "à mão" : "coletor"}</span>
         <span class="muted">${nf0.format(h.skus || 0)} SKUs · ${unES(h.unidades)} un · ${rsES(h.valor)} · ${nf0.format(h.zerados || 0)} zerados</span></a>`).join("")}</div>`;
   desenharTabEstoque(); ligarEstoque(); desenharMenu();
+}
+// Planilha de importação do Gestor Seller (cadastro de produtos) feita do estoque do UpSeller
+const GESTOR_COLS = ["SKU Interno", "SKU externo (opcional)", "Link da Imagem (opcional)", "Título", "Preço de Custo", "Custo Extra (opcional)", "EAN (opcional)"];
+async function telaGestor() {
+  const main = $("#main");
+  main.innerHTML = esAbas("gestor") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando a planilha</div></div>`;
+  let r;
+  try { r = await api("estoque"); } catch (e) { main.innerHTML = esAbas("gestor") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/estoque/gestor")) return;
+  const a = r.atual;
+  if (!a) { main.innerHTML = esAbas("gestor") + `<h1>🧾 Planilha do Gestor Seller</h1><div class="card empty"><p>Primeiro importe o estoque do UpSeller (aba Estoque).</p></div>`; desenharMenu(); return; }
+  const itens = [...r.itens].sort((x, y) => x.ordem != null && y.ordem != null ? x.ordem - y.ordem : (y.criado || "").localeCompare(x.criado || "") || x.sku.localeCompare(y.sku));
+  const custo = it => +it.custo_medio > 0 ? Math.round(+it.custo_medio * 100) / 100 : null;
+  const com = itens.filter(it => custo(it) != null).length;
+  main.innerHTML = esAbas("gestor") + `<div class="es-cab"><h1>🧾 Planilha do Gestor Seller</h1>
+      <span class="muted">feita do estoque do UpSeller de ${esc(quandoES(a.criado_em))}</span>
+      <div class="acoes"><button class="btn small primary" id="gs-baixar">⬇ Baixar planilha (.xlsx)</button></div></div>
+    <div class="kpis">${kpi("SKUs na planilha", nf0.format(itens.length), "todos os SKUs do My Warehouse")}${kpi("Com preço de custo", nf0.format(com), "custo médio do UpSeller, 2 casas")}
+      ${kpi("Sem preço de custo", `<span class="${itens.length - com ? "neg" : ""}">${nf0.format(itens.length - com)}</span>`, "vão em branco (sem custo no UpSeller)")}</div>
+    <div class="card pad"><h2>Como é preenchida</h2><ul class="es-log">
+      <li><b>SKU Interno</b> e <b>SKU externo</b> = SKU do UpSeller</li><li><b>Título</b> = Título do UpSeller</li>
+      <li><b>Preço de Custo</b> = Custo Médio do UpSeller (2 casas); sem custo = em branco</li>
+      <li>Link da Imagem, Custo Extra e EAN ficam em branco · mesma ordem e mesmo formato do modelo do Gestor Seller (aba Planilha1)</li></ul>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">A importação automática no Gestor Seller (pelo coletor do Mac) entra depois do vídeo da tela de importação; até lá, baixe e importe à mão.</p></div>
+    <div class="card pad" style="margin-top:14px"><h2>Prévia (primeiras 20 linhas)</h2>
+      <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr>${GESTOR_COLS.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead>
+      <tbody>${itens.slice(0, 20).map(it => `<tr><td class="first">${esc(it.sku)}</td><td>${esc(it.sku)}</td><td class="muted">—</td>
+        <td class="wrap">${esc(it.titulo || "")}</td><td class="num">${custo(it) != null ? custo(it).toLocaleString("pt-BR", {minimumFractionDigits: 2}) : "—"}</td><td class="muted">—</td><td class="muted">—</td></tr>`).join("")}</tbody></table></div></div>`;
+  $("#gs-baixar").onclick = async () => {
+    try {
+      const blob = await api("estoque_gestor", {id: a.id}, {blob: true});
+      if (!(blob instanceof Blob)) throw new Error("Falha ao gerar a planilha.");
+      const el = document.createElement("a"); el.href = URL.createObjectURL(blob);
+      el.download = "import_gestor_seller_" + new Date(a.criado_em).toLocaleDateString("pt-BR").replace(/\//g, "-") + ".xlsx";
+      el.click(); setTimeout(() => URL.revokeObjectURL(el.href), 5000);
+    } catch (e) { toast(e.message); }
+  };
+  desenharMenu();
 }
 function desenharTabEstoque() {
   const box = $("#es-tab"); if (!box || !S.estoque) return;

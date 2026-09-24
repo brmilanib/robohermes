@@ -557,3 +557,4 @@ on conflict (id) do nothing;
 insert into public.agentes (id, nome, icone, cor, papel, onde, ordem) values
   ('estoquista', 'Estoquista', '📦', '#2f7d5b', 'Analisa cada atualização do estoque: o que entrou, saiu, zerou, estoque baixo e sem custo', 'gpt-oss grátis (DeepSeek/Claude de reserva)', 7)
 on conflict (id) do nothing;
+alter table public.estoque_itens add column if not exists ordem int;   -- posição na planilha do UpSeller (a planilha do Gestor Seller segue a mesma ordem)

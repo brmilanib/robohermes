@@ -710,6 +710,18 @@ def atender(metodo, rota, q, corpo, token):
         if rota.startswith("vend_"):
             return _json(rota_vendedores(repo, metodo, rota, q, corpo))
 
+        if rota == "estoque_gestor":
+            # planilha de importação do Gestor Seller (cadastro de produtos) feita da atualização de estoque pedida
+            aid = q.get("id") or ((repo._req("GET", "estoque_atualizacoes", {"select": "id", "order": "id.desc", "limit": 1}) or [{}])[0]).get("id")
+            if not aid:
+                raise ErroNuvem("Ainda não há estoque importado do UpSeller.", 404)
+            reg = (repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "id": repo._eq(int(aid))}) or [None])[0]
+            if not reg:
+                raise ErroNuvem("Atualização de estoque não encontrada.", 404)
+            itens = _estoque_itens_ordem(repo, reg["id"])
+            nome = f"import_gestor_seller_{_br(reg['criado_em']):%d-%m-%Y}.xlsx"
+            return (200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", estoque.gerar_gestor(itens),
+                    {"Content-Disposition": f'attachment; filename="{nome}"', "X-Nome-Arquivo": nome})
         if rota.startswith("estoque"):
             return _json(rota_estoque(repo, metodo, rota, q, corpo))
         if rota.startswith("mac_"):
@@ -2166,11 +2178,19 @@ def _perguntar_agente(aid, texto, max_tokens=300):
 # e manda para estoque_importar; cada envio vira uma foto completa, comparada com a anterior e analisada pelo Estoquista.
 # ---------------------------------------------------------------------------
 CAMPOS_ESTOQUE = ("sku", "titulo", "armazem", "estante", "estoque_min", "transito_compra", "transito_transf", "ocupado",
-                  "disponivel", "atual", "custo_medio", "subtotal", "criado")
+                  "disponivel", "atual", "custo_medio", "subtotal", "criado", "ordem")
 
 
 def _estoque_itens(repo, aid):
     return repo._todos("estoque_itens", {"select": ",".join(CAMPOS_ESTOQUE), "atualizacao_id": repo._eq(int(aid)), "order": "sku"})
+
+
+def _estoque_itens_ordem(repo, aid):
+    """Itens na ordem da planilha do UpSeller (mais novos primeiro), como o modelo do Gestor Seller."""
+    xs = _estoque_itens(repo, aid)
+    if all(it.get("ordem") is not None for it in xs):
+        return sorted(xs, key=lambda it: it["ordem"])
+    return sorted(sorted(xs, key=lambda it: it["sku"]), key=lambda it: it.get("criado") or "", reverse=True)   # a lista do UpSeller vem do mais novo
 
 
 def estoque_importar(repo, conteudo, arquivo, origem="coletor", esperado=None):
@@ -2198,7 +2218,7 @@ def estoque_importar(repo, conteudo, arquivo, origem="coletor", esperado=None):
         "skus": t["skus"], "unidades": t["unidades"], "valor": t["valor"], "zerados": t["zerados"],
         "resumo": resumo, "diff": d}], prefer="return=representation")
     aid = novo[0]["id"]
-    regs = [dict({c: it.get(c) for c in CAMPOS_ESTOQUE}, atualizacao_id=aid) for it in itens]
+    regs = [dict({c: it.get(c) for c in CAMPOS_ESTOQUE}, atualizacao_id=aid, ordem=i) for i, it in enumerate(itens)]
     try:
         for i in range(0, len(regs), LOTE):
             repo._req("POST", "estoque_itens", corpo=regs[i:i + LOTE], prefer="return=minimal")
