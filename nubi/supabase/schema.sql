@@ -355,3 +355,12 @@ alter table public.rotinas enable row level security;
 create policy "autorizado" on public.rotinas
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
 -- (as 5 tarefas iniciais: coleta, agente, resumo_dia, resumo_semana, resumo_marcas — ver migration vend_vendas_dia_rotinas)
+
+-- Foto da tela + resumo dos botões quando o coletor erra no Nubimetrics (para ver o erro de fora do Mac)
+create table if not exists public.coletor_fotos (
+  id bigserial primary key, execucao_id bigint, criado_em timestamptz not null default now(),
+  rotulo text, tela text, foto text
+);
+alter table public.coletor_fotos enable row level security;
+create policy "autorizado" on public.coletor_fotos
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

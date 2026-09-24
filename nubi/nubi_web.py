@@ -618,6 +618,13 @@ def atender(metodo, rota, q, corpo, token):
                 return _json({"ok": True, "id": int(d["id"])})
             novo = repo._req("POST", "coletor_execucoes", corpo=[reg], prefer="return=representation")
             return _json({"ok": True, "id": novo[0]["id"] if novo else None})
+        if rota == "coletor_foto" and metodo == "POST":
+            # foto da tela + resumo dos botões quando o coletor erra no Nubimetrics (para ver o erro de fora do Mac)
+            d = json.loads(corpo or b"{}")
+            repo._req("POST", "coletor_fotos", corpo=[{"execucao_id": d.get("execucao_id"), "rotulo": str(d.get("rotulo") or "")[:200],
+                                                       "tela": str(d.get("tela") or "")[:3000],
+                                                       "foto": str(d.get("foto") or "")[:1_500_000]}], prefer="return=minimal")
+            return _json({"ok": True})
         if rota == "coletor_pendencias":
             # O que já existe no nubi, para o coletor não baixar de novo o que já foi importado.
             vend, por_hash = {}, {}

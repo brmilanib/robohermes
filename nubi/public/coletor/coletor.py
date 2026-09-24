@@ -237,6 +237,37 @@ def guardar_sessao(ctx):
         pass
 
 
+FOTOS_ENVIADAS = [0]
+
+
+def resumo_tela(pg):
+    """Os botões, opções e campos visíveis (texto curto), para entender uma tela que mudou sem ver o Mac."""
+    try:
+        return pg.evaluate("""() => {
+          const vis = e => e.offsetParent !== null && getComputedStyle(e).visibility !== 'hidden';
+          const t = [...document.querySelectorAll('button,[role=button],[role=option],[role=menuitem],[role=tab],li,label,input,select')]
+            .filter(vis).map(e => e.tagName === 'INPUT' ? `[input ${e.type} ph="${e.placeholder || ''}" v="${e.value || ''}"]`
+              : (e.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 40)).filter(Boolean);
+          return [...new Set(t)].slice(0, 80).join(' | ');
+        }""")[:1500]
+    except Exception as e:  # noqa: BLE001
+        return f"(sem resumo: {e})"
+
+
+def enviar_foto(pg, rotulo, tela=""):
+    """Manda a foto da tela e o resumo ao nubi (no máximo 6 por coleta), para o erro ser visto de fora do Mac."""
+    if FOTOS_ENVIADAS[0] >= 6 or not AO_VIVO.get("token"):
+        return
+    FOTOS_ENVIADAS[0] += 1
+    try:
+        import base64
+        img = pg.screenshot(type="jpeg", quality=55)
+        api(AO_VIVO["token"], "coletor_foto", corpo={"execucao_id": AO_VIVO.get("id"), "rotulo": rotulo[:200],
+                                                     "tela": tela[:3000], "foto": base64.b64encode(img).decode()}, timeout=30)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def diagnostico(pg):
     """Onde a página parou (sem a parte da URL com parâmetros) + foto da tela."""
     foto = PASTA / "ultimo-erro.png"
@@ -456,25 +487,54 @@ def listar_vendedores(pg, cfg):
 
 
 def aplicar_periodo(pg, ini, fim):
-    """Plano B: escolher o período no calendário da tela (dois campos dd/mm/aaaa + APLICAR)."""
+    """
+    Plano B: escolher o período no calendário da tela. Abre o seletor de período; se aparecerem só os atalhos
+    (últimos 7 dias, mês passado…), escolhe a faixa personalizada; preenche início e fim e aplica.
+    """
     br = lambda d: f"{d[8:10]}/{d[5:7]}/{d[:4]}"
     botao = pg.locator("button, [role=button]").filter(
-        has_text=re.compile(r"\d{1,2}\s+[A-ZÇ]{3}\s*-\s*\d{1,2}\s+[A-ZÇ]{3}", re.I)).first
+        has_text=re.compile(r"\d{1,2}\s+[A-ZÇ]{3}\.?\s*-\s*\d{1,2}\s+[A-ZÇ]{3}", re.I)).first
     if not botao.count():
         raise Falha("não achei o botão do período (ex.: '15 SET - 21 SET') " + diagnostico(pg))
     botao.click()
     devagar(1.5)
-    pg.wait_for_function("() => [...document.querySelectorAll('input')].filter(i => /^\\d{2}\\/\\d{2}\\/\\d{4}$/"
-                         ".test(i.value) && i.offsetParent).length >= 2", timeout=15000)
-    idx = pg.evaluate("() => [...document.querySelectorAll('input')].map((i, n) => [n, i]).filter(([n, i]) =>"
-                      " /^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(i.value) && i.offsetParent).map(([n]) => n)")
-    for n, valor in zip(idx[:2], (br(ini), br(fim))):
+    campos_js = """() => [...document.querySelectorAll('input')].map((i, n) => [n, i]).filter(([n, i]) => i.offsetParent &&
+        (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(i.value) || i.type === 'date' ||
+         /dd|aaaa|yyyy|data|date|in[ií]cio|fim|desde|até/i.test([i.placeholder, i.name, i.id,
+           i.getAttribute('aria-label')].join(' ')))).map(([n, i]) => [n, i.type])"""
+
+    def esperar_campos(seg):
+        fim_t = time.time() + seg
+        while time.time() < fim_t:
+            c = pg.evaluate(campos_js)
+            if len(c) >= 2:
+                return c
+            pg.wait_for_timeout(600)
+        return pg.evaluate(campos_js)
+
+    campos = esperar_campos(4)
+    if len(campos) < 2:
+        op = pg.get_by_text(re.compile(r"faixa personalizada|per[ií]odo personalizado|personalizad[oa]|customizad[oa]|custom", re.I))
+        if op.count():
+            op.last.click()
+            devagar(1.5)
+        campos = esperar_campos(12)
+    if len(campos) < 2:
+        tela = resumo_tela(pg)
+        enviar_foto(pg, f"calendário sem campos ({ini} a {fim})", tela)
+        raise Falha(f"o calendário não mostrou os campos de data. Na tela: {tela[:400]} " + diagnostico(pg))
+    for (n, tipo), valor in zip(campos[:2], (ini, fim)):
         campo = pg.locator("input").nth(n)
         campo.click(click_count=3)
-        campo.fill(valor)
+        campo.fill(valor if tipo == "date" else br(valor))
         campo.press("Tab")
         devagar(1)
-    pg.locator("button", has_text=re.compile(r"^\s*APLICAR\s*$", re.I)).first.click()
+    aplicar = pg.locator("button, [role=button]", has_text=re.compile(r"^\s*(APLICAR|OK|CONFIRMAR|FILTRAR)\s*$", re.I))
+    if not aplicar.count():
+        tela = resumo_tela(pg)
+        enviar_foto(pg, f"calendário sem botão aplicar ({ini} a {fim})", tela)
+        raise Falha(f"não achei o botão APLICAR. Na tela: {tela[:400]} " + diagnostico(pg))
+    aplicar.last.click()
 
 
 MES_ABREV = {"JAN": 1, "FEV": 2, "MAR": 3, "ABR": 4, "MAI": 5, "JUN": 6, "JUL": 7, "AGO": 8, "SET": 9, "OUT": 10,
@@ -563,6 +623,8 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
         url = (f"{BASE}/competition/analysisbycompetitor?seller={h}&range={rng}&category="
                f"&from={ini}&to={fim}")
         ir(pg, url, "button#tab-1")
+        if f"from={ini}" not in pg.url:              # redirecionou e perdeu o período do endereço: abre de novo
+            ir(pg, url, "button#tab-1")
         pg.click("button#tab-1")
         devagar(2)
         # a página já mostrou outro período (ignorou a URL): vai direto para o calendário
@@ -654,7 +716,13 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
         ao_vivo(True, total=AO_VIVO["total"] + len(fila))
         anterior = None
         FALTARAM[0] = 0
+        seguidos = 0
         for n, (h, nome, per) in enumerate(fila):
+            if seguidos >= 6:
+                FALTARAM[0] = len(fila) - n
+                log(f"  PAROU: {seguidos} erros seguidos (a tela do Nubimetrics deve ter mudado). A foto e o resumo da tela "
+                    f"foram para o nubi; faltam {FALTARAM[0]} arquivo(s).")
+                break
             if prazo and time.time() > prazo:
                 FALTARAM[0] = len(fila) - n
                 log(f"  (hora de parar: faltam {FALTARAM[0]} arquivo(s), ficam para a próxima rodada)")
@@ -695,12 +763,14 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                                 raise SemDados()      # o Nubimetrics exportou a planilha vazia: não vendeu no período
                             raise
                         importados += 1
+                        seguidos = 0
                         log("    " + " ".join(r.get("log", [])))
                         feito(cfg, rota, h, ate)
                     break
                 except SessaoExpirada:
                     raise
                 except SemDados:
+                    seguidos = 0
                     log(f"  {nome} {rotulo}: sem vendas nesse período (nada para importar)")
                     if rota in ("vend_foto", "vend_dia"):
                         feito(cfg, rota, h, ate)
@@ -713,6 +783,9 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                         reabrir(str(e))
                         continue
                     erros += 1
+                    seguidos += 1
+                    if not fechou:
+                        enviar_foto(pagina(), f"{nome} {rotulo}: {str(e)[:150]}", resumo_tela(pagina()))
                     extra = "" if fechou else " " + diagnostico(pagina())
                     log(f"  {nome} {rotulo}: ERRO {str(e)[:200]}{extra}")
                     break
