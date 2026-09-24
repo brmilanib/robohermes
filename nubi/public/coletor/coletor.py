@@ -1281,13 +1281,19 @@ def instalar_vigia():
 </plist>
 """
     try:
-        if VIGIA_PLIST.exists() and VIGIA_PLIST.read_text(encoding="utf-8") == xml:
+        ativo = subprocess.run(["launchctl", "list", "com.nubi.coletor.vigia"], check=False, capture_output=True).returncode == 0
+        if ativo and VIGIA_PLIST.exists() and VIGIA_PLIST.read_text(encoding="utf-8") == xml:
             return
         VIGIA_PLIST.parent.mkdir(parents=True, exist_ok=True)
         VIGIA_PLIST.write_text(xml, encoding="utf-8")
         subprocess.run(["launchctl", "unload", str(VIGIA_PLIST)], check=False, capture_output=True)
-        subprocess.run(["launchctl", "load", "-w", str(VIGIA_PLIST)], check=False, capture_output=True)
-        print("Vigia instalado: o coletor confere a cada 15 min se há versão nova ou pedido de coleta.", flush=True)
+        r = subprocess.run(["launchctl", "load", "-w", str(VIGIA_PLIST)], check=False, capture_output=True, text=True)
+        ok = subprocess.run(["launchctl", "list", "com.nubi.coletor.vigia"], check=False, capture_output=True).returncode == 0
+        if ok:
+            print("Vigia instalado e ativo: confere a cada 15 min se há versão nova ou pedido de coleta.", flush=True)
+        else:
+            print(f"(o vigia não ficou ativo: {(r.stderr or r.stdout or '').strip()[:300]}. "
+                  f"Rode: launchctl load -w {VIGIA_PLIST})", flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"(não consegui instalar o vigia: {e})", flush=True)
 
