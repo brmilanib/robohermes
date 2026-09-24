@@ -33,6 +33,7 @@ import json
 import os
 import random
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -1291,8 +1292,38 @@ def instalar_vigia():
         print(f"(não consegui instalar o vigia: {e})", flush=True)
 
 
+def _parar_coleta_velha():
+    """
+    Coleta rodando com o código antigo (o coletor foi atualizado depois que ela começou): ela não recebe as correções
+    (ex.: login do nubi que vencia em 1 h e fazia todo envio falhar). Para ela; a próxima continua de onde parou.
+    """
+    pid = _outra_rodando()
+    if not pid:
+        return False
+    try:
+        comecou = (PASTA / "rodando.pid").stat().st_mtime
+        if Path(__file__).stat().st_mtime <= comecou + 60:
+            return False                                   # está rodando com o código atual: deixa terminar
+        try:
+            pg = os.getpgid(pid)
+            # o Chrome da coleta é filho dela: para o grupo todo (se não for o do próprio vigia)
+            os.killpg(pg, signal.SIGTERM) if pg != os.getpgid(0) else os.kill(pid, signal.SIGTERM)
+        except OSError:
+            os.kill(pid, signal.SIGTERM)
+        for _ in range(30):
+            time.sleep(2)
+            if not _outra_rodando():
+                break
+        print(f"{datetime.now():%d/%m %H:%M} vigia: coleta {pid} rodava com o coletor antigo; parei para rodar a versão nova",
+              flush=True)
+        return True
+    except OSError:
+        return False
+
+
 def cmd_vigiar():
     """Chamado pelo launchd a cada 15 min: roda a coleta se houver versão nova do coletor ou pedido no site."""
+    _parar_coleta_velha()
     if _outra_rodando():
         return 0
     motivo = None
