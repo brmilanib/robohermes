@@ -872,6 +872,23 @@ def executar(tarefa, func):
         return 2
 
 
+def auto_atualizar():
+    """Antes de cada coleta: se o nubi tem uma versão nova do coletor, troca e roda a nova (sem ninguém no Terminal)."""
+    try:
+        novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=20).read()
+        atual = Path(__file__).read_bytes()
+        if not novo or novo == atual:
+            return
+        compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro
+        Path(__file__).write_bytes(novo)
+    except Exception as e:  # noqa: BLE001
+        print(f"(não consegui verificar versão nova do coletor: {e}; seguindo com a atual)", flush=True)
+        return
+    print("Coletor atualizado para a versão nova; reiniciando…", flush=True)
+    os.environ["NUBI_ATUALIZADO"] = "1"
+    os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve())] + sys.argv[1:])
+
+
 def main():
     ap = argparse.ArgumentParser(description="Coletor do Nubimetrics para o nubi")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -918,6 +935,8 @@ def main():
         subprocess.run(["launchctl", "load", str(plist)], check=False)
         print(f"OK: coleta diária agendada para {args.hora}h{args.minuto:02d}.")
         return 0
+    if args.cmd in ("diario", "vendedores", "marcas") and not os.environ.get("NUBI_ATUALIZADO"):
+        auto_atualizar()
     if args.cmd == "atualizar":
         novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro
