@@ -279,6 +279,18 @@ details.vd-it{border-top:1px solid var(--line);padding:6px 0}
 details.vd-it summary{cursor:pointer;display:flex;gap:10px;align-items:baseline;list-style:none}
 details.vd-it summary::-webkit-details-marker{display:none}
 details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[open] summary::before{content:"▾"}
+.cc-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--accent);color:#fff;border-radius:10px;padding:8px 10px;margin-top:10px}
+.cc-bar input[type=date]{font:inherit;border:0;border-radius:6px;padding:4px 6px;min-width:150px;color:#1c2230;background:#fff}
+.cc-bar .pre{background:rgba(255,255,255,.16);color:#fff;border:0;border-radius:999px;padding:4px 10px;font:inherit;font-size:12.5px;cursor:pointer}
+.cc-bar .pre.on{background:#fff;color:var(--accent);font-weight:600}
+.cc-chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.cc-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;cursor:pointer;background:var(--card)}
+.cc-chip i{width:10px;height:10px;border-radius:50%} .cc-chip.off{opacity:.45}
+.cc-var{display:block;font-size:11.5px} .cc-t td.num b{font-weight:600}
+.cc-t th[data-ord]{cursor:pointer;user-select:none}
+.cc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.cc-seg button{border:0;background:var(--card);color:var(--muted);padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
+.cc-seg button.on{background:var(--soft);color:var(--ink);font-weight:600}
 .rot-card{margin-top:12px}
 .rot-card .cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .rot-card .cab h2{margin:0;font-size:15px}
@@ -476,7 +488,7 @@ const SECOES = [
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -551,6 +563,7 @@ function desenharMenu() {
     ${ab.explorador ? sub(marcas) : ""}
     <div class="grupo">Concorrentes</div>
     ${it("#/vendedores", "📊", "Visão geral", h === "#/vendedores" || h.startsWith("#/vendedores?"))}
+    ${it("#/concorrentes", "⚖️", "Comparar concorrentes", h.startsWith("#/concorrentes"))}
     ${it("#/vendas-dia", "📅", "Vendas diárias", h.startsWith("#/vendas-dia"))}
     ${it("#/alertas", "🚨", "Alertas de estoque", h.startsWith("#/alertas"), nAl ? `<span class="badge" title="produtos sem estoque ou parados nos concorrentes">${nAl}</span>` : "")}
     ${it((S.vendLista || []).length ? "#/vendedores/" + encodeURIComponent((S.vendLista.find(v => h.startsWith("#/vendedores/" + v.vendedor)) || S.vendLista[0]).vendedor) : "#/vendedores", "🏪", "Vendedores", vendOn,
@@ -620,6 +633,8 @@ async function rotear() {
     if (location.hash.startsWith("#/nomes-vendedores")) return telaNomesVendedores();
     if (location.hash.startsWith("#/alertas")) return telaAlertas();
     if (location.hash.startsWith("#/vendas-dia")) return telaVendasDia();
+    if (location.hash.startsWith("#/concorrentes/")) return telaConcVendedor(decodeURIComponent(location.hash.split("?")[0].slice("#/concorrentes/".length)));
+    if (location.hash.startsWith("#/concorrentes")) return telaConcorrentes();
     if (location.hash.startsWith("#/produtos-iguais")) return telaProdutosIguais();
     const h = decodeURIComponent(location.hash);
     const m = h.match(/^#\/vendedores\/([^/?]+)(?:\/(\d{4}-\d{2}|alertas))?/);
@@ -1612,6 +1627,162 @@ async function telaProdutosIguais() {
     catch (e) { toast(e.message, 6000); }
   });
   desenharMenu();
+}
+
+// ---------- Comparar concorrentes (período escolhido x período anterior do mesmo tamanho) ----------
+const CC_CORES = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)", "var(--s6)", "var(--s7)", "var(--s8)"];
+function donut(box, itens, fmt) {
+  box.replaceChildren();
+  const tot = itens.reduce((a, x) => a + x.v, 0) || 1, R = 70, r = 46, c = 90;
+  const svg = svgEl("svg", {width: 180, height: 180, viewBox: "0 0 180 180"}, box);
+  let a0 = -Math.PI / 2;
+  itens.forEach(x => {
+    const a1 = a0 + 2 * Math.PI * x.v / tot, grande = a1 - a0 > Math.PI ? 1 : 0;
+    const p = (ang, rr) => `${c + rr * Math.cos(ang)},${c + rr * Math.sin(ang)}`;
+    const d = x.v / tot >= 0.9999 ? `M${c},${c - R}A${R},${R} 0 1 1 ${c - 0.01},${c - R}L${c - 0.01},${c - r}A${r},${r} 0 1 0 ${c},${c - r}Z`
+      : `M${p(a0, R)}A${R},${R} 0 ${grande} 1 ${p(a1, R)}L${p(a1, r)}A${r},${r} 0 ${grande} 0 ${p(a0, r)}Z`;
+    const el = svgEl("path", {d, fill: x.cor, stroke: "var(--card)", "stroke-width": 1.5}, svg);
+    el.addEventListener("pointermove", ev => mostrarTip(ev, x.nome, [{cor: x.cor, valor: FMT.pct(x.v / tot), nome: fmt(x.v)}]));
+    el.addEventListener("pointerleave", esconderTip);
+    a0 = a1;
+  });
+}
+async function telaConcorrentes() {
+  const main = $("#main");
+  const qs = new URLSearchParams(location.hash.split("?")[1] || "");
+  if (!main.querySelector("#cc-raiz")) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Comparando os concorrentes</div></div>`;
+  let r;
+  try { r = await api("vend_concorrentes", {...(qs.get("desde") ? {desde: qs.get("desde")} : {}), ...(qs.get("ate") ? {ate: qs.get("ate")} : {})}); }
+  catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!r.tem) { main.innerHTML = `<h1>⚖️ Comparar concorrentes</h1><div class="card empty" style="margin-top:14px"><h2>Ainda sem vendas diárias</h2><p>Aparece quando o coletor trouxer as vendas de cada dia.</p></div>`; desenharMenu(); return; }
+  const dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
+  const ir = (desde, ate) => { location.hash = `#/concorrentes?desde=${desde}&ate=${ate}`; };
+  const menos = (d, n) => { const x = new Date(d + "T12:00:00"); x.setDate(x.getDate() - n); return x.toISOString().slice(0, 10); };
+  const u = r.ultimo, mesIni = u.slice(0, 8) + "01";
+  const antFim = menos(mesIni, 1), antIni = antFim.slice(0, 8) + "01";
+  const presets = [["Último dia", u, u], ["7 dias", menos(u, 6), u], ["15 dias", menos(u, 14), u], ["30 dias", menos(u, 29), u],
+    ["Mês atual", mesIni, u], ["Mês anterior", antIni, antFim]];
+  S.cc = S.cc || {med: "v", acum: false, sel: null, ord: "v", asc: false, busca: ""};
+  const st = S.cc;
+  const vs = r.vendedores;
+  if (!st.sel || !st.sel.every(n => vs.some(v => v.vendedor === n))) st.sel = vs.slice(0, 3).map(v => v.vendedor);
+  const cor = n => CC_CORES[vs.findIndex(v => v.vendedor === n) % CC_CORES.length];
+  const varH = (x, inv) => x == null ? `<span class="cc-var muted">—</span>` : `<span class="cc-var ${x >= 0 ? "pos" : "neg"}">${x >= 0 ? "↑" : "↓"} ${nf1.format(Math.abs(x * 100))}%</span>`;
+  const n = r.dias.length, falt = r.dias.filter(d => !r.coletados.includes(d)).length;
+  const desenhar = () => {
+    const q = st.busca.toLowerCase();
+    const lin = vs.filter(v => !q || v.vendedor.toLowerCase().includes(q)).sort((a, b) => (st.asc ? 1 : -1) * ((a[st.ord] ?? -1e18) - (b[st.ord] ?? -1e18)));
+    $("#cc-tab").innerHTML = `<table class="t cc-t" style="font-size:12.5px"><thead><tr><th style="width:28px"></th><th>Vendedor</th>
+      ${[["v", "Vendas em $"], ["u", "Vendas em Unid."], ["share_v", "Share em $"], ["share_u", "Share unid."]].map(([k, t]) => `<th class="num" data-ord="${k}">${t}${st.ord === k ? (st.asc ? " ↑" : " ↓") : ""}</th>`).join("")}</tr></thead>
+      <tbody>${lin.map(v => `<tr><td><input type="checkbox" data-sel="${esc(v.vendedor)}" ${st.sel.includes(v.vendedor) ? "checked" : ""}></td>
+        <td class="first"><a href="#/concorrentes/${encodeURIComponent(v.vendedor)}?desde=${r.desde}&ate=${r.ate}">${esc(v.vendedor)}</a>${v.completo ? "" : ` <span class="st warn" title="faltam dias desse vendedor no período">${v.dias} de ${n} dias</span>`}</td>
+        <td class="num"><b>${abrev(v.v)}</b>${varH(v.var_v)}</td><td class="num"><b>${nf0.format(v.u)}</b>${varH(v.var_u)}</td>
+        <td class="num">${FMT.pct(v.share_v)}</td><td class="num">${FMT.pct(v.share_u)}</td></tr>`).join("")}</tbody></table>`;
+    $("#cc-tab").querySelectorAll("[data-ord]").forEach(th => th.onclick = () => { st.asc = st.ord === th.dataset.ord ? !st.asc : false; st.ord = th.dataset.ord; desenhar(); });
+    $("#cc-tab").querySelectorAll("[data-sel]").forEach(cb => cb.onchange = () => {
+      st.sel = cb.checked ? [...st.sel, cb.dataset.sel] : st.sel.filter(x => x !== cb.dataset.sel); graficos(); });
+  };
+  const graficos = () => {
+    $("#cc-chips").innerHTML = st.sel.map(nm => `<span class="cc-chip" data-tira="${esc(nm)}"><i style="background:${cor(nm)}"></i>${esc(nm)} ✕</span>`).join("")
+      || `<span class="muted" style="font-size:12.5px">Marque vendedores na tabela para ver no gráfico.</span>`;
+    $("#cc-chips").querySelectorAll("[data-tira]").forEach(c => c.onclick = () => { st.sel = st.sel.filter(x => x !== c.dataset.tira); graficos(); desenhar(); });
+    const series = st.sel.map(nm => { const v = vs.find(x => x.vendedor === nm); let ac = 0;
+      const s0 = st.med === "v" ? v.serie_v : v.serie_u;
+      return {nome: nm, cor: cor(nm), v: st.acum ? s0.map(x => x == null ? (ac || null) : (ac += x)) : s0}; });
+    const fmt = st.med === "v" ? abrev : x => nf0.format(x) + " un.";
+    biRedesenhar = [
+      () => series.length ? grafLinhas($("#cc-g"), {rotulos: r.dias.map(dm), series, fmt, fmtEixo: x => st.med === "v" ? abrev(x).replace("R$ ", "") : nf0.format(x), altura: 260, pontos: n <= 31})
+        : ($("#cc-g").innerHTML = ""),
+      () => { const top = [...vs].sort((a, b) => (st.med === "v" ? b.v - a.v : b.u - a.u)).slice(0, 5);
+        const resto = vs.filter(v => !top.includes(v)).reduce((a, v) => a + (st.med === "v" ? v.v : v.u), 0);
+        const it = top.map(v => ({nome: v.vendedor, v: st.med === "v" ? v.v : v.u, cor: cor(v.vendedor)})).concat(resto ? [{nome: "Outros", v: resto, cor: "color-mix(in srgb,var(--muted) 55%,transparent)"}] : []);
+        donut($("#cc-d"), it, fmt); const tot = it.reduce((a, x) => a + x.v, 0) || 1;
+        $("#cc-dl").innerHTML = legenda(it.map(x => [`${x.nome} (${FMT.pct(x.v / tot)})`, x.cor])); },
+    ];
+    biRedesenhar.forEach(g => g());
+  };
+  main.innerHTML = `<div id="cc-raiz">
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>⚖️ Comparar concorrentes</h1>
+      <span class="muted">${dm(r.desde)} a ${dm(r.ate)} (${n} dia${n > 1 ? "s" : ""}) contra ${dm(r.desde_ant)} a ${dm(r.ate_ant)}</span></div>
+    <div class="cc-bar"><b style="font-size:12.5px">FAIXA PERSONALIZADA</b>
+      <input type="date" id="cc-de" value="${r.desde}" min="${r.primeiro}" max="${r.ultimo}"> até <input type="date" id="cc-ate" value="${r.ate}" min="${r.primeiro}" max="${r.ultimo}">
+      <button class="pre" id="cc-ok">Aplicar</button><span style="flex:1"></span>
+      ${presets.map(([t, a, b]) => `<button class="pre ${a === r.desde && b === r.ate ? "on" : ""}" data-pre="${a}|${b}">${t}</button>`).join("")}</div>
+    ${falt ? `<p class="aviso warn" style="margin-top:8px">${falt} dia(s) do período ainda sem as vendas diárias (o coletor está completando o histórico).</p>` : ""}
+    <div class="kpis">
+      ${kpi("Vendas no período", abrev(r.total.v), r.total.v_ant ? `${pctCor(r.total.v / r.total.v_ant - 1)} vs ${dm(r.desde_ant)} a ${dm(r.ate_ant)}` : "")}
+      ${kpi("Unidades", nf0.format(r.total.u), r.total.u_ant ? `${pctCor(r.total.u / r.total.u_ant - 1)} vs período anterior` : "")}
+      ${kpi("Vendedores com venda", String(vs.length), `${vs.filter(v => (v.var_v || 0) > 0).length} crescendo · ${vs.filter(v => (v.var_v || 0) < 0).length} caindo`)}
+      ${kpi("Média por dia", abrev(r.total.v / Math.max(1, r.coletados.length)), `${r.coletados.length} dia(s) com dados`)}
+    </div>
+    <div class="bi-grid" style="grid-template-columns:minmax(0,2.2fr) minmax(0,1fr)">
+      <div class="card pad bi-card"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">Evolução de vendas</h2><div style="flex:1"></div>
+        <div class="cc-seg"><button data-med="v" class="${st.med === "v" ? "on" : ""}">Vendas em $</button><button data-med="u" class="${st.med === "u" ? "on" : ""}">Vendas em unidades</button></div>
+        <label style="font-size:12.5px"><input type="checkbox" id="cc-acum" ${st.acum ? "checked" : ""}> Acumulado</label></div>
+        <div class="sub">Vendas de cada dia no período selecionado.</div><div class="cc-chips" id="cc-chips"></div><div class="ch" id="cc-g"></div></div>
+      <div class="card pad bi-card"><h2>Distribuição de vendas</h2><div class="sub">Share por vendedor no período (${st.med === "v" ? "R$" : "unidades"}).</div>
+        <div style="display:flex;justify-content:center" id="cc-d"></div><div id="cc-dl"></div></div>
+    </div>
+    <div class="card pad" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <input type="search" id="cc-busca" placeholder="Buscar por vendedor" value="${esc(st.busca)}" style="min-width:240px"><div style="flex:1"></div>
+      <span class="muted" style="font-size:12.5px">Setas: variação contra ${dm(r.desde_ant)} a ${dm(r.ate_ant)} · clique no vendedor para ver os produtos</span></div>
+      <div class="rolar" id="cc-tab" style="margin-top:8px"></div></div></div>`;
+  $("#cc-ok").onclick = () => ir($("#cc-de").value, $("#cc-ate").value);
+  main.querySelectorAll("[data-pre]").forEach(b => b.onclick = () => { const [a, c] = b.dataset.pre.split("|"); ir(a, c); });
+  main.querySelectorAll("[data-med]").forEach(b => b.onclick = () => { st.med = b.dataset.med; telaConcorrentes(); });
+  $("#cc-acum").onchange = e => { st.acum = e.target.checked; graficos(); };
+  $("#cc-busca").oninput = e => { st.busca = e.target.value; desenhar(); };
+  desenhar(); graficos(); desenharMenu();
+}
+async function telaConcVendedor(vend) {
+  const main = $("#main");
+  const qs = new URLSearchParams(location.hash.split("?")[1] || "");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando os produtos de ${esc(vend)}</div></div>`;
+  let r;
+  try {
+    if (!qs.get("ate")) { const c = await api("vend_concorrentes"); qs.set("desde", c.desde); qs.set("ate", c.ate); }
+    r = await api("vend_conc_vendedor", {vendedor: vend, desde: qs.get("desde"), ate: qs.get("ate")});
+  } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
+  S.ccp = S.ccp || {ord: "v", asc: false, busca: "", so: ""};
+  const st = S.ccp;
+  const volta = `#/concorrentes?desde=${r.desde}&ate=${r.ate}`;
+  main.innerHTML = `<p style="margin:0"><a href="${volta}">← Comparar concorrentes</a></p>
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>${esc(vend)}</h1>
+      <span class="muted">produtos vendidos de ${dm(r.desde)} a ${dm(r.ate)} · preço médio de 30 dias: ${dm(r.ini30)} a ${dm(r.ate)}</span>
+      <a class="btn small" href="#/vendedores/${encodeURIComponent(vend)}">Visão do ano ↗</a></div>
+    <div class="kpis">
+      ${kpi("Vendas no período", abrev(r.total.v), `${nf0.format(r.total.u)} un. · ${r.coletados.length} dia(s) com dados`)}
+      ${kpi("Produtos vendidos", nf0.format(r.total.produtos), "")}
+      ${kpi("Com anúncio pausado", `<span class="${r.total.pausados ? "neg" : ""}">${r.total.pausados}</span>`, "todos os anúncios pausados no último dia em que vendeu (provável falta de estoque)")}
+      ${kpi("Ticket médio", "R$ " + nf2.format(r.total.v / (r.total.u || 1)), "no período")}
+    </div>
+    <div class="card pad"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <input type="search" id="cp-busca" placeholder="Buscar produto ou marca" value="${esc(st.busca)}" style="min-width:240px">
+      <select id="cp-so" class="mes"><option value="">Todos</option><option value="pausado" ${st.so === "pausado" ? "selected" : ""}>Só pausados</option>
+        <option value="ativo" ${st.so === "ativo" ? "selected" : ""}>Só ativos</option><option value="subiu" ${st.so === "subiu" ? "selected" : ""}>Preço acima da média de 30 dias</option>
+        <option value="baixou" ${st.so === "baixou" ? "selected" : ""}>Preço abaixo da média de 30 dias</option></select>
+      <div style="flex:1"></div><span class="muted" style="font-size:12.5px">Preço atual = o do último dia em que o produto vendeu</span></div>
+      <div class="rolar" id="cp-tab" style="margin-top:8px"></div></div>`;
+  const cols = [["produto", "Produto", 0], ["marca", "Marca", 0], ["u", "Unid.", 1], ["v", "Vendas", 1], ["preco_atual", "Preço atual", 1],
+    ["preco_30d", "Preço médio 30 dias", 1], ["dif_preco", "Atual x 30 dias", 1], ["pausado", "Anúncio", 0], ["dias", "Dias com venda", 1]];
+  const desenhar = () => {
+    const q = st.busca.toLowerCase();
+    const lin = r.produtos.filter(p => (!q || (p.produto + " " + p.marca).toLowerCase().includes(q))
+        && (!st.so || (st.so === "pausado" ? p.pausado : st.so === "ativo" ? !p.pausado : st.so === "subiu" ? p.dif_preco > 0.02 : p.dif_preco < -0.02)))
+      .sort((a, b) => { const x = a[st.ord], y = b[st.ord]; const k = typeof x === "string" || typeof y === "string" ? String(x ?? "").localeCompare(String(y ?? "")) : (x ?? -1e18) - (y ?? -1e18); return st.asc ? k : -k; });
+    $("#cp-tab").innerHTML = `<table class="t cc-t" style="font-size:12.5px"><thead><tr>${cols.map(([k, t, nm]) => `<th class="${nm ? "num" : ""}" data-ord="${k}">${t}${st.ord === k ? (st.asc ? " ↑" : " ↓") : ""}</th>`).join("")}<th>Dia a dia</th></tr></thead>
+      <tbody>${lin.map(p => `<tr><td class="first wrap">${vprodLink(p.chave, p.produto, vend)}</td><td>${esc(p.marca)}</td>
+        <td class="num">${nf0.format(p.u)}</td><td class="num"><b>${abrev(p.v)}</b></td>
+        <td class="num">${p.preco_atual ? "R$ " + nf2.format(p.preco_atual) : "—"}</td><td class="num">${p.preco_30d ? "R$ " + nf2.format(p.preco_30d) : "—"}</td>
+        <td class="num">${p.dif_preco == null ? "—" : `<span class="${p.dif_preco > 0.02 ? "neg" : p.dif_preco < -0.02 ? "pos" : "muted"}">${p.dif_preco > 0 ? "+" : ""}${nf1.format(p.dif_preco * 100)}%</span>`}</td>
+        <td>${p.pausado ? `<span class="st bad" title="todos os anúncios pausados no último dia em que vendeu">Pausado</span>` : `<span class="st good">Ativo${p.anuncios ? ` · ${p.ativos} de ${p.anuncios}` : ""}</span>`}</td>
+        <td class="num">${p.dias} de ${r.coletados.length}</td><td>${sparkSerie(p.serie)}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">Nenhum produto.</td></tr>`}</tbody></table>`;
+    $("#cp-tab").querySelectorAll("[data-ord]").forEach(th => th.onclick = () => { st.asc = st.ord === th.dataset.ord ? !st.asc : false; st.ord = th.dataset.ord; desenhar(); });
+  };
+  $("#cp-busca").oninput = e => { st.busca = e.target.value; desenhar(); };
+  $("#cp-so").onchange = e => { st.so = e.target.value; desenhar(); };
+  desenhar(); desenharMenu();
 }
 
 // ---------- Tarefas de rotina (editável: responsável, horário, dias, ligada/desligada e observação) ----------

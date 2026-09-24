@@ -459,6 +459,10 @@ Com `OPENAI_API_KEY` (ou `ANTHROPIC_API_KEY`) nas variáveis da Vercel, o nubi u
   1 dia de cada vendedor → `vend_vendas_dia`, com os itens vendidos), o mesmo período x mês anterior e o estoque.
   O site mostra os cards "quem mais vendeu / quem mais caiu" e "produtos em alta / em queda" (vs média dos 7 dias
   anteriores) e o texto da IA em cards por seção. Se o coletor terminar depois das 8h, o resumo sai quando a coleta termina.
+- **Comparar concorrentes** (Concorrentes → Comparar concorrentes): como a tela do Nubimetrics — faixa de datas
+  (último dia, 7/15/30 dias, mês atual/anterior ou livre), evolução por vendedor (R$ ou unidades, acumulado), share em
+  rosca e tabela com variação contra o período anterior do mesmo tamanho. Clique no vendedor: produtos vendidos com preço
+  atual (último dia em que vendeu), preço médio de 30 dias e anúncio ativo/pausado.
 - **Vendas diárias** (Concorrentes → Vendas diárias): venda isolada de cada dia por vendedor (gráfico empilhado, mapa
   do dia a dia, média por dia da semana, produtos do período com a venda de cada dia) e o detalhe do dia escolhido
   com os itens vendidos de cada vendedor.

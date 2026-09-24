@@ -2241,6 +2241,108 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
     if rota == "vend_painel_dia":
         return _painel_dia(repo)
 
+    if rota == "vend_concorrentes":
+        # Comparar concorrentes (como no Nubimetrics): período escolhido x o período anterior do mesmo tamanho
+        lim = repo._req("GET", "vend_vendas_dia", {"select": "data", "order": "data.desc", "limit": 1}) or []
+        if not lim:
+            return {"tem": False}
+        ult = str(lim[0]["data"])[:10]
+        pri = str((repo._req("GET", "vend_vendas_dia", {"select": "data", "order": "data.asc", "limit": 1}) or lim)[0]["data"])[:10]
+        ate = q.get("ate") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", q.get("ate") or "") else ult
+        desde = q.get("desde") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", q.get("desde") or "") else ate
+        if desde > ate:
+            desde, ate = ate, desde
+        n = (date.fromisoformat(ate) - date.fromisoformat(desde)).days + 1
+        ate_ant = (date.fromisoformat(desde) - timedelta(days=1)).isoformat()
+        desde_ant = (date.fromisoformat(desde) - timedelta(days=n)).isoformat()
+        linhas = repo._todos("rpc/vend_dia_serie", {}, "POST", {"desde": desde_ant, "ate": ate})
+        dias = [(date.fromisoformat(desde) + timedelta(days=i)).isoformat() for i in range(n)]
+        pos = {d: i for i, d in enumerate(dias)}
+        por = {}
+        for l in linhas:
+            d = str(l["data"])[:10]
+            x = por.setdefault(l["vendedor"], {"vendedor": l["vendedor"], "v": 0.0, "u": 0, "v_ant": 0.0, "u_ant": 0,
+                                               "dias": 0, "dias_ant": 0, "serie_v": [None] * n, "serie_u": [None] * n})
+            if d >= desde:
+                x["v"] += float(l["v"] or 0)
+                x["u"] += int(l["u"] or 0)
+                x["dias"] += 1
+                x["serie_v"][pos[d]] = float(l["v"] or 0)
+                x["serie_u"][pos[d]] = int(l["u"] or 0)
+            else:
+                x["v_ant"] += float(l["v"] or 0)
+                x["u_ant"] += int(l["u"] or 0)
+                x["dias_ant"] += 1
+        vs = [x for x in por.values() if x["dias"]]
+        tv, tu = sum(x["v"] for x in vs), sum(x["u"] for x in vs)
+        for x in vs:
+            # variação só quando o vendedor tem o período anterior inteiro coletado (senão compara com buraco)
+            comp = x["dias_ant"] >= n and x["dias"] >= n
+            x["var_v"] = (x["v"] / x["v_ant"] - 1) if comp and x["v_ant"] else None
+            x["var_u"] = (x["u"] / x["u_ant"] - 1) if comp and x["u_ant"] else None
+            x["share_v"] = x["v"] / tv if tv else 0
+            x["share_u"] = x["u"] / tu if tu else 0
+            x["completo"] = x["dias"] >= n
+        vs.sort(key=lambda x: -x["v"])
+        coletados = sorted({str(l["data"])[:10] for l in linhas if str(l["data"])[:10] >= desde})
+        return {"tem": True, "desde": desde, "ate": ate, "desde_ant": desde_ant, "ate_ant": ate_ant, "dias": dias,
+                "coletados": coletados, "primeiro": pri, "ultimo": ult, "vendedores": vs,
+                "total": {"v": tv, "u": tu, "v_ant": sum(x["v_ant"] for x in vs), "u_ant": sum(x["u_ant"] for x in vs)}}
+
+    if rota == "vend_conc_vendedor":
+        # produtos que o vendedor vendeu no período: preço atual, preço médio de 30 dias e se o anúncio está pausado
+        vend = q.get("vendedor") or ""
+        ate = q.get("ate") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", q.get("ate") or "") else None
+        desde = q.get("desde") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", q.get("desde") or "") else ate
+        if not vend or not ate:
+            raise ErroNuvem("Informe o vendedor e o período.")
+        ini30 = (date.fromisoformat(ate) - timedelta(days=29)).isoformat()
+        inicio = min(desde, ini30)
+        rows = [r for r in repo._todos("vend_vendas_dia", {"select": "data,v,u,itens", "vendedor": repo._eq(vend),
+                                                            "data": f"gte.{inicio}", "order": "data"})
+                if str(r["data"])[:10] <= ate]
+        grp = _mapa_grupos(repo)
+        dias = [(date.fromisoformat(desde) + timedelta(days=i)).isoformat()
+                for i in range((date.fromisoformat(ate) - date.fromisoformat(desde)).days + 1)]
+        pos = {d: i for i, d in enumerate(dias)}
+        prods = {}
+        for r in rows:
+            d = str(r["data"])[:10]
+            for it in r["itens"] or []:
+                k = grp.get(it["k"], it["k"])
+                p = prods.setdefault(k, {"chave": k, "produto": it.get("t") or k, "marca": it.get("m") or "", "v": 0.0, "u": 0,
+                                         "v30": 0.0, "u30": 0, "dias": 0, "ult_dia": None, "preco_atual": None,
+                                         "ativos": None, "anuncios": None, "serie": [None] * len(dias)})
+                v, u = float(it.get("v") or 0), int(it.get("u") or 0)
+                if d >= ini30:
+                    p["v30"] += v
+                    p["u30"] += u
+                if d >= desde:
+                    p["v"] += v
+                    p["u"] += u
+                    p["dias"] += 1
+                    p["serie"][pos[d]] = (p["serie"][pos[d]] or 0) + v
+                if u and (p["ult_dia"] is None or d >= p["ult_dia"]):
+                    p["ult_dia"], p["preco_atual"] = d, v / u
+                    p["ativos"], p["anuncios"] = it.get("a"), it.get("n")
+                    if u > 0 and len(it.get("t") or "") > len(p["produto"]):
+                        p["produto"] = it.get("t")
+        lista = []
+        for p in prods.values():
+            if not p["u"]:
+                continue
+            p["preco_medio"] = p["v"] / p["u"]
+            p["preco_30d"] = p["v30"] / p["u30"] if p["u30"] else None
+            p["dif_preco"] = (p["preco_atual"] / p["preco_30d"] - 1) if p["preco_atual"] and p["preco_30d"] else None
+            p["pausado"] = p["ativos"] == 0
+            lista.append(p)
+        lista.sort(key=lambda p: -p["v"])
+        tot = {"v": sum(p["v"] for p in lista), "u": sum(p["u"] for p in lista), "produtos": len(lista),
+               "pausados": sum(1 for p in lista if p["pausado"])}
+        coletados = sorted({str(r["data"])[:10] for r in rows if str(r["data"])[:10] >= desde})
+        return {"vendedor": vend, "desde": desde, "ate": ate, "dias": dias, "coletados": coletados, "produtos": lista,
+                "total": tot, "ini30": ini30}
+
     if rota == "vend_diario":
         # aba Vendas diárias: série dia a dia por vendedor, dia da semana, produtos do período e o dia escolhido
         lim = repo._req("GET", "vend_vendas_dia", {"select": "data", "order": "data.desc", "limit": 1}) or []
