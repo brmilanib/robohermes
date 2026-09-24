@@ -1087,6 +1087,15 @@ def _painel_dia(repo, d=None):
                 p["vendedores"].append(r["vendedor"])
     if not hoje:
         return {"tem": False}
+    # o mesmo dia do mês anterior (22/09 -> 22/08), baixado isolado de cada vendedor
+    dd = date.fromisoformat(d)
+    ult_ant = date(dd.year, dd.month, 1) - timedelta(days=1)
+    d_mes = ult_ant.replace(day=dd.day).isoformat() if dd.day <= ult_ant.day else None
+    vm, pm = {}, {}
+    for r in (_vendas_dias(repo, d_mes, d_mes) if d_mes else []):
+        vm[r["vendedor"]] = float(r["v"] or 0)
+        for it in r["itens"] or []:
+            pm[it["k"]] = pm.get(it["k"], 0.0) + float(it.get("v") or 0)
     ritmo = {}
     if not n:                                            # sem dias anteriores: ritmo do mês (fotos acumuladas)
         try:
@@ -1105,12 +1114,15 @@ def _painel_dia(repo, d=None):
                      for it in (r["itens"] or [])[:3]] if r else []}
         x["dif"] = (x["v"] - med) if med is not None else None
         x["var"] = (x["v"] / med - 1) if med else None
+        x["v_mes"] = vm.get(v) if vm else None
+        x["var_mes"] = (x["v"] / vm[v] - 1) if vm.get(v) else None
         vs.append(x)
     ps = []
     for k, p in prod.items():
         med = pbase[k]["v"] / n if n and k in pbase else None
         ps.append(dict(p, vendedores=len(set(p["vendedores"])), media=med,
-                       dif=(p["v"] - med) if med is not None else None, var=(p["v"] / med - 1) if med else None))
+                       dif=(p["v"] - med) if med is not None else None, var=(p["v"] / med - 1) if med else None,
+                       v_mes=pm.get(k) if pm else None, var_mes=(p["v"] / pm[k] - 1) if pm.get(k) else None))
     queda = []
     if n:
         for k, pb in pbase.items():
@@ -1123,7 +1135,9 @@ def _painel_dia(repo, d=None):
     meds = [x["media"] for x in vs if x["media"] is not None]
     tot["media"] = sum(meds) if meds else None
     tot["var"] = (tot["v"] / tot["media"] - 1) if tot["media"] else None
-    return {"tem": True, "data": d, "base": "7 dias" if n else ("ritmo do mês" if ritmo else None), "dias_base": n,
+    tot["v_mes"] = sum(vm.values()) if vm else None
+    tot["var_mes"] = (tot["v"] / tot["v_mes"] - 1) if tot["v_mes"] else None
+    return {"tem": True, "data": d, "data_mes": d_mes if vm else None, "base": "7 dias" if n else ("ritmo do mês" if ritmo else None), "dias_base": n,
             "total": tot, "vendedores": sorted(vs, key=lambda x: -x["v"]),
             "mais_venderam": sorted([x for x in vs if x["v"] > 0], key=lambda x: -x["v"])[:8],
             "mais_cairam": sorted([x for x in vs if (x["dif"] or 0) < 0], key=lambda x: x["dif"])[:8],
@@ -1164,11 +1178,19 @@ def _dados_resumo_dia(repo):
         t = pnl["total"]
         base = f"média dos {pnl['dias_base']} dias anteriores" if pnl["dias_base"] else "ritmo diário do mês"
         linhas.append(f"VENDA ISOLADA DO DIA {_ddmm(d1)} (exata: export só desse dia de cada vendedor). Comparação com a {base}.")
+        sem = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
+        dsem = lambda x: sem[date.fromisoformat(x).weekday()]
+        dm_ = pnl.get("data_mes")
+        if dm_:
+            linhas.append(f"Também há o MESMO DIA DO MÊS ANTERIOR ({_ddmm(dm_)}, {dsem(dm_)}) baixado isolado; o dia analisado é "
+                          f"{dsem(d1)}. Dias da semana diferentes vendem diferente: leve isso em conta.")
         linhas.append(f"TOTAL DO DIA: {_fm(t['v'])}, {t['u']} un." + (f" x {_fm(t['media'])} de média ({t['var'] * 100:+.0f}%)"
-                                                                         if t["var"] is not None else ""))
+                                                                         if t["var"] is not None else "")
+                      + (f"; x {_fm(t['v_mes'])} em {_ddmm(dm_)} ({t['var_mes'] * 100:+.0f}%)" if t.get("var_mes") is not None else ""))
         for x in pnl["vendedores"]:
             cab = (f"- {x['vendedor']}: " + ("SEM VENDA REGISTRADA NO DIA" if x["sem_dados"] else f"{_fm(x['v'])}, {x['u']} un., {x['itens']} produto(s)")
-                   + (f"; média {_fm(x['media'])} ({x['var'] * 100:+.0f}%)" if x["var"] is not None else ""))
+                   + (f"; média {_fm(x['media'])} ({x['var'] * 100:+.0f}%)" if x["var"] is not None else "")
+                   + (f"; em {_ddmm(dm_)}: {_fm(x['v_mes'])} ({x['var_mes'] * 100:+.0f}%)" if x.get("var_mes") is not None else ""))
             linhas.append(cab)
         # itens vendidos de cada vendedor no dia (os 12 maiores)
         hoje = {r["vendedor"]: r for r in _vendas_dias(repo, d1, d1)}
@@ -1180,7 +1202,8 @@ def _dados_resumo_dia(repo):
                           + (f"; e mais {len(its) - 12} produto(s)" if len(its) > 12 else ""))
         linhas.append("PRODUTOS QUE MAIS VENDERAM NO DIA (todos os vendedores): " + "; ".join(
             f"{p['produto'][:50]} ({p['marca']}): {p['u']} un., {_fm(p['v'])}, {p['vendedores']} vendedor(es)"
-            + (f", {p['var'] * 100:+.0f}% vs média" if p["var"] is not None else ", novo no período") for p in pnl["produtos_alta"]))
+            + (f", {p['var'] * 100:+.0f}% vs média" if p["var"] is not None else ", novo no período")
+            + (f", {p['var_mes'] * 100:+.0f}% vs {_ddmm(pnl['data_mes'])}" if p.get("var_mes") is not None else "") for p in pnl["produtos_alta"]))
         if pnl["produtos_queda"]:
             linhas.append("PRODUTOS QUE MAIS CAÍRAM NO DIA (vs média): " + "; ".join(
                 f"{p['produto'][:50]} ({p['marca']}): {_fm(p['v'])} x média {_fm(p['media'])}" for p in pnl["produtos_queda"]))
@@ -1246,6 +1269,8 @@ def gerar_resumo_dia(repo, forcar=False):
             "- O DIA: use a VENDA ISOLADA DO DIA (export só daquele dia, com os itens de cada vendedor). Compare cada "
             "vendedor e produto com a média dos dias anteriores: quem acelerou, quem caiu, que produto puxou a venda de "
             "cada um, produto novo aparecendo, produto que sumiu ou com anúncios pausados (sem estoque).\n"
+            "- Se houver o MESMO DIA DO MÊS ANTERIOR (ex.: 22/09 x 22/08), compare também dia com dia, lembrando que o dia "
+            "da semana pode ser diferente.\n"
             "- O MÊS: a comparação é o MESMO PERÍODO (dia 1 até o último dia com dados x os mesmos dias do mês anterior). "
             "Nunca compare um mês parcial com um mês fechado.\n"
             "- OPORTUNIDADES: produto vendendo mais no mercado, concorrente sem estoque de um produto que vende bem, marca subindo.\n"

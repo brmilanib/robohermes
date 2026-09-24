@@ -1012,13 +1012,14 @@ function cardsDia(p) {
   const base = p.dias_base ? `média dos ${p.dias_base} dias anteriores` : p.base === "ritmo do mês" ? "ritmo diário do mês" : "";
   const vend = (x, i, cair) => `<div class="dia-ln"><span class="n">${i + 1}</span><a class="nm" href="#/vendedores/${encodeURIComponent(x.vendedor)}" title="${esc(x.vendedor)}">${esc(x.vendedor)}</a>
     <span class="vl">${cair ? `<span class="neg">${"−" + abrev(Math.abs(x.dif))}</span>` : abrev(x.v)}${chip(x.var)}</span>
-    <span class="dt">${cair ? `${abrev(x.v)} no dia x ${abrev(x.media)} de média` : `${nf0.format(x.u)} un. · ${x.itens} produto(s)`}${x.top && x.top[0] ? ` · ${esc((x.top[0].produto || "").slice(0, 60))}` : x.sem_dados ? " · sem venda registrada no dia" : ""}</span></div>`;
+    <span class="dt">${cair ? `${abrev(x.v)} no dia x ${abrev(x.media)} de média` : `${nf0.format(x.u)} un. · ${x.itens} produto(s)`}${mesAnt(x)}${x.top && x.top[0] ? ` · ${esc((x.top[0].produto || "").slice(0, 60))}` : x.sem_dados ? " · sem venda registrada no dia" : ""}</span></div>`;
   const prod = (x, i, cair) => `<div class="dia-ln"><span class="n">${i + 1}</span><span class="nm" title="${esc(x.produto)}">${vprodLink(x.chave, (x.produto || "").slice(0, 70), "")}</span>
     <span class="vl">${cair ? `<span class="neg">${"−" + abrev(Math.abs(x.dif))}</span>` : abrev(x.v)}${chip(x.var)}</span>
-    <span class="dt">${esc(x.marca || "")}${cair ? ` · ${abrev(x.v)} no dia x ${abrev(x.media)} de média` : ` · ${nf0.format(x.u)} un. · ${x.vendedores} vendedor(es)`}</span></div>`;
+    <span class="dt">${esc(x.marca || "")}${cair ? ` · ${abrev(x.v)} no dia x ${abrev(x.media)} de média` : ` · ${nf0.format(x.u)} un. · ${x.vendedores} vendedor(es)${mesAnt(x)}`}</span></div>`;
   const t = p.total;
+  const mesAnt = x => p.data_mes && x.v_mes != null ? ` · ${dm(p.data_mes)}: ${abrev(x.v_mes)}${x.var_mes != null ? ` (${x.var_mes >= 0 ? "+" : ""}${nf0.format(x.var_mes * 100)}%)` : ""}` : "";
   return `<p class="muted" style="margin:10px 0 0;font-size:12.5px">Venda isolada de <b>${dm(p.data)}</b>: <b>${abrev(t.v)}</b> · ${nf0.format(t.u)} un.
-      ${t.var != null ? ` · ${chip(t.var)} vs ${base}` : ""}</p>
+      ${t.var != null ? ` · ${chip(t.var)} vs ${base}` : ""}${p.data_mes && t.var_mes != null ? ` · ${chip(t.var_mes)} vs ${dm(p.data_mes)} (${abrev(t.v_mes)})` : ""}</p>
     <div class="dia-grid">
       <div class="dia-card up"><h3>🏆 Quem mais vendeu em ${dm(p.data)}</h3><div class="sub">Vendas do dia${base ? `, variação vs ${base}` : ""}</div>
         ${p.mais_venderam.map((x, i) => vend(x, i)).join("") || `<div class="muted">Sem vendas no dia.</div>`}</div>

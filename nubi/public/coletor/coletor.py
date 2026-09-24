@@ -334,6 +334,28 @@ def periodos_dia(cfg, hoje=None):
     return saida
 
 
+def periodos_intervalo(desde, ate):
+    """Um período de 1 dia para cada dia de 'ate' até 'desde' (mais recentes primeiro)."""
+    d, fim, saida = date.fromisoformat(ate), date.fromisoformat(desde), []
+    while d >= fim:
+        x = d.isoformat()
+        saida.append({"mes": x[:7], "ini": x, "fim": x, "ate": x, "rng": "CUSTOM"})
+        d -= timedelta(days=1)
+    return saida
+
+
+def dias_comparacao(pers):
+    """O mesmo dia do mês anterior de cada dia (22/09 -> 22/08), para comparar dia com dia."""
+    saida = []
+    for per in pers:
+        d = date.fromisoformat(per["ate"])
+        ant = date(d.year, d.month, 1) - timedelta(days=1)
+        if d.day <= ant.day:
+            x = ant.replace(day=d.day).isoformat()
+            saida.append({"mes": x[:7], "ini": x, "fim": x, "ate": x, "rng": "CUSTOM"})
+    return saida
+
+
 def limites(mes):
     a, m = map(int, mes.split("-"))
     return f"{mes}-01", f"{mes}-{calendar.monthrange(a, m)[1]:02d}"
@@ -578,17 +600,23 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
             pass
 
 
+FALTARAM = [0]          # quantos arquivos ficaram para depois quando a coleta parou pelo prazo
+
+
 def feito(cfg, rota, h, ate):
-    """Guarda as fotos/dias já enviados (só os últimos 90 de cada vendedor)."""
+    """Guarda as fotos/dias já enviados (só os últimos 400 de cada vendedor)."""
     if rota in ("vend_foto", "vend_dia"):
         lista = cfg.setdefault("fotos" if rota == "vend_foto" else "dias", {}).setdefault(h, [])
         lista.append(ate)
-        del lista[:-90]
+        del lista[:-400]
 
 
-def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pular=None, avisos=None, rota="vend_importar"):
+def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pular=None, avisos=None, rota="vend_importar",
+                       por_dia=False, prazo=None):
     """Para cada vendedor do grupo, baixa cada período (mês fechado ou mês atual parcial) e envia ao nubi.
-    pular(hash, nome, periodo) -> True quando o nubi já tem exatamente esse período."""
+    pular(hash, nome, periodo) -> True quando o nubi já tem exatamente esse período.
+    por_dia: percorre período por período (todos os vendedores de um dia, depois o dia anterior).
+    prazo: hora (time.time) em que para de baixar; o que faltar fica para a próxima vez."""
     estado = {"ctx": abrir_navegador(p, cfg)}
     estado["pg"] = estado["ctx"].pages[0] if estado["ctx"].pages else estado["ctx"].new_page()
 
@@ -618,72 +646,80 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
         if avisos is not None:
             avisos.extend(av)
         salvar_config(cfg)
-        fila = [(h, nome, per) for h, nome in lista if not so or so.upper() == nome.upper()
-                for per in lista_periodos if not (pular and pular(h, nome, per))]
+        lista = [(h, nome) for h, nome in lista if not so or so.upper() == nome.upper()]
+        fila = ([(h, nome, per) for per in lista_periodos for h, nome in lista] if por_dia else
+                [(h, nome, per) for h, nome in lista for per in lista_periodos])
+        fila = [x for x in fila if not (pular and pular(*x))]
         log(f"Vendedores: {len(fila)} arquivo(s) para baixar")
         ao_vivo(True, total=AO_VIVO["total"] + len(fila))
-        for h, nome in lista:
-            if so and so.upper() != nome.upper():
+        anterior = None
+        FALTARAM[0] = 0
+        for n, (h, nome, per) in enumerate(fila):
+            if prazo and time.time() > prazo:
+                FALTARAM[0] = len(fila) - n
+                log(f"  (hora de parar: faltam {FALTARAM[0]} arquivo(s), ficam para a próxima rodada)")
+                break
+            if anterior and anterior != h and not por_dia:
+                guardar_sessao(estado["ctx"])
+            anterior = h
+            mes, ate = per["mes"], per["ate"]
+            rotulo = (f"dia {ate[8:10]}/{ate[5:7]}" if rota == "vend_dia" else
+                      mes + (f" até {ate[8:10]}/{ate[5:7]}" if ate else ""))
+            if pular and pular(h, nome, per):
                 continue
-            for per in lista_periodos:
-                mes, ate = per["mes"], per["ate"]
-                rotulo = (f"dia {ate[8:10]}/{ate[5:7]}" if rota == "vend_dia" else
-                          mes + (f" até {ate[8:10]}/{ate[5:7]}" if ate else ""))
-                if pular and pular(h, nome, per):
-                    continue
-                ao_vivo(True, atual=f"{nome} · {rotulo}")
-                destino = PASTA / "arquivos" / (f"dias/{ate}" if rota == "vend_dia" else
-                                                mes + ("-comparativo" if rota == "vend_foto" else "-parcial" if ate else ""))
-                destino.mkdir(parents=True, exist_ok=True)
-                for tentativa in (1, 2):
-                    try:
-                        arq = baixar_vendedor(pagina(), h, per["ini"], per["fim"], per["rng"], destino)
-                        arquivos += 1
-                        log(f"  {nome} {rotulo}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
-                        manifesto_arq = destino / "manifest.json"
-                        manifesto = (json.loads(manifesto_arq.read_text(encoding="utf-8"))
-                                     if manifesto_arq.exists() else [])
-                        manifesto = [m for m in manifesto if m["arquivo"] != arq.name] + [{
-                            "arquivo": arq.name, "nome_exibido": nome, "seller_hash": h, "mes": mes, "ate": ate,
-                            "baixado_em": datetime.now(timezone.utc).isoformat()}]
-                        manifesto_arq.write_text(json.dumps(manifesto, ensure_ascii=False, indent=2), encoding="utf-8")
-                        if enviar:
-                            # nome do arquivo = nome exibido; o hash é a identidade do vendedor no nubi
-                            params = {"arquivo": arq.name, "mes": mes, "seller_hash": h}
-                            if ate:
-                                params["ate"] = ate
-                            try:
-                                r = api(token, rota, params, arq.read_bytes())
-                            except Falha as e:
-                                if "nenhum anúncio" in str(e):
-                                    raise SemDados()      # o Nubimetrics exportou a planilha vazia: não vendeu no período
-                                raise
-                            importados += 1
-                            log("    " + " ".join(r.get("log", [])))
-                            feito(cfg, rota, h, ate)
-                        break
-                    except SessaoExpirada:
-                        raise
-                    except SemDados:
-                        log(f"  {nome} {rotulo}: sem vendas nesse período (nada para importar)")
-                        if rota in ("vend_foto", "vend_dia"):
-                            feito(cfg, rota, h, ate)
-                        elif not ate:     # mês fechado vazio não muda mais: não tenta de novo
-                            cfg.setdefault("vazios", {}).setdefault(h, []).append(mes)
-                        break
-                    except Exception as e:  # noqa: BLE001
-                        fechou = "has been closed" in str(e) or "Target closed" in str(e)
-                        if fechou and tentativa == 1:
-                            reabrir(str(e))
-                            continue
-                        erros += 1
-                        extra = "" if fechou else " " + diagnostico(pagina())
-                        log(f"  {nome} {rotulo}: ERRO {str(e)[:200]}{extra}")
-                        break
-                AO_VIVO["feito"] += 1
-                ao_vivo(True)
-                time.sleep(PAUSA * random.uniform(0.8, 1.4))
-            guardar_sessao(estado["ctx"])
+            ao_vivo(True, atual=f"{nome} · {rotulo}")
+            destino = PASTA / "arquivos" / (f"dias/{ate}" if rota == "vend_dia" else
+                                            mes + ("-comparativo" if rota == "vend_foto" else "-parcial" if ate else ""))
+            destino.mkdir(parents=True, exist_ok=True)
+            for tentativa in (1, 2):
+                try:
+                    arq = baixar_vendedor(pagina(), h, per["ini"], per["fim"], per["rng"], destino)
+                    arquivos += 1
+                    log(f"  {nome} {rotulo}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
+                    manifesto_arq = destino / "manifest.json"
+                    manifesto = (json.loads(manifesto_arq.read_text(encoding="utf-8"))
+                                 if manifesto_arq.exists() else [])
+                    manifesto = [m for m in manifesto if m["arquivo"] != arq.name] + [{
+                        "arquivo": arq.name, "nome_exibido": nome, "seller_hash": h, "mes": mes, "ate": ate,
+                        "baixado_em": datetime.now(timezone.utc).isoformat()}]
+                    manifesto_arq.write_text(json.dumps(manifesto, ensure_ascii=False, indent=2), encoding="utf-8")
+                    if enviar:
+                        # nome do arquivo = nome exibido; o hash é a identidade do vendedor no nubi
+                        params = {"arquivo": arq.name, "mes": mes, "seller_hash": h}
+                        if ate:
+                            params["ate"] = ate
+                        try:
+                            r = api(token, rota, params, arq.read_bytes())
+                        except Falha as e:
+                            if "nenhum anúncio" in str(e):
+                                raise SemDados()      # o Nubimetrics exportou a planilha vazia: não vendeu no período
+                            raise
+                        importados += 1
+                        log("    " + " ".join(r.get("log", [])))
+                        feito(cfg, rota, h, ate)
+                    break
+                except SessaoExpirada:
+                    raise
+                except SemDados:
+                    log(f"  {nome} {rotulo}: sem vendas nesse período (nada para importar)")
+                    if rota in ("vend_foto", "vend_dia"):
+                        feito(cfg, rota, h, ate)
+                    elif not ate:     # mês fechado vazio não muda mais: não tenta de novo
+                        cfg.setdefault("vazios", {}).setdefault(h, []).append(mes)
+                    break
+                except Exception as e:  # noqa: BLE001
+                    fechou = "has been closed" in str(e) or "Target closed" in str(e)
+                    if fechou and tentativa == 1:
+                        reabrir(str(e))
+                        continue
+                    erros += 1
+                    extra = "" if fechou else " " + diagnostico(pagina())
+                    log(f"  {nome} {rotulo}: ERRO {str(e)[:200]}{extra}")
+                    break
+            AO_VIVO["feito"] += 1
+            ao_vivo(True)
+            time.sleep(PAUSA * random.uniform(0.8, 1.4))
+        guardar_sessao(estado["ctx"])
     finally:
         salvar_config(cfg)
         try:
@@ -876,11 +912,50 @@ def cmd_status(args, cfg):
               f"{e['importados'] or 0}/{e['arquivos'] or 0} importados  {e['mensagem'] or ''}")
 
 
+def _outra_rodando():
+    """PID de outra coleta rodando agora (o Chrome do coletor não abre duas vezes), ou None."""
+    trava = PASTA / "rodando.pid"
+    try:
+        pid = int(trava.read_text().strip())
+        if pid != os.getpid():
+            os.kill(pid, 0)
+            return pid
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def executar(tarefa, func):
     """Roda uma coleta com registro no nubi e aviso no Mac em caso de erro."""
+    if _outra_rodando():
+        if tarefa != "diario":
+            log("Já tem uma coleta rodando neste Mac. Espere ela terminar e rode de novo.")
+            return 1
+        log("Outra coleta está rodando (histórico de vendas diárias?): esperando ela terminar…")
+        fim = time.time() + 4 * 3600
+        while _outra_rodando() and time.time() < fim:
+            time.sleep(60)
+    trava = PASTA / "rodando.pid"
+    try:
+        trava.write_text(str(os.getpid()))
+    except OSError:
+        pass
+    try:
+        return _executar(tarefa, func)
+    finally:
+        try:
+            if trava.read_text().strip() == str(os.getpid()):
+                trava.unlink()
+        except OSError:
+            pass
+
+
+def _executar(tarefa, func):
     cfg = ler_config()
     inicio = datetime.now(timezone.utc)
     token = None
+    AO_VIVO.update(id=None, feito=0, total=0, atual="")      # 2ª tarefa na mesma rodada começa do zero
+    LOG.clear()
     try:
         token = token_nubi(cfg)
         try:
@@ -910,6 +985,40 @@ def executar(tarefa, func):
         registrar(token, tarefa, inicio, False, 0, 0, 1, msg)
         aviso_mac("Coletor nubi — falhou", msg)
         return 2
+
+
+def cmd_dias(args, segundos=None):
+    """
+    Histórico de vendas diárias: baixa o export de UM dia de cada vendedor, de ontem-1 até --desde (mais recentes
+    primeiro). Continua de onde parou; o que faltar a coleta diária completa aos poucos (até 1h30 por dia).
+    Rodado à mão antes das 6h40, para às 6h40 para não atrapalhar a coleta das 7h.
+    """
+    cfg = ler_config()
+    if args is not None and args.desde:
+        cfg["dias_desde"] = args.desde
+        salvar_config(cfg)
+    desde = cfg.get("dias_desde")
+    if not desde:
+        print("Informe o primeiro dia: coletor dias --desde 2026-08-01")
+        return 1
+    ate = (args.ate if args is not None and args.ate else None) or ultimo_dia_liberado(cfg).isoformat()
+    agora = datetime.now()
+    limite = agora.replace(hour=6, minute=40, second=0)
+    prazo = time.time() + segundos if segundos else (limite.timestamp() if agora < limite else None)
+
+    def f(p, cfg, token):
+        dias_ok = cfg.setdefault("dias", {})
+        pers = periodos_intervalo(desde, ate)
+        a, i, e = coletar_vendedores(p, cfg, token, pers, rota="vend_dia", por_dia=True, prazo=prazo,
+                                     pular=lambda h, nome, per: per["ate"] in dias_ok.get(h, []))
+        # terminou tudo (sem parar pelo prazo e sem erro)? -> não precisa mais continuar na coleta diária
+        falta = FALTARAM[0] + e
+        if not falta:
+            cfg.pop("dias_desde", None)
+            salvar_config(cfg)
+        return a, i, e, f"vendas diárias de {desde[8:10]}/{desde[5:7]} a {ate[8:10]}/{ate[5:7]}: {i} dia(s) importado(s)" + \
+            (f"; faltam {falta} (continua na próxima coleta)" if falta else "; histórico completo")
+    return executar("dias", f)
 
 
 def auto_atualizar():
@@ -947,6 +1056,10 @@ def main():
     v.add_argument("--so", help="só este vendedor")
     v.add_argument("--sem-enviar", action="store_true")
     v.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
+    ds = sub.add_parser("dias", help="histórico de vendas diárias (export de 1 dia de cada vendedor)")
+    ds.add_argument("--desde", help="primeiro dia, ex.: 2026-08-01")
+    ds.add_argument("--ate", help="último dia (padrão: o último liberado)")
+    ds.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     mk = sub.add_parser("marcas")
     mk.add_argument("--mes")
     mk.add_argument("--sem-enviar", action="store_true")
@@ -975,7 +1088,7 @@ def main():
         subprocess.run(["launchctl", "load", str(plist)], check=False)
         print(f"OK: coleta diária agendada para {args.hora}h{args.minuto:02d}.")
         return 0
-    if args.cmd in ("diario", "vendedores", "marcas") and not os.environ.get("NUBI_ATUALIZADO"):
+    if args.cmd in ("diario", "vendedores", "marcas", "dias") and not os.environ.get("NUBI_ATUALIZADO"):
         auto_atualizar()
     if args.cmd == "atualizar":
         novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
@@ -1055,8 +1168,10 @@ def main():
                 A, I, E = A + a, I + i, E + e
                 partes.append(f"mesmo período de {comp['mes']} (até {comp['ate'][8:10]}/{comp['ate'][5:7]}): {i} vendedor(es)")
             # venda isolada de cada um dos últimos dias (21/09 a 21/09), com todos os itens vendidos de cada vendedor
+            # e o mesmo dia do mês anterior (22/09 -> 22/08), para comparar dia com dia
             dias_ok = cfg.get("dias", {})
-            a, i, e = coletar_vendedores(p, cfg, token, periodos_dia(cfg), rota="vend_dia",
+            pdias = periodos_dia(cfg)
+            a, i, e = coletar_vendedores(p, cfg, token, pdias + dias_comparacao(pdias[:1]), rota="vend_dia", por_dia=True,
                                          pular=lambda h, nome, per: per["ate"] in dias_ok.get(h, []))
             A, I, E = A + a, I + i, E + e
             partes.append(f"vendas do dia: {i} arquivo(s)")
@@ -1064,7 +1179,14 @@ def main():
                 partes.append(f"{len(avisos)} aviso(s): " + "; ".join(avisos)[:300])
                 aviso_mac("Coletor nubi — conferir", avisos[0])
             return A, I, E, "; ".join(partes) + (f"; {E} erro(s)" if E else "")
-        return executar("diario", f)
+        rc = executar("diario", f)
+        if ler_config().get("dias_desde"):
+            # histórico de vendas diárias ainda incompleto: continua por até 1h30, depois do resumo do dia já sair
+            rc2 = cmd_dias(None, 90 * 60)
+            return rc or rc2
+        return rc
+    if args.cmd == "dias":
+        return cmd_dias(args)
 
 
 if __name__ == "__main__":

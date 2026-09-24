@@ -219,6 +219,7 @@ nubi. Cada arquivo sai com o nome que o Nubimetrics dá, numa pasta por mês, e 
 | `~/.nubi-coletor/coletor vendedores --mes 2026-07` | baixar um mês específico |
 | `~/.nubi-coletor/coletor marcas --mes 2026-07` | baixar o MARCAS de um mês específico |
 | `~/.nubi-coletor/coletor vendedores --parcial` | só o mês atual, até o último dia liberado |
+| `~/.nubi-coletor/coletor dias --desde 2026-08-01` | histórico de vendas diárias: o export de 1 dia de cada vendedor, do último dia liberado até `--desde` (mais recentes primeiro). Rodando antes das 6h40, para às 6h40; o que faltar a coleta diária completa (até 1h30 por dia, depois do resumo) |
 | `~/.nubi-coletor/coletor agendar 7 0` | muda o horário da coleta diária |
 
 **Cuidados:**
