@@ -444,6 +444,6 @@ detalhe técnico fica em `dados/erro.log`.
 
 ## Categorias de marca (Ranking → 🏷️ Categorias)
 
-Cada marca do ranking MARCAS entra numa categoria: **Alta perfumaria**, **Designer**, **Nicho**, **Árabe**, **Nacional** ou **Outros**.
+Cada marca do ranking MARCAS entra numa categoria: **Alta perfumaria**, **Designer** (grife de moda), **Nicho**, **Árabe**, **Importados low ticket** (importada que só faz perfume, preço em conta), **Nacional** (perfumaria brasileira) ou **Outros** (não é marca de perfume).
 A classificação automática vem da lista em `categorias.py`; o que você escolher na tela fica na tabela `marca_categorias` e vale
 para todos os meses. A tela mostra vendas e fatia de cada categoria mês a mês, o crescimento e as maiores marcas de cada uma.

@@ -941,9 +941,9 @@ const statusHTML = s => s ? `<span class="st ${ST_CLS[s] || ""}">${esc(s)}</span
 
 
 // ---------- Categorias de marca (Alta perfumaria, Designer, Nicho, Árabe, Nacional, Outros) ----------
-const COR_CAT = {"Alta perfumaria": "var(--s5)", "Designer": "var(--s1)", "Nicho": "var(--s7)", "Árabe": "var(--s4)", "Nacional": "var(--s3)",
+const COR_CAT = {"Alta perfumaria": "var(--s5)", "Designer": "var(--s1)", "Nicho": "var(--s7)", "Árabe": "var(--s4)", "Importados low ticket": "var(--s2)", "Nacional": "var(--s3)",
   "Outros": "var(--dv-outro)", "Sem categoria": "color-mix(in srgb, var(--dv-outro) 45%, transparent)"};
-const ICO_CAT = {"Alta perfumaria": "💎", "Designer": "👔", "Nicho": "🧪", "Árabe": "🕌", "Nacional": "🇧🇷", "Outros": "📦", "Sem categoria": "❔"};
+const ICO_CAT = {"Alta perfumaria": "💎", "Designer": "👔", "Nicho": "🧪", "Árabe": "🕌", "Importados low ticket": "✈️", "Nacional": "🇧🇷", "Outros": "📦", "Sem categoria": "❔"};
 async function telaCategorias(cat) {
   const main = $("#main");
   if (!S.rankLista) await carregarRankLista();

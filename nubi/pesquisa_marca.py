@@ -53,7 +53,9 @@ PALAVRAS = {
                         r"casa de luxo", r"joalheri", r"jewel"],
     "Designer": [r"\bgrife\b", r"fashion (house|brand|designer)", r"\bdesigner\b", r"estilista", r"marca de moda",
                  r"celebrit", r"celebridade", r"cantora", r"singer", r"atriz", r"actress", r"\bmoda\b"],
-    "Outros": [r"low ?cost", r"\bbaratos?\b", r"acessive", r"affordable", r"budget", r"dupes?\b", r"alternativ"],
+    "Importados low ticket": [r"low ?cost", r"\bbaratos?\b", r"acessive", r"affordable", r"budget", r"dupes?\b",
+                              r"alternativ", r"polones", r"polish", r"polonia", r"poland"],
+    "Outros": [r"maquiagem", r"makeup", r"skin ?care", r"body (butter|scrub)", r"esfoliante"],
 }
 
 
@@ -109,12 +111,18 @@ def buscar_web(marca):
 
 
 CATS_IA = {
-    "Alta perfumaria": "casas de luxo e maisons clássicas (Dior, Chanel, Guerlain, Bvlgari, Lancôme, Hermès, Tom Ford)",
-    "Designer": "grifes de moda e marcas de celebridade internacionais (Carolina Herrera, Rabanne, Azzaro, Calvin Klein, Britney Spears)",
-    "Nicho": "perfumaria de nicho/artística, independente, cara (Xerjoff, Creed, Parfums de Marly, Nishane)",
+    "Alta perfumaria": "casas de luxo clássicas, maisons de alta joalheria/alta costura (Dior, Chanel, Guerlain, Bvlgari, Lancôme, Hermès, Tom Ford)",
+    "Designer": "grifes de MODA importadas: empresas que vendem principalmente roupas, bolsas, calçados e acessórios, e o "
+                "perfume é um produto licenciado (Carolina Herrera, Rabanne, Azzaro, Calvin Klein, Hugo Boss, Zara); "
+                "inclui marcas de celebridade (Britney Spears, Shakira)",
+    "Nicho": "perfumaria de nicho/artística, independente, ticket alto (Xerjoff, Creed, Parfums de Marly, Nishane, Initio)",
     "Árabe": "marcas dos Emirados, Arábia Saudita e Oriente Médio (Lattafa, Armaf, Al Wataniah, Afnan, Maison Alhambra)",
-    "Nacional": "marcas brasileiras, inclusive de contratipos/inspirações e cosméticos (Natura, O Boticário, Eudora, WePink)",
-    "Outros": "importadas baratas/acessíveis que não são grife nem árabe (La Rive, Paris Elysees, Cuba Paris, Ulric de Varens)",
+    "Importados low ticket": "marcas IMPORTADAS (de fora do Brasil e do Oriente Médio) que SÓ fazem perfume, não são grife de "
+                             "moda, e têm preço mais em conta (La Rive da Polônia, Paris Elysees e Ulric de Varens da França, "
+                             "Cuba Paris, Brand Collection)",
+    "Nacional": "perfumaria nacional: marcas BRASILEIRAS de perfume, inclusive as de inspirações/contratipos e as de "
+                "cosméticos (Natura, O Boticário, Eudora, WePink, Lescent, Attracione, Barbour's Beauty)",
+    "Outros": "não é marca de perfume (maquiagem, cuidados com o corpo, cosméticos em geral)",
 }
 
 
@@ -140,7 +148,11 @@ def pesquisar_ia(marca, pistas=""):
     lista = "\n".join(f"- {c}: {d}" for c, d in CATS_IA.items())
     pergunta = (
         f'Pesquise na web a marca de perfumes "{marca}", vendida no Mercado Livre Brasil. Descubra a origem da empresa '
-        f"(país), o tipo de marca e a faixa de preço. Classifique em UMA destas categorias:\n{lista}\n"
+        f"(país), se ela é uma grife de moda (vende roupas/acessórios) ou só faz perfume, e a faixa de preço. "
+        f"Classifique em UMA destas categorias:\n{lista}\n"
+        "Regras: grife de moda importada = Designer; importada que só faz perfume e é barata = Importados low ticket; "
+        "brasileira = Nacional (mesmo com nome em francês ou inglês, ex.: Amakha Paris, Lescent); "
+        "do Oriente Médio = Árabe; casa de luxo clássica = Alta perfumaria.\n"
         f"Pistas que já temos: {pistas or 'nenhuma'}.\n"
         'Responda SOMENTE com um JSON: {"categoria": "<uma das categorias acima>", "confianca": "alta|média|baixa", '
         '"motivo": "<1 ou 2 frases em português: país de origem e o que a marca é>", "fontes": ["<url>", ...]}. '
@@ -197,7 +209,7 @@ def sugerir(marca, gtins=(), preco_medio=None, web=None, usar_ia=True):
         elif pais in ARABES and frac >= 0.5:
             pontos["Árabe"] += 4
         elif frac >= 0.5:
-            for c in ("Designer", "Nicho", "Outros", "Alta perfumaria"):
+            for c in ("Designer", "Nicho", "Importados low ticket", "Alta perfumaria"):
                 pontos[c] += 0.5                   # importada; o resto decide qual
             pontos["Nacional"] -= 1
         ev.append({"fonte": "código de barras", "texto": f"País do código de barras de {tot} produto(s): {txt}", "link": ""})
@@ -217,7 +229,7 @@ def sugerir(marca, gtins=(), preco_medio=None, web=None, usar_ia=True):
             pontos["Alta perfumaria"] += 1
         elif preco_medio <= 130:
             pontos["Nacional"] += 0.5
-            pontos["Outros"] += 0.5
+            pontos["Importados low ticket"] += 0.5
         ev.append({"fonte": "preço", "texto": f"Preço médio no ranking: R$ {preco_medio:,.0f}".replace(",", "."), "link": ""})
     # 4) IA com pesquisa na web (Claude ou ChatGPT): pesa mais que as outras pistas
     ia = None
