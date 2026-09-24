@@ -707,7 +707,7 @@ def atender(metodo, rota, q, corpo, token):
             msgs = repo._todos("reuniao_mensagens", {"select": "id,autor,texto,criado_em,meta", "id": f"gt.{apos}", "order": "id"})
             if not apos:
                 msgs = msgs[-200:]
-            return _json({"mensagens": msgs, "agentes": {k: ia.tem(k) for k in ("chatgpt", "deepseek", "claude")},
+            return _json({"mensagens": msgs, "agentes": {k: ia.tem(k) for k in ("chatgpt", "deepseek", "claude", "ollama")},
                           **({"sistema": agentes.SISTEMA} if q.get("sistema") else {})})
         if rota == "reuniao_postar" and metodo == "POST":
             # agentes locais do Mac mini (Hermes e outros via Ollama) postam a resposta sem abrir uma rodada nova

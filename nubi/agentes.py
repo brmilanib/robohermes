@@ -71,8 +71,12 @@ AGENTES = {
                           "lógica e matemática para checar contas, consistência entre totais (dia x mês x grupo), casos de "
                           "borda, desempenho e custo (chamadas de IA, consultas ao banco). Aponte riscos que os outros "
                           "deixaram passar."},
-    # "hermes": {"nome": "Hermes", "qual": "hermes", "modelo": None, "papel": "..."},   # entra quando tiver chave
+    "gptoss": {"nome": "gpt-oss", "qual": "ollama", "modelo": None,
+               "papel": "Você é o gpt-oss (modelo aberto de 120B na nuvem do Ollama, usado na cota grátis): segunda "
+                        "opinião barata do time. Foque em alternativas mais simples e baratas, em como escalar, e em "
+                        "planos passo a passo; aponte o que os outros complicaram demais."},
 }
+# O Hermes roda no Mac mini (Ollama local) e posta pelo coletor ('coletor hermes'); não passa por aqui.
 COORDENADOR = {"nome": "Claude", "qual": "claude"}
 
 

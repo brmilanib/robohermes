@@ -1920,7 +1920,7 @@ async function telaErros() {
   desenharMenu();
 }
 // ---------- Sala de reunião dos agentes (grupo tipo WhatsApp; o Claude decide) ----------
-const AG_COR = {"Hermes": "#a2741a", "ChatGPT": "#10a37f", "DeepSeek": "#4d6bfe", "Claude": "#d97757", "Claude (código)": "#b3541e", "sistema": "#667781", "voce": "#00a884"};
+const AG_COR = {"Hermes": "#a2741a", "gpt-oss": "#6b4fb3", "ChatGPT": "#10a37f", "DeepSeek": "#4d6bfe", "Claude": "#d97757", "Claude (código)": "#b3541e", "sistema": "#667781", "voce": "#00a884"};
 function waBolha(m) {
   const hr = new Date(m.criado_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
   if (m.autor === "sistema") return `<div class="wa-b sis">${mdSimples(m.texto)}<span class="hr">${hr}</span></div>`;
@@ -1946,7 +1946,7 @@ async function telaReuniao() {
   const ag = r.agentes, on = k => ag[k] ? "" : " (sem chave)";
   main.innerHTML = opsAbas("sala") + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px"><h1 style="margin:0">💬 Sala de reunião</h1></div>
     <div class="wa"><div class="wa-top"><div class="av">🤖</div><div><b>Agentes do nubi</b><br>
-      <small>você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, Claude${on("claude")} (coordena e decide) · @chatgpt ou @deepseek chama só um</small></div></div>
+      <small>você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, gpt-oss${on("ollama")}, Hermes (Mac), Claude${on("claude")} (coordena e decide) · @chatgpt, @deepseek ou @gptoss chama só um</small></div></div>
       <div class="wa-msgs" id="wa-msgs">${waDesenhar(S.reu.msgs)}</div>
       <div class="wa-in"><textarea id="wa-txt" rows="1" placeholder="Mensagem para os agentes (Enter envia, Shift+Enter quebra linha)"></textarea><button id="wa-env" title="Enviar">➤</button></div></div>
     <p class="muted" style="font-size:12px;margin:6px 0 0">Todo dia às 11h (Tarefas de rotina) eles se reúnem sozinhos para discutir a auditoria. O que o Claude aprova vai para 📋 Desenvolvimento, e o Claude da sessão de código implementa.</p>`;
@@ -1957,7 +1957,7 @@ async function telaReuniao() {
     const texto = ta.value.trim(); if (!texto) return;
     ta.value = ""; ta.oninput(); $("#wa-env").disabled = true;
     const agora = new Date().toISOString();
-    box.insertAdjacentHTML("beforeend", waBolha({autor: "voce", texto, criado_em: agora}) + `<div class="wa-dig" id="wa-dig">ChatGPT, DeepSeek e Claude estão digitando…</div>`);
+    box.insertAdjacentHTML("beforeend", waBolha({autor: "voce", texto, criado_em: agora}) + `<div class="wa-dig" id="wa-dig">Os agentes estão digitando…</div>`);
     box.scrollTop = box.scrollHeight;
     try { await api("reuniao_enviar", {}, {method: "POST", body: JSON.stringify({texto})}); }
     catch (e) { toast(e.message, 7000); }

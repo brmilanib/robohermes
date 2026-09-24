@@ -24,7 +24,8 @@ def disponivel():
     return "chatgpt" if os.environ.get("OPENAI_API_KEY") else "claude" if os.environ.get("ANTHROPIC_API_KEY") else None
 
 
-CHAVES = {"claude": "ANTHROPIC_API_KEY", "chatgpt": "OPENAI_API_KEY", "deepseek": "DEEPSEEK_API_KEY"}
+CHAVES = {"claude": "ANTHROPIC_API_KEY", "chatgpt": "OPENAI_API_KEY", "deepseek": "DEEPSEEK_API_KEY", "ollama": "OLLAMA_API_KEY"}
+OLLAMA_MODELOS = ["gpt-oss:120b", "gpt-oss:20b"]   # Ollama Cloud: modelos da cota grátis da conta
 DEEPSEEK_MODELOS = ["deepseek-flash", "deepseek-v4-flash", "deepseek-chat"]   # nomes mudam; tenta na ordem
 
 
@@ -92,7 +93,32 @@ def _deepseek(pergunta, max_tokens, modelo=None, sistema=None, modelos=None):
 
 def nome(ia=None):
     ia = ia or disponivel()
-    return {"claude": "IA (Claude)", "chatgpt": "IA (ChatGPT)", "deepseek": "IA (DeepSeek)"}.get(ia, "IA")
+    return {"claude": "IA (Claude)", "chatgpt": "IA (ChatGPT)", "deepseek": "IA (DeepSeek)", "ollama": "IA (gpt-oss)"}.get(ia, "IA")
+
+
+def _ollama(pergunta, max_tokens, modelo=None, sistema=None):
+    """Ollama Cloud (ollama.com/api/chat) com a cota grátis; cota acabou (429/402) = SemIA, ninguém paga nada."""
+    import urllib.error
+    msgs = ([{"role": "system", "content": sistema}] if sistema else []) + [{"role": "user", "content": pergunta}]
+    ultimo = None
+    for m in ([modelo] if modelo else OLLAMA_MODELOS):
+        try:
+            r = _post_json("https://ollama.com/api/chat",
+                           {"model": m, "messages": msgs, "stream": False, "options": {"num_predict": max(max_tokens, 3000)}},
+                           {"Authorization": f"Bearer {os.environ['OLLAMA_API_KEY']}"}, timeout=150)
+            texto = ((r.get("message") or {}).get("content") or "").strip()
+            if texto:
+                return texto
+            ultimo = f"{m} devolveu resposta vazia"
+        except urllib.error.HTTPError as e:
+            corpo = e.read().decode(errors="replace")[:300]
+            if e.code in (402, 429):
+                raise SemIA(f"cota grátis do Ollama esgotada por agora ({e.code})")
+            ultimo = f"{m}: {e.code} {corpo}"
+            if e.code in (400, 404):
+                continue
+            raise SemIA(f"Ollama respondeu {ultimo}")
+    raise SemIA(f"Ollama sem resposta: {ultimo}")
 
 
 def _post_json(url, corpo, cab, timeout=90):
@@ -121,6 +147,8 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, siste
         return perguntar(pergunta, web=False, max_tokens=max_tokens, qual="chatgpt", sistema=sistema)
     if not ia or not tem(ia):
         raise SemIA("nenhuma chave de IA configurada" if not ia else f"falta a chave da IA {nome(ia)}")
+    if ia == "ollama":
+        return _ollama(pergunta, max_tokens, modelo, sistema), [], ia
     if ia == "deepseek":
         return _deepseek(pergunta, max_tokens, None if modelo == "pro" else modelo, sistema,
                          DEEPSEEK_PRO if modelo == "pro" else None).strip(), [], ia
