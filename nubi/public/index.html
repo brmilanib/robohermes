@@ -244,18 +244,35 @@ select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;f
 .navi .ic{font-size:16px}
 .navi.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);font-weight:600}
 .master{color:var(--good);font-weight:700}
-.nlogo{display:flex;flex-direction:column;align-items:center;gap:8px}
-.nlogo svg{animation:npulso 1.2s ease-in-out infinite;filter:drop-shadow(0 4px 12px rgba(31,56,100,.25))}
-.nnome{font-size:18px;letter-spacing:.3px;color:var(--ink)} .nnome b{color:var(--accent)}
-.nload{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:50vh;color:var(--muted);text-align:center}
-.nmsg{font-size:13.5px;color:var(--muted)}
-.nover{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;background:rgba(10,15,25,.28);backdrop-filter:blur(2px);animation:nentra .15s ease-out}
-.nover .nbox{background:var(--card);border-radius:16px;padding:26px 34px;box-shadow:0 12px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;align-items:center;gap:14px;min-width:260px}
-.nover.feito svg{animation:none}
+.nlogo{display:flex;flex-direction:column;align-items:center;gap:14px}
+.norb{position:relative;width:96px;height:96px;display:grid;place-items:center}
+.norb::before{content:"";position:absolute;inset:0;border-radius:50%;border:3px solid color-mix(in srgb,var(--accent) 15%,transparent);
+  border-top-color:var(--accent);border-right-color:color-mix(in srgb,var(--accent) 55%,transparent);animation:ngira 1s linear infinite}
+.norb::after{content:"";position:absolute;inset:10px;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--accent) 18%,transparent),transparent 70%);animation:npulso 1.6s ease-in-out infinite}
+.norb svg{position:relative;z-index:1;filter:drop-shadow(0 6px 14px rgba(37,99,235,.35))}
+.nm{stroke-dasharray:44;stroke-dashoffset:44;animation:ndesenha 1.8s ease-in-out infinite}
+.nnome{font-size:24px;font-weight:600;letter-spacing:.2px;color:var(--ink)}
+.nnome b{font-weight:700;background:linear-gradient(90deg,var(--accent),#7aa7ff,var(--accent));background-size:200% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;animation:nbrilho 2s linear infinite}
+.nload{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;min-height:calc(100vh - 160px);text-align:center}
+.modal .nload{min-height:40vh}
+.nmsg{font-size:14px;color:var(--muted)}
+.nload .nmsg::after,.nover:not(.feito) .nmsg::after{content:"";display:inline-block;width:1.2em;text-align:left;animation:npontos 1.2s steps(4) infinite}
+.nbarra{width:180px;height:3px;border-radius:3px;background:var(--soft);overflow:hidden;position:relative}
+.nbarra::after{content:"";position:absolute;inset:0;width:40%;border-radius:3px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:barra 1.2s ease-in-out infinite}
+.nover{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;background:rgba(10,15,25,.32);backdrop-filter:blur(3px);animation:nentra .15s ease-out}
+.nover .nbox{background:var(--card);border-radius:20px;padding:30px 40px;box-shadow:0 18px 50px rgba(0,0,0,.28);display:flex;flex-direction:column;align-items:center;gap:14px;min-width:300px;max-width:90vw}
+.nover.feito .norb::before{animation:none;border-color:var(--good)}
+.nover.feito .nm{animation:none;stroke-dashoffset:0}
+.nover.feito .nbarra{display:none}
 .nover.sai{opacity:0;transition:opacity .25s}
 .nok{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--good);color:#fff;font-weight:700;font-size:13px;margin-right:4px}
 .nover.feito .nmsg{color:var(--ink);font-weight:600}
-@keyframes npulso{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+@keyframes ngira{to{transform:rotate(360deg)}}
+@keyframes npulso{0%,100%{transform:scale(.9);opacity:.7}50%{transform:scale(1.08);opacity:1}}
+@keyframes ndesenha{0%{stroke-dashoffset:44}55%,80%{stroke-dashoffset:0}100%{stroke-dashoffset:-44}}
+@keyframes nbrilho{to{background-position:-200% 0}}
+@keyframes npontos{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
 @keyframes nentra{from{opacity:0}}
 .reg{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:3px;border-radius:50%;
   border:1.5px solid var(--accent);color:var(--accent);font-size:8.5px;font-weight:800;line-height:1;vertical-align:super}
@@ -565,7 +582,7 @@ async function telaRanking(cat, mes) {
     desenharMenu(); return;
   }
   cat = cat || S.rankLista[0].categoria;
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Carregando o ranking…</div></div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o ranking</div></div>`;
   let r;
   try { r = await api("ranking_relatorio", mes ? {categoria: cat, mes} : {categoria: cat}); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -629,7 +646,7 @@ const BOM_RK = new Set(["Pouca saturação", "Crescendo", "Poucos vendedores p/ 
 const sinaisRk = s => (s || "").split(" · ").filter(Boolean).map(x => `<span class="sinal ${BOM_RK.has(x) ? "good" : "bad"}">${esc(x)}</span>`).join("");
 const rkLink = m => `<a href="#" class="plink rklink" data-rkm="${esc(m)}" title="Histórico da marca mês a mês">${esc(m)}</a>`;
 async function abrirMarcaRanking(marca) {
-  const bg = modal(`<div class="nload">${LOGO}<div class="nmsg">Carregando ${esc(marca)}…</div></div>`);
+  const bg = modal(`<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando ${esc(marca)}</div></div>`);
   $(".modal", bg).classList.add("larga");
   let h;
   try { h = await api("ranking_marca", {categoria: S.rank.categoria, marca}); }
@@ -922,7 +939,7 @@ async function telaBI(cat) {
   cat = cat || S.rankLista[0].categoria;
   const f = S.biFiltro && S.biFiltro.categoria === cat ? S.biFiltro : (S.biFiltro = {categoria: cat, desde: "", ate: "", per: "3m"});
   if ($("#bi-raiz")) $("#bi-raiz").style.opacity = .5;
-  else main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Montando o B.I.…</div></div>`;
+  else main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando o B.I.</div></div>`;
   let r;
   try { r = await api("ranking_bi", {categoria: cat, ...(f.desde ? {desde: f.desde} : {}), ...(f.ate ? {ate: f.ate} : {})}); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -1168,7 +1185,7 @@ async function telaVendedores(mes) {
   if (!S.vendLista) await carregarVendLista();
   if (!S.coletor) { try { S.coletor = (await api("coletor_status")).execucoes; } catch { S.coletor = []; } }
   if (!S.vendLista.length) { vendVazio(main); desenharMenu(); return; }
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Comparando vendedores…</div></div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Comparando vendedores</div></div>`;
   let r;
   try { r = await api("vend_comparar", mes ? {mes} : {}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const vs = r.vendedores, tot = vs.reduce((a, v) => a + v.vendas, 0);
@@ -1213,7 +1230,7 @@ async function telaVendedores(mes) {
 }
 async function telaVendedor(nomeV, mes) {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Montando o relatório de ${esc(nomeV)}…</div></div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando o relatório de ${esc(nomeV)}</div></div>`;
   let r;
   try { r = await api("vend_relatorio", mes ? {vendedor: nomeV, mes} : {vendedor: nomeV}); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -1344,7 +1361,7 @@ function cabVendedor(nomeV, aba, extra = "", nAlertas) {
 }
 async function telaVendedorAno(nomeV, abaAlertas) {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Montando o ano de ${esc(nomeV)}…</div></div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando o ano de ${esc(nomeV)}</div></div>`;
   let r;
   try { r = await api("vend_bi", {vendedor: nomeV}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.vbi = r; S.tabelas = {};
@@ -1427,7 +1444,7 @@ function telaVendedorAlertas(r, main) {
 }
 async function telaAlertas() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Procurando produtos sem estoque nos concorrentes…</div></div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Procurando produtos sem estoque nos concorrentes</div></div>`;
   let r;
   try { r = await api("vend_alertas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.tabelas = {};
@@ -1452,7 +1469,7 @@ async function telaAlertas() {
   desenharMenu();
 }
 async function abrirProdutoVend(chave, vend) {
-  const bg = modal(`<div class="nload">${LOGO}<div class="nmsg">Carregando o produto…</div></div>`);
+  const bg = modal(`<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o produto</div></div>`);
   bg.querySelector(".modal").classList.add("larga");
   let r;
   try { r = await api("vend_produto", {chave, vendedor: vend || ""}); } catch (e) { bg.querySelector(".modal").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
@@ -1580,7 +1597,7 @@ function infoMarca(inf) {
 }
 async function telaNomesMarcas() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Procurando grafias parecidas…</div></div>`;
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Procurando grafias parecidas</div></div>`;
   let r;
   try { r = await api("apelidos"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   // salva e atualiza só o que mudou na tela (sem recarregar a página)
@@ -1656,7 +1673,7 @@ async function telaNomesMarcas() {
 // ---------- Nomes de vendedores (mesmo vendedor com nomes diferentes) ----------
 async function telaNomesVendedores(silencioso) {
   const main = $("#main");
-  if (!silencioso) main.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Carregando vendedores…</div></div>`;
+  if (!silencioso) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando vendedores</div></div>`;
   let r;
   try { r = await api("vend_nomes"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const acao = async (rota, corpo, msg) => {
@@ -1829,14 +1846,16 @@ async function excluirMarca(marca) {
   } catch (e) { toast(e.message, 6000); }
 }
 // Marca do nubi explorer (o mesmo desenho do ícone da aba)
-const LOGO = `<div class="nlogo"><svg viewBox="0 0 32 32" width="46" height="46"><rect width="32" height="32" rx="8" fill="var(--brand)"/>
-  <path d="M8 22V10l8 8 8-8v12" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+const LOGO = `<div class="nlogo"><div class="norb"><svg viewBox="0 0 32 32" width="58" height="58">
+  <defs><linearGradient id="ng" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1F3864"/><stop offset="1" stop-color="#2563eb"/></linearGradient></defs>
+  <rect width="32" height="32" rx="9" fill="url(#ng)"/>
+  <path class="nm" d="M8 22V10l8 8 8-8v12" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
   <div class="nnome">nubi <b>explorer</b></div></div>`;
 // Tela de "carregando" por cima de tudo (ações rápidas: juntar, salvar…); devolve o fecha().
 function carregando(msg) {
   document.querySelectorAll(".nover").forEach(x => x.remove());
   const o = document.createElement("div"); o.className = "nover";
-  o.innerHTML = `<div class="nbox">${LOGO}<div class="nmsg"><span class="spin"></span> ${esc(msg)}</div></div>`;
+  o.innerHTML = `<div class="nbox">${LOGO}<div class="nbarra"></div><div class="nmsg">${esc(msg.replace(/…$/, ""))}</div></div>`;
   document.body.appendChild(o);
   return {
     ok(txt, ms = 1300) {
@@ -1850,7 +1869,7 @@ const kpi = (l, v, o = "") => `<div class="card kpi"><div class="l">${esc(l)}</d
 
 // ---------- Marca ----------
 async function abrirMarca(marca, manterAba = false) {
-  $("#main").innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Carregando ${esc(nome(marca))}…</div></div>`;
+  $("#main").innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando ${esc(nome(marca))}</div></div>`;
   try { S.rel = await api("relatorio", {marca}); }
   catch (e) { $("#main").innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!manterAba) S.aba = "oportunidades";
@@ -2214,7 +2233,7 @@ function desenharAgente() {
   if (pill) {
     const vivo = coletorRodando(c), pct = vivo && c.total ? Math.round(100 * (c.feito || 0) / c.total) : 0;
     pill.className = "status-pill " + (!c ? "nada" : vivo ? "rodando" : c.ok || c.em_andamento ? "" : "erro");
-    pill.innerHTML = `<span class="pt"></span><span class="tx">${!c ? "Coletor: instalar" : vivo ? `Coletando${c.total ? ` ${c.feito || 0}/${c.total}` : "…"}`
+    pill.innerHTML = `<span class="pt"></span><span class="tx">${!c ? (S.coletor ? "Coletor: instalar" : "Coletor") : vivo ? `Coletando${c.total ? ` ${c.feito || 0}/${c.total}` : "…"}`
       : c.ok ? `Coletor · ${quando(c.terminado_em || c.iniciado_em)}` : c.em_andamento ? "Coletor parou" : "Coletor falhou"}${S.agenteRodando ? " · 🤖" : ""}</span>
       ${vivo ? `<span class="fio" style="width:${pct}%"></span>` : ""}`;
     const a = S.agente;
@@ -2513,7 +2532,7 @@ function modal(html, init) {
 async function iniciar(sessao) {
   S.sessao = sessao;
   if (!sessao) return telaLogin();
-  $("#app").innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Carregando…</div></div>`;
+  $("#app").innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando</div></div>`;
   try { await carregarPainel(); await carregarRankLista(); await carregarVendLista(); }
   catch (e) {
     S.msgLogin = e.message;
