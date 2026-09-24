@@ -364,3 +364,12 @@ create table if not exists public.coletor_fotos (
 alter table public.coletor_fotos enable row level security;
 create policy "autorizado" on public.coletor_fotos
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Aba Vendas diárias: série por dia/vendedor, média por dia da semana e produtos do período (com a venda de cada dia)
+create or replace function public.vend_dia_serie(desde date, ate date)
+returns table (data date, vendedor text, v numeric, u int, produtos int)
+language sql stable security invoker set search_path = public as $$
+  select d.data, d.vendedor, d.v, d.u, jsonb_array_length(d.itens)
+  from vend_vendas_dia d where d.data between desde and ate order by d.data, d.vendedor;
+$$;
+-- vend_dia_produtos(desde, ate, so_vendedor, lim) e vend_dia_semana(desde, ate, so_vendedor): ver migration vend_dia_funcoes

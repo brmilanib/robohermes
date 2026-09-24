@@ -268,6 +268,14 @@ select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;f
 .mdc h3{margin:0 0 6px!important;font-size:14px!important}
 .mdc.m-al{border-left:4px solid var(--bad)} .mdc.m-op{border-left:4px solid var(--good)} .mdc.m-ac{border-left:4px solid var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--card))}
 .mdc.m-top{grid-column:1/-1;background:var(--soft)}
+.vd-heat td.c{min-width:34px;text-align:center;font-size:11px;padding:4px 2px;cursor:pointer}
+.vd-heat th.d{font-size:10.5px;font-weight:500;color:var(--muted);padding:2px;text-align:center;min-width:34px}
+.vd-heat th.d.fds{color:var(--accent)} .vd-heat td.c.sel,.vd-heat th.d.sel{outline:2px solid var(--accent);outline-offset:-2px}
+.vd-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+details.vd-it{border-top:1px solid var(--line);padding:6px 0}
+details.vd-it summary{cursor:pointer;display:flex;gap:10px;align-items:baseline;list-style:none}
+details.vd-it summary::-webkit-details-marker{display:none}
+details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[open] summary::before{content:"▾"}
 .rot-card{margin-top:12px}
 .rot-card .cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .rot-card .cab h2{margin:0;font-size:15px}
@@ -465,7 +473,7 @@ const SECOES = [
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -540,6 +548,7 @@ function desenharMenu() {
     ${ab.explorador ? sub(marcas) : ""}
     <div class="grupo">Concorrentes</div>
     ${it("#/vendedores", "📊", "Visão geral", h === "#/vendedores" || h.startsWith("#/vendedores?"))}
+    ${it("#/vendas-dia", "📅", "Vendas diárias", h.startsWith("#/vendas-dia"))}
     ${it("#/alertas", "🚨", "Alertas de estoque", h.startsWith("#/alertas"), nAl ? `<span class="badge" title="produtos sem estoque ou parados nos concorrentes">${nAl}</span>` : "")}
     ${it((S.vendLista || []).length ? "#/vendedores/" + encodeURIComponent((S.vendLista.find(v => h.startsWith("#/vendedores/" + v.vendedor)) || S.vendLista[0]).vendedor) : "#/vendedores", "🏪", "Vendedores", vendOn,
       cont((S.vendLista || []).length) + seta("vendedores", (S.vendLista || []).length > 0))}
@@ -606,6 +615,7 @@ async function rotear() {
     if (!S.vendLista) await carregarVendLista();
     if (location.hash.startsWith("#/nomes-vendedores")) return telaNomesVendedores();
     if (location.hash.startsWith("#/alertas")) return telaAlertas();
+    if (location.hash.startsWith("#/vendas-dia")) return telaVendasDia();
     const h = decodeURIComponent(location.hash);
     const m = h.match(/^#\/vendedores\/([^/?]+)(?:\/(\d{4}-\d{2}|alertas))?/);
     if (m) return m[2] && m[2] !== "alertas" ? telaVendedor(m[1], m[2]) : telaVendedorAno(m[1], m[2] === "alertas");
@@ -826,7 +836,7 @@ function grafLinhas(box, {rotulos, series, fmt, fmtEixo = fmt, inverter = false,
   alvo.addEventListener("pointerleave", () => { cruz.setAttribute("visibility", "hidden"); esconderTip(); });
 }
 // Colunas empilhadas (1 série = colunas simples). rotCap: texto no topo de cada coluna.
-function grafColunas(box, {rotulos, series, fmt, fmtEixo = fmt, altura = 240, rotCap, dica}) {
+function grafColunas(box, {rotulos, series, fmt, fmtEixo = fmt, altura = 240, rotCap, dica, aoClicar, marcado}) {
   box.replaceChildren();
   const W = Math.max(320, box.clientWidth), H = altura, m = {l: 56, r: 10, t: 18, b: 24};
   const iw = W - m.l - m.r, ih = H - m.t - m.b, n = rotulos.length;
@@ -850,7 +860,9 @@ function grafColunas(box, {rotulos, series, fmt, fmtEixo = fmt, altura = 240, ro
       base += v;
     });
     if (rotCap && capOk) svgTxt(svg, cx, Y(tot[i]) - 5, rotCap(i), {"text-anchor": "middle", class: "lbl"});
-    const alvo = svgEl("rect", {x: cx - banda / 2, y: m.t - 18, width: banda, height: ih + 18, class: "hit"}, svg);
+    if (marcado === i) svgEl("rect", {x: cx - banda / 2 + 1, y: m.t, width: banda - 2, height: ih, fill: "var(--accent)", opacity: .1, rx: 4}, svg);
+    const alvo = svgEl("rect", {x: cx - banda / 2, y: m.t - 18, width: banda, height: ih + 18, class: "hit", style: aoClicar ? "cursor:pointer" : null}, svg);
+    if (aoClicar) alvo.addEventListener("click", () => aoClicar(i));
     alvo.addEventListener("pointermove", ev => mostrarTip(ev, rotulos[i], dica ? dica(i) : series.map(s => ({cor: s.cor, valor: fmt(s.v[i] || 0), nome: s.nome}))));
     alvo.addEventListener("pointerleave", esconderTip);
   });
@@ -1423,6 +1435,111 @@ function telaColetor() {
     <div class="card pad" style="margin-top:14px"><h2>🤖 Agente de GTIN</h2><div id="agente-box" class="muted" style="font-size:13px"></div></div>`;
   desenharAgente();
 }
+// ---------- Vendas diárias (export de 1 dia de cada vendedor): dia a dia, dia da semana, produtos e o dia escolhido ----------
+const DSEM = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+const dsem = d => DSEM[new Date(d + "T12:00:00").getDay()];
+async function telaVendasDia() {
+  const main = $("#main");
+  const qs = new URLSearchParams((location.hash.split("?")[1]) || "");
+  const par = {periodo: qs.get("periodo") || "30d", ...(qs.get("vendedor") ? {vendedor: qs.get("vendedor")} : {}), ...(qs.get("data") ? {data: qs.get("data")} : {})};
+  if (!main.querySelector(".vd-top")) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando as vendas de cada dia</div></div>`;
+  let r;
+  try { r = await api("vend_diario", par); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const ir = mud => { const n = {...par, ...mud}; Object.keys(n).forEach(k => n[k] == null && delete n[k]); location.hash = "#/vendas-dia?" + new URLSearchParams(n); };
+  if (!r.tem) {
+    main.innerHTML = `<h1>📅 Vendas diárias</h1><div class="card empty" style="margin-top:14px"><h2>Ainda sem vendas diárias</h2>
+      <p>O coletor baixa todo dia o export de <b>um dia só</b> de cada vendedor (faixa personalizada, ex.: 22/09 a 22/09).<br>
+      Para trazer o histórico, no Mac: <code>~/.nubi-coletor/coletor dias --desde 2026-08-01</code></p></div>`;
+    desenharMenu(); return;
+  }
+  const dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
+  const col = new Set(r.coletados), dias = r.dias, vs = r.vendedores;
+  const faltam = dias.filter(d => !col.has(d)).length;
+  const tot = vs.reduce((a, v) => a + v.total, 0), nCol = dias.filter(d => col.has(d)).length;
+  const porDia = dias.map((_, i) => vs.reduce((a, v) => a + v.v[i], 0));
+  const iMelhor = porDia.reduce((b, v, i) => col.has(dias[i]) && v > porDia[b] ? i : b, dias.findIndex(d => col.has(d)));
+  const semN = ["", "seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
+  const sem = r.semana.map(x => ({d: semN[x.dow], m: x.dias ? x.v / x.dias : 0, dias: x.dias}));
+  const semTop = [...sem].sort((a, b) => b.m - a.m)[0];
+  const cores = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)", "var(--s6)"];
+  const topV = vs.slice(0, 6), resto = vs.slice(6);
+  const series = topV.map((v, k) => ({nome: v.vendedor, cor: cores[k], v: v.v}));
+  if (resto.length) series.push({nome: `outros (${resto.length})`, cor: "color-mix(in srgb,var(--muted) 45%,transparent)", v: dias.map((_, i) => resto.reduce((a, v) => a + v.v[i], 0))});
+  const iDia = dias.indexOf(r.dia);
+  const perOpts = [["7d", "Últimos 7 dias"], ["14d", "Últimos 14 dias"], ["30d", "Últimos 30 dias"], ...r.meses.map(m => [m, mesCurto(m)]), ["tudo", "Tudo desde " + dm(r.primeiro)]];
+  const maxV = Object.fromEntries(vs.map(v => [v.vendedor, Math.max(...v.v, 1)]));
+  const heatDias = dias.slice(-31);
+  main.innerHTML = `
+    <div class="vd-top" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <h1>📅 Vendas diárias</h1>
+      <select id="vd-per" class="mes">${perOpts.map(([k, t]) => `<option value="${k}" ${k === r.periodo ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+      <select id="vd-vend" class="mes"><option value="">Todos os vendedores</option>${r.todos_vendedores.map(v => `<option ${v === r.vendedor ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+      <span class="muted">${dm(r.desde)} a ${dm(r.ate)} · venda isolada de cada dia (export de 1 dia de cada vendedor)</span>
+    </div>
+    ${faltam ? `<p class="aviso warn">${faltam} dia(s) do período ainda sem dados: o coletor está completando o histórico (aparecem em branco no gráfico).</p>` : ""}
+    <div class="kpis">
+      ${kpi("Vendas no período", abrev(tot), `${nf0.format(vs.reduce((a, v) => a + v.unidades, 0))} un. em ${nCol} dia(s)`)}
+      ${kpi("Média por dia", abrev(nCol ? tot / nCol : 0), `${vs.length} vendedor(es)`)}
+      ${kpi("Melhor dia", iMelhor >= 0 ? `${dm(dias[iMelhor])} <span class="muted" style="font-size:13px">${dsem(dias[iMelhor])}</span>` : "—", iMelhor >= 0 ? abrev(porDia[iMelhor]) : "")}
+      ${kpi("Dia da semana mais forte", semTop ? semTop.d : "—", semTop ? `${abrev(semTop.m)} de média` : "")}
+    </div>
+    <div class="bi-grid">
+      <div class="card pad bi-card largo" style="grid-column:1/-1"><h2>Vendas por dia</h2>
+        <div class="sub">Clique num dia para ver o detalhe embaixo. ${r.vendedor ? "" : "Empilhado pelos 6 maiores vendedores do período."}</div>
+        ${legenda(series.map(x => [x.nome, x.cor]), true)}<div class="ch" id="vd-g"></div></div>
+      <div class="card pad bi-card"><h2>Por dia da semana</h2><div class="sub">Média de vendas em cada dia da semana no período.</div><div class="ch" id="vd-sem"></div></div>
+      <div class="card pad bi-card"><h2>Vendedores no período</h2><div class="sub">Total, média por dia e o melhor dia de cada um.</div>
+        <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Vendedor</th><th class="num">Total</th><th class="num">Média/dia</th><th class="num">Melhor dia</th><th>Dia a dia</th></tr></thead>
+        <tbody>${vs.map(v => `<tr><td class="first"><a href="#/vendas-dia?${new URLSearchParams({...par, vendedor: v.vendedor})}">${esc(v.vendedor)}</a></td>
+          <td class="num">${abrev(v.total)}</td><td class="num">${abrev(v.media)}</td>
+          <td class="num">${v.melhor_dia ? `${dm(v.melhor_dia)} <span class="muted">${abrev(v.melhor_v)}</span>` : "—"}</td>
+          <td>${sparkSerie(v.v.map((x, i) => col.has(dias[i]) ? x : null))}</td></tr>`).join("")}</tbody></table></div></div>
+      <div class="card pad bi-card" style="grid-column:1/-1"><h2>Mapa do dia a dia</h2>
+        <div class="sub">Cada célula é a venda do vendedor no dia (mais escuro = dia mais forte dele). Clique para abrir o dia. ${heatDias.length < dias.length ? "Últimos 31 dias do período." : ""}</div>
+        <div class="rolar"><table class="heat vd-heat"><thead><tr><th style="text-align:left">Vendedor</th>${heatDias.map(d => `<th class="d ${["sáb", "dom"].includes(dsem(d)) ? "fds" : ""} ${d === r.dia ? "sel" : ""}">${dsem(d)}<br>${d.slice(8, 10)}</th>`).join("")}</tr></thead>
+        <tbody>${vs.map(v => `<tr><td class="nm">${esc(v.vendedor)}</td>${heatDias.map(d => { const i = dias.indexOf(d), x = v.v[i];
+          if (!col.has(d)) return `<td class="c muted" title="sem dados">·</td>`;
+          const t = Math.round(8 + 72 * x / maxV[v.vendedor]);
+          return `<td class="c ${d === r.dia ? "sel" : ""}" data-dia="${d}" style="background:color-mix(in oklab, var(--s1) ${x ? t : 0}%, var(--card));${t > 50 ? "color:#fff" : ""}" title="${esc(v.vendedor)} · ${dm(d)} ${dsem(d)}: ${abrev(x)}">${x ? abrev(x).replace("R$ ", "").replace(" mil", "k").replace(" mi", "M") : "–"}</td>`; }).join("")}</tr>`).join("")}</tbody></table></div></div>
+      <div class="card pad bi-card" style="grid-column:1/-1">
+        <div class="vd-nav"><h2 style="margin:0">Dia ${dm(r.dia)} <span class="muted" style="font-weight:500">${dsem(r.dia)}</span></h2>
+          <button class="btn small" id="vd-ant" ${iDia <= 0 ? "disabled" : ""}>◀ dia anterior</button><button class="btn small" id="vd-prox" ${iDia >= dias.length - 1 ? "disabled" : ""}>próximo dia ▶</button>
+          <select id="vd-dia" class="mes" style="font-size:12.5px">${[...r.coletados].reverse().map(d => `<option value="${d}" ${d === r.dia ? "selected" : ""}>${dm(d)} ${dsem(d)}</option>`).join("")}</select></div>
+        ${cardsDia(r.painel)}
+        <h3 style="margin:14px 0 4px;font-size:14px">🧾 Itens vendidos no dia, por vendedor</h3>
+        ${r.itens_dia.map((x, k) => `<details class="vd-it" ${k === 0 || r.vendedor ? "open" : ""}><summary><b>${esc(x.vendedor)}</b><span>${abrev(x.v)}</span><span class="muted">${nf0.format(x.u)} un. · ${x.n} produto(s)</span></summary>
+          <div class="rolar"><table class="t" style="font-size:12.5px;margin-top:6px"><thead><tr><th>Produto</th><th>Marca</th><th class="num">Unid.</th><th class="num">Vendas</th><th class="num">Anúncios ativos</th></tr></thead>
+          <tbody>${x.itens.map((i, n) => `<tr class="${n >= 15 ? "hidden vd-mais" : ""}"><td class="first wrap">${vprodLink(i.k, i.t || i.k, "")}</td><td>${esc(i.m || "")}</td><td class="num">${nf0.format(i.u)}</td><td class="num">${abrev(i.v)}</td>
+            <td class="num">${i.a ? `${i.a} de ${i.n}` : `<span class="st bad">pausado (sem estoque?)</span>`}</td></tr>`).join("")}
+          ${x.itens.length > 15 ? `<tr><td colspan="5"><button class="btn small vd-todos">ver todos os ${x.itens.length}${x.n > x.itens.length ? ` maiores (de ${x.n})` : ""}</button></td></tr>`
+            : x.n > x.itens.length ? `<tr><td colspan="5" class="muted">e mais ${x.n - x.itens.length} produto(s) menores</td></tr>` : ""}</tbody></table></div></details>`).join("") || `<div class="muted">Nenhuma venda registrada neste dia.</div>`}
+      </div>
+      <div class="card pad bi-card" style="grid-column:1/-1"><h2>Produtos que mais venderam no período</h2>
+        <div class="sub">${r.vendedor ? esc(r.vendedor) : "Somando os vendedores monitorados"} · ${dm(r.desde)} a ${dm(r.ate)}. "Sem estoque" = todos os anúncios pausados no último dia em que vendeu.</div>
+        <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Produto</th><th>Marca</th><th class="num">Vendas</th><th class="num">Unid.</th><th class="num">Vendedores</th><th class="num">Dias com venda</th><th>Dia a dia</th></tr></thead>
+        <tbody>${r.produtos.map(p => `<tr><td class="first wrap">${vprodLink(p.chave, p.produto || p.chave, "")}${p.ativos_ult === 0 ? ` <span class="st bad">sem estoque?</span>` : ""}</td><td>${esc(p.marca || "")}</td>
+          <td class="num">${abrev(+p.v)}</td><td class="num">${nf0.format(p.u)}</td><td class="num">${p.vendedores}</td><td class="num">${p.dias} de ${nCol}</td><td>${sparkSerie(p.serie)}</td></tr>`).join("")}</tbody></table></div></div>
+    </div>`;
+  $("#vd-per").onchange = e => ir({periodo: e.target.value, data: null});
+  $("#vd-vend").onchange = e => ir({vendedor: e.target.value || null});
+  $("#vd-dia").onchange = e => ir({data: e.target.value});
+  if ($("#vd-ant")) $("#vd-ant").onclick = () => ir({data: dias[iDia - 1]});
+  if ($("#vd-prox")) $("#vd-prox").onclick = () => ir({data: dias[iDia + 1]});
+  main.querySelectorAll("td.c[data-dia]").forEach(td => td.onclick = () => ir({data: td.dataset.dia}));
+  main.querySelectorAll(".vd-todos").forEach(b => b.onclick = () => { b.closest("tbody").querySelectorAll(".vd-mais").forEach(tr => tr.classList.remove("hidden")); b.closest("tr").remove(); });
+  const rot = dias.map(d => dm(d));
+  biRedesenhar = [
+    () => grafColunas($("#vd-g"), {rotulos: rot, series, fmt: abrev, fmtEixo: v => abrev(v).replace("R$ ", ""), altura: 280, marcado: iDia,
+      aoClicar: i => col.has(dias[i]) && ir({data: dias[i]}),
+      dica: i => [{valor: col.has(dias[i]) ? abrev(porDia[i]) : "sem dados", nome: `total · ${dsem(dias[i])}`}, ...series.filter(x => x.v[i]).sort((a, b) => b.v[i] - a.v[i]).map(x => ({cor: x.cor, valor: abrev(x.v[i]), nome: x.nome}))]}),
+    () => grafColunas($("#vd-sem"), {rotulos: sem.map(x => x.d), series: [{nome: "média", cor: "var(--s1)", v: sem.map(x => x.m)}], fmt: abrev,
+      fmtEixo: v => abrev(v).replace("R$ ", ""), altura: 220, rotCap: i => abrev(sem[i].m).replace("R$ ", ""),
+      dica: i => [{valor: abrev(sem[i].m), nome: `média em ${sem[i].dias} ${sem[i].d}(s)`}]}),
+  ];
+  biRedesenhar.forEach(g => g());
+  desenharMenu();
+}
+
 // ---------- Tarefas de rotina (editável: responsável, horário, dias, ligada/desligada e observação) ----------
 const RESPONSAVEIS = ["Coletor (Mac mini)", "Robô nubi (servidor)", "ChatGPT", "Claude", "Você"];
 const DIAS_NOME = {seg: "Seg", ter: "Ter", qua: "Qua", qui: "Qui", sex: "Sex", sab: "Sáb", dom: "Dom"};

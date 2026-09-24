@@ -459,6 +459,9 @@ Com `OPENAI_API_KEY` (ou `ANTHROPIC_API_KEY`) nas variáveis da Vercel, o nubi u
   1 dia de cada vendedor → `vend_vendas_dia`, com os itens vendidos), o mesmo período x mês anterior e o estoque.
   O site mostra os cards "quem mais vendeu / quem mais caiu" e "produtos em alta / em queda" (vs média dos 7 dias
   anteriores) e o texto da IA em cards por seção. Se o coletor terminar depois das 8h, o resumo sai quando a coleta termina.
+- **Vendas diárias** (Concorrentes → Vendas diárias): venda isolada de cada dia por vendedor (gráfico empilhado, mapa
+  do dia a dia, média por dia da semana, produtos do período com a venda de cada dia) e o detalhe do dia escolhido
+  com os itens vendidos de cada vendedor.
 - **Análise da semana**: toda segunda às 8h, com os resumos diários guardados e as vendas de cada dia x semana anterior.
 - **Tarefas de rotina** (Coletor e agentes → Tarefas de rotina, tabela `rotinas`): quem faz, horário, dias, ligada e
   observação (a observação das tarefas do ChatGPT vai no prompt). A Vercel chama `r=rotinas_cron` de hora em hora (24 agendas diárias, uma por hora: o plano Hobby só aceita agenda diária) e roda

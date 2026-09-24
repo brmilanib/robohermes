@@ -1942,6 +1942,69 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
     if rota == "vend_painel_dia":
         return _painel_dia(repo)
 
+    if rota == "vend_diario":
+        # aba Vendas diárias: série dia a dia por vendedor, dia da semana, produtos do período e o dia escolhido
+        lim = repo._req("GET", "vend_vendas_dia", {"select": "data", "order": "data.desc", "limit": 1}) or []
+        if not lim:
+            return {"tem": False}
+        ult = str(lim[0]["data"])[:10]
+        pri = str((repo._req("GET", "vend_vendas_dia", {"select": "data", "order": "data.asc", "limit": 1}) or [{"data": ult}])[0]["data"])[:10]
+        per = q.get("periodo") or "30d"
+        if re.fullmatch(r"\d{4}-\d{2}", per):
+            desde, ate = f"{per}-01", min(ult, f"{per}-{vend_bi.dias_do_mes(per):02d}")
+        elif per == "tudo":
+            desde, ate = pri, ult
+        else:
+            n = int(re.sub(r"\D", "", per) or 30)
+            desde, ate = max(pri, (date.fromisoformat(ult) - timedelta(days=n - 1)).isoformat()), ult
+        vend = q.get("vendedor") or None
+        linhas = repo._todos("rpc/vend_dia_serie", {}, "POST", {"desde": desde, "ate": ate})
+        todos = sorted({l["vendedor"] for l in linhas})
+        coletados = {str(l["data"])[:10] for l in linhas}          # dias coletados (de qualquer vendedor)
+        if vend:
+            linhas = [l for l in linhas if l["vendedor"] == vend]
+        dias, d = [], date.fromisoformat(desde)
+        while d.isoformat() <= ate:
+            dias.append(d.isoformat())
+            d += timedelta(days=1)
+        por_v = {}
+        for l in linhas:
+            dd = str(l["data"])[:10]
+            x = por_v.setdefault(l["vendedor"], {"vendedor": l["vendedor"], "v": [0.0] * len(dias), "u": [0] * len(dias)})
+            i = dias.index(dd)
+            x["v"][i] = float(l["v"] or 0)
+            x["u"][i] = int(l["u"] or 0)
+        vs = []
+        for x in por_v.values():
+            tv = sum(x["v"])
+            nd = sum(1 for dd in dias if dd in coletados)
+            com = [(dias[i], v) for i, v in enumerate(x["v"]) if dias[i] in coletados]
+            melhor = max(com, key=lambda t: t[1]) if com else (None, 0)
+            vs.append(dict(x, total=tv, unidades=sum(x["u"]), media=tv / nd if nd else 0,
+                           melhor_dia=melhor[0], melhor_v=melhor[1],
+                           dias_sem_venda=sum(1 for dd, v in com if v == 0)))
+        vs.sort(key=lambda x: -x["total"])
+        sem = repo._req("POST", "rpc/vend_dia_semana", corpo={"desde": desde, "ate": ate, "so_vendedor": vend}) or []
+        prods = repo._req("POST", "rpc/vend_dia_produtos", corpo={"desde": desde, "ate": ate, "so_vendedor": vend, "lim": 40}) or []
+        for p in prods:
+            p["serie"] = [float((p.get("por_dia") or {}).get(dd, 0)) if dd in coletados else None for dd in dias]
+            p.pop("por_dia", None)
+        dia = q.get("data") if q.get("data") in coletados else max(coletados) if coletados else ult
+        pnl = _painel_dia(repo, dia)
+        regs = repo._req("GET", "vend_vendas_dia", {"select": "vendedor,v,u,itens", "data": repo._eq(dia),
+                                                    **({"vendedor": repo._eq(vend)} if vend else {})}) or []
+        itens = sorted([{"vendedor": r["vendedor"], "v": float(r["v"] or 0), "u": int(r["u"] or 0), "n": len(r["itens"] or []),
+                         "itens": (r["itens"] or [])[:80]} for r in regs], key=lambda r: -r["v"])
+        meses, m = [], pri[:7]
+        while m <= ult[:7]:
+            meses.insert(0, m)
+            a, b = map(int, m.split("-"))
+            m = f"{a + (b == 12)}-{b % 12 + 1:02d}"
+        return {"tem": True, "periodo": per, "desde": desde, "ate": ate, "primeiro": pri, "ultimo": ult, "meses": meses,
+                "dias": dias, "coletados": sorted(coletados), "vendedores": vs, "semana": sem, "produtos": prods,
+                "dia": dia, "painel": pnl, "itens_dia": itens, "vendedor": vend,
+                "todos_vendedores": todos}
+
     if rota == "vend_periodo":
         return _comparativo(repo)
 
