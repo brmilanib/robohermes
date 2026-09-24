@@ -2253,7 +2253,7 @@ async function telaAgentes(silencioso) {
   desenharMenu();
 }
 // ---------- Sala de reunião dos agentes (grupo tipo WhatsApp; o Claude decide) ----------
-const AG_COR = {"Hermes": "#a2741a", "gpt-oss": "#6b4fb3", "Astra (design)": "#e0457b", "ChatGPT": "#10a37f", "DeepSeek": "#4d6bfe", "Claude": "#d97757", "Claude (código)": "#b3541e", "sistema": "#667781", "voce": "#00a884"};
+const AG_COR = {"Hermes": "#a2741a", "Qwen (revisor)": "#615ced", "gpt-oss": "#6b4fb3", "Astra (design)": "#e0457b", "ChatGPT": "#10a37f", "DeepSeek": "#4d6bfe", "Claude": "#d97757", "Claude (código)": "#b3541e", "sistema": "#667781", "voce": "#00a884"};
 function waBolha(m) {
   const hr = new Date(m.criado_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
   if (m.autor === "sistema") return `<div class="wa-b sis">${mdSimples(m.texto)}<span class="hr">${hr}</span></div>`;
@@ -2280,7 +2280,7 @@ async function telaReuniao() {
   const ag = r.agentes, on = k => ag[k] ? "" : " (sem chave)";
   main.innerHTML = opsAbas("sala") + `
     <div class="wa"><div class="wa-top"><div class="av">🤖</div><div><b>Agentes do nubi</b><br>
-      <small>você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, gpt-oss${on("ollama")}, Hermes (Mac), Claude${on("claude")} (coordena e decide) · @chatgpt, @deepseek, @gptoss ou @astra (design, sob demanda) chama só um</small></div></div>
+      <small>você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, gpt-oss${on("ollama")}, Hermes e Qwen (Mac), Astra (design), Claude${on("claude")} (coordena e decide) · @chatgpt, @deepseek, @gptoss ou @astra (design, sob demanda) chama só um</small></div></div>
       <div class="wa-msgs" id="wa-msgs">${waDesenhar(S.reu.msgs)}</div>
       <div class="wa-in"><textarea id="wa-txt" rows="1" placeholder="Mensagem para os agentes (Enter envia, Shift+Enter quebra linha)"></textarea><button id="wa-env" title="Enviar">➤</button></div></div>
     <p class="muted" id="wa-nota" style="font-size:12px;margin:6px 0 0">Todo dia às 11h eles se reúnem sozinhos para discutir a auditoria. O que eles propõem vai para 📋 Desenvolvimento, você aprova e o Claude (código) implementa.</p>`;
@@ -2329,6 +2329,7 @@ const DEV_COLS = [["proposta", "Propostas", "o Claude aprova as de risco baixo/m
   ["em_desenvolvimento", "Em execução", "um agente está trabalhando"], ["feita", "Feitas", "publicadas e conferidas"]];
 const AG_INFO = {claude_code: ["💻", "Claude (código)", "#b3541e"], claude: ["✴️", "Claude", "#d97757"], chatgpt: ["🧠", "ChatGPT", "#10a37f"],
   deepseek: ["🐋", "DeepSeek", "#4d6bfe"], gptoss: ["🦙", "gpt-oss", "#6b4fb3"], hermes: ["🪽", "Hermes", "#a2741a"], astra: ["🎨", "Astra", "#e0457b"],
+  qwen: ["🔎", "Qwen", "#615ced"],
   voce: ["👤", "Você", "#00a884"], sistema: ["⚙️", "Sistema", "#667781"]};
 const agInfo = k => AG_INFO[k] || AG_INFO[Object.keys(AG_INFO).find(x => AG_INFO[x][1] === k)] || ["🤖", k || "Agente", "#667781"];
 const quem = x => !x ? "?" : /^voc[eê]$/i.test(x) ? "Você" : x;

@@ -18,6 +18,7 @@ Depois, os comandos ficam em ~/.nubi-coletor/coletor (ex.: ~/.nubi-coletor/colet
   python coletor.py status          última coleta e o que já está no nubi
   python coletor.py atualizar       baixa a versão mais nova do coletor
   python coletor.py hermes          o Hermes (Ollama, no Mac) lê a Sala de reunião e dá a opinião dele
+  python coletor.py qwen            o Qwen (Ollama, no Mac) confere a Sala e posta a revisão dele
   (qualquer coleta aceita --ver para mostrar a janela do navegador e acompanhar)
 
 Os caminhos, botões e endereços do Nubimetrics seguem o mapeamento feito com o Claude do
@@ -1345,16 +1346,26 @@ PAPEL_HERMES = ("Você é o Hermes, agente de IA do nubi que roda de graça no M
                 "Não invente números.")
 
 
+PAPEL_QWEN = ("Você é o Qwen, revisor do nubi que roda de graça no Mac mini (Ollama). Seu papel: conferir o trabalho do Hermes "
+              "e do time (memória, caixa de conhecimento, pacotes), apontando contradições, dados velhos, duplicados e riscos. "
+              "Está no grupo com o dono, Hermes, ChatGPT (Codex), DeepSeek, gpt-oss e Claude (que coordena e decide). Responda "
+              "à última mensagem ou pauta: somente em português do Brasil, no máximo 6 linhas, sem elogios genéricos e sem "
+              "perguntar no final. Traga o que você conferiu, um risco e no máximo 2 sugestões concretas. Não invente números.")
+LOCAIS = {"hermes": ("Hermes", "hermes3:8b", PAPEL_HERMES), "qwen": ("Qwen (revisor)", "qwen3:8b", PAPEL_QWEN)}
+
+
 def cmd_hermes(args, cfg):
-    """Hermes (Ollama, no Mac) lê a Sala de reunião do nubi e posta a opinião dele."""
+    """Um agente local (Ollama, no Mac) lê a Sala de reunião do nubi e posta a opinião dele (Hermes ou Qwen)."""
+    autor, padrao, papel = LOCAIS[getattr(args, "agente", "hermes")]
+    args.modelo = args.modelo or padrao
     token = token_nubi(cfg)
     sala = api(token, "reuniao", {"sistema": "1"})
     msgs = sala.get("mensagens") or []
     hist = "\n".join(f"[{m['autor']}] {m['texto'][:2500]}" for m in msgs[-args.ultimas:])
-    pedido = PAPEL_HERMES + (f"\nPERGUNTA DO DONO PARA VOCÊ: {args.pergunta}" if args.pergunta else "") + f"\n\nCONVERSA:\n{hist}"
+    pedido = papel + (f"\nPERGUNTA DO DONO PARA VOCÊ: {args.pergunta}" if args.pergunta else "") + f"\n\nCONVERSA:\n{hist}"
     corpo = {"model": args.modelo, "stream": False,
              "messages": [{"role": "system", "content": sala.get("sistema") or ""}, {"role": "user", "content": pedido}]}
-    print(f"Hermes ({args.modelo}) lendo as últimas {min(len(msgs), args.ultimas)} mensagens da Sala…", flush=True)
+    print(f"{autor} ({args.modelo}) lendo as últimas {min(len(msgs), args.ultimas)} mensagens da Sala…", flush=True)
     inicio = datetime.now(timezone.utc).isoformat()
 
     def chamar(c):
@@ -1366,10 +1377,10 @@ def cmd_hermes(args, cfg):
     apelido = ""
     try:
         texto, t_in, t_out = chamar(corpo)
-        if not (sala.get("apelidos") or {}).get("Hermes"):
-            # primeira vez: o Hermes escolhe o próprio apelido no time
+        if not (sala.get("apelidos") or {}).get(autor):
+            # primeira vez: o agente escolhe o próprio apelido no time
             ap, _, _ = chamar({"model": args.modelo, "stream": False, "messages": [{"role": "user", "content":
-                              "Você é o Hermes, agente de IA do nubi que roda no Mac mini (vigia, logs, testes, memória). "
+                              f"Você é o {autor}, agente de IA do nubi que roda no Mac mini. "
                               "Escolha um apelido curto para você no time (1 ou 2 palavras, em português). "
                               "Responda SOMENTE o apelido."}]})
             apelido = re.sub(r"[\"'*_`.]", "", (ap.splitlines() or [""])[0]).strip()[:30]
@@ -1378,12 +1389,12 @@ def cmd_hermes(args, cfg):
               f"ollama list  (o modelo {args.modelo} precisa aparecer).")
         return 1
     if not texto:
-        print("O Hermes devolveu resposta vazia; nada foi postado.")
+        print(f"O {autor} devolveu resposta vazia; nada foi postado.")
         return 1
     print("\n" + texto + "\n", flush=True)
-    api(token, "reuniao_postar", corpo={"autor": "Hermes", "texto": texto, "modelo": args.modelo, "inicio": inicio,
+    api(token, "reuniao_postar", corpo={"autor": autor, "texto": texto, "modelo": args.modelo, "inicio": inicio,
                                          "tokens_in": t_in, "tokens_out": t_out, "apelido": apelido}, metodo="POST")
-    print("OK: resposta do Hermes postada na Sala de reunião." + (f" Apelido escolhido: {apelido}" if apelido else ""))
+    print(f"OK: resposta do {autor} postada na Sala de reunião." + (f" Apelido escolhido: {apelido}" if apelido else ""))
     return 0
 
 
@@ -1412,7 +1423,13 @@ def main():
     ds.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     hm = sub.add_parser("hermes", help="o Hermes (Ollama, no Mac) lê a Sala de reunião e posta a opinião dele")
     hm.add_argument("pergunta", nargs="?", default="", help="pergunta para o Hermes (opcional)")
-    hm.add_argument("--modelo", default="hermes3:8b")
+    hm.add_argument("--modelo", default=None)
+    hm.set_defaults(agente="hermes")
+    qw = sub.add_parser("qwen", help="o Qwen (Ollama, no Mac) confere a Sala de reunião e posta a revisão dele")
+    qw.add_argument("pergunta", nargs="?", default="")
+    qw.add_argument("--modelo", default=None)
+    qw.add_argument("--ultimas", type=int, default=20)
+    qw.set_defaults(agente="qwen")
     hm.add_argument("--ultimas", type=int, default=20, help="quantas mensagens da Sala ele lê")
     mk = sub.add_parser("marcas")
     mk.add_argument("--mes")
@@ -1447,9 +1464,9 @@ def main():
         return 0
     if args.cmd == "vigiar":
         return cmd_vigiar()
-    if args.cmd in ("diario", "vendedores", "marcas", "dias", "hermes") and not os.environ.get("NUBI_ATUALIZADO"):
+    if args.cmd in ("diario", "vendedores", "marcas", "dias", "hermes", "qwen") and not os.environ.get("NUBI_ATUALIZADO"):
         auto_atualizar()
-    if args.cmd == "hermes":
+    if args.cmd in ("hermes", "qwen"):
         return cmd_hermes(args, cfg)
     if args.cmd in ("diario", "vendedores", "marcas", "dias"):
         instalar_vigia()

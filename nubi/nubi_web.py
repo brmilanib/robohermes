@@ -495,7 +495,7 @@ def _preparar(repo):
 # ---------------------------------------------------------------------------
 
 AGENTE_EMAIL = os.environ.get("NUBI_AGENTE_EMAIL", "")
-AGENTES_LOCAIS = ("Hermes", "Qwen Coder", "DeepSeek R1 (Mac)")   # modelos grátis que rodam no Mac mini (Ollama)
+AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)")   # modelos grátis que rodam no Mac mini (Ollama)
 AGENTE_SENHA = os.environ.get("NUBI_AGENTE_SENHA", "")
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 TEMPO_MAX = 240          # segundos por rodada (a função da Vercel tem 300)
@@ -727,7 +727,7 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem(f"Autor não permitido: {autor or '?'}.")
             if not texto:
                 raise ErroNuvem("Mensagem vazia.")
-            aid = {"Hermes": "hermes"}.get(autor)
+            aid = {"Hermes": "hermes", "Qwen (revisor)": "qwen"}.get(autor)
             if aid:
                 agora_ = datetime.now(timezone.utc).isoformat()
                 try:
@@ -2058,7 +2058,7 @@ def rotina_8h(repo):
 
 AGENTE_QUAL = {"chatgpt": "codex", "deepseek": "deepseek", "gptoss": "ollama", "claude": "claude", "astra": "chatgpt"}   # testáveis daqui
 AGENTE_MODELO = {"deepseek": "pro", "astra": "gpt-6-astra"}
-AGENTE_AUTOR = {"chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss", "claude": "Claude", "astra": "Astra (design)",
+AGENTE_AUTOR = {"chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss", "claude": "Claude", "astra": "Astra (design)", "qwen": "Qwen (revisor)",
                 "hermes": "Hermes", "claude_code": "Claude (código)"}
 
 
