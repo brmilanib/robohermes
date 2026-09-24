@@ -125,15 +125,22 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, siste
         return _deepseek(pergunta, max_tokens, None if modelo == "pro" else modelo, sistema,
                          DEEPSEEK_PRO if modelo == "pro" else None).strip(), [], ia
     if ia == "claude":
-        corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO_CLAUDE", "claude-opus-5-5"), "max_tokens": max_tokens,
-                 "messages": [{"role": "user", "content": pergunta}]}
+        # o Claude sempre raciocina antes e isso conta no max_tokens: folga de 16 mil para sobrar a resposta
+        corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO_CLAUDE", "claude-opus-5-5"),
+                 "max_tokens": max(max_tokens, 16000), "messages": [{"role": "user", "content": pergunta}]}
         if sistema:
             corpo["system"] = sistema
         if web:
             corpo["tools"] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]
-        r = _post_json("https://api.anthropic.com/v1/messages", corpo,
-                       {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"})
+        cab = {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"}
+        r = _post_json("https://api.anthropic.com/v1/messages", corpo, cab, timeout=200)
         texto = " ".join(b.get("text", "") for b in r.get("content", []) if b.get("type") == "text")
+        if not texto.strip() and r.get("stop_reason") == "max_tokens":
+            # pensou demais e não sobrou resposta: repete pensando menos
+            r = _post_json("https://api.anthropic.com/v1/messages", dict(corpo, output_config={"effort": "low"}), cab, timeout=200)
+            texto = " ".join(b.get("text", "") for b in r.get("content", []) if b.get("type") == "text")
+        if not texto.strip():
+            raise SemIA(f"Claude sem resposta (fim: {r.get('stop_reason')})")
         links = [c.get("url") for b in r.get("content", []) for c in (b.get("citations") or []) if c.get("url")]
     else:
         corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "input": pergunta, "max_output_tokens": max_tokens}
