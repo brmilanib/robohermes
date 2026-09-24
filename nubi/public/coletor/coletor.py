@@ -515,10 +515,13 @@ def aplicar_periodo(pg, ini, fim):
     campos = esperar_campos(4)
     if len(campos) < 2:
         op = pg.get_by_text(re.compile(r"faixa personalizada|per[ií]odo personalizado|personalizad[oa]|customizad[oa]|custom", re.I))
-        if op.count():
-            op.last.click()
-            devagar(1.5)
-        campos = esperar_campos(12)
+        try:
+            if op.count():
+                op.last.click(timeout=3000)
+                devagar(1.5)
+        except Exception:  # noqa: BLE001 — é só um rótulo, não um botão
+            pass
+        campos = esperar_campos(8)
     if len(campos) < 2:
         tela = resumo_tela(pg)
         enviar_foto(pg, f"calendário sem campos ({ini} a {fim})", tela)
@@ -579,7 +582,7 @@ def _vazio_json(r):
     return None
 
 
-def baixar_vendedor(pg, h, ini, fim, rng, destino):
+def baixar_vendedor(pg, h, ini, fim, rng, destino, nome=None):
     """
     Abre a análise do vendedor no período, confere o período (pela API ou pelo botão da tela) e exporta.
     Escuta as respostas da página desde o início: às vezes a lista carrega antes do clique na aba.
@@ -630,7 +633,34 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
         # a página já mostrou outro período (ignorou a URL): vai direto para o calendário
         outro = lambda: bool(vistos) and not any(certo(r) for r in vistos) and time.time() - chegou[id(vistos[-1])] > 3 \
             and periodo_na_tela(pg) not in (None, alvo)
-        if not esperar(lambda: pronto() or outro(), 45) or not pronto():
+        estado = {"assin": None, "desde": 0.0}
+
+        def vendedor_certo():
+            if not nome:
+                return True
+            return bool(pg.evaluate("n => [...document.querySelectorAll('input')].some(i => (i.value || '').trim().toUpperCase()"
+                                    " === n)", nome.strip().upper()))
+
+        def estavel():
+            """Período e vendedor certos na tela e a tabela parada há 4 s (vendedor grande: a lista demora e às vezes a
+            resposta da API não é reconhecida). Tabela vazia com aviso de 'sem dados' também vale (não vendeu)."""
+            if periodo_na_tela(pg) != alvo or not vendedor_certo():
+                estado["assin"] = None
+                return False
+            if linhas() == 0:
+                return vazio_tela()
+            assin = pg.evaluate("() => { const r = document.querySelectorAll('table tbody tr');"
+                                " return r.length + '|' + (r[0] ? r[0].innerText.slice(0, 80) : ''); }")
+            if assin != estado["assin"]:
+                estado["assin"], estado["desde"] = assin, time.time()
+                return False
+            return time.time() - estado["desde"] >= 4
+        esperar(lambda: pronto() or outro(), 45)
+        if not pronto() and not outro() and periodo_na_tela(pg) == alvo:
+            # período certo na tela: só está demorando; espera mais em vez de mexer no calendário
+            if not esperar(lambda: pronto() or estavel(), 150):
+                raise Falha(f"a lista de anúncios de {ini} a {fim} não terminou de carregar " + diagnostico(pg))
+        elif not pronto():
             # a tela ignorou o período da URL (ou a lista não veio): escolhe no calendário
             n0 = len(vistos)
             aplicar_periodo(pg, ini, fim)
@@ -639,7 +669,7 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
                 raise Falha(f"a lista de anúncios não carregou para {ini} a {fim} (a página pediu: {', '.join(faixas)[:120]}; "
                             f"período na tela: {periodo_na_tela(pg)}) " + diagnostico(pg))
         resp = [r for r in vistos if certo(r)]
-        if (resp and _vazio_json(resp[-1])) or (linhas() == 0 and vazio_tela()):
+        if (resp and _vazio_json(resp[-1])) or (linhas() == 0 and vazio_tela() and periodo_na_tela(pg) == alvo):
             raise SemDados()
         if linhas() == 0:
             if not esperar(lambda: linhas() > 0, 30):
@@ -741,7 +771,7 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
             destino.mkdir(parents=True, exist_ok=True)
             for tentativa in (1, 2):
                 try:
-                    arq = baixar_vendedor(pagina(), h, per["ini"], per["fim"], per["rng"], destino)
+                    arq = baixar_vendedor(pagina(), h, per["ini"], per["fim"], per["rng"], destino, nome)
                     arquivos += 1
                     log(f"  {nome} {rotulo}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
                     manifesto_arq = destino / "manifest.json"
