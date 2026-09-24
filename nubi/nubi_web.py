@@ -1568,6 +1568,86 @@ def gerar_resumo_semana(repo, forcar=False):
                       "criado_em": datetime.now(timezone.utc).isoformat()}, "novo": True}
 
 
+SCHEMA_CATEGORIA = {"type": "object", "additionalProperties": False, "required": ["categoria", "confianca", "motivo"],
+                    "properties": {"categoria": {"type": "string", "enum": list(pesquisa_marca.CATS_IA)},
+                                   "confianca": {"type": "string", "enum": ["alta", "média", "baixa"]},
+                                   "motivo": {"type": "string"}}}
+
+
+def categorias_lote(repo):
+    """
+    Tarefa de rotina: 1) confere o lote aberto na OpenAI e, pronto, guarda as sugestões em marca_sugestoes;
+    2) sem lote aberto, manda num lote novo as marcas do ranking em Outros ou sem categoria que ainda não têm sugestão.
+    """
+    abertos = [l for l in repo._todos("ia_lotes", {"select": "*", "tipo": "eq.categorias"})
+               if l["status"] not in ("completed", "failed", "expired", "cancelled", "aplicado")]
+    msgs = []
+    for l in abertos:
+        st = ia.lote_status(l["id"])
+        estado = st.get("status") or "?"
+        if estado == "completed" and st.get("output_file_id"):
+            res = ia.lote_resultados(st["output_file_id"])
+            manuais = {r["marca_chave"] for r in repo._todos("marca_categorias", {"select": "marca_chave"})}
+            nomes = json.loads(l.get("detalhe") or "{}")
+            regs = []
+            for k, txt in res.items():
+                try:
+                    j = json.loads(txt)
+                except ValueError:
+                    continue
+                if k in manuais or j.get("categoria") not in pesquisa_marca.CATS_IA:
+                    continue
+                regs.append({"marca_chave": k, "marca": nomes.get(k, k), "categoria": j["categoria"],
+                             "confianca": j.get("confianca") or "baixa", "motivo": (j.get("motivo") or "")[:400],
+                             "fonte": "IA em lote (ChatGPT)", "estado": "nova"})
+            for i in range(0, len(regs), 300):
+                repo._req("POST", "marca_sugestoes", corpo=regs[i:i + 300], prefer="resolution=merge-duplicates,return=minimal")
+            estado = "aplicado"
+            msgs.append(f"lote pronto: {len(regs)} sugestão(ões) em Ranking > Categorias")
+        else:
+            msgs.append(f"lote {estado} ({(st.get('request_counts') or {}).get('completed', 0)} de {l.get('itens')})")
+        repo._req("PATCH", "ia_lotes", {"id": repo._eq(l["id"])},
+                  corpo={"status": estado, "atualizado_em": datetime.now(timezone.utc).isoformat()}, prefer="return=minimal")
+    if any(not m.startswith("lote pronto") for m in msgs):
+        return "; ".join(msgs)
+    # marcas do último mês de cada categoria do ranking em Outros/sem categoria, sem sugestão e sem escolha manual
+    manuais = {r["marca_chave"]: r["categoria"] for r in repo._todos("marca_categorias", {"select": "marca_chave,categoria"})}
+    ja = {r["marca_chave"] for r in repo._todos("marca_sugestoes", {"select": "marca_chave"})}
+    cands = {}
+    por_cat = {}
+    for r in _relatorios(repo):
+        por_cat.setdefault(r["categoria"], []).append(r)
+    for cat, rels in por_cat.items():
+        for l in repo._todos("ranking_linhas", {"select": "marca,vendas,unidades", "relatorio_id": repo._eq(rels[-1]["id"])}):
+            c, fonte = categorias.classificar(l["marca"], manuais)
+            k = nubi.compacta(l["marca"] or "")
+            if not k or fonte == "manual" or c not in ("Outros", categorias.SEM) or k in ja:
+                continue
+            x = cands.setdefault(k, {"marca": l["marca"], "vendas": 0.0, "unidades": 0})
+            x["vendas"] += float(l.get("vendas") or 0)
+            x["unidades"] += int(l.get("unidades") or 0)
+    if not cands:
+        return "; ".join(msgs) or "nenhuma marca para classificar"
+    lista = "\n".join(f"- {c}: {d}" for c, d in pesquisa_marca.CATS_IA.items())
+    pedidos = []
+    for k, x in sorted(cands.items(), key=lambda kv: -kv[1]["vendas"])[:500]:
+        preco = x["vendas"] / x["unidades"] if x["unidades"] else None
+        pedidos.append((k, {"model": os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "max_output_tokens": 300,
+                            "input": (f'Marca de perfumes vendida no Mercado Livre Brasil: "{x["marca"]}"'
+                                      + (f" (preço médio R$ {preco:,.0f})".replace(",", ".") if preco else "")
+                                      + f". Classifique em UMA categoria:\n{lista}\nRegras: grife de moda importada = "
+                                      "Designer; importada que só faz perfume e é barata = Importados low ticket; brasileira = "
+                                      "Nacional (mesmo com nome estrangeiro); do Oriente Médio = Árabe; casa de luxo clássica = "
+                                      "Alta perfumaria. Se não conhece a marca, confiança baixa. Motivo: 1 frase em português."),
+                            "text": {"format": {"type": "json_schema", "name": "categoria", "schema": SCHEMA_CATEGORIA,
+                                                "strict": True}}}))
+    lote = ia.lote_criar(pedidos, "categorias")
+    repo._req("POST", "ia_lotes", corpo=[{"id": lote, "tipo": "categorias", "status": "validating", "itens": len(pedidos),
+                                          "detalhe": json.dumps({k: cands[k]["marca"] for k, _ in pedidos}, ensure_ascii=False)}],
+              prefer="return=minimal")
+    return "; ".join(msgs + [f"lote novo com {len(pedidos)} marca(s); a resposta chega em até 24 h"])
+
+
 def resumos_marcas_pendentes(repo):
     """Análise mensal das marcas de cada categoria cujo mês fechado ainda não tem análise."""
     out = {}
@@ -1592,7 +1672,7 @@ def resumos_marcas_pendentes(repo):
 # A coleta roda no Mac mini (launchd) e só consulta se está ligada no dia.
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
-NO_SERVIDOR = ("produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
+NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
 
@@ -1638,7 +1718,9 @@ def rodar_rotinas(repo, so=None):
         if not r or (so and rid != so) or (not so and not rotina_pendente(r, agora)):
             continue
         try:
-            if rid == "produtos_ia":
+            if rid == "categorias_lote":
+                res = categorias_lote(repo)
+            elif rid == "produtos_ia":
                 res = agrupar_produtos(repo)
             elif rid == "resumo_dia":
                 x = gerar_resumo_dia(repo, forcar=bool(so))
@@ -1848,7 +1930,19 @@ def rota_ranking(repo, metodo, rota, q, corpo):
         manuais = {r["marca_chave"]: r["categoria"] for r in repo._todos("marca_categorias", {"select": "marca_chave,categoria"})}
         r = categorias.relatorio([x["mes"] for x in rels], [por_rel[x["id"]] for x in rels], manuais)
         r.update({"categoria": cat, "categoria_nome": ranking.nome_categoria(cat), "opcoes": categorias.CATEGORIAS})
+        try:
+            sug = {x["marca_chave"]: x for x in repo._todos("marca_sugestoes", {"select": "*", "estado": "eq.nova"})}
+        except ErroNuvem:
+            sug = {}
+        r["sugestoes"] = [dict(sug[nubi.compacta(m["marca"])], atual=m["categoria"], ultimo=m.get("ultimo"))
+                          for m in r["marcas"] if nubi.compacta(m["marca"]) in sug and m.get("fonte") != "manual"
+                          and sug[nubi.compacta(m["marca"])]["categoria"] != m["categoria"]]
         return r
+
+    if rota == "ranking_sugestao_ignorar" and metodo == "POST":
+        k = json.loads(corpo or b"{}").get("marca_chave") or ""
+        repo._req("PATCH", "marca_sugestoes", {"marca_chave": repo._eq(k)}, corpo={"estado": "ignorada"}, prefer="return=minimal")
+        return {"ok": True}
 
     if rota == "ranking_categoria_pesquisar" and metodo == "POST":
         # sugere a categoria: país do código de barras dos produtos da marca + internet + preço médio
@@ -1876,6 +1970,10 @@ def rota_ranking(repo, metodo, rota, q, corpo):
         else:                                      # volta para a classificação automática
             repo._req("DELETE", "marca_categorias", {"marca_chave": repo._eq(k)})
         cat, fonte = categorias.classificar(marca, {k: c} if c in categorias.CATEGORIAS else None)
+        try:
+            repo._req("PATCH", "marca_sugestoes", {"marca_chave": repo._eq(k)}, corpo={"estado": "aplicada"}, prefer="return=minimal")
+        except ErroNuvem:
+            pass
         return {"ok": True, "categoria": cat, "fonte": fonte}
 
     if rota == "ranking_resumo_ia":

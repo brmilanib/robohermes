@@ -1122,6 +1122,17 @@ async function telaCategorias(cat) {
         ${alvo.length} marca(s) em Outros ou Sem categoria. O nubi olha o país do código de barras dos produtos, pesquisa a marca na internet
         (busca e Wikipédia) e o preço médio, e sugere a categoria. Você confere e aplica.</div></div>
         <button class="btn primary" id="cat-pesq">Pesquisar ${alvo.length} marca(s)</button></div>` : ""; })()}
+    ${(r.sugestoes || []).length ? `<div class="card pad" style="margin-top:16px" id="cat-sug"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0">🤖 Sugestões da IA em lote (${r.sugestoes.length})</h2><div style="flex:1"></div>
+        ${r.sugestoes.some(x => x.confianca === "alta") ? `<button class="btn primary small" id="sug-altas">Aplicar as ${r.sugestoes.filter(x => x.confianca === "alta").length} de confiança alta</button>` : ""}</div>
+      <div class="sub" style="margin-top:4px">A IA classificou de madrugada, em lote, as marcas em Outros ou sem categoria. Confira e aplique; o que você ignorar ela não sugere de novo.</div>
+      <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Marca</th><th>Hoje</th><th>Sugestão</th><th>Confiança</th><th>Por quê</th><th></th></tr></thead><tbody>
+      ${r.sugestoes.map((x, i) => `<tr><td class="first">${rkLink(x.marca)}</td><td>${ICO_CAT[x.atual] || ""} ${esc(x.atual)}</td>
+        <td><b style="color:${COR_CAT[x.categoria]}">${ICO_CAT[x.categoria] || ""} ${esc(x.categoria)}</b></td>
+        <td><span class="st ${{alta: "good", "média": "warn"}[x.confianca] || ""}">${esc(x.confianca)}</span></td>
+        <td class="wrap" style="min-width:260px"><small>${esc(x.motivo || "")}</small></td>
+        <td class="acoes"><button class="btn small primary" data-sug="${i}">Aplicar</button> <button class="btn small" data-ign="${i}">Ignorar</button></td></tr>`).join("")}
+      </tbody></table></div></div>` : ""}
     <h2 style="margin:22px 0 0">Todas as marcas e a categoria de cada uma</h2>
     <p class="muted" style="margin:4px 0 0;font-size:12.5px">A categoria vem de uma lista de marcas conhecidas (<i>automática</i>). Troque na coluna Categoria quando quiser: a sua escolha vale para todos os meses.</p>
     <div id="cat-tab" class="painel"></div></div>`;
@@ -1130,6 +1141,19 @@ async function telaCategorias(cat) {
     ["spark","Vendas mês a mês","sparku"],["ultimo",`Vendas ${mesCurto(M[ult])}`,"moeda"],["var_mes","Var. mês","var"],["share_cat","% da categoria","pct"],["pos",`# ${mesCurto(M[ult])}`,"int"],
     ["pesq","Pesquisar","pesq"]],
     {ordem: ["ultimo", -1]});
+  const aplicarSug = async xs => {
+    const c = carregando(`Aplicando ${xs.length} categoria(s)`);
+    try {
+      for (const x of xs) await api("ranking_categoria_salvar", {}, {method: "POST", body: JSON.stringify({marca: x.marca, categoria: x.categoria})});
+      c.ok(xs.length === 1 ? `${xs[0].marca}: ${xs[0].categoria}` : `${xs.length} marcas atualizadas`); telaCategorias(cat);
+    } catch (e) { c.erro(e.message); }
+  };
+  document.querySelectorAll("[data-sug]").forEach(b => b.onclick = () => aplicarSug([r.sugestoes[b.dataset.sug]]));
+  if ($("#sug-altas")) $("#sug-altas").onclick = () => aplicarSug(r.sugestoes.filter(x => x.confianca === "alta"));
+  document.querySelectorAll("[data-ign]").forEach(b => b.onclick = async () => {
+    try { await api("ranking_sugestao_ignorar", {}, {method: "POST", body: JSON.stringify({marca_chave: r.sugestoes[b.dataset.ign].marca_chave})}); telaCategorias(cat); }
+    catch (e) { toast(e.message, 6000); }
+  });
   if ($("#cat-pesq")) $("#cat-pesq").onclick = () => pesquisarCategorias(r.marcas.filter(m => (m.categoria === "Outros" || m.categoria === "Sem categoria") && m.fonte !== "manual"));
   biRedesenhar = [
     () => grafColunas($("#g-cat-v"), {rotulos: rot, fmt: abrev, fmtEixo: abrevEixo, altura: 260,
@@ -1596,14 +1620,14 @@ async function telaRotinas() {
   main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando tarefas</div></div>`;
   let r;
   try { r = await api("rotinas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  const sistema = id => ["coleta", "agente", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
+  const sistema = id => ["coleta", "agente", "produtos_ia", "categorias_lote", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
   const quandoTxt = t => t.dia_mes ? `todo dia ${t.dia_mes} do mês (e depois, se faltar)` : (t.dias_semana || []).length === 7 ? "todo dia"
     : (t.dias_semana || []).length ? (t.dias_semana || []).map(d => DIAS_NOME[d]).join(", ") : "nenhum dia";
   const card = t => `<div class="card pad rot-card" data-id="${esc(t.id)}">
     <div class="cab"><h2>${t.ativo ? "🟢" : "⚪️"} ${esc(t.nome)}</h2><span class="st">${esc(t.responsavel)}</span>
       <span class="muted" style="font-size:12.5px">${t.id === "coleta" ? "07:00 (no Mac)" : esc(t.horario)} · ${esc(quandoTxt(t))}</span>
       ${t.pendente ? `<span class="st warn">na fila desta hora</span>` : ""}<div style="flex:1"></div>
-      ${["agente", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(t.id) ? `<button class="btn small" data-rodar="${esc(t.id)}">▶ Rodar agora</button>` : ""}
+      ${["agente", "produtos_ia", "categorias_lote", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(t.id) ? `<button class="btn small" data-rodar="${esc(t.id)}">▶ Rodar agora</button>` : ""}
       ${sistema(t.id) ? "" : `<button class="btn small" data-apagar="${esc(t.id)}" title="Apagar tarefa">🗑</button>`}</div>
     <div class="rot-form">
       <label class="l2">Tarefa<input data-f="nome" value="${esc(t.nome)}"></label>

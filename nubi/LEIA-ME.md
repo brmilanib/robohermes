@@ -462,6 +462,12 @@ Com `OPENAI_API_KEY` (ou `ANTHROPIC_API_KEY`) nas variáveis da Vercel, o nubi u
 - **Vendas diárias** (Concorrentes → Vendas diárias): venda isolada de cada dia por vendedor (gráfico empilhado, mapa
   do dia a dia, média por dia da semana, produtos do período com a venda de cada dia) e o detalhe do dia escolhido
   com os itens vendidos de cada vendedor.
+- **Formato fixo (IA)**: resumos do dia, da semana e das marcas vêm em JSON (structured outputs) e o nubi monta
+  os cards; cada tópico ganha link para o vendedor, o produto ou a marca citados.
+- **Produtos iguais (IA)**: todo dia às 5h30, embeddings + regras (marca, tamanho, concentração, gênero, nome) juntam
+  títulos sem GTIN do mesmo perfume (`produto_grupos`); conferir e separar em Ajustes > Produtos iguais.
+- **Marcas em lote (IA)**: às 4h, as marcas do ranking em Outros/sem categoria vão num lote da OpenAI (Batch, metade
+  do preço); as sugestões aparecem em Ranking > Categorias para aplicar ou ignorar.
 - **Análise da semana**: toda segunda às 8h, com os resumos diários guardados e as vendas de cada dia x semana anterior.
 - **Tarefas de rotina** (Coletor e agentes → Tarefas de rotina, tabela `rotinas`): quem faz, horário, dias, ligada e
   observação (a observação das tarefas do ChatGPT vai no prompt). A Vercel chama `r=rotinas_cron` de hora em hora (24 agendas diárias, uma por hora: o plano Hobby só aceita agenda diária) e roda

@@ -105,3 +105,51 @@ def embeddings(textos, modelo=None):
                        {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}, timeout=120)
         saida.extend(d["embedding"] for d in sorted(r["data"], key=lambda d: d["index"]))
     return saida
+
+
+# ---------------------------------------------------------------------------
+# Batch da OpenAI: muitos pedidos de uma vez pela metade do preço; o resultado sai em até 24 h.
+# ---------------------------------------------------------------------------
+def _openai(metodo, caminho, corpo=None, cab=None, timeout=120, bruto=False):
+    req = urllib.request.Request("https://api.openai.com/v1/" + caminho, data=corpo, method=metodo,
+                                 headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}", **(cab or {})})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        dados = r.read()
+    return dados if bruto else json.loads(dados.decode())
+
+
+def lote_criar(pedidos, nome="nubi"):
+    """
+    pedidos: [(custom_id, corpo do /v1/responses)]. Sobe o arquivo JSONL e cria o lote. Devolve o id do lote.
+    """
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SemIA("o lote precisa da OPENAI_API_KEY")
+    jsonl = "\n".join(json.dumps({"custom_id": cid, "method": "POST", "url": "/v1/responses", "body": corpo},
+                                 ensure_ascii=False) for cid, corpo in pedidos).encode()
+    fronteira = "nubi" + os.urandom(8).hex()
+    partes = (f"--{fronteira}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n"
+              f"--{fronteira}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{nome}.jsonl\"\r\n"
+              "Content-Type: application/jsonl\r\n\r\n").encode() + jsonl + f"\r\n--{fronteira}--\r\n".encode()
+    arq = _openai("POST", "files", partes, {"Content-Type": f"multipart/form-data; boundary={fronteira}"})
+    lote = _openai("POST", "batches", json.dumps({"input_file_id": arq["id"], "endpoint": "/v1/responses",
+                                                  "completion_window": "24h", "metadata": {"nubi": nome}}).encode(),
+                   {"Content-Type": "application/json"})
+    return lote["id"]
+
+
+def lote_status(lote_id):
+    """{status, output_file_id, request_counts, ...} do lote (status: validating, in_progress, completed, failed…)."""
+    return _openai("GET", f"batches/{lote_id}")
+
+
+def lote_resultados(output_file_id):
+    """{custom_id: texto da resposta} de um lote concluído."""
+    saida = {}
+    for linha in _openai("GET", f"files/{output_file_id}/content", bruto=True).decode().splitlines():
+        if not linha.strip():
+            continue
+        j = json.loads(linha)
+        corpo = ((j.get("response") or {}).get("body") or {})
+        saida[j.get("custom_id")] = " ".join(c.get("text", "") for o in corpo.get("output", []) if o.get("type") == "message"
+                                            for c in o.get("content", []))
+    return saida

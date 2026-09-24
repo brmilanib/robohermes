@@ -384,3 +384,19 @@ create policy "autorizado" on public.produto_grupos
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
 -- vend_dia_produtos junta pelo grupo (left join produto_grupos, metodo = 'ia'): ver migration produto_grupos
 alter table public.ia_resumos add column if not exists dados jsonb;
+
+-- Classificação de marcas em lote (Batch da OpenAI): lotes enviados e sugestões para aplicar em Ranking > Categorias
+create table if not exists public.ia_lotes (
+  id text primary key, tipo text not null, status text not null, itens int, detalhe text,
+  criado_em timestamptz not null default now(), atualizado_em timestamptz not null default now()
+);
+alter table public.ia_lotes enable row level security;
+create policy "autorizado" on public.ia_lotes
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create table if not exists public.marca_sugestoes (
+  marca_chave text primary key, marca text not null, categoria text, confianca text, motivo text,
+  fonte text, estado text not null default 'nova', criado_em timestamptz not null default now()
+);
+alter table public.marca_sugestoes enable row level security;
+create policy "autorizado" on public.marca_sugestoes
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
