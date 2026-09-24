@@ -244,6 +244,10 @@ select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;f
 .navi .ic{font-size:16px}
 .navi.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);font-weight:600}
 .master{color:var(--good);font-weight:700}
+.resumo-ia{margin-top:12px;border-left:4px solid var(--accent)}
+.resumo-ia .md h3{font-size:14px;margin:12px 0 4px}
+.resumo-ia .md ul{margin:0;padding-left:20px} .resumo-ia .md li{margin:2px 0;font-size:13.5px} .resumo-ia .md p{margin:6px 0;font-size:13.5px}
+.iares{margin-top:6px;font-size:12px;white-space:normal}
 select.catsel{border:1px solid var(--line);border-radius:6px;padding:3px 6px;background:var(--card);font-size:12.5px}
 .nlogo{display:flex;flex-direction:column;align-items:center;gap:14px}
 .norb{position:relative;width:96px;height:96px;display:grid;place-items:center}
@@ -940,6 +944,38 @@ const ST_CLS = {"Subindo forte": "good", "Crescimento consistente": "good", "Nov
 const statusHTML = s => s ? `<span class="st ${ST_CLS[s] || ""}">${esc(s)}</span>` : "";
 
 
+// ---------- Resumo do mês escrito pela IA (fica guardado; dá para pedir de novo) ----------
+function mdSimples(t) {
+  const linhas = esc(t || "").split(/\n/);
+  let html = "", lista = false;
+  for (let l of linhas) {
+    l = l.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    if (/^\s*#{1,4}\s/.test(l)) { if (lista) { html += "</ul>"; lista = false; } html += `<h3>${l.replace(/^\s*#+\s*/, "")}</h3>`; }
+    else if (/^\s*[-*•]\s/.test(l)) { if (!lista) { html += "<ul>"; lista = true; } html += `<li>${l.replace(/^\s*[-*•]\s*/, "")}</li>`; }
+    else if (l.trim()) { if (lista) { html += "</ul>"; lista = false; } html += `<p>${l}</p>`; }
+  }
+  return html + (lista ? "</ul>" : "");
+}
+async function resumoIA(cat, gerar, novo) {
+  const box = $("#bi-resumo");
+  if (!box) return;
+  let r;
+  const c = gerar ? carregando("A IA está lendo os números do mês e escrevendo o resumo") : null;
+  try { r = await api("ranking_resumo_ia", {categoria: cat, ...(novo ? {novo: 1} : {})}, gerar ? {method: "POST"} : {}); }
+  catch (e) { if (c) c.erro(e.message); else box.remove(); return; }
+  if (c) c.ok("Resumo pronto");
+  box.innerHTML = r.texto ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🤖 Resumo de ${esc(mesCurto(r.mes))}</h2>
+      <span class="muted" style="font-size:12px">${esc(r.ia || "IA")} · ${esc(quando(r.criado_em))}</span><div style="flex:1"></div>
+      <button class="btn small" id="ria-novo">Escrever de novo</button><button class="btn small" id="ria-min">${S.resumoMin ? "Mostrar" : "Esconder"}</button></div>
+      <div class="md ${S.resumoMin ? "hidden" : ""}">${mdSimples(r.texto)}</div>`
+    : r.disponivel ? `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1"><b>🤖 Resumo de ${esc(mesCurto(r.mes))} com IA</b>
+      <div class="muted" style="font-size:12.5px">A IA lê o ranking, as categorias e os alertas dos concorrentes e escreve o que mudou e o que fazer.</div></div>
+      <button class="btn primary" id="ria-gerar">Gerar resumo</button></div>` : "";
+  if (!box.innerHTML) box.remove();
+  if ($("#ria-gerar")) $("#ria-gerar").onclick = () => resumoIA(cat, true);
+  if ($("#ria-novo")) $("#ria-novo").onclick = () => resumoIA(cat, true, true);
+  if ($("#ria-min")) $("#ria-min").onclick = () => { S.resumoMin = !S.resumoMin; resumoIA(cat); };
+}
 // ---------- Categorias de marca (Alta perfumaria, Designer, Nicho, Árabe, Nacional, Outros) ----------
 const COR_CAT = {"Alta perfumaria": "var(--s5)", "Designer": "var(--s1)", "Nicho": "var(--s7)", "Árabe": "var(--s4)", "Importados low ticket": "var(--s2)", "Nacional": "var(--s3)",
   "Outros": "var(--dv-outro)", "Sem categoria": "color-mix(in srgb, var(--dv-outro) 45%, transparent)"};
@@ -1100,6 +1136,7 @@ async function telaBI(cat) {
       ${f.desde || f.ate ? `<button class="btn small" id="bi-todos">Todos os meses</button>` : ""}
       <span class="aviso">Mercado inteiro da categoria (as ${nf0.format(ult.marcas)} maiores marcas de cada mês). Marca que some num mês saiu do ranking naquele mês, não quer dizer venda zero.</span>
     </div>
+    <div class="card pad resumo-ia" id="bi-resumo"></div>
     <div class="kpis">
       ${kpi("Vendas em " + mesCurto(ult.mes), abrev(ult.vendas), n > 1 ? varTxt(ult.var_vendas, "vs mês anterior") : "")}
       ${kpi("Crescimento no período", n > 1 ? `<span class="${z.cresc_vendas >= 0 ? "pos" : "neg"}">${FMT.var(z.cresc_vendas)}</span>` : "—", n > 1 ? `${esc(mesCurto(pri.mes))} → ${esc(mesCurto(ult.mes))} · ${FMT.var(z.cresc_mensal)} ao mês` : "precisa de 2 meses")}
@@ -1204,6 +1241,7 @@ async function telaBI(cat) {
       {nome: "Diminuindo", cor: "var(--bad)", v: serieM("diminuindo")}], fmt: v => nf0.format(v) + " marcas", fmtEixo: nf0.format, altura: 220}),
   ];
   biRedesenhar.push(() => grafEntSai($("#g-entsai"), M, r.entradas, r.saidas));
+  resumoIA(cat);
   biRedesenhar.forEach(g => g());
   const lista = (itens, linha) => itens.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><tbody>${itens.map(linha).join("")}</tbody></table></div>`
     : `<div class="muted" style="padding:10px 0">Nenhuma no período.</div>`;
@@ -1766,14 +1804,16 @@ async function telaNomesMarcas() {
     <p class="muted" style="margin:4px 0 0">A mesma marca escrita de jeitos diferentes nos arquivos (ex.: YSL e Yves Saint Laurent) vira uma só no Ranking, no B.I. e nos Vendedores.
     Vale para os dados já importados: não precisa importar de novo.</p>
     <div class="grid2" style="margin-top:14px">
-      <div class="card pad"><h2>Sugestões para conferir <span class="muted" style="font-weight:400" id="n-sug">(${r.sugestoes.length})</span></h2>
+      <div class="card pad"><h2 style="display:flex;align-items:center;gap:8px">Sugestões para conferir <span class="muted" style="font-weight:400" id="n-sug">(${r.sugestoes.length})</span>
+          ${r.sugestoes.length ? `<span style="flex:1"></span><button class="btn small" id="ia-todas">🤖 Conferir todas com IA</button>` : ""}</h2>
         <div class="muted" style="font-size:12.5px;margin-bottom:8px">Pares que parecem a mesma marca. "Juntar" manda o primeiro nome para a marca oficial <span class="master">em verde<sup class="reg">R</sup></span> (o nome do ranking, quando existe). "Não é a mesma" esconde a sugestão.
           Embaixo de cada nome: onde ele aparece, sempre no <b>último mês</b> de cada fonte — 🏆 ranking do Nubimetrics (mercado inteiro), 🏪 seus vendedores monitorados, 🔎 Explorador (período do arquivo).</div>
         ${r.sugestoes.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><tbody>${r.sugestoes.map((x, i) => `<tr>
           <td class="first wrap" style="min-width:150px">${esc(x.apelido)}${infoMarca(x.info_apelido)}</td>
           <td>→</td><td class="first wrap" style="min-width:150px">${master(x.marca)}${infoMarca(x.info_marca)}</td>
-          <td><span class="st ${x.motivo === "nome contido" ? "warn" : ""}">${esc(MOT[x.motivo])}</span></td>
-          <td class="acoes"><button class="btn small primary" data-j="${i}">Juntar</button> <button class="btn small" data-n="${i}">Não é a mesma</button></td></tr>`).join("")}</tbody></table></div>`
+          <td style="white-space:normal;min-width:110px"><span class="st ${x.motivo === "nome contido" ? "warn" : ""}">${esc(MOT[x.motivo])}</span><div class="iares" id="ia-${i}"></div></td>
+          <td class="acoes"><button class="btn small primary" data-j="${i}">Juntar</button> <button class="btn small" data-n="${i}">Não é a mesma</button>
+            <button class="btn small" data-ia="${i}" title="A IA pesquisa se são a mesma marca">🤖 Perguntar à IA</button></td></tr>`).join("")}</tbody></table></div>`
           : `<div class="muted">Nenhuma sugestão agora.</div>`}
       </div>
       <div class="card pad"><h2>Nomes juntados <span class="muted" style="font-weight:400" id="n-junt">(${r.apelidos.length})</span></h2>
@@ -1796,6 +1836,32 @@ async function telaNomesMarcas() {
     const x = r.sugestoes[b.dataset.n];
     acao("apelido_ignorar", {apelido: x.apelido}, "Escondendo a sugestão…", `${x.apelido} fica como marca separada`, () => tiraSugestoes(x.apelido));
   });
+  // IA: confere se as duas grafias são a mesma marca
+  const perguntarIA = async i => {
+    const x = r.sugestoes[i], el = $(`#ia-${i}`);
+    if (!el) return;
+    el.innerHTML = `<span class="spin"></span> IA pesquisando…`;
+    try {
+      const j = await api("apelido_ia", {}, {method: "POST", body: JSON.stringify({apelido: x.apelido, marca: x.marca})});
+      x.ia = j;
+      el.innerHTML = `<span class="st ${j.mesma ? "good" : "bad"}">${j.mesma ? "✓ mesma marca" : "✗ marcas diferentes"} · ${esc(j.confianca)}</span><br>${esc(j.motivo)}${j.fonte ? ` <a href="${esc(j.fonte)}" target="_blank" rel="noopener">fonte ↗</a>` : ""}`;
+    } catch (e) { el.innerHTML = `<span class="neg">${esc(e.message)}</span>`; }
+  };
+  main.querySelectorAll("[data-ia]").forEach(b => b.onclick = () => perguntarIA(+b.dataset.ia));
+  if ($("#ia-todas")) $("#ia-todas").onclick = async () => {
+    const bt = $("#ia-todas"); bt.disabled = true;
+    const idx = [...main.querySelectorAll("[data-ia]")].map(b => +b.dataset.ia);
+    for (let k = 0; k < idx.length; k++) { bt.textContent = `🤖 Conferindo ${k + 1} de ${idx.length}…`; await perguntarIA(idx[k]); }
+    const certas = idx.filter(i => r.sugestoes[i].ia && r.sugestoes[i].ia.mesma && r.sugestoes[i].ia.confianca === "alta");
+    bt.disabled = false; bt.textContent = certas.length ? `Juntar as ${certas.length} que a IA confirmou (confiança alta)` : "🤖 Conferir todas com IA";
+    if (certas.length) bt.onclick = async () => {
+      const c = carregando(`Juntando ${certas.length} marca(s)`);
+      try {
+        for (const i of certas) { const x = r.sugestoes[i]; await api("apelido_salvar", {}, {method: "POST", body: JSON.stringify({apelido: x.apelido, marca: x.marca})}); tiraSugestoes(x.apelido); poeJuntado(x.apelido, x.marca); }
+        c.ok(`${certas.length} marca(s) juntadas`); bt.remove();
+      } catch (e) { c.erro(e.message); }
+    };
+  };
   ligarDesfazer(main);
   $("#ap-add").onclick = () => {
     const a = $("#ap-a").value.trim().toUpperCase(), m = $("#ap-b").value.trim().toUpperCase();

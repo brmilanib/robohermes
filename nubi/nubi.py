@@ -1024,10 +1024,43 @@ def fonte_upcitemdb(gtin):
     return {"nome": nome, "marca": str(it.get("brand") or "")} if nome else None
 
 
+# Títulos dos anúncios de cada GTIN em dúvida (preenchido por gtins_em_duvida): pista para a IA.
+TITULOS_GTIN = {}
+IA_GTIN = {"usadas": 0, "max": int(os.environ.get("NUBI_IA_GTIN_MAX", "15"))}   # consultas à IA por rodada
+
+
+def fonte_ia(gtin):
+    """Última tentativa: a IA (ChatGPT/Claude) pesquisa o código de barras na web, com os títulos dos anúncios."""
+    import ia
+    if not ia.disponivel():
+        return None
+    if IA_GTIN["usadas"] >= IA_GTIN["max"]:
+        raise LimiteAtingido()
+    IA_GTIN["usadas"] += 1
+    titulos = TITULOS_GTIN.get(gtin, [])
+    pergunta = (
+        f"Pesquise na web o código de barras (GTIN/EAN) {gtin} de um perfume ou cosmético vendido no Mercado Livre Brasil. "
+        + (f"Títulos de anúncios com esse código: {' | '.join(titulos[:4])}. " if titulos else "")
+        + "Descubra qual é o produto exato. Responda SOMENTE com um JSON: "
+        '{"encontrado": true|false, "marca": "<marca>", "nome": "<Marca Linha Concentração Volume, ex.: '
+        'Montblanc Explorer Eau de Parfum 100 ml>", "confianca": "alta|média|baixa", "fontes": ["<url>"]}. '
+        "Use encontrado=false se não achar o código em nenhuma fonte confiável (não invente pelo título).")
+    try:
+        j, links, _ = ia.perguntar_json(pergunta)
+    except Exception as e:  # noqa: BLE001
+        raise SemConexao(str(e)[:80])
+    if not j.get("encontrado") or not j.get("nome") or j.get("confianca") == "baixa":
+        return None
+    return {"nome": re.sub(r"\s+", " ", str(j["nome"])).strip(), "marca": str(j.get("marca") or "").strip()}
+
+
 def consultar_gtin(gtin, token=""):
-    """Tenta as bases em ordem. Devolve (resultado ou None, lista de falhas de conexão)."""
+    """Tenta as bases em ordem (e a IA por último). Devolve (resultado ou None, lista de falhas de conexão)."""
+    import ia
     fontes = [("Cosmos", lambda g: fonte_cosmos(g, token))] if token else []
     fontes += [("Open Beauty Facts", fonte_open_beauty), ("UPCitemdb", fonte_upcitemdb)]
+    if ia.disponivel():
+        fontes.append((ia.nome(), fonte_ia))
     falhas = []
     for nome, f in fontes:
         try:
@@ -1054,6 +1087,7 @@ def gtins_em_duvida(repo, marca=None):
         d = df[(df["gtin"] != "") & df["confianca"].str.startswith("Dúvida")]
         for gtin, un in d.groupby("gtin")["un"].sum().items():
             saida.append((gtin, m, int(un)))
+            TITULOS_GTIN[gtin] = list(d[d["gtin"] == gtin].sort_values("un", ascending=False)["titulo"].head(4))
     return sorted(saida, key=lambda x: -x[2])
 
 
@@ -1087,6 +1121,7 @@ def pesquisar_gtins(repo, limite, lista=None, marca=None, prazo=None):
     else:
         alvos = [a for a in gtins_em_duvida(repo, marca) if precisa_pesquisar(a[0])]
     res["pendentes"] = len(alvos)
+    IA_GTIN["usadas"] = 0
     if not alvos:
         avisar("\n  Nenhum GTIN em dúvida esperando pesquisa.")
         return res

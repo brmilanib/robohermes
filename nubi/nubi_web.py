@@ -26,6 +26,7 @@ import pandas as pd
 import nubi
 import ranking
 import categorias
+import ia
 import pesquisa_marca
 import vend_bi
 import vendedores
@@ -614,6 +615,22 @@ def atender(metodo, rota, q, corpo, token):
                 rk.setdefault(r["categoria"], []).append(r["mes"][:7])
             return _json({"vendedores": vend, "hashes": por_hash, "ranking": rk})
 
+        if rota == "apelido_ia" and metodo == "POST":
+            d = json.loads(corpo or b"{}")
+            a, b = (d.get("apelido") or "").strip(), (d.get("marca") or "").strip()
+            if not ia.disponivel():
+                raise ErroNuvem("Configure uma chave de IA (OPENAI_API_KEY) na Vercel para usar esta função.")
+            try:
+                j, links, qual = ia.perguntar_json(
+                    f'No mercado de perfumes (Mercado Livre Brasil), "{a}" e "{b}" são a MESMA marca escrita de outro jeito '
+                    "(erro de digitação, sigla, nome curto/longo, com ou sem acento) ou são marcas DIFERENTES? Pesquise na web se "
+                    'precisar. Responda SOMENTE com JSON: {"mesma": true|false, "confianca": "alta|média|baixa", '
+                    '"motivo": "<1 frase em português>"}.')
+            except Exception as e:  # noqa: BLE001
+                raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
+            return _json({"mesma": bool(j.get("mesma")), "confianca": j.get("confianca") or "baixa",
+                          "motivo": j.get("motivo") or "", "fonte": links[0] if links else "", "ia": ia.nome(qual)})
+
         if rota.startswith("apelido"):
             return _json(rota_apelidos(repo, metodo, rota, q, corpo))
 
@@ -808,6 +825,49 @@ def _linhas(repo, rid):
                                                                  "order": "posicao"}), somar=True)
 
 
+def _dados_resumo(repo, cat, rels):
+    """Os números do mês (ranking, categorias e concorrentes) em texto curto, para a IA escrever o resumo."""
+    ids = ",".join(str(r["id"]) for r in rels)
+    linhas = unificar_marcas(repo, repo._todos("ranking_linhas", {
+        "select": "relatorio_id,posicao,variacao,marca,marca_chave,vendas,unidades,tendencia,catalogo,vendedores,saturacao,ranking_demanda",
+        "relatorio_id": f"in.({ids})", "order": "relatorio_id,posicao"}), somar=True)
+    por_rel = {r["id"]: [] for r in rels}
+    for l in linhas:
+        por_rel[l["relatorio_id"]].append(l)
+    b = ranking.bi([x["mes"] for x in rels], [por_rel[x["id"]] for x in rels], repo.marcas())
+    fm = lambda v: f"R$ {v / 1e6:.1f} mi".replace(".", ",") if v and v >= 1e6 else f"R$ {(v or 0) / 1e3:.0f} mil"
+    pc = lambda v: "—" if v is None else f"{v * 100:+.0f}%"
+    ult = rels[-1]["mes"][:7]
+    out = [f"MERCADO (ranking MARCAS, categoria {ranking.nome_categoria(cat)}): " + "; ".join(
+        f"{m['mes'][:7]}: {fm(m['vendas'])}" for m in b["meses"][-4:])]
+    z = b.get("resumo") or {}
+    out.append(f"Crescimento no período: {pc(z.get('cresc_vendas'))}; entradas no top no período: {z.get('entradas')}; saídas: {z.get('saidas')}.")
+    ms = [x for x in b["marcas"] if x.get("posicao")]
+    alta = sorted([x for x in ms if x.get("status") in ("Subindo forte", "Crescimento consistente", "Nova")],
+                  key=lambda x: -(x.get("nota") or 0))[:8]
+    queda = sorted([x for x in ms if x.get("status") in ("Em queda", "Perdeu fôlego")], key=lambda x: -(x.get("vendas_atual") or 0))[:6]
+    out.append("MARCAS EM ALTA: " + "; ".join(f"{x['marca']} #{x['posicao']} {fm(x.get('vendas_atual'))} 3m {pc(x.get('cresc_3m'))} ({x['status']})" for x in alta))
+    out.append("MARCAS EM QUEDA: " + "; ".join(f"{x['marca']} #{x['posicao']} {fm(x.get('vendas_atual'))} 3m {pc(x.get('cresc_3m'))}" for x in queda))
+    ent = [e for e in b.get("entradas", []) if str(e.get("mes"))[:7] == ult][:6]
+    sai = [e for e in b.get("saidas", []) if str(e.get("mes"))[:7] == ult][:6]
+    out.append("ENTRARAM NO TOP NO MÊS: " + "; ".join(f"{e['marca']} #{e.get('posicao')}" for e in ent))
+    out.append("SAÍRAM DO TOP NO MÊS: " + "; ".join(str(e.get("marca")) for e in sai))
+    manuais = {r["marca_chave"]: r["categoria"] for r in repo._todos("marca_categorias", {"select": "marca_chave,categoria"})}
+    c = categorias.relatorio([x["mes"] for x in rels], [por_rel[x["id"]] for x in rels], manuais)
+    out.append("CATEGORIAS (fatia do mercado no mês e variação em pontos): " + "; ".join(
+        f"{k} {c['serie'][k]['share'][-1] * 100:.1f}% ({(c['serie'][k]['var_share'] or 0) * 100:+.1f} p.p.)"
+        for k in c["categorias"] if c["serie"][k]["vendas"][-1]))
+    try:
+        al = rota_vendedores(repo, "GET", "vend_alertas", {}, b"")
+        top = [p for p in al["produtos"] if p["sem_estoque"] > 0][:8]
+        out.append(f"CONCORRENTES MONITORADOS ({al['vendedores']} vendedores). Produtos que vendiam bem e estão sem estoque: " + "; ".join(
+            f"{p['produto'][:50]} ({p['marca']}): {', '.join(a['vendedor'] for a in p['alertas'][:3])} sem estoque, "
+            f"ainda vendem {len(p['ainda_vendem'])}, {fm(p['perda_dia'])}/dia parado" for p in top))
+    except Exception:  # noqa: BLE001
+        pass
+    return "\n".join(out)
+
+
 def rota_ranking(repo, metodo, rota, q, corpo):
     if rota == "ranking_lista":
         rels = _relatorios(repo)
@@ -971,6 +1031,38 @@ def rota_ranking(repo, metodo, rota, q, corpo):
             repo._req("DELETE", "marca_categorias", {"marca_chave": repo._eq(k)})
         cat, fonte = categorias.classificar(marca, {k: c} if c in categorias.CATEGORIAS else None)
         return {"ok": True, "categoria": cat, "fonte": fonte}
+
+    if rota == "ranking_resumo_ia":
+        # resumo do mês escrito pela IA a partir dos números do nubi (fica guardado; "novo=1" escreve de novo)
+        cat = q["categoria"]
+        rels = _relatorios(repo, cat)
+        if not rels:
+            raise ErroNuvem("Nenhum relatório importado para esta categoria.", 404)
+        mes = rels[-1]["mes"][:7]
+        chave = f"ranking|{cat}|{mes}"
+        if not q.get("novo"):
+            ja = repo._req("GET", "ia_resumos", {"select": "texto,ia,criado_em", "chave": repo._eq(chave)}) or []
+            if ja or metodo != "POST":
+                return {"mes": mes, "texto": ja[0]["texto"] if ja else "", "ia": ja[0]["ia"] if ja else None,
+                        "criado_em": ja[0]["criado_em"] if ja else None, "disponivel": bool(ia.disponivel())}
+        if not ia.disponivel():
+            raise ErroNuvem("Configure uma chave de IA (OPENAI_API_KEY) na Vercel para gerar o resumo.")
+        texto_dados = _dados_resumo(repo, cat, rels)
+        try:
+            texto, _, qual = ia.perguntar(
+                "Você é analista de e-commerce de perfumes no Mercado Livre Brasil. Com os dados abaixo (do sistema nubi), "
+                f"escreva o resumo de {ranking.nome_mes(mes + '-01')} para o dono de uma loja de perfumes, em português simples. "
+                "Use estas seções, cada uma com 2 a 4 tópicos curtos e com números: **Mercado**, **Categorias**, "
+                "**Marcas em alta**, **Marcas em queda**, **Concorrentes e sinais de compra**, **O que fazer agora** (3 ações práticas). "
+                "Use só os dados fornecidos, não invente números. Formato: markdown simples (## para seções, - para tópicos).\n\n"
+                + texto_dados, web=False, max_tokens=1800)
+        except Exception as e:  # noqa: BLE001
+            raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
+        repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": texto, "ia": ia.nome(qual),
+                                                "criado_em": datetime.now(timezone.utc).isoformat()}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return {"mes": mes, "texto": texto, "ia": ia.nome(qual), "criado_em": datetime.now(timezone.utc).isoformat(),
+                "disponivel": True}
 
     if rota == "ranking_apagar" and metodo == "POST":
         repo._req("DELETE", "ranking_relatorios", {"id": repo._eq(int(q["id"]))})

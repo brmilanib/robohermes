@@ -322,3 +322,11 @@ create table if not exists public.marca_categorias (
 alter table public.marca_categorias enable row level security;
 create policy "autorizado" on public.marca_categorias
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Resumo do mês escrito pela IA (guardado para não pagar de novo a cada visita).
+create table if not exists public.ia_resumos (
+  chave text primary key, texto text not null, ia text, criado_em timestamptz not null default now()
+);
+alter table public.ia_resumos enable row level security;
+create policy "autorizado" on public.ia_resumos
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

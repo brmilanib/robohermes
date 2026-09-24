@@ -19,6 +19,7 @@ import re
 import urllib.parse
 import urllib.request
 
+import ia as ia_mod
 import nubi
 
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -127,20 +128,13 @@ CATS_IA = {
 
 
 def ia_disponivel():
-    return "claude" if os.environ.get("ANTHROPIC_API_KEY") else "chatgpt" if os.environ.get("OPENAI_API_KEY") else None
-
-
-def _post_json(url, corpo, cab, timeout=90):
-    req = urllib.request.Request(url, data=json.dumps(corpo).encode(), method="POST",
-                                 headers={"Content-Type": "application/json", **cab})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode())
+    return ia_mod.disponivel()
 
 
 def pesquisar_ia(marca, pistas=""):
     """
     Pergunta a uma IA com pesquisa na web (Claude ou ChatGPT, a que tiver chave) qual é a categoria da marca.
-    Devolve {categoria, confianca, motivo, fontes, ia} ou None (sem chave ou erro).
+    Devolve {categoria, confianca, motivo, fontes, ia} ou None (sem chave).
     """
     ia = ia_disponivel()
     if not ia:
@@ -158,26 +152,11 @@ def pesquisar_ia(marca, pistas=""):
         '"motivo": "<1 ou 2 frases em português: país de origem e o que a marca é>", "fontes": ["<url>", ...]}. '
         "Se não achar nada confiável sobre a marca, use confianca baixa e diga isso no motivo.")
     try:
-        if ia == "claude":
-            r = _post_json("https://api.anthropic.com/v1/messages", {
-                "model": os.environ.get("NUBI_IA_MODELO", "claude-sonnet-5"), "max_tokens": 1200,
-                "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}],
-                "messages": [{"role": "user", "content": pergunta}]},
-                {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"})
-            texto = " ".join(b.get("text", "") for b in r.get("content", []) if b.get("type") == "text")
-            links = [c.get("url") for b in r.get("content", []) for c in (b.get("citations") or []) if c.get("url")]
-        else:
-            r = _post_json("https://api.openai.com/v1/responses", {
-                "model": os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "tools": [{"type": "web_search_preview"}],
-                "input": pergunta}, {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"})
-            partes = [c for o in r.get("output", []) if o.get("type") == "message" for c in o.get("content", [])]
-            texto = " ".join(c.get("text", "") for c in partes)
-            links = [a.get("url") for c in partes for a in (c.get("annotations") or []) if a.get("url")]
-        m = re.search(r"\{.*\}", texto, re.S)
-        j = json.loads(m.group(0)) if m else {}
+        j, links, ia = ia_mod.perguntar_json(pergunta)
         cat = j.get("categoria")
         if cat not in CATS_IA:
-            return {"categoria": None, "confianca": "baixa", "motivo": texto[:300], "fontes": links[:3], "ia": ia}
+            return {"categoria": None, "confianca": "baixa", "motivo": (j.get("motivo") or "sem resposta clara")[:300],
+                    "fontes": links[:3], "ia": ia}
         fontes = [f for f in (j.get("fontes") or []) if isinstance(f, str) and f.startswith("http")] or links
         return {"categoria": cat, "confianca": (j.get("confianca") or "média").replace("media", "média"),
                 "motivo": j.get("motivo") or "", "fontes": list(dict.fromkeys(fontes))[:3], "ia": ia}
@@ -239,7 +218,7 @@ def sugerir(marca, gtins=(), preco_medio=None, web=None, usar_ia=True):
         if ia:
             if ia["categoria"]:
                 pontos[ia["categoria"]] += {"alta": 7, "média": 5}.get(ia["confianca"], 2.5)
-            nome_ia = "IA (Claude)" if ia["ia"] == "claude" else "IA (ChatGPT)"
+            nome_ia = ia_mod.nome(ia["ia"])
             ev.insert(0, {"fonte": nome_ia, "texto": (f"{ia['categoria']} — " if ia["categoria"] else "") + ia["motivo"],
                           "link": ia["fontes"][0] if ia["fontes"] else ""})
             for f in ia["fontes"][1:]:

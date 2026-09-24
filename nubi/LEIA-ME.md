@@ -447,3 +447,11 @@ detalhe técnico fica em `dados/erro.log`.
 Cada marca do ranking MARCAS entra numa categoria: **Alta perfumaria**, **Designer** (grife de moda), **Nicho**, **Árabe**, **Importados low ticket** (importada que só faz perfume, preço em conta), **Nacional** (perfumaria brasileira) ou **Outros** (não é marca de perfume).
 A classificação automática vem da lista em `categorias.py`; o que você escolher na tela fica na tabela `marca_categorias` e vale
 para todos os meses. A tela mostra vendas e fatia de cada categoria mês a mês, o crescimento e as maiores marcas de cada uma.
+
+## IA (ChatGPT ou Claude)
+
+Com `OPENAI_API_KEY` (ou `ANTHROPIC_API_KEY`) nas variáveis da Vercel, o nubi usa a IA com pesquisa na web (`ia.py`) em:
+- **Agente de GTIN**: quando o código de barras não está em nenhuma base, a IA procura o produto (até 15 por rodada, `NUBI_IA_GTIN_MAX`).
+- **Categorias de marca**: pesquisa a origem e o tipo da marca e sugere a categoria.
+- **Nomes de marcas**: "Perguntar à IA" / "Conferir todas com IA" dizem se duas grafias são a mesma marca.
+- **B.I. do ranking**: "Gerar resumo" escreve o resumo do mês (mercado, categorias, marcas em alta e em queda, concorrentes e o que fazer). Fica guardado em `ia_resumos`.
