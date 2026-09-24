@@ -28,8 +28,38 @@ def _norm(t):
 
 
 def volumes(t):
-    """Tamanhos citados no título, em ml (100ml, 100 ml, 3.4oz ignorado)."""
-    return {int(x) for x in re.findall(r"(\d{2,4})\s*ml\b", _norm(t))}
+    """Tamanhos citados no título, em ml (100ml, 100 ml; '100m' no fim de um título cortado também conta)."""
+    n = _norm(t)
+    return {int(x) for x in re.findall(r"(\d{2,4})\s*ml\b", n)} | {int(x) for x in re.findall(r"(\d{2,4})\s*m$", n.strip())}
+
+
+def quantidade(t):
+    """Kit ou vários perfumes no mesmo anúncio: 'Kit com 5', 'Kit C/ 4', '2 Perfumes' -> 5, 4, 2; kit sem número -> 'kit'."""
+    n = _norm(t)
+    m = re.search(r"\bkit\s*(?:com|c/)?\s*(\d+)|\b(\d+)\s*(?:perfumes|unidades|frascos)\b", n)
+    if m:
+        return int(m.group(1) or m.group(2))
+    return "kit" if re.search(r"\bkit\b", n) else 1
+
+
+def numeros(t):
+    """Outros números do título (modelos, códigos: C3000 x 4000), fora os tamanhos em ml e a quantidade do kit.
+    O número no fim de um título cortado (40 caracteres) pode estar pela metade: vira prefixo ('12' de '125')."""
+    n = _norm(t).strip()
+    n2 = re.sub(r"\d{2,4}\s*ml\b|\d{2,4}\s*m$|\bkit\s*(?:com|c/)?\s*\d+|\b\d+\s*(?:perfumes|unidades|frascos)\b", " ", n)
+    achados = re.findall(r"\d+", n2)
+    cortado = len(t or "") >= 39 and re.search(r"\d+$", n2.strip()) is not None
+    return set(achados), (achados[-1] if cortado and achados else None)
+
+
+def _numeros_batem(a, b):
+    (na, pa), (nb, pb) = numeros(a), numeros(b)
+    if not na or not nb:
+        return True
+    if na & nb:
+        return True
+    parcial = lambda p, outros: p is not None and any(x.startswith(p) for x in outros)
+    return parcial(pa, nb) or parcial(pb, na)
 
 
 def concentracoes(t):
@@ -67,6 +97,10 @@ def compativeis(a, b):
     """Regras que a IA não pode passar por cima."""
     va, vb = volumes(a["titulo"]), volumes(b["titulo"])
     if va and vb and not (va & vb):
+        return False
+    if quantidade(a["titulo"]) != quantidade(b["titulo"]):
+        return False                               # kit x unidade, kit de 3 x kit de 5
+    if not _numeros_batem(a["titulo"], b["titulo"]):
         return False
     ca, cb = concentracoes(a["titulo"]), concentracoes(b["titulo"])
     if ca and cb and ca != cb:
