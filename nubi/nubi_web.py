@@ -722,7 +722,7 @@ def atender(metodo, rota, q, corpo, token):
             nome = f"import_gestor_seller_{_br(reg['criado_em']):%d-%m-%Y}.xlsx"
             return (200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", estoque.gerar_gestor(itens),
                     {"Content-Disposition": f'attachment; filename="{nome}"', "X-Nome-Arquivo": nome})
-        if rota.startswith("estoque") or rota.startswith("gestor_"):
+        if rota.startswith("estoque") or rota.startswith("gestor_") or rota == "coleta_pendente":
             return _json(rota_estoque(repo, metodo, rota, q, corpo))
         if rota.startswith("mac_"):
             return _json(rota_mac(repo, metodo, rota, q, corpo, token))
@@ -2278,6 +2278,14 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         # depois de cada estoque, o coletor pergunta se importa no Gestor Seller sozinho (rotina 'gestor' ligada)
         rot = (repo._req("GET", "rotinas", {"select": "ativo", "id": "eq.gestor"}) or [None])[0]
         return {"ligado": bool(rot and rot.get("ativo"))}
+    if rota == "coleta_pendente":
+        # o vigia do Mac segue o horário da rotina 'coleta' (Central → Rotinas): roda 1 vez por dia, do horário em diante
+        rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.coleta"}) or [None])[0]
+        agora = _agora_br()
+        ult = (repo._req("GET", "coletor_execucoes", {"select": "iniciado_em", "tarefa": "eq.diario", "order": "id.desc", "limit": 1}) or [None])[0]
+        hoje_ok = bool(ult and _br(ult["iniciado_em"]).date() == agora.date() and _br(ult["iniciado_em"]).strftime("%H:%M") >= (rot or {}).get("horario", "07:00"))
+        na_hora = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "07:00"))
+        return {"rodar": na_hora and not hoje_ok, "horario": (rot or {}).get("horario") or "07:00"}
     if rota == "estoque_pendente":
         # o vigia do Mac pergunta se está na hora da atualização da madrugada (rotina 'estoque', 1 vez por dia)
         rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.estoque"}) or [None])[0]

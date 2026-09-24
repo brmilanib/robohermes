@@ -40,7 +40,7 @@ Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reuni�
 (Nomes de marcas, Nomes de vendedores, Produtos iguais). No celular há uma barra de atalhos embaixo.
 
 ## Rotinas (horário de Brasília)
-estoque 03:00 (Mac: exporta o estoque do UpSeller), categorias_lote 04:00, produtos_ia 05:30, agente 06:00, coleta 07:00 (Mac), resumo_dia, resumo_semana (segunda),
+estoque 00:30 (Mac: exporta o estoque do UpSeller), coleta 01:00 (Mac, a madrugada toda), categorias_lote 04:00, produtos_ia 05:30, agente 06:00, resumo_dia, resumo_semana (segunda),
 resumo_marcas (dia 3), auditoria 10:30 (conferências de dados + revisão de código) e reunião diária 11:00.
 
 ## Regras que ninguém quebra

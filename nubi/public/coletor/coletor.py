@@ -1780,6 +1780,8 @@ def cmd_vigiar():
             api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": pedido.get("tarefa") or "diario",
                                                    "resultado": "coleta iniciada"}, timeout=30)
             motivo = motivo or f"pedido no site: {pedido.get('motivo') or 'rodar coleta agora'}"
+        if not motivo:
+            motivo = _coleta_na_hora(cfg, token)
         if not motivo and _estoque_na_hora(cfg, token):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do estoque do UpSeller -> atualizando", flush=True)
             os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "estoque"])
@@ -1789,6 +1791,41 @@ def cmd_vigiar():
         return 0
     print(f"{datetime.now():%d/%m %H:%M} vigia: {motivo} -> rodando a coleta", flush=True)
     os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "diario"])
+
+
+def _sincronizar_agenda(horario):
+    """O agendamento do launchd (com.nubi.coletor) segue o horário da rotina 'coleta' do nubi."""
+    plist = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.plist"
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})", str(horario or ""))
+    if sys.platform != "darwin" or not plist.exists() or not m:
+        return
+    txt = plist.read_text(encoding="utf-8")
+    novo = re.sub(r"(<key>Hour</key>\s*<integer>)\d+", rf"\g<1>{int(m.group(1))}", txt)
+    novo = re.sub(r"(<key>Minute</key>\s*<integer>)\d+", rf"\g<1>{int(m.group(2))}", novo)
+    if novo != txt:
+        plist.write_text(novo, encoding="utf-8")
+        subprocess.run(["launchctl", "unload", str(plist)], check=False, capture_output=True)
+        subprocess.run(["launchctl", "load", str(plist)], check=False, capture_output=True)
+        print(f"{datetime.now():%d/%m %H:%M} vigia: coleta diária agendada para {horario} (rotina do nubi)", flush=True)
+
+
+def _coleta_na_hora(cfg, token):
+    """Rotina 'coleta' no horário do nubi (ex.: 01:00): a coleta diária ainda não rodou hoje -> motivo para rodar."""
+    try:
+        r = api(token, "coleta_pendente", timeout=30)
+    except Exception:  # noqa: BLE001
+        return None                                    # nubi antigo sem a rota: fica o agendamento do launchd
+    _sincronizar_agenda(r.get("horario"))
+    if not r.get("rodar"):
+        return None
+    hoje = date.today().isoformat()
+    tent = {k: v for k, v in (cfg.get("coleta_tentativas") or {}).items() if k == hoje}
+    if tent.get(hoje, 0) >= 2:
+        return None
+    tent[hoje] = tent.get(hoje, 0) + 1
+    cfg["coleta_tentativas"] = tent
+    salvar_config(cfg)
+    return f"horário da coleta ({r.get('horario')})"
 
 
 def _estoque_na_hora(cfg, token):
@@ -2104,8 +2141,11 @@ def main():
             return A, I, E, "; ".join(partes) + (f"; {E} erro(s)" if E else "")
         rc = executar("diario", f)
         if ler_config().get("dias_desde"):
-            # histórico de vendas diárias ainda incompleto: continua por até 1h30, depois do resumo do dia já sair
-            rc2 = cmd_dias(None, 90 * 60)
+            # histórico de vendas diárias ainda incompleto: continua por até 1h30 (de madrugada, até as 06:40),
+            # depois do resumo do dia já sair
+            agora = datetime.now()
+            limite = agora.replace(hour=6, minute=40, second=0)
+            rc2 = cmd_dias(None, max(90 * 60, (limite - agora).total_seconds()) if agora < limite else 90 * 60)
             return rc or rc2
         return rc
     if args.cmd == "dias":

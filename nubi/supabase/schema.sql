@@ -552,7 +552,7 @@ create policy "autorizado" on public.estoque_itens for all to authenticated
   using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
 insert into public.rotinas (id, nome, descricao, responsavel, horario, dias_semana, ativo, ordem) values
   ('estoque', 'Estoque do UpSeller', 'O coletor exporta a Lista de Estoque (My Warehouse) do UpSeller e importa em Minhas Lojas → Estoque; o Estoquista analisa o que entrou, saiu e zerou.',
-   'Mac mini (coletor)', '03:00', array['seg','ter','qua','qui','sex','sab','dom'], true, 5)
+   'Mac mini (coletor)', '00:30', array['seg','ter','qua','qui','sex','sab','dom'], true, 5)
 on conflict (id) do nothing;
 insert into public.agentes (id, nome, icone, cor, papel, onde, ordem) values
   ('estoquista', 'Estoquista', '📦', '#2f7d5b', 'Analisa cada atualização do estoque: o que entrou, saiu, zerou, estoque baixo e sem custo', 'gpt-oss grátis (DeepSeek/Claude de reserva)', 7)
@@ -563,3 +563,4 @@ insert into public.rotinas (id, nome, descricao, responsavel, horario, dias_sema
   ('gestor', 'Planilha no Gestor Seller', 'Depois de cada estoque do UpSeller, o coletor importa a planilha do nubi em Gestor Seller → Produtos internos (período padrão: custos só nas novas vendas).',
    'Mac mini (coletor)', '03:00', array['seg','ter','qua','qui','sex','sab','dom'], false, 6)
 on conflict (id) do nothing;
+update public.rotinas set horario = '01:00' where id = 'coleta';   -- 25/09: a coleta roda de madrugada (o vigia segue este horário)
