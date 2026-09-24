@@ -356,6 +356,20 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .in-op b{font-size:20px;font-variant-numeric:tabular-nums}
 @media (max-width:1000px){.in-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.in-ops{grid-template-columns:repeat(2,minmax(0,1fr))}.in-grade,.in-topo{grid-template-columns:1fr}}
 @media (max-width:480px){.in-duas{grid-template-columns:1fr}.in-kpi b{font-size:20px}}
+@media (max-width:640px){
+  table.t:not(.no-card){display:block;width:100%}
+  table.t:not(.no-card) thead{display:none}
+  table.t:not(.no-card) tbody{display:grid;gap:8px}
+  table.t:not(.no-card) tbody tr{display:grid;gap:2px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--card)}
+  table.t:not(.no-card) tbody tr:hover td{background:none}
+  table.t:not(.no-card) td{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border:0;padding:2px 0;white-space:normal;text-align:right;min-width:0;max-width:none}
+  table.t:not(.no-card) td::before{content:attr(data-l);color:var(--muted);font-size:12px;text-align:left;flex:none;max-width:48%}
+  table.t:not(.no-card) td:empty,table.t:not(.no-card) td[data-l=""]::before{display:none}
+  table.t:not(.no-card) td.first{display:block;text-align:left;font-size:14.5px;font-weight:600;order:-1;padding-bottom:4px}
+  table.t:not(.no-card) td.first::before{display:none}
+  .rolar:has(> table.t:not(.no-card)){max-height:none}
+}
+@media (max-width:900px){.bi-grid{grid-template-columns:1fr !important}}
 #barra-baixo{display:none}
 @media (max-width:900px){
   #barra-baixo{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--card);
@@ -798,6 +812,18 @@ async function telaInicio() {
 function telaInicioOps() {
   const b = document.querySelector('.in-op[href="#/central/erros"] b'); if (b && S.opsRes) { b.textContent = nf0.format(S.opsRes.erros_hoje || 0); b.className = S.opsRes.erros_hoje ? "neg" : ""; }
 }
+// Celular: toda tabela vira uma lista de cartões (rótulo da coluna ao lado de cada valor), sem rolagem para o lado.
+function rotularTabelas(raiz) {
+  (raiz || document).querySelectorAll("table.t:not([data-rot])").forEach(tb => {
+    const cab = tb.querySelector("thead tr:not(.f)") || tb.querySelector("tr");
+    if (!cab) return;
+    const rot = [...cab.children].map(th => (th.innerText || th.textContent || "").replace(/[↑↓▲▼]/g, "").trim());
+    tb.querySelectorAll("tbody tr").forEach(tr => [...tr.children].forEach((td, i) => { if (rot[i] && !td.dataset.l) td.dataset.l = rot[i]; }));
+    tb.dataset.rot = 1;
+  });
+}
+new MutationObserver(() => { if (window.innerWidth <= 640) rotularTabelas($("#main")); })
+  .observe(document.documentElement, {childList: true, subtree: true});
 // Fecha a gaveta do menu (celular) e o menu da conta ao clicar fora.
 document.addEventListener("click", e => {
   if (document.body.classList.contains("menu-aberto") && !e.target.closest("aside.side") && !e.target.closest("#bmenu")) document.body.classList.remove("menu-aberto");
