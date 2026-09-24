@@ -623,8 +623,8 @@ def atender(metodo, rota, q, corpo, token):
             if d.get("id"):
                 repo._req("PATCH", "coletor_execucoes", {"id": repo._eq(int(d["id"]))}, corpo=reg,
                           prefer="return=minimal")
-                if d.get("em_andamento") is False and d.get("tarefa") == "estoque":
-                    _marcar_rotina(repo, "estoque", ("" if d.get("ok") else "erro: ") + str(d.get("mensagem") or ""))
+                if d.get("em_andamento") is False and d.get("tarefa") in ("estoque", "gestor"):
+                    _marcar_rotina(repo, d["tarefa"], ("" if d.get("ok") else "erro: ") + str(d.get("mensagem") or ""))
                 if d.get("em_andamento") is False and d.get("tarefa") == "diario":
                     try:
                         rt = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.resumo_dia"}) or [None])[0]
@@ -722,7 +722,7 @@ def atender(metodo, rota, q, corpo, token):
             nome = f"import_gestor_seller_{_br(reg['criado_em']):%d-%m-%Y}.xlsx"
             return (200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", estoque.gerar_gestor(itens),
                     {"Content-Disposition": f'attachment; filename="{nome}"', "X-Nome-Arquivo": nome})
-        if rota.startswith("estoque"):
+        if rota.startswith("estoque") or rota.startswith("gestor_"):
             return _json(rota_estoque(repo, metodo, rota, q, corpo))
         if rota.startswith("mac_"):
             return _json(rota_mac(repo, metodo, rota, q, corpo, token))
@@ -1932,7 +1932,7 @@ def resumos_marcas_pendentes(repo):
 # A coleta roda no Mac mini (launchd) e só consulta se está ligada no dia.
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
-NO_MAC = ("coleta", "estoque")            # rodam no Mac mini (coletor); o servidor só diz se está na hora
+NO_MAC = ("coleta", "estoque", "gestor")            # rodam no Mac mini (coletor); o servidor só diz se está na hora
 NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "auditoria", "reuniao", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
@@ -2265,6 +2265,19 @@ def rota_estoque(repo, metodo, rota, q, corpo):
             repo._req("POST", "coletor_pedidos", corpo=[{"motivo": "atualizar o estoque (pedido no site)", "tarefa": "estoque"}],
                       prefer="return=minimal")
         return {"ok": True, "ja_havia": bool(aberto)}
+    if rota == "gestor_pedir" and metodo == "POST":
+        # "Importar no Gestor Seller agora": o vigia do Mac pega o pedido em até 15 min
+        if not repo._req("GET", "estoque_atualizacoes", {"select": "id", "limit": 1}):
+            raise ErroNuvem("Ainda não há estoque importado do UpSeller para montar a planilha.")
+        aberto = repo._req("GET", "coletor_pedidos", {"select": "id", "atendido_em": "is.null", "tarefa": "eq.gestor", "limit": 1}) or []
+        if not aberto:
+            repo._req("POST", "coletor_pedidos", corpo=[{"motivo": "importar a planilha no Gestor Seller (pedido no site)", "tarefa": "gestor"}],
+                      prefer="return=minimal")
+        return {"ok": True, "ja_havia": bool(aberto)}
+    if rota == "gestor_auto":
+        # depois de cada estoque, o coletor pergunta se importa no Gestor Seller sozinho (rotina 'gestor' ligada)
+        rot = (repo._req("GET", "rotinas", {"select": "ativo", "id": "eq.gestor"}) or [None])[0]
+        return {"ligado": bool(rot and rot.get("ativo"))}
     if rota == "estoque_pendente":
         # o vigia do Mac pergunta se está na hora da atualização da madrugada (rotina 'estoque', 1 vez por dia)
         rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.estoque"}) or [None])[0]
@@ -2286,7 +2299,12 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         rot = (repo._req("GET", "rotinas", {"select": "horario,ativo,ultima_execucao,ultimo_resultado", "id": "eq.estoque"}) or [None])[0]
         falha = (repo._req("GET", "coletor_execucoes", {"select": "iniciado_em,ok,mensagem,em_andamento", "tarefa": "eq.estoque",
                                                          "order": "id.desc", "limit": 1}) or [None])[0]
-        return {"atual": atual, "itens": _estoque_itens(repo, aid), "historico": hist, "rotina": rot, "ultima_execucao": falha}
+        gestor = repo._req("GET", "coletor_execucoes", {"select": "iniciado_em,terminado_em,ok,mensagem,em_andamento", "tarefa": "eq.gestor",
+                                                        "order": "id.desc", "limit": 8}) or []
+        rot_g = (repo._req("GET", "rotinas", {"select": "ativo", "id": "eq.gestor"}) or [None])[0]
+        pend_g = repo._req("GET", "coletor_pedidos", {"select": "id,pedido_em", "atendido_em": "is.null", "tarefa": "eq.gestor", "limit": 1}) or []
+        return {"atual": atual, "itens": _estoque_itens(repo, aid), "historico": hist, "rotina": rot, "ultima_execucao": falha,
+                "gestor": {"importacoes": gestor, "automatico": bool(rot_g and rot_g.get("ativo")), "pedido": pend_g[0] if pend_g else None}}
     raise ErroNuvem("Rota desconhecida.", 404)
 
 
@@ -2298,6 +2316,7 @@ COMANDOS_MAC = {
     "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco",
     "baixar_modelo": "Baixar modelo do Ollama", "estoque": "Atualizar o estoque do UpSeller agora",
+    "gestor": "Importar a planilha no Gestor Seller",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 

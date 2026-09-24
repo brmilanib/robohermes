@@ -20,6 +20,8 @@ Depois, os comandos ficam em ~/.nubi-coletor/coletor (ex.: ~/.nubi-coletor/colet
   python coletor.py hermes          o Hermes (Ollama, no Mac) lê a Sala de reunião e dá a opinião dele
   python coletor.py qwen            o Qwen (Ollama, no Mac) confere a Sala e posta a revisão dele
   python coletor.py entrar-upseller abre o navegador para você fazer login no UpSeller (uma vez)
+  python coletor.py entrar-gestor   abre o navegador para você fazer login no Gestor Seller (uma vez)
+  python coletor.py gestor          baixa do nubi a planilha do Gestor Seller e importa em Produtos internos
   python coletor.py estoque         exporta a Lista de Estoque do UpSeller e manda para Minhas Lojas → Estoque
                                     (o vigia roda sozinho de madrugada, no horário da rotina 'estoque')
   (qualquer coleta aceita --ver para mostrar a janela do navegador e acompanhar)
@@ -50,6 +52,7 @@ from pathlib import Path
 
 BASE = os.environ.get("NUBIMETRICS_URL", "https://app.nubimetrics.com")
 UPSELLER = os.environ.get("UPSELLER_URL", "https://app.upseller.com")
+GESTOR = os.environ.get("GESTOR_URL", "https://app.gestorseller.com.br")
 NUBI = os.environ.get("NUBI_URL", "https://nubi-explorador.vercel.app")
 SUPABASE_URL = "https://ivsmadbyzbmugwfadwtg.supabase.co"
 SUPABASE_KEY = "sb_publishable_hlLuzIP8GMxjwTfY-otJQQ_LbMPm7Yt"     # chave pública (a mesma da página)
@@ -1399,6 +1402,151 @@ def cmd_entrar_upseller(args, cfg):
         return 1
 
 
+# ---------------------------------------------------------------------------
+# Gestor Seller: Gerenciamento → Produtos internos → Importar por planilha → Selecionar planilha →
+# Período de atualização (deixa o padrão: custos só nas novas vendas a partir de hoje) → Salvar
+# ---------------------------------------------------------------------------
+
+def baixar_do_nubi(token, rota, params=None):
+    """Arquivo (bytes, nome) de uma rota do nubi que devolve download."""
+    token = TOKEN["troca"].get(token, token)
+    q = urllib.parse.urlencode(dict(params or {}, r=rota))
+    req = urllib.request.Request(f"{NUBI}/api/app?{q}", headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            nome = re.search(r'filename="([^"]+)"', r.headers.get("Content-Disposition") or "")
+            return r.read(), (nome.group(1) if nome else "import_gestor_seller.xlsx")
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read().decode()).get("erro")
+        except Exception:  # noqa: BLE001
+            msg = None
+        raise Falha(msg or f"nubi respondeu {e.code}")
+
+
+def _gestor_produtos(pg):
+    pg.goto(f"{GESTOR}/management/products", wait_until="domcontentloaded", timeout=90000)
+    botao = pg.get_by_text("Importar por planilha").first
+    try:
+        botao.wait_for(state="visible", timeout=60000)
+    except Exception:  # noqa: BLE001
+        u = urllib.parse.urlparse(pg.url)
+        if "/auth" in u.path or pg.locator("input[type=password]:visible").count():
+            raise SessaoExpirada("O Gestor Seller pediu login de novo. No Mac mini, rode: ~/.nubi-coletor/coletor entrar-gestor "
+                                 + diagnostico(pg))
+        raise Falha("a tela Produtos internos do Gestor Seller não carregou (sem 'Importar por planilha') " + diagnostico(pg))
+    devagar(3)
+    return botao
+
+
+def importar_gestor(pg, arq):
+    """Importa a planilha em Produtos internos; devolve o que a tela disse depois do Salvar."""
+    _gestor_produtos(pg).click()
+    janela = pg.locator("[role=dialog], .modal-content, .ant-modal-content").filter(has_text="Importar por planilha").last
+    janela.wait_for(state="visible", timeout=30000)
+    devagar(1.5)
+    arquivo = janela.locator("input[type=file]")
+    if arquivo.count():
+        arquivo.first.set_input_files(str(arq))
+    else:
+        with pg.expect_file_chooser(timeout=30000) as fc:
+            janela.get_by_text("Selecionar planilha").first.click()
+        fc.value.set_files(str(arq))
+    devagar(2)
+    texto = janela.inner_text()
+    if "padrão" not in texto and "padrao" not in texto.lower():
+        raise Falha("o Período de atualização não está no padrão (custos só nas novas vendas); não importei " + diagnostico(pg))
+    log(f"  planilha {arq.name} selecionada; período de atualização: padrão (custos nas novas vendas a partir de hoje)")
+    salvar = janela.get_by_role("button", name=re.compile(r"^\s*Salvar\s*$"))
+    fim = time.time() + 30
+    while not salvar.is_enabled() and time.time() < fim:
+        time.sleep(1)
+    salvar.click()
+    log("  Salvar clicado; esperando o Gestor Seller processar…")
+    fim = time.time() + 300
+    while time.time() < fim:
+        time.sleep(3)
+        if not janela.is_visible():
+            break
+    time.sleep(3)
+    avisos = pg.evaluate("""() => [...document.querySelectorAll('[role=alert],[role=status],.toast,.Toastify__toast,.swal2-popup,.notification,.alert')]
+        .map(e => (e.innerText || '').trim()).filter(Boolean).join(' | ')""")[:500]
+    ainda_aberta = janela.is_visible()
+    enviar_foto(pg, "gestor: depois do Salvar", resumo_tela(pg))            # para conferir o resultado de fora do Mac
+    if ainda_aberta:
+        raise Falha("a janela de importação do Gestor Seller não fechou em 5 min: " + (avisos or janela.inner_text()[:300]))
+    if re.search(r"erro|falh|inv[aá]lid", avisos, re.I):
+        raise Falha("o Gestor Seller recusou a planilha: " + avisos)
+    return avisos or "janela fechou sem mensagem de erro"
+
+
+def coletar_gestor(p, cfg, token):
+    dados, nome = baixar_do_nubi(token, "estoque_gestor")
+    destino = PASTA / "gestor"
+    destino.mkdir(parents=True, exist_ok=True)
+    arq = destino / nome
+    arq.write_bytes(dados)
+    log(f"  planilha do Gestor Seller baixada do nubi: {nome} ({len(dados) // 1024} KB)")
+    ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("gestor_ver") else None)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    try:
+        msg = importar_gestor(pg, arq)
+        guardar_sessao(ctx)
+    except SessaoExpirada:
+        enviar_foto(pg, "gestor: login vencido", resumo_tela(pg))
+        raise
+    except Exception as e:  # noqa: BLE001
+        enviar_foto(pg, f"gestor: {str(e)[:150]}", resumo_tela(pg))
+        raise
+    finally:
+        ctx.close()
+    log(f"  Gestor Seller: {msg}")
+    return 1, 1, 0, f"planilha {nome} importada no Gestor Seller ({msg[:120]})"
+
+
+def cmd_entrar_gestor(args, cfg):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        ctx = abrir_navegador(p, cfg, visivel=True)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(f"{GESTOR}/management/products")
+        print("Faça login no Gestor Seller na janela que abriu (a senha fica só no navegador do coletor, nunca no nubi).")
+        print("Quando a tela Produtos aparecer, o login fica salvo e a janela fecha sozinha.")
+        fim, ok = time.time() + 600, False
+        while time.time() < fim:
+            try:
+                if pg.get_by_text("Importar por planilha").count():
+                    ok = True
+                    break
+                if "/management/products" not in pg.url and "/auth" not in pg.url:
+                    pg.goto(f"{GESTOR}/management/products")      # depois do login ele cai em Vendas: volta para Produtos
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(3)
+        if ok:
+            time.sleep(3)
+            guardar_sessao(ctx)
+        ctx.close()
+        if not ok:
+            print("Tempo esgotado (10 min) sem ver a tela Produtos do Gestor Seller.")
+            return 1
+        print("OK: login do Gestor Seller feito. Testando se o coletor entra sozinho, sem janela…")
+        for visivel in (False, True):
+            ctx = abrir_navegador(p, cfg, visivel=visivel)
+            try:
+                _gestor_produtos(ctx.pages[0] if ctx.pages else ctx.new_page())
+                guardar_sessao(ctx)
+                cfg["gestor_ver"] = visivel
+                salvar_config(cfg)
+                print("OK: " + ("funciona com a janela aberta." if visivel else "funciona sem janela."))
+                return 0
+            except Falha as e:
+                print(f"  {'Com' if visivel else 'Sem'} janela não entrou: {str(e)[:160]}")
+            finally:
+                ctx.close()
+        return 1
+
+
 VIGIA_PLIST = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.vigia.plist"
 
 
@@ -1498,7 +1646,7 @@ def comando_mac(chave, arg=""):
     tabela = {
         "status": [c, "status"], "diario": [c, "diario"], "atualizar": [c, "atualizar"],
         "parar_coleta": [c, "parar"], "vigia_reativar": [c, "vigia-reativar"],
-        "hermes": [c, "hermes"], "qwen": [c, "qwen"], "estoque": [c, "estoque"],
+        "hermes": [c, "hermes"], "qwen": [c, "qwen"], "estoque": [c, "estoque"], "gestor": [c, "gestor"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -1620,6 +1768,10 @@ def cmd_vigiar():
     try:
         token = token_nubi(cfg)
         pedido = api(token, "coletor_pedido", timeout=30).get("pedido")
+        if pedido and pedido.get("tarefa") == "gestor":
+            api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": "gestor", "resultado": "importação iniciada"}, timeout=30)
+            print(f"{datetime.now():%d/%m %H:%M} vigia: pedido no site -> importando a planilha no Gestor Seller", flush=True)
+            os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "gestor"])
         if pedido and pedido.get("tarefa") == "estoque":
             api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": "estoque", "resultado": "estoque iniciado"}, timeout=30)
             print(f"{datetime.now():%d/%m %H:%M} vigia: pedido no site -> atualizando o estoque do UpSeller", flush=True)
@@ -1770,6 +1922,9 @@ def main():
     qw.set_defaults(agente="qwen")
     hm.add_argument("--ultimas", type=int, default=20, help="quantas mensagens da Sala ele lê")
     sub.add_parser("entrar-upseller", help="login no UpSeller (uma vez), para o estoque atualizar sozinho")
+    sub.add_parser("entrar-gestor", help="login no Gestor Seller (uma vez), para importar a planilha sozinho")
+    gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
+    gs.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     es = sub.add_parser("estoque", help="exporta a Lista de Estoque do UpSeller e manda para o nubi")
     es.add_argument("--sem-enviar", action="store_true")
     es.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
@@ -1793,6 +1948,8 @@ def main():
         return cmd_status(args, cfg)
     if args.cmd == "entrar-upseller":
         return cmd_entrar_upseller(args, cfg)
+    if args.cmd == "entrar-gestor":
+        return cmd_entrar_gestor(args, cfg)
     if args.cmd == "agendar":
         plist = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.plist"
         if not plist.exists():
@@ -1825,14 +1982,24 @@ def main():
         os.environ.pop("NUBI_VIGIA", None)
         instalar_vigia()
         return 0
-    if args.cmd in ("diario", "vendedores", "marcas", "dias", "hermes", "qwen", "estoque") and not os.environ.get("NUBI_ATUALIZADO"):
+    if args.cmd in ("diario", "vendedores", "marcas", "dias", "hermes", "qwen", "estoque", "gestor") and not os.environ.get("NUBI_ATUALIZADO"):
         auto_atualizar()
     if args.cmd in ("hermes", "qwen"):
         return cmd_hermes(args, cfg)
     if args.cmd in ("diario", "vendedores", "marcas", "dias", "estoque"):
         instalar_vigia()
     if args.cmd == "estoque":
-        return executar("estoque", lambda p, cfg, token: coletar_estoque(p, cfg, token, not args.sem_enviar))
+        rc = executar("estoque", lambda p, cfg, token: coletar_estoque(p, cfg, token, not args.sem_enviar))
+        if rc == 0 and not args.sem_enviar:
+            try:
+                auto = api(token_nubi(ler_config()), "gestor_auto", timeout=30).get("ligado")
+            except Exception:  # noqa: BLE001
+                auto = False
+            if auto:                                      # rotina 'gestor' ligada: importa no Gestor logo depois do estoque
+                return executar("gestor", coletar_gestor)
+        return rc
+    if args.cmd == "gestor":
+        return executar("gestor", coletar_gestor)
     if args.cmd == "atualizar":
         novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro

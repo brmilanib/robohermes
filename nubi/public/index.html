@@ -2305,7 +2305,7 @@ async function telaGestor() {
   let r;
   try { r = await api("estoque"); } catch (e) { main.innerHTML = esAbas("gestor") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/estoque/gestor")) return;
-  const a = r.atual;
+  const a = r.atual, g = r.gestor || {};
   if (!a) { main.innerHTML = esAbas("gestor") + `<h1>🧾 Planilha do Gestor Seller</h1><div class="card empty"><p>Primeiro importe o estoque do UpSeller (aba Estoque).</p></div>`; desenharMenu(); return; }
   const itens = [...r.itens].sort((x, y) => x.ordem != null && y.ordem != null ? x.ordem - y.ordem : (y.criado || "").localeCompare(x.criado || "") || x.sku.localeCompare(y.sku));
   const custo = it => +it.custo_medio > 0 ? Math.round(+it.custo_medio * 100) / 100 : null;
@@ -2319,11 +2319,25 @@ async function telaGestor() {
       <li><b>SKU Interno</b> e <b>SKU externo</b> = SKU do UpSeller</li><li><b>Título</b> = Título do UpSeller</li>
       <li><b>Preço de Custo</b> = Custo Médio do UpSeller (2 casas); sem custo = em branco</li>
       <li>Link da Imagem, Custo Extra e EAN ficam em branco · mesma ordem e mesmo formato do modelo do Gestor Seller (aba Planilha1)</li></ul>
-      <p class="muted" style="font-size:12px;margin:8px 0 0">A importação automática no Gestor Seller (pelo coletor do Mac) entra depois do vídeo da tela de importação; até lá, baixe e importe à mão.</p></div>
+    </div>
+    <div class="card pad" style="margin-top:14px"><div class="es-cab"><h2 style="margin:0">⬆ Importar no Gestor Seller</h2>
+        <div class="acoes"><button class="btn small primary" id="gs-importar" ${g.pedido ? "disabled" : ""}>${g.pedido ? "⏳ Pedido na fila…" : "Importar agora"}</button></div></div>
+      <p class="muted" style="font-size:12.5px;margin:6px 0 10px">O coletor do Mac baixa esta planilha e importa em <b>Gerenciamento → Produtos internos → Importar por planilha</b>,
+        com o período de atualização <b>padrão</b> (custos só nas novas vendas a partir de hoje). ${g.automatico
+          ? "<b>Automático ligado:</b> importa sozinho logo depois de cada atualização do estoque."
+          : "Automático <b>desligado</b>: só importa quando você pedir. Para ligar depois de cada estoque, ative “Planilha no Gestor Seller” em Central → Rotinas."}</p>
+      ${(g.importacoes || []).length ? `<ul class="es-log">${g.importacoes.map(x => `<li><b>${esc(quandoES(x.iniciado_em))}</b> · ${x.em_andamento ? "⏳ importando…" : x.ok ? "✅" : "⚠️"} ${esc((x.mensagem || "").slice(0, 220))}</li>`).join("")}</ul>`
+        : `<p class="muted" style="font-size:12.5px;margin:0">Nenhuma importação ainda.</p>`}</div>
     <div class="card pad" style="margin-top:14px"><h2>Prévia (primeiras 20 linhas)</h2>
       <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr>${GESTOR_COLS.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead>
       <tbody>${itens.slice(0, 20).map(it => `<tr><td class="first">${esc(it.sku)}</td><td>${esc(it.sku)}</td><td class="muted">—</td>
         <td class="wrap">${esc(it.titulo || "")}</td><td class="num">${custo(it) != null ? custo(it).toLocaleString("pt-BR", {minimumFractionDigits: 2}) : "—"}</td><td class="muted">—</td><td class="muted">—</td></tr>`).join("")}</tbody></table></div></div>`;
+  $("#gs-importar").onclick = async () => {
+    if (!confirm(`Importar no Gestor Seller a planilha com ${itens.length} SKUs (estoque de ${quandoES(a.criado_em)})?\n\nIsso atualiza o preço de custo dos produtos internos (só nas novas vendas a partir de hoje).`)) return;
+    try { const x = await api("gestor_pedir", {}, {method: "POST", body: "{}"});
+      toast(x.ja_havia ? "Já tem um pedido na fila." : "Pedido enviado: o Mac mini importa no Gestor Seller em até 15 min.", 5000); telaGestor();
+    } catch (e) { toast(e.message, 6000); }
+  };
   $("#gs-baixar").onclick = async () => {
     try {
       const blob = await api("estoque_gestor", {id: a.id}, {blob: true});
