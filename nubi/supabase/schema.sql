@@ -495,3 +495,4 @@ insert into public.ia_precos (modelo, entrada, saida, obs) values
   ('text-embedding-3-small', null, null, 'preencher com o preço da OpenAI'),
   ('deepseek', null, null, 'preencher com o preço do DeepSeek')
 on conflict (modelo) do nothing;
+alter table public.agentes_uso add column if not exists latencia_ms int;

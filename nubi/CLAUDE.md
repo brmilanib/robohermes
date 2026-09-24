@@ -34,3 +34,12 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 - Agentes: `agentes.py` tem o briefing do sistema (`SISTEMA`, vai como system prompt na sala e na auditoria) e a lista
   `AGENTES` (ChatGPT com o Codex mais novo da conta, DeepSeek com o modelo pro para revisão). Agente novo (Hermes):
   acrescentar em `AGENTES` e a chave em `ia.CHAVES`. Ao mudar tabelas, telas ou rotinas, atualizar o `SISTEMA`.
+
+## Roadmap aprovado pelo Bruno (24/09, tarefa #16)
+
+1. Dados corretos e gates: conferências da auditoria (#5, #6, #7) e gate de publicação com reconciliação (#9).
+2. Automações e custo: teto por provedor (#10), terminal remoto só com comandos permitidos (#11), uso/custo por agente (#17, #18).
+3. Lojas do dono e marketplaces: StoreConnector, dry-run e retry por conector (#1, #2, #3).
+4. Criativo (Gemini para imagem/post, #14), lives, promoções, cotação e compras.
+5. Versão para marcas e sellers.
+Modelos novos só entram depois do mini-benchmark interno (#15). Só o Bruno aprova tarefas (os agentes propõem).

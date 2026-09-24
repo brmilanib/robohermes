@@ -12,6 +12,7 @@ NUBI_IA_CODIGO (Codex; padrão: o Codex mais novo da conta) e NUBI_IA_MODELO_DEE
 import json
 import os
 import re
+import time
 import urllib.request
 
 
@@ -130,10 +131,12 @@ PROVEDOR = (("api.anthropic.com", "claude"), ("api.openai.com", "chatgpt"), ("ap
 def _tokens(r):
     """(tokens de entrada, tokens de saída) da resposta de qualquer provedor."""
     u = r.get("usage") or {}
-    ent = u.get("input_tokens", u.get("prompt_tokens", r.get("prompt_eval_count"))) or 0
-    ent += (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
-    sai = u.get("output_tokens", u.get("completion_tokens", r.get("eval_count"))) or 0
-    return int(ent), int(sai)
+    ent = u.get("input_tokens", u.get("prompt_tokens", r.get("prompt_eval_count")))
+    sai = u.get("output_tokens", u.get("completion_tokens", r.get("eval_count")))
+    if ent is None and sai is None:
+        return None, None                              # provedor não mandou o uso: fica sem número (não zero)
+    ent = int(ent or 0) + int(u.get("cache_read_input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0)
+    return ent, int(sai or 0)
 
 
 def _http_json(url, corpo, cab, timeout=90):
@@ -152,12 +155,13 @@ def _post_json(url, corpo, cab, timeout=90):
             rid = gravar("inicio", {"agente": agente, "modelo": str(corpo.get("model") or ""), "origem": USO["origem"]})
         except Exception:  # noqa: BLE001 — o registro nunca derruba a chamada
             rid = None
+    t0 = time.monotonic()
     try:
         r = _http_json(url, corpo, cab, timeout)
     except Exception as e:
         if gravar:
             try:
-                gravar("fim", {"id": rid, "ok": False, "erro": str(e)[:300]})
+                gravar("fim", {"id": rid, "ok": False, "erro": str(e)[:300], "latencia_ms": int((time.monotonic() - t0) * 1000)})
             except Exception:  # noqa: BLE001
                 pass
         raise
@@ -165,7 +169,7 @@ def _post_json(url, corpo, cab, timeout=90):
         try:
             ent, sai = _tokens(r)
             gravar("fim", {"id": rid, "ok": True, "modelo": str(r.get("model") or corpo.get("model") or ""),
-                           "tokens_in": ent, "tokens_out": sai})
+                           "tokens_in": ent, "tokens_out": sai, "latencia_ms": int((time.monotonic() - t0) * 1000)})
         except Exception:  # noqa: BLE001
             pass
     return r
@@ -248,18 +252,56 @@ def perguntar_estruturado(pergunta, schema, nome="resposta", max_tokens=2500):
     if ia == "chatgpt":
         corpo = {"model": os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "input": pergunta, "max_output_tokens": max_tokens,
                  "text": {"format": {"type": "json_schema", "name": nome, "schema": schema, "strict": True}}}
-        r = _post_json("https://api.openai.com/v1/responses", corpo,
-                       {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}, timeout=150)
-        texto = " ".join(c.get("text", "") for o in r.get("output", []) if o.get("type") == "message"
-                         for c in o.get("content", []))
-        return json.loads(texto), ia
+        try:
+            r = _post_json("https://api.openai.com/v1/responses", corpo,
+                           {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}, timeout=150)
+            texto = " ".join(c.get("text", "") for o in r.get("output", []) if o.get("type") == "message"
+                             for c in o.get("content", []))
+            j = json.loads(texto)
+            if not erros_schema(j, schema):
+                return j, ia
+        except Exception:  # noqa: BLE001 — ChatGPT fora do ar, JSON quebrado ou fora do formato: tenta o Claude
+            pass
+    # sem ChatGPT (ou ele falhou): o Claude responde e o JSON é conferido contra o schema
+    qual = "claude" if tem("claude") else ("chatgpt" if tem("chatgpt") else None)
+    if not qual:
+        raise SemIA("nenhuma IA disponível para a resposta estruturada")
     pedido = (pergunta + "\n\nResponda SOMENTE com um JSON válido que siga exatamente este JSON Schema, sem texto antes "
               "ou depois:\n" + json.dumps(schema, ensure_ascii=False))
+    ultimo = "resposta vazia"
     for _ in range(2):
-        j, _, qual = perguntar_json(pedido, web=False, max_tokens=max_tokens)
-        if j:
-            return j, qual
-    raise SemIA("a IA não devolveu o JSON pedido")
+        j, _, q = perguntar_json(pedido, web=False, max_tokens=max_tokens, qual=qual)
+        falhas = erros_schema(j, schema) if j else ["não veio JSON"]
+        if not falhas:
+            return j, q
+        ultimo = "; ".join(falhas[:3])
+    raise SemIA(f"a IA não devolveu o JSON no formato pedido ({ultimo})")
+
+
+def erros_schema(v, sc, caminho="$"):
+    """Conferência simples de JSON Schema (type, required, properties, additionalProperties, enum, items)."""
+    tipos = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float)}
+    t = sc.get("type")
+    if isinstance(t, list):
+        if not any(isinstance(v, tipos.get(x, object)) or (x == "null" and v is None) for x in t):
+            return [f"{caminho}: tipo {type(v).__name__} fora de {t}"]
+    elif t and t != "null" and not (isinstance(v, tipos.get(t, object)) and not (t in ("integer", "number") and isinstance(v, bool))):
+        return [f"{caminho}: esperado {t}"]
+    if "enum" in sc and v not in sc["enum"]:
+        return [f"{caminho}: valor fora da lista"]
+    out = []
+    if isinstance(v, dict):
+        props = sc.get("properties") or {}
+        out += [f"{caminho}.{k}: faltando" for k in sc.get("required") or [] if k not in v]
+        if sc.get("additionalProperties") is False:
+            out += [f"{caminho}.{k}: campo a mais" for k in v if k not in props]
+        for k, sub in props.items():
+            if k in v:
+                out += erros_schema(v[k], sub, f"{caminho}.{k}")
+    if isinstance(v, list) and isinstance(sc.get("items"), dict):
+        for i, x in enumerate(v):
+            out += erros_schema(x, sc["items"], f"{caminho}[{i}]")
+    return out
 
 
 def embeddings(textos, modelo=None):
@@ -310,14 +352,28 @@ def lote_status(lote_id):
     return _openai("GET", f"batches/{lote_id}")
 
 
-def lote_resultados(output_file_id):
-    """{custom_id: texto da resposta} de um lote concluído."""
+def lote_resultados(output_file_id, falhas=None, error_file_id=None):
+    """
+    {custom_id: texto da resposta} de um lote concluído. Os pedidos que falharam (erro, status diferente de 200 ou
+    resposta vazia) não somem: vão para a lista `falhas` como {"id", "erro"} para a rotina tratar como pendentes.
+    """
     saida = {}
+    falhas = falhas if falhas is not None else []
     for linha in _openai("GET", f"files/{output_file_id}/content", bruto=True).decode().splitlines():
         if not linha.strip():
             continue
         j = json.loads(linha)
-        corpo = ((j.get("response") or {}).get("body") or {})
-        saida[j.get("custom_id")] = " ".join(c.get("text", "") for o in corpo.get("output", []) if o.get("type") == "message"
-                                            for c in o.get("content", []))
+        resp = j.get("response") or {}
+        corpo = resp.get("body") or {}
+        texto = " ".join(c.get("text", "") for o in corpo.get("output", []) if o.get("type") == "message"
+                         for c in o.get("content", []))
+        if j.get("error") or (resp.get("status_code") not in (None, 200)) or not texto.strip():
+            falhas.append({"id": j.get("custom_id"), "erro": str(j.get("error") or resp.get("status_code") or "resposta vazia")[:200]})
+            continue
+        saida[j.get("custom_id")] = texto
+    if error_file_id:
+        for linha in _openai("GET", f"files/{error_file_id}/content", bruto=True).decode().splitlines():
+            if linha.strip():
+                j = json.loads(linha)
+                falhas.append({"id": j.get("custom_id"), "erro": str(j.get("error") or (j.get("response") or {}).get("status_code"))[:200]})
     return saida

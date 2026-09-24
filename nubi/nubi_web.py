@@ -1713,7 +1713,8 @@ def categorias_lote(repo):
         st = ia.lote_status(l["id"])
         estado = st.get("status") or "?"
         if estado == "completed" and st.get("output_file_id"):
-            res = ia.lote_resultados(st["output_file_id"])
+            falhas = []
+            res = ia.lote_resultados(st["output_file_id"], falhas, st.get("error_file_id"))
             manuais = {r["marca_chave"] for r in repo._todos("marca_categorias", {"select": "marca_chave"})}
             nomes = json.loads(l.get("detalhe") or "{}")
             regs = []
@@ -1730,7 +1731,11 @@ def categorias_lote(repo):
             for i in range(0, len(regs), 300):
                 repo._req("POST", "marca_sugestoes", corpo=regs[i:i + 300], prefer="resolution=merge-duplicates,return=minimal")
             estado = "aplicado"
-            msgs.append(f"lote pronto: {len(regs)} sugestão(ões) em Ranking > Categorias")
+            # o que falhou (ou veio fora do formato) não ganha sugestão: volta sozinho no próximo lote
+            pend = sorted(set(nomes) - {r["marca_chave"] for r in regs} - manuais) if nomes else [f["id"] for f in falhas]
+            msgs.append(f"lote pronto: {len(regs)} sugestão(ões) em Ranking > Categorias"
+                        + (f"; {len(pend)} pendente(s) para o próximo lote ({', '.join(str(x) for x in pend[:8])}"
+                           f"{'…' if len(pend) > 8 else ''})" if pend else ""))
         else:
             msgs.append(f"lote {estado} ({(st.get('request_counts') or {}).get('completed', 0)} de {l.get('itens')})")
         repo._req("PATCH", "ia_lotes", {"id": repo._eq(l["id"])},
@@ -1981,14 +1986,16 @@ def ligar_registro_uso(repo, origem):
             return (r or [{}])[0].get("id")
         if not d.get("id"):
             return None
-        reg = {k: d[k] for k in ("ok", "erro", "modelo", "tokens_in", "tokens_out") if k in d}
+        reg = {k: d[k] for k in ("ok", "erro", "modelo", "tokens_in", "tokens_out", "latencia_ms") if k in d}
         reg["fim"] = datetime.now(timezone.utc).isoformat()
         if d.get("ok") and d.get("modelo"):
             if "p" not in cache:
                 cache["p"] = _precos(repo)
             p = _preco_de(cache["p"], d["modelo"])
             if p and p.get("entrada") is not None and p.get("saida") is not None:
-                reg["custo_usd"] = round((d.get("tokens_in", 0) * float(p["entrada"]) + d.get("tokens_out", 0) * float(p["saida"])) / 1e6, 6)
+                if d.get("tokens_in") is not None:
+                    reg["custo_usd"] = round(((d.get("tokens_in") or 0) * float(p["entrada"])
+                                              + (d.get("tokens_out") or 0) * float(p["saida"])) / 1e6, 6)
         repo._req("PATCH", "agentes_uso", {"id": f"eq.{d['id']}"}, corpo=reg, prefer="return=minimal")
         return None
     ia.USO.update({"gravar": gravar, "origem": origem})

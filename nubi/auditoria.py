@@ -44,19 +44,41 @@ def conferencias(repo, hoje=None):
     por_v = {}
     for r in rows:
         por_v.setdefault(r["vendedor"], {})[str(r["data"])[:10]] = float(r["v"] or 0)
-    # 1) coleta: dias faltando nos últimos 7
     dias7 = [(fim - timedelta(days=i)).isoformat() for i in range(7)]
-    for v, dd in sorted(por_v.items()):
-        falt = [d for d in dias7 if d not in dd]
-        if falt:
-            ach.append({"nivel": "erro" if fim.isoformat() in falt else "alerta", "area": "coleta",
-                        "titulo": f"{v}: {len(falt)} dia(s) sem o arquivo nos últimos 7",
-                        "detalhe": "Dias: " + ", ".join(d[8:10] + "/" + d[5:7] for d in sorted(falt))})
-    # 2) grupo x dia
+    ddmm = lambda d: d[8:10] + "/" + d[5:7]
+    # coleta em andamento: pedido ainda não atendido ou coleta rodando no Mac -> dia faltando vira alerta, não erro
+    andamento = coleta_em_andamento(repo)
     try:
         grupo = repo._todos("vend_grupo_dia", {"select": "data,vendedor,v", "data": f"gte.{ini.isoformat()}"})
     except Exception:  # noqa: BLE001
         grupo = []
+    g_v = {(g["vendedor"], str(g["data"])[:10]): g.get("v") for g in grupo}
+    g_dias = {str(g["data"])[:10] for g in grupo}
+    # 1) coleta: dias faltando nos últimos 7 (e se a tabela do grupo mostra venda nesses dias = falha de download)
+    for v, dd in sorted(por_v.items()):
+        falt = [d for d in dias7 if d not in dd]
+        if falt:
+            com_venda = [d for d in falt if float(g_v.get((v, d)) or 0) > 0]
+            nivel = "alerta" if andamento else ("erro" if fim.isoformat() in falt or com_venda else "alerta")
+            ach.append({"nivel": nivel, "area": "coleta",
+                        "titulo": f"{v}: {len(falt)} dia(s) sem o arquivo nos últimos 7" + (" (coleta em andamento)" if andamento else ""),
+                        "detalhe": "Dias: " + ", ".join(ddmm(d) for d in sorted(falt))
+                        + (f". No grupo com vendas mas sem export (falha de download): {', '.join(ddmm(d) for d in sorted(com_venda))}"
+                           if com_venda else "") + (f". {andamento}" if andamento else "")})
+    # 1b) vendedor que aparece no grupo com vendas e não tem nenhum export no período
+    for gv_nome in sorted({g["vendedor"] for g in grupo} - set(por_v)):
+        dias_v = sorted(d for (n, d), x in g_v.items() if n == gv_nome and d in dias7 and float(x or 0) > 0)
+        if dias_v:
+            ach.append({"nivel": "alerta" if andamento else "erro", "area": "coleta",
+                        "titulo": f"{gv_nome}: no grupo com vendas mas sem export (falha de download)",
+                        "detalhe": "Dias com venda no grupo e sem o arquivo do dia: " + ", ".join(ddmm(d) for d in dias_v)})
+    # 1c) vendedor com export do dia mas ausente da tabela do grupo nesse dia (saiu do grupo ou mudou de nome)
+    for v, dd in sorted(por_v.items()):
+        aus = sorted(d for d in dias7 if d in dd and d in g_dias and (v, d) not in g_v)
+        if aus:
+            ach.append({"nivel": "alerta", "area": "cadastro", "titulo": f"{v}: ausente da tabela do grupo",
+                        "detalhe": "Tem o export do dia mas não aparece no grupo em: " + ", ".join(ddmm(d) for d in aus)
+                        + ". Conferir se saiu do grupo ou mudou de nome no Nubimetrics."})
     difs = []
     for g in grupo:
         d = str(g["data"])[:10]
@@ -129,7 +151,8 @@ def conferencias(repo, hoje=None):
         fracos = []
     for g in fracos[:10]:
         ach.append({"nivel": "info", "area": "produtos iguais", "titulo": "Junção com parecença baixa: conferir",
-                    "detalhe": f"'{g['titulo']}' junto de '{g['grupo_titulo']}' ({g['similaridade']:.2f})"})
+                    "detalhe": f"“{g['titulo']}” junto de “{g['grupo_titulo']}” (parecença {g['similaridade']:.2f}). "
+                               f"Regras: {regras_juncao(g['titulo'], g['grupo_titulo'])}"})
     # 7) rotinas com erro
     for r in repo._todos("rotinas", {"select": "id,nome,ultimo_resultado"}):
         if str(r.get("ultimo_resultado") or "").startswith("erro"):
@@ -137,6 +160,46 @@ def conferencias(repo, hoje=None):
                         "detalhe": str(r["ultimo_resultado"])[:300]})
     ordem = {"erro": 0, "alerta": 1, "info": 2}
     return sorted(ach, key=lambda a: ordem.get(a["nivel"], 3))
+
+
+def coleta_em_andamento(repo):
+    """Texto explicando a coleta em andamento (pedido não atendido ou coleta rodando no Mac), ou "" se não houver."""
+    try:
+        ped = repo._req("GET", "coletor_pedidos", {"select": "id,pedido_em,motivo", "atendido_em": "is.null",
+                                                  "order": "id.desc", "limit": 5}) or []
+    except Exception:  # noqa: BLE001
+        ped = []
+    if ped:
+        return f"Há {len(ped)} pedido(s) de coleta ainda não atendido(s) (o mais recente: {ped[0].get('motivo') or 'coleta'})"
+    try:
+        run = repo._req("GET", "coletor_execucoes", {"select": "id,tarefa,atualizado_em,iniciado_em", "em_andamento": "eq.true",
+                                                    "order": "id.desc", "limit": 1}) or []
+    except Exception:  # noqa: BLE001
+        run = []
+    if run:
+        from datetime import datetime, timezone
+        ts = str(run[0].get("atualizado_em") or run[0].get("iniciado_em") or "")
+        try:
+            recente = (datetime.now(timezone.utc) - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds() < 1800
+        except ValueError:
+            recente = False
+        if recente:
+            return f"Coleta rodando agora no Mac ({run[0].get('tarefa') or 'diario'})"
+    return ""
+
+
+def regras_juncao(a, b):
+    """Resultado de cada regra fixa de produtos iguais para dois títulos (✅ bate, ❌ não bate, — sem informação)."""
+    import produtos_iguais as pi
+    va, vb = pi.volumes(a), pi.volumes(b)
+    ca, cb = pi.concentracoes(a), pi.concentracoes(b)
+    ga, gb = pi.genero(a), pi.genero(b)
+    na, nb = pi.palavras_nome(a), pi.palavras_nome(b)
+    r = lambda ok, info=True: "—" if not info else ("✅" if ok else "❌")
+    return (f"volume {r(bool(va & vb), bool(va and vb))} · kit {r(pi.quantidade(a) == pi.quantidade(b))} · "
+            f"concentração {r(ca == cb, bool(ca and cb))} · gênero {r(ga == gb, bool(ga and gb))} · "
+            f"números {r(pi._numeros_batem(a, b))} · nome {r(na == nb, bool(na and nb))}"
+            + (f" (nomes: {', '.join(sorted(na)) or '—'} x {', '.join(sorted(nb)) or '—'})" if na != nb else ""))
 
 
 def trecho_codigo(noite, limite=45000):
