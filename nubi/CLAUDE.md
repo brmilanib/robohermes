@@ -60,3 +60,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Precisa de decisão do Bruno: `tipo`='pergunta' no evento e o texto da pergunta em `reuniao_tarefas.aguardando`.
   A resposta dele chega como evento `autor`='voce', `tipo`='resposta' (e limpa `aguardando`). Ler antes de seguir.
 - Terminou: `status='feita'` + nota; aparece em "Novidades no nubi" na tela Início por 48 h.
+
+## Aprovação de tarefas (delegação do Bruno, 24/09)
+
+- O Claude coordenador (Sala) aprova sozinho as tarefas de risco baixo ou médio; risco alto fica como proposta com a
+  pergunta em `aguardando`, e o Bruno aprova no card. Travas fixas em `reuniao.RISCO_ALTO` (senhas/chaves, apagar dados,
+  estrutura do banco, pagamentos/compras, login do Nubimetrics, publicar para clientes) sempre vão para o Bruno.
+- Na execução, a sessão de código decide os detalhes técnicos sozinha; só pergunta ao Bruno (evento `pergunta` +
+  `aguardando`) o que for de risco alto.
