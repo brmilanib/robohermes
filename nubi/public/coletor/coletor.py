@@ -312,6 +312,17 @@ def periodos(cfg, hoje=None):
     return saida
 
 
+def periodo_comparativo(cfg, hoje=None):
+    """Do dia 1 ao mesmo dia do mês anterior (01/08–22/08 quando os dados vão até 22/09). None no fim do mês."""
+    d = ultimo_dia_liberado(cfg, hoje)
+    if d.day == calendar.monthrange(d.year, d.month)[1]:
+        return None                               # mês atual fechado: compara mês cheio com mês cheio
+    ant = date(d.year, d.month, 1) - timedelta(days=1)
+    mes = f"{ant.year}-{ant.month:02d}"
+    fim = f"{mes}-{min(d.day, ant.day):02d}"
+    return {"mes": mes, "ini": f"{mes}-01", "fim": fim, "ate": fim, "rng": "CUSTOM"}
+
+
 def limites(mes):
     a, m = map(int, mes.split("-"))
     return f"{mes}-01", f"{mes}-{calendar.monthrange(a, m)[1]:02d}"
@@ -556,7 +567,7 @@ def baixar_vendedor(pg, h, ini, fim, rng, destino):
             pass
 
 
-def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pular=None, avisos=None):
+def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pular=None, avisos=None, rota="vend_importar"):
     """Para cada vendedor do grupo, baixa cada período (mês fechado ou mês atual parcial) e envia ao nubi.
     pular(hash, nome, periodo) -> True quando o nubi já tem exatamente esse período."""
     estado = {"ctx": abrir_navegador(p, cfg)}
@@ -601,7 +612,7 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                 if pular and pular(h, nome, per):
                     continue
                 ao_vivo(True, atual=f"{nome} · {rotulo}")
-                destino = PASTA / "arquivos" / (mes + ("-parcial" if ate else ""))
+                destino = PASTA / "arquivos" / (mes + ("-comparativo" if rota == "vend_foto" else "-parcial" if ate else ""))
                 destino.mkdir(parents=True, exist_ok=True)
                 for tentativa in (1, 2):
                     try:
@@ -621,19 +632,23 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                             if ate:
                                 params["ate"] = ate
                             try:
-                                r = api(token, "vend_importar", params, arq.read_bytes())
+                                r = api(token, rota, params, arq.read_bytes())
                             except Falha as e:
                                 if "nenhum anúncio" in str(e):
                                     raise SemDados()      # o Nubimetrics exportou a planilha vazia: não vendeu no período
                                 raise
                             importados += 1
                             log("    " + " ".join(r.get("log", [])))
+                            if rota == "vend_foto":
+                                cfg.setdefault("fotos", {}).setdefault(h, []).append(ate)
                         break
                     except SessaoExpirada:
                         raise
                     except SemDados:
                         log(f"  {nome} {rotulo}: sem vendas nesse período (nada para importar)")
-                        if not ate:     # mês fechado vazio não muda mais: não tenta de novo
+                        if rota == "vend_foto":
+                            cfg.setdefault("fotos", {}).setdefault(h, []).append(ate)
+                        elif not ate:     # mês fechado vazio não muda mais: não tenta de novo
                             cfg.setdefault("vazios", {}).setdefault(h, []).append(mes)
                         break
                     except Exception as e:  # noqa: BLE001
@@ -1005,6 +1020,14 @@ def main():
             a, i, e = coletar_vendedores(p, cfg, token, pers, pular=pular, avisos=avisos)
             A, I, E = A + a, I + i, E + e
             partes.append(f"vendedores: {i} arquivo(s) importado(s)")
+            # mesmo período do mês anterior (ex.: 01/08 a 22/08), para comparar com 01/09 a 22/09
+            comp = periodo_comparativo(cfg)
+            if comp:
+                feitas = cfg.get("fotos", {})
+                a, i, e = coletar_vendedores(p, cfg, token, [comp], rota="vend_foto",
+                                             pular=lambda h, nome, per: per["ate"] in feitas.get(h, []))
+                A, I, E = A + a, I + i, E + e
+                partes.append(f"mesmo período de {comp['mes']} (até {comp['ate'][8:10]}/{comp['ate'][5:7]}): {i} vendedor(es)")
             if avisos:
                 partes.append(f"{len(avisos)} aviso(s): " + "; ".join(avisos)[:300])
                 aviso_mac("Coletor nubi — conferir", avisos[0])

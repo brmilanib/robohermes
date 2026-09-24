@@ -245,6 +245,9 @@ select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;f
 .navi.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);font-weight:600}
 .master{color:var(--good);font-weight:700}
 .resumo-ia{margin-top:12px;border-left:4px solid var(--accent)}
+.cmpbar{height:7px;border-radius:4px;background:var(--soft);margin:2px 0}
+.cmpbar>i{display:block;height:100%;border-radius:4px;background:var(--s1)}
+.cmpbar.ant>i{background:color-mix(in srgb,var(--s1) 35%,transparent)}
 .resumo-ia .md h3{font-size:14px;margin:12px 0 4px}
 .resumo-ia .md ul{margin:0;padding-left:20px} .resumo-ia .md li{margin:2px 0;font-size:13.5px} .resumo-ia .md p{margin:6px 0;font-size:13.5px}
 .iares{margin-top:6px;font-size:12px;white-space:normal}
@@ -1354,6 +1357,55 @@ function vendVazio(main) {
     O nome do arquivo vira o nome do vendedor, por exemplo <code>AUMA_PERFUMARIA_P2.xlsx</code> → AUMA PERFUMARIA P2.</p>
     <button class="btn primary" onclick="abrirUploadVendedor()">⬆ Importar vendedor</button></div>` + cartaoColetor();
 }
+// Padrão da Visão geral: mês atual até o último dia coletado x os MESMOS dias do mês anterior
+async function telaVendPeriodo(c) {
+  const main = $("#main");
+  const dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
+  const per = `01 a ${dm(c.ate)}`, perAnt = `01 a ${dm(c.ate_ant)}`;
+  const vs = c.vendedores, t = c.total, est = vs.length - c.exatos;
+  const sobe = vs.filter(v => v.var > 0.02).length, cai = vs.filter(v => v.var < -0.02).length;
+  let meses = [];
+  try { meses = (await api("vend_lista")).flatMap(v => v.meses.map(m => m.mes)); } catch { /* sem lista */ }
+  meses = [...new Set(meses)].sort().reverse();
+  const mx = Math.max(...vs.map(v => Math.max(v.v, v.v_ant)), 1);
+  main.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h1>Vendedores monitorados</h1>
+      <select id="vmes" class="mes"><option value="" selected>📆 Mesmo período: ${per} x ${perAnt}</option>${meses.map(m => optMes(m, null, false)).join("")}</select>
+      <span class="muted">${esc(mesCurto(c.mes))} até ${dm(c.ate)} contra os mesmos dias de ${esc(mesCurto(c.mes_ant))} · atualiza todo dia com a coleta</span>
+    </div>
+    ${est ? `<p class="aviso warn">${est} de ${vs.length} vendedor(es) ainda sem o período exato de ${esc(mesCurto(c.mes_ant))}: estimado pela proporção do mês (${perAnt} = mês fechado × ${c.dia}/dias do mês). O coletor baixa o período exato na próxima rodada.</p>` : ""}
+    <div class="card pad resumo-ia" id="v-resumo" style="margin-top:10px"></div>
+    <div class="kpis">
+      ${kpi(`Vendas ${per}`, abrev(t.v), `${pctCor(t.var)} vs ${perAnt} (${abrev(t.v_ant)})`)}
+      ${kpi("Unidades", nf0.format(t.u), t.u_ant ? `${pctCor(t.u / t.u_ant - 1)} vs ${nf0.format(t.u_ant)}` : "")}
+      ${kpi("Vendedores crescendo", `<span class="pos">${sobe}</span> / ${vs.length}`, `${cai} caindo no mesmo período`)}
+      ${kpi("Ritmo por dia", abrev(t.v / c.dia) + "/dia", `${abrev(t.v_ant / c.dia)}/dia em ${esc(mesCurto(c.mes_ant))}`)}
+    </div>
+    <div class="bi-grid">
+      <div class="card pad bi-card largo"><h2>Mesmo período, vendedor por vendedor</h2>
+        <div class="sub">Barra escura: ${esc(mesCurto(c.mes))} (${per}). Barra clara: ${esc(mesCurto(c.mes_ant))} (${perAnt}). Clique no vendedor para abrir a visão do ano.</div>
+        <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Vendedor</th><th style="width:40%">Comparação</th><th class="num">${esc(mesCurto(c.mes))}</th><th class="num">${esc(mesCurto(c.mes_ant))}</th><th class="num">Variação</th><th class="num">Unidades</th></tr></thead>
+        <tbody>${vs.map(v => `<tr><td class="first"><a href="#/vendedores/${encodeURIComponent(v.vendedor)}">${esc(v.vendedor)}</a></td>
+          <td><div class="cmpbar"><i style="width:${(100 * v.v / mx).toFixed(1)}%"></i></div><div class="cmpbar ant"><i style="width:${(100 * v.v_ant / mx).toFixed(1)}%"></i></div></td>
+          <td class="num">${abrev(v.v)}</td><td class="num">${abrev(v.v_ant)}${v.exato ? "" : ` <span class="st warn" title="estimado pela proporção do mês">est.</span>`}</td>
+          <td class="num">${pctCor(v.var)}</td><td class="num">${nf0.format(v.u)} <span class="muted">x ${nf0.format(v.u_ant)}</span></td></tr>`).join("")}</tbody></table></div></div>
+      ${c.ganhos.length ? `<div class="card pad bi-card"><h2>📈 Produtos que mais ganharam vendas</h2><div class="sub">${per} x ${perAnt}, somando os vendedores com período exato.</div>
+        <table class="t" style="font-size:12.5px"><tbody>${c.ganhos.map(p => `<tr><td class="first wrap">${vprodLink(p.chave, p.produto, "")}</td><td class="num">${abrev(p.v)}</td>
+          <td class="num muted">era ${abrev(p.v_ant)}</td><td class="num pos">+${abrev(p.dif).replace("R$ ", "R$ ")}</td></tr>`).join("")}</tbody></table></div>` : ""}
+      ${c.perdas.length ? `<div class="card pad bi-card"><h2>📉 Produtos que mais perderam vendas</h2><div class="sub">${per} x ${perAnt}. Pode ser estoque acabando ou perda de preço.</div>
+        <table class="t" style="font-size:12.5px"><tbody>${c.perdas.map(p => `<tr><td class="first wrap">${vprodLink(p.chave, p.produto, "")}</td><td class="num">${abrev(p.v)}</td>
+          <td class="num muted">era ${abrev(p.v_ant)}</td><td class="num neg">${abrev(p.dif)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+      ${!c.ganhos.length && !c.perdas.length ? `<div class="card pad bi-card"><h2>Produtos em alta e em queda</h2><div class="muted">Aparecem quando o coletor trouxer o período exato de ${esc(mesCurto(c.mes_ant))} (próxima coleta diária).</div></div>` : ""}
+    </div>`;
+  $("#vmes").onchange = e => { location.hash = e.target.value ? `#/vendedores?mes=${e.target.value}` : "#/vendedores"; };
+  const col = (S.coletor || [])[0];
+  if (col && (coletorRodando(col) || (!col.ok && !col.em_andamento))) main.insertAdjacentHTML("afterbegin", `<p class="aviso ${coletorRodando(col) ? "" : "warn"}" style="margin:0 0 10px">
+    ${coletorRodando(col) ? `Coletor baixando agora${col.total ? ` (${col.feito || 0} de ${col.total})` : ""}: ${esc(col.atual || "")}` : `A última coleta terminou com erros: ${esc((col.mensagem || "").slice(0, 120))}`}
+    <a class="btn" href="#/coletor">ver</a></p>`);
+  resumoDia();
+  desenharMenu();
+}
 // Resumo do dia dos vendedores monitorados (a IA escreve às 8h com os dados que o coletor trouxe)
 async function resumoDia(data, gerar, novo) {
   const box = $("#v-resumo");
@@ -1386,6 +1438,11 @@ async function telaVendedores(mes) {
   if (!S.coletor) { try { S.coletor = (await api("coletor_status")).execucoes; } catch { S.coletor = []; } }
   if (!S.vendLista.length) { vendVazio(main); desenharMenu(); return; }
   main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Comparando vendedores</div></div>`;
+  if (!mes) {
+    let c;
+    try { c = await api("vend_periodo"); } catch { c = null; }
+    if (c && c.tem) return telaVendPeriodo(c);
+  }
   let r;
   try { r = await api("vend_comparar", mes ? {mes} : {}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const vs = r.vendedores, tot = vs.reduce((a, v) => a + v.vendas, 0);
@@ -1393,7 +1450,7 @@ async function telaVendedores(mes) {
   main.innerHTML = `
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h1>Vendedores monitorados</h1>
-      <select id="vmes" class="mes">${r.meses.map(m => optMes(m, (r.parciais || {})[m], m === r.mes)).join("")}</select>
+      <select id="vmes" class="mes"><option value="">📆 Mesmo período (mês atual x anterior)</option>${r.meses.map(m => optMes(m, (r.parciais || {})[m], m === r.mes)).join("")}</select>
       <span class="muted">${vs.length} vendedor(es) com relatório em ${esc(mesCurto(r.mes))}${(r.parciais || {})[r.mes] ? ` · <span class="st warn">parcial: variação pelo ritmo por dia</span>` : ""}</span>
     </div>
     <div class="card pad resumo-ia" id="v-resumo" style="margin-top:10px"></div>
@@ -1418,7 +1475,7 @@ async function telaVendedores(mes) {
             return `<td class="c" style="background:color-mix(in oklab, var(--s1) ${t}%, var(--card));${t > 50 ? "color:#fff" : ""}" title="${esc(n)} · ${esc(m.marca)}">${abrev(v).replace("R$ ", "")}${sh != null ? `<br><small>${FMT.pct(sh)}</small>` : ""}</td>`; }).join("")}</tr>`).join("")}
         </tbody></table></div></div>
     </div>`;
-  $("#vmes").onchange = e => { location.hash = `#/vendedores?mes=${e.target.value}`; };
+  $("#vmes").onchange = e => { location.hash = e.target.value ? `#/vendedores?mes=${e.target.value}` : "#/vendedores"; };
   resumoDia();
   const c = (S.coletor || [])[0];
   if (c && (coletorRodando(c) || (!c.ok && !c.em_andamento))) main.insertAdjacentHTML("afterbegin", `<p class="aviso ${coletorRodando(c) ? "" : "warn"}" style="margin:0 0 10px">

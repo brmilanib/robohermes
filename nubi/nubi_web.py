@@ -917,6 +917,94 @@ def _dados_resumo(repo, cat, rels, detalhado=False):
     return "\n".join(out)
 
 
+def _fotos_mes(repo, mes):
+    return repo._todos("vend_produto_dia", {"select": "vendedor,chave,dias", "mes": repo._eq(mes + "-01"),
+                                            "order": "vendedor,chave"})
+
+
+def _comparativo(repo, fotos=None):
+    """
+    Mês atual até o último dia coletado x MESMO PERÍODO do mês anterior (ex.: 01/09–22/09 x 01/08–22/08), por vendedor
+    e por produto. O mês anterior vem da foto do mesmo dia (o coletor baixa esse período todo dia); sem essa foto,
+    usa a proporção do mês fechado (marcado como estimado).
+    """
+    rels = _vend_rels(repo)
+    if not rels:
+        return {"tem": False}
+    mes = max(r["mes"] for r in rels)[:7]
+    fotos = fotos if fotos is not None else _fotos_mes(repo, mes)
+    datas = sorted({d for f in fotos for d in f["dias"]})
+    if not datas:
+        return {"tem": False, "mes": mes}
+    d1 = datas[-1]
+    dia = int(d1[8:10])
+    ant = (date.fromisoformat(mes + "-01") - timedelta(days=1)).strftime("%Y-%m")
+    dias_ant = vend_bi.dias_do_mes(ant)
+    d_ant = f"{ant}-{min(dia, dias_ant):02d}"
+    f_ant = _fotos_mes(repo, ant)
+    vend, prod = {}, {}
+    for f in fotos:
+        a = f["dias"].get(d1)
+        if not a:
+            continue
+        x = vend.setdefault(f["vendedor"], {"vendedor": f["vendedor"], "v": 0.0, "u": 0, "produtos": 0,
+                                            "v_ant": 0.0, "u_ant": 0, "exato": False, "fim_ant": 0.0})
+        x["v"] += float(a.get("v") or 0)
+        x["u"] += int(a.get("u") or 0)
+        x["produtos"] += 1
+        p = prod.setdefault((f["vendedor"], f["chave"]), {"u": 0, "v": 0.0, "u_ant": 0, "v_ant": 0.0})
+        p["u"], p["v"] = int(a.get("u") or 0), float(a.get("v") or 0)
+    for f in f_ant:
+        x = vend.get(f["vendedor"])
+        if not x:
+            continue
+        b = f["dias"].get(d_ant)
+        if b:
+            x["exato"] = True
+            x["v_ant"] += float(b.get("v") or 0)
+            x["u_ant"] += int(b.get("u") or 0)
+            p = prod.setdefault((f["vendedor"], f["chave"]), {"u": 0, "v": 0.0, "u_ant": 0, "v_ant": 0.0})
+            p["u_ant"], p["v_ant"] = int(b.get("u") or 0), float(b.get("v") or 0)
+        if f["dias"]:
+            fim = f["dias"].get(max(f["dias"])) or {}
+            x["fim_ant"] += float(fim.get("v") or 0)
+            x.setdefault("fim_ant_u", 0)
+            x["fim_ant_u"] += int(fim.get("u") or 0)
+    for x in vend.values():
+        if not x["exato"]:                         # sem a foto do mesmo dia: proporção do mês fechado
+            x["v_ant"] = x["fim_ant"] * min(dia, dias_ant) / dias_ant
+            x["u_ant"] = round(x.get("fim_ant_u", 0) * min(dia, dias_ant) / dias_ant)
+        x["var"] = (x["v"] / x["v_ant"] - 1) if x["v_ant"] else None
+    # produtos que mais ganharam e perderam vendas (só com foto exata do mês anterior)
+    por_chave = {}
+    for (v, k), p in prod.items():
+        if not vend.get(v, {}).get("exato"):
+            continue
+        c = por_chave.setdefault(k, {"chave": k, "u": 0, "u_ant": 0, "v": 0.0, "v_ant": 0.0, "vendedores": set()})
+        c["u"] += p["u"]; c["u_ant"] += p["u_ant"]; c["v"] += p["v"]; c["v_ant"] += p["v_ant"]
+        if p["u"]:
+            c["vendedores"].add(v)
+    lista = [dict(c, vendedores=len(c["vendedores"]), dif=c["v"] - c["v_ant"]) for c in por_chave.values()]
+    ganhos = sorted([c for c in lista if c["dif"] > 0], key=lambda c: -c["dif"])[:10]
+    perdas = sorted([c for c in lista if c["dif"] < 0], key=lambda c: c["dif"])[:10]
+    gt = [c["chave"] for c in ganhos + perdas if not c["chave"].startswith("T:")]
+    nomes = {}
+    if gt:
+        ids = ",".join(str(r["id"]) for r in rels if r["mes"][:7] in (mes, ant))
+        for r in repo._todos("vend_anuncios", {"select": "gtin,titulo,marca,unidades", "relatorio_id": f"in.({ids})",
+                                               "gtin": f"in.({','.join(gt)})", "order": "unidades.desc"}):
+            nomes.setdefault(r["gtin"], {"produto": r["titulo"], "marca": r["marca"]})
+    for c in ganhos + perdas:
+        n = nomes.get(c["chave"]) or {"produto": c["chave"].replace("T:", ""), "marca": ""}
+        c.update(n)
+    vs = sorted(vend.values(), key=lambda x: -x["v"])
+    tot = {"v": sum(x["v"] for x in vs), "v_ant": sum(x["v_ant"] for x in vs), "u": sum(x["u"] for x in vs),
+           "u_ant": sum(x["u_ant"] for x in vs)}
+    tot["var"] = (tot["v"] / tot["v_ant"] - 1) if tot["v_ant"] else None
+    return {"tem": True, "mes": mes, "mes_ant": ant, "ate": d1, "ate_ant": d_ant, "dia": dia,
+            "exatos": sum(1 for x in vs if x["exato"]), "vendedores": vs, "total": tot, "ganhos": ganhos, "perdas": perdas}
+
+
 def _dados_resumo_dia(repo):
     """
     O que aconteceu no último dia coletado (dados de 2 dias atrás) com os vendedores monitorados:
@@ -929,8 +1017,7 @@ def _dados_resumo_dia(repo):
         return None, "nenhum vendedor importado"
     mes = max(r["mes"] for r in rels)[:7]
     ant_mes = (date.fromisoformat(mes + "-01") - timedelta(days=1)).strftime("%Y-%m")
-    fotos = repo._todos("vend_produto_dia", {"select": "vendedor,chave,dias", "mes": repo._eq(mes + "-01"),
-                                             "order": "vendedor,chave"})
+    fotos = _fotos_mes(repo, mes)
     datas = sorted({d for f in fotos for d in f["dias"]})
     if not datas:
         return None, "ainda sem fotos diárias do mês"
@@ -981,9 +1068,29 @@ def _dados_resumo_dia(repo):
     dia_n = int(d1[8:10])
     ddmm = f"{d1[8:10]}/{d1[5:7]}"
     linhas = [f"DADOS ATÉ {ddmm} (o Nubimetrics libera com 2 dias de atraso). "
-              + (f"Dia analisado: vendas entre {d0[8:10]}/{d0[5:7]} e {ddmm}." if d0 else "Primeira foto do mês: sem comparação diária.")]
+              + (f"Dia analisado: vendas entre {d0[8:10]}/{d0[5:7]} e {ddmm}." if d0 else
+                 "ATENÇÃO: só existe UMA foto diária deste mês, então NÃO há como saber as vendas do dia (não diga que "
+                 "foram zero). Fale do acumulado do mês e da comparação com o mesmo período do mês anterior.")]
     tot_dia = sum(x["dia_v"] for x in por_v.values())
-    linhas.append(f"TOTAL DOS VENDEDORES MONITORADOS: {fm(tot_dia)} no dia; {fm(sum(x['mtd'] for x in por_v.values()))} no mês até {ddmm}.")
+    linhas.append(f"TOTAL DOS VENDEDORES MONITORADOS: " + (f"{fm(tot_dia)} no dia; " if d0 else "")
+                  + f"{fm(sum(x['mtd'] for x in por_v.values()))} no mês até {ddmm}.")
+    cmp_ = _comparativo(repo, fotos)
+    if cmp_.get("tem"):
+        t = cmp_["total"]
+        ea = f"{cmp_['ate_ant'][8:10]}/{cmp_['ate_ant'][5:7]}"
+        linhas.append(f"MESMO PERÍODO (01 a {ddmm} x 01 a {ea}): {fm(t['v'])} x {fm(t['v_ant'])}"
+                      + (f" ({t['var'] * 100:+.0f}%)" if t["var"] is not None else "")
+                      + ("" if cmp_["exatos"] == len(cmp_["vendedores"]) else
+                         f" — {len(cmp_['vendedores']) - cmp_['exatos']} vendedor(es) com o mês anterior ESTIMADO pela proporção do mês"))
+        for x in cmp_["vendedores"]:
+            linhas.append(f"  · {x['vendedor']}: {fm(x['v'])} x {fm(x['v_ant'])}"
+                          + (f" ({x['var'] * 100:+.0f}%)" if x["var"] is not None else "") + ("" if x["exato"] else " [estimado]"))
+        if cmp_["ganhos"]:
+            linhas.append("PRODUTOS QUE MAIS GANHARAM VENDAS no mesmo período: " + "; ".join(
+                f"{c['produto'][:50]} ({c['marca']}): {fm(c['v'])} x {fm(c['v_ant'])}" for c in cmp_["ganhos"][:8]))
+        if cmp_["perdas"]:
+            linhas.append("PRODUTOS QUE MAIS PERDERAM VENDAS no mesmo período: " + "; ".join(
+                f"{c['produto'][:50]} ({c['marca']}): {fm(c['v'])} x {fm(c['v_ant'])}" for c in cmp_["perdas"][:8]))
     for v, x in sorted(por_v.items(), key=lambda kv: -kv[1]["dia_v"]):
         if not x["tem_d1"]:
             continue
@@ -1019,14 +1126,29 @@ def gerar_resumo_dia(repo, forcar=False):
         ja = repo._req("GET", "ia_resumos", {"select": "chave,texto,ia,criado_em", "chave": repo._eq(chave)}) or []
         if ja:
             return {"atual": ja[0], "novo": False}
+    ontem = repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": "like.vendedores|*",
+                                            "order": "chave.desc", "limit": 2}) or []
+    ontem = next((x for x in ontem if x["chave"] != chave), None)
     try:
         texto, _, qual = ia.perguntar(
-            "Você é analista de e-commerce de perfumes no Mercado Livre Brasil e acompanha os concorrentes do dono de uma loja. "
-            "Com os dados abaixo (do sistema nubi), escreva o RESUMO DO DIA, curto e direto, em português simples e com números. "
-            "Seções: **Vendas do dia**, **Vendedores em destaque** (quem acelerou e quem desacelerou no mês), "
-            "**Produtos que mais venderam**, **Estoque dos concorrentes e sinais de compra**, **O que fazer hoje** (2 ou 3 ações). "
-            "Use só os dados fornecidos, não invente números. Formato: markdown simples (## para seções, - para tópicos).\n\n"
-            + dados, web=False, max_tokens=1600)
+            "Você é o analista de mercado do dono de uma loja de perfumes no Mercado Livre Brasil. Todo dia você acompanha "
+            "os vendedores concorrentes que ele monitora (dados do Nubimetrics, liberados com 2 dias de atraso) e escreve o "
+            "RESUMO DO DIA: curto, direto, em português simples e sempre com números.\n"
+            "Como analisar:\n"
+            "- A comparação principal é o MESMO PERÍODO: do dia 1 até o último dia com dados no mês atual contra os mesmos "
+            "dias do mês anterior (ex.: 01/09–22/09 x 01/08–22/08). Nunca compare um mês parcial com um mês fechado.\n"
+            "- Diga quem está crescendo e quem está caindo nesse comparativo, e os produtos que mais ganharam ou perderam vendas.\n"
+            "- Procure OPORTUNIDADES (produto vendendo mais no mercado, concorrente sem estoque de um produto que vende bem, "
+            "marca subindo) e dê ALERTAS (queda forte, concorrente acelerando muito, muitos vendedores no mesmo produto).\n"
+            "- Se houver o resumo de ontem, diga o que mudou e acompanhe os alertas de ontem (resolveu? piorou?).\n"
+            "- No futuro o nubi vai ter as vendas e o estoque da própria loja; por enquanto recomende o que ele deve olhar na "
+            "loja dele (ex.: \"confira se você tem estoque de X\").\n"
+            "- Use só os dados fornecidos; não invente números; quando um dado for estimado, avise.\n"
+            "Seções: **Mesmo período** (total e por vendedor), **Destaques do dia**, **Produtos em alta e em queda**, "
+            "**Estoque dos concorrentes e oportunidades**, **Alertas**, **O que fazer hoje** (2 ou 3 ações). "
+            "Formato: markdown simples (## para seções, - para tópicos).\n\n"
+            + dados + (f"\n\nRESUMO DE ONTEM ({ontem['chave'].split('|')[1]}):\n{ontem['texto'][:3000]}" if ontem else ""),
+            web=False, max_tokens=2000)
     except Exception as e:  # noqa: BLE001
         raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
     _guardar_resumo(repo, chave, texto, qual)
@@ -1402,6 +1524,32 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         if antigos:
             log.append("(substituiu o relatório anterior do mesmo mês)")
         return {"ok": True, "log": log, "vendedor": vend, "mes": mes}
+
+    if rota == "vend_foto" and metodo == "POST":
+        # export de um período parcial de mês passado (ex.: 01/08 a 22/08) só para a comparação com o mesmo período:
+        # vira a foto acumulada do dia 22/08 em vend_produto_dia; o relatório do mês fechado continua o mesmo
+        nome = q.get("arquivo") or "vendedor.xlsx"
+        try:
+            linhas, vend, _ = vendedores.ler_vendedor(corpo, nome)
+        except vendedores.ErroVendedor as e:
+            raise ErroNuvem(f"Não importado: {e}.")
+        mes, ate = q.get("mes") or "", q.get("ate") or ""
+        if not re.fullmatch(r"\d{4}-\d{2}", mes) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", ate):
+            raise ErroNuvem("Informe o mês e a data (ate) da foto.")
+        vend = (vend or "").strip().upper()
+        if q.get("seller_hash"):
+            r = repo._req("GET", "vend_relatorios", {"select": "vendedor", "seller_hash": repo._eq(q["seller_hash"]),
+                                                     "order": "mes.desc", "limit": 1}) or []
+            if r:
+                vend = r[0]["vendedor"]
+        fts = vend_bi.fotos(linhas, vend, mes, ate)
+        for i in range(0, len(fts), LOTE):
+            repo._req("POST", "rpc/vend_dia_gravar", corpo={"dados": fts[i:i + LOTE]})
+        return {"ok": True, "log": [f"Foto de {vend} até {ate[8:10]}/{ate[5:7]} gravada ({len(fts)} produtos), "
+                                    "para comparar com o mesmo período do mês atual."], "vendedor": vend}
+
+    if rota == "vend_periodo":
+        return _comparativo(repo)
 
     if rota == "vend_relatorio":
         vend = q["vendedor"]
