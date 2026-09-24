@@ -31,6 +31,7 @@ import pesquisa_marca
 import produtos_iguais
 import auditoria
 import agentes
+import estoque
 import reuniao
 import vend_bi
 import vendedores
@@ -622,6 +623,8 @@ def atender(metodo, rota, q, corpo, token):
             if d.get("id"):
                 repo._req("PATCH", "coletor_execucoes", {"id": repo._eq(int(d["id"]))}, corpo=reg,
                           prefer="return=minimal")
+                if d.get("em_andamento") is False and d.get("tarefa") == "estoque":
+                    _marcar_rotina(repo, "estoque", ("" if d.get("ok") else "erro: ") + str(d.get("mensagem") or ""))
                 if d.get("em_andamento") is False and d.get("tarefa") == "diario":
                     try:
                         rt = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.resumo_dia"}) or [None])[0]
@@ -640,10 +643,12 @@ def atender(metodo, rota, q, corpo, token):
         if rota == "coletor_pedir" and metodo == "POST":
             # "Rodar coleta agora": o vigia do Mac (a cada 15 min) pega o pedido e roda a coleta
             d = json.loads(corpo or b"{}")
-            aberto = repo._req("GET", "coletor_pedidos", {"select": "id", "atendido_em": "is.null", "limit": 1}) or []
+            tarefa = "estoque" if d.get("tarefa") == "estoque" else "diario"
+            aberto = repo._req("GET", "coletor_pedidos", {"select": "id", "atendido_em": "is.null", "tarefa": repo._eq(tarefa),
+                                                          "limit": 1}) or []
             if not aberto:
-                repo._req("POST", "coletor_pedidos", corpo=[{"motivo": str(d.get("motivo") or "pedido no site")[:200]}],
-                          prefer="return=minimal")
+                repo._req("POST", "coletor_pedidos", corpo=[{"motivo": str(d.get("motivo") or "pedido no site")[:200],
+                                                             "tarefa": tarefa}], prefer="return=minimal")
             return _json({"ok": True, "ja_havia": bool(aberto)})
         if rota == "coletor_pedido":
             # o vigia do Mac pergunta se há pedido de coleta (dos últimos 2 dias)
@@ -653,7 +658,10 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"pedido": p[0] if p else None})
         if rota == "coletor_pedido_ok" and metodo == "POST":
             d = json.loads(corpo or b"{}")
-            repo._req("PATCH", "coletor_pedidos", {"atendido_em": "is.null", "id": f"lte.{int(d.get('id') or 0)}"},
+            filtro = {"atendido_em": "is.null", "id": f"lte.{int(d.get('id') or 0)}"}
+            if d.get("tarefa"):
+                filtro["tarefa"] = repo._eq(str(d["tarefa"]))       # atender o estoque não apaga um pedido de coleta
+            repo._req("PATCH", "coletor_pedidos", filtro,
                       corpo={"atendido_em": datetime.now(timezone.utc).isoformat(), "resultado": str(d.get("resultado") or "")[:200]},
                       prefer="return=minimal")
             return _json({"ok": True})
@@ -702,6 +710,8 @@ def atender(metodo, rota, q, corpo, token):
         if rota.startswith("vend_"):
             return _json(rota_vendedores(repo, metodo, rota, q, corpo))
 
+        if rota.startswith("estoque"):
+            return _json(rota_estoque(repo, metodo, rota, q, corpo))
         if rota.startswith("mac_"):
             return _json(rota_mac(repo, metodo, rota, q, corpo, token))
         if rota.startswith("agentes"):
@@ -1613,7 +1623,10 @@ def tela_inicio(repo):
                  "custo_mes": round(sum(float(u.get("custo_usd") or 0) for u in usos), 4),
                  "chamadas_hoje": sum(1 for u in usos if _br(u["inicio"]).date() == hoje)}
     col = seguro(lambda: repo._req("GET", "coletor_execucoes", {"select": "iniciado_em,terminado_em,ok,em_andamento,mensagem,tarefa",
-                                                                "order": "id.desc", "limit": 1}), []) or []
+                                                                "tarefa": "neq.estoque", "order": "id.desc", "limit": 1}), []) or []
+    est = seguro(lambda: repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em,skus,unidades,valor,zerados,resumo,analise_por",
+                                                                   "order": "id.desc", "limit": 1}), []) or []
+    out["estoque"] = est[0] if est else None
     out["coleta"] = col[0] if col else None
     if out["coleta"]:
         out["coleta"]["mensagem"] = (out["coleta"].get("mensagem") or "")[:200]
@@ -1907,6 +1920,7 @@ def resumos_marcas_pendentes(repo):
 # A coleta roda no Mac mini (launchd) e só consulta se está ligada no dia.
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
+NO_MAC = ("coleta", "estoque")            # rodam no Mac mini (coletor); o servidor só diz se está na hora
 NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "auditoria", "reuniao", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
@@ -2147,6 +2161,115 @@ def _perguntar_agente(aid, texto, max_tokens=300):
                         qual=qual, modelo=modelo)
 
 
+# ---------------------------------------------------------------------------
+# Minhas Lojas → Estoque (UpSeller). O coletor do Mac exporta a Lista de Estoque de madrugada (rotina 'estoque')
+# e manda para estoque_importar; cada envio vira uma foto completa, comparada com a anterior e analisada pelo Estoquista.
+# ---------------------------------------------------------------------------
+CAMPOS_ESTOQUE = ("sku", "titulo", "armazem", "estante", "estoque_min", "transito_compra", "transito_transf", "ocupado",
+                  "disponivel", "atual", "custo_medio", "subtotal", "criado")
+
+
+def _estoque_itens(repo, aid):
+    return repo._todos("estoque_itens", {"select": ",".join(CAMPOS_ESTOQUE), "atualizacao_id": repo._eq(int(aid)), "order": "sku"})
+
+
+def estoque_importar(repo, conteudo, arquivo, origem="coletor", esperado=None):
+    try:
+        itens = estoque.ler_planilha(conteudo)
+    except estoque.ErroEstoque as e:
+        raise ErroNuvem(f"Estoque não importado: {e}.")
+    if esperado and int(esperado) != len(itens):
+        raise ErroNuvem(f"Estoque não importado: a tela do UpSeller mostrava {esperado} SKUs e a planilha tem {len(itens)} "
+                        "(export incompleto; o coletor tenta de novo).")
+    h = ranking.hash_de(conteudo)
+    ja = repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "hash": repo._eq(h), "limit": 1}) or []
+    if ja:
+        return {"ok": True, "id": ja[0]["id"], "repetido": True,
+                "log": [f"Essa planilha já foi importada (atualização de {_br(ja[0]['criado_em']):%d/%m %H:%M})."]}
+    ant = (repo._req("GET", "estoque_atualizacoes", {"select": "id", "order": "id.desc", "limit": 1}) or [None])[0]
+    anteriores = _estoque_itens(repo, ant["id"]) if ant else []
+    for it in anteriores:
+        for c in estoque.NUMEROS:
+            it[c] = None if it.get(c) is None else float(it[c])
+    d = estoque.comparar(anteriores, itens)
+    t, resumo = d["totais"], estoque.resumo_texto(d)
+    novo = repo._req("POST", "estoque_atualizacoes", corpo=[{
+        "origem": origem, "arquivo": arquivo, "hash": h, "esperado": int(esperado) if esperado else None,
+        "skus": t["skus"], "unidades": t["unidades"], "valor": t["valor"], "zerados": t["zerados"],
+        "resumo": resumo, "diff": d}], prefer="return=representation")
+    aid = novo[0]["id"]
+    regs = [dict({c: it.get(c) for c in CAMPOS_ESTOQUE}, atualizacao_id=aid) for it in itens]
+    try:
+        for i in range(0, len(regs), LOTE):
+            repo._req("POST", "estoque_itens", corpo=regs[i:i + LOTE], prefer="return=minimal")
+    except ErroNuvem:
+        repo._req("DELETE", "estoque_atualizacoes", {"id": repo._eq(aid)})
+        raise
+    analise = estoque_analisar(repo, aid, d, itens)
+    return {"ok": True, "id": aid, "log": [f"OK: estoque importado ({arquivo})."] + resumo + ([analise] if analise else [])}
+
+
+def estoque_analisar(repo, aid, d=None, itens=None):
+    """O Estoquista escreve a leitura curta da atualização (grava em analise/analise_por). Devolve o aviso, se falhar."""
+    if d is None:
+        reg = (repo._req("GET", "estoque_atualizacoes", {"select": "diff", "id": repo._eq(int(aid))}) or [None])[0]
+        if not reg:
+            raise ErroNuvem("Atualização de estoque não encontrada.", 404)
+        d, itens = reg["diff"], _estoque_itens(repo, aid)
+        for it in itens:
+            for c in estoque.NUMEROS:
+                it[c] = None if it.get(c) is None else float(it[c])
+    ia.USO["origem"] = "estoque"
+    texto, quem = estoque.analisar_ia(d, itens, agentes.SISTEMA)
+    if texto:
+        repo._req("PATCH", "estoque_atualizacoes", {"id": repo._eq(int(aid))}, corpo={"analise": texto, "analise_por": quem},
+                  prefer="return=minimal")
+        return ""
+    return f"(análise do Estoquista não saiu agora: {quem})"
+
+
+def rota_estoque(repo, metodo, rota, q, corpo):
+    if rota == "estoque_importar" and metodo == "POST":
+        return estoque_importar(repo, corpo, (q.get("arquivo") or "Lista_de_Estoque.xlsx")[:200],
+                                "manual" if q.get("origem") == "manual" else "coletor",
+                                int(q["esperado"]) if str(q.get("esperado") or "").isdigit() else None)
+    if rota == "estoque_analisar" and metodo == "POST":
+        aid = int(json.loads(corpo or b"{}").get("id") or 0)
+        aviso = estoque_analisar(repo, aid)
+        if aviso:
+            raise ErroNuvem(aviso.strip("()"))
+        return {"ok": True}
+    if rota == "estoque_pedir" and metodo == "POST":
+        aberto = repo._req("GET", "coletor_pedidos", {"select": "id", "atendido_em": "is.null", "tarefa": "eq.estoque", "limit": 1}) or []
+        if not aberto:
+            repo._req("POST", "coletor_pedidos", corpo=[{"motivo": "atualizar o estoque (pedido no site)", "tarefa": "estoque"}],
+                      prefer="return=minimal")
+        return {"ok": True, "ja_havia": bool(aberto)}
+    if rota == "estoque_pendente":
+        # o vigia do Mac pergunta se está na hora da atualização da madrugada (rotina 'estoque', 1 vez por dia)
+        rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.estoque"}) or [None])[0]
+        agora = _agora_br()
+        ult = (repo._req("GET", "estoque_atualizacoes", {"select": "criado_em", "origem": "eq.coletor", "order": "id.desc", "limit": 1})
+               or [None])[0]
+        hoje_ok = bool(ult and _br(ult["criado_em"]).date() == agora.date())
+        na_hora = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "03:00"))
+        return {"rodar": na_hora and not hoje_ok, "feito_hoje": hoje_ok, "horario": (rot or {}).get("horario")}
+    if rota == "estoque":
+        hist = repo._req("GET", "estoque_atualizacoes", {
+            "select": "id,criado_em,origem,arquivo,skus,unidades,valor,zerados,resumo,analise_por", "order": "id.desc", "limit": 60}) or []
+        if not hist:
+            return {"atual": None, "historico": [], "itens": []}
+        aid = int(q.get("id") or hist[0]["id"])
+        atual = (repo._req("GET", "estoque_atualizacoes", {"select": "*", "id": repo._eq(aid)}) or [None])[0]
+        if not atual:
+            raise ErroNuvem("Atualização de estoque não encontrada.", 404)
+        rot = (repo._req("GET", "rotinas", {"select": "horario,ativo,ultima_execucao,ultimo_resultado", "id": "eq.estoque"}) or [None])[0]
+        falha = (repo._req("GET", "coletor_execucoes", {"select": "iniciado_em,ok,mensagem,em_andamento", "tarefa": "eq.estoque",
+                                                         "order": "id.desc", "limit": 1}) or [None])[0]
+        return {"atual": atual, "itens": _estoque_itens(repo, aid), "historico": hist, "rotina": rot, "ultima_execucao": falha}
+    raise ErroNuvem("Rota desconhecida.", 404)
+
+
 # Terminal do Mac: lista FECHADA (o Mac confere de novo do lado dele); nada vira comando livre
 COMANDOS_MAC = {
     "status": "Status das coletas", "diario": "Rodar a coleta agora", "parar_coleta": "Parar a coleta em andamento",
@@ -2154,7 +2277,7 @@ COMANDOS_MAC = {
     "log_vigia": "Últimas linhas do vigia", "log_coleta": "Últimas linhas da coleta",
     "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco",
-    "baixar_modelo": "Baixar modelo do Ollama",
+    "baixar_modelo": "Baixar modelo do Ollama", "estoque": "Atualizar o estoque do UpSeller agora",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 
@@ -2269,7 +2392,7 @@ def rota_rotinas(repo, metodo, rota, q, corpo):
         rs = repo._todos("rotinas", {"select": "*", "order": "ordem,id"})
         ag = _agora_br()
         for r in rs:
-            r["automatica"] = r["id"] in NO_SERVIDOR or r["id"] == "coleta"
+            r["automatica"] = r["id"] in NO_SERVIDOR or r["id"] in NO_MAC
             r["pendente"] = r["id"] in NO_SERVIDOR and rotina_pendente(r, ag)
         return {"rotinas": rs, "agora": ag.strftime("%Y-%m-%d %H:%M"), "dias": DIAS_SEM}
     if rota == "ops_execucoes":
@@ -2307,7 +2430,7 @@ def rota_rotinas(repo, metodo, rota, q, corpo):
         return {"ok": True, "id": reg["id"]}
     if rota == "rotina_apagar" and metodo == "POST":
         rid = json.loads(corpo or b"{}").get("id") or ""
-        if rid in NO_SERVIDOR or rid == "coleta":
+        if rid in NO_SERVIDOR or rid in NO_MAC:
             raise ErroNuvem("As tarefas do sistema não podem ser apagadas; desligue-a (Ativa) se não quiser que rode.")
         repo._req("DELETE", "rotinas", {"id": repo._eq(rid)})
         return {"ok": True}

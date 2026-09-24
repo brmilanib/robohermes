@@ -525,3 +525,35 @@ create policy "autorizado" on public.mac_comandos for all to authenticated
   using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
 create policy "autorizado" on public.mac_estado for all to authenticated
   using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Minhas Lojas → Estoque: cada atualização (export "Lista de Estoque" do UpSeller) vira uma foto completa do estoque,
+-- comparada com a anterior (entrou, saiu, zerou, voltou, novos, removidos) e analisada pelo agente de estoque
+create table if not exists public.estoque_atualizacoes (
+  id bigint generated always as identity primary key,
+  criado_em timestamptz not null default now(),
+  origem text not null default 'coletor', loja text not null default 'UpSeller · My Warehouse',
+  arquivo text, hash text, esperado int,
+  skus int, unidades numeric, valor numeric, zerados int,
+  resumo jsonb, diff jsonb, analise text, analise_por text
+);
+create index if not exists estoque_atualizacoes_data on public.estoque_atualizacoes (criado_em desc);
+create table if not exists public.estoque_itens (
+  atualizacao_id bigint not null references public.estoque_atualizacoes (id) on delete cascade,
+  sku text not null, titulo text, armazem text, estante text, estoque_min numeric,
+  transito_compra numeric, transito_transf numeric, ocupado numeric, disponivel numeric, atual numeric,
+  custo_medio numeric, subtotal numeric, criado text,
+  primary key (atualizacao_id, sku)
+);
+alter table public.estoque_atualizacoes enable row level security;
+alter table public.estoque_itens enable row level security;
+create policy "autorizado" on public.estoque_atualizacoes for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+create policy "autorizado" on public.estoque_itens for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+insert into public.rotinas (id, nome, descricao, responsavel, horario, dias_semana, ativo, ordem) values
+  ('estoque', 'Estoque do UpSeller', 'O coletor exporta a Lista de Estoque (My Warehouse) do UpSeller e importa em Minhas Lojas → Estoque; o Estoquista analisa o que entrou, saiu e zerou.',
+   'Mac mini (coletor)', '03:00', array['seg','ter','qua','qui','sex','sab','dom'], true, 5)
+on conflict (id) do nothing;
+insert into public.agentes (id, nome, icone, cor, papel, onde, ordem) values
+  ('estoquista', 'Estoquista', '📦', '#2f7d5b', 'Analisa cada atualização do estoque: o que entrou, saiu, zerou, estoque baixo e sem custo', 'gpt-oss grátis (DeepSeek/Claude de reserva)', 7)
+on conflict (id) do nothing;

@@ -29,16 +29,18 @@ vend_vendas_dia (venda isolada por vendedor/dia/produto: unidades, vendas R$, pr
 grupo do Nubimetrics: manda nos totais por vendedor), produto_grupos (títulos sem GTIN que são o mesmo produto,
 juntados por embeddings + regras de volume/kit/concentração/gênero/nome), ia_resumos (resumos diário, semanal e
 mensal), rotinas, auditorias, reuniao_mensagens e reuniao_tarefas (esta sala e a fila de desenvolvimento),
-ranking_categorias, marca_sugestoes, coletor_pedidos.
+ranking_categorias, marca_sugestoes, coletor_pedidos, estoque_atualizacoes e estoque_itens (estoque das lojas do dono:
+cada atualização é uma foto completa do export Lista de Estoque do UpSeller, com a comparação com a anterior).
 
 ## Telas
 Início (resumo de tudo: vendas do último dia, contagens, próximas datas de vendas, resumo da IA, operação),
 Ranking de marcas, Explorador, Concorrentes (Visão geral, Comparar, Vendas diárias, Alertas, Vendedores),
+Minhas Lojas (Estoque: estoque do UpSeller, o que entrou/saiu/zerou e a análise do agente Estoquista),
 Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reunião, Agentes, Coletor) e Ajustes
 (Nomes de marcas, Nomes de vendedores, Produtos iguais). No celular há uma barra de atalhos embaixo.
 
 ## Rotinas (horário de Brasília)
-categorias_lote 04:00, produtos_ia 05:30, agente 06:00, coleta 07:00 (Mac), resumo_dia, resumo_semana (segunda),
+estoque 03:00 (Mac: exporta o estoque do UpSeller), categorias_lote 04:00, produtos_ia 05:30, agente 06:00, coleta 07:00 (Mac), resumo_dia, resumo_semana (segunda),
 resumo_marcas (dia 3), auditoria 10:30 (conferências de dados + revisão de código) e reunião diária 11:00.
 
 ## Regras que ninguém quebra

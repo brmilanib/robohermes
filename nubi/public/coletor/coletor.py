@@ -19,6 +19,9 @@ Depois, os comandos ficam em ~/.nubi-coletor/coletor (ex.: ~/.nubi-coletor/colet
   python coletor.py atualizar       baixa a versão mais nova do coletor
   python coletor.py hermes          o Hermes (Ollama, no Mac) lê a Sala de reunião e dá a opinião dele
   python coletor.py qwen            o Qwen (Ollama, no Mac) confere a Sala e posta a revisão dele
+  python coletor.py entrar-upseller abre o navegador para você fazer login no UpSeller (uma vez)
+  python coletor.py estoque         exporta a Lista de Estoque do UpSeller e manda para Minhas Lojas → Estoque
+                                    (o vigia roda sozinho de madrugada, no horário da rotina 'estoque')
   (qualquer coleta aceita --ver para mostrar a janela do navegador e acompanhar)
 
 Os caminhos, botões e endereços do Nubimetrics seguem o mapeamento feito com o Claude do
@@ -46,6 +49,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 BASE = os.environ.get("NUBIMETRICS_URL", "https://app.nubimetrics.com")
+UPSELLER = os.environ.get("UPSELLER_URL", "https://app.upseller.com")
 NUBI = os.environ.get("NUBI_URL", "https://nubi-explorador.vercel.app")
 SUPABASE_URL = "https://ivsmadbyzbmugwfadwtg.supabase.co"
 SUPABASE_KEY = "sb_publishable_hlLuzIP8GMxjwTfY-otJQQ_LbMPm7Yt"     # chave pública (a mesma da página)
@@ -1256,6 +1260,145 @@ def cmd_dias(args, segundos=None):
     return executar("dias", f)
 
 
+# ---------------------------------------------------------------------------
+# Estoque do UpSeller (Minhas Lojas → Estoque): Estoque → Lista de Estoque → aba My Warehouse →
+# Importar & Exportar → Exportar Páginas (1 até o total) → Exportar → 100% → Baixar
+# ---------------------------------------------------------------------------
+
+def _upseller_lista(pg):
+    """Abre a Lista de Estoque; sem o botão 'Importar & Exportar' em 60 s = login vencido ou tela mudou."""
+    pg.goto(f"{UPSELLER}/pt/inventory/list", wait_until="domcontentloaded", timeout=90000)
+    botao = pg.get_by_text("Importar & Exportar").first
+    try:
+        botao.wait_for(state="visible", timeout=60000)
+    except Exception:  # noqa: BLE001
+        u = urllib.parse.urlparse(pg.url)
+        senha = pg.locator("input[type=password]:visible").count() > 0
+        if senha or "login" in (u.path + u.fragment).lower() or "/inventory" not in u.path:
+            raise SessaoExpirada("O UpSeller pediu login de novo. No Mac mini, rode: ~/.nubi-coletor/coletor entrar-upseller "
+                                 + diagnostico(pg))
+        raise Falha("a Lista de Estoque do UpSeller não carregou (sem o botão 'Importar & Exportar') " + diagnostico(pg))
+    devagar(3)
+    return botao
+
+
+def _numero(txt, rotulo):
+    m = re.search(rotulo + r"\s*[:\n]?\s*([\d.]+)", txt)
+    return int(m.group(1).replace(".", "")) if m else None
+
+
+def baixar_estoque(pg):
+    """Faz o export na tela e devolve (arquivo baixado, SKUs esperados)."""
+    botao = _upseller_lista(pg)
+    aba = pg.get_by_text(re.compile(r"^\s*My Warehouse\s*\d*\s*$")).first
+    esperado = None
+    if aba.count():
+        aba.click()
+        devagar(3)
+        esperado = _numero(aba.inner_text(), "My Warehouse")
+    log(f"  UpSeller: Lista de Estoque aberta (My Warehouse: {esperado if esperado is not None else '?'} SKUs)")
+    botao.click()
+    devagar(1.5)
+    pg.get_by_text("Exportar Páginas", exact=True).first.click()
+    janela = pg.locator(".ant-modal-content, [role=dialog]").filter(has_text=re.compile("Total de P[aá]ginas")).last
+    janela.wait_for(state="visible", timeout=30000)
+    devagar(1.5)
+    paginas = _numero(janela.inner_text(), "Total de P[aá]ginas")
+    campos = janela.locator("input:visible")
+    if paginas and campos.count() >= 2:
+        campos.nth(0).fill("1")
+        campos.nth(1).fill(str(paginas))
+    log(f"  exportando as páginas 1 a {paginas or '?'}")
+    janela.get_by_role("button", name=re.compile(r"^\s*Exportar\s*$")).click()
+    baixar = pg.get_by_role("button", name=re.compile(r"^\s*Baixar\s*$")).last
+    baixar.wait_for(state="visible", timeout=15 * 60 * 1000)
+    devagar(2)
+    fim = pg.locator(".ant-modal-content, [role=dialog]").filter(has=baixar).last.inner_text()
+    total, sucesso, falhou = _numero(fim, "Total"), _numero(fim, "Sucesso"), _numero(fim, "Falhou")
+    log(f"  export pronto: total {total}, sucesso {sucesso}, falhou {falhou}")
+    if falhou:
+        raise Falha(f"o UpSeller exportou com {falhou} SKU(s) com falha; não importei (tento de novo depois)")
+    destino = PASTA / "estoque"
+    destino.mkdir(parents=True, exist_ok=True)
+    try:
+        with pg.expect_download(timeout=120000) as dl:
+            baixar.click()
+    except Exception:  # noqa: BLE001
+        with pg.expect_download(timeout=120000) as dl:     # plano B: o nome do arquivo na janela também baixa
+            pg.get_by_text(re.compile(r"\.xlsx\s*$")).last.click()
+    d = dl.value
+    arq = destino / d.suggested_filename                  # nome do UpSeller, sem renomear
+    d.save_as(str(arq))
+    return arq, sucesso or esperado
+
+
+def coletar_estoque(p, cfg, token, enviar=True):
+    ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    try:
+        arq, esperado = baixar_estoque(pg)
+        guardar_sessao(ctx)
+    except SessaoExpirada:
+        enviar_foto(pg, "estoque: login do UpSeller vencido", resumo_tela(pg))
+        raise
+    except Exception as e:  # noqa: BLE001
+        enviar_foto(pg, f"estoque: {str(e)[:150]}", resumo_tela(pg))
+        raise
+    finally:
+        ctx.close()
+    log(f"  baixado: {arq.name} ({arq.stat().st_size // 1024} KB)")
+    if not enviar:
+        return 1, 0, 0, f"estoque baixado em {arq} (sem enviar)"
+    r = api(token, "estoque_importar", {"arquivo": arq.name, **({"esperado": esperado} if esperado else {})}, arq.read_bytes())
+    for linha in r.get("log") or []:
+        log("  " + linha)
+    linhas = r.get("log") or ["estoque importado"]
+    return 1, 1, 0, (linhas[1] if len(linhas) > 1 else linhas[0])[:200]
+
+
+def cmd_entrar_upseller(args, cfg):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        ctx = abrir_navegador(p, cfg, visivel=True)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(f"{UPSELLER}/pt/inventory/list")
+        print("Faça login no UpSeller na janela que abriu (a senha fica só no navegador do coletor, nunca no nubi).")
+        print("Quando a Lista de Estoque aparecer, o login fica salvo e a janela fecha sozinha.")
+        fim, ok = time.time() + 600, False
+        while time.time() < fim:
+            try:
+                if pg.get_by_text("Importar & Exportar").count():
+                    ok = True
+                    break
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(2)
+        if ok:
+            time.sleep(3)
+            guardar_sessao(ctx)
+        ctx.close()
+        if not ok:
+            print("Tempo esgotado (10 min) sem ver a Lista de Estoque.")
+            return 1
+        print("OK: login do UpSeller feito. Testando se o coletor entra sozinho, sem janela…")
+        for visivel in (False, True):
+            ctx = abrir_navegador(p, cfg, visivel=visivel)
+            try:
+                _upseller_lista(ctx.pages[0] if ctx.pages else ctx.new_page())
+                guardar_sessao(ctx)
+                cfg["upseller_ver"] = visivel
+                salvar_config(cfg)
+                print("OK: " + ("funciona com a janela aberta (ela aparece e some sozinha)." if visivel
+                                else "funciona sem janela. O estoque vai atualizar sozinho de madrugada."))
+                return 0
+            except Falha as e:
+                print(f"  {'Com' if visivel else 'Sem'} janela não entrou: {str(e)[:160]}")
+            finally:
+                ctx.close()
+        print("Me mande esta mensagem e a foto ~/.nubi-coletor/ultimo-erro.png.")
+        return 1
+
+
 VIGIA_PLIST = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.vigia.plist"
 
 
@@ -1355,7 +1498,7 @@ def comando_mac(chave, arg=""):
     tabela = {
         "status": [c, "status"], "diario": [c, "diario"], "atualizar": [c, "atualizar"],
         "parar_coleta": [c, "parar"], "vigia_reativar": [c, "vigia-reativar"],
-        "hermes": [c, "hermes"], "qwen": [c, "qwen"],
+        "hermes": [c, "hermes"], "qwen": [c, "qwen"], "estoque": [c, "estoque"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -1477,15 +1620,38 @@ def cmd_vigiar():
     try:
         token = token_nubi(cfg)
         pedido = api(token, "coletor_pedido", timeout=30).get("pedido")
+        if pedido and pedido.get("tarefa") == "estoque":
+            api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": "estoque", "resultado": "estoque iniciado"}, timeout=30)
+            print(f"{datetime.now():%d/%m %H:%M} vigia: pedido no site -> atualizando o estoque do UpSeller", flush=True)
+            os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "estoque"])
         if pedido:
-            api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "resultado": "coleta iniciada"}, timeout=30)
+            api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": pedido.get("tarefa") or "diario",
+                                                   "resultado": "coleta iniciada"}, timeout=30)
             motivo = motivo or f"pedido no site: {pedido.get('motivo') or 'rodar coleta agora'}"
+        if not motivo and _estoque_na_hora(cfg, token):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: hora do estoque do UpSeller -> atualizando", flush=True)
+            os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "estoque"])
     except Exception as e:  # noqa: BLE001
         print(f"{datetime.now():%d/%m %H:%M} vigia: sem contato com o nubi ({e})", flush=True)
     if not motivo:
         return 0
     print(f"{datetime.now():%d/%m %H:%M} vigia: {motivo} -> rodando a coleta", flush=True)
     os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "diario"])
+
+
+def _estoque_na_hora(cfg, token):
+    """Rotina 'estoque' (madrugada): o nubi diz se está na hora e ainda não rodou hoje; no máximo 3 tentativas por dia."""
+    r = api(token, "estoque_pendente", timeout=30)
+    if not r.get("rodar"):
+        return False
+    hoje = date.today().isoformat()
+    tent = {k: v for k, v in (cfg.get("estoque_tentativas") or {}).items() if k == hoje}
+    if tent.get(hoje, 0) >= 3:
+        return False
+    tent[hoje] = tent.get(hoje, 0) + 1
+    cfg["estoque_tentativas"] = tent
+    salvar_config(cfg)
+    return True
 
 
 def auto_atualizar():
@@ -1603,6 +1769,10 @@ def main():
     qw.add_argument("--ultimas", type=int, default=20)
     qw.set_defaults(agente="qwen")
     hm.add_argument("--ultimas", type=int, default=20, help="quantas mensagens da Sala ele lê")
+    sub.add_parser("entrar-upseller", help="login no UpSeller (uma vez), para o estoque atualizar sozinho")
+    es = sub.add_parser("estoque", help="exporta a Lista de Estoque do UpSeller e manda para o nubi")
+    es.add_argument("--sem-enviar", action="store_true")
+    es.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     mk = sub.add_parser("marcas")
     mk.add_argument("--mes")
     mk.add_argument("--sem-enviar", action="store_true")
@@ -1621,6 +1791,8 @@ def main():
         return cmd_entrar(args, cfg)
     if args.cmd == "status":
         return cmd_status(args, cfg)
+    if args.cmd == "entrar-upseller":
+        return cmd_entrar_upseller(args, cfg)
     if args.cmd == "agendar":
         plist = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.plist"
         if not plist.exists():
@@ -1653,12 +1825,14 @@ def main():
         os.environ.pop("NUBI_VIGIA", None)
         instalar_vigia()
         return 0
-    if args.cmd in ("diario", "vendedores", "marcas", "dias", "hermes", "qwen") and not os.environ.get("NUBI_ATUALIZADO"):
+    if args.cmd in ("diario", "vendedores", "marcas", "dias", "hermes", "qwen", "estoque") and not os.environ.get("NUBI_ATUALIZADO"):
         auto_atualizar()
     if args.cmd in ("hermes", "qwen"):
         return cmd_hermes(args, cfg)
-    if args.cmd in ("diario", "vendedores", "marcas", "dias"):
+    if args.cmd in ("diario", "vendedores", "marcas", "dias", "estoque"):
         instalar_vigia()
+    if args.cmd == "estoque":
+        return executar("estoque", lambda p, cfg, token: coletar_estoque(p, cfg, token, not args.sem_enviar))
     if args.cmd == "atualizar":
         novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro

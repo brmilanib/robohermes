@@ -547,6 +547,25 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
   .vabas{overflow-x:auto;max-width:100%}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* Minhas Lojas → Estoque */
+.es-cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.es-cab .acoes{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.es-aviso{border:1px solid var(--line);border-left:4px solid #d4a017;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:13px;background:var(--card)}
+.es-aviso.bad{border-left-color:#c0392b}
+.es-grade{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;margin-top:14px}
+.es-log{margin:0;padding-left:18px;font-size:13px;line-height:1.55}
+.es-mud{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:14px}
+.es-mud ul{list-style:none;margin:6px 0 0;padding:0;font-size:12.5px}
+.es-mud li{display:flex;gap:8px;justify-content:space-between;padding:4px 0;border-top:1px solid var(--line)}
+.es-mud li .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.es-mud li b{white-space:nowrap;font-variant-numeric:tabular-nums}
+.es-filtros{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+.es-filtros input{flex:1;min-width:180px}
+.es-sku{font-weight:600;font-size:12.5px}
+.es-tit{font-size:12px;color:var(--muted);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.es-hist a{display:flex;gap:10px;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line);font-size:12.5px;color:inherit;text-decoration:none}
+.es-hist a.on{font-weight:700}
+@media (max-width:900px){.es-grade{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -661,8 +680,9 @@ const SECOES = [
   {id: "explorador", nome: "Explorador de anúncios", desc: "Anúncios por marca", icone: "🔎"},
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
+  {id: "lojas", nome: "Minhas Lojas", desc: "Estoque e lojas do dono", icone: "📦"},
 ];
-function secaoAtual() { return /^#\/inicio/.test(location.hash) ? "inicio" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/inicio/.test(location.hash) ? "inicio" : /^#\/estoque/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -677,7 +697,7 @@ function moldura() {
     </select>` : ""}
     <div class="sp"></div>
     <a class="status-pill nada" id="st-pill" href="#/coletor" title="Coletor do Nubimetrics e agente de GTIN"><span class="pt"></span><span class="tx">Coletor</span></a>
-    ${sec === "nomes" || sec === "inicio" ? "" : `<button class="btn ghost" id="bup" title="${rotulo}">⬆ <span class="rot">${rotulo}</span></button>`}
+    ${sec === "nomes" || sec === "inicio" || sec === "lojas" ? "" : `<button class="btn ghost" id="bup" title="${rotulo}">⬆ <span class="rot">${rotulo}</span></button>`}
     ${sec === "explorador" ? `<button class="btn ghost" id="bxl" title="Baixar Excel">⬇ <span class="rot">Excel</span></button>` : ""}
     <details class="conta"><summary class="btn ghost small" title="${esc(email)}">👤</summary>
       <div class="card menu"><div class="muted" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis">${esc(email)}</div>
@@ -807,6 +827,7 @@ async function telaInicio() {
     </section>
     <section class="in-ops">
       <a class="card in-op" href="#/coletor"><span class="l">Coleta</span><span class="st ${colTxt[0]}">${esc(colTxt[1])}</span></a>
+      <a class="card in-op" href="#/estoque"><span class="l">Estoque (UpSeller)</span>${r.estoque ? `<b>${nf0.format(r.estoque.unidades || 0)} un</b><span class="muted">· ${nf0.format(r.estoque.zerados || 0)} zerados · ${new Date(r.estoque.criado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</span>` : `<span class="st">ainda sem atualização</span>`}</a>
       <a class="card in-op" href="#/central"><span class="l">Esperando você aprovar</span><b>${nf0.format(tf.proposta || 0)}</b></a>
       <a class="card in-op" href="#/central"><span class="l">Na fila / em código</span><b>${nf0.format((tf.aprovada || 0) + (tf.em_desenvolvimento || 0))}</b></a>
       <a class="card in-op" href="#/central/erros"><span class="l">Erros hoje</span><b class="${ops.erros_hoje ? "neg" : ""}">${nf0.format(ops.erros_hoje || 0)}</b></a>
@@ -887,6 +908,8 @@ function desenharMenu() {
     ${it((S.vendLista || []).length ? "#/vendedores/" + encodeURIComponent((S.vendLista.find(v => h.startsWith("#/vendedores/" + v.vendedor)) || S.vendLista[0]).vendedor) : "#/vendedores", "🏪", "Vendedores", vendOn,
       cont((S.vendLista || []).length) + seta("vendedores", (S.vendLista || []).length > 0))}
     ${ab.vendedores ? `<div class="subnav" id="sub-vend"></div>` : ""}
+    <div class="grupo">Minhas Lojas</div>
+    ${it("#/estoque", "📦", "Estoque", sec === "lojas")}
     <div class="grupo">Operação</div>
     ${it("#/central", "🛠️", "Central", OPS_ABAS.some(a => a.on(h)),
       S.opsRes && S.opsRes.erros_hoje ? `<span class="badge" title="erros hoje (aba Erros)">${S.opsRes.erros_hoje}</span>` : "")}
@@ -945,6 +968,7 @@ async function rotear() {
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   desenharBarraBaixo();
   if (sec === "inicio") return telaInicio();
+  if (sec === "lojas") return telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -2209,6 +2233,114 @@ async function telaErros() {
       <tbody>${r.erros.filter(e => e.fonte === f).map(e => `<tr><td>${esc(quandoBR(e.inicio))}</td><td class="first wrap">${esc(e.nome || "")}</td><td class="wrap">${esc(e.resultado || "")}</td></tr>`).join("")}</tbody></table></div></div>`).join("")}
     <p class="muted" style="font-size:12px;margin:10px 0 0">Os erros de dados e de código são discutidos na reunião diária dos agentes; o que o Claude aprova vai para 📋 Desenvolvimento.</p>`;
   desenharMenu();
+}
+// ---------- Minhas Lojas → Estoque (UpSeller): foto de cada atualização, o que mudou e a análise do Estoquista ----------
+const ES_FILTROS = [["todos", "Todos"], ["com", "Com estoque"], ["zerados", "Zerados"], ["baixo", "Abaixo do mínimo"], ["semcusto", "Sem custo"]];
+const quandoES = t => t ? new Date(t).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
+const unES = v => v == null ? "—" : nf0.format(+v);
+const rsES = v => v == null || v === "" ? "—" : "R$ " + (+v).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+async function telaEstoque() {
+  const main = $("#main");
+  const id = (decodeURIComponent(location.hash).match(/[?&]id=(\d+)/) || [])[1];
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o estoque</div></div>`;
+  let r;
+  try { r = await api("estoque", id ? {id} : {}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (secaoAtual() !== "lojas") return;
+  S.estoque = r; S.esFiltro = S.esFiltro || "todos"; S.esBusca = S.esBusca || ""; S.esMax = 60;
+  const a = r.atual, rot = r.rotina || {}, ex = r.ultima_execucao;
+  const acoes = `<div class="acoes"><button class="btn small" id="es-pedir" title="O Mac mini exporta a Lista de Estoque do UpSeller agora">↻ Atualizar agora</button>
+    <label class="btn small" title="Importar à mão a planilha Lista_de_Estoque_….xlsx baixada do UpSeller">⬆ Importar planilha<input type="file" id="es-arq" accept=".xlsx" hidden></label></div>`;
+  const falhou = ex && !ex.em_andamento && ex.ok === false ? `<div class="es-aviso bad">⚠️ A última tentativa do coletor (${esc(quandoES(ex.iniciado_em))}) falhou: ${esc((ex.mensagem || "").slice(0, 300))}</div>`
+    : ex && ex.em_andamento ? `<div class="es-aviso">⏳ O coletor está exportando o estoque do UpSeller agora…</div>` : "";
+  const auto = `<span class="muted">${rot.ativo === false ? "atualização automática desligada (Central → Rotinas)" : `atualiza sozinho todo dia às ${esc(rot.horario || "03:00")}`}</span>`;
+  if (!a) {
+    main.innerHTML = `<div class="es-cab"><h1>📦 Estoque</h1>${auto}${acoes}</div>${falhou}
+      <div class="card empty"><h2>Nenhuma atualização ainda</h2><p>O coletor do Mac mini exporta a Lista de Estoque do UpSeller (My Warehouse) de madrugada e ela aparece aqui.
+      Para já ver, use <b>Atualizar agora</b> ou importe a planilha.</p></div>`;
+    ligarEstoque(); desenharMenu(); return;
+  }
+  const d = a.diff || {}, t = d.totais || {}, ta = d.totais_antes, n = d.n || {};
+  const dif = (k, fmt = unES, ruimSubir = false) => ta && t[k] != null && ta[k] != null && t[k] !== ta[k]
+    ? `<span class="${(t[k] - ta[k] > 0) !== ruimSubir ? "pos" : "neg"}">${t[k] - ta[k] > 0 ? "▲" : "▼"} ${fmt(Math.abs(t[k] - ta[k]))}</span> vs anterior` : ta ? "igual à anterior" : "";
+  const lista = (tit, xs, qtd, cls) => `<div class="card pad"><h2>${tit} <span class="muted" style="font-weight:500">${nf0.format(qtd || 0)}</span></h2>
+    <ul>${(xs || []).slice(0, 10).map(x => `<li><span class="t" title="${esc(x.titulo)}"><span class="es-sku">${esc(x.sku)}</span> · ${esc(x.titulo)}</span>
+      <b class="${cls}">${unES(x.antes)} → ${unES(x.agora)}</b></li>`).join("") || `<li class="muted">nenhum</li>`}</ul>
+    ${(qtd || 0) > 10 ? `<div class="muted" style="font-size:12px;margin-top:6px">+ ${nf0.format(qtd - 10)} na lista abaixo</div>` : ""}</div>`;
+  main.innerHTML = `<div class="es-cab"><h1>📦 Estoque</h1>
+      <span class="muted">${esc(a.loja || "UpSeller")} · ${r.historico[0].id === a.id ? "atualizado" : "foto de"} ${esc(quandoES(a.criado_em))} (${a.origem === "manual" ? "importado à mão" : "coletor"})</span>
+      ${acoes}</div>
+    <div>${auto}</div>${falhou}
+    ${r.historico[0].id !== a.id ? `<div class="es-aviso">Você está vendo uma atualização antiga. <a href="#/estoque">Ver a mais recente →</a></div>` : ""}
+    <div class="kpis">${kpi("SKUs", nf0.format(t.skus || 0), dif("skus"))}${kpi("Unidades", unES(t.unidades), dif("unidades"))}
+      ${kpi("Valor em estoque", `<span title="${rsES(t.valor)}">${abrev(t.valor)}</span>`, t.sem_custo ? `${nf0.format(t.sem_custo)} SKU(s) com estoque sem custo médio` : "custo médio × quantidade")}
+      ${kpi("Zerados", `<span class="${t.zerados ? "neg" : ""}">${nf0.format(t.zerados || 0)}</span>`, dif("zerados", unES, true))}
+      ${kpi("Abaixo do mínimo", `<span class="${t.baixo ? "neg" : ""}">${nf0.format(t.baixo || 0)}</span>`, "estoque ≤ mínimo do UpSeller")}</div>
+    <div class="es-grade">
+      <div class="card pad"><h2>📋 Log da atualização</h2><ul class="es-log">${(a.resumo || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Arquivo: ${esc(a.arquivo || "—")}</p></div>
+      <div class="card pad"><h2>📦 Análise do Estoquista</h2>
+        ${a.analise ? `<div class="md">${mdSimples(a.analise)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">${esc(a.analise_por || "")}</p>`
+          : `<p class="muted">A análise ainda não saiu para esta atualização.</p>`}
+        <button class="btn small ghost" id="es-analisar" style="margin-top:8px">${a.analise ? "↻ Refazer a análise" : "Pedir a análise agora"}</button></div>
+    </div>
+    ${d.tem_anterior ? `<div class="es-mud">${lista("⬇️ Saíram", d.saidas, n.saidas, "neg")}${lista("⬆️ Entraram", d.entradas, n.entradas, "pos")}
+      ${lista("🚫 Zeraram", d.zeraram, n.zeraram, "neg")}${lista("✅ Voltaram", d.voltaram, n.voltaram, "pos")}
+      ${n.novos || n.removidos ? lista("🆕 SKUs novos", d.novos, n.novos, "pos") + lista("🗑️ Removidos do UpSeller", d.removidos, n.removidos, "") : ""}</div>` : ""}
+    <div class="card pad" style="margin-top:14px"><h2>Itens do estoque</h2>
+      <div class="es-filtros"><input type="search" id="es-busca" placeholder="Buscar SKU ou título…" value="${esc(S.esBusca)}">
+        <div class="seg">${ES_FILTROS.map(([k, tx]) => `<button data-esf="${k}" class="${S.esFiltro === k ? "on" : ""}">${tx}</button>`).join("")}</div></div>
+      <div id="es-tab"></div></div>
+    <div class="card pad es-hist" style="margin-top:14px"><h2>Histórico de atualizações</h2>
+      ${r.historico.map(h => `<a href="#/estoque?id=${h.id}" class="${h.id === a.id ? "on" : ""}"><span>${esc(quandoES(h.criado_em))} · ${h.origem === "manual" ? "à mão" : "coletor"}</span>
+        <span class="muted">${nf0.format(h.skus || 0)} SKUs · ${unES(h.unidades)} un · ${rsES(h.valor)} · ${nf0.format(h.zerados || 0)} zerados</span></a>`).join("")}</div>`;
+  desenharTabEstoque(); ligarEstoque(); desenharMenu();
+}
+function desenharTabEstoque() {
+  const box = $("#es-tab"); if (!box || !S.estoque) return;
+  const q = (S.esBusca || "").trim().toLowerCase(), f = S.esFiltro;
+  const baixo = it => (+it.atual || 0) > 0 && +it.estoque_min > 0 && +it.atual <= +it.estoque_min;
+  const xs = S.estoque.itens.filter(it => (!q || (it.sku + " " + (it.titulo || "")).toLowerCase().includes(q))
+    && (f === "todos" || (f === "com" && +it.atual > 0) || (f === "zerados" && !(+it.atual > 0)) || (f === "baixo" && baixo(it))
+        || (f === "semcusto" && +it.atual > 0 && !(+it.custo_medio > 0))))
+    .sort((a, b) => (+b.atual || 0) - (+a.atual || 0) || a.sku.localeCompare(b.sku));
+  box.innerHTML = `<div class="muted" style="font-size:12px;margin-bottom:6px">${nf0.format(xs.length)} SKU(s)</div>
+    <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>SKU / título</th><th class="num">Disponível</th><th class="num">Atual</th>
+      <th class="num">Mínimo</th><th class="num">Custo médio</th><th class="num">Subtotal</th></tr></thead>
+    <tbody>${xs.slice(0, S.esMax).map(it => `<tr><td class="first"><div class="es-sku">${esc(it.sku)}</div><div class="es-tit" title="${esc(it.titulo || "")}">${esc(it.titulo || "")}</div></td>
+      <td class="num">${unES(it.disponivel)}</td><td class="num ${+it.atual > 0 ? (baixo(it) ? "neg" : "") : "neg"}"><b>${unES(it.atual)}</b></td>
+      <td class="num">${+it.estoque_min ? unES(it.estoque_min) : "—"}</td><td class="num">${+it.custo_medio ? rsES(it.custo_medio) : "—"}</td>
+      <td class="num">${+it.subtotal ? rsES(it.subtotal) : "—"}</td></tr>`).join("")}</tbody></table></div>
+    ${xs.length > S.esMax ? `<button class="btn small ghost" id="es-mais" style="margin-top:8px">Mostrar mais (${nf0.format(xs.length - S.esMax)})</button>` : ""}`;
+  if ($("#es-mais")) $("#es-mais").onclick = () => { S.esMax += 300; desenharTabEstoque(); };
+}
+function ligarEstoque() {
+  const bp = $("#es-pedir");
+  if (bp) bp.onclick = async () => {
+    bp.disabled = true;
+    try { const x = await api("estoque_pedir", {}, {method: "POST", body: "{}"});
+      toast(x.ja_havia ? "Já tem um pedido na fila: o Mac mini exporta em até 15 min." : "Pedido enviado: o Mac mini exporta o estoque do UpSeller em até 15 min.", 5000);
+    } catch (e) { toast(e.message); } finally { bp.disabled = false; }
+  };
+  const fa = $("#es-arq");
+  if (fa) fa.onchange = async () => {
+    const f = fa.files[0]; if (!f) return;
+    toast("Importando " + f.name + "…", 20000);
+    try { const x = await api("estoque_importar", {arquivo: f.name, origem: "manual"}, {method: "POST", body: await f.arrayBuffer()});
+      toast((x.log || ["Importado."]).slice(0, 2).join(" "), 7000); location.hash = "#/estoque"; telaEstoque();
+    } catch (e) { toast(e.message, 7000); }
+  };
+  const ba = $("#es-analisar");
+  if (ba) ba.onclick = async () => {
+    ba.disabled = true; ba.textContent = "O Estoquista está analisando…";
+    try { await api("estoque_analisar", {}, {method: "POST", body: JSON.stringify({id: S.estoque.atual.id})}); telaEstoque(); }
+    catch (e) { toast(e.message, 6000); ba.disabled = false; ba.textContent = "Pedir a análise agora"; }
+  };
+  const bu = $("#es-busca");
+  if (bu) bu.oninput = e => { S.esBusca = e.target.value; S.esMax = 60; desenharTabEstoque(); };
+  document.querySelectorAll("[data-esf]").forEach(b => b.onclick = () => {
+    S.esFiltro = b.dataset.esf; S.esMax = 60;
+    document.querySelectorAll("[data-esf]").forEach(x => x.classList.toggle("on", x === b)); desenharTabEstoque();
+  });
 }
 // ---------- Agentes: status, custo (tokens × preço), teste de versão e apelido ----------
 const AG_ST = {"executando": ["warn", "⚙️ executando"], "ativo": ["good", "● ativo"], "com erro": ["bad", "com erro"], "sem chave": ["", "sem chave"], "parado": ["", "○ sem atividade 24h"]};
