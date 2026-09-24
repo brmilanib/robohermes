@@ -56,6 +56,7 @@ def _decidir(historico, tarefas, opinioes, extra):
         "dizendo o que foi decidido e por quê) e registre o que vai para desenvolvimento.\n"
         "Você não executa nada: não diga que pediu coleta, rodou ou corrigiu algo; diga o que foi decidido e registre "
         "como tarefa (quem executa é o Claude da sessão de código e os agentes do despachante).\n"
+        "Só o dono (Bruno) aprova tarefas: você registra como proposta (ou recusa, explicando).\n"
         "Critérios: prioridade para o que evita erro nos números e para o que o dono pediu; recuse o que for arriscado, "
         "caro ou fora do escopo, explicando; não crie tarefa repetida (veja as tarefas em aberto); tarefa = algo concreto "
         "que o Claude da sessão de código consegue implementar e testar.\n"
@@ -63,8 +64,8 @@ def _decidir(historico, tarefas, opinioes, extra):
         + ("\n".join(f"[{k}] {v}" for k, v in opinioes.items()) or "nenhuma")
         + '\n\nResponda SOMENTE com um JSON: {"resposta": "<mensagem para o grupo>", "tarefas": [{"titulo": "<curto>", '
         '"descricao": "<o que fazer e como saber que está pronto>", "tipo": "tarefa|sugestao|decisao", '
-        '"status": "aprovada|proposta|recusada", "prioridade": "alta|media|baixa", "area": "<coletor|dados|site|ia|outro>", '
-        '"proposto_por": "<quem sugeriu>"}], "atualizar": [{"id": <número da tarefa em aberto>, "status": "<novo status>", '
+        '"status": "proposta|recusada", "prioridade": "alta|media|baixa", "area": "<coletor|dados|site|ia|outro>", '
+        '"proposto_por": "<quem sugeriu>"}], "atualizar": [{"id": <número da tarefa em aberto>, "status": "proposta|recusada|feita", '
         '"nota": "<por quê>"}]}. Listas vazias quando não houver nada.')
     j, _, q = ia.perguntar_json(pedido, web=False, max_tokens=2500, qual=qual, sistema=agentes.SISTEMA)
     if not j.get("resposta"):
@@ -124,7 +125,8 @@ def rodada(repo, texto_dono=None, extra="", autor_extra=None):
         ja.add(chave)
         reg = {"titulo": str(t["titulo"])[:200], "descricao": str(t.get("descricao") or "")[:2000],
                "tipo": t.get("tipo") if t.get("tipo") in ("tarefa", "sugestao", "decisao") else "tarefa",
-               "status": t.get("status") if t.get("status") in STATUS else "proposta",
+               # só o dono aprova (aba Desenvolvimento): o coordenador propõe ou recusa
+               "status": t.get("status") if t.get("status") in ("proposta", "recusada") else "proposta",
                "prioridade": t.get("prioridade") if t.get("prioridade") in ("alta", "media", "baixa") else "media",
                "area": str(t.get("area") or "")[:40], "proposto_por": str(t.get("proposto_por") or "")[:40],
                "decidido_por": coord, "mensagem_id": msg.get("id"), "criado_em": agora(), "atualizado_em": agora()}
@@ -136,7 +138,7 @@ def rodada(repo, texto_dono=None, extra="", autor_extra=None):
             tid = int(u.get("id"))
         except (TypeError, ValueError):
             continue
-        if tid in abertas and u.get("status") in STATUS:
+        if tid in abertas and u.get("status") in ("proposta", "recusada", "feita"):
             repo._req("PATCH", "reuniao_tarefas", {"id": f"eq.{tid}"},
                       corpo={"status": u["status"], "notas": str(u.get("nota") or "")[:500], "atualizado_em": agora()},
                       prefer="return=minimal")
