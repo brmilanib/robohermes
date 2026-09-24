@@ -620,7 +620,12 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                             params = {"arquivo": arq.name, "mes": mes, "seller_hash": h}
                             if ate:
                                 params["ate"] = ate
-                            r = api(token, "vend_importar", params, arq.read_bytes())
+                            try:
+                                r = api(token, "vend_importar", params, arq.read_bytes())
+                            except Falha as e:
+                                if "nenhum anúncio" in str(e):
+                                    raise SemDados()      # o Nubimetrics exportou a planilha vazia: não vendeu no período
+                                raise
                             importados += 1
                             log("    " + " ".join(r.get("log", [])))
                         break
