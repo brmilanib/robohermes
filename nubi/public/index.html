@@ -1549,6 +1549,15 @@ function abrirUploadVendedor() {
 }
 
 // ---------- Nomes de marcas (juntar YSL = Yves Saint Laurent) ----------
+// Onde a grafia aparece, sempre no último mês/período de cada fonte (não é soma de meses).
+function infoMarca(inf) {
+  if (!inf) return "";
+  const l = [];
+  if (inf.ranking) l.push(`🏆 #${inf.ranking.posicao} no ranking de ${mesCurto(inf.ranking.mes)} · ${abrev(inf.ranking.vendas)} no mês`);
+  if (inf.vendedores) l.push(`🏪 ${inf.vendedores.vendedores} vendedor(es) monitorado(s) · ${abrev(inf.vendedores.vendas)} em ${mesCurto(inf.vendedores.mes)}`);
+  if (inf.explorador) l.push(`🔎 Explorador ${dataBR(inf.explorador.mes).slice(0, 5)} a ${dataBR(inf.explorador.fim).slice(0, 5)}: ${inf.explorador.vendedores} vendedor(es) · ${abrev(inf.explorador.vendas)}`);
+  return l.map(t => `<br><small class="muted">${esc(t)}</small>`).join("");
+}
 async function telaNomesMarcas() {
   const main = $("#main");
   main.innerHTML = `<div class="empty"><span class="spin"></span> Procurando grafias parecidas…</div>`;
@@ -1564,10 +1573,11 @@ async function telaNomesMarcas() {
     Vale para os dados já importados: não precisa importar de novo.</p>
     <div class="grid2" style="margin-top:14px">
       <div class="card pad"><h2>Sugestões para conferir <span class="muted" style="font-weight:400">(${r.sugestoes.length})</span></h2>
-        <div class="muted" style="font-size:12.5px;margin-bottom:8px">Pares que parecem a mesma marca. "Juntar" manda o primeiro nome para o segundo (o nome do ranking, quando existe). "Não é a mesma" esconde a sugestão.</div>
+        <div class="muted" style="font-size:12.5px;margin-bottom:8px">Pares que parecem a mesma marca. "Juntar" manda o primeiro nome para o segundo (o nome do ranking, quando existe). "Não é a mesma" esconde a sugestão.
+          Embaixo de cada nome: onde ele aparece, sempre no <b>último mês</b> de cada fonte — 🏆 ranking do Nubimetrics (mercado inteiro), 🏪 seus vendedores monitorados, 🔎 Explorador (período do arquivo).</div>
         ${r.sugestoes.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><tbody>${r.sugestoes.map((x, i) => `<tr>
-          <td class="first">${esc(x.apelido)}<br><small class="muted">${abrev(x.vendas_apelido)} · ${esc(x.fontes_apelido.join(", "))}</small></td>
-          <td>→</td><td class="first">${esc(x.marca)}<br><small class="muted">${abrev(x.vendas_marca)} · ${esc(x.fontes_marca.join(", "))}</small></td>
+          <td class="first wrap" style="min-width:200px">${esc(x.apelido)}${infoMarca(x.info_apelido)}</td>
+          <td>→</td><td class="first wrap" style="min-width:200px">${esc(x.marca)}${infoMarca(x.info_marca)}</td>
           <td><span class="st ${x.motivo === "nome contido" ? "warn" : ""}">${esc(MOT[x.motivo])}</span></td>
           <td class="acoes"><button class="btn small primary" data-j="${i}">Juntar</button> <button class="btn small" data-n="${i}">Não é a mesma</button></td></tr>`).join("")}</tbody></table></div>`
           : `<div class="muted">Nenhuma sugestão agora.</div>`}

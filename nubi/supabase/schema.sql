@@ -288,3 +288,27 @@ language sql stable security invoker set search_path = public as $$
   from vend_anuncios a where coalesce(nullif(a.gtin, ''), 'T:' || lower(a.titulo)) = p_chave
   group by a.relatorio_id
 $$;
+
+-- Nomes de marcas: cada grafia, por fonte, no último mês/período em que aparece.
+create or replace function public.marcas_resumo()
+returns table (marca text, fonte text, mes date, fim date, vendas numeric, vendedores int, posicao int)
+language sql stable security invoker set search_path = public as $$
+  with rk as (
+    select l.marca, r.mes, sum(l.vendas) vendas, min(l.posicao) posicao
+    from ranking_linhas l join ranking_relatorios r on r.id = l.relatorio_id
+    where l.marca is not null group by l.marca, r.mes),
+  vd as (
+    select a.marca, r.mes, sum(a.vendas) vendas, count(distinct r.vendedor)::int vendedores
+    from vend_anuncios a join vend_relatorios r on r.id = a.relatorio_id
+    where a.marca is not null and a.marca <> '' and r.ate is null group by a.marca, r.mes),
+  ex as (
+    select a.marca_anuncio marca, s.inicio, s.fim, sum(a.fat) vendas, count(distinct a.vendedor_id)::int vendedores
+    from anuncios a join snapshots s on s.id = a.snapshot_id
+    where a.marca_anuncio is not null and a.marca_anuncio <> '' group by a.marca_anuncio, s.inicio, s.fim)
+  select marca, 'ranking', mes, null::date, vendas, null::int, posicao from (select distinct on (marca) * from rk order by marca, mes desc) x
+  union all
+  select marca, 'vendedores', mes, null::date, vendas, vendedores, null::int from (select distinct on (marca) * from vd order by marca, mes desc) y
+  union all
+  select marca, 'explorador', inicio, fim, vendas, vendedores, null::int from (select distinct on (marca) * from ex order by marca, fim desc) z;
+$$;
+grant execute on function public.marcas_resumo() to authenticated;

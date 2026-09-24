@@ -1451,17 +1451,28 @@ def sugestoes_apelidos(repo):
     import difflib
     ap = apelidos(repo)
     decididos = {nubi.compacta(r["apelido"]) for r in repo._todos("marca_apelidos", {"select": "apelido"})}
+    # cada grafia no último mês/período em que aparece, por fonte (ranking, vendedores, explorador)
     vistas = {}
-    for r in repo._req("POST", "rpc/marcas_vistas", corpo={}) or []:
+    for r in repo._req("POST", "rpc/marcas_resumo", corpo={}) or []:
         k = nubi.compacta(r["marca"] or "")
         if not k:
             continue
-        x = vistas.setdefault(k, {"nomes": {}, "vendas": 0.0, "fontes": set()})
-        x["nomes"][r["marca"]] = x["nomes"].get(r["marca"], 0) + float(r["vendas"] or 0)
-        x["vendas"] += float(r["vendas"] or 0)
+        x = vistas.setdefault(k, {"nomes": {}, "fontes": set(), "info": {}})
+        v = float(r["vendas"] or 0)
+        x["nomes"][r["marca"]] = x["nomes"].get(r["marca"], 0) + v
         x["fontes"].add(r["fonte"])
+        i = x["info"].get(r["fonte"])
+        if not i or str(r["fim"] or r["mes"]) > str(i.get("fim") or i["mes"]):
+            x["info"][r["fonte"]] = {"mes": str(r["mes"])[:10], "fim": str(r["fim"])[:10] if r["fim"] else None, "vendas": v,
+                                     "vendedores": r["vendedores"], "posicao": r["posicao"]}
+        elif r["fonte"] != "ranking":             # outra grafia com a mesma chave, mesmo período: soma
+            i["vendas"] += v
     for x in vistas.values():
         x["nome"] = max(x["nomes"], key=x["nomes"].get)
+        inf = x["info"]
+        # para comparar tamanhos: o mês do ranking; sem ranking, o maior entre vendedores e explorador
+        x["vendas"] = inf["ranking"]["vendas"] if "ranking" in inf else max(
+            [inf[f]["vendas"] for f in ("vendedores", "explorador") if f in inf] or [0])
     chaves = [k for k in vistas if k not in ap]
     out = []
     for a in chaves:
@@ -1490,7 +1501,8 @@ def sugestoes_apelidos(repo):
                 continue
             out.append({"apelido": A["nome"], "marca": B["nome"], "motivo": motivo,
                         "vendas_apelido": A["vendas"], "vendas_marca": B["vendas"],
-                        "fontes_apelido": sorted(A["fontes"]), "fontes_marca": sorted(B["fontes"])})
+                        "fontes_apelido": sorted(A["fontes"]), "fontes_marca": sorted(B["fontes"]),
+                        "info_apelido": A["info"], "info_marca": B["info"]})
     ordem = {"sigla": 0, "grafia parecida": 1, "nome contido": 2}
     out.sort(key=lambda x: (ordem[x["motivo"]], "ranking" not in x["fontes_marca"], -x["vendas_marca"]))
     melhor = {}
