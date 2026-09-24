@@ -2274,6 +2274,14 @@ def rota_estoque(repo, metodo, rota, q, corpo):
             repo._req("POST", "coletor_pedidos", corpo=[{"motivo": "importar a planilha no Gestor Seller (pedido no site)", "tarefa": "gestor"}],
                       prefer="return=minimal")
         return {"ok": True, "ja_havia": bool(aberto)}
+    if rota == "gestor_amostra":
+        # SKUs para o coletor conferir no Gestor Seller depois de importar (o custo tem que bater com a planilha)
+        ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id", "order": "id.desc", "limit": 1}) or [None])[0]
+        if not ult:
+            return {"skus": []}
+        com = [it for it in _estoque_itens_ordem(repo, ult["id"]) if it.get("custo_medio") and float(it["custo_medio"]) > 0]
+        idx = sorted({0, len(com) // 2, len(com) - 1}) if com else []
+        return {"skus": [{"sku": com[i]["sku"], "custo": round(float(com[i]["custo_medio"]), 2)} for i in idx]}
     if rota == "gestor_auto":
         # depois de cada estoque, o coletor pergunta se importa no Gestor Seller sozinho (rotina 'gestor' ligada)
         rot = (repo._req("GET", "rotinas", {"select": "ativo", "id": "eq.gestor"}) or [None])[0]

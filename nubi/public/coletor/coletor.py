@@ -1480,6 +1480,32 @@ def importar_gestor(pg, arq):
     return avisos or "janela fechou sem mensagem de erro"
 
 
+def conferir_gestor(pg, amostra):
+    """Pesquisa alguns SKUs em Produtos internos e confere o Preço de Custo com a planilha. Devolve o resumo."""
+    busca = pg.get_by_placeholder(re.compile("Pesquisar")).first
+    ok = []
+    for a in amostra:
+        achou = None
+        for tentativa in range(3):                   # o Gestor pode levar alguns segundos para gravar
+            busca.fill("")
+            busca.fill(a["sku"])
+            time.sleep(4)
+            linhas = pg.locator("tr, [role=row]").filter(has_text=a["sku"])
+            txt = linhas.first.inner_text() if linhas.count() else ""
+            nums = [float(x.replace(".", "").replace(",", ".")) if "," in x else float(x) for x in re.findall(r"\d[\d.]*[.,]\d{2}\b", txt)]
+            if any(abs(n - a["custo"]) < 0.011 for n in nums):
+                achou = True
+                break
+            achou = txt or None
+            time.sleep(6)
+        if achou is not True:
+            raise Falha(f"conferência: no Gestor Seller o custo de {a['sku']} não bateu com a planilha ({a['custo']:.2f}); "
+                        f"a tela mostra: {str(achou or 'SKU não encontrado')[:160]}")
+        ok.append(f"{a['sku']} {a['custo']:.2f}")
+    busca.fill("")
+    return "custo conferido no Gestor: " + ", ".join(ok) if ok else ""
+
+
 def coletar_gestor(p, cfg, token):
     dados, nome = baixar_do_nubi(token, "estoque_gestor")
     destino = PASTA / "gestor"
@@ -1491,6 +1517,14 @@ def coletar_gestor(p, cfg, token):
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
     try:
         msg = importar_gestor(pg, arq)
+        try:
+            amostra = api(token, "gestor_amostra", timeout=30).get("skus") or []
+        except Exception:  # noqa: BLE001
+            amostra = []
+        if amostra:
+            conf = conferir_gestor(pg, amostra)
+            log(f"  {conf}")
+            msg = conf
         guardar_sessao(ctx)
     except SessaoExpirada:
         enviar_foto(pg, "gestor: login vencido", resumo_tela(pg))
