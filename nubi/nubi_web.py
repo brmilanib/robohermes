@@ -697,7 +697,7 @@ def atender(metodo, rota, q, corpo, token):
         if rota.startswith("vend_"):
             return _json(rota_vendedores(repo, metodo, rota, q, corpo))
 
-        if rota.startswith("rotina"):
+        if rota.startswith("rotina") or rota.startswith("ops_"):
             return _json(rota_rotinas(repo, metodo, rota, q, corpo))
 
         if rota == "reuniao":
@@ -738,7 +738,7 @@ def atender(metodo, rota, q, corpo, token):
             atual = (repo._req("GET", "auditorias", {"select": "*", "data": repo._eq(d)}) or [None])[0] if d else None
             return _json({"atual": atual, "datas": [x["data"] for x in lista],
                           "ias": {"chatgpt": ia.tem("chatgpt"), "claude": ia.tem("claude"), "deepseek": ia.tem("deepseek")},
-                          "modelo_codigo": os.environ.get("NUBI_IA_CODIGO") or os.environ.get("NUBI_IA_MODELO") or "gpt-4.1"})
+                          "modelo_codigo": ia.modelo_codex() if ia.tem("chatgpt") else "—"})
 
         if rota == "resumo_semana":
             if metodo == "POST":
@@ -1805,6 +1805,7 @@ def rodar_rotinas(repo, so=None):
         r = rot.get(rid)
         if not r or (so and rid != so) or (not so and not rotina_pendente(r, agora)):
             continue
+        inicio = datetime.now(timezone.utc).isoformat()
         try:
             if rid == "reuniao":
                 au = (repo._req("GET", "auditorias", {"select": "*", "order": "data.desc", "limit": 1}) or [None])[0]
@@ -1845,8 +1846,59 @@ def rodar_rotinas(repo, so=None):
         except Exception as e:  # noqa: BLE001
             res = f"erro: {str(e)[:200]}"
         _marcar_rotina(repo, rid, res)
+        _registrar_execucao(repo, rid, "manual" if so else "agendada", inicio, res)
         out[rid] = res
     return out
+
+
+def _registrar_execucao(repo, rid, origem, inicio, res):
+    try:
+        repo._req("POST", "rotinas_execucoes", corpo=[{
+            "rotina": rid, "origem": origem, "inicio": inicio, "fim": datetime.now(timezone.utc).isoformat(),
+            "ok": not str(res).startswith("erro"), "resultado": str(res)[:1000]}], prefer="return=minimal")
+    except ErroNuvem:
+        pass                                           # sem a tabela ainda: a rotina roda do mesmo jeito
+
+
+def _ops_execucoes(repo, dias=14):
+    """Execuções das rotinas (servidor) e das coletas (Mac) dos últimos dias, mais novas primeiro."""
+    desde = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
+    nomes = {r["id"]: r["nome"] for r in repo._todos("rotinas", {"select": "id,nome"})}
+    out = []
+    try:
+        for e in repo._req("GET", "rotinas_execucoes", {"select": "*", "inicio": f"gte.{desde}", "order": "inicio.desc", "limit": 400}) or []:
+            out.append({"tipo": "rotina", "id": e["rotina"], "nome": nomes.get(e["rotina"], e["rotina"]), "origem": e.get("origem"),
+                        "inicio": e["inicio"], "fim": e.get("fim"), "ok": e.get("ok"), "resultado": e.get("resultado") or ""})
+    except ErroNuvem:
+        pass
+    for c in repo._req("GET", "coletor_execucoes", {"select": "id,iniciado_em,terminado_em,tarefa,ok,arquivos,importados,erros,mensagem,em_andamento",
+                                                      "iniciado_em": f"gte.{desde}", "order": "id.desc", "limit": 200}) or []:
+        out.append({"tipo": "coleta", "id": c["id"], "nome": f"Coleta ({c.get('tarefa') or 'diario'})", "origem": "Mac mini",
+                    "inicio": c["iniciado_em"], "fim": c.get("terminado_em"), "em_andamento": c.get("em_andamento"),
+                    "ok": c.get("ok") if (c.get("erros") or 0) == 0 or c.get("ok") is False else False,
+                    "resultado": (c.get("mensagem") or "") + (f" · {c['erros']} erro(s)" if c.get("erros") else "")})
+    out.sort(key=lambda x: str(x["inicio"]), reverse=True)
+    return out
+
+
+def _ops_erros(repo):
+    """Tudo o que deu errado, num lugar só: rotinas, coletas, auditoria do dia e agentes que não responderam."""
+    erros = [dict(e, fonte="Tarefa de rotina" if e["tipo"] == "rotina" else "Coletor (Mac)")
+             for e in _ops_execucoes(repo, 30) if e.get("ok") is False]
+    au = (repo._req("GET", "auditorias", {"select": "data,conferencias", "order": "data.desc", "limit": 1}) or [None])[0]
+    if au:
+        for c in au.get("conferencias") or []:
+            if c.get("nivel") == "erro":
+                erros.append({"fonte": "Auditoria", "nome": c.get("titulo"), "inicio": str(au["data"]) + "T12:00:00+00:00",
+                              "resultado": c.get("detalhe") or "", "area": c.get("area"), "ok": False})
+    desde = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    for m in repo._req("GET", "reuniao_mensagens", {"select": "id,texto,criado_em", "autor": "eq.sistema",
+                                                     "criado_em": f"gte.{desde}", "order": "id.desc", "limit": 50}) or []:
+        if "não respondeu" in (m.get("texto") or ""):
+            erros.append({"fonte": "Sala de reunião", "nome": "Agente não respondeu", "inicio": m["criado_em"],
+                          "resultado": m["texto"], "ok": False})
+    erros.sort(key=lambda x: str(x["inicio"]), reverse=True)
+    return erros
 
 
 def rotina_8h(repo):
@@ -1862,6 +1914,16 @@ def rota_rotinas(repo, metodo, rota, q, corpo):
             r["automatica"] = r["id"] in NO_SERVIDOR or r["id"] == "coleta"
             r["pendente"] = r["id"] in NO_SERVIDOR and rotina_pendente(r, ag)
         return {"rotinas": rs, "agora": ag.strftime("%Y-%m-%d %H:%M"), "dias": DIAS_SEM}
+    if rota == "ops_execucoes":
+        return {"execucoes": _ops_execucoes(repo, int(q.get("dias") or 14))}
+    if rota == "ops_erros":
+        return {"erros": _ops_erros(repo)}
+    if rota == "ops_resumo":
+        ex, er = _ops_execucoes(repo, 1), _ops_erros(repo)
+        hoje = _agora_br().date().isoformat()
+        return {"erros_hoje": sum(1 for e in er if _br(e["inicio"]).date().isoformat() == hoje),
+                "aprovadas": len(repo._req("GET", "reuniao_tarefas", {"select": "id", "status": "eq.aprovada"}) or []),
+                "rodando": sum(1 for e in ex if e.get("em_andamento"))}
     if rota == "rotina_salvar" and metodo == "POST":
         d = json.loads(corpo or b"{}")
         reg = {k: d[k] for k in CAMPOS_ROTINA if k in d}

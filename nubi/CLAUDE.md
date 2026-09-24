@@ -7,7 +7,7 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 1. **Coletor (Mac)**: publicar `public/coletor/coletor.py` basta. O vigia do Mac (launchd `com.nubi.coletor.vigia`,
    a cada 15 min) vê a versão nova, atualiza e roda `diario`, que completa só o que falta.
    Para forçar uma coleta sem versão nova: inserir um pedido em `coletor_pedidos` (ou o botão
-   "Rodar coleta agora" em Coletor e agentes).
+   "Rodar coleta agora" em Central → 📥 Coletor).
 2. **Servidor (resumos, produtos iguais, auditoria, categorias)**: depois do deploy, pôr
    `rotinas.ultima_execucao` de ontem na tarefa afetada (roda no próximo cron da hora) e, se o dado gravado
    estava errado, apagar o registro errado (ex.: `ia_resumos`) para ele ser refeito.

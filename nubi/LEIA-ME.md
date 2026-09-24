@@ -483,9 +483,16 @@ Com `OPENAI_API_KEY` (ou `ANTHROPIC_API_KEY`) nas variáveis da Vercel, o nubi u
   registra as tarefas em **Desenvolvimento** (`reuniao_tarefas`: proposta, aprovada, em desenvolvimento, feita,
   recusada). Às 11h, reunião automática sobre a auditoria. O DeepSeek também revisa o código na auditoria.
 - **Análise da semana**: toda segunda às 8h, com os resumos diários guardados e as vendas de cada dia x semana anterior.
-- **Tarefas de rotina** (Coletor e agentes → Tarefas de rotina, tabela `rotinas`): quem faz, horário, dias, ligada e
+- **Tarefas de rotina** (Central → 🗓️ Rotinas, tabela `rotinas`): quem faz, horário, dias, ligada e
   observação (a observação das tarefas do ChatGPT vai no prompt). A Vercel chama `r=rotinas_cron` de hora em hora (24 agendas diárias, uma por hora: o plano Hobby só aceita agenda diária) e roda
   o que chegou na hora (resumo do dia, semana, marcas e o agente de GTIN). A coleta roda no Mac às 7h e só confere se
   está ligada no dia.
 - **Análise mensal das marcas** (Ranking → B.I.): do dia 3 em diante, às 8h, com o relatório MARCAS do mês fechado,
   mais detalhada (categorias, entradas e saídas, oportunidades, plano do mês). Tudo fica guardado em `ia_resumos`.
+
+## Central (tarefas e agentes)
+
+Menu Ajustes → 🛠️ Central: abas 📋 Desenvolvimento (tarefas decididas pelos agentes), 🗓️ Rotinas (tarefas de rotina
+editáveis), ⏱️ Execuções (cada vez que uma rotina rodou — tabela `rotinas_execucoes` — e as coletas do Mac),
+🚨 Erros (rotinas e coletas com falha, erros da última auditoria e agentes que não responderam), 🧪 Auditoria,
+💬 Sala de reunião e 📥 Coletor.

@@ -444,3 +444,14 @@ create table if not exists public.reuniao_tarefas (
 alter table public.reuniao_tarefas enable row level security;
 create policy "autorizado" on public.reuniao_tarefas
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Histórico de cada execução das tarefas de rotina (aba Execuções e Erros da Central)
+create table if not exists public.rotinas_execucoes (
+  id bigint generated always as identity primary key,
+  rotina text not null, origem text, inicio timestamptz not null default now(), fim timestamptz,
+  ok boolean, resultado text
+);
+create index if not exists rotinas_execucoes_inicio on public.rotinas_execucoes (inicio desc);
+alter table public.rotinas_execucoes enable row level security;
+create policy "autorizado" on public.rotinas_execucoes
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

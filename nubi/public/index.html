@@ -313,6 +313,11 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .wa-in button{width:42px;height:42px;border-radius:50%;border:0;background:#00a884;color:#fff;font-size:18px;cursor:pointer}
 .wa-in button:disabled{opacity:.5}
 .wa-dig{align-self:flex-start;font-size:12px;color:#667781;font-style:italic;padding:4px 8px}
+.ops-abas{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:0 0 14px;padding-bottom:0}
+.ops-abas a{padding:7px 12px;font-size:13px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.ops-abas a:hover{color:var(--ink)} .ops-abas a.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent,#2d6cdf)}
+.ops-abas .badge{margin-left:4px}
+@media (max-width:640px){.ops-abas{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}}
 .dev-col{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px}
 @media (max-width:1000px){.dev-col{grid-template-columns:1fr 1fr}} @media (max-width:640px){.dev-col{grid-template-columns:1fr}}
 .dev-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card);margin-top:8px}
@@ -518,7 +523,7 @@ const SECOES = [
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -603,10 +608,8 @@ function desenharMenu() {
     ${it("#/nomes-marcas", "🔗", "Nomes de marcas", h.startsWith("#/nomes-marcas"))}
     ${it("#/nomes-vendedores", "🔗", "Nomes de vendedores", h.startsWith("#/nomes-vendedores"))}
     ${it("#/produtos-iguais", "🧩", "Produtos iguais (IA)", h.startsWith("#/produtos-iguais"))}
-    ${it("#/reuniao", "💬", "Sala de reunião (agentes)", h.startsWith("#/reuniao"))}
-    ${it("#/auditoria", "🧪", "Auditoria (dados e código)", h.startsWith("#/auditoria"))}
-    ${it("#/coletor", "📥", "Coletor e agentes", h === "#/coletor")}
-    <div class="subnav"><a class="${h.startsWith("#/coletor/rotinas") ? "on" : ""}" href="#/coletor/rotinas">🗓️ Tarefas de rotina</a></div>`;
+    ${it("#/central", "🛠️", "Central (tarefas e agentes)", OPS_ABAS.some(a => a.on(h)),
+      S.opsRes && S.opsRes.erros_hoje ? `<span class="badge" title="erros hoje (aba Erros)">${S.opsRes.erros_hoje}</span>` : "")}`;
   desenharVendMenu();
   if ($("#mtodas")) $("#mtodas").onclick = e => { e.preventDefault(); S.marcasTodas = !S.marcasTodas; desenharMenu(); };
   document.querySelectorAll("[data-seta]").forEach(b => b.onclick = e => {
@@ -659,6 +662,9 @@ async function rotear() {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
   }
+  if (sec === "nomes" && location.hash.startsWith("#/central/execucoes")) return telaExecucoes();
+  if (sec === "nomes" && location.hash.startsWith("#/central/erros")) return telaErros();
+  if (sec === "nomes" && location.hash.startsWith("#/central")) return telaDev();
   if (sec === "nomes" && location.hash.startsWith("#/auditoria")) return telaAuditoria();
   if (sec === "nomes" && location.hash.startsWith("#/reuniao")) return location.hash.startsWith("#/reuniao/dev") ? telaDev() : telaReuniao();
   if (sec === "nomes") return location.hash.startsWith("#/coletor/rotinas") ? telaRotinas() : location.hash.startsWith("#/coletor") ? telaColetor() : telaNomesMarcas();
@@ -1527,8 +1533,7 @@ async function cicloColetor() {
   S.coletorT = setTimeout(cicloColetor, S.coletorVivo ? 4000 : 60000);
 }
 function telaColetor() {
-  $("#main").innerHTML = `<h1>📥 Coletor e agentes</h1>
-    <p style="margin:4px 0 0"><a class="btn small" href="#/coletor/rotinas">🗓️ Tarefas de rotina: o que roda, quem faz, quando</a></p>
+  $("#main").innerHTML = opsAbas("coletor") + `<h1>📥 Coletor e agente de GTIN</h1>
     <p class="muted" style="margin-top:4px">O coletor roda no Mac mini e baixa do Nubimetrics os vendedores seguidos e o ranking MARCAS. O agente de GTIN roda aqui no nubi.</p>
     ${cartaoColetor()}
     <div class="card pad" style="margin-top:14px"><h2>🤖 Agente de GTIN</h2><div id="agente-box" class="muted" style="font-size:13px"></div></div>`;
@@ -1653,7 +1658,7 @@ async function telaProdutosIguais() {
     <p class="muted" style="margin:4px 0 0;font-size:13px">Anúncios sem GTIN que são o mesmo perfume escrito de outro jeito. A IA compara o sentido dos títulos e só junta
       quando marca, tamanho, concentração (EDT/EDP/Elixir), gênero e o nome do perfume batem. Nas análises (vendas diárias, resumo do dia, mesmo período)
       eles contam como um produto só. Achou um errado? <b>Separar</b> tira o título do grupo e a IA não junta mais. Roda todo dia às 5h30 (Tarefas de rotina).</p>
-    ${!r.grupos.length ? `<div class="card empty" style="margin-top:14px"><h2>Nada juntado ainda</h2><p>A tarefa "Juntar produtos iguais (IA)" roda de madrugada. Para rodar agora: Coletor e agentes → Tarefas de rotina → ▶ Rodar agora.</p></div>` : ""}
+    ${!r.grupos.length ? `<div class="card empty" style="margin-top:14px"><h2>Nada juntado ainda</h2><p>A tarefa "Juntar produtos iguais (IA)" roda de madrugada. Para rodar agora: Central → 🗓️ Rotinas → ▶ Rodar agora.</p></div>` : ""}
     <div class="bi-grid">${gs.slice(0, 200).map(g => `<div class="card pad bi-card"><h2 style="font-size:14px">${vprodLink(g.grupo, g.titulo, "")}</h2>
       <div class="sub">${esc(g.marca)} · ${g.grupo.startsWith("T:") ? "sem GTIN (o título que mais vende dá o nome)" : "GTIN " + esc(g.grupo)}</div>
       <table class="t" style="font-size:12.5px"><tbody>${g.membros.map(m => `<tr><td class="first wrap">${esc(m.titulo || m.chave)}</td>
@@ -1851,6 +1856,69 @@ async function telaConcVendedor(vend) {
   desenhar(); desenharMenu();
 }
 
+// ---------- Central: tudo de tarefas, rotinas, execuções, erros, auditoria, agentes e coletor, em abas ----------
+const OPS_ABAS = [
+  {k: "dev", h: "#/central", t: "📋 Desenvolvimento", on: h => h === "#/central" || h.startsWith("#/reuniao/dev")},
+  {k: "rotinas", h: "#/coletor/rotinas", t: "🗓️ Rotinas", on: h => h.startsWith("#/coletor/rotinas")},
+  {k: "execucoes", h: "#/central/execucoes", t: "⏱️ Execuções", on: h => h.startsWith("#/central/execucoes")},
+  {k: "erros", h: "#/central/erros", t: "🚨 Erros", on: h => h.startsWith("#/central/erros")},
+  {k: "auditoria", h: "#/auditoria", t: "🧪 Auditoria", on: h => h.startsWith("#/auditoria")},
+  {k: "sala", h: "#/reuniao", t: "💬 Sala de reunião", on: h => h === "#/reuniao"},
+  {k: "coletor", h: "#/coletor", t: "📥 Coletor", on: h => h === "#/coletor"},
+];
+function opsAbas(ativa) {
+  if (!S.opsResT || Date.now() - S.opsResT > 60000) {
+    S.opsResT = Date.now();
+    api("ops_resumo").then(r => { S.opsRes = r; const b = $("#ops-abas"); if (b) b.outerHTML = opsAbas(ativa); desenharMenu(); }).catch(() => {});
+  }
+  const n = S.opsRes || {}, bd = k => k === "erros" && n.erros_hoje ? ` <span class="badge">${n.erros_hoje}</span>`
+    : k === "dev" && n.aprovadas ? ` <span class="badge" style="background:var(--good,#1a7f37)">${n.aprovadas}</span>` : "";
+  return `<nav class="ops-abas" id="ops-abas">${OPS_ABAS.map(a => `<a href="${a.h}" class="${a.k === ativa ? "on" : ""}">${a.t}${bd(a.k)}</a>`).join("")}</nav>`;
+}
+function duracao(a, b) {
+  if (!a || !b) return "";
+  const s = Math.max(0, Math.round((new Date(b) - new Date(a)) / 1000));
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}min ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}min`;
+}
+async function telaExecucoes() {
+  const main = $("#main");
+  const dias = +(new URLSearchParams(location.hash.split("?")[1] || "").get("dias") || 7);
+  main.innerHTML = opsAbas("execucoes") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando as execuções</div></div>`;
+  let r;
+  try { r = await api("ops_execucoes", {dias}); } catch (e) { main.innerHTML = opsAbas("execucoes") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const filtro = S.opsFiltro || "todas";
+  const ex = r.execucoes.filter(e => filtro === "todas" || (filtro === "erros" ? e.ok === false : e.tipo === filtro));
+  const st = e => e.em_andamento ? `<span class="st warn">rodando</span>` : e.ok === false ? `<span class="st bad">erro</span>` : e.ok ? `<span class="st good">ok</span>` : `<span class="st">—</span>`;
+  const quandoBR = t => new Date(t).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
+  main.innerHTML = opsAbas("execucoes") + `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>⏱️ Execuções</h1>
+      <span class="muted">cada vez que uma tarefa rodou (cron de hora em hora, ▶ Rodar agora ou coleta no Mac)</span><div style="flex:1"></div>
+      <div class="seg" id="ex-f">${[["todas", "Todas"], ["rotina", "Rotinas (servidor)"], ["coleta", "Coletas (Mac)"], ["erros", "Só erros"]].map(([k, t]) => `<button data-k="${k}" class="${k === filtro ? "on" : ""}">${t}</button>`).join("")}</div>
+      <select class="mes" id="ex-dias">${[1, 7, 14, 30].map(d => `<option value="${d}" ${d === dias ? "selected" : ""}>${d === 1 ? "hoje e ontem" : `últimos ${d} dias`}</option>`).join("")}</select></div>
+    <div class="card pad" style="margin-top:10px"><div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Quando</th><th>Tarefa</th><th>Como</th><th>Status</th><th>Duração</th><th>Resultado</th></tr></thead>
+      <tbody>${ex.map(e => `<tr><td>${esc(quandoBR(e.inicio))}</td><td class="first">${esc(e.nome)}</td><td>${esc(e.origem || "")}</td><td>${st(e)}</td>
+        <td>${esc(duracao(e.inicio, e.fim))}</td><td class="wrap">${esc(e.resultado)}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">Nenhuma execução neste período.</td></tr>`}</tbody></table></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">O histórico das rotinas do servidor começou em 24/09; antes disso só havia a última execução de cada uma (aba Rotinas).</p></div>`;
+  main.querySelectorAll("#ex-f button").forEach(b => b.onclick = () => { S.opsFiltro = b.dataset.k; telaExecucoes(); });
+  $("#ex-dias").onchange = e => { location.hash = "#/central/execucoes?dias=" + e.target.value; };
+  desenharMenu();
+}
+async function telaErros() {
+  const main = $("#main");
+  main.innerHTML = opsAbas("erros") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Procurando erros</div></div>`;
+  let r;
+  try { r = await api("ops_erros"); } catch (e) { main.innerHTML = opsAbas("erros") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const fontes = [...new Set(r.erros.map(e => e.fonte))];
+  const quandoBR = t => new Date(t).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
+  main.innerHTML = opsAbas("erros") + `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>🚨 Erros</h1>
+      <span class="muted">tudo o que falhou nos últimos 30 dias, num lugar só</span></div>
+    <div class="kpis">${["Tarefa de rotina", "Coletor (Mac)", "Auditoria", "Sala de reunião"].map(f => kpi(f, `<span class="${r.erros.some(e => e.fonte === f) ? "neg" : "pos"}">${r.erros.filter(e => e.fonte === f).length}</span>`,
+      {"Tarefa de rotina": "rotinas do servidor que deram erro", "Coletor (Mac)": "coletas com falha", "Auditoria": "números que não batem (última auditoria)", "Sala de reunião": "agentes que não responderam (7 dias)"}[f])).join("")}</div>
+    ${!r.erros.length ? `<div class="card empty"><h2>Nenhum erro 👏</h2><p>Rotinas, coletas, auditoria e agentes sem falhas.</p></div>` : fontes.map(f => `<div class="card pad" style="margin-top:14px"><h2>${esc(f)}</h2>
+      <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Quando</th><th>O quê</th><th>Detalhe</th></tr></thead>
+      <tbody>${r.erros.filter(e => e.fonte === f).map(e => `<tr><td>${esc(quandoBR(e.inicio))}</td><td class="first wrap">${esc(e.nome || "")}</td><td class="wrap">${esc(e.resultado || "")}</td></tr>`).join("")}</tbody></table></div></div>`).join("")}
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Os erros de dados e de código são discutidos na reunião diária dos agentes; o que o Claude aprova vai para 📋 Desenvolvimento.</p>`;
+  desenharMenu();
+}
 // ---------- Sala de reunião dos agentes (grupo tipo WhatsApp; o Claude decide) ----------
 const AG_COR = {"ChatGPT": "#10a37f", "DeepSeek": "#4d6bfe", "Claude": "#d97757", "Claude (código)": "#b3541e", "sistema": "#667781", "voce": "#00a884"};
 function waBolha(m) {
@@ -1871,13 +1939,12 @@ function waDesenhar(msgs) {
 }
 async function telaReuniao() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a sala de reunião</div></div>`;
+  main.innerHTML = opsAbas("sala") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a sala de reunião</div></div>`;
   let r;
   try { r = await api("reuniao"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.reu = {msgs: r.mensagens, ult: r.mensagens.length ? r.mensagens[r.mensagens.length - 1].id : 0};
   const ag = r.agentes, on = k => ag[k] ? "" : " (sem chave)";
-  main.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px"><h1 style="margin:0">💬 Sala de reunião</h1>
-      <div class="seg"><button class="on">💬 Sala</button><button onclick="location.hash='#/reuniao/dev'">📋 Desenvolvimento</button></div></div>
+  main.innerHTML = opsAbas("sala") + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px"><h1 style="margin:0">💬 Sala de reunião</h1></div>
     <div class="wa"><div class="wa-top"><div class="av">🤖</div><div><b>Agentes do nubi</b><br>
       <small>você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, Claude${on("claude")} (coordena e decide) · @chatgpt ou @deepseek chama só um</small></div></div>
       <div class="wa-msgs" id="wa-msgs">${waDesenhar(S.reu.msgs)}</div>
@@ -1917,7 +1984,7 @@ async function atualizarReuniao(rolar) {
 const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em desenvolvimento", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"]};
 async function telaDev() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o desenvolvimento</div></div>`;
+  main.innerHTML = opsAbas("dev") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o desenvolvimento</div></div>`;
   let r;
   try { r = await api("reuniao_tarefas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const ts = r.tarefas, PRI = {alta: "bad", media: "warn", baixa: ""};
@@ -1927,8 +1994,7 @@ async function telaDev() {
     <p style="font-size:11.5px">Sugerido por ${esc(t.proposto_por || "?")} · decidido por ${esc(t.decidido_por || "?")} · ${esc(quando(t.atualizado_em || t.criado_em))}</p>
     <select data-st="${t.id}" class="mes" style="font-size:12px">${r.status.map(x => `<option value="${x}" ${x === t.status ? "selected" : ""}>${DEV_ST[x][0]}</option>`).join("")}</select></div>`;
   const cols = ["aprovada", "em_desenvolvimento", "proposta", "feita"];
-  main.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h1 style="margin:0">📋 Desenvolvimento</h1>
-      <div class="seg"><button onclick="location.hash='#/reuniao'">💬 Sala</button><button class="on">📋 Desenvolvimento</button></div><div style="flex:1"></div>
+  main.innerHTML = opsAbas("dev") + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h1 style="margin:0">📋 Desenvolvimento</h1><div style="flex:1"></div>
       <button class="btn" id="dev-nova">+ Nova tarefa</button></div>
     <p class="muted" style="font-size:12.5px;margin:6px 0 0">O que os agentes discutiram e o Claude decidiu. Aprovadas entram na fila do Claude da sessão de código; você pode mudar o status de qualquer uma.</p>
     <div class="dev-col">${cols.map(c => `<div><h3 style="margin:0;font-size:14px">${DEV_ST[c][0]} <span class="muted">(${ts.filter(t => t.status === c).length})</span></h3>
@@ -1955,20 +2021,20 @@ function mdCodigo(t) {
 }
 async function telaAuditoria(data) {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando a auditoria</div></div>`;
+  main.innerHTML = opsAbas("auditoria") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando a auditoria</div></div>`;
   let r;
   try { r = await api("auditoria", data ? {data} : {}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const a = r.atual, dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
   const NIV = {erro: ["bad", "Erro"], alerta: ["warn", "Alerta"], info: ["", "Info"]};
   const conf = a ? a.conferencias || [] : [];
   const cont = k => conf.filter(x => x.nivel === k).length;
-  main.innerHTML = `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>🧪 Auditoria de dados e código</h1>
+  main.innerHTML = opsAbas("auditoria") + `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>🧪 Auditoria de dados e código</h1>
       ${r.datas.length > 1 ? `<select id="au-data" class="mes">${r.datas.map(d => `<option value="${d}" ${a && a.data === d ? "selected" : ""}>${dm(d)}</option>`).join("")}</select>` : ""}
       <div style="flex:1"></div><button class="btn primary" id="au-rodar">▶ Rodar agora</button></div>
     <p class="muted" style="margin:4px 0 0;font-size:13px">Todo dia às 10h30 (Tarefas de rotina) o nubi confere os números sem IA; depois o ChatGPT
       (${esc(r.modelo_codigo)}) analisa os achados e revisa um módulo do código, e o Claude revisa a análise do ChatGPT. Nada é mudado sozinho:
       o Claude da sessão de código lê este relatório, confirma e corrige com testes.</p>
-    <p style="margin:8px 0 0">${["chatgpt", "claude"].map(k => `<span class="st ${r.ias[k] ? "good" : "warn"}">${k === "chatgpt" ? "ChatGPT" : "Claude"}: ${r.ias[k] ? "ligado" : "sem chave"}</span>`).join(" ")}
+    <p style="margin:8px 0 0">${[["chatgpt", "ChatGPT (Codex)"], ["deepseek", "DeepSeek"], ["claude", "Claude"]].map(([k, n]) => `<span class="st ${r.ias[k] ? "good" : "warn"}">${n}: ${r.ias[k] ? "ligado" : "sem chave"}</span>`).join(" ")}
       ${!r.ias.claude ? `<span class="muted" style="font-size:12.5px"> · para o Claude revisar, coloque <code>ANTHROPIC_API_KEY</code> na Vercel (Settings → Environment Variables) e faça Redeploy.</span>` : ""}</p>
     ${!a ? `<div class="card empty" style="margin-top:14px"><h2>Nenhuma auditoria ainda</h2><p>Roda sozinha às 10h30, ou clique em Rodar agora (leva 1 a 3 minutos).</p></div>` : `
     <div class="kpis">${kpi("Erros", `<span class="${cont("erro") ? "neg" : "pos"}">${cont("erro")}</span>`, "números que não batem ou dados faltando")}
@@ -1978,7 +2044,7 @@ async function telaAuditoria(data) {
       <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Nível</th><th>Área</th><th>O quê</th><th>Detalhe</th></tr></thead>
       <tbody>${conf.map(x => `<tr><td><span class="st ${NIV[x.nivel][0]}">${NIV[x.nivel][1]}</span></td><td>${esc(x.area)}</td>
         <td class="first wrap">${esc(x.titulo)}</td><td class="wrap">${esc(x.detalhe)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nenhum achado. 👏</td></tr>`}</tbody></table></div></div>
-    <div class="card pad" style="margin-top:14px"><h2>Conversa dos agentes</h2><div class="sub">O ChatGPT analisa; o Claude revisa. Sugestões de correção só entram depois de conferidas e testadas.</div>
+    <div class="card pad" style="margin-top:14px"><h2>Conversa dos agentes</h2><div class="sub">O ChatGPT (Codex) analisa, o DeepSeek confere contas e casos de borda e o Claude revisa os dois. Sugestões de correção só entram depois de conferidas e testadas.</div>
       ${(a.conversa || []).map(m => `<div class="au-msg ${m.autor.startsWith("ChatGPT") ? "gpt" : m.autor === "DeepSeek" ? "ds" : m.autor === "Claude" ? "claude" : "sis"}"><div class="quem">${esc(m.autor)}</div>${mdCodigo(m.texto)}</div>`).join("")}</div>`}`;
   if ($("#au-data")) $("#au-data").onchange = e => telaAuditoria(e.target.value);
   $("#au-rodar").onclick = async () => {
@@ -1994,7 +2060,7 @@ const RESPONSAVEIS = ["Coletor (Mac mini)", "Robô nubi (servidor)", "ChatGPT", 
 const DIAS_NOME = {seg: "Seg", ter: "Ter", qua: "Qua", qui: "Qui", sex: "Sex", sab: "Sáb", dom: "Dom"};
 async function telaRotinas() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando tarefas</div></div>`;
+  main.innerHTML = opsAbas("rotinas") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando tarefas</div></div>`;
   let r;
   try { r = await api("rotinas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const sistema = id => ["coleta", "agente", "produtos_ia", "categorias_lote", "auditoria", "reuniao", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
@@ -2018,9 +2084,9 @@ async function telaRotinas() {
         <textarea data-f="observacao" placeholder="Ex.: no resumo, destacar sempre os perfumes árabes; comparar com a minha loja quando estiver conectada…">${esc(t.observacao || "")}</textarea></label>
     </div>
     <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap"><button class="btn primary small" data-salvar>Salvar</button>
-      <span class="rot-res">${t.ultima_execucao ? `Última vez: ${esc(quando(t.ultima_execucao))} — ${esc(t.ultimo_resultado || "")}` : t.id === "coleta" ? "O resultado de cada coleta aparece em Coletor e agentes." : "Ainda não rodou."}</span></div>
+      <span class="rot-res">${t.ultima_execucao ? `Última vez: ${esc(quando(t.ultima_execucao))} — ${esc(t.ultimo_resultado || "")}` : t.id === "coleta" ? "O resultado de cada coleta aparece em ⏱️ Execuções e 📥 Coletor." : "Ainda não rodou."}</span></div>
   </div>`;
-  main.innerHTML = `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>🗓️ Tarefas de rotina</h1><span class="muted">agora: ${esc(r.agora.slice(11))} (Brasília)</span><div style="flex:1"></div>
+  main.innerHTML = opsAbas("rotinas") + `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>🗓️ Tarefas de rotina</h1><span class="muted">agora: ${esc(r.agora.slice(11))} (Brasília)</span><div style="flex:1"></div>
       <button class="btn" id="rot-nova">+ Nova tarefa</button></div>
     <p class="muted" style="margin:4px 0 0;font-size:13px">O que roda sozinho no nubi, quem faz, o horário e os dias. O servidor confere a lista de hora em hora e roda o que chegou na hora.
       A coleta roda no Mac mini às 7h; aqui você escolhe os dias em que ela roda ou desliga. Tarefas novas ficam registradas com a sua observação,
