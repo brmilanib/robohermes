@@ -586,11 +586,22 @@ def atender(metodo, rota, q, corpo, token):
         if rota == "coletor_status":
             # consultado a cada 4 s durante a coleta: log só da que está rodando; o resto via coletor_log
             ult = repo._req("GET", "coletor_execucoes", {"select": "*", "order": "id.desc", "limit": 10}) or []
+            parado = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
             for u in ult:
+                if u.get("em_andamento") and str(u.get("atualizado_em") or u.get("iniciado_em") or "") < parado:
+                    # sem notícia há 30 min: o processo parou sem avisar (Mac dormiu, Terminal fechado)
+                    u["em_andamento"] = False
+                    u["ok"] = False
+                    u["mensagem"] = "parou sem avisar (sem notícia do Mac há mais de 30 min); a próxima coleta continua de onde parou"
                 lg = u.get("log") or ""
                 u["tem_log"] = bool(lg)
                 u["log"] = lg[-12000:] if u.get("em_andamento") else ""
-            return _json({"execucoes": ult})
+            try:
+                ped = repo._req("GET", "coletor_pedidos", {"select": "id,pedido_em,motivo", "atendido_em": "is.null",
+                                                           "order": "id.desc", "limit": 1}) or []
+            except ErroNuvem:
+                ped = []
+            return _json({"execucoes": ult, "pedido": ped[0] if ped else None})
         if rota == "coletor_log":
             r = repo._req("GET", "coletor_execucoes", {"select": "log", "id": repo._eq(int(q.get("id", 0)))}) or []
             return _json({"log": (r[0].get("log") or "") if r else ""})
@@ -620,6 +631,26 @@ def atender(metodo, rota, q, corpo, token):
                 return _json({"ok": True, "id": int(d["id"])})
             novo = repo._req("POST", "coletor_execucoes", corpo=[reg], prefer="return=representation")
             return _json({"ok": True, "id": novo[0]["id"] if novo else None})
+        if rota == "coletor_pedir" and metodo == "POST":
+            # "Rodar coleta agora": o vigia do Mac (a cada 15 min) pega o pedido e roda a coleta
+            d = json.loads(corpo or b"{}")
+            aberto = repo._req("GET", "coletor_pedidos", {"select": "id", "atendido_em": "is.null", "limit": 1}) or []
+            if not aberto:
+                repo._req("POST", "coletor_pedidos", corpo=[{"motivo": str(d.get("motivo") or "pedido no site")[:200]}],
+                          prefer="return=minimal")
+            return _json({"ok": True, "ja_havia": bool(aberto)})
+        if rota == "coletor_pedido":
+            # o vigia do Mac pergunta se há pedido de coleta (dos últimos 2 dias)
+            desde = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+            p = repo._req("GET", "coletor_pedidos", {"select": "id,motivo,tarefa,pedido_em", "atendido_em": "is.null",
+                                                     "pedido_em": f"gte.{desde}", "order": "id", "limit": 1}) or []
+            return _json({"pedido": p[0] if p else None})
+        if rota == "coletor_pedido_ok" and metodo == "POST":
+            d = json.loads(corpo or b"{}")
+            repo._req("PATCH", "coletor_pedidos", {"atendido_em": "is.null", "id": f"lte.{int(d.get('id') or 0)}"},
+                      corpo={"atendido_em": datetime.now(timezone.utc).isoformat(), "resultado": str(d.get("resultado") or "")[:200]},
+                      prefer="return=minimal")
+            return _json({"ok": True})
         if rota == "coletor_foto" and metodo == "POST":
             # foto da tela + resumo dos botões quando o coletor erra no Nubimetrics (para ver o erro de fora do Mac)
             d = json.loads(corpo or b"{}")

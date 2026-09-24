@@ -1240,6 +1240,72 @@ def cmd_dias(args, segundos=None):
     return executar("dias", f)
 
 
+VIGIA_PLIST = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.vigia.plist"
+
+
+def instalar_vigia():
+    """
+    Vigia de 15 em 15 minutos (launchd): pergunta ao nubi se há versão nova do coletor ou um pedido de coleta
+    ("Rodar coleta agora" no site) e, se houver, atualiza e roda a coleta na hora, sem esperar as 7h.
+    """
+    if sys.platform != "darwin":
+        return
+    wrapper = PASTA / "coletor"
+    if not wrapper.exists():
+        return
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.nubi.coletor.vigia</string>
+  <key>ProgramArguments</key>
+  <array><string>{wrapper}</string><string>vigiar</string></array>
+  <key>StartInterval</key><integer>900</integer>
+  <key>StandardOutPath</key><string>{PASTA}/vigia.log</string>
+  <key>StandardErrorPath</key><string>{PASTA}/vigia.log</string>
+</dict>
+</plist>
+"""
+    try:
+        if VIGIA_PLIST.exists() and VIGIA_PLIST.read_text(encoding="utf-8") == xml:
+            return
+        VIGIA_PLIST.parent.mkdir(parents=True, exist_ok=True)
+        VIGIA_PLIST.write_text(xml, encoding="utf-8")
+        subprocess.run(["launchctl", "unload", str(VIGIA_PLIST)], check=False, capture_output=True)
+        subprocess.run(["launchctl", "load", "-w", str(VIGIA_PLIST)], check=False, capture_output=True)
+        print("Vigia instalado: o coletor confere a cada 15 min se há versão nova ou pedido de coleta.", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"(não consegui instalar o vigia: {e})", flush=True)
+
+
+def cmd_vigiar():
+    """Chamado pelo launchd a cada 15 min: roda a coleta se houver versão nova do coletor ou pedido no site."""
+    if _outra_rodando():
+        return 0
+    motivo = None
+    try:
+        novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=20).read()
+        if novo and novo != Path(__file__).read_bytes():
+            compile(novo, "coletor.py", "exec")
+            motivo = "versão nova do coletor"
+    except Exception:  # noqa: BLE001
+        pass
+    cfg = ler_config()
+    pedido = None
+    try:
+        token = token_nubi(cfg)
+        pedido = api(token, "coletor_pedido", timeout=30).get("pedido")
+        if pedido:
+            api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "resultado": "coleta iniciada"}, timeout=30)
+            motivo = motivo or f"pedido no site: {pedido.get('motivo') or 'rodar coleta agora'}"
+    except Exception as e:  # noqa: BLE001
+        print(f"{datetime.now():%d/%m %H:%M} vigia: sem contato com o nubi ({e})", flush=True)
+    if not motivo:
+        return 0
+    print(f"{datetime.now():%d/%m %H:%M} vigia: {motivo} -> rodando a coleta", flush=True)
+    os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "diario"])
+
+
 def auto_atualizar():
     """Antes de cada coleta: se o nubi tem uma versão nova do coletor, troca e roda a nova (sem ninguém no Terminal)."""
     try:
@@ -1264,6 +1330,7 @@ def main():
     sub.add_parser("entrar")
     sub.add_parser("status")
     sub.add_parser("atualizar", help="baixa a versão mais nova do coletor")
+    sub.add_parser("vigiar", help="(automático) roda a coleta se houver versão nova ou pedido no site")
     ag = sub.add_parser("agendar", help="muda o horário da coleta diária")
     ag.add_argument("hora", type=int)
     ag.add_argument("minuto", type=int, nargs="?", default=0)
@@ -1307,8 +1374,12 @@ def main():
         subprocess.run(["launchctl", "load", str(plist)], check=False)
         print(f"OK: coleta diária agendada para {args.hora}h{args.minuto:02d}.")
         return 0
+    if args.cmd == "vigiar":
+        return cmd_vigiar()
     if args.cmd in ("diario", "vendedores", "marcas", "dias") and not os.environ.get("NUBI_ATUALIZADO"):
         auto_atualizar()
+    if args.cmd in ("diario", "vendedores", "marcas", "dias"):
+        instalar_vigia()
     if args.cmd == "atualizar":
         novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro

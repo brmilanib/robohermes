@@ -212,6 +212,7 @@ nubi. Cada arquivo sai com o nome que o Nubimetrics dá, numa pasta por mês, e 
 | Comando | Para quê |
 |---|---|
 | `~/.nubi-coletor/coletor diario` | roda a coleta agora |
+| `~/.nubi-coletor/coletor vigiar` | (automático, a cada 15 min pelo launchd `com.nubi.coletor.vigia`) roda a coleta se houver versão nova do coletor ou pedido "Rodar coleta agora" no site |
 | `~/.nubi-coletor/coletor status` | últimas coletas |
 | `~/.nubi-coletor/coletor entrar` | refazer o login do Nubimetrics (se a sessão expirar). Depois do login, ele testa se consegue entrar sozinho sem janela; se o Nubimetrics não aceitar, passa a coletar com a janela aberta |
 | `~/.nubi-coletor/coletor atualizar` | baixa a versão mais nova do coletor |

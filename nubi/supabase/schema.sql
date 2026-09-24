@@ -419,3 +419,12 @@ create table if not exists public.auditorias (
 alter table public.auditorias enable row level security;
 create policy "autorizado" on public.auditorias
   for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Pedidos de coleta ("Rodar coleta agora"): o vigia do Mac confere a cada 15 min
+create table if not exists public.coletor_pedidos (
+  id bigserial primary key, pedido_em timestamptz not null default now(), motivo text, tarefa text not null default 'diario',
+  atendido_em timestamptz, resultado text
+);
+alter table public.coletor_pedidos enable row level security;
+create policy "autorizado" on public.coletor_pedidos
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

@@ -1445,7 +1445,13 @@ function coletorAoVivo(e) {
 function cartaoColetor() {
   const ex = S.coletor || [], vivo = ex.find(coletorRodando);
   const feitos = ex.filter(e => e !== vivo);
-  return `<div class="card pad" id="coletor-card" style="margin-top:14px"><h2>📥 Coletor automático do Nubimetrics</h2>
+  const ped = S.coletorPedido;
+  return `<div class="card pad" id="coletor-card" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <h2 style="margin:0">📥 Coletor automático do Nubimetrics</h2><div style="flex:1"></div>
+      ${vivo ? "" : ped ? `<span class="st warn">pedido enviado ${esc(quando(ped.pedido_em))}: o Mac começa em até 15 min</span>`
+        : `<button class="btn primary small" onclick="pedirColeta()">▶ Rodar coleta agora</button>`}</div>
+    <div class="muted" style="font-size:12px;margin:4px 0 8px">Além das 7h, o Mac confere a cada 15 min: se há versão nova do coletor (correção publicada) ou um pedido
+      daqui, ele atualiza e roda na hora, completando só o que falta.</div>
     ${vivo ? coletorAoVivo(vivo) : ""}
     ${feitos.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Quando</th><th>Tarefa</th><th>Resultado</th><th class="num">Importados</th><th>Resumo</th><th></th></tr></thead><tbody>
       ${feitos.slice(0, 6).map(e => `<tr><td>${esc(quando(e.terminado_em || e.iniciado_em))}</td><td>${esc(TAREFA[e.tarefa] || e.tarefa)}</td>
@@ -1455,6 +1461,12 @@ function cartaoColetor() {
       : vivo ? "" : `<p class="muted" style="margin:0">Ainda não rodou. No Terminal do Mac mini, cole:</p>`}
     <div class="log" style="margin-top:8px">curl -fsSL https://nubi-explorador.vercel.app/coletor/instalar.sh | bash</div>
     <div class="muted" style="font-size:12px;margin-top:6px">Todo dia às 7h00 ele baixa o que falta desde janeiro: os vendedores seguidos do grupo "perfumes" (meses fechados + mês atual até o último dia liberado pelo Nubimetrics, 2 dias de atraso) e o relatório MARCAS de cada mês fechado. Se a sessão do Nubimetrics expirar, aparece aqui como "falhou" e no Mac: rode <code>~/.nubi-coletor/coletor entrar</code>.</div></div>`;
+}
+async function pedirColeta() {
+  try { await api("coletor_pedir", {}, {method: "POST", body: JSON.stringify({motivo: "botão Rodar coleta agora"})});
+    toast("Pedido enviado: o Mac começa a coleta em até 15 minutos.", 5000);
+    const cs = await api("coletor_status"); S.coletor = cs.execucoes; S.coletorPedido = cs.pedido; rotear(); }
+  catch (e) { toast(e.message, 6000); }
 }
 async function verLogColetor(id) {
   const e = (S.coletor || []).find(x => x.id === id);
@@ -1470,7 +1482,7 @@ async function verLogColetor(id) {
 async function cicloColetor() {
   clearTimeout(S.coletorT);
   if (S.sessao) {
-    try { S.coletor = (await api("coletor_status")).execucoes; } catch { /* tenta de novo no próximo ciclo */ }
+    try { const cs = await api("coletor_status"); S.coletor = cs.execucoes; S.coletorPedido = cs.pedido; } catch { /* tenta de novo no próximo ciclo */ }
     desenharAgente();
     const card = $("#coletor-card");
     if (card && !document.querySelector(".modal-bg")) {
@@ -3148,7 +3160,7 @@ function desenharAgente() {
 }
 async function carregarAgente() {
   try { const st = await api("agente_status"); S.agente = st.execucoes[0] || null; } catch { S.agente = null; }
-  try { S.coletor = (await api("coletor_status")).execucoes; } catch { S.coletor = []; }
+  try { const cs = await api("coletor_status"); S.coletor = cs.execucoes; S.coletorPedido = cs.pedido; } catch { S.coletor = []; }
   desenharAgente();
 }
 async function cicloAgente() {
