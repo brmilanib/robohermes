@@ -43,3 +43,12 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 4. Criativo (Gemini para imagem/post, #14), lives, promoções, cotação e compras.
 5. Versão para marcas e sellers.
 Modelos novos só entram depois do mini-benchmark interno (#15). Só o Bruno aprova tarefas (os agentes propõem).
+
+## Quadro de Desenvolvimento (cards vivos)
+
+- Ao começar uma tarefa: `status='em_desenvolvimento'`, `responsavel` (ex.: `claude_code`, `hermes`), `iniciado_em=now()`.
+- A cada passo relevante: inserir em `tarefa_eventos` (`tarefa_id`, `autor`=id do agente, `tipo`='passo', `texto` curto).
+  O card mostra o último passo e a animação de "trabalhando".
+- Precisa de decisão do Bruno: `tipo`='pergunta' no evento e o texto da pergunta em `reuniao_tarefas.aguardando`.
+  A resposta dele chega como evento `autor`='voce', `tipo`='resposta' (e limpa `aguardando`). Ler antes de seguir.
+- Terminou: `status='feita'` + nota; aparece em "Novidades no nubi" na tela Início por 48 h.
