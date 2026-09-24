@@ -433,32 +433,127 @@ def aplicar_periodo(pg, ini, fim):
     pg.locator("button", has_text=re.compile(r"^\s*APLICAR\s*$", re.I)).first.click()
 
 
+MES_ABREV = {"JAN": 1, "FEV": 2, "MAR": 3, "ABR": 4, "MAI": 5, "JUN": 6, "JUL": 7, "AGO": 8, "SET": 9, "OUT": 10,
+             "NOV": 11, "DEZ": 12, "FEB": 2, "APR": 4, "MAY": 5, "AUG": 8, "SEP": 9, "OCT": 10, "DEC": 12, "ENE": 1, "DIC": 12}
+VAZIO = re.compile(r"sem (dados|resultados|informa|vendas|an[uú]ncios)|nenhum (resultado|dado|an[uú]ncio)|n[aã]o h[aá] (dados|resultados)|"
+                   r"no hay|no (data|results)|sin (datos|resultados)", re.I)
+
+
+class SemDados(Exception):
+    """O vendedor não teve venda no período (a tela e a API vêm vazias)."""
+
+
+def periodo_na_tela(pg):
+    """Lê o botão do período (ex.: '01 SET - 21 SET') -> ((dia, mês), (dia, mês)) ou None."""
+    try:
+        txt = pg.evaluate("() => [...document.querySelectorAll('button,[role=button]')].map(b => b.innerText)"
+                          ".find(t => /\\d{1,2}\\s+[A-ZÇa-zç]{3}\\.?\\s*-\\s*\\d{1,2}\\s+[A-ZÇa-zç]{3}/.test(t)) || ''")
+    except Exception:  # noqa: BLE001
+        return None
+    m = re.search(r"(\d{1,2})\s+([A-ZÇa-zç]{3})\.?\s*-\s*(\d{1,2})\s+([A-ZÇa-zç]{3})", txt or "")
+    if not m:
+        return None
+    m1, m2 = MES_ABREV.get(m.group(2).upper()), MES_ABREV.get(m.group(4).upper())
+    return ((int(m.group(1)), m1), (int(m.group(3)), m2)) if m1 and m2 else None
+
+
+def _vazio_json(r):
+    """True se a resposta da lista de anúncios veio sem nenhum anúncio (None = não sei dizer)."""
+    try:
+        j = r.json()
+    except Exception:  # noqa: BLE001
+        return None
+    if isinstance(j, list):
+        return len(j) == 0
+    if isinstance(j, dict):
+        for k in ("items", "data", "results", "rows", "list", "content"):
+            if isinstance(j.get(k), list):
+                return len(j[k]) == 0
+        for k in ("total", "totalItems", "count"):
+            if isinstance(j.get(k), (int, float)):
+                return j[k] == 0
+    return None
+
+
 def baixar_vendedor(pg, h, ini, fim, rng, destino):
-    url = (f"{BASE}/competition/analysisbycompetitor?seller={h}&range={rng}&category="
-           f"&from={ini}&to={fim}")
-    ir(pg, url, "button#tab-1")
-    certo = lambda r: "analysisitems" in r.url and f"from={ini}" in r.url and f"to={fim}" in r.url
-    with pg.expect_response(lambda r: "analysisitems" in r.url, timeout=120000) as resp:
+    """
+    Abre a análise do vendedor no período, confere o período (pela API ou pelo botão da tela) e exporta.
+    Escuta as respostas da página desde o início: às vezes a lista carrega antes do clique na aba.
+    """
+    alvo = ((int(ini[8:10]), int(ini[5:7])), (int(fim[8:10]), int(fim[5:7])))
+    vistos = []
+
+    chegou = {}
+
+    def ouvir(r):
+        if "analysisitems" in r.url:
+            vistos.append(r)
+            chegou[id(r)] = time.time()
+    certo = lambda r: f"from={ini}" in r.url and f"to={fim}" in r.url
+    linhas = lambda: pg.evaluate("() => document.querySelectorAll('table tbody tr').length")
+    vazio_tela = lambda: bool(VAZIO.search(pg.evaluate("() => (document.querySelector('main') || document.body).innerText")))
+
+    def pronto(depois=0):
+        """Período certo na tela/API e a tabela já decidiu (tem linhas ou está vazia).
+        depois: quantas respostas já tinham chegado antes de trocar o período (a tabela antiga ainda pode estar na tela)."""
+        bons = [r for r in vistos if certo(r)]
+        if bons:
+            if _vazio_json(bons[-1]):
+                return True                                   # a API respondeu o período certo e sem anúncios
+            if time.time() - chegou[id(bons[-1])] < 2:
+                return False                                  # a tabela ainda está redesenhando
+            return linhas() > 0 or vazio_tela()
+        ok_tela = periodo_na_tela(pg) == alvo and len(vistos) > depois
+        return ok_tela and (linhas() > 0 or vazio_tela())
+
+    def esperar(cond, seg):
+        fim_t = time.time() + seg
+        while time.time() < fim_t:
+            if cond():
+                return True
+            pg.wait_for_timeout(700)
+        return False
+
+    pg.on("response", ouvir)
+    try:
+        url = (f"{BASE}/competition/analysisbycompetitor?seller={h}&range={rng}&category="
+               f"&from={ini}&to={fim}")
+        ir(pg, url, "button#tab-1")
         pg.click("button#tab-1")
-    devagar(2)
-    if not certo(resp.value):
-        # a tela ignorou o período da URL: escolhe no calendário e espera a tabela recarregar
-        with pg.expect_response(certo, timeout=120000) as resp:
+        devagar(2)
+        # a página já mostrou outro período (ignorou a URL): vai direto para o calendário
+        outro = lambda: bool(vistos) and not any(certo(r) for r in vistos) and time.time() - chegou[id(vistos[-1])] > 3 \
+            and periodo_na_tela(pg) not in (None, alvo)
+        if not esperar(lambda: pronto() or outro(), 45) or not pronto():
+            # a tela ignorou o período da URL (ou a lista não veio): escolhe no calendário
+            n0 = len(vistos)
             aplicar_periodo(pg, ini, fim)
-    if not resp.value.ok:
-        raise Falha(f"a lista de anúncios não carregou ({resp.value.status})")
-    pg.wait_for_selector("#dashboardByCompetitor_exportBtn_table", timeout=60000)
-    pg.wait_for_function("() => document.querySelectorAll('table tbody tr').length > 0", timeout=60000)
-    devagar(3)                                       # a tabela termina de desenhar
-    with pg.expect_download(timeout=120000) as d:
-        pg.click("#dashboardByCompetitor_exportBtn_table")
-    dl = d.value
-    arq = destino / dl.suggested_filename           # nome = vendedor na tela; não renomear
-    dl.save_as(str(arq))
-    devagar(2)                                       # deixa o Chrome terminar o download antes de seguir
-    if arq.stat().st_size < 3000:
-        raise Falha(f"arquivo vazio ou incompleto ({arq.name})")
-    return arq
+            if not esperar(lambda: pronto(n0), 60):
+                faixas = sorted({re.sub(r".*from=([\d-]+).*to=([\d-]+).*", r"\1 a \2", r.url) for r in vistos}) or ["nenhuma"]
+                raise Falha(f"a lista de anúncios não carregou para {ini} a {fim} (a página pediu: {', '.join(faixas)[:120]}; "
+                            f"período na tela: {periodo_na_tela(pg)}) " + diagnostico(pg))
+        resp = [r for r in vistos if certo(r)]
+        if (resp and _vazio_json(resp[-1])) or (linhas() == 0 and vazio_tela()):
+            raise SemDados()
+        if linhas() == 0:
+            if not esperar(lambda: linhas() > 0, 30):
+                raise Falha("a tabela de anúncios ficou vazia " + diagnostico(pg))
+        pg.wait_for_selector("#dashboardByCompetitor_exportBtn_table", timeout=60000)
+        devagar(3)                                       # a tabela termina de desenhar
+        with pg.expect_download(timeout=120000) as d:
+            pg.click("#dashboardByCompetitor_exportBtn_table")
+        dl = d.value
+        arq = destino / dl.suggested_filename           # nome = vendedor na tela; não renomear
+        dl.save_as(str(arq))
+        devagar(2)                                       # deixa o Chrome terminar o download antes de seguir
+        if arq.stat().st_size < 3000:
+            raise Falha(f"arquivo vazio ou incompleto ({arq.name})")
+        return arq
+    finally:
+        try:
+            pg.remove_listener("response", ouvir)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pular=None, avisos=None):
@@ -531,6 +626,11 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                         break
                     except SessaoExpirada:
                         raise
+                    except SemDados:
+                        log(f"  {nome} {rotulo}: sem vendas nesse período (nada para importar)")
+                        if not ate:     # mês fechado vazio não muda mais: não tenta de novo
+                            cfg.setdefault("vazios", {}).setdefault(h, []).append(mes)
+                        break
                     except Exception as e:  # noqa: BLE001
                         fechou = "has been closed" in str(e) or "Target closed" in str(e)
                         if fechou and tentativa == 1:
@@ -870,7 +970,11 @@ def main():
             # vendedores: cada mês que falta, o mês que ainda estava parcial e fechou, e o mês atual
             ja, ja_h = pend["vendedores"], pend.get("hashes", {})
 
+            vazios = cfg.get("vazios", {})
+
             def pular(h, nome, per):
+                if not per["ate"] and per["mes"] in vazios.get(h, []):
+                    return True                      # mês fechado sem venda desse vendedor
                 reg = ja_h.get(h) if h in ja_h else ja.get(nome, {})
                 return per["mes"] in reg and (reg[per["mes"]] or None) == per["ate"]
             avisos = []
