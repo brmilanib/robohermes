@@ -14,6 +14,7 @@ Devolve a categoria com mais pontos, a confiança e as evidências (com link) pa
 
 import html
 import json
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -98,8 +99,8 @@ def buscar_web(marca):
             j = json.loads(_baixar(f"https://{lang}.wikipedia.org/w/api.php?" + urllib.parse.urlencode(
                 {"action": "query", "list": "search", "srsearch": f"{marca} perfume", "format": "json", "srlimit": 2})))
             for r in j.get("query", {}).get("search", []):
-                if nubi.compacta(marca)[:5] not in nubi.compacta(r.get("title", "") + r.get("snippet", "")):
-                    continue                      # resultado que não fala da marca
+                if nubi.compacta(marca) not in nubi.compacta(r.get("title", "") + " " + _limpa(r.get("snippet", ""))):
+                    continue                      # resultado que não fala da marca (ex.: "Paris Elysees" -> Champs-Élysées)
                 achados.append({"fonte": f"wikipedia {lang}", "titulo": r["title"], "texto": _limpa(r.get("snippet")),
                                 "link": f"https://{lang}.wikipedia.org/wiki/" + urllib.parse.quote(r["title"].replace(" ", "_"))})
         except Exception:  # noqa: BLE001
@@ -107,7 +108,73 @@ def buscar_web(marca):
     return achados
 
 
-def sugerir(marca, gtins=(), preco_medio=None, web=None):
+CATS_IA = {
+    "Alta perfumaria": "casas de luxo e maisons clássicas (Dior, Chanel, Guerlain, Bvlgari, Lancôme, Hermès, Tom Ford)",
+    "Designer": "grifes de moda e marcas de celebridade internacionais (Carolina Herrera, Rabanne, Azzaro, Calvin Klein, Britney Spears)",
+    "Nicho": "perfumaria de nicho/artística, independente, cara (Xerjoff, Creed, Parfums de Marly, Nishane)",
+    "Árabe": "marcas dos Emirados, Arábia Saudita e Oriente Médio (Lattafa, Armaf, Al Wataniah, Afnan, Maison Alhambra)",
+    "Nacional": "marcas brasileiras, inclusive de contratipos/inspirações e cosméticos (Natura, O Boticário, Eudora, WePink)",
+    "Outros": "importadas baratas/acessíveis que não são grife nem árabe (La Rive, Paris Elysees, Cuba Paris, Ulric de Varens)",
+}
+
+
+def ia_disponivel():
+    return "claude" if os.environ.get("ANTHROPIC_API_KEY") else "chatgpt" if os.environ.get("OPENAI_API_KEY") else None
+
+
+def _post_json(url, corpo, cab, timeout=90):
+    req = urllib.request.Request(url, data=json.dumps(corpo).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", **cab})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def pesquisar_ia(marca, pistas=""):
+    """
+    Pergunta a uma IA com pesquisa na web (Claude ou ChatGPT, a que tiver chave) qual é a categoria da marca.
+    Devolve {categoria, confianca, motivo, fontes, ia} ou None (sem chave ou erro).
+    """
+    ia = ia_disponivel()
+    if not ia:
+        return None
+    lista = "\n".join(f"- {c}: {d}" for c, d in CATS_IA.items())
+    pergunta = (
+        f'Pesquise na web a marca de perfumes "{marca}", vendida no Mercado Livre Brasil. Descubra a origem da empresa '
+        f"(país), o tipo de marca e a faixa de preço. Classifique em UMA destas categorias:\n{lista}\n"
+        f"Pistas que já temos: {pistas or 'nenhuma'}.\n"
+        'Responda SOMENTE com um JSON: {"categoria": "<uma das categorias acima>", "confianca": "alta|média|baixa", '
+        '"motivo": "<1 ou 2 frases em português: país de origem e o que a marca é>", "fontes": ["<url>", ...]}. '
+        "Se não achar nada confiável sobre a marca, use confianca baixa e diga isso no motivo.")
+    try:
+        if ia == "claude":
+            r = _post_json("https://api.anthropic.com/v1/messages", {
+                "model": os.environ.get("NUBI_IA_MODELO", "claude-sonnet-5"), "max_tokens": 1200,
+                "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}],
+                "messages": [{"role": "user", "content": pergunta}]},
+                {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"})
+            texto = " ".join(b.get("text", "") for b in r.get("content", []) if b.get("type") == "text")
+            links = [c.get("url") for b in r.get("content", []) for c in (b.get("citations") or []) if c.get("url")]
+        else:
+            r = _post_json("https://api.openai.com/v1/responses", {
+                "model": os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "tools": [{"type": "web_search_preview"}],
+                "input": pergunta}, {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"})
+            partes = [c for o in r.get("output", []) if o.get("type") == "message" for c in o.get("content", [])]
+            texto = " ".join(c.get("text", "") for c in partes)
+            links = [a.get("url") for c in partes for a in (c.get("annotations") or []) if a.get("url")]
+        m = re.search(r"\{.*\}", texto, re.S)
+        j = json.loads(m.group(0)) if m else {}
+        cat = j.get("categoria")
+        if cat not in CATS_IA:
+            return {"categoria": None, "confianca": "baixa", "motivo": texto[:300], "fontes": links[:3], "ia": ia}
+        fontes = [f for f in (j.get("fontes") or []) if isinstance(f, str) and f.startswith("http")] or links
+        return {"categoria": cat, "confianca": (j.get("confianca") or "média").replace("media", "média"),
+                "motivo": j.get("motivo") or "", "fontes": list(dict.fromkeys(fontes))[:3], "ia": ia}
+    except Exception as e:  # noqa: BLE001
+        return {"categoria": None, "confianca": "baixa", "motivo": f"a IA não respondeu ({str(e)[:120]})",
+                "fontes": [], "ia": ia}
+
+
+def sugerir(marca, gtins=(), preco_medio=None, web=None, usar_ia=True):
     """
     marca: nome; gtins: códigos de barras dos produtos da marca no nubi; preco_medio: R$ por unidade no ranking;
     web: resultados de buscar_web (None = busca agora). Devolve {sugestao, confianca, pontos, evidencias, google}.
@@ -152,9 +219,24 @@ def sugerir(marca, gtins=(), preco_medio=None, web=None):
             pontos["Nacional"] += 0.5
             pontos["Outros"] += 0.5
         ev.append({"fonte": "preço", "texto": f"Preço médio no ranking: R$ {preco_medio:,.0f}".replace(",", "."), "link": ""})
+    # 4) IA com pesquisa na web (Claude ou ChatGPT): pesa mais que as outras pistas
+    ia = None
+    if usar_ia and ia_disponivel():
+        resumo = "; ".join(e["texto"] for e in ev if e["fonte"] in ("código de barras", "preço"))
+        ia = pesquisar_ia(marca, resumo)
+        if ia:
+            if ia["categoria"]:
+                pontos[ia["categoria"]] += {"alta": 7, "média": 5}.get(ia["confianca"], 2.5)
+            nome_ia = "IA (Claude)" if ia["ia"] == "claude" else "IA (ChatGPT)"
+            ev.insert(0, {"fonte": nome_ia, "texto": (f"{ia['categoria']} — " if ia["categoria"] else "") + ia["motivo"],
+                          "link": ia["fontes"][0] if ia["fontes"] else ""})
+            for f in ia["fontes"][1:]:
+                ev.insert(1, {"fonte": "fonte da IA", "texto": f, "link": f})
     melhor = max(pontos.items(), key=lambda kv: kv[1])
     segundo = sorted(pontos.values(), reverse=True)[1]
     conf = "alta" if melhor[1] >= 4 and melhor[1] - segundo >= 2 else "média" if melhor[1] >= 2.5 else "baixa"
-    return {"marca": marca, "sugestao": melhor[0] if melhor[1] > 0.5 else None, "confianca": conf,
+    if ia and ia["categoria"] and melhor[0] == ia["categoria"]:
+        conf = ia["confianca"] if ia["confianca"] in ("alta", "média") else conf
+    return {"marca": marca, "sugestao": melhor[0] if melhor[1] > 0.5 else None, "confianca": conf, "ia": ia_disponivel(),
             "pontos": {k: round(v, 1) for k, v in pontos.items()}, "evidencias": ev,
             "google": "https://www.google.com/search?" + urllib.parse.urlencode({"q": f"{marca} perfume marca origem"})}

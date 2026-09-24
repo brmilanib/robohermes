@@ -1013,6 +1013,7 @@ async function pesquisarCategorias(lista) {
   const res = [];
   const bg = modal(`<div style="display:flex;gap:12px;align-items:flex-start"><div style="flex:1"><h2 style="margin:0">🔎 Pesquisando categorias</h2>
       <div class="muted" id="pq-st" style="margin-top:4px"></div></div><button class="btn" data-fechar>Fechar</button></div>
+    <div id="pq-ia" style="margin-top:8px"></div>
     <div class="prog" style="margin:12px 0"><i id="pq-bar" style="width:0%"></i></div><div id="pq-lista"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn primary hidden" id="pq-todas">Aplicar as sugestões de confiança alta e média</button></div>`);
   bg.querySelector(".modal").classList.add("larga");
@@ -1040,6 +1041,9 @@ async function pesquisarCategorias(lista) {
     try {
       const r = await api("ranking_categoria_pesquisar", {}, {method: "POST", body: JSON.stringify({marca: m.marca, preco_medio: m.preco_medio})});
       res.push({...r, atual: m.categoria});
+      if (i === 0) $("#pq-ia", bg).innerHTML = r.ia
+        ? `<p class="aviso">Pesquisando com ${r.ia === "claude" ? "IA Claude" : "IA ChatGPT"} na web (pode levar uns segundos por marca), mais código de barras e preço.</p>`
+        : `<p class="aviso warn">Sem IA configurada: só código de barras, Wikipédia e preço. Para pesquisar de verdade na web, coloque uma chave de IA no nubi (ChatGPT ou Claude).</p>`;
     } catch (e) { res.push({marca: m.marca, atual: m.categoria, erro: e.message}); }
     $("#pq-bar", bg).style.width = Math.round(100 * (i + 1) / lista.length) + "%";
     desenhar();
