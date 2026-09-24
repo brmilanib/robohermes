@@ -441,3 +441,9 @@ detalhe técnico fica em `dados/erro.log`.
   O número no menu conta os produtos sem estoque/parados em algum concorrente. Regras em `vend_bi.py`.
 - O export do Nubimetrics só traz anúncios com venda e o estado ATUAL do anúncio; as unidades são estimativas
   (arredondadas de 10 em 10 nos produtos grandes).
+
+## Categorias de marca (Ranking → 🏷️ Categorias)
+
+Cada marca do ranking MARCAS entra numa categoria: **Alta perfumaria**, **Designer**, **Nicho**, **Árabe**, **Nacional** ou **Outros**.
+A classificação automática vem da lista em `categorias.py`; o que você escolher na tela fica na tabela `marca_categorias` e vale
+para todos os meses. A tela mostra vendas e fatia de cada categoria mês a mês, o crescimento e as maiores marcas de cada uma.

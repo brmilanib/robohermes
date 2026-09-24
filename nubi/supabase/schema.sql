@@ -312,3 +312,13 @@ language sql stable security invoker set search_path = public as $$
   select marca, 'explorador', inicio, fim, vendas, vendedores, null::int from (select distinct on (marca) * from ex order by marca, fim desc) z;
 $$;
 grant execute on function public.marcas_resumo() to authenticated;
+
+-- Categoria de cada marca (Alta perfumaria, Designer, Nicho, Árabe, Nacional, Outros) escolhida na tela;
+-- sem linha aqui vale a lista automática de categorias.py.
+create table if not exists public.marca_categorias (
+  marca_chave text primary key, marca text, categoria text not null,
+  atualizado_em timestamptz not null default now()
+);
+alter table public.marca_categorias enable row level security;
+create policy "autorizado" on public.marca_categorias
+  for all to authenticated using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

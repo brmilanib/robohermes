@@ -244,6 +244,7 @@ select.mes{border:1px solid var(--line);background:var(--card);padding:5px 8px;f
 .navi .ic{font-size:16px}
 .navi.on{background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--accent);font-weight:600}
 .master{color:var(--good);font-weight:700}
+select.catsel{border:1px solid var(--line);border-radius:6px;padding:3px 6px;background:var(--card);font-size:12.5px}
 .nlogo{display:flex;flex-direction:column;align-items:center;gap:14px}
 .norb{position:relative;width:96px;height:96px;display:grid;place-items:center}
 .norb::before{content:"";position:absolute;inset:0;border-radius:50%;border:3px solid color-mix(in srgb,var(--accent) 15%,transparent);
@@ -471,7 +472,15 @@ function desenharMenu() {
   const it = (href, ic, txt, on, extra = "") => `<a class="navi ${on ? "on" : ""}" href="${href}"><span class="ic">${ic}</span><span>${esc(txt)}</span>${extra}</a>`;
   const sub = itens => itens.length ? `<div class="subnav">${itens.map(i => i.mais ? `<a class="mais" id="mtodas">${esc(i.nome)}</a>`
     : `<a class="${i.on ? "on" : ""}" href="${i.href}" title="${esc(i.nome)}">${esc(i.nome)}</a>`).join("")}</div>` : "";
-  const cats = (S.rankLista || []).map(c => ({href: `#/ranking/${encodeURIComponent(c.categoria)}`, nome: c.nome.split(" > ").pop(), on: h.startsWith(`#/ranking/${c.categoria}`)}));
+  // Ranking: para cada categoria do Mercado Livre, as três visões (mês, B.I., categorias de marca)
+  const um = (S.rankLista || []).length === 1;
+  const cats = (S.rankLista || []).flatMap(c => {
+    const b = `#/ranking/${encodeURIComponent(c.categoria)}`, pref = um ? "" : c.nome.split(" > ").pop() + " · ";
+    const naCat = h.startsWith(`#/ranking/${c.categoria}`) || (um && (h === "#/ranking" || h === "#/ranking/"));
+    return [{href: b, nome: pref + "📅 Mês a mês", on: naCat && !/\/(bi|categorias)$/.test(h)},
+            {href: b + "/bi", nome: pref + "📊 B.I. (todos os meses)", on: naCat && h.endsWith("/bi")},
+            {href: b + "/categorias", nome: pref + "🏷️ Categorias de marca", on: naCat && h.endsWith("/categorias")}];
+  });
   const ordenadas = [...S.painel].sort((a, b) => b.fat - a.fat);
   const atualM = ordenadas.find(p => h === "#/" + p.marca);
   const visiveis = S.marcasTodas ? ordenadas : ordenadas.slice(0, 10).concat(atualM && !ordenadas.slice(0, 10).includes(atualM) ? [atualM] : []);
@@ -482,11 +491,12 @@ function desenharMenu() {
   // listas que abrem e fecham (setinha); começam fechadas e o nubi lembra a escolha
   const ab = menuAberto();
   const cont = n => n ? `<span class="muted cont">${n}</span>` : "";
-  const seta = (k, tem) => tem ? `<button class="seta" data-seta="${k}" title="${ab[k] ? "Esconder a lista" : "Mostrar a lista"}">${ab[k] ? "▾" : "▸"}</button>` : "";
+  const seta = (k, tem, aberto = ab[k]) => tem ? `<button class="seta" data-seta="${k}" data-aberto="${aberto ? 1 : ""}" title="${aberto ? "Esconder a lista" : "Mostrar a lista"}">${aberto ? "▾" : "▸"}</button>` : "";
+  const rkAberto = ab.ranking ?? sec === "ranking";
   $("#side").innerHTML = `
     <div class="grupo">Mercado</div>
-    ${it("#/ranking", "🏆", "Ranking de marcas", sec === "ranking", (cats.length > 1 ? cont(cats.length) : "") + seta("ranking", cats.length > 1))}
-    ${ab.ranking && cats.length > 1 ? sub(cats) : ""}
+    ${it("#/ranking", "🏆", "Ranking de marcas", sec === "ranking", seta("ranking", cats.length > 0, rkAberto))}
+    ${rkAberto && cats.length ? sub(cats) : ""}
     ${it("#/", "🔎", "Explorador de anúncios", sec === "explorador", cont(S.painel.length) + seta("explorador", S.painel.length > 0))}
     ${ab.explorador ? sub(marcas) : ""}
     <div class="grupo">Concorrentes</div>
@@ -503,7 +513,7 @@ function desenharMenu() {
   if ($("#mtodas")) $("#mtodas").onclick = e => { e.preventDefault(); S.marcasTodas = !S.marcasTodas; desenharMenu(); };
   document.querySelectorAll("[data-seta]").forEach(b => b.onclick = e => {
     e.preventDefault(); e.stopPropagation();
-    const a = menuAberto(); a[b.dataset.seta] = !a[b.dataset.seta];
+    const a = menuAberto(); a[b.dataset.seta] = !b.dataset.aberto;
     try { localStorage.setItem("nubi.menu", JSON.stringify(a)); } catch { /* sem armazenamento: vale só nesta visita */ }
     S.menuAb = a; desenharMenu();
   });
@@ -548,8 +558,8 @@ async function rotear() {
   const sec = secaoAtual();
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   if (sec === "ranking") {
-    const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi))?/) || [];
-    return mes === "bi" ? telaBI(cat) : telaRanking(cat, mes);
+    const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
+    return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
   }
   if (sec === "nomes") return location.hash.startsWith("#/coletor") ? telaColetor() : telaNomesMarcas();
   if (sec === "vendedores") {
@@ -597,7 +607,7 @@ async function telaRanking(cat, mes) {
       <select id="rkmes" class="mes">${r.meses.map(m => optMes(m.mes, null, m.mes === r.mes)).join("")}</select>
       <span class="muted">${ant ? `comparando com ${esc(ant.nome)}` : "primeiro mês importado desta categoria (a comparação aparece a partir do próximo)"}</span>
       <div style="flex:1"></div>
-      <div class="seg"><button class="on">📅 Mês</button><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}/bi'">📊 B.I. · todos os meses (${r.meses.length})</button></div>
+      <div class="seg"><button class="on">📅 Mês</button><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}/bi'">📊 B.I. · todos os meses (${r.meses.length})</button><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}/categorias'">🏷️ Categorias</button></div>
     </div>
     <p class="aviso">Mercado inteiro da categoria no mês fechado (${nf0.format(z.marcas)} marcas do relatório), não da sua loja.</p>
     <div class="kpis">
@@ -929,6 +939,75 @@ const ST_CLS = {"Subindo forte": "good", "Crescimento consistente": "good", "Nov
   "Ficou e cresceu": "good", "Entrou agora": "good", "Entrou e saiu": "bad", "Fora do ranking": "", "Ficou, mas caindo": "bad", "Perdeu fôlego": "bad", "Passou rápido": "warn", "Voltou depois": "warn", "Juntado": "good", "Separado": "", "Desfeito": "warn"};
 const statusHTML = s => s ? `<span class="st ${ST_CLS[s] || ""}">${esc(s)}</span>` : "";
 
+
+// ---------- Categorias de marca (Alta perfumaria, Designer, Nicho, Árabe, Nacional, Outros) ----------
+const COR_CAT = {"Alta perfumaria": "var(--s5)", "Designer": "var(--s1)", "Nicho": "var(--s7)", "Árabe": "var(--s4)", "Nacional": "var(--s3)",
+  "Outros": "var(--dv-outro)", "Sem categoria": "color-mix(in srgb, var(--dv-outro) 45%, transparent)"};
+const ICO_CAT = {"Alta perfumaria": "💎", "Designer": "👔", "Nicho": "🧪", "Árabe": "🕌", "Nacional": "🇧🇷", "Outros": "📦", "Sem categoria": "❔"};
+async function telaCategorias(cat) {
+  const main = $("#main");
+  if (!S.rankLista) await carregarRankLista();
+  if (!S.rankLista.length) return telaRanking();
+  cat = cat || S.rankLista[0].categoria;
+  if (!$("#cat-raiz")) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Separando as marcas por categoria</div></div>`;
+  let r;
+  try { r = await api("ranking_categorias", {categoria: cat}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  S.cats = r; S.tabelas = S.tabelas || {};
+  const M = r.meses, n = M.length, rot = M.map(mesCurto), ult = n - 1;
+  const cats = r.categorias.filter(c => r.serie[c].vendas.some(v => v > 0));
+  const principais = cats.filter(c => c !== "Sem categoria");
+  main.innerHTML = `<div id="cat-raiz">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h1>Categorias de marca · ${esc(r.categoria_nome.split(" > ").pop())}</h1>
+      <div class="seg"><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}'">📅 Mês</button><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}/bi'">📊 B.I. · todos os meses</button><button class="on">🏷️ Categorias</button></div>
+    </div>
+    <p class="aviso">Mercado inteiro: as marcas do ranking MARCAS de cada mês, somadas por categoria. ${n > 1 ? `Variações de ${esc(mesCurto(M[ult - 1]))} para ${esc(mesCurto(M[ult]))}.` : ""}</p>
+    ${r.sem_categoria.length ? `<p class="aviso warn">${r.sem_categoria.length} marca(s) sem categoria (${abrev(r.serie["Sem categoria"].vendas[ult])} em ${esc(mesCurto(M[ult]))}). Escolha a categoria delas na lista abaixo.</p>` : ""}
+    <div class="kpis cat-kpis">${principais.map(c => { const x = r.serie[c]; return `<div class="card kpi" style="border-top:3px solid ${COR_CAT[c]}">
+      <div class="l">${ICO_CAT[c]} ${esc(c)}</div><div class="v">${abrev(x.vendas[ult])}</div>
+      <div class="o"><b>${FMT.pct(x.share[ult])}</b> do mercado${x.var_share != null ? ` · ${x.var_share >= 0 ? "+" : ""}${nf1.format(x.var_share * 100)} p.p.` : ""}<br>
+      ${x.var_mes != null ? pctCor(x.var_mes) + " em vendas" : ""} · ${x.marcas[ult]} marca(s)</div></div>`; }).join("")}</div>
+    <div class="bi-grid">
+      <div class="card pad bi-card largo"><h2>Vendas por categoria, mês a mês</h2><div class="sub">Colunas empilhadas: quanto cada categoria vendeu no mês (soma das marcas do ranking).</div>
+        ${legenda(cats.map(c => [c, COR_CAT[c]]), true)}<div class="ch" id="g-cat-v"></div></div>
+      <div class="card pad bi-card"><h2>Fatia do mercado</h2><div class="sub">% das vendas do ranking de cada mês. Mostra quem ganha espaço de quem.</div><div class="ch" id="g-cat-s"></div></div>
+      <div class="card pad bi-card"><h2>Crescimento: vendas de cada categoria</h2><div class="sub">Em R$, uma linha por categoria.</div><div class="ch" id="g-cat-l"></div></div>
+      <div class="card pad bi-card largo"><h2>Mês a mês</h2><div class="sub">Vendas e fatia de cada categoria. Quanto mais escuro, maior a fatia.</div>
+        <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Categoria</th>${rot.map(m => `<th class="num">${esc(m)}</th>`).join("")}</tr></thead>
+        <tbody>${cats.map(c => `<tr><td class="first">${ICO_CAT[c]} ${esc(c)}</td>${M.map((_, i) => { const sh = r.serie[c].share[i];
+          return `<td class="num" style="background:color-mix(in srgb, ${COR_CAT[c]} ${Math.round(Math.min(1, sh * 2.2) * 38)}%, transparent)">${abrev(r.serie[c].vendas[i])}<br><small class="muted">${FMT.pct(sh)}</small></td>`; }).join("")}</tr>`).join("")}</tbody></table></div></div>
+      ${principais.map(c => { const top = r.marcas.filter(m => m.categoria === c && m.ultimo).slice(0, 8);
+        return top.length ? `<div class="card pad bi-card"><h2>${ICO_CAT[c]} ${esc(c)}: maiores em ${esc(mesCurto(M[ult]))}</h2>
+        <table class="t" style="font-size:12.5px"><tbody>${top.map(m => `<tr><td class="first">${rkLink(m.marca)}</td><td>${sparkSerie(m.vendas.map(v => v || 0))}</td>
+          <td class="num">${abrev(m.ultimo)}</td><td class="num muted">${FMT.pct(m.share_cat)} da categoria</td><td class="num">${pctCor(m.var_mes)}</td></tr>`).join("")}</tbody></table></div>` : ""; }).join("")}
+    </div>
+    <h2 style="margin:22px 0 0">Todas as marcas e a categoria de cada uma</h2>
+    <p class="muted" style="margin:4px 0 0;font-size:12.5px">A categoria vem de uma lista de marcas conhecidas (<i>automática</i>). Troque na coluna Categoria quando quiser: a sua escolha vale para todos os meses.</p>
+    <div id="cat-tab" class="painel"></div></div>`;
+  const linhas = r.marcas.map(m => ({...m, spark: m.vendas.map(v => v || 0), pos: m.posicao[ult], origem: m.fonte === "manual" ? "sua escolha" : m.fonte === "auto" ? "automática" : "—"}));
+  tabela($("#cat-tab"), "cat_marcas", linhas, [["marca","Marca","rkmarca","txt"],["categoria","Categoria","catsel","sel"],["origem","Origem","txt","sel"],
+    ["spark","Vendas mês a mês","sparku"],["ultimo",`Vendas ${mesCurto(M[ult])}`,"moeda"],["var_mes","Var. mês","var"],["share_cat","% da categoria","pct"],["pos",`# ${mesCurto(M[ult])}`,"int"]],
+    {ordem: ["ultimo", -1]});
+  biRedesenhar = [
+    () => grafColunas($("#g-cat-v"), {rotulos: rot, fmt: abrev, fmtEixo: abrevEixo, altura: 260,
+      series: cats.map(c => ({nome: c, cor: COR_CAT[c], v: r.serie[c].vendas})),
+      dica: i => cats.map(c => ({cor: COR_CAT[c], valor: `${abrev(r.serie[c].vendas[i])} · ${FMT.pct(r.serie[c].share[i])}`, nome: c}))}),
+    () => grafLinhas($("#g-cat-s"), {rotulos: rot, fmt: FMT.pct, fmtEixo: v => nf0.format(v * 100) + "%", pontos: true,
+      series: principais.map(c => ({nome: c, cor: COR_CAT[c], v: r.serie[c].share}))}),
+    () => grafLinhas($("#g-cat-l"), {rotulos: rot, fmt: abrev, fmtEixo: abrevEixo, pontos: true,
+      series: principais.map(c => ({nome: c, cor: COR_CAT[c], v: r.serie[c].vendas}))}),
+  ];
+  biRedesenhar.forEach(g => g());
+  desenharMenu();
+}
+async function trocarCategoria(marca, categoria) {
+  const c = carregando(`Mudando ${marca} para ${categoria || "automática"}`);
+  try {
+    const r = await api("ranking_categoria_salvar", {}, {method: "POST", body: JSON.stringify({marca, categoria})});
+    const y = scrollY; await telaCategorias(S.cats.categoria); scrollTo(0, y);
+    c.ok(`${marca}: ${r.categoria}`);
+  } catch (e) { c.erro(e.message); }
+}
 // ---------- B.I. do ranking (todos os meses importados) ----------
 let biRedesenhar = [];
 window.addEventListener("resize", () => { clearTimeout(window._biT); window._biT = setTimeout(() => biRedesenhar.forEach(f => f()), 150); });
@@ -956,7 +1035,7 @@ async function telaBI(cat) {
       <h1>B.I. do ranking · ${esc(r.categoria_nome)}</h1>
       <span class="muted">${n} ${n === 1 ? "mês" : "meses"} · ${esc(mesCurto(pri.mes))} → ${esc(mesCurto(ult.mes))}</span>
       <div style="flex:1"></div>
-      <div class="seg"><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}'">📅 Mês</button><button class="on">📊 B.I. · todos os meses</button></div>
+      <div class="seg"><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}'">📅 Mês</button><button class="on">📊 B.I. · todos os meses</button><button onclick="location.hash='#/ranking/${encodeURIComponent(cat)}/categorias'">🏷️ Categorias</button></div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 0">
       <label class="muted">De <select id="bi-de" class="btn" style="padding:4px 8px">${opMes(pri.mes)}</select></label>
@@ -2058,6 +2137,7 @@ function tabela(el, chave, linhas, cols, extra = {}) {
       || `<tr><td colspan="${cols.length}" class="empty">Nada para mostrar.</td></tr>`;
     $("#tb-mais", el).classList.toggle("hidden", rs.length <= st.limite);
     el.querySelectorAll("[data-edit]").forEach(bt => bt.onclick = () => corrigirGtin(linhas.find(x => x.gtin === bt.dataset.edit)));
+    el.querySelectorAll("select.catsel").forEach(sel => sel.onchange = () => trocarCategoria(sel.dataset.cm, sel.value));
   };
   $("#tb-busca", el).oninput = e => { st.busca = e.target.value; desenhar(); };
   el.querySelectorAll("[data-f]").forEach(i => i[i.tagName === "SELECT" ? "onchange" : "oninput"] = e => { st.filtros[i.dataset.f] = e.target.value; desenhar(); });
@@ -2094,6 +2174,9 @@ function celula(r, k, f, i) {
   if (f === "editar") return `<td><button class="btn small" data-edit="${esc(r.gtin)}">Corrigir</button></td>`;
   if (f === "wrap") return `<td class="wrap">${esc(v)}</td>`;
   if (f === "sparku") return `<td>${sparkSerie(v)}</td>`;
+  if (f === "catsel") return `<td><select class="catsel" data-cm="${esc(r.marca)}" style="border-left:4px solid ${COR_CAT[v]}">
+    ${[...S.cats.opcoes, "Sem categoria"].map(o => `<option ${o === v ? "selected" : ""} value="${o === "Sem categoria" ? "" : esc(o)}">${ICO_CAT[o]} ${esc(o)}</option>`).join("")}
+    ${r.fonte === "manual" ? `<option value="">↺ voltar para a automática</option>` : ""}</select></td>`;
   if (f === "tend") return `<td>${pillH(v, TEND_CLS[v])}</td>`;
   if (f === "alerta") return `<td>${pillH(v, ALERTA_CLS[v])}</td>`;
   if (f === "var") return `<td class="num ${v > 0.2 ? "pos" : v < -0.2 ? "neg" : ""}">${FMT.var(v)}</td>`;

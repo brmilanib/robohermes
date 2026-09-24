@@ -25,6 +25,7 @@ import pandas as pd
 
 import nubi
 import ranking
+import categorias
 import vend_bi
 import vendedores
 
@@ -923,6 +924,39 @@ def rota_ranking(repo, metodo, rota, q, corpo):
         r.update({"categoria": cat, "categoria_nome": ranking.nome_categoria(cat),
                   "todos_meses": [{"mes": x["mes"][:7], "nome": ranking.nome_mes(x["mes"])} for x in todos]})
         return r
+
+    if rota == "ranking_categorias":
+        # Designer, Nicho, Árabe, Nacional e Outros: vendas e fatia de cada categoria mês a mês
+        cat = q["categoria"]
+        rels = _relatorios(repo, cat)
+        if not rels:
+            raise ErroNuvem("Nenhum relatório importado para esta categoria.", 404)
+        ids = ",".join(str(r["id"]) for r in rels)
+        linhas = unificar_marcas(repo, repo._todos("ranking_linhas", {
+            "select": "relatorio_id,posicao,marca,marca_chave,vendas,unidades", "relatorio_id": f"in.({ids})",
+            "order": "relatorio_id,posicao"}), somar=True)
+        por_rel = {r["id"]: [] for r in rels}
+        for l in linhas:
+            por_rel[l["relatorio_id"]].append(l)
+        manuais = {r["marca_chave"]: r["categoria"] for r in repo._todos("marca_categorias", {"select": "marca_chave,categoria"})}
+        r = categorias.relatorio([x["mes"] for x in rels], [por_rel[x["id"]] for x in rels], manuais)
+        r.update({"categoria": cat, "categoria_nome": ranking.nome_categoria(cat), "opcoes": categorias.CATEGORIAS})
+        return r
+
+    if rota == "ranking_categoria_salvar" and metodo == "POST":
+        d = json.loads(corpo or b"{}")
+        marca, c = (d.get("marca") or "").strip(), d.get("categoria") or ""
+        k = nubi.compacta(marca)
+        if not k:
+            raise ErroNuvem("Informe a marca.")
+        if c in categorias.CATEGORIAS:
+            repo._req("POST", "marca_categorias", corpo=[{"marca_chave": k, "marca": marca, "categoria": c,
+                                                          "atualizado_em": datetime.now(timezone.utc).isoformat()}],
+                      prefer="resolution=merge-duplicates,return=minimal")
+        else:                                      # volta para a classificação automática
+            repo._req("DELETE", "marca_categorias", {"marca_chave": repo._eq(k)})
+        cat, fonte = categorias.classificar(marca, {k: c} if c in categorias.CATEGORIAS else None)
+        return {"ok": True, "categoria": cat, "fonte": fonte}
 
     if rota == "ranking_apagar" and metodo == "POST":
         repo._req("DELETE", "ranking_relatorios", {"id": repo._eq(int(q["id"]))})
