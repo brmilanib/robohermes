@@ -313,6 +313,54 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .wa-in button{width:42px;height:42px;border-radius:50%;border:0;background:#00a884;color:#fff;font-size:18px;cursor:pointer}
 .wa-in button:disabled{opacity:.5}
 .wa-dig{align-self:flex-start;font-size:12px;color:#667781;font-style:italic;padding:4px 8px}
+.inicio{display:grid;gap:14px;max-width:1280px}
+.in-topo{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:stretch}
+.in-ola{display:flex;flex-direction:column;justify-content:center;gap:2px}
+.in-ola h1{margin:0;font-size:clamp(24px,3.2vw,34px);letter-spacing:-.01em}
+.in-data{font-size:13px}
+.in-relogio{font-size:clamp(30px,4.6vw,52px);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--brand);line-height:1.1;margin-top:4px}
+.in-tempo{display:grid;gap:10px;align-content:center}
+.in-tempo-agora{display:flex;align-items:center;gap:12px}
+.in-tempo-agora b{font-size:30px;line-height:1}
+.in-tempo-ic{font-size:40px;line-height:1}
+.in-cidade{margin-left:auto;border:1px solid var(--line);background:none;border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;color:var(--muted);cursor:pointer}
+.in-tempo-dias{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:12.5px}
+.in-tempo-dias>div{display:grid;justify-items:center;gap:1px;background:var(--soft);border-radius:10px;padding:6px 4px}
+.in-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.in-kpi{display:grid;gap:3px;padding:14px 16px;text-decoration:none;color:inherit;transition:transform .12s, box-shadow .12s}
+.in-kpi:hover,.in-op:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.07)}
+.in-kpi .l,.in-op .l{font-size:12px;color:var(--muted)}
+.in-kpi b{font-size:24px;font-variant-numeric:tabular-nums}
+.in-kpi .o{font-size:12px;color:var(--muted)}
+.in-grade{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:14px}
+.in-grade h2,.in-resumo h2{margin:0 0 10px;font-size:15px}
+.in-duas{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.in-sub{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px}
+.in-lista{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:13px}
+.in-lista li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:baseline;font-variant-numeric:tabular-nums}
+.in-lista a{color:inherit;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .in-lista a:hover{color:var(--accent)}
+.in-trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.in-mais{display:inline-block;margin-top:10px;font-size:12.5px;text-decoration:none}
+.in-datas{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.in-datas li{display:grid;grid-template-columns:74px minmax(0,1fr) auto;gap:10px;align-items:center;font-size:13.5px}
+.in-dias{font-size:12px;font-weight:700;text-align:center;border-radius:999px;padding:3px 0;background:var(--soft);color:var(--ink);font-variant-numeric:tabular-nums}
+.in-dias.perto{background:var(--accent);color:#fff}
+.in-resumo .md{font-size:13.5px}
+.in-ops{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.in-op{display:grid;gap:4px;padding:12px 14px;text-decoration:none;color:inherit;align-content:start}
+.in-op b{font-size:20px;font-variant-numeric:tabular-nums}
+@media (max-width:1000px){.in-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.in-ops{grid-template-columns:repeat(2,minmax(0,1fr))}.in-grade,.in-topo{grid-template-columns:1fr}}
+@media (max-width:480px){.in-duas{grid-template-columns:1fr}.in-kpi b{font-size:20px}}
+#barra-baixo{display:none}
+@media (max-width:900px){
+  #barra-baixo{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--card);
+    border-top:1px solid var(--line);padding:4px 4px calc(4px + env(safe-area-inset-bottom,0px))}
+  #barra-baixo a{display:grid;justify-items:center;gap:1px;font-size:10.5px;color:var(--muted);text-decoration:none;padding:4px 0;border-radius:10px}
+  #barra-baixo a .ic{font-size:19px;line-height:1.1}
+  #barra-baixo a.on{color:var(--accent);background:var(--soft);font-weight:600}
+  body{padding-bottom:64px}
+}
+.side .navi span:not(.ic){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:4px}
 .ag-card{display:grid;gap:6px;align-content:start}
 .ag-cab{display:flex;align-items:center;gap:10px}
@@ -535,11 +583,12 @@ function trocarSenha() {
 // Menu lateral: cada função do nubi é uma seção. Explorador (#/ e #/MARCA) e
 // Ranking mensal de marcas (#/ranking e #/ranking/CATEGORIA/AAAA-MM).
 const SECOES = [
+  {id: "inicio", nome: "Início", desc: "Resumo de tudo", icone: "🏠"},
   {id: "explorador", nome: "Explorador de anúncios", desc: "Anúncios por marca", icone: "🔎"},
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
 ];
-function secaoAtual() { return /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/inicio/.test(location.hash) ? "inicio" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -554,7 +603,7 @@ function moldura() {
     </select>` : ""}
     <div class="sp"></div>
     <a class="status-pill nada" id="st-pill" href="#/coletor" title="Coletor do Nubimetrics e agente de GTIN"><span class="pt"></span><span class="tx">Coletor</span></a>
-    ${sec === "nomes" ? "" : `<button class="btn ghost" id="bup" title="${rotulo}">⬆ <span class="rot">${rotulo}</span></button>`}
+    ${sec === "nomes" || sec === "inicio" ? "" : `<button class="btn ghost" id="bup" title="${rotulo}">⬆ <span class="rot">${rotulo}</span></button>`}
     ${sec === "explorador" ? `<button class="btn ghost" id="bxl" title="Baixar Excel">⬇ <span class="rot">Excel</span></button>` : ""}
     <details class="conta"><summary class="btn ghost small" title="${esc(email)}">👤</summary>
       <div class="card menu"><div class="muted" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis">${esc(email)}</div>
@@ -564,7 +613,7 @@ function moldura() {
     <aside class="side" id="side"></aside>
     <main id="main"></main>
   </div>`;
-  $("#home").onclick = () => { location.hash = sec === "ranking" ? "#/ranking" : sec === "vendedores" ? "#/vendedores" : "#/"; };
+  $("#home").onclick = () => { location.hash = "#/inicio"; };
   if ($("#selm")) $("#selm").onchange = e => irPara(e.target.value);
   if ($("#bup")) $("#bup").onclick = sec === "ranking" ? abrirUploadRanking : sec === "vendedores" ? abrirUploadVendedor : abrirUpload;
   if ($("#bxl")) $("#bxl").onclick = baixarExcel;
@@ -572,6 +621,129 @@ function moldura() {
   $("#bsenha").onclick = () => { $("details.conta").open = false; trocarSenha(); };
   $("#bsair").onclick = async () => { await sb.auth.signOut(); location.hash = ""; };
   desenharMenu();
+}
+// Celular: barra de atalhos embaixo, como num app (Início, Ranking, Comparar, Central e o menu completo).
+function desenharBarraBaixo() {
+  let b = $("#barra-baixo");
+  if (!b) { b = document.createElement("nav"); b.id = "barra-baixo"; b.setAttribute("aria-label", "Atalhos"); document.body.appendChild(b); }
+  const h = location.hash, sec = secaoAtual();
+  const i = (href, ic, t, on) => `<a href="${href}" class="${on ? "on" : ""}"><span class="ic">${ic}</span><span>${t}</span></a>`;
+  b.innerHTML = i("#/inicio", "🏠", "Início", sec === "inicio") + i("#/ranking", "🏆", "Ranking", sec === "ranking")
+    + i("#/concorrentes", "⚖️", "Comparar", h.startsWith("#/concorrentes") || h.startsWith("#/vendas-dia") || h.startsWith("#/vendedores"))
+    + i("#/central", "🛠️", "Central", sec === "nomes" && OPS_ABAS.some(a => a.on(decodeURIComponent(h))))
+    + `<a href="#" id="bb-menu"><span class="ic">☰</span><span>Menu</span></a>`;
+  $("#bb-menu").onclick = e => { e.preventDefault(); e.stopPropagation(); document.body.classList.toggle("menu-aberto"); };
+}
+// ---------- Início: um resumo de tudo (o mais importante primeiro) ----------
+const TEMPO = {0: ["☀️", "céu limpo"], 1: ["🌤️", "poucas nuvens"], 2: ["⛅", "parcialmente nublado"], 3: ["☁️", "nublado"], 45: ["🌫️", "neblina"], 48: ["🌫️", "neblina"],
+  51: ["🌦️", "garoa"], 53: ["🌦️", "garoa"], 55: ["🌦️", "garoa"], 61: ["🌧️", "chuva fraca"], 63: ["🌧️", "chuva"], 65: ["🌧️", "chuva forte"],
+  71: ["🌨️", "neve"], 80: ["🌦️", "pancadas"], 81: ["🌧️", "pancadas"], 82: ["⛈️", "pancadas fortes"], 95: ["⛈️", "trovoadas"], 96: ["⛈️", "trovoadas"], 99: ["⛈️", "trovoadas"]};
+const tempoDe = c => TEMPO[c] || TEMPO[Math.floor(c / 10) * 10] || ["🌡️", ""];
+function datasVendas(hoje) {
+  // datas que mexem com perfume no Brasil e nos marketplaces (as móveis são calculadas)
+  const y = hoje.getFullYear(), d = (a, m, dia) => new Date(a, m - 1, dia);
+  const nDom = (a, m, n) => { const x = d(a, m, 1); x.setDate(1 + (7 - x.getDay()) % 7 + 7 * (n - 1)); return x; };
+  const ultSex = (a, m) => { const x = d(a, m + 1, 0); x.setDate(x.getDate() - (x.getDay() + 2) % 7); return x; };
+  const pascoa = a => { const f = Math.floor, g = a % 19, c = f(a / 100), h = (c - f(c / 4) - f((8 * c + 13) / 25) + 19 * g + 15) % 30,
+    i = h - f(h / 28) * (1 - f(29 / (h + 1)) * f((21 - g) / 11)), j = (a + f(a / 4) + i + 2 - c + f(c / 4)) % 7, l = i - j,
+    m = 3 + f((l + 40) / 44); return d(a, m, l + 28 - 31 * f(m / 4)); };
+  const lista = [];
+  for (const a of [y, y + 1]) {
+    const bf = ultSex(a, 11), cm = new Date(bf); cm.setDate(bf.getDate() + 3);
+    lista.push(["Dia da Mulher", d(a, 3, 8)], ["Dia do Consumidor", d(a, 3, 15)], ["Páscoa", pascoa(a)], ["Dia das Mães", nDom(a, 5, 2)],
+      ["Dia dos Namorados", d(a, 6, 12)], ["Dia dos Pais", nDom(a, 8, 2)], ["9.9", d(a, 9, 9)], ["Dia do Cliente", d(a, 9, 15)],
+      ["10.10", d(a, 10, 10)], ["Dia das Crianças", d(a, 10, 12)], ["11.11", d(a, 11, 11)], ["Black Friday", bf], ["Cyber Monday", cm],
+      ["12.12", d(a, 12, 12)], ["Natal", d(a, 12, 25)]);
+  }
+  const h0 = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  return lista.map(([n, dt]) => ({n, dt, dias: Math.round((dt - h0) / 864e5)})).filter(x => x.dias >= 0).sort((a, b) => a.dias - b.dias).slice(0, 6);
+}
+async function carregarTempo(box) {
+  let cid; try { cid = JSON.parse(localStorage.getItem("nubi.cidade") || "null"); } catch { cid = null; }
+  cid = cid || {nome: "Curitiba", lat: -25.43, lon: -49.27};
+  try {
+    const r = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${cid.lat}&longitude=${cid.lon}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=America%2FSao_Paulo&forecast_days=3`)).json();
+    const [ic, tx] = tempoDe(r.current.weather_code), dsem = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+    box.innerHTML = `<div class="in-tempo-agora"><span class="in-tempo-ic">${ic}</span><div><b>${Math.round(r.current.temperature_2m)}°</b>
+        <div class="muted">${esc(tx)}</div></div><button class="in-cidade" id="in-cidade" title="Trocar a cidade">${esc(cid.nome)} ✎</button></div>
+      <div class="in-tempo-dias">${r.daily.time.map((t, i) => `<div><span class="muted">${i ? dsem[new Date(t + "T12:00").getDay()] : "hoje"}</span>
+        <span>${tempoDe(r.daily.weather_code[i])[0]}</span><span>${Math.round(r.daily.temperature_2m_max[i])}° <span class="muted">${Math.round(r.daily.temperature_2m_min[i])}°</span></span>
+        <span class="muted" title="chance de chuva">${r.daily.precipitation_probability_max[i] ?? "—"}%</span></div>`).join("")}</div>`;
+  } catch { box.innerHTML = `<div class="muted">Previsão do tempo indisponível agora. <button class="in-cidade" id="in-cidade">${esc(cid.nome)} ✎</button></div>`; }
+  $("#in-cidade").onclick = async () => {
+    const q = prompt("Cidade para a previsão do tempo:", cid.nome); if (!q) return;
+    try {
+      const g = await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=pt&countryCode=BR`)).json();
+      const x = (g.results || [])[0]; if (!x) return toast("Cidade não encontrada.");
+      try { localStorage.setItem("nubi.cidade", JSON.stringify({nome: x.name, lat: x.latitude, lon: x.longitude})); } catch { /* sem armazenamento */ }
+      carregarTempo(box);
+    } catch { toast("Não consegui buscar a cidade agora."); }
+  };
+}
+async function telaInicio() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Preparando o resumo</div></div>`;
+  let r;
+  try { r = await api("inicio"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/inicio")) return;
+  const agora = new Date(), hr = agora.getHours();
+  const saud = (hr < 12 ? "Bom dia" : hr < 18 ? "Boa tarde" : "Boa noite") + (/^brmilani@/.test(S.sessao?.user?.email || "") ? ", Bruno" : "");
+  const d = r.dia || {}, t = d.total || {}, c = r.contagens || {}, tf = r.tarefas || {}, col = r.coleta, ops = S.opsRes || {};
+  const pct = v => v == null ? "" : `<span class="${v >= 0 ? "pos" : "neg"}">${v >= 0 ? "▲" : "▼"} ${nf1.format(Math.abs(v) * 100)}%</span>`;
+  const ddmm = x => x ? x.slice(8, 10) + "/" + x.slice(5, 7) : "—";
+  const lin = x => `<li><a href="#/concorrentes/${encodeURIComponent(x.vendedor)}">${esc(x.vendedor)}</a><span>${abrev(x.v)}</span>
+    <span class="${(x.dif || 0) < 0 ? "neg" : "pos"}" title="diferença contra a média de 7 dias">${x.dif == null ? "" : (x.dif >= 0 ? "+" : "−") + abrev(Math.abs(x.dif)).replace("R$ ", "")}</span></li>`;
+  const colTxt = !col ? ["", "sem coleta registrada"] : col.em_andamento ? ["warn", "rodando agora"]
+    : col.ok ? ["good", "ok · " + new Date(col.terminado_em || col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})]
+    : ["bad", "falhou · " + new Date(col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})];
+  const resumoLinhas = r.resumo ? r.resumo.texto.split("\n").filter(x => x.trim() && !/^#/.test(x.trim())).slice(0, 5).join("\n") : "";
+  main.innerHTML = `<div class="inicio">
+    <section class="in-topo">
+      <div class="in-ola"><div class="muted in-data" id="in-data"></div><h1>${esc(saud)}</h1>
+        <div class="in-relogio" id="in-relogio"></div></div>
+      <div class="card pad in-tempo" id="in-tempo"><div class="muted">Carregando a previsão…</div></div>
+    </section>
+    <section class="in-kpis">
+      <a class="card in-kpi" href="#/vendas-dia"><span class="l">Vendas em ${ddmm(d.data)}</span><b>${d.tem ? abrev(t.v) : "—"}</b>
+        <span class="o">${d.tem ? pct(t.var) + " vs média de 7 dias" : "ainda sem vendas diárias"}</span></a>
+      <a class="card in-kpi" href="#/vendedores"><span class="l">Vendedores monitorados</span><b>${nf0.format(c.vendedores || 0)}</b><span class="o">com venda nos últimos 30 dias</span></a>
+      <a class="card in-kpi" href="#/ranking"><span class="l">Marcas no ranking</span><b>${nf0.format(c.marcas_ranking || 0)}</b><span class="o">${c.mes_ranking ? "mês " + c.mes_ranking.slice(5, 7) + "/" + c.mes_ranking.slice(0, 4) : ""} · ${nf0.format(c.marcas_explorador || 0)} no Explorador</span></a>
+      <a class="card in-kpi" href="#/alertas"><span class="l">Alertas de estoque</span><b class="${S.alertasN ? "neg" : ""}">${nf0.format(S.alertasN || 0)}</b><span class="o">produtos parados nos concorrentes</span></a>
+    </section>
+    <section class="in-grade">
+      <div class="card pad"><h2>O dia em ${ddmm(d.data)}</h2>
+        ${d.tem ? `<div class="in-duas"><div><div class="in-sub">Mais venderam</div><ul class="in-lista">${(d.top || []).map(x => lin(x)).join("") || "<li class='muted'>—</li>"}</ul></div>
+          <div><div class="in-sub">Mais caíram</div><ul class="in-lista">${(d.queda || []).map(x => lin(x)).join("") || "<li class='muted'>ninguém caiu 👏</li>"}</ul></div></div>
+          ${(d.produto || []).length ? `<div class="in-sub" style="margin-top:10px">Produtos que puxaram</div><ul class="in-lista">${d.produto.map(p => `<li><span class="in-trunc">${esc(p.t || "")}</span><span>${nf0.format(p.u || 0)} un</span><span>${abrev(p.v)}</span></li>`).join("")}</ul>` : ""}
+          ${(d.sem_coleta || []).length ? `<p class="muted" style="font-size:12px;margin:8px 0 0">⚠️ ${d.sem_coleta.length} vendedor(es) com o dia ainda não coletado (fora dos totais).</p>` : ""}`
+        : `<p class="muted">As vendas do dia aparecem aqui quando o coletor trouxer o primeiro dia.</p>`}
+        <a class="in-mais" href="#/vendas-dia">Ver vendas diárias →</a></div>
+      <div class="card pad"><h2>Próximas datas de vendas</h2><ul class="in-datas">${datasVendas(agora).map(x => `<li><span class="in-dias ${x.dias <= 15 ? "perto" : ""}">${x.dias === 0 ? "hoje" : x.dias + (x.dias === 1 ? " dia" : " dias")}</span>
+        <b>${esc(x.n)}</b><span class="muted">${x.dt.toLocaleDateString("pt-BR", {day: "2-digit", month: "short", weekday: "short"})}</span></li>`).join("")}</ul></div>
+    </section>
+    ${r.resumo ? `<section class="card pad in-resumo"><h2>Resumo da IA · dados até ${ddmm(r.resumo.data)}</h2><div class="md">${mdSimples(resumoLinhas)}</div>
+      <a class="in-mais" href="#/vendedores">Ler o resumo completo →</a></section>` : ""}
+    <section class="in-ops">
+      <a class="card in-op" href="#/coletor"><span class="l">Coleta</span><span class="st ${colTxt[0]}">${esc(colTxt[1])}</span></a>
+      <a class="card in-op" href="#/central"><span class="l">Esperando você aprovar</span><b>${nf0.format(tf.proposta || 0)}</b></a>
+      <a class="card in-op" href="#/central"><span class="l">Na fila / em código</span><b>${nf0.format((tf.aprovada || 0) + (tf.em_desenvolvimento || 0))}</b></a>
+      <a class="card in-op" href="#/central/erros"><span class="l">Erros hoje</span><b class="${ops.erros_hoje ? "neg" : ""}">${nf0.format(ops.erros_hoje || 0)}</b></a>
+      <a class="card in-op" href="#/central/agentes"><span class="l">IA hoje · mês</span><b>US$ ${(r.ia?.custo_hoje || 0).toFixed(2).replace(".", ",")}</b><span class="muted">· US$ ${(r.ia?.custo_mes || 0).toFixed(2).replace(".", ",")}</span></a>
+    </section></div>`;
+  const tic = () => {
+    const x = $("#in-relogio"); if (!x) return clearInterval(S.relT);
+    const n = new Date();
+    x.textContent = n.toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+    const dt = n.toLocaleDateString("pt-BR", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
+    $("#in-data").textContent = dt[0].toUpperCase() + dt.slice(1);
+  };
+  tic(); clearInterval(S.relT); S.relT = setInterval(tic, 1000);
+  carregarTempo($("#in-tempo"));
+  if (!S.opsRes) api("ops_resumo").then(x => { S.opsRes = x; if (location.hash.startsWith("#/inicio")) telaInicioOps(); }).catch(() => {});
+  desenharMenu();
+}
+function telaInicioOps() {
+  const b = document.querySelector('.in-op[href="#/central/erros"] b'); if (b && S.opsRes) { b.textContent = nf0.format(S.opsRes.erros_hoje || 0); b.className = S.opsRes.erros_hoje ? "neg" : ""; }
 }
 // Fecha a gaveta do menu (celular) e o menu da conta ao clicar fora.
 document.addEventListener("click", e => {
@@ -607,25 +779,27 @@ function desenharMenu() {
   const seta = (k, tem, aberto = ab[k]) => tem ? `<button class="seta" data-seta="${k}" data-aberto="${aberto ? 1 : ""}" title="${aberto ? "Esconder a lista" : "Mostrar a lista"}">${aberto ? "▾" : "▸"}</button>` : "";
   const rkAberto = ab.ranking ?? sec === "ranking";
   $("#side").innerHTML = `
+    ${it("#/inicio", "🏠", "Início", sec === "inicio")}
     <div class="grupo">Mercado</div>
     ${it("#/ranking", "🏆", "Ranking de marcas", sec === "ranking", seta("ranking", cats.length > 0, rkAberto))}
     ${rkAberto && cats.length ? sub(cats) : ""}
-    ${it("#/", "🔎", "Explorador de anúncios", sec === "explorador", cont(S.painel.length) + seta("explorador", S.painel.length > 0))}
+    ${it("#/", "🔎", "Explorador", sec === "explorador", cont(S.painel.length) + seta("explorador", S.painel.length > 0))}
     ${ab.explorador ? sub(marcas) : ""}
     <div class="grupo">Concorrentes</div>
     ${it("#/vendedores", "📊", "Visão geral", h === "#/vendedores" || h.startsWith("#/vendedores?"))}
-    ${it("#/concorrentes", "⚖️", "Comparar concorrentes", h.startsWith("#/concorrentes"))}
+    ${it("#/concorrentes", "⚖️", "Comparar", h.startsWith("#/concorrentes"))}
     ${it("#/vendas-dia", "📅", "Vendas diárias", h.startsWith("#/vendas-dia"))}
-    ${it("#/alertas", "🚨", "Alertas de estoque", h.startsWith("#/alertas"), nAl ? `<span class="badge" title="produtos sem estoque ou parados nos concorrentes">${nAl}</span>` : "")}
+    ${it("#/alertas", "🚨", "Alertas", h.startsWith("#/alertas"), nAl ? `<span class="badge" title="produtos sem estoque ou parados nos concorrentes">${nAl}</span>` : "")}
     ${it((S.vendLista || []).length ? "#/vendedores/" + encodeURIComponent((S.vendLista.find(v => h.startsWith("#/vendedores/" + v.vendedor)) || S.vendLista[0]).vendedor) : "#/vendedores", "🏪", "Vendedores", vendOn,
       cont((S.vendLista || []).length) + seta("vendedores", (S.vendLista || []).length > 0))}
     ${ab.vendedores ? `<div class="subnav" id="sub-vend"></div>` : ""}
+    <div class="grupo">Operação</div>
+    ${it("#/central", "🛠️", "Central", OPS_ABAS.some(a => a.on(h)),
+      S.opsRes && S.opsRes.erros_hoje ? `<span class="badge" title="erros hoje (aba Erros)">${S.opsRes.erros_hoje}</span>` : "")}
     <div class="grupo">Ajustes</div>
     ${it("#/nomes-marcas", "🔗", "Nomes de marcas", h.startsWith("#/nomes-marcas"))}
     ${it("#/nomes-vendedores", "🔗", "Nomes de vendedores", h.startsWith("#/nomes-vendedores"))}
-    ${it("#/produtos-iguais", "🧩", "Produtos iguais (IA)", h.startsWith("#/produtos-iguais"))}
-    ${it("#/central", "🛠️", "Central (tarefas e agentes)", OPS_ABAS.some(a => a.on(h)),
-      S.opsRes && S.opsRes.erros_hoje ? `<span class="badge" title="erros hoje (aba Erros)">${S.opsRes.erros_hoje}</span>` : "")}`;
+    ${it("#/produtos-iguais", "🧩", "Produtos iguais", h.startsWith("#/produtos-iguais"))}`;
   desenharVendMenu();
   if ($("#mtodas")) $("#mtodas").onclick = e => { e.preventDefault(); S.marcasTodas = !S.marcasTodas; desenharMenu(); };
   document.querySelectorAll("[data-seta]").forEach(b => b.onclick = e => {
@@ -672,8 +846,11 @@ async function rotear() {
     if (rotaAnterior !== null) document.querySelectorAll(".modal-bg").forEach(x => x.remove());
     rotaAnterior = base; scrollTo(0, 0);
   }
+  if (!location.hash || location.hash === "#") history.replaceState(null, "", "#/inicio");   // tela padrão: Início
   const sec = secaoAtual();
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
+  desenharBarraBaixo();
+  if (sec === "inicio") return telaInicio();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -2023,7 +2200,7 @@ async function telaAgentes(silencioso) {
   desenharMenu();
 }
 // ---------- Sala de reunião dos agentes (grupo tipo WhatsApp; o Claude decide) ----------
-const AG_COR = {"Hermes": "#a2741a", "gpt-oss": "#6b4fb3", "ChatGPT": "#10a37f", "DeepSeek": "#4d6bfe", "Claude": "#d97757", "Claude (código)": "#b3541e", "sistema": "#667781", "voce": "#00a884"};
+const AG_COR = {"Hermes": "#a2741a", "gpt-oss": "#6b4fb3", "Astra (design)": "#e0457b", "ChatGPT": "#10a37f", "DeepSeek": "#4d6bfe", "Claude": "#d97757", "Claude (código)": "#b3541e", "sistema": "#667781", "voce": "#00a884"};
 function waBolha(m) {
   const hr = new Date(m.criado_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
   if (m.autor === "sistema") return `<div class="wa-b sis">${mdSimples(m.texto)}<span class="hr">${hr}</span></div>`;
@@ -2050,7 +2227,7 @@ async function telaReuniao() {
   const ag = r.agentes, on = k => ag[k] ? "" : " (sem chave)";
   main.innerHTML = opsAbas("sala") + `
     <div class="wa"><div class="wa-top"><div class="av">🤖</div><div><b>Agentes do nubi</b><br>
-      <small>você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, gpt-oss${on("ollama")}, Hermes (Mac), Claude${on("claude")} (coordena e decide) · @chatgpt, @deepseek ou @gptoss chama só um</small></div></div>
+      <small>você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, gpt-oss${on("ollama")}, Hermes (Mac), Claude${on("claude")} (coordena e decide) · @chatgpt, @deepseek, @gptoss ou @astra (design, sob demanda) chama só um</small></div></div>
       <div class="wa-msgs" id="wa-msgs">${waDesenhar(S.reu.msgs)}</div>
       <div class="wa-in"><textarea id="wa-txt" rows="1" placeholder="Mensagem para os agentes (Enter envia, Shift+Enter quebra linha)"></textarea><button id="wa-env" title="Enviar">➤</button></div></div>
     <p class="muted" id="wa-nota" style="font-size:12px;margin:6px 0 0">Todo dia às 11h eles se reúnem sozinhos para discutir a auditoria. O que eles propõem vai para 📋 Desenvolvimento, você aprova e o Claude (código) implementa.</p>`;
@@ -2058,7 +2235,8 @@ async function telaReuniao() {
   const ajustarWa = () => {
     const wa = main.querySelector(".wa"); if (!wa) return window.removeEventListener("resize", ajustarWa);
     window.scrollTo(0, 0);
-    const topo = wa.getBoundingClientRect().top, nota = ($("#wa-nota") || {offsetHeight: 0}).offsetHeight + 14;
+    const bb = $("#barra-baixo"), barra = bb && getComputedStyle(bb).display !== "none" ? bb.offsetHeight : 0;
+    const topo = wa.getBoundingClientRect().top, nota = ($("#wa-nota") || {offsetHeight: 0}).offsetHeight + 14 + barra;
     wa.style.height = Math.max(360, window.innerHeight - topo - nota) + "px";
   };
   ajustarWa(); window.removeEventListener("resize", S.waAjuste || (() => {})); S.waAjuste = ajustarWa; window.addEventListener("resize", ajustarWa);
@@ -3767,7 +3945,8 @@ async function verificarVersao() {
 document.addEventListener("visibilitychange", () => { if (!document.hidden && S.sessao) verificarVersao(); });
 // Número do menu "Alertas de estoque": produtos sem estoque/parados em algum concorrente.
 async function carregarAlertasN(r) {
-  try { r = r || await api("vend_alertas"); S.alertasN = r.produtos.filter(p => p.sem_estoque > 0).length; desenharMenu(); } catch { /* sem vendedores ainda */ }
+  try { r = r || await api("vend_alertas"); S.alertasN = r.produtos.filter(p => p.sem_estoque > 0).length; desenharMenu();
+    const kb = document.querySelector('.in-kpi[href="#/alertas"] b'); if (kb) { kb.textContent = nf0.format(S.alertasN); kb.className = S.alertasN ? "neg" : ""; } } catch { /* sem vendedores ainda */ }
 }
 // Só troca de marca pelo endereço depois que a tela já está montada (o Supabase também
 // mexe no endereço ao apagar o token do link de e-mail).

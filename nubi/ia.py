@@ -148,6 +148,8 @@ def _http_json(url, corpo, cab, timeout=90):
 
 def _post_json(url, corpo, cab, timeout=90):
     agente = next((a for h, a in PROVEDOR if h in url), None)
+    if agente == "chatgpt" and "astra" in str(corpo.get("model") or ""):
+        agente = "astra"                               # o designer (gpt-6-astra) tem cartão e custo próprios
     gravar = USO["gravar"] if agente else None
     rid = None
     if gravar:

@@ -787,6 +787,8 @@ def atender(metodo, rota, q, corpo, token):
             esc = next((x for x in lista if x["chave"].endswith(q.get("data") or "#")), lista[0] if lista else None)
             return _json({"atual": esc, "datas": [x["chave"].split("|")[1] for x in lista]})
 
+        if rota == "inicio":
+            return _json(tela_inicio(repo))
         if rota == "resumo_dia":
             # resumo diário dos vendedores monitorados (o mais recente, ou o de ?data=AAAA-MM-DD)
             if metodo == "POST":
@@ -1517,6 +1519,50 @@ def _dados_resumo_dia(repo):
     return d1, "\n".join(linhas), pnl
 
 
+def tela_inicio(repo):
+    """Tudo de um pouco para a tela Início: o dia de vendas, contagens, resumo da IA e a operação."""
+    def seguro(f, padrao=None):
+        try:
+            return f()
+        except Exception:  # noqa: BLE001 — um bloco com problema não derruba a tela inteira
+            return padrao
+    out = {}
+    pnl = seguro(lambda: _painel_dia(repo), {"tem": False}) or {"tem": False}
+    out["dia"] = {k: pnl.get(k) for k in ("tem", "data", "data_mes", "base", "sem_coleta", "total")} if pnl.get("tem") else {"tem": False}
+    if pnl.get("tem"):
+        out["dia"]["top"] = [{k: v.get(k) for k in ("vendedor", "v", "dif")} for v in pnl.get("mais_venderam", [])[:3]]
+        out["dia"]["queda"] = [{k: v.get(k) for k in ("vendedor", "v", "dif")} for v in pnl.get("mais_cairam", [])[:3]]
+        out["dia"]["produto"] = [{"t": p.get("produto"), "m": p.get("marca"), "v": p.get("v"), "u": p.get("u"), "dif": p.get("dif")} for p in pnl.get("produtos_alta", [])[:3]]
+    rs = seguro(lambda: repo._req("GET", "ia_resumos", {"select": "chave,texto,dados,criado_em", "chave": "like.vendedores|*",
+                                                        "order": "chave.desc", "limit": 1}), []) or []
+    out["resumo"] = {"data": rs[0]["chave"].split("|")[1], "texto": (rs[0].get("texto") or "")[:1500]} if rs else None
+    rels = seguro(lambda: _relatorios(repo), []) or []
+    ult_rel = rels[-1] if rels else None
+    n_marcas = seguro(lambda: len(repo._todos("ranking_linhas", {"select": "marca", "relatorio_id": repo._eq(ult_rel["id"])})), 0) if ult_rel else 0
+    desde30 = (_agora_br().date() - timedelta(days=30)).isoformat()
+    vend = seguro(lambda: {r["vendedor"] for r in repo._todos("vend_vendas_dia", {"select": "vendedor", "data": f"gte.{desde30}"})}, set()) or set()
+    out["contagens"] = {
+        "marcas_ranking": n_marcas, "mes_ranking": (ult_rel or {}).get("mes"),
+        "marcas_explorador": seguro(lambda: len(repo._todos("marcas_config", {"select": "marca"})), 0),
+        "vendedores": len(vend),
+        "produtos_iguais": seguro(lambda: len(repo._todos("produto_grupos", {"select": "chave"})), 0),
+    }
+    tar = seguro(lambda: repo._todos("reuniao_tarefas", {"select": "status"}), []) or []
+    out["tarefas"] = {k: sum(1 for t in tar if t["status"] == k) for k in ("proposta", "aprovada", "em_desenvolvimento", "feita")}
+    hoje = _agora_br().date()
+    usos = seguro(lambda: repo._todos("agentes_uso", {"select": "inicio,custo_usd,fim",
+                                                      "inicio": f"gte.{hoje.replace(day=1).isoformat()}"}), []) or []
+    out["ia"] = {"custo_hoje": round(sum(float(u.get("custo_usd") or 0) for u in usos if _br(u["inicio"]).date() == hoje), 4),
+                 "custo_mes": round(sum(float(u.get("custo_usd") or 0) for u in usos), 4),
+                 "chamadas_hoje": sum(1 for u in usos if _br(u["inicio"]).date() == hoje)}
+    col = seguro(lambda: repo._req("GET", "coletor_execucoes", {"select": "iniciado_em,terminado_em,ok,em_andamento,mensagem,tarefa",
+                                                                "order": "id.desc", "limit": 1}), []) or []
+    out["coleta"] = col[0] if col else None
+    if out["coleta"]:
+        out["coleta"]["mensagem"] = (out["coleta"].get("mensagem") or "")[:200]
+    return out
+
+
 def gerar_resumo_dia(repo, forcar=False):
     """Resumo do dia dos vendedores (guardado por data dos dados; forcar=True escreve de novo)."""
     if not ia.disponivel():
@@ -1955,8 +2001,9 @@ def rotina_8h(repo):
 # Agentes: quem são, custo (tokens × preço), se estão rodando algo, teste de versão e apelido
 # ---------------------------------------------------------------------------
 
-AGENTE_QUAL = {"chatgpt": "codex", "deepseek": "deepseek", "gptoss": "ollama", "claude": "claude"}   # testáveis daqui
-AGENTE_AUTOR = {"chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss", "claude": "Claude",
+AGENTE_QUAL = {"chatgpt": "codex", "deepseek": "deepseek", "gptoss": "ollama", "claude": "claude", "astra": "chatgpt"}   # testáveis daqui
+AGENTE_MODELO = {"deepseek": "pro", "astra": "gpt-6-astra"}
+AGENTE_AUTOR = {"chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss", "claude": "Claude", "astra": "Astra (design)",
                 "hermes": "Hermes", "claude_code": "Claude (código)"}
 
 
@@ -2038,8 +2085,9 @@ def _agentes_painel(repo):
 
 def _perguntar_agente(aid, texto, max_tokens=300):
     qual = AGENTE_QUAL[aid]
-    modelo = "pro" if aid == "deepseek" else None
-    return ia.perguntar(texto, web=False, max_tokens=max_tokens, qual=qual, modelo=modelo)
+    modelo = AGENTE_MODELO.get(aid)
+    return ia.perguntar(texto, web=False, max_tokens=max(max_tokens, 4000) if aid == "astra" else max_tokens,
+                        qual=qual, modelo=modelo)
 
 
 def rota_agentes(repo, metodo, rota, q, corpo):

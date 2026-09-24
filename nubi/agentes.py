@@ -32,9 +32,10 @@ mensal), rotinas, auditorias, reuniao_mensagens e reuniao_tarefas (esta sala e a
 ranking_categorias, marca_sugestoes, coletor_pedidos.
 
 ## Telas
-Vendas diárias, Comparar concorrentes (período, vendedores que mudaram, produtos com preço atual x média 30 dias e
-anúncio pausado), Produtos iguais (IA), Ranking/categorias de marca, Alertas, Resumos, Auditoria, Tarefas de rotina,
-Sala de reunião e Desenvolvimento (kanban das tarefas).
+Início (resumo de tudo: vendas do último dia, contagens, próximas datas de vendas, resumo da IA, operação),
+Ranking de marcas, Explorador, Concorrentes (Visão geral, Comparar, Vendas diárias, Alertas, Vendedores),
+Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reunião, Agentes, Coletor) e Ajustes
+(Nomes de marcas, Nomes de vendedores, Produtos iguais). No celular há uma barra de atalhos embaixo.
 
 ## Rotinas (horário de Brasília)
 categorias_lote 04:00, produtos_ia 05:30, agente 06:00, coleta 07:00 (Mac), resumo_dia, resumo_semana (segunda),
@@ -75,6 +76,12 @@ AGENTES = {
                "papel": "Você é o gpt-oss (modelo aberto de 120B na nuvem do Ollama, usado na cota grátis): segunda "
                         "opinião barata do time. Foque em alternativas mais simples e baratas, em como escalar, e em "
                         "planos passo a passo; aponte o que os outros complicaram demais."},
+    # sob demanda: só entra na rodada quando citado (@astra), porque é o mais caro do time
+    "astra": {"nome": "Astra (design)", "qual": "chatgpt", "modelo": "gpt-6-astra", "so_citado": True, "max_tokens": 8000,
+              "papel": "Você é o Astra (gpt-6-astra, 2º lugar no ranking WebDev do Arena), designer de produto e UX do "
+                       "nubi: layout minimalista, dados mais importantes primeiro, navegação fácil, responsivo (celular "
+                       "primeiro), acessível e consistente. Seja concreto: diga a tela, o componente, o que mudar e por "
+                       "quê, em ordem de impacto."},
 }
 # O Hermes roda no Mac mini (Ollama local) e posta pelo coletor ('coletor hermes'); não passa por aqui.
 COORDENADOR = {"nome": "Claude", "qual": "claude"}
@@ -82,12 +89,12 @@ COORDENADOR = {"nome": "Claude", "qual": "claude"}
 
 def ativos(citados=None):
     """Agentes (menos o coordenador) que têm chave; citados = só esses, se algum for válido."""
-    base = [k for k in (citados or []) if k in AGENTES] or list(AGENTES)
+    base = [k for k in (citados or []) if k in AGENTES] or [k for k, a in AGENTES.items() if not a.get("so_citado")]
     return [k for k in base if ia.tem(AGENTES[k]["qual"])]
 
 
 def perguntar(chave, texto, max_tokens=800, sistema_extra=""):
     a = AGENTES[chave]
-    t, _, _ = ia.perguntar(a["papel"] + "\n\n" + texto, web=False, max_tokens=max_tokens, qual=a["qual"],
+    t, _, _ = ia.perguntar(a["papel"] + "\n\n" + texto, web=False, max_tokens=max(max_tokens, a.get("max_tokens") or 0), qual=a["qual"],
                            modelo=a["modelo"], sistema=SISTEMA + sistema_extra)
     return t.strip()
