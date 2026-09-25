@@ -159,9 +159,11 @@ def test_aprovacao_automatica_por_risco():
 class RepoDuvida:
     def __init__(s, mensagens_hoje=0):
         s.t = {"reuniao_mensagens": [{"id": i} for i in range(mensagens_hoje)], "tarefa_eventos": [], "reuniao_tarefas": []}
+        s.gets = []
 
     def _req(s, m, tab, params=None, corpo=None, prefer=None):
         if m == "GET":
+            s.gets.append((tab, params))
             return s.t.get(tab, [])
         if m == "POST":
             linhas = [dict(r, id=len(s.t.setdefault(tab, [])) + i + 1) for i, r in enumerate(corpo)]
@@ -184,6 +186,9 @@ def test_37_duvida_chama_especialista_e_fecha_no_card():
     assert r.t["reuniao_mensagens"][0]["meta"]["para"] == "deepseek", r.t["reuniao_mensagens"][0]
     passo = next(e for e in r.t["tarefa_eventos"] if e["tipo"] == "passo")
     assert passo["tarefa_id"] == 5 and "Dúvida" in passo["texto"] and "Decisão do coordenador" in passo["texto"], passo
+    # a checagem do limite diário usa exatamente o filtro jsonb que o Supabase real entende
+    tab, params = r.gets[0]
+    assert tab == "reuniao_mensagens" and params["meta->>tipo"] == "eq.duvida" and params["criado_em"].startswith("gte."), params
 
     r2 = RepoDuvida(mensagens_hoje=reuniao.LIMITE_DUVIDAS_DIA)
     try:
@@ -191,6 +196,71 @@ def test_37_duvida_chama_especialista_e_fecha_no_card():
         assert False, "devia recusar por limite diário"
     except reuniao.ErroDuvida as e:
         assert "Limite" in str(e), e
+
+
+def test_37b_especialista_por_assunto_e_hermes_assincrono():
+    import reuniao
+    assert reuniao._especialista("mudar o layout do celular") == "astra"
+    assert reuniao._especialista("conferir o custo da consulta no banco") == "deepseek"
+    assert reuniao._especialista("bug nessa função, corrigir o endpoint") == "chatgpt"
+    assert reuniao._especialista("qual foi o histórico dessa decisão?") == "hermes"
+    assert reuniao._especialista("oi", para="@hermes") == "hermes"
+
+    reuniao.ia.tem = lambda q: True
+    reuniao.ia.perguntar = lambda pedido, **kw: ("Decisão sem o Hermes: segue o combinado antes.", None, "claude")
+    chamou_especialista = []
+    reuniao.agentes.perguntar = lambda chave, texto, max_tokens=800: chamou_especialista.append(chave) or "nunca deveria chamar"
+
+    r = RepoDuvida()
+    decisao = reuniao.duvida(r, 7, "Qual foi o histórico dessa decisão?", quem="claude_code")
+    assert not chamou_especialista, "Hermes não pode ser chamado na hora (roda assíncrono no Mac)"
+    assert "Decisão sem o Hermes" in decisao, decisao
+    tipos = [m["meta"]["tipo"] for m in r.t["reuniao_mensagens"]]
+    assert tipos == ["duvida", "decisao"], tipos    # sem resposta_duvida: ninguém respondeu na hora
+
+
+def test_37c_fake_rest_filtra_jsonb_meta():
+    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "servidor_teste")
+    if caminho not in sys.path:
+        sys.path.insert(0, caminho)
+    import fake_rest
+    hoje = "2026-09-25"
+    linhas = [{"id": i, "meta": {"tipo": "duvida"}, "criado_em": f"{hoje}T10:00:00+00:00"} for i in range(20)]
+    linhas += [{"id": 100, "meta": {"tipo": "decisao"}, "criado_em": f"{hoje}T11:00:00+00:00"},
+               {"id": 101, "meta": {"tipo": "duvida"}, "criado_em": "2026-09-24T09:00:00+00:00"}]
+    achadas = fake_rest.filtra(linhas, {"select": "id", "meta->>tipo": "eq.duvida", "criado_em": f"gte.{hoje}"})
+    assert len(achadas) == 20, len(achadas)   # só as de hoje com tipo=duvida (não a de ontem nem a decisao)
+
+
+class RepoCard:
+    def __init__(s):
+        s.eventos = []
+
+    def _req(s, m, tab, params=None, corpo=None, prefer=None):
+        if m == "GET":
+            if tab == "reuniao_tarefas":
+                return [{"id": 9, "status": "em_desenvolvimento", "responsavel": "claude_code", "titulo": "x", "descricao": "y", "notas": None}]
+            if tab == "mac_estado":
+                return [{"visto_em": None}]
+            return []
+        if m == "POST":
+            s.eventos.extend(corpo)
+            return corpo if prefer and "representation" in prefer else None
+        return None
+
+    def _eq(s, v):
+        return f"eq.{v}"
+
+
+def test_37d_falha_ao_abrir_duvida_nao_apaga_resposta_pronta():
+    nubi_web.ia.perguntar_json = lambda *a, **k: (
+        {"resposta": "Resposta pronta para o Bruno.", "comando": None, "duvida": "isso funciona mesmo?"}, None, "claude")
+    nubi_web.reuniao.duvida = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("timeout de rede"))
+
+    r = RepoCard()
+    nubi_web.responder_card(r, 9)
+    passo = next(e for e in r.eventos if e["tipo"] == "passo")
+    assert "Resposta pronta para o Bruno." in passo["texto"], passo
 
 
 class RepoMac:

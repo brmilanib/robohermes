@@ -85,6 +85,7 @@ LIMITE_DUVIDAS_DIA = 20
 DESIGN_RE = re.compile(r"layout|design|\bux\b|\bui\b|tela|navega|menu|visual|celular|mobile|responsiv|cabe[çc]alho", re.I)
 DADOS_RE = re.compile(r"n[úu]mero|total|venda|c[áa]lcul|conta|reconcilia|dados|pre[çc]o|custo|estoque|coleta|banco|desempenho|token|schema|json", re.I)
 CODIGO_RE = re.compile(r"c[óo]digo|fun[çc][ãa]o\b|endpoint|rota\b|\bbug\b|deploy|refatora|implementa[çc][ãa]o|teste automatizado", re.I)
+HISTORICO_RE = re.compile(r"hist[óo]rico|mem[óo]ria|j[áa] decidiu|j[áa] foi discutido|precedente|aprendizado|caixa de conhecimento", re.I)
 
 
 class ErroDuvida(Exception):
@@ -102,6 +103,8 @@ def _especialista(texto, para=None):
         return "deepseek"
     if CODIGO_RE.search(texto):
         return "chatgpt"
+    if HISTORICO_RE.search(texto):
+        return "hermes"
     return None
 
 
@@ -125,8 +128,12 @@ def duvida(repo, tarefa_id, texto, quem="claude_code", para=None):
                     "meta": {"tipo": "duvida", "tarefa_id": tarefa_id, "para": especialista}, "criado_em": agora()}],
                     prefer="return=representation")
     duvida_id = (msg or [{}])[0].get("id")
-    resposta_esp, nome_esp = "", ""
-    if especialista in agentes.AGENTES and ia.tem(agentes.AGENTES[especialista]["qual"]):
+    resposta_esp, nome_esp, hermes_async = "", "", False
+    if especialista == "hermes":
+        # Hermes roda no Mac mini (Ollama local) e só posta na Sala pelo despachante (assíncrono);
+        # não dá pra chamar na hora daqui. O coordenador decide com o que já sabe e avisa que pode faltar resposta.
+        nome_esp, hermes_async = "Hermes", True
+    elif especialista in agentes.AGENTES and ia.tem(agentes.AGENTES[especialista]["qual"]):
         nome_esp = agentes.AGENTES[especialista]["nome"]
         try:
             resposta_esp = agentes.perguntar(especialista, f"DÚVIDA de outro agente sobre o card #{tarefa_id}:\n{texto}", max_tokens=900)
@@ -141,6 +148,8 @@ def duvida(repo, tarefa_id, texto, quem="claude_code", para=None):
         "(não é a reunião nem uma tarefa nova). Dê a MELHOR RESPOSTA, curta (até 6 linhas), objetiva, para quem vai "
         f"implementar o card.\nCARD #{tarefa_id}\nDÚVIDA: {texto}\n"
         + (f"\nRESPOSTA DE {nome_esp}: {resposta_esp}\n" if resposta_esp.strip() else "")
+        + ("\nHermes (histórico/memória) foi citado, mas ele só responde de forma assíncrona pelo Mac mini: decida com o "
+           "que você já sabe e diga que a resposta dele, se vier, chega depois na Sala.\n" if hermes_async else "")
         + "\n\nResponda só o texto da decisão, em português, sem JSON e sem repetir a dúvida.")
     decisao, _, _ = ia.perguntar(pedido, web=False, max_tokens=700, qual="claude", sistema=agentes.SISTEMA)
     decisao = decisao.strip()

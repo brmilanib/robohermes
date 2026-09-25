@@ -17,28 +17,37 @@ cfg = json.load(open(__import__("os").path.join(__import__("os").path.dirname(__
 DB["marcas_config"] = [{"marca": k, "linhas": v["linhas"]} for k, v in cfg.items()]
 CHAMADAS = []
 
+def _campo(k):
+    """coluna simples ou caminho jsonb tipo 'meta->>tipo' (sintaxe do PostgREST)."""
+    if "->>" in k:
+        col, chave = k.split("->>", 1)
+        return lambda r: (r.get(col) or {}).get(chave.strip("'\"")) if isinstance(r.get(col), dict) else None
+    return lambda r: r.get(k)
+
+
 def filtra(rows, params):
     out = rows
     for k, v in params.items():
+        pega = _campo(k)
         if isinstance(v, str) and v.startswith("eq."):
             val = v[3:]
-            out = [r for r in out if str(r.get(k)) == val]
+            out = [r for r in out if str(pega(r)) == val]
         elif isinstance(v, str) and v.startswith("neq."):
-            out = [r for r in out if str(r.get(k)) != v[4:]]
+            out = [r for r in out if str(pega(r)) != v[4:]]
         elif isinstance(v, str) and v.startswith("gt."):
-            out = [r for r in out if float(r.get(k) or 0) > float(v[3:])]
+            out = [r for r in out if float(pega(r) or 0) > float(v[3:])]
         elif isinstance(v, str) and v == "is.null":
-            out = [r for r in out if r.get(k) is None]
+            out = [r for r in out if pega(r) is None]
         elif isinstance(v, str) and v.startswith("lte."):
-            out = [r for r in out if float(r.get(k) or 0) <= float(v[4:])]
+            out = [r for r in out if float(pega(r) or 0) <= float(v[4:])]
         elif isinstance(v, str) and v.startswith("gte."):
-            out = [r for r in out if str(r.get(k)) >= v[4:]]
+            out = [r for r in out if str(pega(r)) >= v[4:]]
         elif isinstance(v, str) and v.startswith("like."):
             import fnmatch
-            out = [r for r in out if fnmatch.fnmatchcase(str(r.get(k)), v[5:])]
+            out = [r for r in out if fnmatch.fnmatchcase(str(pega(r)), v[5:])]
         elif isinstance(v, str) and v.startswith("in.("):
             vals = set(v[4:-1].split(","))
-            out = [r for r in out if str(r.get(k)) in vals]
+            out = [r for r in out if str(pega(r)) in vals]
     if "order" in params:
         for campo in reversed(params["order"].split(",")):
             desc = campo.endswith(".desc"); campo = campo.split(".")[0]

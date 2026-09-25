@@ -2431,8 +2431,9 @@ def responder_card(repo, tid):
         try:
             decisao = reuniao.duvida(repo, int(tid), duvida_texto, quem="agente_card")
             resposta = (resposta + "\n\n" if resposta else "") + f"💬 Abri uma dúvida na Sala: \"{duvida_texto}\" — resposta: {decisao}"
-        except reuniao.ErroDuvida as e:
-            resposta = resposta or f"Eu não sabia responder com certeza e não consegui abrir uma dúvida agora ({e})."
+        except Exception as e:  # noqa: BLE001 - falha ao abrir a dúvida não pode derrubar a resposta principal já pronta
+            if not resposta:
+                resposta = f"Eu não sabia responder com certeza e não consegui abrir uma dúvida agora ({str(e)[:150]})."
     if not resposta:
         raise ErroNuvem("resposta vazia da IA")
     autor = "claude" if qual == "claude" else {"chatgpt": "chatgpt", "codex": "chatgpt", "deepseek": "deepseek", "ollama": "gptoss"}.get(qual, "claude")
