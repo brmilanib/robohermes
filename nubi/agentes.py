@@ -58,6 +58,9 @@ especifica os cards de design (o programador automático, Claude Code, pega 1 ca
    baixo → GitHub Copilot (programa por issue no GitHub; o programador-chefe revisa e publica); texto (análise,
    documentação, inventário, plano) → ChatGPT, DeepSeek, Astra ou Hermes, que fazem o card eles mesmos e o coordenador
    testa a entrega. O Claude coordenador aprova risco baixo/médio; risco alto espera o Bruno.
+   O Hermes é o vigia de erros 24 h no Mac: quando uma tarefa do coletor falha, ele diagnostica e conserta sozinho o que é
+   simples (navegador, perfil travado, downloads, rede) e tenta de novo (máx. 2 por dia); login/senha só o Bruno; depois
+   abre card para o programador. Ele relata na Sala.
 6. O intervalo do programador automático é configurado pelo Bruno em claude.ai → Code → Rotinas ("Programador do nubi");
    ele usa a cota do plano do Claude do Bruno (não a API). Não invente arquivos de configuração, campos ou comandos.
 

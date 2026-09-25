@@ -1217,6 +1217,7 @@ def _executar(tarefa, func):
         if not isinstance(e, Falha):
             log(traceback.format_exc()[-2000:])
         registrar(token, tarefa, inicio, False, 0, 0, 1, msg)
+        anotar_falha(tarefa, msg)
         aviso_mac("Coletor nubi — falhou", msg)
         return 2
 
@@ -1331,8 +1332,28 @@ def baixar_estoque(pg):
             pg.get_by_text(re.compile(r"\.xlsx\s*$")).last.click()
     d = dl.value
     arq = destino / d.suggested_filename                  # nome do UpSeller, sem renomear
-    d.save_as(str(arq))
+    _salvar_download(pg, d, arq)
     return arq, sucesso or esperado
+
+
+def _salvar_download(pg, d, arq):
+    """Salva o download. Na madrugada de 25/09 o UpSeller exportou os 640 SKUs mas o arquivo se perdeu (TargetClosedError:
+    a aba que baixa fecha sozinha): aí baixa de novo direto pelo link, com os cookies do navegador. O nome não muda."""
+    try:
+        d.save_as(str(arq))
+        return
+    except Exception as e:  # noqa: BLE001
+        url = d.url or ""
+        if not url.startswith("http"):
+            raise
+        log(f"  o download se perdeu ({e.__class__.__name__}); baixando direto pelo link")
+    r = pg.context.request.get(url, timeout=120000)
+    if not r.ok:
+        raise Falha(f"não consegui baixar a planilha do estoque pelo link (HTTP {r.status})")
+    corpo = r.body()
+    if corpo[:2] != b"PK":
+        raise Falha("o link do estoque não devolveu uma planilha .xlsx")
+    arq.write_bytes(corpo)
 
 
 def coletar_estoque(p, cfg, token, enviar=True):
@@ -1785,12 +1806,13 @@ def despachar(cfg):
     return 0
 
 
-def _soltar(cmd):
+def _soltar(cmd, env=None):
     """Roda a tarefa (coleta, estoque, Gestor) SEPARADA do vigia: antes o vigia virava a coleta (execv) e, enquanto ela
     durava (horas), o launchd não chamava o vigia de novo — o despachante (Central, cards, Hermes) ficava parado."""
     with open(PASTA / "vigia.log", "a") as saida:
         subprocess.Popen([sys.executable, str(Path(__file__).resolve()), cmd], stdout=saida, stderr=subprocess.STDOUT,
-                         stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(PASTA))
+                         stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(PASTA),
+                         env={**os.environ, **env} if env else None)
     return 0
 
 
@@ -1801,6 +1823,12 @@ def cmd_vigiar():
         despachar(cfg0)
     except Exception as e:  # noqa: BLE001
         print(f"{datetime.now():%d/%m %H:%M} despachante: {e}", flush=True)
+    try:
+        if _falhas_pendentes() and not _pid_vivo(PASTA / "hermes-vigia.pid"):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: falha nova -> chamando o Hermes (vigia de erros)", flush=True)
+            _soltar("hermes-vigia")
+    except Exception as e:  # noqa: BLE001
+        print(f"{datetime.now():%d/%m %H:%M} vigia de erros: {e}", flush=True)
     marca = PASTA / "vigia.ultimo"
     try:
         if time.time() - marca.stat().st_mtime < 4 * 60:      # a cada ~5 min: versão nova, pedidos e horários das rotinas
@@ -2022,6 +2050,207 @@ def cmd_hermes_card(args, cfg):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Hermes, vigia de erros 24 h (pedido do Bruno, 25/09): tarefa do Mac falhou -> ele diagnostica e conserta na hora o que é
+# simples (navegador, perfil travado, pasta de downloads, rede), tenta de novo e conta na Sala. Só ações da lista fechada
+# abaixo; login/senha nunca (isso é do Bruno). No máximo 2 consertos por tarefa por dia; depois abre card para o programador.
+# ---------------------------------------------------------------------------
+
+FALHAS = PASTA / "falhas.json"
+MEDICO_MAX = 2
+MEDICO_TAREFAS = ("estoque", "gestor", "diario")        # as que ele pode rodar de novo sozinho
+RECEITAS = [   # (padrão no erro, ação, diagnóstico em português)
+    (r"pediu login|SessaoExpirada|login .{0,30}vencid", "avisar", "o login do site venceu; só o Bruno entra de novo (senha nunca fica guardada)"),
+    (r"SingletonLock|ProcessSingleton|already in use|profile .{0,20}in use", "destravar", "o perfil do Chrome ficou travado por um Chrome que não fechou"),
+    (r"No space left|ENOSPC", "limpar", "a pasta de downloads/disco encheu"),
+    (r"[Dd]ownload|save_as", "visivel", "o download se perdeu com o navegador invisível"),
+    (r"TargetClosed|browser has been closed|[Cc]rash", "visivel", "o navegador fechou no meio da tarefa"),
+    (r"Timeout|timed out|net::ERR|ECONNRESET|Connection|sem contato", "repetir", "a página demorou ou a rede oscilou"),
+]
+ACOES_MEDICO = {"repetir": "rodei de novo", "visivel": "rodei de novo com o navegador visível",
+                "destravar": "fechei o Chrome travado, destravei o perfil e rodei de novo",
+                "limpar": "limpei arquivos velhos da pasta de downloads e rodei de novo", "avisar": "avisei o Bruno"}
+
+
+def anotar_falha(tarefa, msg):
+    try:
+        lista = json.loads(FALHAS.read_text()) if FALHAS.exists() else []
+    except (OSError, ValueError):
+        lista = []
+    lista.append({"tarefa": tarefa, "erro": str(msg)[:600], "quando": datetime.now().isoformat(timespec="seconds"),
+                  "log": "\n".join(LOG[-15:])[-2500:]})
+    try:
+        FALHAS.write_text(json.dumps(lista[-30:], ensure_ascii=False))
+    except OSError:
+        pass
+
+
+def _falhas_pendentes():
+    try:
+        lista = json.loads(FALHAS.read_text()) if FALHAS.exists() else []
+    except (OSError, ValueError):
+        return []
+    limite = (datetime.now() - timedelta(hours=6)).isoformat()
+    return [f for f in lista if not f.get("tratada") and f.get("quando", "") > limite]
+
+
+def _pid_vivo(arq):
+    try:
+        os.kill(int(arq.read_text().strip()), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def diagnosticar(erro, log_txt=""):
+    """Receita conhecida para o erro -> (ação, diagnóstico), ou (None, None)."""
+    texto = f"{erro}\n{log_txt}"
+    for padrao, acao, diag in RECEITAS:
+        if re.search(padrao, texto):
+            return acao, diag
+    return None, None
+
+
+def _hermes_escolhe(f):
+    """Erro sem receita: o Hermes (Ollama, grátis) escolhe UMA ação da lista fechada; qualquer outra resposta = avisar."""
+    pedido = ("Você é o Hermes, vigia de erros do coletor do nubi no Mac mini. Uma tarefa falhou. Escolha UMA ação da lista "
+              "e explique a causa provável em 1 frase, em português do Brasil. Ações: repetir (rede/página lenta), visivel "
+              "(problema do navegador invisível), destravar (Chrome/perfil travado), limpar (pasta de downloads cheia), "
+              "avisar (precisa do Bruno: login, senha, site mudou). Responda SOMENTE JSON: "
+              '{"acao": "...", "diagnostico": "..."}\n\n'
+              f"TAREFA: {f['tarefa']}\nERRO: {f['erro']}\nFIM DO LOG:\n{f.get('log', '')[-1500:]}")
+    corpo = {"model": "hermes3:8b", "stream": False, "messages": [{"role": "user", "content": pedido}]}
+    try:
+        req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=300) as r:
+            txt = json.loads(r.read().decode())["choices"][0]["message"]["content"]
+        j = json.loads(re.search(r"\{.*\}", txt, re.S).group(0))
+        acao = str(j.get("acao") or "").strip().lower()
+        if acao in ACOES_MEDICO:
+            return acao, str(j.get("diagnostico") or "")[:200] or "causa não identificada"
+    except Exception:  # noqa: BLE001
+        pass
+    return "avisar", "erro que eu não conheço (o Ollama não respondeu ou não soube classificar)"
+
+
+def _destravar_perfil():
+    perfil = PASTA / "perfil"
+    subprocess.run(["pkill", "-f", f"user-data-dir={perfil}"], check=False, capture_output=True)
+    time.sleep(3)
+    for nome in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+        try:
+            (perfil / nome).unlink()
+        except OSError:
+            pass
+
+
+def _limpar_downloads(dias=3):
+    """Apaga só planilhas baixadas pelo coletor com mais de N dias (o nubi já tem os dados); nunca o perfil nem a config."""
+    limite = time.time() - dias * 86400
+    n = 0
+    for pasta in (PASTA / "estoque", PASTA / "gestor", PASTA / "downloads", PASTA / "comandos"):
+        for arq in (pasta.glob("*") if pasta.is_dir() else []):
+            try:
+                if arq.is_file() and arq.stat().st_mtime < limite:
+                    arq.unlink()
+                    n += 1
+            except OSError:
+                pass
+    return n
+
+
+def cmd_hermes_vigia(args, cfg):
+    """(automático) O Hermes trata as falhas novas das tarefas do Mac: diagnostica, conserta o simples e tenta de novo."""
+    trava = PASTA / "hermes-vigia.pid"
+    if _pid_vivo(trava):
+        return 0
+    trava.write_text(str(os.getpid()))
+    try:
+        return _hermes_vigia(cfg)
+    finally:
+        try:
+            trava.unlink()
+        except OSError:
+            pass
+
+
+def _hermes_vigia(cfg):
+    pend = _falhas_pendentes()
+    if not pend:
+        return 0
+    try:
+        lista = json.loads(FALHAS.read_text())
+    except (OSError, ValueError):
+        return 0
+    for f in lista:                                        # trata só a mais recente de cada tarefa
+        if not f.get("tratada"):
+            f["tratada"] = True
+    FALHAS.write_text(json.dumps(lista, ensure_ascii=False))
+    ultimas = {}
+    for f in pend:
+        ultimas[f["tarefa"]] = f
+    hoje = date.today().isoformat()
+    conta = {k: v for k, v in (cfg.get("hermes_consertos") or {}).items() if k == hoje}.get(hoje, {})
+    token = token_nubi(cfg)
+    for tarefa, f in ultimas.items():
+        n = conta.get(tarefa, 0)
+        acao, diag = diagnosticar(f["erro"], f.get("log", ""))
+        if not acao:
+            acao, diag = _hermes_escolhe(f)
+        if tarefa not in MEDICO_TAREFAS and acao != "avisar":
+            acao, diag = "avisar", diag + " (esta tarefa eu não rodo de novo sozinho)"
+        desistiu = acao != "avisar" and n >= MEDICO_MAX
+        if desistiu:
+            acao = "avisar"
+        hora = f["quando"][11:16]
+        texto = (f"🩺 **Vigia de erros**: a tarefa **{tarefa}** falhou às {hora} ({f['erro'][:180]}).\n"
+                 f"Diagnóstico: {diag}.\n")
+        if desistiu:
+            texto += (f"Já consertei {n} vez(es) hoje e voltou a falhar: parei de tentar e abri um card para o programador.")
+            _abrir_card_erro(token, tarefa, f, diag)
+        elif acao == "avisar":
+            texto += "Ação: isso eu não consigo resolver sozinho — precisa do Bruno."
+            aviso_mac("Hermes: precisa de você", f"{tarefa}: {diag}")
+        else:
+            if acao == "destravar":
+                _destravar_perfil()
+            elif acao == "limpar":
+                texto += f"(apaguei {_limpar_downloads()} arquivo(s) velho(s)) "
+            elif acao == "repetir":
+                time.sleep(120)
+            fim = time.time() + 1800
+            while _outra_rodando() and time.time() < fim:   # espera a coleta que estiver rodando terminar
+                time.sleep(30)
+            _soltar(tarefa, {"NUBI_VER": "1"} if acao == "visivel" else None)
+            conta[tarefa] = n + 1
+            texto += f"Ação: {ACOES_MEDICO[acao]} (conserto {n + 1} de {MEDICO_MAX} hoje)."
+        print(f"{datetime.now():%d/%m %H:%M} hermes-vigia: {tarefa} -> {acao}", flush=True)
+        try:
+            api(token, "reuniao_postar", corpo={"autor": "Hermes", "texto": texto, "modelo": "vigia", "tokens_in": 0,
+                                                 "tokens_out": 0}, metodo="POST", timeout=60)
+        except Exception as e:  # noqa: BLE001
+            print(f"hermes-vigia: não postei na Sala ({e})", flush=True)
+    cfg = ler_config()
+    cfg["hermes_consertos"] = {hoje: conta}
+    salvar_config(cfg)
+    return 0
+
+
+def _abrir_card_erro(token, tarefa, f, diag):
+    desc = (f"O Hermes (vigia de erros) consertou {MEDICO_MAX} vezes hoje e a tarefa {tarefa} do coletor continua falhando.\n"
+            f"Último erro ({f['quando']}): {f['erro'][:400]}\nDiagnóstico do Hermes: {diag}\n\n"
+            f"Escopo: descobrir e corrigir a causa da falha da tarefa {tarefa} do coletor, sem mexer no login nem em senhas.\n"
+            f"Arquivo/função: nubi/public/coletor/coletor.py (tarefa {tarefa}; ver o log no Coletor da Central).\n"
+            f"Teste: reproduzir contra página falsa (como os testes do UpSeller/Gestor) e rodar os testes do repositório.\n"
+            f"Critério de aceite: a tarefa {tarefa} roda sem erro na próxima execução do Mac.")
+    try:
+        api(token, "reuniao_tarefa_salvar", corpo={"titulo": f"🩺 Coletor: {tarefa} falhando ({f['erro'][:60]})",
+                                                   "descricao": desc, "status": "aprovada", "prioridade": "alta",
+                                                   "area": "coletor"}, metodo="POST", timeout=60)
+    except Exception as e:  # noqa: BLE001
+        print(f"hermes-vigia: não abri o card ({e})", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Coletor do Nubimetrics para o nubi")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2063,6 +2292,7 @@ def main():
     hc.add_argument("id")
     hc.add_argument("--modelo", default=None)
     sub.add_parser("entrar-gestor", help="login no Gestor Seller (uma vez), para importar a planilha sozinho")
+    sub.add_parser("hermes-vigia", help="(automático) o Hermes trata as falhas novas: diagnostica, conserta e tenta de novo")
     gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
     gs.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     es = sub.add_parser("estoque", help="exporta a Lista de Estoque do UpSeller e manda para o nubi")
@@ -2092,6 +2322,8 @@ def main():
         return cmd_hermes_card(args, cfg)
     if args.cmd == "entrar-gestor":
         return cmd_entrar_gestor(args, cfg)
+    if args.cmd == "hermes-vigia":
+        return cmd_hermes_vigia(args, cfg)
     if args.cmd == "agendar":
         plist = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.plist"
         if not plist.exists():

@@ -2122,7 +2122,8 @@ def rodar_rotinas(repo, so=None):
                 res = reg["resumo"]
             elif rid == "design":
                 partes = []
-                for nome_, f_ in (("especialistas", especificar_cards), ("distribuição", distribuir_cards), ("agentes", trabalhar_agentes)):
+                for nome_, f_ in (("especialistas", especificar_cards), ("modelo", completar_modelos), ("distribuição", distribuir_cards),
+                                  ("agentes", trabalhar_agentes)):
                     try:
                         r_ = f_(repo)
                     except Exception as e:  # noqa: BLE001
@@ -2654,6 +2655,39 @@ def card_pronto(descricao):
     faltando = [nome for nome, _ in CARD_MODELO
                 if not secoes.get(nome) or re.fullmatch(r"\[.*\]", secoes[nome].strip())]
     return not faltando, faltando
+
+
+def completar_modelos(repo, limite=4):
+    """Card aprovado sem os 4 itens do #44 não pode ficar travado (a fila parou a madrugada de 25/09): o coordenador preenche
+    Escopo/Arquivo-função/Teste/Critério a partir do título, da descrição e dos planos do Astra/DeepSeek, e acrescenta na descrição."""
+    if not ia.tem("claude"):
+        return ""
+    cards = [t for t in (repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,descricao,area,risco", "status": "eq.aprovada",
+                                                              "aguardando": "is.null", "order": "id"}) or [])
+             if not card_pronto(t.get("descricao"))[0]]
+    feitos = []
+    for t in cards[:limite]:
+        evs = repo._req("GET", "tarefa_eventos", {"select": "autor,texto", "tarefa_id": repo._eq(t["id"]), "order": "id"}) or []
+        planos = "\n\n".join(e["texto"][:3000] for e in evs if e["autor"] in ("astra", "deepseek", "voce"))[-8000:]
+        j, _, _ = ia.perguntar_json(
+            "Você é o coordenador do time do nubi. Este card aprovado precisa do modelo obrigatório de 4 itens para ser executado. "
+            "Escreva cada item em 1 a 3 linhas objetivas, com base SÓ no card e nos planos abaixo (não invente tabela, coluna ou "
+            "arquivo que não esteja citado; na dúvida, diga onde procurar).\n\n"
+            f"CARD #{t['id']} [{t.get('area') or '-'}] {t['titulo']}\n{(t.get('descricao') or '')[:3000]}\n\nPLANOS:\n{planos or '-'}"
+            '\n\nResponda SOMENTE JSON: {"escopo": "...", "arquivo": "...", "teste": "...", "criterio": "..."}',
+            web=False, max_tokens=1200, qual="claude", sistema=agentes.SISTEMA)
+        itens = [str(j.get(k) or "").strip().replace("\n", " ") for k in ("escopo", "arquivo", "teste", "criterio")]
+        if not all(itens):
+            continue
+        bloco = (f"Escopo: {itens[0]}\nArquivo/função: {itens[1]}\nTeste: {itens[2]}\nCritério de aceite: {itens[3]}")
+        desc = ((t.get("descricao") or "").rstrip() + "\n\n" + bloco).strip()
+        if not card_pronto(desc)[0]:
+            continue
+        repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(t["id"])},
+                  corpo={"descricao": desc, "atualizado_em": datetime.now(timezone.utc).isoformat()}, prefer="return=minimal")
+        _evento(repo, t["id"], "claude", "📝 Coordenador preencheu o modelo do card (#44) para ele poder andar:\n\n" + bloco)
+        feitos.append(f"#{t['id']}")
+    return "modelo preenchido: " + ", ".join(feitos) if feitos else ""
 
 
 def _conhecimento_fixo(repo, n=6):

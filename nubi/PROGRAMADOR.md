@@ -51,9 +51,11 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
    eles mesmos fazem; se a entrega deles disser PRECISA_CODIGO, o card volta com `responsavel='claude_code'` para você),
    ordem: prioridade (urgente, alta, media, baixa) e depois `id`. Pule cards que dependem do Bruno no Mac (login, instalar algo) ou
    de dados que você não tem; registre no card por que pulou (evento `tipo='passo'`) e vá para o próximo. Sem card: termine.
-   **Modelo obrigatório (card #44)**: confira `card_pronto(descricao)` (nubi_web.py) antes de começar — precisa dos 4 itens
-   (Escopo, Arquivo/função, Teste, Critério de aceite) preenchidos, nem só o placeholder do modelo. Incompleto: não execute;
-   evento `tipo='passo'` com "Card não executado: preencha {itens} na descrição." e pule para o próximo (ver LEIA-ME.md).
+   **Modelo obrigatório (card #44)**: confira `card_pronto(descricao)` (nubi_web.py) — precisa dos 4 itens (Escopo,
+   Arquivo/função, Teste, Critério de aceite). O coordenador preenche de hora em hora (`completar_modelos`). **Incompleto não é
+   motivo para parar a fila** (a madrugada de 25/09 inteira ficou parada por isso): você mesmo escreve os 4 itens a partir do
+   título, da descrição e dos planos do Astra/DeepSeek, acrescenta na descrição do card (UPDATE `descricao`), grava evento
+   `tipo='passo'` "📝 preenchi o modelo" e segue. Só pule se o card for vago demais para definir o escopo (registre o porquê).
    **Cards de design** (layout, tela, navegação, menu, visual, celular): o Astra (designer, gpt-6-astra) escreve de hora em
    hora uma **Especificação de design** dentro do card (evento do autor `astra`). Só pegue card de design que já tenha essa
    especificação e implemente **seguindo ela** (os "Critérios de pronto" são o seu checklist; confira cada um no celular e
