@@ -233,14 +233,26 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, siste
     return texto.strip(), list(dict.fromkeys(l for l in links if l)), ia
 
 
+def _primeiro_json(texto):
+    """Primeiro objeto JSON (dict) dentro de texto: tenta json.JSONDecoder().raw_decode a partir de cada '{',
+    ignorando chaves soltas ou inválidas (a regex antiga \\{.*\\} gulosa pegava do primeiro '{' ao último '}',
+    quebrando com texto depois do JSON ou dois objetos seguidos). Lista/string na resposta não têm '{': devolve {}."""
+    dec = json.JSONDecoder()
+    i = texto.find("{")
+    while i != -1:
+        try:
+            obj, _ = dec.raw_decode(texto, i)
+        except ValueError:
+            obj = None
+        if isinstance(obj, dict):
+            return obj
+        i = texto.find("{", i + 1)
+    return {}
+
+
 def perguntar_json(pergunta, web=True, max_tokens=1500, qual=None, sistema=None):
     texto, links, ia = perguntar(pergunta, web, max_tokens, qual=qual, sistema=sistema)
-    m = re.search(r"\{.*\}", texto, re.S)
-    try:
-        j = json.loads(m.group(0)) if m else {}
-    except ValueError:
-        j = {}
-    return j, links, ia
+    return _primeiro_json(texto), links, ia
 
 
 def perguntar_estruturado(pergunta, schema, nome="resposta", max_tokens=2500):
