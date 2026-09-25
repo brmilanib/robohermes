@@ -173,6 +173,9 @@ def conferencias(repo, hoje=None):
         manuais = {r["marca_chave"]: r["categoria"] for r in repo._todos("marca_categorias", {"select": "marca_chave,categoria"})}
     except Exception:  # noqa: BLE001
         manuais = {}
+    # 8b) categoria manual fora de CATEGORIAS (dado velho/corrompido): classificar()/relatorio() (card #72)
+    # já tratam como "Sem categoria" sem derrubar o relatório; aqui é só o aviso pro Bruno corrigir a escolha.
+    ach.extend(achados_categoria_manual_invalida(manuais))
     snap_hoje = {chave: categorias.classificar(chave, manuais)[0] for chave, _, _ in categorias.conflitos()}
     try:
         ontem_rows = repo._req("GET", "auditorias", {"select": "conferencias",
@@ -222,6 +225,17 @@ def coleta_em_andamento(repo):
         if recente:
             return f"Coleta rodando agora no Mac ({run[0].get('tarefa') or 'diario'})"
     return ""
+
+
+def achados_categoria_manual_invalida(manuais):
+    """achados (card #72): marca_chave -> categoria em marca_categorias que não existe mais em
+    categorias.CATEGORIAS (categoria removida/renomeada). classificar()/relatorio() já protegem os
+    números (viram "Sem categoria"); isto só avisa o Bruno para escolher de novo na tela."""
+    return [{"nivel": "alerta", "area": "categoria", "titulo": f"{chave}: categoria manual \"{cat}\" não existe mais",
+             "detalhe": "marca_categorias tem uma categoria fora da lista atual (categorias.CATEGORIAS); "
+                        "o relatório trata a marca como \"Sem categoria\" até alguém escolher de novo em "
+                        "Minhas marcas → Categorias."}
+            for chave, cat in sorted(manuais.items()) if cat not in categorias.CATEGORIAS]
 
 
 def regras_juncao(a, b):

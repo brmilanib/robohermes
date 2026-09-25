@@ -120,10 +120,15 @@ INDICE = _indice()
 
 
 def classificar(marca, manuais=None):
-    """(categoria, fonte): fonte 'manual' (escolhida na tela), 'auto' (lista conhecida) ou 'sem'."""
+    """(categoria, fonte): fonte 'manual' (escolhida na tela), 'auto' (lista conhecida) ou 'sem'.
+    Categoria manual fora de CATEGORIAS (dado velho/corrompido em marca_categorias) vira 'sem' em vez
+    de propagar um valor que quebraria serie[cat] em relatorio(); quem lê marca_categorias direto
+    (auditoria.conferencias) é quem avisa o Bruno do dado inválido."""
     k = nubi.compacta(marca or "")
     if manuais and k in manuais:
-        return manuais[k], "manual"
+        if manuais[k] in CATEGORIAS:
+            return manuais[k], "manual"
+        return SEM, "sem"
     if k in INDICE:
         return INDICE[k], "auto"
     # linhas/sub-marcas: "LATTAFA PRIDE", "ISABELLE LA BELLE ASAD..." -> começa com uma marca conhecida
@@ -149,15 +154,29 @@ def relatorio(meses, linhas_por_mes, manuais=None):
             nome = l.get("marca") or ""
             cat, fonte = classificar(nome, manuais)
             v = float(l.get("vendas") or 0)
+            un = int(l.get("unidades") or 0)
+            pos = l.get("posicao")
             serie[cat]["vendas"][i] += v
-            serie[cat]["unidades"][i] += int(l.get("unidades") or 0)
-            serie[cat]["marcas"][i] += 1
+            serie[cat]["unidades"][i] += un
             total[i] += v
             m = marcas.setdefault(nubi.compacta(nome), {"marca": nome, "categoria": cat, "fonte": fonte,
                                                          "vendas": [None] * n, "posicao": [None] * n, "un": [None] * n})
-            m["vendas"][i] = v
-            m["un"][i] = int(l.get("unidades") or 0)
-            m["posicao"][i] = l.get("posicao")
+            if m["vendas"][i] is None:
+                # 1ª linha da marca no mês
+                m["vendas"][i] = v
+                m["un"][i] = un
+                m["posicao"][i] = pos
+            else:
+                # a mesma marca (já unificada) aparece de novo no mesmo mês: soma vendas/unidades,
+                # fica com a melhor (menor) posição em vez de sobrescrever com a última linha lida
+                m["vendas"][i] += v
+                m["un"][i] += un
+                if pos is not None and (m["posicao"][i] is None or pos < m["posicao"][i]):
+                    m["posicao"][i] = pos
+    for m in marcas.values():
+        for i in range(n):
+            if m["vendas"][i] is not None:
+                serie[m["categoria"]]["marcas"][i] += 1
     for c in cats:
         s = serie[c]
         s["share"] = [s["vendas"][i] / total[i] if total[i] else 0 for i in range(n)]
