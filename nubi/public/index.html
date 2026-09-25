@@ -2689,6 +2689,9 @@ function cardSecoes(desc) {
 }
 const cardFaltando = desc => { const secoes = cardSecoes(desc);
   return CARD_MODELO.map(([nome]) => nome).filter(nome => !secoes[nome] || /^\[.*\]$/.test(secoes[nome])); };
+// Só os títulos que nem aparecem no texto (nunca os que já têm placeholder) — "Inserir modelo" nunca duplica.
+const cardAusentes = desc => { const secoes = cardSecoes(desc);
+  return CARD_MODELO.map(([nome]) => nome).filter(nome => !(nome in secoes)); };
 const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em execução", "warn"], em_teste: ["Em teste", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"]};
 const DEV_COLS = [["proposta", "Propostas", "o Claude aprova as de risco baixo/médio; as de risco alto esperam você"], ["aprovada", "Aprovadas", "na fila para desenvolver"],
   ["em_desenvolvimento", "Em execução", "um agente está trabalhando"], ["em_teste", "Em teste", "outro agente testa; erro volta para execução"],
@@ -2824,9 +2827,9 @@ async function abrirTarefa(id) {
     };
     $("#tf-desc-ta", bg).oninput = atualizarDesc;
     $("#tf-desc-modelo", bg).onclick = () => {
-      const ta = $("#tf-desc-ta", bg), falt = cardFaltando(ta.value);
-      if (!falt.length) return;
-      ta.value = (ta.value.trim() ? ta.value.trim() + "\n\n" : "") + falt.map(n => CARD_MODELO_LINHAS[n]).join("\n");
+      const ta = $("#tf-desc-ta", bg), ausentes = cardAusentes(ta.value);
+      if (!ausentes.length) return;
+      ta.value = (ta.value.trim() ? ta.value.trim() + "\n\n" : "") + ausentes.map(n => CARD_MODELO_LINHAS[n]).join("\n");
       atualizarDesc();
     };
     $("#tf-desc-salvar", bg).onclick = async () => {
