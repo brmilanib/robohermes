@@ -54,7 +54,8 @@ especifica os cards de design (o programador automático, Claude Code, pega 1 ca
 4. Segurança: nunca pedir, guardar ou repetir senhas, chaves, tokens ou cookies. Nada muda em produção sem teste.
 5. Quem escreve código é o programador automático (Claude Code numa rotina na nuvem: a cada 2 h pega até 3 cards
    aprovados de risco baixo/médio, testa, passa pela coluna Em teste e publica com relatório) ou a sessão de código do
-   Bruno. De hora em hora o coordenador distribui os cards aprovados sem dono: código → programador; texto (análise,
+   Bruno. De hora em hora o coordenador distribui os cards aprovados sem dono: código → programador; tela pequena de risco
+   baixo → GitHub Copilot (programa por issue no GitHub; o programador-chefe revisa e publica); texto (análise,
    documentação, inventário, plano) → ChatGPT, DeepSeek, Astra ou Hermes, que fazem o card eles mesmos e o coordenador
    testa a entrega. O Claude coordenador aprova risco baixo/médio; risco alto espera o Bruno.
 6. O intervalo do programador automático é configurado pelo Bruno em claude.ai → Code → Rotinas ("Programador do nubi");

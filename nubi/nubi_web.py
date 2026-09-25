@@ -2642,6 +2642,8 @@ def distribuir_cards(repo, limite=6):
     j, _, _ = ia.perguntar_json(
         "Você é o coordenador do time do nubi. Para cada card, escolha UM responsável:\n"
         "- claude_code: qualquer card que precise escrever, mudar ou publicar código (site, servidor, coletor, banco);\n"
+        "- copilot: SÓ card de código pequeno e bem especificado, de risco baixo, que mexe apenas na tela (public/index.html: "
+        "botão, texto, cor, layout), sem servidor, banco, coletor nem números (programa pelo GitHub; o chefe revisa e publica);\n"
         "- chatgpt: análise, documentação técnica, inventário, revisão de código por texto;\n"
         "- deepseek: contas, números, custos, planos de dados;\n"
         "- astra: design e UX por escrito (sem programar);\n"
@@ -2650,12 +2652,14 @@ def distribuir_cards(repo, limite=6):
         '\n\nResponda SOMENTE JSON: {"cards": [{"id": N, "responsavel": "...", "motivo": "<curto>"}]}',
         web=False, max_tokens=2000, qual="claude", sistema=agentes.SISTEMA)
     feitos = []
-    validos = {"claude_code"} | AGENTES_TEXTO | AGENTES_MAC
-    ids = {c["id"] for c in cards}
+    validos = {"claude_code", "copilot"} | AGENTES_TEXTO | AGENTES_MAC
+    risco = {c["id"]: c.get("risco") or "medio" for c in cards}
     for x in (j.get("cards") or []):
         tid, resp = int(x.get("id") or 0), str(x.get("responsavel") or "")
-        if tid not in ids or resp not in validos:
+        if tid not in risco or resp not in validos:
             continue
+        if resp == "copilot" and risco[tid] != "baixo":   # Copilot só pega risco baixo; o resto fica com o chefe
+            resp = "claude_code"
         repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid), "responsavel": "is.null"},
                   corpo={"responsavel": resp, "atualizado_em": datetime.now(timezone.utc).isoformat()}, prefer="return=minimal")
         _evento(repo, tid, "claude", f"🧭 Coordenador: responsável **{resp}** — {str(x.get('motivo') or '')[:200]}")
