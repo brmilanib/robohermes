@@ -2427,7 +2427,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
             return {"skus": []}
         com = [it for it in _estoque_itens_ordem(repo, ult["id"]) if it.get("custo_medio") and float(it["custo_medio"]) > 0]
         idx = sorted({0, len(com) // 2, len(com) - 1}) if com else []
-        return {"skus": [{"sku": com[i]["sku"], "custo": round(float(com[i]["custo_medio"]), 2)} for i in idx]}
+        return {"skus": [{"sku": com[i]["sku"], "custo": round(float(com[i]["custo_medio"]), 2), "titulo": com[i].get("titulo") or ""}
+                         for i in idx]}
     if rota == "estoque_sku_existe":
         # card #57: diagnóstico do "SKU não encontrado" no Gestor Seller — existe na última foto de estoque_itens?
         norm = _normalizar_sku(q.get("sku") or "")

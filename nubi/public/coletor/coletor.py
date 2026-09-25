@@ -1573,6 +1573,29 @@ def _diagnostico_sku_nao_bate(sku_original, custo, achou, etapa, existe_em_estoq
             f"existe_em_estoque={existe_txt}]")
 
 
+def _linha_do_sku(pg, sku):
+    """Texto da "linha" do produto na lista do Gestor. A lista não é uma tabela (tr): é feita de blocos (div), por isso a
+    conferência nunca achava o SKU (25/09). Acha o elemento com o SKU exato e sobe até o bloco que também tem o preço."""
+    try:
+        return pg.evaluate("""sku => {
+          const alvo = sku.trim().toUpperCase();
+          const preco = /\\d[\\d.]*[.,]\\d{2}\\b/;
+          for (const el of document.querySelectorAll('body *')) {
+            if (el.children.length || (el.textContent || '').trim().toUpperCase() !== alvo) continue;
+            if (!el.getClientRects().length) continue;               // escondido não conta
+            let p = el.parentElement;
+            for (let i = 0; p && i < 8; i++, p = p.parentElement) {
+              const t = p.innerText || '';
+              if (t.length > 800) break;
+              if (preco.test(t.replace(alvo, ''))) return t;
+            }
+          }
+          return '';
+        }""", sku) or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def conferir_gestor(pg, amostra, token=None):
     """Pesquisa alguns SKUs em Produtos internos e confere o Preço de Custo com a planilha. Devolve o resumo."""
     busca = pg.get_by_placeholder(re.compile("Pesquisar")).first
@@ -1585,14 +1608,14 @@ def conferir_gestor(pg, amostra, token=None):
                 busca.fill("")
                 busca.fill(a["sku"])
                 busca.press("Enter")                 # 25/09: só preencher não disparava a busca ("SKU não encontrado")
-            else:                                    # plano B: a busca pela barra de endereço (?search=), como na tela
-                etapa = "busca por link (?search=)"
-                pg.goto(f"{GESTOR}/management/products?search={urllib.parse.quote(a['sku'])}",
+            else:                                    # plano B: busca pelo endereço (?search=); plano C: pelo título
+                termo = a["sku"] if tentativa == 1 or not a.get("titulo") else a["titulo"][:60]
+                etapa = "busca por link (?search=)" if tentativa == 1 or not a.get("titulo") else "busca pelo título"
+                pg.goto(f"{GESTOR}/management/products?search={urllib.parse.quote(termo)}",
                         wait_until="domcontentloaded", timeout=90000)
                 busca = pg.get_by_placeholder(re.compile("Pesquisar")).first
             time.sleep(4)
-            linhas = pg.locator("tr, [role=row]").filter(has_text=re.compile(re.escape(a["sku"]), re.I))
-            txt = linhas.first.inner_text() if linhas.count() else ""
+            txt = _linha_do_sku(pg, a["sku"])
             nums = [float(x.replace(".", "").replace(",", ".")) if "," in x else float(x) for x in re.findall(r"\d[\d.]*[.,]\d{2}\b", txt)]
             if any(abs(n - a["custo"]) < 0.011 for n in nums):
                 achou = True
