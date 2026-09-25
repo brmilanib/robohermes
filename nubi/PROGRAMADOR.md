@@ -29,6 +29,8 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
 2. **Contexto.** Leia `select titulo, texto from conhecimento where fixo or atualizado_em > now() - interval '14 days' order by fixo desc, atualizado_em desc limit 60`
    e as últimas 30 mensagens de `reuniao_mensagens`.
 3. **Escolher o card.** `reuniao_tarefas` com `status='aprovada'`, `aguardando is null`, `coalesce(risco,'medio') <> 'alto'`,
+   `responsavel is null or responsavel = 'claude_code'` (cards de outros agentes — chatgpt, deepseek, astra, gptoss, hermes —
+   eles mesmos fazem; se a entrega deles disser PRECISA_CODIGO, o card volta com `responsavel='claude_code'` para você),
    ordem: prioridade (urgente, alta, media, baixa) e depois `id`. Pule cards que dependem do Bruno no Mac (login, instalar algo) ou
    de dados que você não tem; registre no card por que pulou (evento `tipo='passo'`) e vá para o próximo. Sem card: termine.
    **Cards de design** (layout, tela, navegação, menu, visual, celular): o Astra (designer, gpt-6-astra) escreve de hora em

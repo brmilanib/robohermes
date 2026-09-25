@@ -1689,6 +1689,8 @@ def comando_mac(chave, arg=""):
     }
     if chave == "baixar_modelo":
         return [ol, "pull", arg] if arg in MODELOS_OK else None
+    if chave == "hermes_card":
+        return [c, "hermes-card", arg] if str(arg).isdigit() else None
     return tabela.get(chave)
 
 
@@ -1990,6 +1992,36 @@ def cmd_hermes(args, cfg):
     return 0
 
 
+def cmd_hermes_card(args, cfg):
+    """O Hermes (Ollama no Mac, grátis) faz um card do quadro do qual é responsável e entrega no nubi (o coordenador testa)."""
+    token = token_nubi(cfg)
+    x = api(token, "tarefa_eventos", {"id": args.id})
+    t, evs = x["tarefa"], x.get("eventos") or []
+    sala = api(token, "reuniao", {"sistema": "1"})
+    conversa = "\n".join(f"[{e['autor']}] {e['texto'][:1200]}" for e in evs[-15:])
+    pedido = (PAPEL_HERMES.split(" Responda à última")[0] + "\n\nVocê é o RESPONSÁVEL por este card e vai entregá-lo agora.\n"
+              f"CARD #{t['id']}: {t['titulo']}\n{t.get('descricao') or ''}\n\nHISTÓRICO (corrija o que foi reprovado):\n{conversa}\n\n"
+              "Entregue o RESULTADO COMPLETO em markdown, em português do Brasil. Você não edita código nem roda comandos: se o card "
+              "só puder ser concluído com código, entregue o plano e termine com uma linha exatamente assim: PRECISA_CODIGO. "
+              "Não invente números nem fatos.")
+    corpo = {"model": args.modelo or "hermes3:8b", "stream": False,
+             "messages": [{"role": "system", "content": sala.get("sistema") or ""}, {"role": "user", "content": pedido}]}
+    print(f"Hermes fazendo o card #{t['id']}…", flush=True)
+    req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=900) as r:
+            texto = json.loads(r.read().decode())["choices"][0]["message"]["content"].strip()
+    except urllib.error.URLError as e:
+        print(f"Não consegui falar com o Ollama ({e}).")
+        return 1
+    if not texto:
+        print("O Hermes devolveu resposta vazia.")
+        return 1
+    r = api(token, "tarefa_agente_entregar", corpo={"id": t["id"], "autor": "hermes", "texto": texto}, metodo="POST")
+    print(f"Entregue. Teste do coordenador: {r.get('resultado')}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="Coletor do Nubimetrics para o nubi")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2027,6 +2059,9 @@ def main():
     qw.set_defaults(agente="qwen")
     hm.add_argument("--ultimas", type=int, default=20, help="quantas mensagens da Sala ele lê")
     sub.add_parser("entrar-upseller", help="login no UpSeller (uma vez), para o estoque atualizar sozinho")
+    hc = sub.add_parser("hermes-card", help="o Hermes faz um card do quadro de Desenvolvimento e entrega no nubi")
+    hc.add_argument("id")
+    hc.add_argument("--modelo", default=None)
     sub.add_parser("entrar-gestor", help="login no Gestor Seller (uma vez), para importar a planilha sozinho")
     gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
     gs.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
@@ -2053,6 +2088,8 @@ def main():
         return cmd_status(args, cfg)
     if args.cmd == "entrar-upseller":
         return cmd_entrar_upseller(args, cfg)
+    if args.cmd == "hermes-card":
+        return cmd_hermes_card(args, cfg)
     if args.cmd == "entrar-gestor":
         return cmd_entrar_gestor(args, cfg)
     if args.cmd == "agendar":

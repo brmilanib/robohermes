@@ -828,6 +828,13 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem("Tarefa não encontrada.", 404)
             evs = repo._todos("tarefa_eventos", {"select": "*", "tarefa_id": f"eq.{tid}", "order": "id"})
             return _json({"tarefa": t, "eventos": evs})
+        if rota == "tarefa_agente_entregar" and metodo == "POST":
+            # o Hermes (Mac) entrega o card que fez; o coordenador testa
+            d = json.loads(corpo or b"{}")
+            autor = str(d.get("autor") or "hermes")
+            if autor not in AGENTES_MAC:
+                raise ErroNuvem("Autor não permitido.")
+            return _json({"ok": True, "resultado": entregar_card(repo, int(d.get("id") or 0), autor, str(d.get("texto") or ""))})
         if rota == "tarefa_responder" and metodo == "POST":
             # o dono responde ao agente dentro do card (aprovar, recusar ou escrever)
             d = json.loads(corpo or b"{}")
@@ -2103,7 +2110,15 @@ def rodar_rotinas(repo, so=None):
                 repo._req("POST", "auditorias", corpo=[reg], prefer="resolution=merge-duplicates,return=minimal")
                 res = reg["resumo"]
             elif rid == "design":
-                res = especificar_cards(repo)
+                partes = []
+                for nome_, f_ in (("especialistas", especificar_cards), ("distribuição", distribuir_cards), ("agentes", trabalhar_agentes)):
+                    try:
+                        r_ = f_(repo)
+                    except Exception as e:  # noqa: BLE001
+                        r_ = f"erro em {nome_}: {str(e)[:120]}"
+                    if r_:
+                        partes.append(r_)
+                res = " · ".join(partes) or "nada a fazer"
             elif rid == "categorias_lote":
                 res = categorias_lote(repo)
             elif rid == "produtos_ia":
@@ -2469,7 +2484,7 @@ def responder_card(repo, tid):
     est = (repo._req("GET", "mac_estado", {"select": "visto_em", "id": "eq.1"}) or [None])[0]
     online = bool(est and est.get("visto_em") and (datetime.now(timezone.utc) - datetime.fromisoformat(
         str(est["visto_em"]).replace("Z", "+00:00"))).total_seconds() < 300)
-    lista = "\n".join(f"- {k}: {v}" for k, v in COMANDOS_MAC.items() if k != "baixar_modelo")
+    lista = "\n".join(f"- {k}: {v}" for k, v in COMANDOS_MAC.items() if k not in ("baixar_modelo", "hermes_card"))
     try:
         caixa = "\n\n".join(f"### {c['titulo']}\n{c['texto'][:2500]}" for c in repo._req("GET", "conhecimento", {
             "select": "titulo,texto", "fixo": "eq.true", "order": "atualizado_em.desc", "limit": 6}) or [])
@@ -2501,7 +2516,7 @@ def responder_card(repo, tid):
     agora_ = datetime.now(timezone.utc).isoformat()
     eventos = [{"tarefa_id": int(tid), "autor": autor, "tipo": "passo", "texto": resposta[:4000], "criado_em": agora_}]
     cmd = j.get("comando")
-    if cmd and cmd in COMANDOS_MAC and cmd != "baixar_modelo" and online:
+    if cmd and cmd in COMANDOS_MAC and cmd not in ("baixar_modelo", "hermes_card") and online:
         novo = repo._req("POST", "mac_comandos", corpo=[{"comando": cmd, "arg": None, "pedido_por": f"agente do card #{tid}",
                                                           "status": "pendente", "criado_em": agora_, "tarefa_id": int(tid)}],
                          prefer="return=representation")
@@ -2580,6 +2595,163 @@ def especificar_cards(repo, limite=2):
     return "; ".join(saida) or "nenhum card esperando especificação"
 
 
+
+# ---------------------------------------------------------------------------
+# Time trabalhando sozinho: o coordenador distribui os cards aprovados, cada agente responsável faz a parte dele
+# (texto: análise, documentação, plano, inventário) e o coordenador testa a entrega. Código fica com o programador
+# (claude_code). Risco alto nunca anda sem o Bruno.
+# ---------------------------------------------------------------------------
+AGENTES_TEXTO = {"chatgpt", "deepseek", "astra", "gptoss"}      # trabalham pela API
+AGENTES_MAC = {"hermes", "qwen"}                                 # trabalham no Mac (Ollama, grátis)
+ENTREGA_TENTATIVAS = 3
+
+
+def _conhecimento_fixo(repo, n=6):
+    try:
+        return "\n\n".join(f"### {c['titulo']}\n{c['texto'][:2000]}" for c in repo._req("GET", "conhecimento", {
+            "select": "titulo,texto", "fixo": "eq.true", "order": "atualizado_em.desc", "limit": n}) or [])
+    except ErroNuvem:
+        return ""
+
+
+def _evento(repo, tid, autor, texto, tipo="passo"):
+    agora_ = datetime.now(timezone.utc).isoformat()
+    repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": int(tid), "autor": autor, "tipo": tipo, "texto": texto[:8000],
+                                                "criado_em": agora_}], prefer="return=minimal")
+    return agora_
+
+
+def distribuir_cards(repo, limite=6):
+    """O coordenador escolhe o responsável dos cards aprovados sem dono (código -> programador; texto -> agente)."""
+    cards = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,descricao,area,risco", "status": "eq.aprovada",
+                                                 "responsavel": "is.null", "aguardando": "is.null", "order": "id", "limit": limite}) or []
+    if not cards or not ia.tem("claude"):
+        return ""
+    lista = "\n".join(f"#{c['id']} [{c.get('area') or '-'}] {c['titulo']}: {(c.get('descricao') or '')[:400]}" for c in cards)
+    j, _, _ = ia.perguntar_json(
+        "Você é o coordenador do time do nubi. Para cada card, escolha UM responsável:\n"
+        "- claude_code: qualquer card que precise escrever, mudar ou publicar código (site, servidor, coletor, banco);\n"
+        "- chatgpt: análise, documentação técnica, inventário, revisão de código por texto;\n"
+        "- deepseek: contas, números, custos, planos de dados;\n"
+        "- astra: design e UX por escrito (sem programar);\n"
+        "- hermes: memória, organização da caixa de conhecimento, documentação do histórico (roda de graça no Mac).\n"
+        "Na dúvida se precisa de código, escolha claude_code.\n\nCARDS:\n" + lista +
+        '\n\nResponda SOMENTE JSON: {"cards": [{"id": N, "responsavel": "...", "motivo": "<curto>"}]}',
+        web=False, max_tokens=2000, qual="claude", sistema=agentes.SISTEMA)
+    feitos = []
+    validos = {"claude_code"} | AGENTES_TEXTO | AGENTES_MAC
+    ids = {c["id"] for c in cards}
+    for x in (j.get("cards") or []):
+        tid, resp = int(x.get("id") or 0), str(x.get("responsavel") or "")
+        if tid not in ids or resp not in validos:
+            continue
+        repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid), "responsavel": "is.null"},
+                  corpo={"responsavel": resp, "atualizado_em": datetime.now(timezone.utc).isoformat()}, prefer="return=minimal")
+        _evento(repo, tid, "claude", f"🧭 Coordenador: responsável **{resp}** — {str(x.get('motivo') or '')[:200]}")
+        feitos.append(f"#{tid}→{resp}")
+    return "distribuídos: " + ", ".join(feitos) if feitos else ""
+
+
+def _tentativas(repo, tid):
+    return len(repo._req("GET", "tarefa_eventos", {"select": "id", "tarefa_id": repo._eq(int(tid)), "tipo": "eq.erro_teste"}) or [])
+
+
+def _pedido_card(t, evs, caixa):
+    conversa = "\n".join(f"[{e['autor']}] {e['texto'][:1200]}" for e in evs[-15:])
+    return (f"Você é o RESPONSÁVEL por este card do quadro de Desenvolvimento do nubi e vai entregá-lo agora.\n"
+            f"CARD #{t['id']}: {t['titulo']}\n{t.get('descricao') or ''}\nNota: {t.get('notas') or '-'}\n\n"
+            + (f"CAIXA DE CONHECIMENTO (fixos):\n{caixa}\n\n" if caixa else "")
+            + (f"HISTÓRICO DO CARD (inclui reprovações anteriores; corrija o que foi apontado):\n{conversa}\n\n" if conversa else "")
+            + "Entregue o RESULTADO COMPLETO em markdown, pronto para uso (não um plano de como faria). Você não edita código, "
+              "não acessa o banco e não roda comandos: se o card só puder ser concluído com código, entregue o plano técnico "
+              "detalhado e termine com uma linha exatamente assim: PRECISA_CODIGO. Não invente números nem fatos.")
+
+
+def entregar_card(repo, tid, autor, texto):
+    """Recebe a entrega de um agente, passa para Em teste e o coordenador confere (aprova -> feita com relatório)."""
+    t = (repo._req("GET", "reuniao_tarefas", {"select": "*", "id": repo._eq(int(tid))}) or [None])[0]
+    if not t or not (texto or "").strip():
+        return "entrega vazia"
+    texto = texto.strip()
+    _evento(repo, tid, autor, "📦 **Entrega**\n\n" + texto[:7500])
+    if "PRECISA_CODIGO" in texto:
+        repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(int(tid))}, corpo={
+            "status": "aprovada", "responsavel": "claude_code", "atualizado_em": datetime.now(timezone.utc).isoformat()}, prefer="return=minimal")
+        _evento(repo, tid, "claude", "🔀 Precisa de código: o plano acima fica para o programador automático, que assume o card.")
+        return f"#{tid}: passou para o programador"
+    repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(int(tid))}, corpo={
+        "status": "em_teste", "testador": "claude", "atualizado_em": datetime.now(timezone.utc).isoformat()}, prefer="return=minimal")
+    j, _, _ = ia.perguntar_json(
+        f"Você é o coordenador do nubi e TESTA a entrega de um agente. CARD #{t['id']}: {t['titulo']}\n{t.get('descricao') or ''}"
+        f"\n\nENTREGA de {autor}:\n{texto[:9000]}\n\nConfira: cumpre o que o card pede? Está correta, sem números "
+        "inventados, útil para o Bruno? Responda SOMENTE JSON: {\"aprovado\": true|false, \"motivo\": \"<o que está errado ou "
+        "faltando, se reprovado>\", \"relatorio\": \"<markdown: ## O que foi feito · ## Entrega (resumo) · ## Teste do "
+        "coordenador · ## Como usar>\", \"conhecimento\": {\"titulo\": \"...\", \"texto\": \"...\"} ou null}",
+        web=False, max_tokens=3000, qual="claude", sistema=agentes.SISTEMA)
+    agora_ = datetime.now(timezone.utc).isoformat()
+    if j.get("aprovado"):
+        rel = str(j.get("relatorio") or "").strip() or f"Entrega de {autor} aprovada pelo coordenador."
+        _evento(repo, tid, "claude", "✅ Teste do coordenador: aprovado.", tipo="teste_ok")
+        _evento(repo, tid, "claude", rel, tipo="relatorio")
+        repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(int(tid))}, corpo={
+            "status": "feita", "relatorio": rel[:20000], "notas": f"Entregue por {autor} e testado pelo coordenador.",
+            "atualizado_em": agora_}, prefer="return=minimal")
+        c = j.get("conhecimento")
+        if isinstance(c, dict) and c.get("titulo") and c.get("texto"):
+            repo._req("POST", "conhecimento", corpo=[{"tipo": "aprendizado", "titulo": str(c["titulo"])[:200], "texto": str(c["texto"])[:8000],
+                                                      "autor": autor, "fonte": f"card #{tid}"}], prefer="return=minimal")
+        return f"#{tid}: aprovado"
+    _evento(repo, tid, "claude", "❌ " + str(j.get("motivo") or "entrega não atende ao card")[:2000], tipo="erro_teste")
+    volta = {"status": "aprovada", "atualizado_em": agora_}
+    if _tentativas(repo, tid) >= ENTREGA_TENTATIVAS:
+        volta["aguardando"] = f"O agente {autor} não conseguiu entregar em {ENTREGA_TENTATIVAS} tentativas. Reescrevo o card, troco o responsável ou você decide?"
+    repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(int(tid))}, corpo=volta, prefer="return=minimal")
+    return f"#{tid}: reprovado"
+
+
+def trabalhar_agentes(repo, limite=2):
+    """Os agentes responsáveis (não o programador) fazem os cards aprovados deles. Risco alto e cards esperando o Bruno ficam."""
+    cards = [t for t in (repo._req("GET", "reuniao_tarefas", {"select": "*", "status": "eq.aprovada", "aguardando": "is.null",
+                                                              "order": "id"}) or [])
+             if t.get("responsavel") in AGENTES_TEXTO | AGENTES_MAC and (t.get("risco") or "medio") != "alto"]
+    saida, caixa = [], None
+    for t in cards:
+        if len([x for x in saida if not x.startswith("Mac")]) >= limite:
+            break
+        tid, resp = t["id"], t["responsavel"]
+        if resp in AGENTES_MAC:
+            est = (repo._req("GET", "mac_estado", {"select": "visto_em", "id": "eq.1"}) or [None])[0]
+            online = bool(est and (datetime.now(timezone.utc) - datetime.fromisoformat(str(est["visto_em"]).replace("Z", "+00:00"))).total_seconds() < 300)
+            ja = repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.hermes_card", "arg": repo._eq(str(tid)),
+                                                    "status": "in.(pendente,rodando)", "limit": 1})
+            if not online or ja:
+                continue
+            agora_ = datetime.now(timezone.utc).isoformat()
+            repo._req("POST", "mac_comandos", corpo=[{"comando": "hermes_card", "arg": str(tid), "pedido_por": "coordenador",
+                                                      "status": "pendente", "criado_em": agora_, "tarefa_id": tid}], prefer="return=minimal")
+            repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo={"status": "em_desenvolvimento", "iniciado_em": agora_,
+                                                                                 "atualizado_em": agora_}, prefer="return=minimal")
+            _evento(repo, tid, "hermes", "🪽 Peguei o card: vou fazer no Mac mini (grátis) e entrego aqui.")
+            saida.append(f"Mac #{tid}")
+            continue
+        agora_ = datetime.now(timezone.utc).isoformat()
+        repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo={"status": "em_desenvolvimento", "iniciado_em": agora_,
+                                                                             "atualizado_em": agora_}, prefer="return=minimal")
+        _evento(repo, tid, resp, "Peguei o card e estou trabalhando nele.")
+        if caixa is None:
+            caixa = _conhecimento_fixo(repo)
+        evs = repo._req("GET", "tarefa_eventos", {"select": "autor,texto", "tarefa_id": repo._eq(tid), "order": "id"}) or []
+        ia.USO["origem"] = f"card #{tid} ({resp})"
+        try:
+            chave = resp if resp in agentes.AGENTES else "chatgpt"
+            txt = agentes.perguntar(chave, _pedido_card(t, evs, caixa), max_tokens=6000)
+        except Exception as e:  # noqa: BLE001
+            _evento(repo, tid, "sistema", f"{resp} não respondeu ({str(e)[:150]}); tenta na próxima hora.", tipo="status")
+            repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo={"status": "aprovada"}, prefer="return=minimal")
+            continue
+        saida.append(entregar_card(repo, tid, resp, txt))
+    return "; ".join(saida)
+
 # Terminal do Mac: lista FECHADA (o Mac confere de novo do lado dele); nada vira comando livre
 COMANDOS_MAC = {
     "status": "Status das coletas", "diario": "Rodar a coleta agora", "parar_coleta": "Parar a coleta em andamento",
@@ -2588,7 +2760,7 @@ COMANDOS_MAC = {
     "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco",
     "baixar_modelo": "Baixar modelo do Ollama", "estoque": "Atualizar o estoque do UpSeller agora",
-    "gestor": "Importar a planilha no Gestor Seller",
+    "gestor": "Importar a planilha no Gestor Seller", "hermes_card": "Hermes fazer um card (no Mac)",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 
@@ -2609,6 +2781,8 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             msg = "Comando fora da lista permitida."
         elif k == "baixar_modelo" and arg not in MODELOS_MAC:
             msg = "Modelo fora da lista permitida."
+        elif k == "hermes_card" and not arg.isdigit():
+            msg = "Informe o número do card."
         if msg:
             repo._req("POST", "mac_comandos", corpo=[{"comando": k[:60] or "?", "arg": arg[:60] or None,
                                                        "pedido_por": "Bruno", "status": "recusado", "criado_em": agora_,
