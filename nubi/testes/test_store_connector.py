@@ -134,6 +134,22 @@ def test_2_dry_run_true_com_checklist_aprovado_continua_dry_run():
     assert avisos and "dry-run" in avisos[0], avisos
 
 
+def test_2_valor_vazio_nao_string_tambem_cai_no_default_nunca_grava():
+    # Achado da revisão: dry_run=[] / {} / 0 não pode "destravar" a escrita — são vazios,
+    # têm que cair no default (dry-run), não em bool(valor) (que trataria como desligado).
+    for vazio in ([], {}, 0, 0.0):
+        assert sc.normalizar_flag(vazio, True) is True, vazio
+        assert sc.normalizar_flag(vazio, False) is False, vazio
+        r = RepoStore()
+        n, avisos = sc.persistir_pedidos(r, "mercado_livre", [{"id_externo": "999"}], dry_run=vazio,
+                                          checklist_aprovado_por_bruno=True)
+        assert n == 0 and not r.linhas, (vazio, n, r.linhas)
+
+    # Valor truthy explícito (não vazio) continua virando True normalmente.
+    assert sc.normalizar_flag([1], False) is True
+    assert sc.normalizar_flag(1, False) is True
+
+
 if __name__ == "__main__":
     falhou = 0
     for nome, f in list(globals().items()):

@@ -36,16 +36,22 @@ class StoreConnector:
 
 
 def normalizar_flag(valor, default):
-    """Converte valor (bool, str vinda de config/env, ou None) num bool, sem o bug de
-    bool("false") == True: string vazia/None usa default; "false"/"0"/"nao"/"não" é False;
-    qualquer outro texto não vazio é True."""
-    if valor is None or valor == "":
+    """Converte valor (bool, str vinda de config/env, número, ou None) num bool, tratando
+    qualquer valor vazio como "ainda não decidido" (usa default), nunca como desligado:
+    sem o bug de bool("false") == True; string vazia, None, 0 e contêiner vazio ([]/{}) usam
+    o default; "false"/"0"/"nao"/"não" (string) é False; qualquer outro valor truthy é True."""
+    if valor is None:
         return default
     if isinstance(valor, bool):
         return valor
     if isinstance(valor, str):
-        return valor.strip().lower() not in ("false", "0", "nao", "não")
-    return bool(valor)
+        texto = valor.strip().lower()
+        if texto == "":
+            return default
+        return texto not in ("false", "0", "nao", "não")
+    if not valor:
+        return default
+    return True
 
 
 def _logar_dry_run(source, pedidos, motivo):
