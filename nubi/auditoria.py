@@ -183,7 +183,7 @@ def conferencias(repo, hoje=None):
     achado_ontem = next((a for a in conf_ontem
                          if a.get("area") == "categoria" and a.get("titulo") == "Instantâneo de categorias em conflito"), None)
     try:
-        snap_ontem = json.loads(achado_ontem["detalhe"]) if achado_ontem else {}
+        snap_ontem = json.loads(achado_ontem.get("detalhe") or "{}") if achado_ontem else {}
     except (TypeError, ValueError):
         snap_ontem = {}
     for chave, cat_hoje in sorted(snap_hoje.items()):
