@@ -15,6 +15,7 @@ import os
 import re
 import time
 import traceback
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -2318,6 +2319,14 @@ CAMPOS_ESTOQUE = ("sku", "titulo", "armazem", "estante", "estoque_min", "transit
                   "disponivel", "atual", "custo_medio", "subtotal", "criado", "ordem")
 
 
+def _normalizar_sku(sku):
+    """trim + upper + sem caracteres invisíveis (categoria Unicode "Cf"); mesma regra do coletor (card #57)."""
+    if not sku:
+        return ""
+    limpo = "".join(ch for ch in str(sku) if unicodedata.category(ch) != "Cf").replace("\xa0", " ")
+    return limpo.strip().upper()
+
+
 def _estoque_itens(repo, aid):
     return repo._todos("estoque_itens", {"select": ",".join(CAMPOS_ESTOQUE), "atualizacao_id": repo._eq(int(aid)), "order": "sku"})
 
@@ -2419,6 +2428,14 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         com = [it for it in _estoque_itens_ordem(repo, ult["id"]) if it.get("custo_medio") and float(it["custo_medio"]) > 0]
         idx = sorted({0, len(com) // 2, len(com) - 1}) if com else []
         return {"skus": [{"sku": com[i]["sku"], "custo": round(float(com[i]["custo_medio"]), 2)} for i in idx]}
+    if rota == "estoque_sku_existe":
+        # card #57: diagnóstico do "SKU não encontrado" no Gestor Seller — existe na última foto de estoque_itens?
+        norm = _normalizar_sku(q.get("sku") or "")
+        ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id", "order": "id.desc", "limit": 1}) or [None])[0]
+        if not ult or not norm:
+            return {"existe": False}
+        existe = any(_normalizar_sku(it["sku"]) == norm for it in _estoque_itens(repo, ult["id"]))
+        return {"existe": existe}
     if rota == "gestor_pendente":
         # rotina 'gestor' (ex.: 00:40, 10 min depois do estoque): importa 1 vez por dia, só se o estoque de hoje já entrou
         rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.gestor"}) or [None])[0]

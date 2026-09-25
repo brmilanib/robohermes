@@ -44,6 +44,7 @@ import subprocess
 import sys
 import time
 import traceback
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1553,18 +1554,39 @@ def importar_gestor(pg, arq):
     return avisos or "janela fechou sem mensagem de erro"
 
 
-def conferir_gestor(pg, amostra):
+def _normalizar_sku(sku):
+    """trim + upper + sem caracteres invisíveis (categoria Unicode "Cf", ex.: espaço de largura zero)."""
+    if not sku:
+        return ""
+    limpo = "".join(ch for ch in str(sku) if unicodedata.category(ch) != "Cf").replace("\xa0", " ")
+    return limpo.strip().upper()
+
+
+def _diagnostico_sku_nao_bate(sku_original, custo, achou, etapa, existe_em_estoque):
+    """Card #57: o texto do erro traz os 4 campos (sku_original, sku_normalizado, etapa da busca, se existe
+    na última foto de estoque_itens) para diagnosticar sem adivinhar — sem bloquear nem mudar custo."""
+    existe_txt = {True: "sim", False: "não"}.get(existe_em_estoque, "sem_dados")
+    tela = str(achou or "SKU não encontrado")[:160]
+    return (f"conferência: no Gestor Seller o custo de {sku_original} não bateu com a planilha ({custo:.2f}); "
+            f"a tela mostra: {tela}. "
+            f"[sku_original={sku_original} sku_normalizado={_normalizar_sku(sku_original)} etapa={etapa} "
+            f"existe_em_estoque={existe_txt}]")
+
+
+def conferir_gestor(pg, amostra, token=None):
     """Pesquisa alguns SKUs em Produtos internos e confere o Preço de Custo com a planilha. Devolve o resumo."""
     busca = pg.get_by_placeholder(re.compile("Pesquisar")).first
     ok = []
     for a in amostra:
-        achou = None
+        achou, etapa = None, "campo de busca (Enter)"
         for tentativa in range(3):                   # o Gestor pode levar alguns segundos para gravar
             if tentativa == 0:
+                etapa = "campo de busca (Enter)"
                 busca.fill("")
                 busca.fill(a["sku"])
                 busca.press("Enter")                 # 25/09: só preencher não disparava a busca ("SKU não encontrado")
             else:                                    # plano B: a busca pela barra de endereço (?search=), como na tela
+                etapa = "busca por link (?search=)"
                 pg.goto(f"{GESTOR}/management/products?search={urllib.parse.quote(a['sku'])}",
                         wait_until="domcontentloaded", timeout=90000)
                 busca = pg.get_by_placeholder(re.compile("Pesquisar")).first
@@ -1578,8 +1600,12 @@ def conferir_gestor(pg, amostra):
             achou = txt or None
             time.sleep(6)
         if achou is not True:
-            raise Falha(f"conferência: no Gestor Seller o custo de {a['sku']} não bateu com a planilha ({a['custo']:.2f}); "
-                        f"a tela mostra: {str(achou or 'SKU não encontrado')[:160]}")
+            existe = None
+            try:
+                existe = api(token, "estoque_sku_existe", {"sku": _normalizar_sku(a["sku"])}, timeout=20).get("existe")
+            except Exception:  # noqa: BLE001
+                pass                                  # sem token/nubi fora do ar: fica "sem_dados", não bloqueia o erro original
+            raise Falha(_diagnostico_sku_nao_bate(a["sku"], a["custo"], achou, etapa, existe))
         ok.append(f"{a['sku']} {a['custo']:.2f}")
     busca.fill("")
     return "custo conferido no Gestor: " + ", ".join(ok) if ok else ""
@@ -1601,7 +1627,7 @@ def coletar_gestor(p, cfg, token):
         except Exception:  # noqa: BLE001
             amostra = []
         if amostra:
-            conf = conferir_gestor(pg, amostra)
+            conf = conferir_gestor(pg, amostra, token)
             log(f"  {conf}")
             msg = conf
         guardar_sessao(ctx)
@@ -2497,6 +2523,35 @@ ACOES_MEDICO = {"repetir": "rodei de novo", "visivel": "rodei de novo com o nave
                 "limpar": "limpei arquivos velhos da pasta de downloads e rodei de novo",
                 "janela_login": "abri a janela de login no Mac mini", "avisar": "avisei o Bruno"}
 JANELA_LOGIN = {"nubimetrics": "entrar", "upseller": "entrar-upseller", "gestor seller": "entrar-gestor"}
+ALERTAS_DEDUP = PASTA / "alertas_dedup.json"
+
+
+def _chave_dedup_gestor(tarefa, erro):
+    """Card #57: mesmo SKU e mesmo erro na conferência do gestor no mesmo dia -> uma só mensagem na Sala."""
+    if tarefa != "gestor":
+        return None
+    m_sku = re.search(r"sku_normalizado=(\S+)", erro)
+    if not m_sku:
+        return None
+    m_tela = re.search(r"a tela mostra: (.+?)\.\s*\[", erro)
+    return f"gestor_sku|{m_sku.group(1)}|{(m_tela.group(1) if m_tela else '')[:60]}"
+
+
+def _alerta_repetido_hoje(chave):
+    """Verdadeiro só da 2ª vez em diante que essa chave aparece no mesmo dia; guarda só o dia de hoje (não cresce à toa)."""
+    hoje = date.today().isoformat()
+    try:
+        estado = json.loads(ALERTAS_DEDUP.read_text()) if ALERTAS_DEDUP.exists() else {}
+    except (OSError, ValueError):
+        estado = {}
+    vistas = estado.get(hoje, [])
+    repetido = chave in vistas
+    if not repetido:
+        try:
+            ALERTAS_DEDUP.write_text(json.dumps({hoje: vistas + [chave]}, ensure_ascii=False))
+        except OSError:
+            pass
+    return repetido
 
 
 def anotar_falha(tarefa, msg):
@@ -2694,7 +2749,11 @@ def _hermes_vigia(cfg):
             texto += f"Ação: {ACOES_MEDICO[acao]} (conserto {n + 1} de {MEDICO_MAX} hoje)."
         print(f"{datetime.now():%d/%m %H:%M} hermes-vigia: {tarefa} -> {acao}", flush=True)
         if texto:
-            _postar_hermes(token, texto)
+            chave = _chave_dedup_gestor(tarefa, f["erro"])
+            if chave and _alerta_repetido_hoje(chave):
+                print(f"{datetime.now():%d/%m %H:%M} hermes-vigia: {tarefa} -> mesmo SKU/erro já alertado hoje, não repito na Sala", flush=True)
+            else:
+                _postar_hermes(token, texto)
     cfg = ler_config()
     cfg["hermes_consertos"] = {hoje: conta}
     salvar_config(cfg)
