@@ -3315,6 +3315,50 @@ def _ranking_do_mes(repo, mes, chaves):
     return cat, {l["marca_chave"]: l for l in ls}, bi
 
 
+def _registrar_achado_auditoria(repo, achado):
+    """Acrescenta 1 achado {nivel, area, titulo, detalhe} na auditoria do dia (Brasília), sem apagar o que já tinha
+    (card #9): junta com o que existir hoje e regrava o resumo. nivel='erro' já aparece na hora em Central > Erros
+    (_ops_erros lê a auditoria mais recente)."""
+    hoje = _agora_br().date().isoformat()
+    atual = repo._req("GET", "auditorias", {"select": "*", "data": f"eq.{hoje}", "limit": 1}) or []
+    reg = atual[0] if atual else {"data": hoje, "resumo": "", "modulo": None, "conversa": []}
+    conf = list(reg.get("conferencias") or []) + [achado]
+    n = {k: sum(1 for a in conf if a.get("nivel") == k) for k in ("erro", "alerta", "info")}
+    reg["conferencias"] = conf
+    reg["resumo"] = f"{n['erro']} erro(s), {n['alerta']} alerta(s), {n['info']} informação(ões)" + (
+        f"; {reg['resumo'].split(';', 1)[1].strip()}" if "; " in (reg.get("resumo") or "") else "")
+    repo._req("POST", "auditorias", corpo=[reg], prefer="resolution=merge-duplicates,return=minimal")
+
+
+def validar_reconciliacao_publicacao(repo, vendedor, dia, v, u, itens):
+    """Gate de publicação do card #9: confere o lote de UM dia de UM vendedor antes de gravar em vend_vendas_dia.
+    Devolve (True, None) se pode publicar, ou (False, motivo) se deve ficar pendente (não escreve; o coletor detecta
+    o erro e tenta de novo no próximo ciclo, do mesmo jeito que já trata qualquer outra falha de envio).
+    Regras duras (sem tolerância, sempre bloqueiam): valor negativo, e item com unidades vendidas mas preço zerado
+    (ou preço sem nenhuma unidade) — sinal de coluna trocada/preço não veio no export, não variação normal de preço.
+    Regra com tolerância (só quando já existe referência): soma de R$ do dia x a tabela do grupo do Nubimetrics
+    (vend_grupo_dia), com a mesma tolerância de arredondamento usada na auditoria (3%, mínimo R$ 500). Se a tabela
+    do grupo ainda não chegou para esse vendedor/dia, não bloqueia (não é erro, é coleta ainda incompleta)."""
+    if v is None or u is None or v < 0 or u < 0:
+        return False, f"total do dia negativo ou ausente (v={v}, u={u})"
+    for it in itens or []:
+        iu, iv, ip = it.get("u") or 0, it.get("v") or 0, it.get("p") or 0
+        if iu < 0 or iv < 0 or ip < 0:
+            return False, f"item {it.get('t') or it.get('k')}: valor negativo (u={iu}, v={iv}, p={ip})"
+        if iu > 0 and ip <= 0:
+            return False, f"item {it.get('t') or it.get('k')}: vendeu {iu} unidade(s) sem preço médio (conferir export)"
+        if iu == 0 and iv > 0:
+            return False, f"item {it.get('t') or it.get('k')}: R$ {iv:.2f} em vendas sem nenhuma unidade"
+    grupo = repo._req("GET", "vend_grupo_dia", {"select": "v,u", "data": f"eq.{dia}",
+                                                "vendedor": f"eq.{vendedor}", "limit": 1}) or []
+    if grupo:
+        gv = float(grupo[0].get("v") or 0)
+        if abs(gv - v) > max(500, 0.03 * max(gv, v)):
+            return False, (f"tabela do grupo (Nubimetrics) R$ {gv:,.0f} x soma do export do dia R$ {v:,.0f}"
+                           .replace(",", ".") + (f" ({(v / gv - 1) * 100:+.1f}%)".replace(".", ",") if gv else ""))
+    return True, None
+
+
 def _explorador_cruzado(repo, vendedor):
     snaps = repo.snapshots()
     if snaps.empty:
@@ -3442,8 +3486,14 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
             if r:
                 vend = r[0]["vendedor"]
         itens = vend_bi.itens_dia(linhas)
+        v_dia, u_dia = round(sum(i["v"] for i in itens), 2), sum(i["u"] for i in itens)
+        ok, motivo = validar_reconciliacao_publicacao(repo, vend, dia, v_dia, u_dia, itens)
+        if not ok:
+            _registrar_achado_auditoria(repo, {"nivel": "erro", "area": "dados",
+                "titulo": f"{vend} em {dia[8:10]}/{dia[5:7]}: gate de publicação reprovou (card #9)", "detalhe": motivo})
+            raise ErroNuvem(f"Dado ficou pendente (não publicado): {motivo}")
         repo._req("POST", "vend_vendas_dia", corpo=[{
-            "vendedor": vend, "data": dia, "v": round(sum(i["v"] for i in itens), 2), "u": sum(i["u"] for i in itens),
+            "vendedor": vend, "data": dia, "v": v_dia, "u": u_dia,
             "anuncios": len(linhas), "itens": itens, "atualizado_em": datetime.now(timezone.utc).isoformat()}],
             prefer="resolution=merge-duplicates,return=minimal")
         return {"ok": True, "vendedor": vend, "log": [

@@ -496,6 +496,106 @@ def test_44_trabalhar_agentes_pula_card_incompleto():
     assert textos60_de_novo == textos60, textos60_de_novo
 
 
+def linha_vend(titulo, unidades, vendas, preco, marca="M"):
+    return {"titulo": titulo, "marca": marca, "unidades": unidades, "vendas": vendas, "preco": preco,
+            "estado": "active", "tipo_pub": "classico", "full": False}
+
+
+class RepoGate:
+    def __init__(s, grupo=None, auditoria_hoje=None):
+        s.grupo = grupo or []
+        s.auditorias = [dict(auditoria_hoje)] if auditoria_hoje else []
+        s.vendas = []
+
+    def _req(s, m, tab, params=None, corpo=None, prefer=None):
+        if tab == "vend_grupo_dia" and m == "GET":
+            return s.grupo
+        if tab == "auditorias":
+            if m == "GET":
+                return s.auditorias
+            s.auditorias = [dict(corpo[0])]
+            return corpo
+        if tab == "vend_vendas_dia" and m == "POST":
+            s.vendas.extend(corpo)
+            return corpo
+        return []
+
+    def _eq(s, v):
+        return f"eq.{v}"
+
+
+def test_9_gate_bloqueia_valor_negativo():
+    ok, motivo = nubi_web.validar_reconciliacao_publicacao(RepoGate(), "AUMA", "2026-09-20", -10, 5, [])
+    assert not ok and "negativo" in motivo, motivo
+
+
+def test_9_gate_bloqueia_item_sem_preco():
+    itens = [{"k": "T:x", "t": "x", "u": 3, "v": 90, "p": 0}]
+    ok, motivo = nubi_web.validar_reconciliacao_publicacao(RepoGate(), "AUMA", "2026-09-20", 90, 3, itens)
+    assert not ok and "sem preço médio" in motivo, motivo
+
+
+def test_9_gate_bloqueia_venda_sem_unidade():
+    itens = [{"k": "T:x", "t": "x", "u": 0, "v": 90, "p": 0}]
+    ok, motivo = nubi_web.validar_reconciliacao_publicacao(RepoGate(), "AUMA", "2026-09-20", 90, 0, itens)
+    assert not ok and "sem nenhuma unidade" in motivo, motivo
+
+
+def test_9_gate_bloqueia_grupo_fora_da_tolerancia():
+    itens = [{"k": "T:x", "t": "x", "u": 10, "v": 1000, "p": 100}]
+    grupo = [{"v": 2000, "u": 10}]
+    ok, motivo = nubi_web.validar_reconciliacao_publicacao(RepoGate(grupo=grupo), "AUMA", "2026-09-20", 1000, 10, itens)
+    assert not ok and "tabela do grupo" in motivo, motivo
+
+
+def test_9_gate_publica_dentro_da_tolerancia():
+    itens = [{"k": "T:x", "t": "x", "u": 10, "v": 1000, "p": 100}]
+    grupo = [{"v": 1020, "u": 10}]   # 2% de diferença: dentro da tolerância de 3%
+    ok, motivo = nubi_web.validar_reconciliacao_publicacao(RepoGate(grupo=grupo), "AUMA", "2026-09-20", 1000, 10, itens)
+    assert ok and motivo is None, motivo
+
+
+def test_9_gate_nao_bloqueia_quando_grupo_ainda_nao_chegou():
+    itens = [{"k": "T:x", "t": "x", "u": 10, "v": 1000, "p": 100}]
+    ok, motivo = nubi_web.validar_reconciliacao_publicacao(RepoGate(grupo=[]), "AUMA", "2026-09-20", 1000, 10, itens)
+    assert ok and motivo is None, motivo
+
+
+def test_9_achado_junta_com_auditoria_do_dia_sem_apagar():
+    hoje = nubi_web._agora_br().date().isoformat()
+    r = RepoGate(auditoria_hoje={"data": hoje, "resumo": "1 erro(s), 0 alerta(s), 2 informação(ões)",
+                                  "conferencias": [{"nivel": "erro", "area": "coleta", "titulo": "já tinha", "detalhe": ""}],
+                                  "modulo": "x.py (1/2)", "conversa": []})
+    nubi_web._registrar_achado_auditoria(r, {"nivel": "erro", "area": "dados", "titulo": "novo achado", "detalhe": "d"})
+    reg = r.auditorias[0]
+    titulos = [a["titulo"] for a in reg["conferencias"]]
+    assert titulos == ["já tinha", "novo achado"], titulos
+    assert reg["resumo"].startswith("2 erro(s)"), reg["resumo"]
+    assert reg["modulo"] == "x.py (1/2)", reg          # não mexe no que já tinha
+
+
+def test_9_rota_vend_dia_nao_publica_lote_reprovado_e_registra_auditoria():
+    linhas = [linha_vend("Perfume A", 10, 1000, 100)]
+    nubi_web.vendedores.ler_vendedor = lambda corpo, nome: (linhas, "AUMA", "2026-09")
+    r = RepoGate(grupo=[{"v": 3000, "u": 10}])         # grupo bem diferente do export: reprova
+    try:
+        nubi_web.rota_vendedores(r, "POST", "vend_dia", {"arquivo": "a.xlsx", "ate": "2026-09-20"}, b"x")
+        assert False, "devia recusar (gate reprovou)"
+    except nubi_web.ErroNuvem as e:
+        assert "pendente" in str(e), e
+    assert r.vendas == [], "não pode publicar o lote reprovado"
+    assert r.auditorias and r.auditorias[0]["conferencias"][0]["nivel"] == "erro", r.auditorias
+
+
+def test_9_rota_vend_dia_publica_lote_aprovado():
+    linhas = [linha_vend("Perfume A", 10, 1000, 100)]
+    nubi_web.vendedores.ler_vendedor = lambda corpo, nome: (linhas, "AUMA", "2026-09")
+    r = RepoGate(grupo=[{"v": 1010, "u": 10}])         # dentro da tolerância
+    resp = nubi_web.rota_vendedores(r, "POST", "vend_dia", {"arquivo": "a.xlsx", "ate": "2026-09-20"}, b"x")
+    assert resp["ok"] and r.vendas and r.vendas[0]["vendedor"] == "AUMA", (resp, r.vendas)
+    assert not r.auditorias, "lote bom não deve gerar achado"
+
+
 if __name__ == "__main__":
     falhou = 0
     for nome, f in list(globals().items()):
