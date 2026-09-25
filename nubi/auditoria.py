@@ -18,12 +18,18 @@ Nada é mudado sozinho: o relatório fica na aba Auditoria para o Claude (sessã
 
 import os
 import statistics
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import agentes
 import ia
 
 MODULOS = ["nubi_web.py", "vend_bi.py", "vendedores.py", "produtos_iguais.py", "ia.py", "categorias.py", "ranking.py"]
+
+
+def _hoje_br():
+    """Data de hoje no horário de Brasília (regra do CLAUDE.md): o banco guarda em UTC, então perto da virada do
+    dia (21h-24h de Brasília) date.today() "cru" já seria o dia seguinte."""
+    return (datetime.now(timezone.utc) - timedelta(hours=3)).date()
 
 
 def _f(v):
@@ -33,7 +39,7 @@ def _f(v):
 
 def conferencias(repo, hoje=None):
     """Lista de achados: {nivel: erro|alerta|info, area, titulo, detalhe}."""
-    hoje = hoje or date.today()
+    hoje = hoje or _hoje_br()
     ach = []
     ult = repo._req("GET", "vend_vendas_dia", {"select": "data", "order": "data.desc", "limit": 1}) or []
     if not ult:
@@ -217,8 +223,19 @@ def trecho_codigo(noite, limite=45000):
 
 def rodar(repo, obs=""):
     """Faz a auditoria completa e devolve o registro para gravar em 'auditorias'."""
-    hoje = date.today()
+    hoje = _hoje_br()
     ach = conferencias(repo, hoje)
+    ja = {(a.get("area"), a.get("titulo")) for a in ach}
+    try:
+        existente = repo._req("GET", "auditorias", {"select": "conferencias", "data": f"eq.{hoje.isoformat()}", "limit": 1}) or []
+    except Exception:  # noqa: BLE001
+        existente = []
+    if existente:
+        # o gate de publicação (card #9, nubi_web.py) já pode ter gravado achados hoje: preserva (não sobrescreve
+        # a auditoria inteira do zero, senão a notificação da Central desaparecia sozinha nesta rotina)
+        for a in existente[0].get("conferencias") or []:
+            if a.get("origem") == "gate_publicacao" and (a.get("area"), a.get("titulo")) not in ja:
+                ach.append(a)
     noite = hoje.toordinal()
     modulo, codigo, parte, partes = trecho_codigo(noite)
     lista = "\n".join(f"[{a['nivel'].upper()}] ({a['area']}) {a['titulo']} — {a['detalhe']}" for a in ach) or "nenhum achado"

@@ -535,6 +535,14 @@ def test_9_gate_bloqueia_item_sem_preco():
     assert not ok and "sem preço médio" in motivo, motivo
 
 
+def test_9_gate_permite_brinde_unidade_com_preco_zero():
+    # unidade vendida por R$ 0 (brinde/amostra grátis do Nubimetrics): preço médio 0 é esperado, não é erro
+    # (achado real da revisão: bloquear isso escondia o dia inteiro do vendedor pra sempre, o Nubimetrics reexporta igual)
+    itens = [{"k": "T:x", "t": "x", "u": 5, "v": 0, "p": 0}]
+    ok, motivo = nubi_web.validar_reconciliacao_publicacao(RepoGate(), "AUMA", "2026-09-20", 0, 5, itens)
+    assert ok and motivo is None, motivo
+
+
 def test_9_gate_bloqueia_venda_sem_unidade():
     itens = [{"k": "T:x", "t": "x", "u": 0, "v": 90, "p": 0}]
     ok, motivo = nubi_web.validar_reconciliacao_publicacao(RepoGate(), "AUMA", "2026-09-20", 90, 0, itens)
@@ -561,6 +569,14 @@ def test_9_gate_nao_bloqueia_quando_grupo_ainda_nao_chegou():
     assert ok and motivo is None, motivo
 
 
+def test_9_gate_bloqueia_contagem_de_unidades_fora_da_tolerancia():
+    # soma de R$ bate, mas a quantidade de unidades diverge muito do grupo (a checagem que faltava na 1ª volta)
+    itens = [{"k": "T:x", "t": "x", "u": 10, "v": 1000, "p": 100}]
+    grupo = [{"v": 1000, "u": 25}]
+    ok, motivo = nubi_web.validar_reconciliacao_publicacao(RepoGate(grupo=grupo), "AUMA", "2026-09-20", 1000, 10, itens)
+    assert not ok and "unidade(s)" in motivo, motivo
+
+
 def test_9_achado_junta_com_auditoria_do_dia_sem_apagar():
     hoje = nubi_web._agora_br().date().isoformat()
     r = RepoGate(auditoria_hoje={"data": hoje, "resumo": "1 erro(s), 0 alerta(s), 2 informação(ões)",
@@ -572,6 +588,15 @@ def test_9_achado_junta_com_auditoria_do_dia_sem_apagar():
     assert titulos == ["já tinha", "novo achado"], titulos
     assert reg["resumo"].startswith("2 erro(s)"), reg["resumo"]
     assert reg["modulo"] == "x.py (1/2)", reg          # não mexe no que já tinha
+    assert reg["conferencias"][1]["origem"] == "gate_publicacao", reg["conferencias"][1]
+
+
+def test_9_achado_repetido_atualiza_em_vez_de_duplicar():
+    r = RepoGate()
+    nubi_web._registrar_achado_auditoria(r, {"nivel": "erro", "area": "dados", "titulo": "AUMA em 20/09", "detalhe": "1ª tentativa"})
+    nubi_web._registrar_achado_auditoria(r, {"nivel": "erro", "area": "dados", "titulo": "AUMA em 20/09", "detalhe": "2ª tentativa"})
+    conf = r.auditorias[0]["conferencias"]
+    assert len(conf) == 1 and conf[0]["detalhe"] == "2ª tentativa", conf
 
 
 def test_9_rota_vend_dia_nao_publica_lote_reprovado_e_registra_auditoria():
@@ -594,6 +619,36 @@ def test_9_rota_vend_dia_publica_lote_aprovado():
     resp = nubi_web.rota_vendedores(r, "POST", "vend_dia", {"arquivo": "a.xlsx", "ate": "2026-09-20"}, b"x")
     assert resp["ok"] and r.vendas and r.vendas[0]["vendedor"] == "AUMA", (resp, r.vendas)
     assert not r.auditorias, "lote bom não deve gerar achado"
+
+
+class RepoAuditoriaRodar:
+    def __init__(s, auditoria_hoje=None):
+        s.auditorias = [dict(auditoria_hoje)] if auditoria_hoje else []
+
+    def _req(s, m, tab, params=None, corpo=None, prefer=None):
+        if tab == "vend_vendas_dia" and m == "GET":
+            return []                    # conferencias() encerra cedo: "Ainda sem vendas diárias"
+        if tab == "auditorias":
+            if m == "GET":
+                return s.auditorias
+            s.auditorias = [dict(corpo[0])]
+            return corpo
+        return []
+
+
+def test_9_auditoria_rodar_preserva_achado_do_gate_em_vez_de_apagar():
+    # achado da revisão (1ª volta): a rotina noturna 'auditoria' recomputava tudo do zero e apagava o que o gate
+    # de publicação já tinha gravado hoje; agora rodar() preserva os achados com origem=gate_publicacao.
+    auditoria.ia.tem = lambda q: False
+    hoje = auditoria._hoje_br().isoformat()
+    r = RepoAuditoriaRodar(auditoria_hoje={
+        "data": hoje, "resumo": "1 erro(s), 0 alerta(s), 0 informação(ões)", "modulo": "antigo.py (1/1)", "conversa": [],
+        "conferencias": [{"nivel": "erro", "area": "dados", "origem": "gate_publicacao",
+                          "titulo": "AUMA em 20/09/2026: gate de publicação reprovou (card #9)", "detalhe": "x"}]})
+    reg = auditoria.rodar(r)
+    titulos = [a["titulo"] for a in reg["conferencias"]]
+    assert "AUMA em 20/09/2026: gate de publicação reprovou (card #9)" in titulos, titulos
+    assert reg["data"] == hoje, reg
 
 
 if __name__ == "__main__":

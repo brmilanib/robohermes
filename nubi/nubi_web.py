@@ -3316,13 +3316,22 @@ def _ranking_do_mes(repo, mes, chaves):
 
 
 def _registrar_achado_auditoria(repo, achado):
-    """Acrescenta 1 achado {nivel, area, titulo, detalhe} na auditoria do dia (Brasília), sem apagar o que já tinha
-    (card #9): junta com o que existir hoje e regrava o resumo. nivel='erro' já aparece na hora em Central > Erros
-    (_ops_erros lê a auditoria mais recente)."""
+    """Acrescenta 1 achado {nivel, area, titulo, detalhe} na auditoria do dia (Brasília) do gate de publicação (card
+    #9), sem apagar o que já tinha: junta com o que existir hoje e regrava o resumo. Acrescenta origem=gate_publicacao
+    (a rotina noturna 'auditoria' preserva achados com essa origem em vez de sobrescrever a lista inteira do zero —
+    ver auditoria.rodar). Reprovação repetida do MESMO vendedor/dia/motivo (mesma área+título) atualiza o achado
+    existente em vez de duplicar. nivel='erro' já aparece na hora em Central > Erros (_ops_erros lê a auditoria mais
+    recente)."""
+    achado = dict(achado, origem="gate_publicacao")
     hoje = _agora_br().date().isoformat()
     atual = repo._req("GET", "auditorias", {"select": "*", "data": f"eq.{hoje}", "limit": 1}) or []
     reg = atual[0] if atual else {"data": hoje, "resumo": "", "modulo": None, "conversa": []}
-    conf = list(reg.get("conferencias") or []) + [achado]
+    conf = list(reg.get("conferencias") or [])
+    igual = next((a for a in conf if a.get("area") == achado["area"] and a.get("titulo") == achado["titulo"]), None)
+    if igual:
+        igual.update(achado)
+    else:
+        conf.append(achado)
     n = {k: sum(1 for a in conf if a.get("nivel") == k) for k in ("erro", "alerta", "info")}
     reg["conferencias"] = conf
     reg["resumo"] = f"{n['erro']} erro(s), {n['alerta']} alerta(s), {n['info']} informação(ões)" + (
@@ -3334,21 +3343,22 @@ def validar_reconciliacao_publicacao(repo, vendedor, dia, v, u, itens):
     """Gate de publicação do card #9: confere o lote de UM dia de UM vendedor antes de gravar em vend_vendas_dia.
     Devolve (True, None) se pode publicar, ou (False, motivo) se deve ficar pendente (não escreve; o coletor detecta
     o erro e tenta de novo no próximo ciclo, do mesmo jeito que já trata qualquer outra falha de envio).
-    Regras duras (sem tolerância, sempre bloqueiam): valor negativo, e item com unidades vendidas mas preço zerado
-    (ou preço sem nenhuma unidade) — sinal de coluna trocada/preço não veio no export, não variação normal de preço.
-    Regra com tolerância (só quando já existe referência): soma de R$ do dia x a tabela do grupo do Nubimetrics
-    (vend_grupo_dia), com a mesma tolerância de arredondamento usada na auditoria (3%, mínimo R$ 500). Se a tabela
-    do grupo ainda não chegou para esse vendedor/dia, não bloqueia (não é erro, é coleta ainda incompleta)."""
+    Regras duras (sem tolerância, sempre bloqueiam): valor negativo; item com vendas em R$ mas sem nenhuma unidade;
+    e item com unidades vendidas E vendas em R$ mas preço médio zerado (coluna de preço não veio no export) — item
+    com unidades vendidas e R$ 0 é brinde/amostra grátis, não bloqueia. Regras com tolerância (só quando já existe
+    referência, igual à auditoria): soma de R$ e de unidades do dia x a tabela do grupo do Nubimetrics
+    (vend_grupo_dia), tolerância de arredondamento 3% (mínimo R$ 500 ou 5 unidades). Se a tabela do grupo ainda não
+    chegou para esse vendedor/dia, não bloqueia (não é erro, é coleta ainda incompleta)."""
     if v is None or u is None or v < 0 or u < 0:
         return False, f"total do dia negativo ou ausente (v={v}, u={u})"
     for it in itens or []:
         iu, iv, ip = it.get("u") or 0, it.get("v") or 0, it.get("p") or 0
         if iu < 0 or iv < 0 or ip < 0:
             return False, f"item {it.get('t') or it.get('k')}: valor negativo (u={iu}, v={iv}, p={ip})"
-        if iu > 0 and ip <= 0:
-            return False, f"item {it.get('t') or it.get('k')}: vendeu {iu} unidade(s) sem preço médio (conferir export)"
         if iu == 0 and iv > 0:
             return False, f"item {it.get('t') or it.get('k')}: R$ {iv:.2f} em vendas sem nenhuma unidade"
+        if iu > 0 and iv > 0 and ip <= 0:
+            return False, f"item {it.get('t') or it.get('k')}: vendeu {iu} unidade(s) por R$ {iv:.2f} sem preço médio (conferir export)"
     grupo = repo._req("GET", "vend_grupo_dia", {"select": "v,u", "data": f"eq.{dia}",
                                                 "vendedor": f"eq.{vendedor}", "limit": 1}) or []
     if grupo:
@@ -3356,6 +3366,11 @@ def validar_reconciliacao_publicacao(repo, vendedor, dia, v, u, itens):
         if abs(gv - v) > max(500, 0.03 * max(gv, v)):
             return False, (f"tabela do grupo (Nubimetrics) R$ {gv:,.0f} x soma do export do dia R$ {v:,.0f}"
                            .replace(",", ".") + (f" ({(v / gv - 1) * 100:+.1f}%)".replace(".", ",") if gv else ""))
+        gu = grupo[0].get("u")
+        if gu is not None:
+            gu = float(gu)
+            if abs(gu - u) > max(5, 0.03 * max(gu, u)):
+                return False, f"tabela do grupo {gu:.0f} unidade(s) x soma do export do dia {u} unidade(s)"
     return True, None
 
 
