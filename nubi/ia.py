@@ -280,14 +280,25 @@ def perguntar_estruturado(pergunta, schema, nome="resposta", max_tokens=2500):
     raise SemIA(f"a IA não devolveu o JSON no formato pedido ({ultimo})")
 
 
+_TIPOS_SCHEMA = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float)}
+
+
+def _ok(v, x):
+    """v bate com o tipo simples x do JSON Schema (bool nunca conta como integer/number)."""
+    if x == "null":
+        return v is None
+    if x in ("integer", "number") and isinstance(v, bool):
+        return False
+    return isinstance(v, _TIPOS_SCHEMA.get(x, object))
+
+
 def erros_schema(v, sc, caminho="$"):
     """Conferência simples de JSON Schema (type, required, properties, additionalProperties, enum, items)."""
-    tipos = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float)}
     t = sc.get("type")
     if isinstance(t, list):
-        if not any(isinstance(v, tipos.get(x, object)) or (x == "null" and v is None) for x in t):
+        if not any(_ok(v, x) for x in t):
             return [f"{caminho}: tipo {type(v).__name__} fora de {t}"]
-    elif t and t != "null" and not (isinstance(v, tipos.get(t, object)) and not (t in ("integer", "number") and isinstance(v, bool))):
+    elif t and t != "null" and not _ok(v, t):
         return [f"{caminho}: esperado {t}"]
     if "enum" in sc and v not in sc["enum"]:
         return [f"{caminho}: valor fora da lista"]
