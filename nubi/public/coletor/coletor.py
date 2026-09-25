@@ -1991,7 +1991,7 @@ def cmd_vigiar():
         if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Gestor Seller -> importando a planilha", flush=True)
             return _soltar("gestor")
-        if (not motivo and _fora_da_janela_coleta() and not _outra_rodando()
+        if (not motivo and _fora_da_janela_coleta() and not _outra_rodando() and not _pid_vivo(PASTA / "memoria.pid")
                 and _na_hora(cfg, token, "memoria_pendente", "memoria_tentativas")):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora da memória (Hermes documenta, Qwen revisa)", flush=True)
             return _soltar("hermes-memoria")
@@ -2217,7 +2217,27 @@ def cmd_hermes_memoria(args, cfg):
     """Card #39 (pedido do Bruno, aprovado 25/09): rotina 'memoria' (1x/dia). O Hermes (Ollama no Mac) lê a Sala e os
     cards concluídos desde a última rodada e propõe registros para a caixa de conhecimento; o Qwen revisa cada um
     (contradição, duplicidade); grava-se por cima de um registro existente do mesmo tipo/título (nunca duplica).
-    Nunca roda durante a coleta (00:30-06:40) nem com outra coleta em andamento neste Mac."""
+    Nunca roda durante a coleta (00:30-06:40) nem com outra coleta em andamento neste Mac.
+
+    Trava própria (memoria.pid, no estilo de hermes-vigia.pid): entre o início e o fim, `rotinas.memoria.ultima_execucao`
+    ainda não avançou (só é gravado no fim, via coletor_registrar) e as 2 chamadas ao Ollama levam minutos — sem essa
+    trava, o vigia (que reavalia memoria_pendente a cada ~5 min) poderia soltar uma 2ª rodada em paralelo e duplicar
+    registro na caixa de conhecimento."""
+    trava = PASTA / "memoria.pid"
+    if _pid_vivo(trava):
+        print(f"{datetime.now():%d/%m %H:%M} memória: já tem uma rodada em andamento; espero ela terminar.", flush=True)
+        return 0
+    trava.write_text(str(os.getpid()))
+    try:
+        return _hermes_memoria(cfg)
+    finally:
+        try:
+            trava.unlink()
+        except OSError:
+            pass
+
+
+def _hermes_memoria(cfg):
     token = token_nubi(cfg)
 
     def terminar(rid, ok, mensagem):

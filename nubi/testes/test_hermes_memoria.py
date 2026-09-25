@@ -113,6 +113,34 @@ def test_nao_roda_com_outra_coleta_em_andamento():
     assert chamadas["registrar"] == []
 
 
+def test_trava_propria_impede_2_rodadas_em_paralelo():
+    # achado da revisão: memoria_pendente só vira False no FIM da rodada (rotinas.ultima_execucao), mas o vigia
+    # reavalia a cada ~5 min — sem trava própria, uma 2ª chamada no meio da 1ª duplicaria registro na caixa.
+    chamadas = _preparar()
+    trava = c.PASTA / "memoria.pid"
+    trava.write_text(str(os.getpid()))    # simula a 1ª rodada ainda em andamento (pid vivo: o próprio processo)
+    try:
+        assert c.cmd_hermes_memoria(None, {}) == 0
+        assert chamadas["registrar"] == []   # nem chegou a registrar início: voltou na hora
+    finally:
+        trava.unlink(missing_ok=True)
+
+
+def test_trava_e_liberada_no_fim_mesmo_com_erro():
+    chamadas = _preparar()
+    chamadas["pendente"] = [{"fonte": "reuniao_mensagens:5", "autor": "Bruno", "texto": "algo"}]
+
+    def explode(*a, **k):
+        raise RuntimeError("Ollama explodiu de um jeito inesperado")
+    c._chamar_ollama = explode
+    trava = c.PASTA / "memoria.pid"
+    try:
+        c.cmd_hermes_memoria(None, {})
+    except RuntimeError:
+        pass
+    assert not trava.exists(), "a trava tem que sair mesmo se a rodada quebrar, senão a próxima fica trancada pra sempre"
+
+
 def test_nada_pendente_marca_ok_sem_gravar_nada():
     chamadas = _preparar()
     chamadas["pendente"] = []
