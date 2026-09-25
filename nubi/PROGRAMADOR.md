@@ -29,7 +29,7 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
 1b. **Cards do Copilot (`responsavel='copilot'`, sempre risco baixo, só tela).** Ferramentas do GitHub (MCP `github`,
    repositório `brmilanib/robohermes`; a branch padrão já é a do nubi, então o pull request do Copilot sai contra ela).
    - **Mandar**: card `aprovada` + `responsavel='copilot'` sem evento de issue → crie uma issue (`issue_write`) com título
-     `nubi #<id>: <título>` e corpo: contexto, o que fazer (com a especificação do Astra, se houver), o que NÃO fazer
+     `nubi #<id>: <título>` e corpo: contexto, o que fazer (card de design precisa da especificação do Astra primeiro, como no passo 3; sem ela, espere), o que NÃO fazer
      (não mexer em servidor/banco/coletor/números nem em arquivos fora de `nubi/public/`), como testar
      (`python3 nubi/testes/fumaca.py`) e critérios de pronto; atribua ao Copilot (`assign_copilot_to_issue`). Card vai para
      `status='em_desenvolvimento'`, `iniciado_em=now()` + evento `autor='copilot'`, `tipo='passo'`,
