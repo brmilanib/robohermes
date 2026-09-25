@@ -17,6 +17,8 @@ jobs:
           python-version: "3.11"
       - name: Instalar dependências
         run: pip install -r nubi/requirements.txt
+      - name: Navegador para os testes do coletor (login automático em páginas falsas)
+        run: pip install playwright && python -m playwright install --with-deps chromium
       - name: Sintaxe de todos os arquivos Python
         run: python -m compileall -q nubi
       - name: Testes de unidade

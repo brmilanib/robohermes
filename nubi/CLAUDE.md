@@ -25,7 +25,10 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 
 ## Segurança e fluxo
 
-- Nunca guardar a senha do Nubimetrics nem copiar tokens, cookies ou chaves; nunca renomear os .xlsx.
+- Senhas dos sites (Nubimetrics, UpSeller, Gestor) e a senha de app do Gmail: só no navegador do coletor (preenchimento
+  automático do Chrome) ou no Chaveiro do Mac, digitadas pelo Bruno (`coletor guardar-senha <site>`); nunca no nubi, no
+  banco, no GitHub, no chat ou no log (autorizado pelo Bruno em 25/09 para o login automático). Nunca copiar tokens,
+  cookies ou chaves; nunca renomear os .xlsx.
 - Branch de trabalho: `claude/wizardly-ritchie-5fig5i`; sem PR se não pedirem; não mexer no "Branch Tracking" da Vercel.
 - Testar no servidor falso (fake_rest + servidor.py) e no mock do Nubimetrics antes de publicar.
 
@@ -100,8 +103,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Tarefa do Mac que falha (`_executar` → `anotar_falha`, arquivo `~/.nubi-coletor/falhas.json`) chama o Hermes no próximo
   minuto (`coletor hermes-vigia`, pelo vigia). Ele diagnostica (`RECEITAS`; erro desconhecido: o Hermes no Ollama escolhe da
   lista fechada) e conserta sozinho: rodar de novo, navegador visível, destravar o perfil do Chrome, limpar downloads velhos.
-  Login vencido: abre a janela de login no Mac (1 vez por site por dia; o Bruno clica em Entrar) e, se entrar, roda a tarefa
-  de novo; o login automático com senha guardada NÃO foi autorizado. Máx. 2 consertos por tarefa por dia; depois abre card
+  Login vencido (1 vez por site por dia): primeiro `entrar-auto` (senha do Chrome ou do Chaveiro; UpSeller: código lido no
+  Gmail por IMAP, só leitura; máx. 2 tentativas; nunca "esqueci a senha"); não deu, abre a janela e o Bruno clica em
+  Entrar; entrou, roda a tarefa de novo. Máx. 2 consertos por tarefa por dia; depois abre card
   `aprovada` (com os 4 itens do #44).
   Tudo que ele faz vai para a Sala como "Hermes".
 - Card aprovado sem os 4 itens do #44 não trava a fila: `completar_modelos` (rotina `design`) e o programador preenchem.

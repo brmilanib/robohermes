@@ -2860,6 +2860,9 @@ COMANDOS_MAC = {
     "gestor": "Importar a planilha no Gestor Seller", "hermes_card": "Hermes fazer um card (no Mac)",
     "entrar": "Abrir o login do Nubimetrics no Mac (você clica em Entrar)",
     "entrar_upseller": "Abrir o login do UpSeller no Mac", "entrar_gestor": "Abrir o login do Gestor Seller no Mac",
+    "entrar_auto_nubimetrics": "Entrar sozinho no Nubimetrics",
+    "entrar_auto_upseller": "Entrar sozinho no UpSeller (com o código do e-mail)",
+    "entrar_auto_gestor": "Entrar sozinho no Gestor Seller",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 

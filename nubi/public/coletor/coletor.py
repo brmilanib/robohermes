@@ -1761,6 +1761,8 @@ def comando_mac(chave, arg=""):
         "parar_coleta": [c, "parar"], "vigia_reativar": [c, "vigia-reativar"],
         "hermes": [c, "hermes"], "qwen": [c, "qwen"], "estoque": [c, "estoque"], "gestor": [c, "gestor"],
         "entrar": [c, "entrar"], "entrar_upseller": [c, "entrar-upseller"], "entrar_gestor": [c, "entrar-gestor"],
+        "entrar_auto_nubimetrics": [c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [c, "entrar-auto", "upseller"],
+        "entrar_auto_gestor": [c, "entrar-auto", "gestor"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -2110,6 +2112,244 @@ def cmd_hermes_card(args, cfg):
 
 
 # ---------------------------------------------------------------------------
+# Login automático (autorizado pelo Bruno no plano aprovado em 25/09): quando um site pede login, o coletor entra
+# sozinho. A senha fica SÓ no navegador do coletor (preenchimento automático do Chrome) ou no Chaveiro do Mac (o Bruno
+# guarda com `coletor guardar-senha <site>`); nunca em arquivo, no nubi, no banco ou no log. Código do e-mail
+# (UpSeller): lido no Gmail por IMAP, só leitura, com a "senha de app" do Google, também no Chaveiro; só e-mails do
+# próprio site, dos últimos minutos. Nunca troca senha, cria conta ou clica em "esqueci a senha".
+# ---------------------------------------------------------------------------
+
+LOGIN_SITES = {   # site: (nome, tela depois do login, sinal de que entrou)
+    "nubimetrics": ("Nubimetrics",
+                    lambda cfg: f"{BASE}/competition/dashboardbycompetitor?group={cfg.get('grupo')}&range=PREVMONTH",
+                    lambda pg: pg.locator('td a[aria-label="Analise um concorrente"]').first.is_visible()),
+    "upseller": ("UpSeller", lambda cfg: f"{UPSELLER}/pt/inventory/list",
+                 lambda pg: pg.get_by_text("Importar & Exportar").first.is_visible()),
+    "gestor": ("Gestor Seller", lambda cfg: f"{GESTOR}/management/products",
+               lambda pg: pg.get_by_text("Importar por planilha").first.is_visible()),
+}
+MESES_IMAP = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+PROIBIDO_CLICAR = re.compile(r"esquec|forgot|recuper|redefin|reset|cadastr|criar conta|sign up|registr", re.I)
+
+
+def _credencial(site, cfg=None):
+    """(usuário, senha) do Chaveiro do Mac; senha "" se o Bruno não guardou (aí vale o preenchimento do Chrome)."""
+    cfg = cfg or ler_config()
+    usuario = (cfg.get("logins") or {}).get(site, "")
+    if not usuario or sys.platform != "darwin":
+        return usuario, ""
+    r = subprocess.run(["security", "find-generic-password", "-s", f"{SERVICO_CHAVEIRO}-{site}", "-a", usuario, "-w"],
+                       capture_output=True, text=True)
+    return usuario, (r.stdout.strip() if r.returncode == 0 else "")
+
+
+def cmd_guardar_senha(args, cfg):
+    """O Bruno guarda (uma vez, no próprio Mac) o login de um site no Chaveiro, para o coletor entrar sozinho."""
+    site = args.site
+    nome = "Gmail (código do UpSeller)" if site == "gmail" else LOGIN_SITES[site][0]
+    if sys.platform != "darwin":
+        print("Só funciona no Mac (Chaveiro).")
+        return 1
+    usuario = input(f"E-mail/usuário do {nome}: ").strip()
+    if site == "gmail":
+        senha = getpass.getpass("Senha de APP do Google (myaccount.google.com → Segurança → Senhas de app; "
+                                "16 letras, NÃO é a senha normal): ").replace(" ", "")
+    else:
+        senha = getpass.getpass(f"Senha do {nome} (fica só no Chaveiro deste Mac): ")
+    if not usuario or not senha:
+        print("Nada guardado.")
+        return 1
+    subprocess.run(["security", "add-generic-password", "-U", "-s", f"{SERVICO_CHAVEIRO}-{site}", "-a", usuario,
+                    "-w", senha], check=True)
+    cfg.setdefault("logins", {})[site] = usuario
+    salvar_config(cfg)
+    print(f"OK: login do {nome} guardado no Chaveiro do Mac. O coletor entra sozinho quando o site pedir.")
+    return 0
+
+
+def _botao_enviar(pg):
+    b = pg.locator("button[type=submit]:visible, input[type=submit]:visible")
+    if not b.count():
+        b = pg.get_by_role("button", name=re.compile(r"entrar|login|log in|acessar|sign in|continuar|confirmar|verificar", re.I))
+    for i in range(b.count()):
+        if not PROIBIDO_CLICAR.search(b.nth(i).inner_text() or ""):
+            return b.nth(i)
+    return None
+
+
+def _preencher_login(pg, site, cfg):
+    """Tela de login: preenche do Chaveiro ou usa o que o Chrome preencheu sozinho, e envia. False = não deu."""
+    senha_campo = pg.locator("input[type=password]:visible").first
+    if not senha_campo.count():
+        return False
+    usuario_campo = pg.locator("input[type=email]:visible, input[name*=mail i]:visible, input[id*=mail i]:visible, "
+                               "input[name*=user i]:visible, input[name*=login i]:visible, input[type=text]:visible").first
+    usuario, senha = _credencial(site, cfg)
+    if senha:
+        if usuario and usuario_campo.count():
+            usuario_campo.fill(usuario)
+        senha_campo.fill(senha)
+    else:
+        try:                                   # o Chrome só libera a senha salva depois de um clique na página
+            (usuario_campo if usuario_campo.count() else senha_campo).click()
+        except Exception:  # noqa: BLE001
+            pass
+        devagar(1.5)
+        if not senha_campo.evaluate("e => e.value.length"):
+            return False
+    b = _botao_enviar(pg)
+    if b:
+        b.click()
+    else:
+        senha_campo.press("Enter")
+    return True
+
+
+def _campos_codigo(pg):
+    return pg.locator("input[autocomplete=one-time-code]:visible, input[name*=code i]:visible, "
+                      "input[name*=codigo i]:visible, input[id*=code i]:visible, input[placeholder*=código i]:visible, "
+                      "input[placeholder*=code i]:visible, input[maxlength='6']:visible, input[maxlength='1']:visible")
+
+
+def _texto_email(msg):
+    partes = msg.walk() if msg.is_multipart() else [msg]
+    txt = []
+    for parte in partes:
+        if parte.get_content_type() in ("text/plain", "text/html"):
+            try:
+                txt.append(parte.get_payload(decode=True).decode(parte.get_content_charset() or "utf-8", "replace"))
+            except Exception:  # noqa: BLE001
+                pass
+    return re.sub(r"<[^>]+>", " ", " ".join(txt))
+
+
+def achar_codigo(texto):
+    """Código de verificação no e-mail (perto de 'código'/'code'; senão, o primeiro número de 6 dígitos)."""
+    m = re.search(r"(?:c[óo]digo|code|verifica\w*)\D{0,80}?(?<!\d)(\d{4,8})(?!\d)", texto, re.I)
+    m = m or re.search(r"(?<!\d)(\d{6})(?!\d)", texto)
+    return m.group(1) if m else ""
+
+
+def codigo_email(site, desde, espera=150, imap=None):
+    """Lê no Gmail (IMAP, só leitura) o código que o site mandou depois de `desde`. "" se não achar."""
+    usuario, senha = _credencial("gmail")
+    if not senha:
+        log("  (o site pediu código por e-mail, mas a senha de app do Gmail não está no Chaveiro: "
+            "~/.nubi-coletor/coletor guardar-senha gmail)")
+        return ""
+    import email
+    import email.utils
+    import imaplib
+    ontem = date.today() - timedelta(days=1)
+    desde_imap = f"{ontem.day:02d}-{MESES_IMAP[ontem.month - 1]}-{ontem.year}"
+    fim = time.time() + espera
+    while time.time() < fim:
+        try:
+            with (imap or imaplib.IMAP4_SSL)("imap.gmail.com") as caixa:
+                caixa.login(usuario, senha)
+                caixa.select("INBOX", readonly=True)
+                _, ids = caixa.search(None, f'(FROM "{site}" SINCE "{desde_imap}")')
+                for i in reversed(ids[0].split()[-5:]):
+                    _, dados = caixa.fetch(i, "(RFC822)")
+                    msg = email.message_from_bytes(dados[0][1])
+                    quando = email.utils.parsedate_to_datetime(msg["Date"])
+                    if quando.tzinfo is None:
+                        quando = quando.replace(tzinfo=timezone.utc)
+                    if quando < desde - timedelta(minutes=2):
+                        break                          # e-mail velho: o código novo ainda não chegou
+                    codigo = achar_codigo(f"{msg.get('Subject', '')} {_texto_email(msg)}")
+                    if codigo:
+                        log("  código de verificação lido no e-mail")   # o código em si nunca vai para o log
+                        return codigo
+        except Exception as e:  # noqa: BLE001
+            log(f"  (não consegui ler o Gmail: {e.__class__.__name__})")
+            return ""
+        time.sleep(10)
+    return ""
+
+
+def _preencher_codigo(pg, site, desde):
+    campos = _campos_codigo(pg)
+    if not campos.count():
+        return None
+    pedir = pg.get_by_role("button", name=re.compile(r"(enviar|obter|send|get)\s*(o\s*)?(c[óo]digo|code)", re.I))
+    if pedir.count():
+        try:
+            pedir.first.click()
+            desde = datetime.now(timezone.utc)
+        except Exception:  # noqa: BLE001
+            pass
+    codigo = codigo_email(site, desde)
+    if not codigo:
+        return False
+    if campos.count() > 1:                     # caixinhas de 1 dígito
+        campos.first.click()
+        pg.keyboard.type(codigo, delay=80)
+    else:
+        campos.first.fill(codigo)
+    devagar(1)
+    b = _botao_enviar(pg)
+    if b:
+        b.click()
+    return True
+
+
+def entrar_sozinho(p, cfg, site, visivel=True, prazo=180):
+    """Abre o site, faz o login (e o código do e-mail, se pedir) e guarda a sessão. True = entrou. Máx. 2 tentativas."""
+    nome, url, pronto = LOGIN_SITES[site]
+    ctx = abrir_navegador(p, cfg, visivel=visivel)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    inicio, logins, codigos = datetime.now(timezone.utc), 0, 0
+    try:
+        pg.goto(url(cfg), wait_until="domcontentloaded", timeout=90000)
+        fim = time.time() + prazo
+        while time.time() < fim:
+            devagar(2)
+            try:
+                if pronto(pg):
+                    devagar(2)
+                    guardar_sessao(ctx)
+                    log(f"  {nome}: login feito sozinho")
+                    return True
+                if _campos_codigo(pg).count() and not pg.locator("input[type=password]:visible").count():
+                    if codigos >= 2:
+                        break
+                    codigos += 1
+                    if _preencher_codigo(pg, site, inicio) is False:
+                        break
+                    continue
+                if pg.locator("input[type=password]:visible").count():
+                    if logins >= 2:
+                        log(f"  {nome}: o site recusou o login 2 vezes (senha, captcha ou tela nova)")
+                        break
+                    logins += 1
+                    if not _preencher_login(pg, site, cfg):
+                        log(f"  {nome}: sem senha salva no navegador do coletor nem no Chaveiro")
+                        break
+                    inicio = datetime.now(timezone.utc)
+                    continue
+                if site == "gestor" and "/management/products" not in pg.url and "/auth" not in pg.url:
+                    pg.goto(url(cfg), wait_until="domcontentloaded", timeout=90000)
+            except Exception as e:  # noqa: BLE001
+                log(f"  {nome}: {e.__class__.__name__} no login")
+        try:
+            enviar_foto(pg, f"login automático do {nome} não entrou", resumo_tela(pg))
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+    finally:
+        ctx.close()
+
+
+def cmd_entrar_auto(args, cfg):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        ok = entrar_sozinho(p, cfg, args.site)
+    print(("OK: entrou sozinho no " if ok else "Não entrou sozinho no ") + LOGIN_SITES[args.site][0], flush=True)
+    return 0 if ok else 1
+
+
+# ---------------------------------------------------------------------------
 # Hermes, vigia de erros 24 h (pedido do Bruno, 25/09): tarefa do Mac falhou -> ele diagnostica e conserta na hora o que é
 # simples (navegador, perfil travado, pasta de downloads, rede), tenta de novo e conta na Sala. Só ações da lista fechada
 # abaixo; login/senha nunca (isso é do Bruno). No máximo 2 consertos por tarefa por dia; depois abre card para o programador.
@@ -2278,6 +2518,18 @@ def _hermes_vigia(cfg):
             else:
                 cfg.setdefault("hermes_janela", {})[hoje] = ja + [site]
                 salvar_config(cfg)
+                chave = {"gestor seller": "gestor"}.get(site, site)
+                auto = subprocess.run([sys.executable, str(Path(__file__).resolve()), "entrar-auto", chave],
+                                      stdin=subprocess.DEVNULL, capture_output=True, timeout=600)
+                if auto.returncode == 0:
+                    if tarefa in MEDICO_TAREFAS:
+                        _soltar(tarefa)
+                    _postar_hermes(token, texto + f"Ação: entrei sozinho no {site.title()} (senha salva, sem ninguém) e "
+                                   + (f"rodei a tarefa **{tarefa}** de novo." if tarefa in MEDICO_TAREFAS
+                                      else "a próxima coleta já entra normal."))
+                    texto = ""
+                    continue
+                texto += "Tentei entrar sozinho e não deu (sem senha salva, captcha ou tela nova). "
                 texto += (f"Ação: abri a janela de login do {site.title()} no Mac mini. Com a senha salva no navegador é só clicar "
                           "em Entrar (10 min). Assim que entrar, eu rodo a tarefa de novo sozinho.")
                 aviso_mac("Hermes: clique em Entrar", f"Janela de login do {site.title()} aberta no Mac mini")
@@ -2382,6 +2634,10 @@ def main():
     hc.add_argument("--modelo", default=None)
     sub.add_parser("entrar-gestor", help="login no Gestor Seller (uma vez), para importar a planilha sozinho")
     sub.add_parser("hermes-vigia", help="(automático) o Hermes trata as falhas novas: diagnostica, conserta e tenta de novo")
+    gsn = sub.add_parser("guardar-senha", help="guarda no Chaveiro do Mac o login de um site (para o coletor entrar sozinho)")
+    gsn.add_argument("site", choices=["nubimetrics", "upseller", "gestor", "gmail"])
+    ea = sub.add_parser("entrar-auto", help="entra sozinho no site (senha do navegador/Chaveiro, código do e-mail)")
+    ea.add_argument("site", choices=["nubimetrics", "upseller", "gestor"])
     gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
     gs.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     es = sub.add_parser("estoque", help="exporta a Lista de Estoque do UpSeller e manda para o nubi")
@@ -2413,6 +2669,10 @@ def main():
         return cmd_entrar_gestor(args, cfg)
     if args.cmd == "hermes-vigia":
         return cmd_hermes_vigia(args, cfg)
+    if args.cmd == "guardar-senha":
+        return cmd_guardar_senha(args, cfg)
+    if args.cmd == "entrar-auto":
+        return cmd_entrar_auto(args, cfg)
     if args.cmd == "agendar":
         plist = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.plist"
         if not plist.exists():

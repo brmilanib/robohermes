@@ -52,21 +52,34 @@ def test_hermes_conserta_e_depois_abre_card():
     assert nubi_web.card_pronto(cards[0]["descricao"])[0]  # o card já nasce com os 4 itens do #44
 
 
-def test_login_vencido_abre_a_janela_e_roda_de_novo():
+class _Rc:
+    def __init__(self, rc):
+        self.returncode = rc
+
+
+def test_login_vencido_entra_sozinho_e_roda_de_novo():
     soltos, posts, cards = _preparar()
     chamadas = []
-
-    class R:
-        returncode = 0
-    c.subprocess.run = lambda cmd, **k: chamadas.append(cmd[-1]) or R()
+    c.subprocess.run = lambda cmd, **k: chamadas.append(cmd[-2:]) or _Rc(0)
     c.anotar_falha("estoque", "O UpSeller pediu login de novo. No Mac mini, rode: entrar-upseller")
     c.cmd_hermes_vigia(None, c.ler_config())
-    assert chamadas == ["entrar-upseller"]              # abriu a janela de login (o Bruno clica em Entrar)
+    assert chamadas == [["entrar-auto", "upseller"]]    # entrou sozinho: nem abriu a janela
+    assert soltos == [("estoque", None)]
+    assert "entrei sozinho" in posts[0]["texto"]
+
+
+def test_login_vencido_sem_senha_abre_a_janela_e_roda_de_novo():
+    soltos, posts, cards = _preparar()
+    chamadas = []
+    c.subprocess.run = lambda cmd, **k: chamadas.append(cmd[-1]) or _Rc(1 if "entrar-auto" in cmd else 0)
+    c.anotar_falha("estoque", "O UpSeller pediu login de novo. No Mac mini, rode: entrar-upseller")
+    c.cmd_hermes_vigia(None, c.ler_config())
+    assert chamadas == ["upseller", "entrar-upseller"]  # tentou sozinho; não deu -> abriu a janela (o Bruno clica)
     assert soltos == [("estoque", None)]                # entrou -> rodou a tarefa de novo
-    assert "clicar" in posts[0]["texto"] and "Login do Upseller feito" in posts[1]["texto"]
+    assert "Tentei entrar sozinho" in posts[0]["texto"] and "Login do Upseller feito" in posts[1]["texto"]
     c.anotar_falha("estoque", "O UpSeller pediu login de novo.")
-    c.cmd_hermes_vigia(None, c.ler_config())            # 2ª vez no dia: não abre janela de novo, só avisa
-    assert chamadas == ["entrar-upseller"] and "só com você" in posts[-1]["texto"]
+    c.cmd_hermes_vigia(None, c.ler_config())            # 2ª vez no dia: não tenta de novo, só avisa
+    assert chamadas == ["upseller", "entrar-upseller"] and "só com você" in posts[-1]["texto"]
 
 
 def test_erro_desconhecido_sem_ollama_avisa():
