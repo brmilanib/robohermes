@@ -584,3 +584,20 @@ on conflict (id) do nothing;
 -- Coluna "Em teste" no quadro: quem está testando e o relatório final do card (histórico para o Hermes organizar)
 alter table public.reuniao_tarefas add column if not exists testador text;
 alter table public.reuniao_tarefas add column if not exists relatorio text;
+
+-- StoreConnector base (card #1): pedidos de loja gravados de forma idempotente por (source, id_externo).
+-- Aprovado pelo Bruno em 25/09 (tarefa_eventos #1, resposta 15:14).
+create table if not exists public.store_orders (
+  id bigint generated always as identity primary key,
+  source text not null,
+  id_externo text not null,
+  status text,
+  dados jsonb not null default '{}'::jsonb,
+  criado_em timestamptz not null default now(),
+  atualizado_em timestamptz not null default now(),
+  unique (source, id_externo)
+);
+create index if not exists store_orders_source on public.store_orders (source, atualizado_em desc);
+alter table public.store_orders enable row level security;
+create policy "autorizado" on public.store_orders for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
