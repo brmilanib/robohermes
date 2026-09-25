@@ -307,6 +307,37 @@ def test_38_pauta_diaria_monta_4_secoes():
     assert "Card travado" not in texto.split("## O que foi feito")[1].split("## O que travou")[0], texto
 
 
+def test_43_ordem_fila_prioridade_depois_risco_depois_id():
+    # ordem alfabética de prioridade (o bug antigo) seria alta, baixa, media, urgente — bem diferente da certa
+    cards = [
+        {"id": 101, "titulo": "Baixa/baixo", "prioridade": "baixa", "risco": "baixo"},
+        {"id": 102, "titulo": "Urgente", "prioridade": "urgente", "risco": "medio"},
+        {"id": 103, "titulo": "Alta/alto", "prioridade": "alta", "risco": "alto"},
+        {"id": 104, "titulo": "Media/medio", "prioridade": "media", "risco": "medio"},
+        {"id": 106, "titulo": "Media/baixo", "prioridade": "media", "risco": "baixo"},
+    ]
+    ordem = [t["id"] for t in sorted(cards, key=nubi_web.ordem_fila)]
+    assert ordem == [102, 103, 106, 104, 101], ordem   # urgente > alta > média(risco baixo antes de médio) > baixa
+
+
+def test_43_pauta_proximos_da_fila_usa_ordem_fila():
+    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "servidor_teste")
+    if caminho not in sys.path:
+        sys.path.insert(0, caminho)
+    tabelas = {
+        "reuniao_tarefas": [
+            {"id": 41, "titulo": "Card do Bruno", "status": "aprovada", "aguardando": None, "prioridade": "media", "risco": "baixo", "atualizado_em": None, "notas": None},
+            {"id": 29, "titulo": "Card comum", "status": "aprovada", "aguardando": None, "prioridade": "media", "risco": "medio", "atualizado_em": None, "notas": None},
+        ],
+        "rotinas_execucoes": [], "coletor_execucoes": [], "auditorias": [], "rotinas": [],
+        "reuniao_mensagens": [], "agentes_uso": [], "tarefa_eventos": [],
+    }
+    r = RepoPauta(tabelas)
+    texto = nubi_web._pauta_diaria(r, "2026-09-24T11:00:00+00:00")
+    fila = texto.split("## Próximos da fila")[1]
+    assert fila.index("#41") < fila.index("#29"), fila   # mesma prioridade: risco baixo sai antes de médio
+
+
 class RepoReuniao:
     def __init__(s):
         s.t = {"reuniao_mensagens": [], "reuniao_tarefas": []}

@@ -2014,6 +2014,16 @@ def _marcar_rotina(repo, rid, resultado):
         pass
 
 
+_ORDEM_PRIORIDADE = {"urgente": 0, "alta": 1, "media": 2, "baixa": 3}
+_ORDEM_RISCO = {"baixo": 0, "medio": 1, "alto": 2}
+
+
+def ordem_fila(t):
+    """Chave de ordenação da fila do programador (card #43): prioridade (urgente > alta > média > baixa), depois
+    risco (baixo antes de médio/alto), depois id mais antigo. Uso: sorted(cards, key=ordem_fila)."""
+    return (_ORDEM_PRIORIDADE.get(t.get("prioridade"), 2), _ORDEM_RISCO.get(t.get("risco") or "medio", 1), t["id"])
+
+
 def _pauta_diaria(repo, ultima_execucao):
     """Pauta automática da reunião diária (determinística, sem IA): feito, travado, melhorar, próximos."""
     agora = datetime.now(timezone.utc)
@@ -2062,8 +2072,9 @@ def _pauta_diaria(repo, ultima_execucao):
         reprovas = 0
     melhorar = f"Custo de IA (mês em curso):\n{custo_txt}\nRetrabalho: {reprovas} reprovação(ões) de teste desde a última reunião."
 
-    proximas = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,prioridade", "status": "eq.aprovada",
-                          "aguardando": "is.null", "order": "prioridade,id", "limit": 5}) or []
+    aprovadas = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,prioridade,risco", "status": "eq.aprovada",
+                           "aguardando": "is.null", "order": "id", "limit": 500}) or []
+    proximas = sorted(aprovadas, key=ordem_fila)[:5]
     prox = "\n".join(f"- #{t['id']} [{t.get('prioridade')}] {t['titulo']}" for t in proximas) or "fila vazia"
 
     return ("## O que foi feito desde a última reunião\n" + feito
