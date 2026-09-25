@@ -2743,8 +2743,8 @@ function devCard(t) {
   const PRI = {urgente: "bad", alta: "", media: "", baixa: ""};
   const emExec = ["em_desenvolvimento", "em_teste"].includes(t.status);
   const vivo = devAtivo(t), parado = emExec && !vivo, ev = t.ultimo_evento;
-  const ag = agInfo(t.responsavel || "claude_code");
-  const agNm = agNome(t.responsavel, ag[1]);
+  const ag = agInfo(t.status === "em_teste" ? (t.testador || "revisor") : (t.responsavel || "claude_code"));
+  const dono = agInfo(t.responsavel || "claude_code"), agNm = agNome(t.responsavel || "claude_code", dono[1]);
   const prev = t.previsao_min == null ? "sem previsão" : `~${Math.max(5, +t.previsao_min || 0)} min`;
   return `<div class="dev-card ${vivo ? "vivo" : ""} ${t.aguardando ? "pede" : ""}" data-abrir="${t.id}" tabindex="0" role="button" aria-label="Abrir tarefa ${t.id}">
     <div class="dc-top"><span class="dc-id">#${t.id}</span><span class="st ${PRI[t.prioridade] || ""}">${esc(t.prioridade || "")}</span>${t.area ? `<span class="st">${esc(t.area)}</span>` : ""}
@@ -2761,7 +2761,7 @@ function devCard(t) {
       : parado ? `<div class="dc-parado">⏸ Parado ${ev ? "desde " + esc(desde(ev.criado_em)) : ""} · ${(t.responsavel || "claude_code") === "claude_code"
           ? "o programador automático retoma na próxima rodada (a cada 1 h)" : "sem atividade do agente"}${ev ? `<div class="dc-ev">${esc(ev.texto.slice(0, 110))}</div>` : ""}</div>`
       : `<p class="dc-desc">${esc(t.descricao || "")}</p>`}
-    ${emExec ? `<div class="muted" style="font-size:11px;display:flex;align-items:center;gap:6px"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><b>${esc(agNm)}</b></div>
+    ${emExec ? `<div class="muted" style="font-size:11px;display:flex;align-items:center;gap:6px"><span class="dc-av" style="--c:${dono[2]}">${dono[0]}</span><b>${esc(agNm)}</b></div>
       <div class="muted" style="font-size:11px">⏱ ${esc(prev)}</div>` : ""}
     <div class="dc-rod">${esc(quem(t.proposto_por))} → ${esc(quem(t.decidido_por))} · ${esc(desde(t.atualizado_em || t.criado_em))}</div></div>`;
 }
