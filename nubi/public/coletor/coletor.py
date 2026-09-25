@@ -1291,7 +1291,7 @@ def _numero(txt, rotulo):
     return int(m.group(1).replace(".", "")) if m else None
 
 
-def baixar_estoque(pg):
+def baixar_estoque(pg, p=None):
     """Faz o export na tela e devolve (arquivo baixado, SKUs esperados)."""
     botao = _upseller_lista(pg)
     aba = pg.get_by_text(re.compile(r"^\s*My Warehouse\s*\d*\s*$")).first
@@ -1324,16 +1324,45 @@ def baixar_estoque(pg):
         raise Falha(f"o UpSeller exportou com {falhou} SKU(s) com falha; não importei (tento de novo depois)")
     destino = PASTA / "estoque"
     destino.mkdir(parents=True, exist_ok=True)
+    # 25/09: o Chrome fechava inteiro no instante do download (TargetClosedError, até com o navegador visível). Então:
+    # (1) uma aba extra fica aberta para o Chrome não sair se a aba do download fechar; (2) guardo o login e o link do
+    # arquivo antes; (3) se o navegador cair, baixo pelo link com um cliente HTTP à parte (não depende do Chrome).
+    ctx = pg.context
+    estado = ctx.storage_state()
+    links = []
+    ctx.on("request", lambda r: links.append(r.url) if re.search(r"\.xlsx(\?|$)|download|export", r.url, re.I) else None)
+    ctx.on("page", lambda nova: log(f"  (o UpSeller abriu uma aba nova: {nova.url[:80]})"))
+    ctx.on("close", lambda _: log("  (o navegador fechou)"))
     try:
-        with pg.expect_download(timeout=120000) as dl:
-            baixar.click()
+        ctx.new_page().goto("about:blank")
     except Exception:  # noqa: BLE001
-        with pg.expect_download(timeout=120000) as dl:     # plano B: o nome do arquivo na janela também baixa
-            pg.get_by_text(re.compile(r"\.xlsx\s*$")).last.click()
-    d = dl.value
-    arq = destino / d.suggested_filename                  # nome do UpSeller, sem renomear
-    _salvar_download(pg, d, arq)
-    return arq, sucesso or esperado
+        pass
+    try:
+        href = pg.locator(".ant-modal-content a[href], [role=dialog] a[href]").last.get_attribute("href", timeout=3000)
+        if href and href.startswith("http"):
+            links.append(href)
+    except Exception:  # noqa: BLE001
+        pass
+    d = None
+    try:
+        try:
+            with pg.expect_download(timeout=120000) as dl:
+                baixar.click()
+        except Exception:  # noqa: BLE001
+            with pg.expect_download(timeout=120000) as dl:     # plano B: o nome do arquivo na janela também baixa
+                pg.get_by_text(re.compile(r"\.xlsx\s*$")).last.click()
+        d = dl.value
+        arq = destino / d.suggested_filename              # nome do UpSeller, sem renomear
+        _salvar_download(pg, d, arq)
+        return arq, sucesso or esperado
+    except Exception as e:  # noqa: BLE001
+        url = (getattr(d, "url", "") or "") if d else ""
+        candidatos = [u for u in [url] + links[::-1] if u.startswith("http")]
+        if p is None or not candidatos:
+            raise
+        log(f"  o navegador falhou no download ({e.__class__.__name__}); baixando pelo link com um cliente à parte")
+        nome = (d.suggested_filename if d else "") or ""
+        return _baixar_link(p, estado, candidatos, destino, nome), sucesso or esperado
 
 
 def _salvar_download(pg, d, arq):
@@ -1356,11 +1385,34 @@ def _salvar_download(pg, d, arq):
     arq.write_bytes(corpo)
 
 
+def _baixar_link(p, estado, candidatos, destino, nome):
+    """Baixa a planilha pelo link com um cliente HTTP do Playwright (sem Chrome), usando os cookies guardados."""
+    req = p.request.new_context(storage_state=estado)
+    try:
+        for url in dict.fromkeys(candidatos):
+            try:
+                r = req.get(url, timeout=120000)
+            except Exception:  # noqa: BLE001
+                continue
+            corpo = r.body() if r.ok else b""
+            if corpo[:2] != b"PK":
+                continue
+            if not nome:
+                m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+\.xlsx)', r.headers.get("content-disposition", ""), re.I)
+                nome = urllib.parse.unquote(m.group(1)) if m else urllib.parse.unquote(url.split("?")[0].rsplit("/", 1)[-1])
+            arq = destino / Path(nome).name
+            arq.write_bytes(corpo)
+            return arq
+    finally:
+        req.dispose()
+    raise Falha("o Chrome fechou no download do estoque e o link do arquivo não devolveu a planilha")
+
+
 def coletar_estoque(p, cfg, token, enviar=True):
     ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
     try:
-        arq, esperado = baixar_estoque(pg)
+        arq, esperado = baixar_estoque(pg, p)
         guardar_sessao(ctx)
     except SessaoExpirada:
         enviar_foto(pg, "estoque: login do UpSeller vencido", resumo_tela(pg))
