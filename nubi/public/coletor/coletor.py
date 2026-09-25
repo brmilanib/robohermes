@@ -2709,11 +2709,22 @@ def _hermes_vigia(cfg):
         if desistiu:
             acao = "avisar"
         hora = f["quando"][11:16]
+        conhecida = _solucao_conhecida(token, tarefa, f["erro"])
         texto = (f"🩺 **Vigia de erros**: a tarefa **{tarefa}** falhou às {hora} ({f['erro'][:180]}).\n"
-                 f"Diagnóstico: {diag}.\n")
-        if desistiu:
-            texto += (f"Já consertei {n} vez(es) hoje e voltou a falhar: parei de tentar e abri um card para o programador.")
-            _abrir_card_erro(token, tarefa, f, diag)
+                 f"Diagnóstico: {diag}.\n" + (f"📚 Já vimos esse erro antes — {conhecida[:300]}\n" if conhecida else ""))
+        login = bool(re.search(RECEITAS[0][0], f["erro"]))
+        if desistiu or (acao == "avisar" and not login):
+            # pedido do Bruno (25/09): o que o Hermes não resolve vira card URGENTE na hora, e o time de programação
+            # (Claude Code/Copilot/Codex, plantão de urgências) resolve sem esperar o Bruno
+            motivo = (f"O Hermes consertou {n} vez(es) hoje e a tarefa voltou a falhar." if desistiu
+                      else "O Hermes não tem conserto automático para este erro.")
+            cid, novo = _abrir_card_erro(token, tarefa, f, diag, motivo, conhecida)
+            ref = f"#{cid}" if cid else ""
+            texto += (f"🚨 **URGENTE**: {motivo} Abri o card urgente {ref} para o time de programação (Claude Code, Copilot, "
+                      "Codex) resolver agora; o plantão pega na próxima hora. Quando sair a correção, eu rodo a tarefa de novo "
+                      "e guardo a solução na caixa de conhecimento." if novo else
+                      f"O card urgente {ref} deste erro já está aberto com o time de programação.")
+            aviso_mac("Hermes: card urgente aberto", f"{tarefa}: {diag[:120]}")
         elif acao == "janela_login":
             site = next((k for k in JANELA_LOGIN if k in f["erro"].lower()), "")
             ja = (cfg.get("hermes_login") or {}).get(hoje, [])
@@ -2755,8 +2766,8 @@ def _hermes_vigia(cfg):
                     texto = f"🩺 Login do {site.title()} feito. A próxima coleta já entra normal."
                 else:
                     texto = f"🩺 A janela de login do {site.title()} fechou sem login (10 min). Rode no Mac: ~/.nubi-coletor/coletor {JANELA_LOGIN[site]}"
-        elif acao == "avisar":
-            texto += "Ação: isso eu não consigo resolver sozinho — precisa do Bruno."
+        elif acao == "avisar":                              # só login: a senha/o clique é do Bruno
+            texto += "Ação: isso eu não consigo resolver sozinho — precisa do Bruno (login)."
             aviso_mac("Hermes: precisa de você", f"{tarefa}: {diag}")
         else:
             if acao == "destravar":
@@ -2827,19 +2838,50 @@ def _postar_hermes(token, texto):
         print(f"hermes-vigia: não postei na Sala ({e})", flush=True)
 
 
-def _abrir_card_erro(token, tarefa, f, diag):
-    desc = (f"O Hermes (vigia de erros) consertou {MEDICO_MAX} vezes hoje e a tarefa {tarefa} do coletor continua falhando.\n"
-            f"Último erro ({f['quando']}): {f['erro'][:400]}\nDiagnóstico do Hermes: {diag}\n\n"
+def assinatura_erro(erro):
+    """O 'jeito' do erro, sem números, horários e detalhes entre colchetes: serve para achar o mesmo erro de novo."""
+    t = re.sub(r"\[.*?\]|\(.*?\)|\d+[\d.,:]*", " ", str(erro))
+    return re.sub(r"[,*%]|\s+", " ", t).strip()[:60].strip()
+
+
+def _solucao_conhecida(token, tarefa, erro):
+    """A caixa de conhecimento já tem a solução deste erro (de um card 🩺 fechado antes)? Devolve o texto ou ""."""
+    try:
+        itens = api(token, "conhecimento", {"q": assinatura_erro(erro)[:40]}, timeout=30).get("itens") or []
+    except Exception:  # noqa: BLE001
+        return ""
+    sol = next((c for c in itens if str(c.get("titulo", "")).startswith("Solução") and tarefa in c.get("titulo", "")), None)
+    return f"{sol['titulo']}: {sol['texto'][:600]}" if sol else ""
+
+
+def _abrir_card_erro(token, tarefa, f, diag, motivo="", conhecida=""):
+    """Card URGENTE para o time de programação (Claude Code, Copilot, Codex): o sistema não pode ficar parado esperando o
+    Bruno. Não duplica: se já tem card aberto do mesmo erro, devolve ele. Devolve (id, novo)."""
+    titulo = f"🩺 Coletor: {tarefa} falhando — {assinatura_erro(f['erro'])}"
+    try:
+        abertos = [t for t in (api(token, "reuniao_tarefas", timeout=60).get("tarefas") or [])
+                   if t.get("titulo") == titulo and t.get("status") not in ("feita", "recusada")]
+        if abertos:
+            return abertos[0]["id"], False
+    except Exception:  # noqa: BLE001
+        pass
+    desc = (f"{motivo or 'O Hermes (vigia de erros) não conseguiu resolver sozinho.'}\n"
+            f"Último erro ({f['quando']}, horário do Mac): {f['erro'][:400]}\nDiagnóstico do Hermes: {diag}\n"
+            + (f"Solução que já funcionou antes (caixa de conhecimento): {conhecida}\n" if conhecida else "")
+            + f"Fim do log:\n{f.get('log', '')[-1200:]}\n\n"
             f"Escopo: descobrir e corrigir a causa da falha da tarefa {tarefa} do coletor, sem mexer no login nem em senhas.\n"
             f"Arquivo/função: nubi/public/coletor/coletor.py (tarefa {tarefa}; ver o log no Coletor da Central).\n"
             f"Teste: reproduzir contra página falsa (como os testes do UpSeller/Gestor) e rodar os testes do repositório.\n"
-            f"Critério de aceite: a tarefa {tarefa} roda sem erro na próxima execução do Mac.")
+            f"Critério de aceite: a tarefa {tarefa} roda sem erro na próxima execução do Mac (o Hermes roda de novo sozinho "
+            f"quando sai a versão nova). No relatório, escreva ## Causa e ## Solução: o Hermes guarda na caixa de conhecimento.")
     try:
-        api(token, "reuniao_tarefa_salvar", corpo={"titulo": f"🩺 Coletor: {tarefa} falhando ({f['erro'][:60]})",
-                                                   "descricao": desc, "status": "aprovada", "prioridade": "alta",
-                                                   "area": "coletor"}, metodo="POST", timeout=60)
+        r = api(token, "reuniao_tarefa_salvar", corpo={"titulo": titulo, "descricao": desc, "status": "aprovada",
+                                                       "prioridade": "urgente", "area": "coletor", "responsavel": "claude_code",
+                                                       "risco": "medio", "autor": "hermes"}, metodo="POST", timeout=60)
+        return (r or {}).get("id"), True
     except Exception as e:  # noqa: BLE001
         print(f"hermes-vigia: não abri o card ({e})", flush=True)
+        return None, False
 
 
 def main():

@@ -46,6 +46,11 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
      (evento explicando) e faça você mesmo, para nada ficar parado.
 2. **Contexto.** Leia `select titulo, texto from conhecimento where fixo or atualizado_em > now() - interval '14 days' order by fixo desc, atualizado_em desc limit 60`
    e as últimas 30 mensagens de `reuniao_mensagens`.
+   **Card 🩺 urgente (aberto pelo Hermes) vem antes de tudo** (pedido do Bruno, 25/09: o sistema não pode ficar parado
+   esperando ele): o coletor falhou e o Hermes não conseguiu consertar. Leia a descrição (erro, log, solução antiga da caixa
+   de conhecimento, se houver), reproduza contra página falsa, corrija, publique. Não precisa de especificação do Astra nem
+   plano do DeepSeek. Depois do deploy o Hermes roda a tarefa de novo sozinho (versão nova → `repetir-falhas`); confira em
+   `coletor_execucoes` que ficou ✅. No relatório, **## Causa** e **## Solução** (o Hermes guarda na caixa como "Solução").
 3. **Escolher o card.** `reuniao_tarefas` com `status='aprovada'`, `aguardando is null`, `coalesce(risco,'medio') <> 'alto'`,
    `responsavel is null or responsavel = 'claude_code'` (cards de outros agentes — chatgpt, deepseek, astra, gptoss, hermes —
    eles mesmos fazem; se a entrega deles disser PRECISA_CODIGO, o card volta com `responsavel='claude_code'` para você),
@@ -91,7 +96,7 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
    **Antes do deploy, confira que os testes do GitHub (Actions → "Testes do nubi") ficaram verdes no seu commit.**
    Vermelho: não publique; corrija primeiro. Rodar localmente: `python3 nubi/testes/fumaca.py` e os `test_*.py`. **Corrigiu, já roda**: aplique na hora (rotina com `ultima_execucao` de ontem, reprocessar o dado) e confira.
 10. **Concluir com relatório**: `status='feita'`, `notas` com o que mudou em 1 ou 2 frases, e **`relatorio`** (markdown) com:
-    ## O que foi feito · ## Arquivos e funções mexidos · ## Testes (os seus e os do revisor, com resultado) · ## Revisão
+    ## O que foi feito · (card 🩺: ## Causa · ## Solução) · ## Arquivos e funções mexidos · ## Testes (os seus e os do revisor, com resultado) · ## Revisão
     (o que o revisor apontou e o que foi corrigido) · ## Publicação (commit e deploy) · ## Como conferir (onde o Bruno vê)
     · ## Se der problema (como reverter). Grave também um evento `tipo='relatorio'` com o mesmo texto (fica no histórico do
     card para o Hermes organizar). Se aprendeu algo que os outros agentes devem saber, uma linha na caixa de conhecimento

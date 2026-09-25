@@ -12,6 +12,9 @@ import coletor as c  # noqa: E402
 ERRO_25_09 = "TargetClosedError: Download.save_as: Target page, context or browser has been closed"
 
 
+SABER = []          # caixa de conhecimento falsa
+
+
 def _preparar():
     soltos, posts, cards = [], [], []
     c.token_nubi = lambda cfg: "T"
@@ -21,9 +24,14 @@ def _preparar():
     c.time.sleep = lambda s: None
 
     def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
+        if rota == "conhecimento":
+            return {"itens": [x for x in SABER if (params or {}).get("q", "").lower() in x["titulo"].lower()]}
+        if rota == "reuniao_tarefas":
+            return {"tarefas": [{"id": 70 + i, "titulo": x["titulo"], "status": "aprovada"} for i, x in enumerate(cards)]}
         (posts if rota == "reuniao_postar" else cards).append(corpo)
-        return {}
+        return {"id": 70 + len(cards) - 1} if rota == "reuniao_tarefa_salvar" else {}
     c.api = api
+    SABER.clear()
     c.FALHAS.unlink(missing_ok=True)
     c.salvar_config({})
     return soltos, posts, cards
@@ -46,8 +54,9 @@ def test_hermes_conserta_e_depois_abre_card():
         assert not c._falhas_pendentes()                  # tratada: não repete
     assert soltos == [("estoque", {"NUBI_VER": "1"})] * 2   # 2 consertos por dia, com o navegador visível
     assert "conserto 1 de 2" in posts[0]["texto"] and posts[0]["autor"] == "Hermes"
-    assert "abri um card" in posts[2]["texto"]
-    assert len(cards) == 1 and cards[0]["status"] == "aprovada"
+    assert "URGENTE" in posts[2]["texto"] and "#70" in posts[2]["texto"]
+    assert len(cards) == 1 and cards[0]["status"] == "aprovada" and cards[0]["prioridade"] == "urgente"
+    assert cards[0]["responsavel"] == "claude_code"
     import nubi_web
     assert nubi_web.card_pronto(cards[0]["descricao"])[0]  # o card já nasce com os 4 itens do #44
 
@@ -110,11 +119,33 @@ def test_versao_nova_roda_de_novo_o_que_falhou_hoje():
     assert "rodei de novo a tarefa **gestor**" in posts[-1]["texto"] and "✅ custo conferido" in posts[-1]["texto"]
 
 
-def test_erro_desconhecido_sem_ollama_avisa():
-    soltos, posts, _ = _preparar()
-    c.anotar_falha("gestor", "algo inédito")
-    c.cmd_hermes_vigia(None, c.ler_config())            # Ollama não existe aqui -> avisar, nunca inventa ação
-    assert soltos == [] and "precisa do Bruno" in posts[0]["texto"]
+def test_erro_sem_conserto_vira_card_urgente_na_hora():
+    soltos, posts, cards = _preparar()
+    erro = "conferência: no Gestor Seller o custo de ARMAF-MEGA-200 não bateu com a planilha (48.00); a tela mostra: X"
+    c.anotar_falha("gestor", erro)
+    c.cmd_hermes_vigia(None, c.ler_config())            # Ollama não existe aqui -> sem conserto: card urgente, não o Bruno
+    assert soltos == [] and "URGENTE" in posts[0]["texto"] and "precisa do Bruno" not in posts[0]["texto"]
+    assert len(cards) == 1 and cards[0]["prioridade"] == "urgente"
+    c.anotar_falha("gestor", erro.replace("48.00", "49.00"))
+    c.cmd_hermes_vigia(None, c.ler_config())            # mesmo erro de novo: não duplica o card
+    assert len(cards) == 1 and "já está aberto" in posts[-1]["texto"]
+
+
+def test_erro_que_ja_tem_solucao_mostra_a_solucao():
+    soltos, posts, cards = _preparar()
+    erro = "conferência: no Gestor Seller o custo de ARMAF-MEGA-200 não bateu com a planilha (48.00); a tela mostra: X"
+    SABER.append({"titulo": "Solução: gestor falhando — " + c.assinatura_erro(erro),
+                  "texto": "Causa: a lista do Gestor é de blocos (div). Solução: _linha_do_sku no coletor.py."})
+    c.anotar_falha("gestor", erro)
+    c.cmd_hermes_vigia(None, c.ler_config())
+    assert "Já vimos esse erro antes" in posts[0]["texto"] and "_linha_do_sku" in posts[0]["texto"]
+    assert "_linha_do_sku" in cards[0]["descricao"]      # o programador recebe a solução antiga no card
+
+
+def test_assinatura_ignora_numeros_e_detalhes():
+    a = c.assinatura_erro("custo de X não bateu (48.00); a tela mostra: Y. [sku=1 etapa=2]")
+    assert a == c.assinatura_erro("custo de X não bateu (51.30); a tela mostra: Y. [sku=9 etapa=3]")
+    assert "48" not in a and "[" not in a
 
 
 def test_download_perdido_baixa_pelo_link():

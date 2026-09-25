@@ -866,7 +866,8 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"ok": True})
         if rota == "reuniao_tarefa_salvar" and metodo == "POST":
             d = json.loads(corpo or b"{}")
-            reg = {k: d[k] for k in ("titulo", "descricao", "status", "prioridade", "area", "notas", "tipo") if k in d}
+            reg = {k: d[k] for k in ("titulo", "descricao", "status", "prioridade", "area", "notas", "tipo", "responsavel", "risco")
+                   if k in d}
             if "status" in reg and reg["status"] not in reuniao.STATUS:
                 raise ErroNuvem("Status inválido.")
             reg["atualizado_em"] = datetime.now(timezone.utc).isoformat()
@@ -884,8 +885,9 @@ def atender(metodo, rota, q, corpo, token):
             else:
                 if not str(reg.get("titulo") or "").strip():
                     raise ErroNuvem("Dê um título para a tarefa.")
-                reg.update(proposto_por="voce", decidido_por="voce")
-                repo._req("POST", "reuniao_tarefas", corpo=[reg], prefer="return=minimal")
+                reg.update(proposto_por=str(d.get("autor") or "voce")[:40], decidido_por="voce")
+                novo = repo._req("POST", "reuniao_tarefas", corpo=[reg], prefer="return=representation") or [{}]
+                return _json({"ok": True, "id": novo[0].get("id")})
             return _json({"ok": True})
 
         if rota == "auditoria":
@@ -2123,8 +2125,8 @@ def rodar_rotinas(repo, so=None):
                 res = reg["resumo"]
             elif rid == "design":
                 partes = []
-                for nome_, f_ in (("especialistas", especificar_cards), ("modelo", completar_modelos), ("distribuição", distribuir_cards),
-                                  ("agentes", trabalhar_agentes)):
+                for nome_, f_ in (("memória", memorizar_solucoes), ("especialistas", especificar_cards),
+                                  ("modelo", completar_modelos), ("distribuição", distribuir_cards), ("agentes", trabalhar_agentes)):
                     try:
                         r_ = f_(repo)
                     except Exception as e:  # noqa: BLE001
@@ -2675,6 +2677,30 @@ def card_pronto(descricao):
     faltando = [nome for nome, _ in CARD_MODELO
                 if not secoes.get(nome) or re.fullmatch(r"\[.*\]", secoes[nome].strip())]
     return not faltando, faltando
+
+
+def memorizar_solucoes(repo):
+    """Pedido do Bruno (25/09): cada erro do coletor resolvido (card 🩺 fechado) vira uma 'Solução' fixa na caixa de
+    conhecimento, com causa e correção. Se o erro voltar, o Hermes acha a solução pelo jeito do erro e já mostra na Sala."""
+    cards = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,notas,relatorio", "status": "eq.feita",
+                                                 "titulo": "like.🩺*", "order": "id.desc", "limit": 20}) or []
+    feitos = []
+    for t in cards:
+        fonte = f"card #{t['id']}"
+        if repo._req("GET", "conhecimento", {"select": "id", "fonte": repo._eq(fonte), "limit": 1}):
+            continue
+        rel = t.get("relatorio") or t.get("notas") or ""
+        if not rel.strip():
+            continue
+        partes = {k: v.strip() for k, v in re.findall(r"##\s*(Causa|Solu[cç][aã]o|O que foi feito)\s*\n(.*?)(?=\n##|\Z)", rel, re.S | re.I)}
+        corpo = "\n".join(f"{k}: {v[:900]}" for k, v in partes.items()) or rel[:1800]
+        repo._req("POST", "conhecimento", corpo=[{
+            "tipo": "solucao", "titulo": "Solução: " + t["titulo"].replace("🩺 Coletor: ", "").strip()[:150],
+            "texto": f"{corpo}\n(card #{t['id']}; se o erro voltar, confira se a correção ainda está no coletor.py)",
+            "autor": "Hermes", "fonte": fonte, "fixo": True, "atualizado_em": datetime.now(timezone.utc).isoformat()}],
+            prefer="return=minimal")
+        feitos.append(f"#{t['id']}")
+    return "soluções guardadas: " + ", ".join(feitos) if feitos else ""
 
 
 def completar_modelos(repo, limite=4):
