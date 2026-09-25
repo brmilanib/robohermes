@@ -76,14 +76,44 @@ SEMENTE = {
 }
 
 
-def _indice():
-    idx = {}
+# Quando a mesma marca está na lista de mais de uma categoria (ex.: BOTTEGA VENETA em Alta
+# perfumaria e em Designer), quem decide é esta prioridade explícita — não a ordem em que a
+# categoria foi definida no dict SEMENTE acima. Precisa conter toda categoria de SEMENTE (senão
+# _indice() recusa montar o índice). As casas de luxo (Alta perfumaria) vêm antes de Designer e
+# Nicho de propósito, mesmo aparecendo nas duas listas; Designer vem antes de Importados low
+# ticket pela mesma razão (ex.: JEANNE ARTHES).
+PRIORIDADE_CATEGORIA = ["Alta perfumaria", "Designer", "Nicho", "Árabe", "Nacional", "Importados low ticket", "Outros"]
+
+
+def _pertence():
+    """chave (marca compactada) -> conjunto das categorias que citam essa marca em SEMENTE."""
+    pertence = {}
     for cat, texto in SEMENTE.items():
         for m in texto.split(","):
             m = m.strip()
             if m:
-                idx.setdefault(nubi.compacta(m), cat)
-    return idx
+                pertence.setdefault(nubi.compacta(m), set()).add(cat)
+    return pertence
+
+
+def _indice(sementes=None):
+    """chave -> categoria vencedora pela PRIORIDADE_CATEGORIA, nunca pela ordem de SEMENTE:
+    reordenar o dict SEMENTE não muda nenhum resultado de classificar()."""
+    faltando = set(SEMENTE) - set(PRIORIDADE_CATEGORIA)
+    if faltando:
+        raise ValueError(f"Categoria sem prioridade definida em PRIORIDADE_CATEGORIA: {faltando}")
+    pertence = sementes if sementes is not None else _pertence()
+    return {chave: min(cats, key=PRIORIDADE_CATEGORIA.index) for chave, cats in pertence.items()}
+
+
+def conflitos():
+    """Marcas citadas em mais de uma categoria de SEMENTE: (marca, categoria vencedora, todas as categorias)."""
+    saida = []
+    for chave, cats in sorted(_pertence().items()):
+        if len(cats) > 1:
+            vencedora = min(cats, key=PRIORIDADE_CATEGORIA.index)
+            saida.append((chave, vencedora, sorted(cats, key=PRIORIDADE_CATEGORIA.index)))
+    return saida
 
 
 INDICE = _indice()
