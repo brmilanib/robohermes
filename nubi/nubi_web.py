@@ -497,7 +497,7 @@ def _preparar(repo):
 # ---------------------------------------------------------------------------
 
 AGENTE_EMAIL = os.environ.get("NUBI_AGENTE_EMAIL", "")
-AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)")   # modelos grátis que rodam no Mac mini (Ollama)
+AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)")   # modelos grátis que rodam no Mac mini (Ollama)
 AGENTE_SENHA = os.environ.get("NUBI_AGENTE_SENHA", "")
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 TEMPO_MAX = 240          # segundos por rodada (a função da Vercel tem 300)
@@ -771,13 +771,13 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem(f"Autor não permitido: {autor or '?'}.")
             if not texto:
                 raise ErroNuvem("Mensagem vazia.")
-            aid = {"Hermes": "hermes", "Qwen (revisor)": "qwen"}.get(autor)
+            aid = {"Hermes": "hermes", "Qwen (revisor)": "qwen", "Ferreiro (Claude no Mac)": "claude_mac"}.get(autor)
             if aid:
                 agora_ = datetime.now(timezone.utc).isoformat()
                 try:
                     repo._req("POST", "agentes_uso", corpo=[{
                         "agente": aid, "modelo": str(d.get("modelo") or "")[:60], "origem": "sala (Mac)",
-                        "inicio": d.get("inicio") or agora_, "fim": agora_, "ok": True, "custo_usd": 0,
+                        "inicio": d.get("inicio") or agora_, "fim": agora_, "ok": True, "custo_usd": float(d.get("custo_usd") or 0),
                         "tokens_in": int(d.get("tokens_in") or 0), "tokens_out": int(d.get("tokens_out") or 0)}],
                         prefer="return=minimal")
                     if str(d.get("apelido") or "").strip():
@@ -836,6 +836,23 @@ def atender(metodo, rota, q, corpo, token):
             if autor not in AGENTES_MAC:
                 raise ErroNuvem("Autor não permitido.")
             return _json({"ok": True, "resultado": entregar_card(repo, int(d.get("id") or 0), autor, str(d.get("texto") or ""))})
+        if rota == "tarefa_mac_passo" and metodo == "POST":
+            # o Ferreiro (Claude Code no Mac mini, pela API) registra o trabalho no card: começou (em_desenvolvimento),
+            # passo, e entregou num branch (em_teste, o Chefe revisa, junta e publica). Nunca fecha nem publica.
+            d = json.loads(corpo or b"{}")
+            tid, tipo = int(d.get("id") or 0), str(d.get("tipo") or "passo")
+            if not tid or tipo not in ("passo", "erro_teste", "relatorio"):
+                raise ErroNuvem("Card ou tipo inválido.")
+            _evento(repo, tid, "claude_mac", str(d.get("texto") or "")[:7500], tipo=tipo)
+            reg = {"atualizado_em": datetime.now(timezone.utc).isoformat()}
+            if d.get("status") == "em_desenvolvimento":
+                reg.update(status="em_desenvolvimento", responsavel="claude_mac", iniciado_em=reg["atualizado_em"])
+            elif d.get("status") == "em_teste":
+                reg.update(status="em_teste", responsavel="claude_mac", testador="claude_code")
+            elif d.get("status") == "aprovada":           # não conseguiu: devolve para o programador-chefe
+                reg.update(status="aprovada", responsavel="claude_code")
+            repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo=reg, prefer="return=minimal")
+            return _json({"ok": True})
         if rota == "tarefa_responder" and metodo == "POST":
             # o dono responde ao agente dentro do card (aprovar, recusar ou escrever)
             d = json.loads(corpo or b"{}")
@@ -2227,7 +2244,7 @@ def rotina_8h(repo):
 AGENTE_QUAL = {"chatgpt": "codex", "deepseek": "deepseek", "gptoss": "ollama", "claude": "claude", "astra": "chatgpt"}   # testáveis daqui
 AGENTE_MODELO = {"deepseek": "pro", "astra": "gpt-6-astra"}
 AGENTE_AUTOR = {"chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss", "claude": "Claude", "astra": "Astra (design)", "qwen": "Qwen (revisor)",
-                "hermes": "Hermes", "claude_code": "Claude (código)"}
+                "hermes": "Hermes", "claude_code": "Claude (código)", "claude_mac": "Ferreiro", "copilot": "Copilot"}
 
 
 def _precos(repo):
@@ -2302,7 +2319,8 @@ def _agentes_painel(repo):
             "modelo_atual": next((x["modelo"] for x in reversed(u) if x.get("modelo") and x.get("ok")), None),
             "ultima_atividade": ultima or None, "chave": chave, "testavel": bool(qual),
             "status": "executando" if rodando else "sem chave" if chave is False else "com erro" if erros
-            else "ativo" if qual or (ultima and ultima > (agora - timedelta(hours=24)).isoformat()) else "parado"})
+            else "ativo" if qual or (ultima and ultima > (agora - timedelta(hours=24)).isoformat()) else "parado",
+            "perfil": agentes.PERFIS.get(a["id"])})
     return {"agentes": ags, "precos": sorted(_precos(repo).values(), key=lambda p: p["modelo"])}
 
 
@@ -2907,6 +2925,8 @@ COMANDOS_MAC = {
     "entrar_auto_nubimetrics": "Entrar sozinho no Nubimetrics",
     "entrar_auto_upseller": "Entrar sozinho no UpSeller (com o código do e-mail)",
     "entrar_auto_gestor": "Entrar sozinho no Gestor Seller",
+    "ferreiro_status": "Ferreiro: conferir se está pronto (Claude Code, chave e git no Mac)",
+    "programar_card": "Ferreiro programar um card agora (número do card)",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 

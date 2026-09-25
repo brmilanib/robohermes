@@ -40,6 +40,7 @@ import os
 import random
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -1812,6 +1813,7 @@ def comando_mac(chave, arg=""):
         "entrar": [c, "entrar"], "entrar_upseller": [c, "entrar-upseller"], "entrar_gestor": [c, "entrar-gestor"],
         "entrar_auto_nubimetrics": [c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [c, "entrar-auto", "upseller"],
         "entrar_auto_gestor": [c, "entrar-auto", "gestor"],
+        "ferreiro_status": [c, "programar", "0"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -1822,6 +1824,8 @@ def comando_mac(chave, arg=""):
         return [ol, "pull", arg] if arg in MODELOS_OK else None
     if chave == "hermes_card":
         return [c, "hermes-card", arg] if str(arg).isdigit() else None
+    if chave == "programar_card":
+        return [c, "programar", arg] if str(arg).isdigit() else None
     return tabela.get(chave)
 
 
@@ -1920,7 +1924,8 @@ def _soltar(cmd, env=None):
     """Roda a tarefa (coleta, estoque, Gestor) SEPARADA do vigia: antes o vigia virava a coleta (execv) e, enquanto ela
     durava (horas), o launchd não chamava o vigia de novo — o despachante (Central, cards, Hermes) ficava parado."""
     with open(PASTA / "vigia.log", "a") as saida:
-        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), cmd], stdout=saida, stderr=subprocess.STDOUT,
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), *([cmd] if isinstance(cmd, str) else cmd)],
+                         stdout=saida, stderr=subprocess.STDOUT,
                          stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(PASTA),
                          env={**os.environ, **env} if env else None)
     return 0
@@ -2162,6 +2167,156 @@ def cmd_hermes_card(args, cfg):
 
 
 # ---------------------------------------------------------------------------
+# Ferreiro: Claude Code no Mac mini, pela API da Anthropic (pedido do Bruno, 25/09). Programador de plantão: o Hermes
+# chama na hora quando abre um card 🩺 urgente. Trabalha num clone do projeto no Mac, roda os testes e envia num branch
+# próprio (ferreiro/card-N); o Chefe (Claude Code do plano) revisa, junta e publica. Teto de US$ 10 por dia.
+# A chave da API fica só no Chaveiro do Mac (coletor guardar-senha anthropic), digitada pelo Bruno.
+# ---------------------------------------------------------------------------
+
+REPO_GIT = "https://github.com/brmilanib/robohermes.git"
+BRANCH_NUBI = "claude/wizardly-ritchie-5fig5i"
+FERREIRO_TETO_DIA = float(os.environ.get("NUBI_FERREIRO_TETO", "10"))
+FERREIRO_MODELO = os.environ.get("NUBI_FERREIRO_MODELO", "claude-opus-5-5")
+FERREIRO_AUTOR = "Ferreiro (Claude no Mac)"
+
+
+def _claude_bin():
+    for c in (shutil.which("claude"), str(Path.home() / ".claude" / "local" / "claude"), "/opt/homebrew/bin/claude",
+              "/usr/local/bin/claude", str(Path.home() / ".local" / "bin" / "claude")):
+        if c and Path(c).exists():
+            return c
+    return None
+
+
+def ferreiro_pronto(cfg=None):
+    """(pronto, motivo): tem o Claude Code instalado, a chave no Chaveiro e o git?"""
+    if not _claude_bin():
+        return False, "Claude Code não instalado no Mac (npm install -g @anthropic-ai/claude-code)"
+    if not _credencial("anthropic", cfg)[1]:
+        return False, "chave da API não guardada (coletor guardar-senha anthropic)"
+    if not shutil.which("git"):
+        return False, "git não instalado"
+    return True, ""
+
+
+def _gasto_ferreiro(cfg, somar=0.0):
+    hoje = date.today().isoformat()
+    g = {k: v for k, v in (cfg.get("ferreiro_gasto") or {}).items() if k == hoje}
+    if somar:
+        g[hoje] = round(g.get(hoje, 0.0) + somar, 4)
+        cfg["ferreiro_gasto"] = g
+        salvar_config(cfg)
+    return g.get(hoje, 0.0)
+
+
+def _git(pasta, *args, timeout=300):
+    return subprocess.run(["git", *args], cwd=str(pasta), capture_output=True, text=True, timeout=timeout)
+
+
+def _passo_card(token, tid, texto, status=None, tipo="passo"):
+    try:
+        api(token, "tarefa_mac_passo", corpo={"id": tid, "texto": texto, "tipo": tipo, **({"status": status} if status else {})},
+            metodo="POST", timeout=60)
+    except Exception as e:  # noqa: BLE001
+        print(f"ferreiro: não escrevi no card ({e})", flush=True)
+
+
+def cmd_programar(args, cfg):
+    """O Ferreiro pega o card N, corrige no clone do projeto, testa e envia num branch para o Chefe revisar e publicar."""
+    trava = PASTA / "ferreiro.pid"
+    if _pid_vivo(trava):
+        print("O Ferreiro já está trabalhando em outro card.")
+        return 1
+    ok, motivo = ferreiro_pronto(cfg)
+    gasto = _gasto_ferreiro(cfg)
+    if str(args.id) == "0":                               # só conferir (comando "Ferreiro: conferir" da Central)
+        print(("✅ Ferreiro pronto" if ok else f"❌ Ferreiro indisponível: {motivo}")
+              + f" · gasto hoje US$ {gasto:.2f} de {FERREIRO_TETO_DIA:.0f} · modelo {FERREIRO_MODELO}")
+        return 0 if ok else 1
+    if not ok:
+        print(f"Ferreiro indisponível: {motivo}")
+        return 1
+    if gasto >= FERREIRO_TETO_DIA:
+        print(f"Teto do dia atingido (US$ {gasto:.2f} de {FERREIRO_TETO_DIA:.0f}); o card fica para o Chefe.")
+        return 1
+    trava.write_text(str(os.getpid()))
+    token = token_nubi(cfg)
+    tid = int(args.id)
+    try:
+        x = api(token, "tarefa_eventos", {"id": tid}, timeout=60)
+        t, evs = x["tarefa"], x.get("eventos") or []
+        repo = PASTA / "projeto"
+        if not (repo / ".git").exists():
+            r = subprocess.run(["git", "clone", "--branch", BRANCH_NUBI, REPO_GIT, str(repo)], capture_output=True, text=True, timeout=900)
+            if r.returncode:
+                raise Falha("não consegui clonar o projeto: " + (r.stderr or r.stdout)[-300:])
+        _git(repo, "fetch", "origin", BRANCH_NUBI)
+        _git(repo, "checkout", "-B", f"ferreiro/card-{tid}", f"origin/{BRANCH_NUBI}")
+        _passo_card(token, tid, f"🔨 Ferreiro (Claude Code no Mac) pegou o card na hora. Trabalhando no branch ferreiro/card-{tid}.",
+                    "em_desenvolvimento")
+        historico = "\n".join(f"[{e['autor']}] {e['texto'][:1500]}" for e in evs[-12:])
+        pedido = (
+            f"Você é o Ferreiro, programador de plantão do nubi rodando no Mac mini. Leia nubi/CLAUDE.md antes. Corrija o card "
+            f"#{tid} abaixo com a MENOR mudança possível, no estilo do código em volta.\n\nCARD #{tid}: {t['titulo']}\n"
+            f"{t.get('descricao') or ''}\n\nHISTÓRICO DO CARD:\n{historico}\n\n"
+            "Regras: reproduza o problema com um teste em nubi/testes/ (página falsa, como os testes do coletor; nunca os sites "
+            "reais), corrija, rode TODOS os nubi/testes/test_*.py e python3 nubi/testes/fumaca.py até passar. Faça UM commit em "
+            "português explicando a causa e a solução. NÃO faça push, NÃO publique, NÃO mexa em senhas, chaves, no banco nem no "
+            "Branch Tracking. No fim, responda com um relatório curto em markdown com as seções ## Causa, ## Solução e ## Testes.")
+        env = {**os.environ, "ANTHROPIC_API_KEY": _credencial("anthropic", cfg)[1]}
+        print(f"Ferreiro trabalhando no card #{tid}…", flush=True)
+        r = subprocess.run([_claude_bin(), "-p", pedido, "--output-format", "json", "--model", FERREIRO_MODELO,
+                            "--max-turns", "60", "--permission-mode", "acceptEdits",
+                            "--allowedTools", "Read,Edit,Write,Glob,Grep,Bash(python3:*),Bash(git status:*),Bash(git diff:*),"
+                                              "Bash(git add:*),Bash(git commit:*),Bash(git log:*),Bash(ls:*),Bash(node:*)"],
+                           cwd=str(repo), env=env, capture_output=True, text=True, timeout=3600)
+        try:
+            saida = json.loads(r.stdout or "{}")
+        except ValueError:
+            saida = {"result": (r.stdout or r.stderr or "")[-3000:]}
+        custo = float(saida.get("total_cost_usd") or saida.get("cost_usd") or 0)
+        _gasto_ferreiro(cfg, custo)
+        relatorio = str(saida.get("result") or "").strip()
+        novos = _git(repo, "rev-list", "--count", f"origin/{BRANCH_NUBI}..HEAD").stdout.strip()
+        testes = subprocess.run(["/bin/sh", "-c", "set -e; for f in nubi/testes/test_*.py; do python3 \"$f\" >/dev/null; done; "
+                                 "python3 nubi/testes/fumaca.py >/dev/null"], cwd=str(repo), capture_output=True, text=True,
+                                timeout=1800)
+        if r.returncode or novos in ("", "0") or testes.returncode:
+            motivo = ("o Claude Code parou com erro" if r.returncode else "nenhum commit" if novos in ("", "0")
+                      else "os testes não passaram no Mac")
+            _passo_card(token, tid, f"⚠️ Ferreiro não conseguiu fechar ({motivo}; custo US$ {custo:.2f}). Volta para o Chefe.\n\n"
+                        + (relatorio[:4000] or (testes.stdout + testes.stderr)[-1500:]), "aprovada", tipo="erro_teste")
+            _postar_hermes_como(token, FERREIRO_AUTOR, f"⚠️ Card #{tid}: não consegui fechar ({motivo}). Devolvi para o Chefe.", custo)
+            return 1
+        env_push = _git(repo, "push", "-f", "origin", f"ferreiro/card-{tid}")
+        if env_push.returncode:
+            _passo_card(token, tid, "⚠️ Ferreiro corrigiu, mas não conseguiu enviar o branch para o GitHub (login do GitHub no Mac: "
+                        "gh auth login). Volta para o Chefe.\n\n" + relatorio[:4000], "aprovada", tipo="erro_teste")
+            return 1
+        _passo_card(token, tid, f"📦 **Entrega do Ferreiro** (branch `ferreiro/card-{tid}`, {novos} commit(s), testes do Mac ✅, "
+                    f"custo US$ {custo:.2f}). O Chefe revisa, junta e publica.\n\n{relatorio[:6000]}", "em_teste")
+        _postar_hermes_como(token, FERREIRO_AUTOR, f"🔨 Card #{tid} corrigido no branch ferreiro/card-{tid} (testes ✅, US$ {custo:.2f}). "
+                                                    "Chefe: revisar, juntar e publicar.", custo)
+        return 0
+    except Exception as e:  # noqa: BLE001
+        _passo_card(token, tid, f"⚠️ Ferreiro parou: {str(e)[:300]}. Volta para o Chefe.", "aprovada", tipo="erro_teste")
+        return 1
+    finally:
+        try:
+            trava.unlink()
+        except OSError:
+            pass
+
+
+def _postar_hermes_como(token, autor, texto, custo=0.0):
+    try:
+        api(token, "reuniao_postar", corpo={"autor": autor, "texto": texto, "modelo": FERREIRO_MODELO, "tokens_in": 0,
+                                             "tokens_out": 0, "custo_usd": custo}, metodo="POST", timeout=60)
+    except Exception as e:  # noqa: BLE001
+        print(f"não postei na Sala ({e})", flush=True)
+
+
+# ---------------------------------------------------------------------------
 # Conversar com o Hermes no Terminal do Mac (pedido do Bruno, 25/09): chat ao vivo com o modelo local, com o contexto do
 # projeto (briefing, Sala, coletas, quadro, caixa de conhecimento, log do vigia). No fim, o resumo vai para a caixa.
 # ---------------------------------------------------------------------------
@@ -2322,12 +2477,14 @@ def _credencial(site, cfg=None):
 def cmd_guardar_senha(args, cfg):
     """O Bruno guarda (uma vez, no próprio Mac) o login de um site no Chaveiro, para o coletor entrar sozinho."""
     site = args.site
-    nome = "Gmail (código do UpSeller)" if site == "gmail" else LOGIN_SITES[site][0]
+    nome = {"gmail": "Gmail (código do UpSeller)", "anthropic": "Anthropic (chave da API do Ferreiro)"}.get(site) or LOGIN_SITES[site][0]
     if sys.platform != "darwin":
         print("Só funciona no Mac (Chaveiro).")
         return 1
     usuario = input(f"E-mail/usuário do {nome}: ").strip()
-    if site == "gmail":
+    if site == "anthropic":
+        senha = getpass.getpass("Chave da API (Console → Chaves de API → criar 'Ferreiro Mac'; começa com sk-ant-): ").strip()
+    elif site == "gmail":
         senha = getpass.getpass("Senha de APP do Google (myaccount.google.com → Segurança → Senhas de app; "
                                 "16 letras, NÃO é a senha normal): ").replace(" ", "")
     else:
@@ -2720,6 +2877,9 @@ def _hermes_vigia(cfg):
                       else "O Hermes não tem conserto automático para este erro.")
             cid, novo = _abrir_card_erro(token, tarefa, f, diag, motivo, conhecida)
             ref = f"#{cid}" if cid else ""
+            if novo and cid and ferreiro_pronto(cfg)[0]:
+                _soltar(["programar", str(cid)])            # o Ferreiro (Claude Code no Mac) começa na hora
+                texto += f"🔨 Chamei o Ferreiro (Claude Code no Mac) para atacar o card {ref} agora. "
             texto += (f"🚨 **URGENTE**: {motivo} Abri o card urgente {ref} para o time de programação (Claude Code, Copilot, "
                       "Codex) resolver agora; o plantão pega na próxima hora. Quando sair a correção, eu rodo a tarefa de novo "
                       "e guardo a solução na caixa de conhecimento." if novo else
@@ -2930,7 +3090,9 @@ def main():
     cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
     cv.add_argument("--modelo", default=None)
     gsn = sub.add_parser("guardar-senha", help="guarda no Chaveiro do Mac o login de um site (para o coletor entrar sozinho)")
-    gsn.add_argument("site", choices=["nubimetrics", "upseller", "gestor", "gmail"])
+    gsn.add_argument("site", choices=["nubimetrics", "upseller", "gestor", "gmail", "anthropic"])
+    pgr = sub.add_parser("programar", help="o Ferreiro (Claude Code no Mac, pela API) corrige o card N e envia num branch")
+    pgr.add_argument("id")
     ea = sub.add_parser("entrar-auto", help="entra sozinho no site (senha do navegador/Chaveiro, código do e-mail)")
     ea.add_argument("site", choices=["nubimetrics", "upseller", "gestor"])
     gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
@@ -2968,6 +3130,8 @@ def main():
         return cmd_guardar_senha(args, cfg)
     if args.cmd == "conversar":
         return cmd_conversar(args, cfg)
+    if args.cmd == "programar":
+        return cmd_programar(args, cfg)
     if args.cmd == "repetir-falhas":
         return cmd_repetir_falhas(args, cfg)
     if args.cmd == "entrar-auto":

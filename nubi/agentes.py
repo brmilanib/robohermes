@@ -60,7 +60,11 @@ especifica os cards de design (o programador automático, Claude Code, pega card
    testa a entrega. O Claude coordenador aprova risco baixo/médio; risco alto espera o Bruno.
    O Hermes é o vigia de erros 24 h no Mac: quando uma tarefa do coletor falha, ele diagnostica e conserta sozinho o que é
    simples (navegador, perfil travado, downloads, rede) e tenta de novo (máx. 2 por dia); login vencido: entra sozinho (senha salva no Mac, código do UpSeller no Gmail) ou abre a janela para o Bruno; depois
-   abre card para o programador. Ele relata na Sala.
+   abre card 🩺 URGENTE para o programador e chama o Ferreiro. Ele relata na Sala.
+   O time de programação: o programador-chefe (Claude Code do plano, apelido "Chefe", o único que publica), o Ferreiro
+   (Claude Code no Mac mini pela API da Anthropic, plantão dos cards urgentes, entrega em branch, teto US$ 10/dia) e o
+   GitHub Copilot (telas pequenas). A aba Agentes da Central tem o perfil completo de cada agente (função, modelo, o que
+   pode e o que não pode).
 6. O intervalo do programador automático é configurado pelo Bruno em claude.ai → Code → Rotinas ("Programador do nubi");
    ele usa a cota do plano do Claude do Bruno (não a API). Não invente arquivos de configuração, campos ou comandos.
 
@@ -97,6 +101,87 @@ AGENTES = {
                        "primeiro), acessível e consistente. Seja concreto: diga a tela, o componente, o que mudar e por "
                        "quê, em ordem de impacto."},
 }
+# Perfil completo de cada agente (aba Agentes, pedido do Bruno em 25/09): função, modelo, como trabalha, o que pode e o
+# que não pode. Mudou o time? Atualize aqui e o SISTEMA acima.
+PERFIS = {
+    "claude": {
+        "funcao": "Coordenador (gerente de projeto): coordena a Sala, escolhe a melhor resposta, aprova tarefas de risco "
+                  "baixo/médio, distribui os cards, testa as entregas dos agentes de texto e responde quando o Bruno escreve num card.",
+        "modelo": "claude-opus-5-5 pela API da Anthropic (créditos do Console)",
+        "como": "Roda no servidor do nubi (Vercel) nas rotinas de hora em hora (time/design) e na hora, quando alguém fala com ele.",
+        "pode": ["Aprovar cards de risco baixo e médio", "Escolher o responsável de cada card", "Preencher os 4 itens dos cards",
+                 "Pedir ao Mac um comando da lista fechada", "Juntar nomes de marcas com confiança alta"],
+        "nao_pode": ["Escrever ou publicar código", "Aprovar risco alto (vai para o Bruno)", "Mexer em senhas ou chaves"]},
+    "claude_code": {
+        "funcao": "Programador-chefe e integrador (apelido: Chefe): programa, testa, revisa o código de todos e é o ÚNICO que publica.",
+        "modelo": "Claude Code no plano do claude.ai (cota do plano, não os créditos da API)",
+        "como": "Rotina 'Programador do nubi' de hora em hora (aos :40) + as sessões com o Bruno. Card 🩺 urgente primeiro, até 3 cards "
+                "por rodada, sempre com revisor independente e relatório no card.",
+        "pode": ["Programar servidor, telas, coletor e testes", "Publicar na Vercel", "Revisar e juntar o código do Copilot e do Ferreiro",
+                 "Fechar cards com relatório"],
+        "nao_pode": ["Risco alto sem o Bruno", "Mudar a estrutura do banco sem aprovação", "Force push ou mexer no Branch Tracking"]},
+    "claude_mac": {
+        "funcao": "Programador de plantão no Mac mini (apelido: Ferreiro): ataca NA HORA o card 🩺 urgente que o Hermes abre quando o "
+                  "coletor quebra e ele não consegue consertar.",
+        "modelo": "Claude Code pela API da Anthropic (créditos do Console; aparece em Console → Claude Code → Uso)",
+        "como": "O Hermes chama (coletor programar N); ele lê o card, corrige no clone do projeto no Mac, roda os testes e envia num "
+                "branch próprio (ferreiro/card-N). O Chefe revisa, junta e publica. Teto de US$ 10 por dia.",
+        "pode": ["Mexer no código do projeto no Mac e rodar os testes", "Enviar um branch ferreiro/card-N para o GitHub",
+                 "Escrever os passos no card"],
+        "nao_pode": ["Publicar na Vercel", "Enviar para a branch principal", "Passar do teto de US$ 10/dia",
+                     "Mexer em senhas, chaves ou no banco"]},
+    "copilot": {
+        "funcao": "Programador de telas (GitHub Copilot): cards pequenos de tela, de risco baixo, bem especificados.",
+        "modelo": "GitHub Copilot (agente do GitHub, assinatura Copilot Pro)",
+        "como": "O coordenador marca o card para o Copilot; o Chefe abre a tarefa no GitHub; o Copilot programa e abre um pull request; "
+                "os testes do GitHub rodam; o Chefe revisa, junta e publica.",
+        "pode": ["Mudar só nubi/public (tela)", "Abrir pull request"],
+        "nao_pode": ["Servidor, banco, coletor ou números", "Publicar", "Risco médio ou alto"]},
+    "chatgpt": {
+        "funcao": "Engenheiro de dados e de código por texto: confere números, acha a causa de diferenças, resumos, auditoria de código, "
+                  "marcas em lote e produtos iguais.",
+        "modelo": "gpt-5.3-codex (e gpt-4.1 nos resumos) pela API da OpenAI",
+        "como": "Opina na Sala, faz os cards de texto dele e roda nas rotinas de resumo, marcas e produtos.",
+        "pode": ["Propor a correção exata no código", "Entregar análises e documentação"],
+        "nao_pode": ["Mexer direto no código ou no banco", "Publicar"]},
+    "deepseek": {
+        "funcao": "Matemático e revisor: contas, totais, casos de borda, desempenho e custo; escreve o Plano técnico dos cards de dados.",
+        "modelo": "deepseek-v4-pro (e flash nas tarefas simples) pela API da DeepSeek",
+        "como": "De hora em hora escreve o Plano técnico dos cards de dados; opina na Sala; revisa números.",
+        "pode": ["Escrever planos e testes em texto", "Apontar riscos nos números"],
+        "nao_pode": ["Mexer no código ou no banco", "Publicar"]},
+    "astra": {
+        "funcao": "Designer de produto e UX: escreve a Especificação de design dos cards de tela e confere o visual depois.",
+        "modelo": "gpt-6-astra pela API da OpenAI (o mais caro: entra na Sala só quando citado, @astra)",
+        "como": "De hora em hora especifica os cards de tela aprovados; responde quando chamado na Sala.",
+        "pode": ["Especificar telas, layout e critérios de pronto"],
+        "nao_pode": ["Programar", "Publicar"]},
+    "gptoss": {
+        "funcao": "Segunda opinião barata: caminhos mais simples, escala e planos passo a passo.",
+        "modelo": "gpt-oss:120b no Ollama Cloud (cota grátis)",
+        "como": "Opina na Sala e faz cards de texto quando é o responsável.",
+        "pode": ["Opinar e entregar textos"], "nao_pode": ["Mexer no código", "Publicar"]},
+    "hermes": {
+        "funcao": "Vigia de erros 24 h, memória e documentação: conserta o simples no Mac, abre card 🩺 urgente no que não consegue e "
+                  "guarda as soluções na caixa de conhecimento.",
+        "modelo": "hermes3:8b no Ollama do Mac mini (grátis)",
+        "como": "O vigia do Mac chama ele no minuto seguinte a qualquer falha; roda de novo o que falhou quando sai versão nova; "
+                "conversa com o Bruno no Terminal (coletor conversar).",
+        "pode": ["Rodar de novo, abrir navegador visível, destravar o Chrome, limpar downloads velhos", "Entrar sozinho nos sites "
+                 "(senha salva no Mac)", "Abrir card urgente e chamar o Ferreiro"],
+        "nao_pode": ["Escrever código", "Ver ou mandar senhas para fora do Mac", "Publicar"]},
+    "qwen": {
+        "funcao": "Revisor do Hermes: confere memória e caixas (duplicados, contradições, pacotes fora da lista).",
+        "modelo": "qwen3:8b no Ollama do Mac mini (grátis)",
+        "como": "Responde quando chamado na Sala (@qwen) e na reunião diária.",
+        "pode": ["Revisar e apontar problemas"], "nao_pode": ["Mexer no código", "Publicar"]},
+    "estoquista": {
+        "funcao": "Analisa cada atualização do estoque do UpSeller: o que entrou, saiu, zerou, estoque baixo e sem custo.",
+        "modelo": "gpt-oss grátis (DeepSeek e Claude de reserva)",
+        "como": "Roda sozinho a cada estoque importado (madrugada, 00:30).",
+        "pode": ["Escrever a análise do estoque"], "nao_pode": ["Mudar dados do estoque"]},
+}
+
 # O Hermes roda no Mac mini (Ollama local) e posta pelo coletor ('coletor hermes'); não passa por aqui.
 COORDENADOR = {"nome": "Claude", "qual": "claude"}
 

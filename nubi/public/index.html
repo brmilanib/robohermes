@@ -409,6 +409,11 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .ag-papel{margin:2px 0;font-size:13px;color:var(--muted)}
 .ag-m{font-size:12.8px;font-variant-numeric:tabular-nums}
 .ag-m .l{display:inline-block;min-width:142px;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+.ag-perfil{margin:6px 0 4px;border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+.ag-perfil summary{cursor:pointer;font-size:12.5px;font-weight:600}
+.ag-perfil .ag-m{margin-top:6px;overflow-wrap:anywhere}
+.ag-perfil .ag-m .l{display:block;min-width:0}
+.ag-perfil ul{margin:2px 0 0;padding-left:18px}
 .ag-teste{font-size:12.5px;border-radius:8px;padding:7px 9px;background:var(--soft)}
 .ag-teste.no{background:var(--bad-bg,#fdecea)}
 .ag-bts{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
@@ -2490,6 +2495,13 @@ function agCard(a) {
         <div class="muted" style="font-size:12.5px">${esc(a.onde || "")}</div></div><div style="flex:1"></div>
       <span class="st ${st[0]} ${a.status === "executando" ? "ag-pulso" : ""}">${st[1]}</span></div>
     <p class="ag-papel">${esc(a.papel || "")}</p>
+    ${a.perfil ? `<details class="ag-perfil"><summary>📋 Perfil completo: função, modelo, o que pode e o que não pode</summary>
+      <div class="ag-m"><span class="l">Função</span>${esc(a.perfil.funcao)}</div>
+      <div class="ag-m"><span class="l">Modelo</span>${esc(a.perfil.modelo)}</div>
+      <div class="ag-m"><span class="l">Como trabalha</span>${esc(a.perfil.como)}</div>
+      <div class="ag-m"><span class="l">✅ Pode</span><ul>${a.perfil.pode.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
+      <div class="ag-m"><span class="l">⛔ Não pode</span><ul>${a.perfil.nao_pode.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
+    </details>` : ""}
     <div class="ag-m"><span class="l">Modelo</span>${a.modelo_atual ? `<code>${esc(a.modelo_atual)}</code>` : `<span class="muted">ainda sem uso registrado</span>`}</div>
     ${bloco("Hoje", a.hoje)}${bloco("No mês", a.mes)}
     ${a.sem_preco ? `<div class="ag-m muted" style="font-size:12px">⚠️ há chamadas de um modelo sem preço cadastrado (tabela de preços abaixo): o custo está incompleto.</div>` : ""}
@@ -2502,7 +2514,9 @@ function agCard(a) {
     <div class="ag-bts">
       ${a.testavel ? `<button class="btn small" data-testar="${esc(a.id)}">🔍 Testar versão</button>
         <button class="btn small" data-pedir="${esc(a.id)}">🎲 Deixar escolher apelido</button>` :
-        `<span class="muted" style="font-size:12px">${a.id === "hermes" ? "Testa no Mac: <code>~/.nubi-coletor/coletor hermes</code> (e escolhe o apelido na primeira vez)" : "Trabalha na sessão de código"}</span>`}
+        `<span class="muted" style="font-size:12px">${a.id === "hermes" ? "Testa no Mac: <code>~/.nubi-coletor/coletor hermes</code> (e escolhe o apelido na primeira vez)"
+          : a.id === "claude_mac" ? "Confere no Mac: <code>~/.nubi-coletor/coletor programar 0</code> (ou Central → Mac mini → Ferreiro: conferir)"
+          : a.id === "copilot" ? "Trabalha pelo GitHub (tarefa → pull request); o Chefe revisa e publica" : "Trabalha na sessão de código"}</span>`}
       <button class="btn small" data-apelido="${esc(a.id)}">✏️ Apelido</button></div>
   </div>`;
 }
@@ -2588,7 +2602,9 @@ async function telaTerminal(silencioso) {
         <pre class="mac-out">${esc(c.saida || (c.status === "pendente" ? "Esperando o Mac pegar o comando (até 1 minuto)…" : "sem saída ainda"))}</pre></details>`).join("")}</div>`
         : `<p class="muted">Nenhum comando ainda.</p>`}</div>`;
   main.querySelectorAll("[data-mac]").forEach(b => b.onclick = async () => {
-    const comando = b.dataset.mac, arg = comando === "baixar_modelo" ? $("#mac-mod").value : "";
+    const comando = b.dataset.mac;
+    let arg = comando === "baixar_modelo" ? $("#mac-mod").value : "";
+    if (comando === "programar_card") { arg = (prompt("Número do card para o Ferreiro programar:") || "").replace(/\D/g, ""); if (!arg) return; }
     try { const x = await api("mac_pedir", {}, {method: "POST", body: JSON.stringify({comando, arg})}); S.macAberto = x.id; toast("Pedido enviado ao Mac"); telaTerminal(true); }
     catch (e) { toast(e.message, 6000); }
   });
@@ -2698,7 +2714,7 @@ const DEV_COLS = [["proposta", "Propostas", "o Claude aprova as de risco baixo/m
   ["feita", "Feitas", "testadas, publicadas e com relatório"]];
 const AG_INFO = {claude_code: ["💻", "Claude (código)", "#b3541e"], claude: ["✴️", "Claude", "#d97757"], chatgpt: ["🧠", "ChatGPT", "#10a37f"],
   deepseek: ["🐋", "DeepSeek", "#4d6bfe"], gptoss: ["🦙", "gpt-oss", "#6b4fb3"], hermes: ["🪽", "Hermes", "#a2741a"], astra: ["🎨", "Astra", "#e0457b"],
-  qwen: ["🔎", "Qwen", "#615ced"], copilot: ["🐙", "Copilot", "#6e40c9"], revisor: ["🧪", "Revisor", "#7a5af8"],
+  qwen: ["🔎", "Qwen", "#615ced"], copilot: ["🐙", "Copilot", "#6e40c9"], claude_mac: ["🔨", "Ferreiro (Claude no Mac)", "#8a4b2a"], revisor: ["🧪", "Revisor", "#7a5af8"],
   voce: ["👤", "Você", "#00a884"], sistema: ["⚙️", "Sistema", "#667781"], mac: ["🖥️", "Mac mini", "#3b4a54"]};
 // "trabalhando" só quando houve atividade de verdade nos últimos 20 min (antes o card piscava para sempre)
 const DEV_ATIVO_MIN = 20;

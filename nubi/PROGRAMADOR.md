@@ -44,6 +44,12 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
    - Isso não conta no limite de 3 cards da rodada, mas o deploy continua um só, no fim.
    - Sem as ferramentas do GitHub nesta rodada: passe os cards `copilot` ainda não mandados para `responsavel='claude_code'`
      (evento explicando) e faça você mesmo, para nada ficar parado.
+1c. **Entregas do Ferreiro** (Claude Code no Mac mini, pela API; o Hermes chama na hora nos cards 🩺 urgentes): cards
+   `status='em_teste'`, `responsavel='claude_mac'`, `testador='claude_code'`. Ele já corrigiu, testou no Mac e enviou o branch
+   `ferreiro/card-<id>` (nunca publica). Você: `git fetch origin ferreiro/card-<id>`, leia o diff, rode um subagente revisor e
+   os testes, `git merge --no-ff origin/ferreiro/card-<id>` na branch do nubi, push, deploy (o mesmo único deploy da rodada) e
+   feche o card com relatório (## Causa e ## Solução vêm da entrega dele; diga que foi o Ferreiro). Com problema: evento
+   `erro_teste` explicando e corrija você mesmo. Isso vem antes dos cards normais e não conta no limite de 3.
 2. **Contexto.** Leia `select titulo, texto from conhecimento where fixo or atualizado_em > now() - interval '14 days' order by fixo desc, atualizado_em desc limit 60`
    e as últimas 30 mensagens de `reuniao_mensagens`.
    **Card 🩺 urgente (aberto pelo Hermes) vem antes de tudo** (pedido do Bruno, 25/09: o sistema não pode ficar parado
@@ -121,4 +127,7 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
 - **Astra**: designer (especificação antes, conferência visual depois). **DeepSeek**: cálculos (plano antes, revisão dos
   números no pull request). **Ollama (gpt-oss/Hermes/Qwen)**: testes, documentação e scripts pequenos.
 - **Hermes**: vigia de erros 24 h (abre card quando algo falha), memória/caixa de conhecimento e documentação.
+- **Ferreiro** (Claude Code no Mac mini, pela API da Anthropic, teto US$ 10/dia): plantão dos cards 🩺 urgentes, na hora;
+  entrega em branch `ferreiro/card-<id>` e você revisa e publica (passo 1c). Você é o **Chefe**.
+- A aba Agentes (Central) mostra o perfil completo de cada um: `agentes.PERFIS`.
 - **GitHub Actions** (`.github/workflows/testes.yml`): testes automáticos em todo envio. Risco alto sempre espera o Bruno.
