@@ -934,6 +934,8 @@ def atender(metodo, rota, q, corpo, token):
 
         if rota == "inicio":
             return _json(tela_inicio(repo))
+        if rota == "inicio_extras":
+            return _json(inicio_extras(repo))
         if rota == "resumo_dia":
             # resumo diário dos vendedores monitorados (o mais recente, ou o de ?data=AAAA-MM-DD)
             if metodo == "POST":
@@ -1719,6 +1721,97 @@ def tela_inicio(repo):
     return out
 
 
+# Card #69: dados novos do Início (dólar do dia, datas de vendas, notícias dos marketplaces, análises dos agentes)
+URL_DOLAR = "https://economia.awesomeapi.com.br/json/last/USD-BRL"
+_DOLAR = {"quando": 0.0, "valor": None}      # cache de 30 min na instância do servidor
+
+
+def dolar_do_dia():
+    """Cotação USD-BRL da AwesomeAPI (grátis, sem chave), com cache de 30 min; None se a API falhar (= 'sem dados')."""
+    if _DOLAR["valor"] and time.monotonic() - _DOLAR["quando"] < 30 * 60:
+        return _DOLAR["valor"]
+    try:
+        d = (nubi._get_json(URL_DOLAR) or {}).get("USDBRL") or {}
+        v = {"compra": float(d["bid"]), "venda": float(d["ask"]), "variacao": float(d.get("pctChange") or 0),
+             "quando": d.get("create_date")}
+    except Exception:  # noqa: BLE001 — API fora do ar ou resposta estranha: "sem dados", nunca um número inventado
+        return None
+    _DOLAR.update(quando=time.monotonic(), valor=v)
+    return v
+
+
+def _nesimo_domingo(ano, mes, n):
+    d = date(ano, mes, 1)
+    return d + timedelta(days=(6 - d.weekday()) % 7 + 7 * (n - 1))
+
+
+def _black_friday(ano):
+    d = date(ano, 11, 1)
+    return d + timedelta(days=(3 - d.weekday()) % 7 + 22)     # 4ª quinta de novembro + 1 dia
+
+
+DATAS_VENDAS = [
+    ("Dia do Consumidor", lambda a: date(a, 3, 15)), ("Dia das Mães", lambda a: _nesimo_domingo(a, 5, 2)),
+    ("Dia dos Namorados", lambda a: date(a, 6, 12)), ("Dia dos Pais", lambda a: _nesimo_domingo(a, 8, 2)),
+    ("9.9", lambda a: date(a, 9, 9)), ("Dia das Crianças", lambda a: date(a, 10, 12)), ("10.10", lambda a: date(a, 10, 10)),
+    ("11.11", lambda a: date(a, 11, 11)), ("Black Friday", _black_friday), ("12.12", lambda a: date(a, 12, 12)),
+    ("Natal", lambda a: date(a, 12, 25)),
+]
+
+
+def datas_vendas(hoje=None):
+    """Próxima ocorrência de cada data do varejo/marketplaces (já passou este ano = a do ano que vem) e os dias que faltam."""
+    hoje = hoje or _agora_br().date()
+    out = []
+    for nome_, f in DATAS_VENDAS:
+        d = f(hoje.year)
+        if d < hoje:
+            d = f(hoje.year + 1)
+        out.append({"nome": nome_, "data": d.isoformat(), "faltam": (d - hoje).days})
+    return sorted(out, key=lambda x: x["faltam"])
+
+
+def gerar_noticias(repo, forcar=False):
+    """Rotina 'noticias' (07:00): a IA com busca na web resume até 8 novidades dos marketplaces para quem vende perfumes;
+    grava 1 vez por dia em ia_resumos (chave 'noticias|AAAA-MM-DD')."""
+    chave = f"noticias|{_agora_br().date().isoformat()}"
+    if not forcar and repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave)}):
+        return {"chave": chave, "novo": False}
+    if not ia.disponivel():
+        raise ErroNuvem("Configure uma chave de IA para buscar as notícias.")
+    j, links, qual = ia.perguntar_json(
+        "Pesquise na web as novidades dos últimos dias que importam para quem vende perfumes no Mercado Livre, Shopee, "
+        "Amazon e TikTok Shop no Brasil: mudanças de taxa/comissão, regras, frete, campanhas e datas promocionais. "
+        "Traga no máximo 8, só com fonte real (link). Responda SÓ com JSON: "
+        '{"noticias": [{"marketplace": "...", "titulo": "...", "resumo": "1 ou 2 frases", "fonte": "https://..."}]}'
+        + _obs_rotina(repo, "noticias"), web=True, max_tokens=2500)
+    itens = [n for n in (j.get("noticias") or []) if isinstance(n, dict) and n.get("titulo") and n.get("fonte")][:8]
+    texto = "\n".join(f"- **{n.get('marketplace') or ''}** {n['titulo']}: {n.get('resumo') or ''} ([fonte]({n['fonte']}))" for n in itens)
+    _guardar_resumo(repo, chave, texto or "sem novidades", qual, {"noticias": itens})
+    return {"chave": chave, "novo": True, "n": len(itens)}
+
+
+def inicio_extras(repo):
+    """Os 4 blocos novos do Início; cada um vira None ("sem dados") quando faltar."""
+    def seguro(f):
+        try:
+            return f() or None
+        except Exception:  # noqa: BLE001 — um bloco com problema não derruba os outros
+            return None
+    nt = seguro(lambda: repo._req("GET", "ia_resumos", {"select": "chave,dados,criado_em", "chave": "like.noticias|*",
+                                                         "order": "chave.desc", "limit": 1}))
+    rs = seguro(lambda: repo._req("GET", "ia_resumos", {"select": "chave,texto,ia,criado_em", "chave": "not.like.noticias|*",
+                                                         "order": "criado_em.desc", "limit": 4})) or []
+    au = seguro(lambda: repo._req("GET", "auditorias", {"select": "data,resumo", "order": "data.desc", "limit": 1})) or []
+    analises = [{"chave": r["chave"], "ia": r.get("ia"), "criado_em": r.get("criado_em"), "texto": (r.get("texto") or "")[:600]} for r in rs]
+    return {
+        "dolar": seguro(dolar_do_dia),
+        "datas": seguro(datas_vendas),
+        "noticias": {"data": nt[0]["chave"].split("|")[1], "itens": (nt[0].get("dados") or {}).get("noticias") or []} if nt else None,
+        "analises": {"resumos": analises, "auditoria": au[0] if au else None} if (analises or au) else None,
+    }
+
+
 def gerar_resumo_dia(repo, forcar=False):
     """Resumo do dia dos vendedores (guardado por data dos dados; forcar=True escreve de novo)."""
     if not ia.disponivel():
@@ -2007,7 +2100,7 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
+NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "noticias", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
 
@@ -2185,6 +2278,9 @@ def rodar_rotinas(repo, so=None):
             elif rid == "resumo_semana":
                 x = gerar_resumo_semana(repo, forcar=bool(so))
                 res = f"semana até {_ddmm(x['atual']['chave'].split('|')[1])}: " + ("gerada" if x["novo"] else "já existia")
+            elif rid == "noticias":
+                x = gerar_noticias(repo, forcar=bool(so))
+                res = f"{x.get('n', 0)} notícia(s) gravada(s)" if x["novo"] else "já existia"
             elif rid == "nomes_marcas":
                 res = conferir_nomes_marcas(repo)
             elif rid == "resumo_marcas":
