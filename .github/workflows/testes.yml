@@ -1,0 +1,27 @@
+# Testes automáticos do nubi: rodam em todo envio (qualquer branch) e em todo pull request.
+# Nenhum código entra no ar sem passar aqui (o programador-chefe só junta com os testes verdes).
+name: Testes do nubi
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar dependências
+        run: pip install -r nubi/requirements.txt
+      - name: Sintaxe de todos os arquivos Python
+        run: python -m compileall -q nubi
+      - name: Testes de unidade
+        run: |
+          set -e
+          for t in nubi/testes/test_*.py; do echo "== $t"; python -W ignore "$t"; done
+      - name: Teste de fumaça (servidor de teste + rotas principais)
+        run: python nubi/testes/fumaca.py
