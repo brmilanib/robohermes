@@ -31,7 +31,7 @@ def _preparar():
 
 def test_diagnostico_do_erro_da_madrugada():
     assert c.diagnosticar(ERRO_25_09)[0] == "visivel"
-    assert c.diagnosticar("O UpSeller pediu login de novo")[0] == "avisar"
+    assert c.diagnosticar("O UpSeller pediu login de novo")[0] == "janela_login"
     assert c.diagnosticar("Locator.click: Timeout 30000ms exceeded")[0] == "repetir"
     assert c.diagnosticar("ProcessSingleton: profile appears to be in use")[0] == "destravar"
     assert c.diagnosticar("algo inédito") == (None, None)
@@ -52,11 +52,21 @@ def test_hermes_conserta_e_depois_abre_card():
     assert nubi_web.card_pronto(cards[0]["descricao"])[0]  # o card já nasce com os 4 itens do #44
 
 
-def test_login_vencido_so_avisa():
+def test_login_vencido_abre_a_janela_e_roda_de_novo():
     soltos, posts, cards = _preparar()
+    chamadas = []
+
+    class R:
+        returncode = 0
+    c.subprocess.run = lambda cmd, **k: chamadas.append(cmd[-1]) or R()
     c.anotar_falha("estoque", "O UpSeller pediu login de novo. No Mac mini, rode: entrar-upseller")
     c.cmd_hermes_vigia(None, c.ler_config())
-    assert soltos == [] and "precisa do Bruno" in posts[0]["texto"]
+    assert chamadas == ["entrar-upseller"]              # abriu a janela de login (o Bruno clica em Entrar)
+    assert soltos == [("estoque", None)]                # entrou -> rodou a tarefa de novo
+    assert "clicar" in posts[0]["texto"] and "Login do Upseller feito" in posts[1]["texto"]
+    c.anotar_falha("estoque", "O UpSeller pediu login de novo.")
+    c.cmd_hermes_vigia(None, c.ler_config())            # 2ª vez no dia: não abre janela de novo, só avisa
+    assert chamadas == ["entrar-upseller"] and "só com você" in posts[-1]["texto"]
 
 
 def test_erro_desconhecido_sem_ollama_avisa():

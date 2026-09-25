@@ -100,6 +100,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Tarefa do Mac que falha (`_executar` → `anotar_falha`, arquivo `~/.nubi-coletor/falhas.json`) chama o Hermes no próximo
   minuto (`coletor hermes-vigia`, pelo vigia). Ele diagnostica (`RECEITAS`; erro desconhecido: o Hermes no Ollama escolhe da
   lista fechada) e conserta sozinho: rodar de novo, navegador visível, destravar o perfil do Chrome, limpar downloads velhos.
-  Login/senha: só avisa o Bruno. Máx. 2 consertos por tarefa por dia; depois abre card `aprovada` (com os 4 itens do #44).
+  Login vencido: abre a janela de login no Mac (1 vez por site por dia; o Bruno clica em Entrar) e, se entrar, roda a tarefa
+  de novo; o login automático com senha guardada NÃO foi autorizado. Máx. 2 consertos por tarefa por dia; depois abre card
+  `aprovada` (com os 4 itens do #44).
   Tudo que ele faz vai para a Sala como "Hermes".
 - Card aprovado sem os 4 itens do #44 não trava a fila: `completar_modelos` (rotina `design`) e o programador preenchem.

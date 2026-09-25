@@ -2858,6 +2858,8 @@ COMANDOS_MAC = {
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco",
     "baixar_modelo": "Baixar modelo do Ollama", "estoque": "Atualizar o estoque do UpSeller agora",
     "gestor": "Importar a planilha no Gestor Seller", "hermes_card": "Hermes fazer um card (no Mac)",
+    "entrar": "Abrir o login do Nubimetrics no Mac (você clica em Entrar)",
+    "entrar_upseller": "Abrir o login do UpSeller no Mac", "entrar_gestor": "Abrir o login do Gestor Seller no Mac",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 

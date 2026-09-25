@@ -1560,10 +1560,16 @@ def conferir_gestor(pg, amostra):
     for a in amostra:
         achou = None
         for tentativa in range(3):                   # o Gestor pode levar alguns segundos para gravar
-            busca.fill("")
-            busca.fill(a["sku"])
+            if tentativa == 0:
+                busca.fill("")
+                busca.fill(a["sku"])
+                busca.press("Enter")                 # 25/09: só preencher não disparava a busca ("SKU não encontrado")
+            else:                                    # plano B: a busca pela barra de endereço (?search=), como na tela
+                pg.goto(f"{GESTOR}/management/products?search={urllib.parse.quote(a['sku'])}",
+                        wait_until="domcontentloaded", timeout=90000)
+                busca = pg.get_by_placeholder(re.compile("Pesquisar")).first
             time.sleep(4)
-            linhas = pg.locator("tr, [role=row]").filter(has_text=a["sku"])
+            linhas = pg.locator("tr, [role=row]").filter(has_text=re.compile(re.escape(a["sku"]), re.I))
             txt = linhas.first.inner_text() if linhas.count() else ""
             nums = [float(x.replace(".", "").replace(",", ".")) if "," in x else float(x) for x in re.findall(r"\d[\d.]*[.,]\d{2}\b", txt)]
             if any(abs(n - a["custo"]) < 0.011 for n in nums):
@@ -1754,6 +1760,7 @@ def comando_mac(chave, arg=""):
         "status": [c, "status"], "diario": [c, "diario"], "atualizar": [c, "atualizar"],
         "parar_coleta": [c, "parar"], "vigia_reativar": [c, "vigia-reativar"],
         "hermes": [c, "hermes"], "qwen": [c, "qwen"], "estoque": [c, "estoque"], "gestor": [c, "gestor"],
+        "entrar": [c, "entrar"], "entrar_upseller": [c, "entrar-upseller"], "entrar_gestor": [c, "entrar-gestor"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -2112,7 +2119,7 @@ FALHAS = PASTA / "falhas.json"
 MEDICO_MAX = 2
 MEDICO_TAREFAS = ("estoque", "gestor", "diario")        # as que ele pode rodar de novo sozinho
 RECEITAS = [   # (padrão no erro, ação, diagnóstico em português)
-    (r"pediu login|SessaoExpirada|login .{0,30}vencid", "avisar", "o login do site venceu; só o Bruno entra de novo (senha nunca fica guardada)"),
+    (r"pediu login|SessaoExpirada|login .{0,30}vencid", "janela_login", "o login do site venceu (a senha é só do Bruno)"),
     (r"SingletonLock|ProcessSingleton|already in use|profile .{0,20}in use", "destravar", "o perfil do Chrome ficou travado por um Chrome que não fechou"),
     (r"No space left|ENOSPC", "limpar", "a pasta de downloads/disco encheu"),
     (r"[Dd]ownload|save_as", "visivel", "o download se perdeu com o navegador invisível"),
@@ -2121,7 +2128,9 @@ RECEITAS = [   # (padrão no erro, ação, diagnóstico em português)
 ]
 ACOES_MEDICO = {"repetir": "rodei de novo", "visivel": "rodei de novo com o navegador visível",
                 "destravar": "fechei o Chrome travado, destravei o perfil e rodei de novo",
-                "limpar": "limpei arquivos velhos da pasta de downloads e rodei de novo", "avisar": "avisei o Bruno"}
+                "limpar": "limpei arquivos velhos da pasta de downloads e rodei de novo",
+                "janela_login": "abri a janela de login no Mac mini", "avisar": "avisei o Bruno"}
+JANELA_LOGIN = {"nubimetrics": "entrar", "upseller": "entrar-upseller", "gestor seller": "entrar-gestor"}
 
 
 def anotar_falha(tarefa, msg):
@@ -2260,6 +2269,29 @@ def _hermes_vigia(cfg):
         if desistiu:
             texto += (f"Já consertei {n} vez(es) hoje e voltou a falhar: parei de tentar e abri um card para o programador.")
             _abrir_card_erro(token, tarefa, f, diag)
+        elif acao == "janela_login":
+            site = next((k for k in JANELA_LOGIN if k in f["erro"].lower()), "")
+            ja = (cfg.get("hermes_janela") or {}).get(hoje, [])
+            if not site or site in ja:
+                texto += "Ação: o login é só com você — rode no Mac: ~/.nubi-coletor/coletor " + JANELA_LOGIN.get(site, "entrar")
+                aviso_mac("Hermes: login vencido", f"{tarefa}: entre de novo no site")
+            else:
+                cfg.setdefault("hermes_janela", {})[hoje] = ja + [site]
+                salvar_config(cfg)
+                texto += (f"Ação: abri a janela de login do {site.title()} no Mac mini. Com a senha salva no navegador é só clicar "
+                          "em Entrar (10 min). Assim que entrar, eu rodo a tarefa de novo sozinho.")
+                aviso_mac("Hermes: clique em Entrar", f"Janela de login do {site.title()} aberta no Mac mini")
+                _postar_hermes(token, texto)
+                texto = ""
+                r = subprocess.run([sys.executable, str(Path(__file__).resolve()), JANELA_LOGIN[site]],
+                                   stdin=subprocess.DEVNULL, capture_output=True, timeout=900)
+                if r.returncode == 0 and tarefa in MEDICO_TAREFAS:
+                    _soltar(tarefa)
+                    texto = f"🩺 Login do {site.title()} feito. Rodei a tarefa **{tarefa}** de novo."
+                elif r.returncode == 0:
+                    texto = f"🩺 Login do {site.title()} feito. A próxima coleta já entra normal."
+                else:
+                    texto = f"🩺 A janela de login do {site.title()} fechou sem login (10 min). Rode no Mac: ~/.nubi-coletor/coletor {JANELA_LOGIN[site]}"
         elif acao == "avisar":
             texto += "Ação: isso eu não consigo resolver sozinho — precisa do Bruno."
             aviso_mac("Hermes: precisa de você", f"{tarefa}: {diag}")
@@ -2277,15 +2309,20 @@ def _hermes_vigia(cfg):
             conta[tarefa] = n + 1
             texto += f"Ação: {ACOES_MEDICO[acao]} (conserto {n + 1} de {MEDICO_MAX} hoje)."
         print(f"{datetime.now():%d/%m %H:%M} hermes-vigia: {tarefa} -> {acao}", flush=True)
-        try:
-            api(token, "reuniao_postar", corpo={"autor": "Hermes", "texto": texto, "modelo": "vigia", "tokens_in": 0,
-                                                 "tokens_out": 0}, metodo="POST", timeout=60)
-        except Exception as e:  # noqa: BLE001
-            print(f"hermes-vigia: não postei na Sala ({e})", flush=True)
+        if texto:
+            _postar_hermes(token, texto)
     cfg = ler_config()
     cfg["hermes_consertos"] = {hoje: conta}
     salvar_config(cfg)
     return 0
+
+
+def _postar_hermes(token, texto):
+    try:
+        api(token, "reuniao_postar", corpo={"autor": "Hermes", "texto": texto, "modelo": "vigia", "tokens_in": 0,
+                                             "tokens_out": 0}, metodo="POST", timeout=60)
+    except Exception as e:  # noqa: BLE001
+        print(f"hermes-vigia: não postei na Sala ({e})", flush=True)
 
 
 def _abrir_card_erro(token, tarefa, f, diag):
