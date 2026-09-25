@@ -624,7 +624,7 @@ def atender(metodo, rota, q, corpo, token):
             if d.get("id"):
                 repo._req("PATCH", "coletor_execucoes", {"id": repo._eq(int(d["id"]))}, corpo=reg,
                           prefer="return=minimal")
-                if d.get("em_andamento") is False and d.get("tarefa") in ("estoque", "gestor"):
+                if d.get("em_andamento") is False and d.get("tarefa") in ("estoque", "gestor", "memoria"):
                     _marcar_rotina(repo, d["tarefa"], ("" if d.get("ok") else "erro: ") + str(d.get("mensagem") or ""))
                 if d.get("em_andamento") is False and d.get("tarefa") == "diario":
                     try:
@@ -731,6 +731,14 @@ def atender(metodo, rota, q, corpo, token):
                 termo = re.sub(r"[,()*%]", " ", q["q"])[:80].strip()
                 p["or"] = f"(titulo.ilike.*{termo}*,texto.ilike.*{termo}*)"
             return _json({"itens": repo._req("GET", "conhecimento", p) or []})
+        if rota == "conhecimento_pendente":
+            # card #39: o que o Hermes (Mac mini) tem para memorizar desde a última rodada da rotina 'memoria'
+            itens, desde = _conhecimento_pendente(repo)
+            return _json({"itens": itens, "desde": desde})
+        if rota == "memoria_pendente":
+            # o vigia do Mac pergunta se está na hora da rotina 'memoria' (Hermes documenta, Qwen revisa)
+            rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.memoria"}) or [None])[0]
+            return _json({"rodar": bool(rot and rotina_pendente(rot)), "horario": (rot or {}).get("horario")})
         if rota == "conhecimento_salvar" and metodo == "POST":
             d = json.loads(corpo or b"{}")
             reg = {k: str(d[k]).strip()[:20000] for k in ("titulo", "texto", "tipo", "fonte") if d.get(k)}
@@ -1998,7 +2006,7 @@ def resumos_marcas_pendentes(repo):
 # A coleta roda no Mac mini (launchd) e só consulta se está ligada no dia.
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
-NO_MAC = ("coleta", "estoque", "gestor")            # rodam no Mac mini (coletor); o servidor só diz se está na hora
+NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
 NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
@@ -2032,6 +2040,22 @@ def _marcar_rotina(repo, rid, resultado):
             prefer="return=minimal")
     except ErroNuvem:
         pass
+
+
+def _conhecimento_pendente(repo):
+    """Card #39: mensagens da Sala e cards concluídos desde a última rodada da rotina 'memoria' (ou, na primeira vez,
+    das últimas 24h), para o Hermes (Mac mini) memorizar na caixa de conhecimento e o Qwen revisar."""
+    rot = (repo._req("GET", "rotinas", {"select": "ultima_execucao", "id": "eq.memoria"}) or [None])[0]
+    desde = (rot or {}).get("ultima_execucao") or (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    msgs = repo._req("GET", "reuniao_mensagens", {"select": "id,autor,texto,criado_em", "criado_em": f"gt.{desde}",
+                                                   "order": "id", "limit": 200}) or []
+    cards = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,notas,relatorio,atualizado_em", "status": "eq.feita",
+                                                  "atualizado_em": f"gt.{desde}", "order": "atualizado_em", "limit": 100}) or []
+    itens = [{"fonte": f"reuniao_mensagens:{m['id']}", "autor": m.get("autor") or "", "texto": (m.get("texto") or "")[:2000]}
+             for m in msgs]
+    itens += [{"fonte": f"reuniao_tarefas:{c['id']}", "autor": "card",
+               "texto": f"{c['titulo']}\n{(c.get('relatorio') or c.get('notas') or '')[:3000]}"} for c in cards]
+    return itens, desde
 
 
 _ORDEM_PRIORIDADE = {"urgente": 0, "alta": 1, "media": 2, "baixa": 3}

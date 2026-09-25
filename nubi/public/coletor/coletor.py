@@ -1991,6 +1991,10 @@ def cmd_vigiar():
         if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Gestor Seller -> importando a planilha", flush=True)
             return _soltar("gestor")
+        if (not motivo and _fora_da_janela_coleta() and not _outra_rodando()
+                and _na_hora(cfg, token, "memoria_pendente", "memoria_tentativas")):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: hora da memória (Hermes documenta, Qwen revisa)", flush=True)
+            return _soltar("hermes-memoria")
     except Exception as e:  # noqa: BLE001
         print(f"{datetime.now():%d/%m %H:%M} vigia: sem contato com o nubi ({e})", flush=True)
     if not motivo:
@@ -2037,6 +2041,13 @@ def _coleta_na_hora(cfg, token):
 def _estoque_na_hora(cfg, token):
     """Rotina 'estoque' (madrugada): o nubi diz se está na hora e ainda não rodou hoje; no máximo 3 tentativas por dia."""
     return _na_hora(cfg, token, "estoque_pendente", "estoque_tentativas")
+
+
+def _fora_da_janela_coleta():
+    """Fora do horário de coleta (00:30-06:40 em Brasília): a rotina 'memoria' (Hermes/Qwen) nunca roda durante a
+    coleta, mesmo se chamada fora do vigia (ex.: na mão, ou pelo cron do launchd um pouco atrasado)."""
+    hhmm = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%H:%M")
+    return not ("00:30" <= hhmm < "06:40")
 
 
 def _na_hora(cfg, token, rota, chave):
@@ -2090,6 +2101,22 @@ PAPEL_QWEN = ("Você é o Qwen, revisor do nubi que roda de graça no Mac mini (
               "à última mensagem ou pauta: somente em português do Brasil, no máximo 6 linhas, sem elogios genéricos e sem "
               "perguntar no final. Traga o que você conferiu, um risco e no máximo 2 sugestões concretas. Não invente números.")
 LOCAIS = {"hermes": ("Hermes", "hermes3:8b", PAPEL_HERMES), "qwen": ("Qwen (revisor)", "qwen3:8b", PAPEL_QWEN)}
+
+PAPEL_HERMES_MEMORIA = (
+    "Você é o Hermes, agente de IA do nubi (Ollama, grátis, no Mac mini). Tarefa: ler mensagens da Sala de reunião e "
+    "cards concluídos do quadro de Desenvolvimento (a seguir) e registrar na caixa de conhecimento o que for de "
+    "verdade uma decisão, um aprendizado ou um procedimento novo, para os outros agentes lerem depois. Ignore "
+    "conversa sem substância (saudação, combinação de horário, repetição do que já foi dito). Não invente números "
+    "nem fatos que não estejam no texto. Responda SOMENTE um JSON, sem markdown e sem comentário, no formato "
+    '[{"tipo": "decisao|aprendizado|procedimento", "titulo": "...", "texto": "...", "fonte": "..."}] — use a "fonte" '
+    "exatamente como veio no item de origem (ex.: reuniao_mensagens:123). Português do Brasil. Nada relevante: [].")
+
+PAPEL_QWEN_MEMORIA = (
+    "Você é o Qwen, revisor do nubi (Ollama, grátis, no Mac mini). Confira os registros que o Hermes propôs para a "
+    "caixa de conhecimento: aponte contradição com o que já existe, duplicidade entre os próprios registros ou erro "
+    "óbvio. Responda SOMENTE um JSON (lista, na MESMA ORDEM e quantidade dos registros recebidos), no formato "
+    '[{"nota": "..."}], uma frase curta por registro (ex.: "Aprovado, sem contradição." ou "Duplicado com o '
+    'registro 2 — mesmo assunto."). Português do Brasil.')
 
 
 def cmd_hermes(args, cfg):
@@ -2164,6 +2191,106 @@ def cmd_hermes_card(args, cfg):
     r = api(token, "tarefa_agente_entregar", corpo={"id": t["id"], "autor": "hermes", "texto": texto}, metodo="POST")
     print(f"Entregue. Teste do coordenador: {r.get('resultado')}")
     return 0
+
+
+def _chamar_ollama(modelo, sistema, pedido, timeout=300):
+    corpo = {"model": modelo, "stream": False,
+             "messages": [{"role": "system", "content": sistema}, {"role": "user", "content": pedido}]}
+    req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())["choices"][0]["message"]["content"].strip()
+
+
+def _json_lista(bruto):
+    """Extrai a primeira lista JSON de dentro do texto (o modelo às vezes cerca a resposta de comentário/markdown)."""
+    m = re.search(r"\[.*\]", bruto or "", re.S)
+    if not m:
+        return []
+    try:
+        j = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return []
+    return j if isinstance(j, list) else []
+
+
+def cmd_hermes_memoria(args, cfg):
+    """Card #39 (pedido do Bruno, aprovado 25/09): rotina 'memoria' (1x/dia). O Hermes (Ollama no Mac) lê a Sala e os
+    cards concluídos desde a última rodada e propõe registros para a caixa de conhecimento; o Qwen revisa cada um
+    (contradição, duplicidade); grava-se por cima de um registro existente do mesmo tipo/título (nunca duplica).
+    Nunca roda durante a coleta (00:30-06:40) nem com outra coleta em andamento neste Mac."""
+    token = token_nubi(cfg)
+
+    def terminar(rid, ok, mensagem):
+        if rid:
+            try:
+                api(token, "coletor_registrar", corpo={"id": rid, "em_andamento": False, "ok": ok, "mensagem": mensagem,
+                                                        "terminado_em": datetime.now(timezone.utc).isoformat()}, metodo="POST")
+            except Exception as e:  # noqa: BLE001
+                print(f"memória: não consegui registrar o fim ({e})", flush=True)
+        print(("OK: " if ok else "ERRO: ") + mensagem, flush=True)
+        return 0 if ok else 1
+
+    if not _fora_da_janela_coleta():
+        print(f"{datetime.now():%d/%m %H:%M} memória: dentro do horário da coleta (00:30-06:40); não roda agora.", flush=True)
+        return 0
+    if _outra_rodando():
+        print(f"{datetime.now():%d/%m %H:%M} memória: outra coleta rodando neste Mac; espero a próxima chamada.", flush=True)
+        return 0
+
+    rid = None
+    try:
+        rid = api(token, "coletor_registrar", corpo={"tarefa": "memoria", "iniciado_em": datetime.now(timezone.utc).isoformat(),
+                                                       "em_andamento": True}, metodo="POST").get("id")
+    except Exception as e:  # noqa: BLE001
+        print(f"memória: não consegui registrar o início ({e}); sigo sem registrar.", flush=True)
+
+    try:
+        pendente = api(token, "conhecimento_pendente")
+    except Exception as e:  # noqa: BLE001
+        return terminar(rid, False, f"não consegui ler o que está pendente ({e})")
+    itens = pendente.get("itens") or []
+    if not itens:
+        return terminar(rid, True, "nada novo na Sala nem em cards concluídos desde a última rodada")
+
+    resumo = "\n\n".join(f"[{it['fonte']}] {it.get('autor', '')}: {it['texto']}" for it in itens[:60])
+    print(f"Hermes lendo {len(itens)} item(ns) novo(s) para a caixa de conhecimento…", flush=True)
+    try:
+        registros = _json_lista(_chamar_ollama("hermes3:8b", PAPEL_HERMES_MEMORIA, resumo))
+    except urllib.error.URLError as e:
+        return terminar(rid, False, f"não consegui falar com o Ollama (Hermes): {e}")
+    registros = [r for r in registros if isinstance(r, dict) and str(r.get("titulo") or "").strip() and str(r.get("texto") or "").strip()][:20]
+    if not registros:
+        return terminar(rid, True, "Hermes não achou nada relevante para registrar")
+
+    try:
+        revisoes = _json_lista(_chamar_ollama("qwen3:8b", PAPEL_QWEN_MEMORIA, json.dumps(registros, ensure_ascii=False)))
+    except urllib.error.URLError as e:
+        print(f"memória: Qwen não respondeu ({e}); grava sem revisão.", flush=True)
+        revisoes = []
+
+    gravados = 0
+    for i, reg in enumerate(registros):
+        nota = ""
+        if i < len(revisoes) and isinstance(revisoes[i], dict):
+            nota = str(revisoes[i].get("nota") or "").strip()
+        nota = nota or "Sem revisão registrada."
+        titulo = str(reg["titulo"]).strip()[:200]
+        tipo = reg.get("tipo") if reg.get("tipo") in ("decisao", "aprendizado", "procedimento") else "aprendizado"
+        texto = f"{str(reg['texto']).strip()}\n\n---\nRevisão (Qwen): {nota}"
+        try:
+            existentes = api(token, "conhecimento", {"q": titulo}).get("itens") or []
+        except Exception:  # noqa: BLE001
+            existentes = []
+        igual = next((e for e in existentes if e.get("tipo") == tipo and str(e.get("titulo") or "").strip().lower() == titulo.lower()), None)
+        corpo = {"titulo": titulo, "texto": texto, "tipo": tipo, "fonte": str(reg.get("fonte") or "")[:200], "autor": "Hermes"}
+        if igual:
+            corpo["id"] = igual["id"]
+        try:
+            api(token, "conhecimento_salvar", corpo=corpo, metodo="POST")
+            gravados += 1
+        except Exception as e:  # noqa: BLE001
+            print(f"memória: não gravei '{titulo}' ({e})", flush=True)
+    return terminar(rid, True, f"{gravados} de {len(registros)} registro(s) memorizado(s) na caixa de conhecimento")
 
 
 # ---------------------------------------------------------------------------
@@ -3086,6 +3213,7 @@ def main():
     hc.add_argument("--modelo", default=None)
     sub.add_parser("entrar-gestor", help="login no Gestor Seller (uma vez), para importar a planilha sozinho")
     sub.add_parser("hermes-vigia", help="(automático) o Hermes trata as falhas novas: diagnostica, conserta e tenta de novo")
+    sub.add_parser("hermes-memoria", help="(automático) o Hermes documenta a Sala e os cards na caixa de conhecimento; o Qwen revisa")
     sub.add_parser("repetir-falhas", help="(automático) roda de novo o estoque/Gestor que falhou hoje, com a versão nova")
     cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
     cv.add_argument("--modelo", default=None)
@@ -3126,6 +3254,8 @@ def main():
         return cmd_entrar_gestor(args, cfg)
     if args.cmd == "hermes-vigia":
         return cmd_hermes_vigia(args, cfg)
+    if args.cmd == "hermes-memoria":
+        return cmd_hermes_memoria(args, cfg)
     if args.cmd == "guardar-senha":
         return cmd_guardar_senha(args, cfg)
     if args.cmd == "conversar":
