@@ -2141,6 +2141,8 @@ def rodar_rotinas(repo, so=None):
             elif rid == "resumo_semana":
                 x = gerar_resumo_semana(repo, forcar=bool(so))
                 res = f"semana até {_ddmm(x['atual']['chave'].split('|')[1])}: " + ("gerada" if x["novo"] else "já existia")
+            elif rid == "nomes_marcas":
+                res = conferir_nomes_marcas(repo)
             elif rid == "resumo_marcas":
                 x = resumos_marcas_pendentes(repo)
                 res = "; ".join(f"{k.split('|')[1]} {k.split('|')[2]}: {v}" for k, v in x.items()) or "nada novo (análises do mês já feitas)"
@@ -4077,6 +4079,25 @@ def unificar_marcas(repo, linhas, somar=False):
     return saida
 
 
+def _distancia(a, b):
+    """Quantas letras trocar/pôr/tirar para ir de a até b (Levenshtein)."""
+    ant = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        atual = [i]
+        for j, cb in enumerate(b, 1):
+            atual.append(min(ant[j] + 1, atual[j - 1] + 1, ant[j - 1] + (ca != cb)))
+        ant = atual
+    return ant[-1]
+
+
+def grafia_parecida(a, b):
+    """Duas chaves compactas parecem a mesma marca digitada diferente (ex.: LATAFFA x LATTAFA)."""
+    import difflib
+    if min(len(a), len(b)) < 5:
+        return False
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.88 or (min(len(a), len(b)) >= 6 and _distancia(a, b) <= 2)
+
+
 def _iniciais(nome):
     return "".join(p[0] for p in re.split(r"[^A-Z0-9]+", nubi.sem_acento(nome).upper()) if p)
 
@@ -4088,6 +4109,56 @@ def _contem_palavras(x, y):
         return False
     curto, longo = (px, py) if len(px) < len(py) else (py, px)
     return any(longo[i:i + len(curto)] == curto for i in range(len(longo) - len(curto) + 1))
+
+
+def ia_mesma_marca(a, b):
+    """A IA (com pesquisa na web) diz se duas grafias são a mesma marca de perfume."""
+    j, links, qual = ia.perguntar_json(
+        f'No mercado de perfumes (Mercado Livre Brasil), "{a}" e "{b}" são a MESMA marca escrita de outro jeito '
+        "(erro de digitação, sigla, nome curto/longo, com ou sem acento) ou são marcas DIFERENTES? Pesquise na web se "
+        'precisar. Responda SOMENTE com JSON: {"mesma": true|false, "confianca": "alta|média|baixa", '
+        '"motivo": "<1 frase em português>"}.')
+    return {"mesma": bool(j.get("mesma")), "confianca": j.get("confianca") or "baixa",
+            "motivo": j.get("motivo") or "", "fonte": links[0] if links else "", "ia": ia.nome(qual)}
+
+
+def juntar_apelido(repo, apelido, marca):
+    apelido, marca = apelido.strip().upper(), marca.strip().upper()
+    repo._req("DELETE", "marca_apelidos", {"apelido": repo._eq(marca)})      # o oficial não pode ser apelido de outra
+    repo._req("POST", "marca_apelidos", corpo=[{"apelido": apelido, "marca": marca, "ignorar": False}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    repo._req("PATCH", "marca_apelidos", {"marca": repo._eq(apelido)}, corpo={"marca": marca})
+
+
+def conferir_nomes_marcas(repo, limite=8):
+    """Rotina diária (pedido do Bruno, 25/09): a IA confere as sugestões de Nomes de marcas; mesma marca com confiança alta
+    por grafia parecida ou sigla = junta sozinha (dá para desfazer na tela); o resto fica para o Bruno, com a opinião da IA."""
+    if not ia.disponivel():
+        return "sem chave de IA"
+    sug, _ = sugestoes_apelidos(repo)
+    juntou, conferir = [], []
+    for x in sug[:limite]:
+        try:
+            r = ia_mesma_marca(x["apelido"], x["marca"])
+        except Exception:  # noqa: BLE001
+            continue
+        if r["mesma"] and r["confianca"] == "alta" and x["motivo"] in ("grafia parecida", "sigla"):
+            juntar_apelido(repo, x["apelido"], x["marca"])
+            juntou.append(f"{x['apelido']} → {x['marca']}")
+        elif r["mesma"]:
+            conferir.append(f"{x['apelido']} → {x['marca']} ({r['confianca']}: {r['motivo'][:90]})")
+    if juntou or conferir:
+        txt = "🔗 **Nomes de marcas (conferência diária)**\n"
+        if juntou:
+            txt += "Juntei (a IA confirmou com confiança alta; desfaz em Minhas marcas → Nomes de marcas): " + "; ".join(juntou) + "\n"
+        if conferir:
+            txt += "Para o Bruno conferir: " + "; ".join(conferir)
+        try:
+            repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "Claude (marcas)", "texto": txt[:3500]}], prefer="return=minimal")
+        except ErroNuvem:
+            pass
+    return (f"{len(juntou)} juntada(s)" + (f" ({', '.join(juntou)[:300]})" if juntou else "")
+            + f"; {len(conferir)} para conferir; {len(sug)} sugestão(ões) na tela")
 
 
 def sugestoes_apelidos(repo):
@@ -4126,7 +4197,9 @@ def sugestoes_apelidos(repo):
             if a == b:
                 continue
             A, B = vistas[a], vistas[b]
-            if "ranking" in A["fontes"]:      # o ranking do Nubimetrics já é o nome canônico
+            # o ranking do Nubimetrics é o nome canônico; mas o próprio ranking tem erro de digitação (LATAFFA x LATTAFA,
+            # 25/09): nome do ranking só vai para outro nome do ranking, e só por grafia parecida
+            if "ranking" in A["fontes"] and "ranking" not in B["fontes"]:
                 continue
             if re.sub(r"\D", "", a) != re.sub(r"\D", "", b):   # "212" e "212 VIP" não são grafias da mesma coisa
                 continue
@@ -4136,9 +4209,9 @@ def sugestoes_apelidos(repo):
             elif min(len(a), len(b)) >= 4 and _contem_palavras(A["nome"], B["nome"]) and \
                     ("ranking" in B["fontes"] or B["vendas"] >= A["vendas"]):
                 motivo = "nome contido"      # um nome está dentro do outro; vai para o que mais vende
-            elif len(a) >= 5 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.88 and A["vendas"] <= B["vendas"]:
+            elif grafia_parecida(a, b) and A["vendas"] <= B["vendas"]:
                 motivo = "grafia parecida"
-            if not motivo:
+            if not motivo or ("ranking" in A["fontes"] and motivo != "grafia parecida"):
                 continue
             # vai para o nome do ranking (o do mercado) ou, sem ranking, o que mais vende
             if "ranking" in A["fontes"] and "ranking" not in B["fontes"]:
