@@ -69,6 +69,19 @@ def test_dados_foco_calcula_e_cruza():
     assert "mês velho não entra" not in p
 
 
+def test_gtin_vem_antes_do_titulo():
+    _preparar()
+    ESTOQUE.append({"sku": "7891234567895", "titulo": "Produto com outro nome no meu estoque", "disponivel": 2, "atual": 2, "custo_medio": "10"})
+    try:
+        linhas = {1: [{"titulo": "Nome bem diferente no concorrente", "marca": "X", "gtin": "7891234567895", "vendas": 50.0, "unidades": 1, "preco": 50.0}],
+                  2: []}
+        w._vend_linhas = lambda repo, rid, bruto=False: linhas.get(rid, [])
+        p = w.dados_foco(Repo())["produtos"][0]
+        assert p["meu_sku"] == "7891234567895" and p["casado_por"] == "gtin" and p["situacao"] == "tenho"
+    finally:
+        ESTOQUE.pop()
+
+
 def test_analise_foco_grava_uma_vez_por_dia():
     _preparar()
     pedidos = []
@@ -78,6 +91,18 @@ def test_analise_foco_grava_uma_vez_por_dia():
     assert "NÃO invente" in pedidos[0] and "Khamrah" in pedidos[0] and "margem antes das taxas" in pedidos[0]
     assert r.gravados[0]["chave"].startswith("foco|") and r.gravados[0]["dados"]["produtos"]
     assert w.analise_foco(r) == "já feita hoje" and len(pedidos) == 1
+
+
+def test_plano_semanal_separado():
+    _preparar()
+    pedidos = []
+    w.ia.perguntar = lambda pedido, **k: (pedidos.append(pedido) or "## 5 prioridades da semana\n1. Repor Asad", [], "deepseek")
+    r = Repo()
+    assert "plano da semana gravado" in w.analise_foco(r, semanal=True)
+    assert "PLANO DA SEMANA" in pedidos[0]
+    assert r.gravados[0]["chave"].startswith("foco_semana|")
+    assert "gravada" in w.analise_foco(r)               # a diária é outra, grava à parte
+    assert r.gravados[1]["chave"].startswith("foco|")
 
 
 if __name__ == "__main__":

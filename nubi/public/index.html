@@ -857,7 +857,10 @@ async function telaInicio() {
         <div><div class="in-sub">Mais vendidos nos concorrentes</div><ul class="in-lista in-foco-lista">${(r.foco.produtos || []).map(p => `<li>
           <span class="in-trunc" title="${esc(p.produto)}">${esc(p.produto)}</span><span>${p.preco_medio == null ? "—" : abrev(p.preco_medio)}</span>
           <span class="st ${p.situacao === "tenho" ? "good" : p.situacao === "zerado" ? "warn" : "bad"}" title="${p.meu_sku ? esc(p.meu_sku + " · " + p.meu_disponivel + " un.") : "não achei no seu estoque (confira)"}">${esc(p.situacao)}</span></li>`).join("")}</ul>
-          <p class="muted" style="font-size:11.5px;margin:6px 0 0">Preço = preço médio nos concorrentes. Estoque cruzado pelo título do produto: confira antes de decidir.</p></div></div></section>` : ""}
+          <p class="muted" style="font-size:11.5px;margin:6px 0 0">Preço = preço médio nos concorrentes. Estoque cruzado pelo GTIN e, sem GTIN, pelo título: confira antes de decidir.</p></div></div></section>` : ""}
+    ${r.plano_semana ? `<section class="card pad in-foco"><div class="in-dev-cab"><h2>📅 Plano da semana · DeepSeek</h2>
+        <span class="muted" style="font-size:12px">feito no sábado ${esc((r.plano_semana.data || "").split("-").reverse().join("/"))} · ${esc(desde(r.plano_semana.criado_em))}</span></div>
+      <div class="md">${mdSimples(r.plano_semana.texto)}</div></section>` : ""}
     <section class="in-grade in-baixo">
       <div class="card pad"><h2>Próximas datas de vendas</h2><ul class="in-datas">${datasVendas(agora).map(x => `<li><span class="in-dias ${x.dias <= 15 ? "perto" : ""}">${x.dias === 0 ? "hoje" : x.dias + (x.dias === 1 ? " dia" : " dias")}</span>
         <b>${esc(x.n)}</b><span class="muted">${x.dt.toLocaleDateString("pt-BR", {day: "2-digit", month: "short", weekday: "short"})}</span></li>`).join("")}</ul></div>

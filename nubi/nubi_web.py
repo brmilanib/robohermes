@@ -1721,6 +1721,10 @@ def tela_inicio(repo):
     # análise diária do DeepSeek (rotina analise_foco): onde focar, cruzando os concorrentes com o meu estoque
     fo = seguro(lambda: repo._req("GET", "ia_resumos", {"select": "chave,texto,ia,criado_em,dados", "chave": "like.foco|*",
                                                         "order": "chave.desc", "limit": 1}), []) or []
+    sem = seguro(lambda: repo._req("GET", "ia_resumos", {"select": "chave,texto,criado_em", "chave": "like.foco_semana|*",
+                                                         "order": "chave.desc", "limit": 1}), []) or []
+    if sem and (_agora_br().date() - date.fromisoformat(sem[0]["chave"].split("|")[1])).days <= 7:
+        out["plano_semana"] = {"texto": sem[0]["texto"], "criado_em": sem[0]["criado_em"], "data": sem[0]["chave"].split("|")[1]}
     if fo:
         dd = fo[0].get("dados") or {}
         out["foco"] = {"texto": fo[0]["texto"], "ia": fo[0].get("ia"), "criado_em": fo[0]["criado_em"], "mes": dd.get("mes"),
@@ -1848,7 +1852,7 @@ def dados_foco(repo, limite=30):
             if u <= 0:
                 continue
             chave = l.get("gtin") or nubi.compacta(f"{l.get('marca') or ''} {l.get('titulo') or ''}")[:70]
-            p = prods.setdefault(chave, {"titulo": l.get("titulo") or "", "marca": l.get("marca") or "", "v": 0.0, "u": 0,
+            p = prods.setdefault(chave, {"titulo": l.get("titulo") or "", "marca": l.get("marca") or "", "gtin": l.get("gtin"), "v": 0.0, "u": 0,
                                          "vendedores": set(), "_pu": 0.0, "precos": []})
             p["v"] += float(l.get("vendas") or 0)
             p["u"] += u
@@ -1863,10 +1867,16 @@ def dados_foco(repo, limite=30):
         estoque = repo._todos("estoque_itens", {"select": "sku,titulo,disponivel,atual,custo_medio", "atualizacao_id": repo._eq(at["id"])})
         for it in estoque:
             it["_tok"] = _tokens_produto(it.get("titulo"))
+    gtins = {str(it.get("gtin") or it["sku"]).strip(): it for it in estoque
+             if re.fullmatch(r"\d{8,14}", str(it.get("gtin") or it.get("sku") or "").strip())}
     linhas = []
     for p in top:
         pm = round(p["_pu"] / p["u"], 2) if p["_pu"] else None
-        meu = casar_estoque(p["titulo"], estoque) if estoque else None
+        # 1º pelo GTIN (pedido do Bruno): o item do estoque com o mesmo GTIN (hoje só quando o SKU é o próprio GTIN; os anúncios
+        # das Minhas Lojas vão trazer o GTIN de cada produto); 2º pelo título, como reserva
+        meu, por = (gtins.get(p["gtin"]), "gtin") if p.get("gtin") and gtins.get(p["gtin"]) else (None, None)
+        if not meu and estoque:
+            meu, por = casar_estoque(p["titulo"], estoque), "titulo"
         disp = int(float(meu.get("disponivel") if meu.get("disponivel") is not None else meu.get("atual") or 0)) if meu else None
         custo = float(meu["custo_medio"]) if meu and meu.get("custo_medio") else None
         linhas.append({"produto": p["titulo"][:90], "marca": p["marca"], "vendas": round(p["v"], 2), "unidades": p["u"],
@@ -1874,17 +1884,19 @@ def dados_foco(repo, limite=30):
                        "preco_min": min(p["precos"]) if p["precos"] else None, "preco_max": max(p["precos"]) if p["precos"] else None,
                        "meu_sku": meu["sku"] if meu else None, "meu_disponivel": disp, "meu_custo": custo,
                        "margem_antes_taxas": round(pm - custo, 2) if pm and custo else None,
-                       "situacao": "não tenho" if not meu else "zerado" if not disp else "tenho"})
+                       "situacao": "não tenho" if not meu else "zerado" if not disp else "tenho",
+                       "gtin": p.get("gtin"), "casado_por": por if meu else None})
     return {"mes": mes, "vendedores": len(ult), "estoque_de": at["criado_em"] if at else None, "produtos": linhas}
 
 
-def analise_foco(repo, forcar=False):
-    """Rotina diária 'analise_foco' (DeepSeek): onde o Bruno deve focar, com os números de dados_foco. Uma por dia."""
+def analise_foco(repo, forcar=False, semanal=False):
+    """Rotina diária 'analise_foco' (DeepSeek): onde o Bruno deve focar, com os números de dados_foco. Uma por dia.
+    semanal=True (rotina 'analise_semana', sábado): o plano da semana seguinte, para começar a segunda a todo vapor."""
     hoje = _agora_br().date().isoformat()
-    chave = f"foco|{hoje}"
+    chave = f"{'foco_semana' if semanal else 'foco'}|{hoje}"
     if not forcar and repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave), "limit": 1}):
         return "já feita hoje"
-    d = dados_foco(repo)
+    d = dados_foco(repo, limite=40 if semanal else 30)
     if not d or not d["produtos"]:
         return "sem dados de concorrentes"
     fm = lambda x: "—" if x is None else f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -1892,26 +1904,42 @@ def analise_foco(repo, forcar=False):
         f"{i}. {p['produto']} ({p['marca']}): vendas {fm(p['vendas'])}, {p['unidades']} un., {p['vendedores']} vendedor(es), "
         f"preço médio {fm(p['preco_medio'])} (de {fm(p['preco_min'])} a {fm(p['preco_max'])}); MEU ESTOQUE: {p['situacao']}"
         + (f", SKU {p['meu_sku']}, {p['meu_disponivel']} un., custo {fm(p['meu_custo'])}, margem antes das taxas {fm(p['margem_antes_taxas'])}"
-           if p["meu_sku"] else "") for i, p in enumerate(d["produtos"], 1))
+           f" (casado pelo {'GTIN' if p['casado_por'] == 'gtin' else 'título: confira'})" if p["meu_sku"] else "") for i, p in enumerate(d["produtos"], 1))
     pedido = (
         "Você é o DeepSeek, analista de números do nubi. Abaixo, os produtos que mais venderam no mês "
         f"{d['mes'][5:7]}/{d['mes'][:4]} nos {d['vendedores']} concorrentes monitorados, já cruzados com o estoque do Bruno "
         "(os números foram calculados pelo sistema: NÃO recalcule e NÃO invente nenhum número; o cruzamento com o estoque é "
-        "pelo título e pode errar — diga 'confira' quando for decisivo). Margem 'antes das taxas' não desconta as tarifas do "
-        "marketplace nem o frete.\n\nTABELA:\n" + tabela +
+        "pelo GTIN quando dá e, se não, pelo título, que pode errar — diga 'confira' quando for decisivo). Margem 'antes das "
+        "taxas' não desconta as tarifas do marketplace nem o frete.\n\nTABELA:\n" + tabela
+        + (_pedido_semana(d) if semanal else
         "\n\nEscreva em português do Brasil, direto, em markdown curto, com estas seções:\n"
         "## Onde focar hoje\n3 a 5 produtos, cada um com o porquê em 1 linha (vende muito, poucos vendedores, eu tenho estoque, "
         "margem boa) e a ação (anunciar/impulsionar, repor, comprar, rever preço).\n"
         "## Preço\nonde o meu custo deixa competir com o preço médio e onde não dá.\n"
         "## Repor ou comprar\no que vende bem e eu tenho zerado ou não tenho.\n"
-        "## Atenção\n1 ou 2 riscos (produto com muitos vendedores e preço caindo, margem apertada).")
-    ia.USO["origem"] = "rotina analise_foco"
+        "## Atenção\n1 ou 2 riscos (produto com muitos vendedores e preço caindo, margem apertada)."))
+    ia.USO["origem"] = f"rotina {'analise_semana' if semanal else 'analise_foco'}"
     txt, _, qual = ia.perguntar(pedido, web=False, max_tokens=2500, qual="deepseek", modelo="pro", sistema=agentes.SISTEMA)
     if not (txt or "").strip():
         return "o DeepSeek não respondeu"
     repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": txt.strip(), "ia": ia.nome(qual), "dados": d}],
               prefer="resolution=merge-duplicates,return=minimal")
-    return f"análise do dia gravada ({len(d['produtos'])} produtos, {d['vendedores']} concorrentes)"
+    return f"{'plano da semana gravado' if semanal else 'análise do dia gravada'} ({len(d['produtos'])} produtos, {d['vendedores']} concorrentes)"
+
+
+def _pedido_semana(d):
+    """Seções do plano semanal (sábado): contexto de datas de vendas próximas + o que fazer de segunda a domingo."""
+    prox = [x for x in datas_vendas() if x["faltam"] <= 45]
+    datas = "; ".join(f"{x['nome']} em {x['faltam']} dia(s)" for x in prox) or "nenhuma data grande nos próximos 45 dias"
+    return (f"\n\nDATAS DE VENDAS PRÓXIMAS: {datas}.\n\n"
+            "Este é o PLANO DA SEMANA (feito no sábado para o Bruno começar a segunda a todo vapor). Escreva em português do "
+            "Brasil, direto, em markdown, com estas seções:\n"
+            "## Resumo da semana\n3 linhas: o que está vendendo no mercado e como o estoque do Bruno está posicionado.\n"
+            "## 5 prioridades da semana\nnumeradas, cada uma com a ação concreta e o produto (ex.: 'Segunda: repor X').\n"
+            "## Comprar ou repor antes de segunda\nlista curta, do mais urgente ao menos.\n"
+            "## Preços para revisar\nonde o custo permite brigar e onde é melhor não entrar.\n"
+            "## Campanhas e datas\no que preparar para as datas de vendas próximas.\n"
+            "## Riscos\n1 ou 2.")
 
 
 def inicio_extras(repo):
@@ -2223,7 +2251,7 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "resumo_semana", "resumo_marcas", "nomes_marcas",
+NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "resumo_semana", "resumo_marcas", "nomes_marcas",
                "noticias", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
@@ -2407,6 +2435,8 @@ def rodar_rotinas(repo, so=None):
                 res = f"{x.get('n', 0)} notícia(s) gravada(s)" if x["novo"] else "já existia"
             elif rid == "analise_foco":
                 res = analise_foco(repo, forcar=bool(so))
+            elif rid == "analise_semana":
+                res = analise_foco(repo, forcar=bool(so), semanal=True)
             elif rid == "nomes_marcas":
                 res = conferir_nomes_marcas(repo)
             elif rid == "resumo_marcas":
