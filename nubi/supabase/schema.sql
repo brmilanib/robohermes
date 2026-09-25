@@ -607,3 +607,7 @@ create policy "autorizado" on public.store_orders for all to authenticated
 -- Aprovado pelo Bruno em 25/09 (tarefa_eventos #21, resposta 20:27).
 alter table public.agentes_uso add column if not exists cache_read_tokens int;
 alter table public.agentes_uso add column if not exists cache_creation_tokens int;
+-- Notícias dos marketplaces no Início (card #69): rotina nova (dado, não estrutura); grava em ia_resumos 'noticias|data'
+insert into public.rotinas (id, nome, descricao, responsavel, horario, dias_semana, ativo, ordem) values
+ ('noticias', 'Notícias dos marketplaces', 'A IA com busca na web resume até 8 novidades de Mercado Livre, Shopee, Amazon e TikTok Shop (taxas, regras, frete, campanhas) para a tela Início.', 'Servidor (IA)', '07:00', array['seg','ter','qua','qui','sex','sab','dom'], true, 8)
+on conflict (id) do nothing;
