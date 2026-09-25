@@ -2112,6 +2112,132 @@ def cmd_hermes_card(args, cfg):
 
 
 # ---------------------------------------------------------------------------
+# Conversar com o Hermes no Terminal do Mac (pedido do Bruno, 25/09): chat ao vivo com o modelo local, com o contexto do
+# projeto (briefing, Sala, coletas, quadro, caixa de conhecimento, log do vigia). No fim, o resumo vai para a caixa.
+# ---------------------------------------------------------------------------
+
+def _br(iso):
+    """'2026-09-25T15:04:00+00:00' (UTC) -> '25/09 12:04' (Brasília)."""
+    try:
+        return (datetime.fromisoformat(str(iso).replace("Z", "+00:00")) - timedelta(hours=3)).strftime("%d/%m %H:%M")
+    except ValueError:
+        return str(iso)[:16]
+
+
+def contexto_hermes(token):
+    """O que o Hermes precisa saber do projeto agora (só leitura). Cada parte que falhar fica de fora, sem travar o chat."""
+    partes, sistema = [], ""
+    try:
+        sala = api(token, "reuniao", {"sistema": "1"}, timeout=60)
+        sistema = sala.get("sistema") or ""
+        partes.append("SALA DE REUNIÃO (últimas mensagens):\n" + "\n".join(
+            f"[{_br(m.get('criado_em'))}] {m['autor']}: {m['texto'][:600]}" for m in (sala.get("mensagens") or [])[-20:]))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        st = api(token, "coletor_status", timeout=60)
+        partes.append("COLETAS DO MAC (mais recentes primeiro):\n" + "\n".join(
+            f"{_br(e['iniciado_em'])} {e['tarefa']}: {'ok' if e['ok'] else 'ERRO'} — {(e.get('mensagem') or '')[:200]}"
+            for e in (st.get("execucoes") or [])[:10]))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        ts = api(token, "reuniao_tarefas", timeout=60).get("tarefas") or []
+        abertas = [t for t in ts if t.get("status") in ("proposta", "aprovada", "em_desenvolvimento", "em_teste")]
+        partes.append("QUADRO DE DESENVOLVIMENTO (cards abertos):\n" + "\n".join(
+            f"#{t['id']} [{t['status']}/{t.get('responsavel') or '-'}] {t['titulo']}" for t in abertas[:30]))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        itens = [c for c in (api(token, "conhecimento", timeout=60).get("itens") or []) if c.get("fixo")][:12]
+        partes.append("CAIXA DE CONHECIMENTO (fixos):\n" + "\n".join(f"- {c['titulo']}: {c['texto'][:500]}" for c in itens))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        partes.append("LOG DO VIGIA NESTE MAC (fim):\n" + "\n".join((PASTA / "vigia.log").read_text(errors="replace").splitlines()[-30:]))
+    except OSError:
+        pass
+    return sistema, "\n\n".join(partes)
+
+
+def _ollama_stream(mensagens, modelo):
+    """Resposta do Ollama aparecendo na tela enquanto é escrita; devolve o texto todo."""
+    corpo = {"model": modelo, "stream": True, "messages": mensagens}
+    req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+    texto = []
+    with urllib.request.urlopen(req, timeout=900) as r:
+        for linha in r:
+            linha = linha.decode("utf-8", "replace").strip()
+            if not linha.startswith("data:") or linha == "data: [DONE]":
+                continue
+            try:
+                pedaco = json.loads(linha[5:])["choices"][0]["delta"].get("content") or ""
+            except (ValueError, KeyError, IndexError):
+                continue
+            texto.append(pedaco)
+            print(pedaco, end="", flush=True)
+    print(flush=True)
+    return "".join(texto).strip()
+
+
+def cmd_conversar(args, cfg):
+    modelo = args.modelo or "hermes3:8b"
+    token = token_nubi(cfg)
+    print("Carregando o projeto (Sala, coletas, quadro, caixa de conhecimento, log do vigia)…", flush=True)
+    sistema, ctx = contexto_hermes(token)
+    papel = (PAPEL_HERMES.split(" Responda à última")[0] + " Agora você está conversando direto com o Bruno (dono) no "
+             "Terminal do Mac mini. Responda em português do Brasil, direto e curto. Use o CONTEXTO abaixo; se algo não está "
+             "nele, diga que não sabe (não invente números). Horários em Brasília. Você não executa comandos aqui: se precisar "
+             "de uma ação, diga qual comando o Bruno pode rodar ou pedir na Central.")
+    base = [{"role": "system", "content": f"{sistema}\n\n{papel}\n\nCONTEXTO DO PROJETO AGORA:\n{ctx}"}]
+    hist = []
+    print(f"\n🪽 Hermes ({modelo}) pronto. Escreva e aperte Enter. /atualizar recarrega o projeto; /sair termina "
+          "(o resumo vai para a caixa de conhecimento).\n", flush=True)
+    while True:
+        try:
+            pergunta = input("você › ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not pergunta:
+            continue
+        if pergunta in ("/sair", "sair", "/exit"):
+            break
+        if pergunta == "/atualizar":
+            sistema, ctx = contexto_hermes(token)
+            base[0]["content"] = f"{sistema}\n\n{papel}\n\nCONTEXTO DO PROJETO AGORA:\n{ctx}"
+            print("(projeto recarregado)\n", flush=True)
+            continue
+        hist.append({"role": "user", "content": pergunta})
+        print("hermes › ", end="", flush=True)
+        try:
+            resposta = _ollama_stream(base + hist[-20:], modelo)
+        except urllib.error.URLError as e:
+            print(f"\nNão consegui falar com o Ollama ({e}). Abra o app Ollama e confira: ollama list")
+            hist.pop()
+            continue
+        hist.append({"role": "assistant", "content": resposta})
+        print()
+    if len(hist) >= 2:
+        print("Guardando o resumo da conversa na caixa de conhecimento…", flush=True)
+        try:
+            conversa = "\n".join(f"{'Bruno' if m['role'] == 'user' else 'Hermes'}: {m['content'][:1500]}" for m in hist)
+            corpo = {"model": modelo, "stream": False, "messages": [{"role": "user", "content":
+                     "Resuma esta conversa entre o Bruno e o Hermes em até 6 linhas, em português: o que foi perguntado, o que "
+                     "foi decidido e o que ficou pendente. Não invente.\n\n" + conversa[-12000:]}]}
+            req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=600) as r:
+                resumo = json.loads(r.read().decode())["choices"][0]["message"]["content"].strip()
+            api(token, "conhecimento_salvar", corpo={"titulo": f"Conversa do Bruno com o Hermes ({datetime.now():%d/%m %H:%M})",
+                                                     "texto": resumo, "tipo": "conversa", "fonte": "Terminal do Mac mini",
+                                                     "autor": "Hermes"}, metodo="POST", timeout=60)
+            print("OK: resumo guardado.", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"(não guardei o resumo: {e})", flush=True)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Login automático (autorizado pelo Bruno no plano aprovado em 25/09): quando um site pede login, o coletor entra
 # sozinho. A senha fica SÓ no navegador do coletor (preenchimento automático do Chrome) ou no Chaveiro do Mac (o Bruno
 # guarda com `coletor guardar-senha <site>`); nunca em arquivo, no nubi, no banco ou no log. Código do e-mail
@@ -2640,6 +2766,8 @@ def main():
     hc.add_argument("--modelo", default=None)
     sub.add_parser("entrar-gestor", help="login no Gestor Seller (uma vez), para importar a planilha sozinho")
     sub.add_parser("hermes-vigia", help="(automático) o Hermes trata as falhas novas: diagnostica, conserta e tenta de novo")
+    cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
+    cv.add_argument("--modelo", default=None)
     gsn = sub.add_parser("guardar-senha", help="guarda no Chaveiro do Mac o login de um site (para o coletor entrar sozinho)")
     gsn.add_argument("site", choices=["nubimetrics", "upseller", "gestor", "gmail"])
     ea = sub.add_parser("entrar-auto", help="entra sozinho no site (senha do navegador/Chaveiro, código do e-mail)")
@@ -2677,6 +2805,8 @@ def main():
         return cmd_hermes_vigia(args, cfg)
     if args.cmd == "guardar-senha":
         return cmd_guardar_senha(args, cfg)
+    if args.cmd == "conversar":
+        return cmd_conversar(args, cfg)
     if args.cmd == "entrar-auto":
         return cmd_entrar_auto(args, cfg)
     if args.cmd == "agendar":
@@ -2711,7 +2841,7 @@ def main():
         os.environ.pop("NUBI_VIGIA", None)
         instalar_vigia()
         return 0
-    if args.cmd in ("diario", "vendedores", "marcas", "dias", "hermes", "qwen", "estoque", "gestor") and not os.environ.get("NUBI_ATUALIZADO"):
+    if args.cmd in ("diario", "vendedores", "marcas", "dias", "hermes", "qwen", "estoque", "gestor", "conversar") and not os.environ.get("NUBI_ATUALIZADO"):
         auto_atualizar()
     if args.cmd in ("hermes", "qwen"):
         return cmd_hermes(args, cfg)
