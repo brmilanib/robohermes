@@ -45,6 +45,15 @@ def _opinar(qual, historico, tarefas, extra):
         f"{extra}\nTAREFAS EM ABERTO:\n{tarefas}\n\nCONVERSA:\n{historico}", max_tokens=900)
 
 
+def _comentar(qual, extra, opinioes_texto):
+    """2ª volta (reunião diária): cada agente lê o que os outros já disseram e comenta curto, sem repetir a própria opinião."""
+    return agentes.perguntar(
+        qual,
+        "Você já deu sua opinião nesta reunião. Agora leia o que os outros agentes disseram e comente em até 3 linhas "
+        "algo específico: concorde, discorde ou complemente — não repita a sua opinião anterior.\n"
+        f"{extra}\nOPINIÕES DESTA RODADA:\n{opinioes_texto}", max_tokens=400)
+
+
 def _decidir(historico, tarefas, opinioes, extra):
     """Claude fecha a rodada: resposta ao grupo + tarefas (novas ou mudanças de status) em JSON."""
     qual = "claude" if ia.tem("claude") else ("chatgpt" if ia.tem("chatgpt") else None)
@@ -180,10 +189,11 @@ def avaliar_risco(t):
     return risco != "alto", risco, str(t.get("motivo_risco") or "")[:200]
 
 
-def rodada(repo, texto_dono=None, extra="", autor_extra=None):
+def rodada(repo, texto_dono=None, extra="", autor_extra=None, segunda_volta=False):
     """
-    Uma rodada da reunião: grava a mensagem (do dono ou do sistema), coleta as opiniões e a decisão do Claude,
-    grava tudo e as tarefas. Devolve as mensagens novas.
+    Uma rodada da reunião: grava a mensagem (do dono ou do sistema), coleta as opiniões (e, se segunda_volta, um
+    comentário curto de cada agente sobre o que os outros disseram) e a decisão do Claude, grava tudo e as tarefas.
+    Devolve as mensagens novas.
     """
     agora = lambda: datetime.now(timezone.utc).isoformat()
     novas = []
@@ -214,6 +224,25 @@ def rodada(repo, texto_dono=None, extra="", autor_extra=None):
     for k in quem:
         if AGENTES[k] in opinioes:
             gravar(AGENTES[k], opinioes[AGENTES[k]])
+    if segunda_volta and len(opinioes) > 1:
+        opinioes_texto = "\n".join(f"[{k}] {v}" for k, v in opinioes.items())
+        comentarios = {}
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futs = {k: ex.submit(_comentar, k, extra, opinioes_texto) for k in quem if AGENTES[k] in opinioes}
+            for k, f in futs.items():
+                try:
+                    comentarios[AGENTES[k]] = f.result(timeout=120)
+                except Exception as e:  # noqa: BLE001
+                    gravar("sistema", f"{AGENTES[k]} não comentou na 2ª volta: {str(e)[:200]}")
+        for k, v in list(comentarios.items()):
+            if not (v or "").strip():
+                del comentarios[k]
+        for k in quem:
+            if AGENTES[k] in comentarios:
+                gravar(AGENTES[k], comentarios[AGENTES[k]], {"segunda_volta": True})
+        for k, v in comentarios.items():
+            if k in opinioes:
+                opinioes[k] = f"{opinioes[k]}\n(2ª volta) {v}"
     try:
         j, q = _decidir(hist + "".join(f"\n[{k}] {v}" for k, v in opinioes.items()), tt, opinioes, extra)
     except Exception as e:  # noqa: BLE001

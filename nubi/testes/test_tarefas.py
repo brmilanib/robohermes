@@ -263,6 +263,102 @@ def test_37d_falha_ao_abrir_duvida_nao_apaga_resposta_pronta():
     assert "Resposta pronta para o Bruno." in passo["texto"], passo
 
 
+class RepoPauta:
+    def __init__(s, tabelas):
+        s.t = {k: list(v) for k, v in tabelas.items()}
+
+    def _req(s, m, tab, params=None, corpo=None, prefer=None):
+        if m == "GET":
+            import fake_rest
+            return fake_rest.filtra(s.t.get(tab, []), params or {})
+        return []
+
+    def _todos(s, tab, params=None, metodo="GET", corpo=None):
+        import fake_rest
+        return fake_rest.filtra(s.t.get(tab, []), params or {})
+
+
+def test_38_pauta_diaria_monta_4_secoes():
+    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "servidor_teste")
+    if caminho not in sys.path:
+        sys.path.insert(0, caminho)
+
+    ontem = "2026-09-24T11:00:00+00:00"
+    hoje_iso = "2026-09-25T09:00:00+00:00"
+    tabelas = {
+        "reuniao_tarefas": [
+            {"id": 1, "titulo": "Card concluído", "notas": "publicado", "status": "feita", "atualizado_em": hoje_iso, "prioridade": "alta", "aguardando": None},
+            {"id": 2, "titulo": "Card travado", "status": "em_desenvolvimento", "aguardando": "Posso mudar a regra?", "atualizado_em": hoje_iso, "prioridade": "media", "notas": None},
+            {"id": 3, "titulo": "Próximo da fila", "status": "aprovada", "aguardando": None, "prioridade": "alta", "atualizado_em": hoje_iso, "notas": None},
+        ],
+        "rotinas_execucoes": [], "coletor_execucoes": [], "auditorias": [], "rotinas": [],
+        "reuniao_mensagens": [
+            {"id": 10, "autor": "claude_code", "texto": "dúvida sem resposta", "meta": {"tipo": "duvida", "tarefa_id": 2}, "criado_em": hoje_iso},
+        ],
+        "agentes_uso": [{"agente": "deepseek", "custo_usd": 0.05, "inicio": hoje_iso}],
+        "tarefa_eventos": [{"id": 20, "tarefa_id": 2, "tipo": "erro_teste", "criado_em": hoje_iso}],
+    }
+    r = RepoPauta(tabelas)
+    texto = nubi_web._pauta_diaria(r, ontem)
+    assert "## O que foi feito desde a última reunião" in texto and "Card concluído" in texto, texto
+    assert "## O que travou" in texto and "Card travado" in texto and "dúvida sem resposta" in texto, texto
+    assert "## O que dá para melhorar" in texto and "deepseek" in texto and "1 reprovação" in texto, texto
+    assert "## Próximos da fila" in texto and "Próximo da fila" in texto, texto
+    assert "Card travado" not in texto.split("## O que foi feito")[1].split("## O que travou")[0], texto
+
+
+class RepoReuniao:
+    def __init__(s):
+        s.t = {"reuniao_mensagens": [], "reuniao_tarefas": []}
+
+    def _req(s, m, tab, params=None, corpo=None, prefer=None):
+        if m == "POST":
+            linhas = [dict(x, id=len(s.t.setdefault(tab, [])) + i + 1) for i, x in enumerate(corpo)]
+            s.t.setdefault(tab, []).extend(linhas)
+            return linhas if prefer and "representation" in prefer else None
+        return s.t.get(tab, [])
+
+    def _todos(s, tab, params=None):
+        return s.t.get(tab, [])
+
+
+def test_38b_segunda_volta_reune_comentarios_antes_da_decisao():
+    import reuniao
+    reuniao.participantes = lambda texto: ["chatgpt", "deepseek"]
+
+    def fake_perguntar(chave, texto, max_tokens=800):
+        if "Você já deu sua opinião" in texto:
+            return f"(comentário 2ª volta de {chave})"
+        return f"(opinião 1ª rodada de {chave})"
+    reuniao.agentes.perguntar = fake_perguntar
+    reuniao._decidir = lambda hist, tt, opinioes, extra: (
+        {"resposta": "Decisão fechando a reunião.", "tarefas": [], "atualizar": []}, "claude")
+
+    r = RepoReuniao()
+    reuniao.rodada(r, "Reunião diária — pauta de hoje: ...", extra="", autor_extra="sistema", segunda_volta=True)
+
+    msgs = r.t["reuniao_mensagens"]
+    da_2volta = [m for m in msgs if (m.get("meta") or {}).get("segunda_volta")]
+    assert {m["autor"] for m in da_2volta} == {"ChatGPT", "DeepSeek"}, da_2volta
+    assert all("comentário 2ª volta" in m["texto"] for m in da_2volta), da_2volta
+    assert any("(opinião 1ª rodada de chatgpt)" in m["texto"] for m in msgs if m["autor"] == "ChatGPT"), msgs
+    assert any("Decisão fechando a reunião" in m["texto"] for m in msgs), msgs
+
+
+def test_38c_sem_segunda_volta_nao_muda_o_fluxo_normal():
+    import reuniao
+    reuniao.participantes = lambda texto: ["chatgpt"]
+    chamadas = []
+    reuniao.agentes.perguntar = lambda chave, texto, max_tokens=800: chamadas.append(texto) or "opinião única"
+    reuniao._decidir = lambda hist, tt, opinioes, extra: (
+        {"resposta": "Decisão.", "tarefas": [], "atualizar": []}, "claude")
+
+    r = RepoReuniao()
+    reuniao.rodada(r, "Mensagem do Bruno", extra="", autor_extra="voce")   # segunda_volta=False (padrão)
+    assert len(chamadas) == 1, chamadas    # sem 2ª volta: só a opinião normal, nenhum comentário extra
+    assert not any((m.get("meta") or {}).get("segunda_volta") for m in r.t["reuniao_mensagens"])
+
+
 class RepoMac:
     def __init__(self):
         self.mac_comandos = []

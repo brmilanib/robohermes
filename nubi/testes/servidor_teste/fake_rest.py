@@ -38,6 +38,8 @@ def filtra(rows, params):
             out = [r for r in out if float(pega(r) or 0) > float(v[3:])]
         elif isinstance(v, str) and v == "is.null":
             out = [r for r in out if pega(r) is None]
+        elif isinstance(v, str) and v == "not.is.null":
+            out = [r for r in out if pega(r) is not None]
         elif isinstance(v, str) and v.startswith("lte."):
             out = [r for r in out if float(pega(r) or 0) <= float(v[4:])]
         elif isinstance(v, str) and v.startswith("gte."):

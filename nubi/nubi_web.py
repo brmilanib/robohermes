@@ -2007,6 +2007,64 @@ def _marcar_rotina(repo, rid, resultado):
         pass
 
 
+def _pauta_diaria(repo, ultima_execucao):
+    """Pauta automática da reunião diária (determinística, sem IA): feito, travado, melhorar, próximos."""
+    agora = datetime.now(timezone.utc)
+    desde = str(ultima_execucao or (agora - timedelta(hours=24)).isoformat())
+
+    feitas = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,notas", "status": "eq.feita",
+                        "atualizado_em": f"gte.{desde}", "order": "atualizado_em.desc", "limit": 15}) or []
+    feito = "\n".join(f"- #{t['id']} {t['titulo']}" + (f" — {t['notas']}" if t.get("notas") else "") for t in feitas) \
+        or "nada concluído desde a última reunião"
+
+    travadas = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,status,aguardando",
+                          "aguardando": "not.is.null", "order": "atualizado_em.desc", "limit": 10}) or []
+    trav = "\n".join(f"- #{t['id']} {t['titulo']} ({t['status']}): {t['aguardando']}" for t in travadas)
+    try:
+        erros = [e for e in _ops_erros(repo) if str(e.get("inicio") or "") >= desde][:10]
+    except ErroNuvem:
+        erros = []
+    erros_txt = "\n".join(f"- {e['fonte']}: {e['nome']} — {(e.get('resultado') or '')[:150]}" for e in erros)
+    duv_txt = ""
+    try:
+        duvidas = repo._req("GET", "reuniao_mensagens", {"select": "id,texto,meta", "meta->>tipo": "eq.duvida",
+                            "criado_em": f"gte.{desde}", "order": "id"}) or []
+        decididas = {(m.get("meta") or {}).get("duvida_id") for m in repo._req("GET", "reuniao_mensagens",
+                    {"select": "meta", "meta->>tipo": "eq.decisao", "criado_em": f"gte.{desde}"}) or []}
+        abertas = [m for m in duvidas if m["id"] not in decididas]
+        duv_txt = "\n".join(f"- dúvida sem resposta (card #{(m.get('meta') or {}).get('tarefa_id')}): {m['texto'][:150]}" for m in abertas)
+    except ErroNuvem:
+        pass
+    travado = "\n".join(x for x in (trav, erros_txt, duv_txt) if x) or "nada travado"
+
+    hoje = _agora_br().date()
+    inicio_mes = agora.replace(day=1, hour=3, minute=0, second=0, microsecond=0)
+    usos = repo._todos("agentes_uso", {"select": "agente,custo_usd,inicio", "inicio": f"gte.{min(inicio_mes, agora - timedelta(days=1)).isoformat()}"})
+    custo = {}
+    for u in usos:
+        d = custo.setdefault(u["agente"], {"dia": 0.0, "mes": 0.0})
+        c = float(u.get("custo_usd") or 0)
+        if str(u["inicio"]) >= inicio_mes.isoformat():
+            d["mes"] += c
+        if _br(u["inicio"]).date() == hoje:
+            d["dia"] += c
+    custo_txt = "\n".join(f"- {a}: hoje US$ {v['dia']:.3f}, mês US$ {v['mes']:.2f}" for a, v in custo.items()) or "sem uso de IA registrado"
+    try:
+        reprovas = len(repo._req("GET", "tarefa_eventos", {"select": "id", "tipo": "eq.erro_teste", "criado_em": f"gte.{desde}"}) or [])
+    except ErroNuvem:
+        reprovas = 0
+    melhorar = f"Custo de IA (mês em curso):\n{custo_txt}\nRetrabalho: {reprovas} reprovação(ões) de teste desde a última reunião."
+
+    proximas = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,prioridade", "status": "eq.aprovada",
+                          "aguardando": "is.null", "order": "prioridade,id", "limit": 5}) or []
+    prox = "\n".join(f"- #{t['id']} [{t.get('prioridade')}] {t['titulo']}" for t in proximas) or "fila vazia"
+
+    return ("## O que foi feito desde a última reunião\n" + feito
+            + "\n\n## O que travou\n" + travado
+            + "\n\n## O que dá para melhorar\n" + melhorar
+            + "\n\n## Próximos da fila\n" + prox)
+
+
 def rodar_rotinas(repo, so=None):
     """Roda as tarefas do servidor que chegaram na hora (ou só a tarefa 'so', agora)."""
     t0 = time.monotonic()
@@ -2034,8 +2092,11 @@ def rodar_rotinas(repo, so=None):
                              + "\n".join(f"[{c['nivel']}] {c['titulo']} — {c['detalhe']}" for c in (au.get("conferencias") or [])[:25])
                              + "\n" + "\n".join(f"({m['autor']}) {m['texto'][:1500]}" for m in (au.get("conversa") or [])))
                 obs = (r.get("observacao") or "").strip()
-                x = reuniao.rodada(repo, "Reunião diária: discutam a auditoria de hoje e decidam o que vai para desenvolvimento."
-                                   + (f" Pauta do dono: {obs}" if obs else ""), extra, autor_extra="sistema")
+                abertura = ("📋 Reunião diária — pauta de hoje:\n\n" + _pauta_diaria(repo, r.get("ultima_execucao"))
+                            + "\n\nDiscutam: o que foi feito, o que travou, o que dá para melhorar, os próximos da fila "
+                            "e a auditoria de hoje; decidam o que vai para desenvolvimento."
+                            + (f"\nPauta do dono: {obs}" if obs else ""))
+                x = reuniao.rodada(repo, abertura, extra, autor_extra="sistema", segunda_volta=True)
                 res = f"{len(x)} mensagem(ns) na Sala de reunião"
             elif rid == "auditoria":
                 reg = auditoria.rodar(repo, (r.get("observacao") or "").strip())
