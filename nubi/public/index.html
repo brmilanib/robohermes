@@ -423,6 +423,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .ag-papel{margin:2px 0;font-size:13px;color:var(--muted)}
 .ag-m{font-size:12.8px;font-variant-numeric:tabular-nums}
 .ag-m .l{display:inline-block;min-width:142px;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+.ag-jeito{margin:4px 0 6px;padding:6px 10px;border-radius:10px;background:var(--soft);font-size:13px;font-style:italic}
 .ag-perfil{margin:6px 0 4px;border:1px solid var(--line);border-radius:10px;padding:6px 10px}
 .ag-perfil summary{cursor:pointer;font-size:12.5px;font-weight:600}
 .ag-perfil .ag-m{margin-top:6px;overflow-wrap:anywhere}
@@ -2526,6 +2527,7 @@ function agCard(a) {
         <div class="muted" style="font-size:12.5px">${esc(a.onde || "")}</div></div><div style="flex:1"></div>
       <span class="st ${st[0]} ${a.status === "executando" ? "ag-pulso" : ""}">${st[1]}</span></div>
     <p class="ag-papel">${esc(a.papel || "")}</p>
+    ${a.perfil && a.perfil.jeito ? `<p class="ag-jeito">${esc(a.perfil.jeito)}</p>` : ""}
     ${a.perfil ? `<details class="ag-perfil"><summary>📋 Perfil completo: função, modelo, o que pode e o que não pode</summary>
       <div class="ag-m"><span class="l">Função</span>${esc(a.perfil.funcao)}</div>
       <div class="ag-m"><span class="l">Modelo</span>${esc(a.perfil.modelo)}</div>

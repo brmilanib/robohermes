@@ -61,6 +61,7 @@ def _decidir(historico, tarefas, opinioes, extra):
         raise ia.SemIA("nenhuma IA configurada")
     pedido = (
         "Você é o Claude, coordenador dos agentes do nubi: você decide e todos seguem a sua decisão. "
+        + agentes.voz("claude") +
         "Leia a conversa e as opiniões desta rodada, responda ao grupo (curto, até 8 linhas, português, tom de WhatsApp, "
         "dizendo o que foi decidido e por quê) e registre o que vai para desenvolvimento.\n"
         "Você não executa nada: não diga que pediu coleta, rodou ou corrigiu algo; diga o que foi decidido e registre "
@@ -153,6 +154,7 @@ def duvida(repo, tarefa_id, texto, quem="claude_code", para=None):
                       "meta": {"tipo": "resposta_duvida", "duvida_id": duvida_id, "tarefa_id": tarefa_id}, "criado_em": agora()}],
                       prefer="return=minimal")
     pedido = (
+        agentes.voz("claude") +
         "Você é o Claude, coordenador dos agentes do nubi. Um agente abriu uma dúvida ligada a um card de desenvolvimento "
         "(não é a reunião nem uma tarefa nova). Dê a MELHOR RESPOSTA, curta (até 6 linhas), objetiva, para quem vai "
         f"implementar o card.\nCARD #{tarefa_id}\nDÚVIDA: {texto}\n"
