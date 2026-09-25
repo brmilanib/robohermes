@@ -376,6 +376,14 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 @media (max-width:640px){
   table.t.mat th:nth-child(2),table.t.mat td:nth-child(2){position:sticky;left:0;background:var(--card);z-index:1;box-shadow:1px 0 0 var(--line)}
   table.t.mat td{white-space:nowrap} table.t.mat th:first-child,table.t.mat td:first-child{display:none}
+  table.t.cc-t th.d-only,table.t.cc-t td.d-only{display:none}
+  table.t.cc-t th.m-only,table.t.cc-t td.m-only{min-width:112px}
+  table.t.cc-t td.first{min-width:144px;white-space:normal}
+  .cc-metrica-wrap{display:flex}
+}
+@media (min-width:641px){
+  table.t.cc-t th.m-only,table.t.cc-t td.m-only{display:none}
+  .cc-metrica-wrap,#cc-deslize{display:none}
 }
 #barra-baixo{display:none}
 @media (max-width:900px){
@@ -2009,6 +2017,15 @@ async function telaProdutosIguais() {
 
 // ---------- Comparar concorrentes (período escolhido x período anterior do mesmo tamanho) ----------
 const CC_CORES = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)", "var(--s6)", "var(--s7)", "var(--s8)"];
+// Matriz do celular (card #34): uma métrica por vez, coluna do vendedor fixa. Preço médio não existe nesta
+// comparação (só o "Preço Médio" do export do Nubimetrics conta como preço, nunca vendas/unidades) e por isso
+// sempre aparece "Sem dados" aqui, em vez de inventar um cálculo (ticket = vendas/unidades seria outra métrica).
+const CC_METRICAS = [
+  {k: "v", nome: "Vendas R$", valor: v => v.v, variacao: v => v.var_v, fmt: abrev},
+  {k: "u", nome: "Unidades", valor: v => v.u, variacao: v => v.var_u, fmt: x => nf0.format(x)},
+  {k: "pm", nome: "Preço médio", valor: () => null, variacao: () => null, fmt: x => "R$ " + nf2.format(x)},
+  {k: "conv", nome: "Conversão", valor: v => v.conversao, variacao: v => v.var_conversao, fmt: x => nf2.format(x * 100) + "%"},
+];
 function donut(box, itens, fmt) {
   box.replaceChildren();
   const tot = itens.reduce((a, x) => a + x.v, 0) || 1, R = 70, r = 46, c = 90;
@@ -2031,7 +2048,7 @@ async function telaConcorrentes() {
   if (!main.querySelector("#cc-raiz")) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Comparando os concorrentes</div></div>`;
   let r;
   try { r = await api("vend_concorrentes", {...(qs.get("desde") ? {desde: qs.get("desde")} : {}), ...(qs.get("ate") ? {ate: qs.get("ate")} : {})}); }
-  catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  catch (e) { main.innerHTML = `<h1>⚖️ Comparar concorrentes</h1><div class="card empty" style="margin-top:14px"><h2>Não foi possível carregar a comparação.</h2><button class="btn" id="cc-retry">Tentar novamente</button></div>`; $("#cc-retry").onclick = telaConcorrentes; desenharMenu(); return; }
   if (!r.tem) { main.innerHTML = `<h1>⚖️ Comparar concorrentes</h1><div class="card empty" style="margin-top:14px"><h2>Ainda sem vendas diárias</h2><p>Aparece quando o coletor trouxer as vendas de cada dia.</p></div>`; desenharMenu(); return; }
   const dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
   const ir = (desde, ate) => { location.hash = `#/concorrentes?desde=${desde}&ate=${ate}`; };
@@ -2040,26 +2057,41 @@ async function telaConcorrentes() {
   const antFim = menos(mesIni, 1), antIni = antFim.slice(0, 8) + "01";
   const presets = [["Último dia", u, u], ["7 dias", menos(u, 6), u], ["15 dias", menos(u, 14), u], ["30 dias", menos(u, 29), u],
     ["Mês atual", mesIni, u], ["Mês anterior", antIni, antFim]];
-  S.cc = S.cc || {med: "v", acum: false, sel: null, ord: "v", asc: false, busca: ""};
+  S.cc = S.cc || {med: "v", acum: false, sel: null, ord: "v", asc: false, busca: "", metrica: "v"};
   const st = S.cc;
+  if (!st.metrica) st.metrica = "v";
   const vs = r.vendedores;
   if (!st.sel || !st.sel.every(n => vs.some(v => v.vendedor === n))) st.sel = vs.slice(0, 3).map(v => v.vendedor);
   const cor = n => CC_CORES[vs.findIndex(v => v.vendedor === n) % CC_CORES.length];
   const varH = (x, inv) => x == null ? `<span class="cc-var muted">—</span>` : `<span class="cc-var ${x >= 0 ? "pos" : "neg"}">${x >= 0 ? "↑" : "↓"} ${nf1.format(Math.abs(x * 100))}%</span>`;
   const n = r.dias.length, falt = r.dias.filter(d => !r.coletados.includes(d)).length;
+  // Célula da matriz do celular (uma métrica por vez): coleta pendente > sem dados > valor confirmado, nunca zero por engano.
+  const mCel = (v, m) => {
+    if (m.k !== "pm" && !v.completo) return `<span class="st warn" title="faltam dias desse vendedor no período">Coleta pendente</span>`;
+    const val = m.valor(v);
+    return val == null ? `<span class="muted">Sem dados</span>` : `<b>${m.fmt(val)}</b>`;
+  };
+  const mVar = (v, m) => m.k !== "pm" && !v.completo ? "" : varH(m.variacao(v));
   const desenhar = () => {
     const q = st.busca.toLowerCase();
     const lin = vs.filter(v => !q || v.vendedor.toLowerCase().includes(q)).sort((a, b) => (st.asc ? 1 : -1) * ((a[st.ord] ?? -1e18) - (b[st.ord] ?? -1e18)));
-    $("#cc-tab").innerHTML = `<table class="t cc-t no-card mat" style="font-size:12.5px"><thead><tr><th style="width:28px"></th><th>Vendedor</th>
-      ${[["v", "Vendas em $"], ["u", "Vendas em Unid."], ...(r.com_visitas ? [["visitas", "Visitas"], ["conversao", "Conversão"]] : []), ["share_v", "Share em $"], ["share_u", "Share unid."]].map(([k, t]) => `<th class="num" data-ord="${k}">${t}${st.ord === k ? (st.asc ? " ↑" : " ↓") : ""}</th>`).join("")}</tr></thead>
-      <tbody>${lin.map(v => `<tr><td><input type="checkbox" data-sel="${esc(v.vendedor)}" ${st.sel.includes(v.vendedor) ? "checked" : ""}></td>
-        <td class="first"><a href="#/concorrentes/${encodeURIComponent(v.vendedor)}?desde=${r.desde}&ate=${r.ate}">${esc(v.vendedor)}</a>${v.completo ? "" : ` <span class="st warn" title="faltam dias desse vendedor no período">${v.dias} de ${n} dias</span>`}</td>
-        <td class="num"><b>${abrev(v.v)}</b>${varH(v.var_v)}</td><td class="num"><b>${nf0.format(v.u)}</b>${varH(v.var_u)}</td>
-        ${r.com_visitas ? `<td class="num"><b>${v.visitas != null ? nf0.format(v.visitas) : "—"}</b>${varH(v.var_visitas)}</td><td class="num"><b>${v.conversao != null ? nf2.format(v.conversao * 100) + "%" : "—"}</b>${varH(v.var_conversao)}</td>` : ""}
-        <td class="num">${FMT.pct(v.share_v)}</td><td class="num">${FMT.pct(v.share_u)}</td></tr>`).join("")}</tbody></table>`;
+    const met = CC_METRICAS.find(m => m.k === st.metrica) || CC_METRICAS[0];
+    if (!lin.length) { $("#cc-tab").innerHTML = `<div class="empty">Sem dados para comparar neste período.</div>`; return; }
+    $("#cc-tab").innerHTML = `<table class="t cc-t no-card mat" style="font-size:12.5px"><thead><tr><th style="width:28px" class="d-only"></th><th>Vendedor</th>
+      ${[["v", "Vendas em $"], ["u", "Vendas em Unid."], ...(r.com_visitas ? [["visitas", "Visitas"], ["conversao", "Conversão"]] : []), ["share_v", "Share em $"], ["share_u", "Share unid."]].map(([k, t]) => `<th class="num d-only" data-ord="${k}">${t}${st.ord === k ? (st.asc ? " ↑" : " ↓") : ""}</th>`).join("")}
+      <th class="num m-only">${esc(met.nome)}</th><th class="num m-only">Variação</th></tr></thead>
+      <tbody>${lin.map(v => `<tr><td class="d-only"><input type="checkbox" data-sel="${esc(v.vendedor)}" ${st.sel.includes(v.vendedor) ? "checked" : ""}></td>
+        <td class="first"><a href="#/concorrentes/${encodeURIComponent(v.vendedor)}?desde=${r.desde}&ate=${r.ate}">${esc(v.vendedor)}</a>${v.completo ? "" : ` <span class="st warn d-only" title="faltam dias desse vendedor no período">${v.dias} de ${n} dias</span>`}</td>
+        <td class="num d-only"><b>${abrev(v.v)}</b>${varH(v.var_v)}</td><td class="num d-only"><b>${nf0.format(v.u)}</b>${varH(v.var_u)}</td>
+        ${r.com_visitas ? `<td class="num d-only"><b>${v.visitas != null ? nf0.format(v.visitas) : "—"}</b>${varH(v.var_visitas)}</td><td class="num d-only"><b>${v.conversao != null ? nf2.format(v.conversao * 100) + "%" : "—"}</b>${varH(v.var_conversao)}</td>` : ""}
+        <td class="num d-only">${FMT.pct(v.share_v)}</td><td class="num d-only">${FMT.pct(v.share_u)}</td>
+        <td class="num m-only">${mCel(v, met)}</td><td class="num m-only">${mVar(v, met)}</td></tr>`).join("")}</tbody></table>
+      <p class="muted" id="cc-deslize" style="font-size:12px;margin:6px 0 0;display:none">Deslize para comparar →</p>`;
     $("#cc-tab").querySelectorAll("[data-ord]").forEach(th => th.onclick = () => { st.asc = st.ord === th.dataset.ord ? !st.asc : false; st.ord = th.dataset.ord; desenhar(); });
     $("#cc-tab").querySelectorAll("[data-sel]").forEach(cb => cb.onchange = () => {
       st.sel = cb.checked ? [...st.sel, cb.dataset.sel] : st.sel.filter(x => x !== cb.dataset.sel); graficos(); });
+    const rolarEl = $("#cc-tab"), dica = $("#cc-deslize");
+    if (rolarEl && dica) dica.style.display = rolarEl.scrollWidth > rolarEl.clientWidth ? "" : "none";
   };
   const graficos = () => {
     $("#cc-chips").innerHTML = st.sel.map(nm => `<span class="cc-chip" data-tira="${esc(nm)}"><i style="background:${cor(nm)}"></i>${esc(nm)} ✕</span>`).join("")
@@ -2105,7 +2137,10 @@ async function telaConcorrentes() {
     <div class="card pad" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <input type="search" id="cc-busca" placeholder="Buscar por vendedor" value="${esc(st.busca)}" style="min-width:240px"><div style="flex:1"></div>
       <span class="muted" style="font-size:12.5px">Setas: variação contra ${dm(r.desde_ant)} a ${dm(r.ate_ant)} · clique no vendedor para ver os produtos${r.com_visitas ? "" : " · visitas e conversão aparecem quando o coletor trouxer a tabela do grupo"}</span></div>
+      <div class="cc-metrica-wrap" style="align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px"><b style="font-size:12.5px">Métrica</b>
+        <div class="cc-seg" id="cc-metrica">${CC_METRICAS.map(m => `<button data-m="${m.k}" class="${st.metrica === m.k ? "on" : ""}">${esc(m.nome)}</button>`).join("")}</div></div>
       <div class="rolar" id="cc-tab" style="margin-top:8px"></div></div></div>`;
+  $("#cc-metrica").querySelectorAll("[data-m]").forEach(b => b.onclick = () => { st.metrica = b.dataset.m; desenhar(); });
   $("#cc-ok").onclick = () => ir($("#cc-de").value, $("#cc-ate").value);
   main.querySelectorAll("[data-pre]").forEach(b => b.onclick = () => { const [a, c] = b.dataset.pre.split("|"); ir(a, c); });
   main.querySelectorAll("[data-med]").forEach(b => b.onclick = () => { st.med = b.dataset.med; telaConcorrentes(); });
