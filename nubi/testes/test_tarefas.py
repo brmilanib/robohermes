@@ -111,8 +111,59 @@ def test_7_regras_da_juncao():
 
 
 def test_17_uso_sem_numero_fica_nulo():
-    assert ia._tokens({"choices": []}) == (None, None)
-    assert ia._tokens({"usage": {"input_tokens": 10, "output_tokens": 3, "cache_read_input_tokens": 5}}) == (15, 3)
+    assert ia._tokens({"choices": []}) == (None, None, None, None)
+    # input_tokens da Anthropic já vem SEM os tokens de cache: nunca somar aqui (card #21), senão cobra 2x no custo
+    assert ia._tokens({"usage": {"input_tokens": 10, "output_tokens": 3, "cache_read_input_tokens": 5}}) == (10, 5, 0, 3)
+    assert ia._tokens({"usage": {"input_tokens": 10, "output_tokens": 3}}) == (10, 0, 0, 3)   # sem cache: 0, não None
+
+
+class RepoPrecos:
+    def __init__(s, precos):
+        s.precos = precos
+        s.usos = []
+
+    def _req(s, m, tab, params=None, corpo=None, prefer=None):
+        if tab == "ia_precos" and m == "GET":
+            return s.precos
+        if tab == "agentes_uso" and m == "PATCH":
+            s.usos.append(corpo)
+            return []
+        return []
+
+    def _todos(s, tab, params, metodo="GET", corpo=None):
+        return s._req(metodo, tab, params, corpo) or []
+
+    def _eq(s, v):
+        return f"eq.{v}"
+
+
+def test_21_custo_com_cache_nao_cobra_duas_vezes():
+    # claude-opus-5-5: US$ 4/1M entrada, US$ 20/1M saída (ia_precos); leitura de cache 0,1x, criação 1,25x (card #21)
+    r = RepoPrecos([{"modelo": "claude-opus-5-5", "entrada": "4", "saida": "20"}])
+    nubi_web.ligar_registro_uso(r, "teste")
+    ia.USO["gravar"]("fim", {"id": 1, "ok": True, "modelo": "claude-opus-5-5", "tokens_in": 100,
+                             "cache_read_tokens": 1000, "cache_creation_tokens": 200, "tokens_out": 50})
+    esperado = round((100 * 4 + 1000 * 4 * 0.1 + 200 * 4 * 1.25 + 50 * 20) / 1e6, 6)
+    assert r.usos[-1]["custo_usd"] == esperado, r.usos[-1]
+
+    # usage sem campos de cache (tratados como 0, não None)
+    r2 = RepoPrecos([{"modelo": "claude-opus-5-5", "entrada": "4", "saida": "20"}])
+    nubi_web.ligar_registro_uso(r2, "teste")
+    ia.USO["gravar"]("fim", {"id": 1, "ok": True, "modelo": "claude-opus-5-5", "tokens_in": 100,
+                             "cache_read_tokens": 0, "cache_creation_tokens": 0, "tokens_out": 50})
+    assert r2.usos[-1]["custo_usd"] == round((100 * 4 + 50 * 20) / 1e6, 6), r2.usos[-1]
+
+    # usage ausente (tokens_in None): custo "sem dados", nunca 0
+    r3 = RepoPrecos([{"modelo": "claude-opus-5-5", "entrada": "4", "saida": "20"}])
+    nubi_web.ligar_registro_uso(r3, "teste")
+    ia.USO["gravar"]("fim", {"id": 1, "ok": True, "modelo": "claude-opus-5-5", "tokens_in": None, "tokens_out": None})
+    assert "custo_usd" not in r3.usos[-1], r3.usos[-1]
+
+    # modelo sem preço cadastrado: sem custo, nunca 0 nem preço de outro modelo
+    r4 = RepoPrecos([{"modelo": "gpt-4.1", "entrada": None, "saida": None}])
+    nubi_web.ligar_registro_uso(r4, "teste")
+    ia.USO["gravar"]("fim", {"id": 1, "ok": True, "modelo": "gpt-4.1", "tokens_in": 100, "tokens_out": 50})
+    assert "custo_usd" not in r4.usos[-1], r4.usos[-1]
 
 
 def test_aprovacao_automatica_por_risco():

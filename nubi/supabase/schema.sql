@@ -601,3 +601,9 @@ create index if not exists store_orders_source on public.store_orders (source, a
 alter table public.store_orders enable row level security;
 create policy "autorizado" on public.store_orders for all to authenticated
   using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- Cache de tokens separado do custo de IA (card #21): input_tokens da Anthropic já vem sem os tokens de cache,
+-- então cache_read/cache_creation ficam em colunas próprias, nunca somadas em tokens_in (senão cobra 2x).
+-- Aprovado pelo Bruno em 25/09 (tarefa_eventos #21, resposta 20:27).
+alter table public.agentes_uso add column if not exists cache_read_tokens int;
+alter table public.agentes_uso add column if not exists cache_creation_tokens int;

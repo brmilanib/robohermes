@@ -2286,6 +2286,12 @@ def _preco_de(precos, modelo):
     return precos[max(cands, key=len)] if cands else None
 
 
+# Preço de cache da Anthropic é um fator do preço de entrada do modelo, não um preço próprio por modelo (card #21):
+# leitura de cache custa ~1/10 da entrada normal, criação (TTL padrão de 5 min) custa ~1,25x.
+CACHE_LEITURA_FATOR = 0.1
+CACHE_CRIACAO_FATOR = 1.25
+
+
 def ligar_registro_uso(repo, origem):
     """Cada chamada de IA desta requisição vira uma linha em agentes_uso (aba Agentes)."""
     cache = {}
@@ -2297,16 +2303,20 @@ def ligar_registro_uso(repo, origem):
             return (r or [{}])[0].get("id")
         if not d.get("id"):
             return None
-        reg = {k: d[k] for k in ("ok", "erro", "modelo", "tokens_in", "tokens_out", "latencia_ms") if k in d}
+        reg = {k: d[k] for k in ("ok", "erro", "modelo", "tokens_in", "tokens_out", "cache_read_tokens",
+                                  "cache_creation_tokens", "latencia_ms") if k in d}
         reg["fim"] = datetime.now(timezone.utc).isoformat()
         if d.get("ok") and d.get("modelo"):
             if "p" not in cache:
                 cache["p"] = _precos(repo)
             p = _preco_de(cache["p"], d["modelo"])
-            if p and p.get("entrada") is not None and p.get("saida") is not None:
-                if d.get("tokens_in") is not None:
-                    reg["custo_usd"] = round(((d.get("tokens_in") or 0) * float(p["entrada"])
-                                              + (d.get("tokens_out") or 0) * float(p["saida"])) / 1e6, 6)
+            if p and p.get("entrada") is not None and p.get("saida") is not None and d.get("tokens_in") is not None:
+                p_entrada = float(p["entrada"])
+                custo = ((d.get("tokens_in") or 0) * p_entrada
+                        + (d.get("cache_read_tokens") or 0) * p_entrada * CACHE_LEITURA_FATOR
+                        + (d.get("cache_creation_tokens") or 0) * p_entrada * CACHE_CRIACAO_FATOR
+                        + (d.get("tokens_out") or 0) * float(p["saida"])) / 1e6
+                reg["custo_usd"] = round(custo, 6)
         repo._req("PATCH", "agentes_uso", {"id": f"eq.{d['id']}"}, corpo=reg, prefer="return=minimal")
         return None
     ia.USO.update({"gravar": gravar, "origem": origem})

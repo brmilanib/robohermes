@@ -129,14 +129,17 @@ PROVEDOR = (("api.anthropic.com", "claude"), ("api.openai.com", "chatgpt"), ("ap
 
 
 def _tokens(r):
-    """(tokens de entrada, tokens de saída) da resposta de qualquer provedor."""
+    """(entrada, leitura de cache, criação de cache, saída) da resposta de qualquer provedor, cada um bruto como
+    veio da API (a Anthropic já manda input_tokens SEM os tokens de cache: nunca somar aqui, senão cobra cache
+    duas vezes no chamador). Sem uso relatado pelo provedor: os 4 ficam None (nunca 0)."""
     u = r.get("usage") or {}
     ent = u.get("input_tokens", u.get("prompt_tokens", r.get("prompt_eval_count")))
     sai = u.get("output_tokens", u.get("completion_tokens", r.get("eval_count")))
     if ent is None and sai is None:
-        return None, None                              # provedor não mandou o uso: fica sem número (não zero)
-    ent = int(ent or 0) + int(u.get("cache_read_input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0)
-    return ent, int(sai or 0)
+        return None, None, None, None                   # provedor não mandou o uso: fica sem número (não zero)
+    leitura = int(u.get("cache_read_input_tokens") or 0)
+    criacao = int(u.get("cache_creation_input_tokens") or 0)
+    return int(ent or 0), leitura, criacao, int(sai or 0)
 
 
 def _http_json(url, corpo, cab, timeout=90):
@@ -169,9 +172,10 @@ def _post_json(url, corpo, cab, timeout=90):
         raise
     if gravar:
         try:
-            ent, sai = _tokens(r)
+            ent, leitura, criacao, sai = _tokens(r)
             gravar("fim", {"id": rid, "ok": True, "modelo": str(r.get("model") or corpo.get("model") or ""),
-                           "tokens_in": ent, "tokens_out": sai, "latencia_ms": int((time.monotonic() - t0) * 1000)})
+                           "tokens_in": ent, "cache_read_tokens": leitura, "cache_creation_tokens": criacao,
+                           "tokens_out": sai, "latencia_ms": int((time.monotonic() - t0) * 1000)})
         except Exception:  # noqa: BLE001
             pass
     return r
