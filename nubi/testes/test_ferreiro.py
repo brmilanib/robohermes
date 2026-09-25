@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "public" / "coletor
 import coletor as c  # noqa: E402
 
 TMP = Path(tempfile.mkdtemp())
+_AMBIENTE_ORIGINAL = c._ambiente_projeto
 
 
 def _sh(*cmd, cwd=None):
@@ -51,6 +52,7 @@ def _preparar(claude):
     passos, sala = [], []
     c.REPO_GIT = str(_repo_falso())
     c._claude_bin = lambda: claude
+    c._ambiente_projeto = lambda repo: Path(sys.executable).parent      # no Mac: venv com as bibliotecas do projeto
     c._credencial = lambda site, cfg=None: ("bruno", "sk-ant-falsa") if site == "anthropic" else ("", "")
     c.token_nubi = lambda cfg: "T"
 
@@ -84,6 +86,18 @@ def test_ferreiro_sem_commit_devolve_para_o_chefe():
     passos, sala = _preparar(_claude_falso(commita=False))
     assert c.cmd_programar(type("A", (), {"id": "81"})(), c.ler_config()) == 1
     assert passos[-1]["status"] == "aprovada" and passos[-1]["tipo"] == "erro_teste"
+
+
+def test_python_velho_pede_brew():
+    c._python_novo = lambda: None
+    import shutil
+    d = Path(tempfile.mkdtemp())
+    shutil.rmtree(c.PASTA / "venv-projeto", ignore_errors=True)
+    try:
+        _AMBIENTE_ORIGINAL(d)
+        assert False, "tinha que pedir o Python novo"
+    except c.Falha as e:
+        assert "brew install python@3.12" in str(e)
 
 
 def test_teto_do_dia():

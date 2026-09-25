@@ -2336,6 +2336,41 @@ def _gasto_ferreiro(cfg, somar=0.0):
     return g.get(hoje, 0.0)
 
 
+def _python_novo():
+    """Um Python 3.11+ no Mac (o do sistema é 3.9, velho para o projeto). None = precisa de: brew install python@3.12."""
+    for c in ("/opt/homebrew/bin/python3.13", "/opt/homebrew/bin/python3.12", "/opt/homebrew/bin/python3.11",
+              "/opt/homebrew/bin/python3", "/usr/local/bin/python3", shutil.which("python3") or ""):
+        if c and Path(c).exists():
+            r = subprocess.run([c, "-c", "import sys; print(sys.version_info >= (3, 11))"], capture_output=True, text=True)
+            if r.stdout.strip() == "True":
+                return c
+    return None
+
+
+def _ambiente_projeto(repo):
+    """venv só do Ferreiro com as bibliotecas do projeto (pandas, openpyxl, playwright + Chromium): no 1º teste (25/09),
+    8 dos 16 testes não rodaram porque o Python do Mac não tinha as bibliotecas. Devolve a pasta bin do venv."""
+    venv = PASTA / "venv-projeto"
+    reqs = (repo / "nubi" / "requirements.txt").read_bytes() if (repo / "nubi" / "requirements.txt").exists() else b""
+    marca = venv / ".pronto"
+    assinatura = hashlib.sha1(reqs + b"playwright").hexdigest()
+    if marca.exists() and marca.read_text() == assinatura:
+        return venv / "bin"
+    py = _python_novo()
+    if not py:
+        raise Falha("falta um Python 3.11 ou mais novo no Mac. No Terminal: brew install python@3.12")
+    if not (venv / "bin" / "python").exists():
+        subprocess.run([py, "-m", "venv", str(venv)], check=True, capture_output=True, timeout=300)
+    pip = [str(venv / "bin" / "python"), "-m", "pip", "install", "-q"]
+    for cmd in (pip + ["--upgrade", "pip"], pip + ["-r", str(repo / "nubi" / "requirements.txt"), "playwright"],
+                [str(venv / "bin" / "python"), "-m", "playwright", "install", "chromium"]):
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        if r.returncode:
+            raise Falha("não consegui preparar o Python do projeto: " + (r.stderr or r.stdout)[-300:])
+    marca.write_text(assinatura)
+    return venv / "bin"
+
+
 def _git(pasta, *args, timeout=300):
     return subprocess.run(["git", *args], cwd=str(pasta), capture_output=True, text=True, timeout=timeout)
 
@@ -2390,7 +2425,9 @@ def cmd_programar(args, cfg):
             "reais), corrija, rode TODOS os nubi/testes/test_*.py e python3 nubi/testes/fumaca.py até passar. Faça UM commit em "
             "português explicando a causa e a solução. NÃO faça push, NÃO publique, NÃO mexa em senhas, chaves, no banco nem no "
             "Branch Tracking. No fim, responda com um relatório curto em markdown com as seções ## Causa, ## Solução e ## Testes.")
-        env = {**os.environ, "ANTHROPIC_API_KEY": _credencial("anthropic", cfg)[1]}
+        bin_py = _ambiente_projeto(repo)                   # python3 do projeto (com as bibliotecas) vem primeiro
+        env = {**os.environ, "ANTHROPIC_API_KEY": _credencial("anthropic", cfg)[1],
+               "PATH": f"{bin_py}{os.pathsep}{os.environ.get('PATH', '')}"}
         print(f"Ferreiro trabalhando no card #{tid}…", flush=True)
         r = subprocess.run([_claude_bin(), "-p", pedido, "--output-format", "json", "--model", FERREIRO_MODELO,
                             "--max-turns", "60", "--permission-mode", "acceptEdits",
@@ -2407,7 +2444,7 @@ def cmd_programar(args, cfg):
         novos = _git(repo, "rev-list", "--count", f"origin/{BRANCH_NUBI}..HEAD").stdout.strip()
         testes = subprocess.run(["/bin/sh", "-c", "set -e; for f in nubi/testes/test_*.py; do python3 \"$f\" >/dev/null; done; "
                                  "python3 nubi/testes/fumaca.py >/dev/null"], cwd=str(repo), capture_output=True, text=True,
-                                timeout=1800)
+                                timeout=1800, env=env)
         if r.returncode or novos in ("", "0") or testes.returncode:
             motivo = ("o Claude Code parou com erro" if r.returncode else "nenhum commit" if novos in ("", "0")
                       else "os testes não passaram no Mac")
