@@ -16,11 +16,13 @@ Auditoria de dados e código (tarefa de rotina).
 Nada é mudado sozinho: o relatório fica na aba Auditoria para o Claude (sessão de código) e o dono lerem.
 """
 
+import json
 import os
 import statistics
 from datetime import date, datetime, timedelta, timezone
 
 import agentes
+import categorias
 import ia
 
 MODULOS = ["nubi_web.py", "vend_bi.py", "vendedores.py", "produtos_iguais.py", "ia.py", "categorias.py", "ranking.py"]
@@ -164,6 +166,34 @@ def conferencias(repo, hoje=None):
         if str(r.get("ultimo_resultado") or "").startswith("erro"):
             ach.append({"nivel": "erro", "area": "rotinas", "titulo": f"Tarefa '{r['nome']}' com erro",
                         "detalhe": str(r["ultimo_resultado"])[:300]})
+    # 8) categoria vencedora das marcas em conflito (card #66): só muda se a prioridade do código (card #58) ou
+    # uma escolha manual em marca_categorias mudar. Compara com o instantâneo salvo ontem (achado "categoria");
+    # sem instantâneo de ontem (1º dia), não inventa alerta. O instantâneo de hoje é sempre gravado, para amanhã.
+    try:
+        manuais = {r["marca_chave"]: r["categoria"] for r in repo._todos("marca_categorias", {"select": "marca_chave,categoria"})}
+    except Exception:  # noqa: BLE001
+        manuais = {}
+    snap_hoje = {chave: categorias.classificar(chave, manuais)[0] for chave, _, _ in categorias.conflitos()}
+    try:
+        ontem_rows = repo._req("GET", "auditorias", {"select": "conferencias",
+                                                      "data": f"eq.{(hoje - timedelta(days=1)).isoformat()}", "limit": 1}) or []
+    except Exception:  # noqa: BLE001
+        ontem_rows = []
+    conf_ontem = (ontem_rows[0].get("conferencias") or []) if ontem_rows else []
+    achado_ontem = next((a for a in conf_ontem
+                         if a.get("area") == "categoria" and a.get("titulo") == "Instantâneo de categorias em conflito"), None)
+    try:
+        snap_ontem = json.loads(achado_ontem["detalhe"]) if achado_ontem else {}
+    except (TypeError, ValueError):
+        snap_ontem = {}
+    for chave, cat_hoje in sorted(snap_hoje.items()):
+        cat_ontem = snap_ontem.get(chave)
+        if cat_ontem and cat_ontem != cat_hoje:
+            ach.append({"nivel": "alerta", "area": "categoria", "titulo": f"{chave}: categoria mudou de {cat_ontem} para {cat_hoje}",
+                        "detalhe": "Marca citada em mais de uma categoria de SEMENTE (categorias.py); a categoria vencedora "
+                                   "mudou de um dia para o outro (prioridade do código ou escolha manual)."})
+    ach.append({"nivel": "info", "area": "categoria", "titulo": "Instantâneo de categorias em conflito",
+                "detalhe": json.dumps(snap_hoje, ensure_ascii=False)})
     ordem = {"erro": 0, "alerta": 1, "info": 2}
     return sorted(ach, key=lambda a: ordem.get(a["nivel"], 3))
 

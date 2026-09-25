@@ -110,6 +110,38 @@ def test_7_regras_da_juncao():
     assert "volume ✅" in r and "concentração ✅" in r and "nome ❌" in r, r
 
 
+def _instantaneo(snap):
+    return {"auditorias": [{"conferencias": [{"nivel": "info", "area": "categoria",
+            "titulo": "Instantâneo de categorias em conflito", "detalhe": json.dumps(snap)}]}]}
+
+
+def test_66_categoria_em_conflito_muda_vira_alerta():
+    # JEANNEARTHES está em conflito (Designer x Importados low ticket) e classifica hoje para "Designer"
+    # (test_58); ontem o instantâneo dizia "Importados low ticket" -> tem que virar alerta.
+    s, g = _serie()
+    r = Repo({"serie": s, "grupo": g, **_instantaneo({"JEANNEARTHES": "Importados low ticket"})})
+    ach = auditoria.conferencias(r)
+    alerta = next(a for a in ach if a["area"] == "categoria" and a["nivel"] == "alerta")
+    assert alerta["titulo"] == "JEANNEARTHES: categoria mudou de Importados low ticket para Designer", alerta
+    # o instantâneo de hoje sempre é gravado, pra amanhã comparar
+    info = next(a for a in ach if a["area"] == "categoria" and a["nivel"] == "info")
+    assert json.loads(info["detalhe"])["JEANNEARTHES"] == "Designer", info
+
+
+def test_66_categoria_sem_mudanca_nao_gera_alerta():
+    s, g = _serie()
+    r = Repo({"serie": s, "grupo": g, **_instantaneo({"JEANNEARTHES": "Designer"})})
+    ach = auditoria.conferencias(r)
+    assert not [a for a in ach if a["area"] == "categoria" and a["nivel"] == "alerta"], ach
+
+
+def test_66_sem_instantaneo_de_ontem_nao_inventa_alerta():
+    s, g = _serie()
+    ach = auditoria.conferencias(Repo({"serie": s, "grupo": g}))   # sem "auditorias" nenhuma no mock (1º dia)
+    assert not [a for a in ach if a["area"] == "categoria" and a["nivel"] == "alerta"], ach
+    assert any(a["area"] == "categoria" and a["nivel"] == "info" for a in ach), ach
+
+
 def test_17_uso_sem_numero_fica_nulo():
     assert ia._tokens({"choices": []}) == (None, None, None, None)
     # input_tokens da Anthropic já vem SEM os tokens de cache: nunca somar aqui (card #21), senão cobra 2x no custo
