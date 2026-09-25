@@ -2643,8 +2643,9 @@ ESPECIALISTAS = [
 
 def especificar_cards(repo, limite=2):
     """De hora em hora: o Astra (design) e o DeepSeek (dados) escrevem o plano dos cards aprovados da área deles."""
-    cards = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,descricao,area,notas,risco", "status": "eq.aprovada",
+    cards = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,descricao,area,notas,risco,prioridade", "status": "eq.aprovada",
                                                  "aguardando": "is.null", "order": "id"}) or []
+    cards.sort(key=ordem_fila)            # o que o Bruno pediu com urgência é especificado primeiro (antes: por id)
     saida = []
     for aid, nome, papel, rx, cab, marca, qual, modelo, toks, areas in ESPECIALISTAS:
         if not ia.tem(qual):
