@@ -6,7 +6,8 @@ Depois de terminar um card, **pegue o próximo (até 3 cards por rodada, no máx
 autorizou publicar sozinho o que for de risco baixo ou médio e aprovado na revisão (25/09). Risco alto nunca.
 
 Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a caixa de conhecimento
-(tabela `conhecimento`, ver passo 2). Escreva sempre em português do Brasil.
+(tabela `conhecimento`, ver passo 2). Escreva sempre em português do Brasil e **use sempre o horário de Brasília (UTC−3)** em cards, relatórios e na Sala
+(o banco guarda em UTC: converta).
 
 ## Ferramentas
 

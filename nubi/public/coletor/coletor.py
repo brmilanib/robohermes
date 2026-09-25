@@ -1783,6 +1783,15 @@ def despachar(cfg):
     return 0
 
 
+def _soltar(cmd):
+    """Roda a tarefa (coleta, estoque, Gestor) SEPARADA do vigia: antes o vigia virava a coleta (execv) e, enquanto ela
+    durava (horas), o launchd não chamava o vigia de novo — o despachante (Central, cards, Hermes) ficava parado."""
+    with open(PASTA / "vigia.log", "a") as saida:
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), cmd], stdout=saida, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(PASTA))
+    return 0
+
+
 def cmd_vigiar():
     """Chamado pelo launchd a cada minuto: despachante; a cada 15 min, versão nova do coletor ou pedido de coleta."""
     cfg0 = ler_config()
@@ -1819,11 +1828,11 @@ def cmd_vigiar():
         if pedido and pedido.get("tarefa") == "gestor":
             api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": "gestor", "resultado": "importação iniciada"}, timeout=30)
             print(f"{datetime.now():%d/%m %H:%M} vigia: pedido no site -> importando a planilha no Gestor Seller", flush=True)
-            os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "gestor"])
+            return _soltar("gestor")
         if pedido and pedido.get("tarefa") == "estoque":
             api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": "estoque", "resultado": "estoque iniciado"}, timeout=30)
             print(f"{datetime.now():%d/%m %H:%M} vigia: pedido no site -> atualizando o estoque do UpSeller", flush=True)
-            os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "estoque"])
+            return _soltar("estoque")
         if pedido:
             api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": pedido.get("tarefa") or "diario",
                                                    "resultado": "coleta iniciada"}, timeout=30)
@@ -1832,16 +1841,16 @@ def cmd_vigiar():
             motivo = _coleta_na_hora(cfg, token)
         if not motivo and _estoque_na_hora(cfg, token):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do estoque do UpSeller -> atualizando", flush=True)
-            os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "estoque"])
+            return _soltar("estoque")
         if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Gestor Seller -> importando a planilha", flush=True)
-            os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "gestor"])
+            return _soltar("gestor")
     except Exception as e:  # noqa: BLE001
         print(f"{datetime.now():%d/%m %H:%M} vigia: sem contato com o nubi ({e})", flush=True)
     if not motivo:
         return 0
     print(f"{datetime.now():%d/%m %H:%M} vigia: {motivo} -> rodando a coleta", flush=True)
-    os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "diario"])
+    return _soltar("diario")
 
 
 def _sincronizar_agenda(horario):

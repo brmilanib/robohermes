@@ -1,5 +1,8 @@
 # Regras do nubi (para quem mexe no código)
 
+**Horário: sempre o de Brasília (UTC−3)** ao falar com o Bruno, nos cards, na Sala, nos relatórios e nos horários de
+rotina. O banco guarda em UTC: converta antes de mostrar ou escrever (ex.: 00:12 UTC = 21:12 de Brasília).
+
 ## Corrigiu, já roda (regra do dono)
 
 Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
