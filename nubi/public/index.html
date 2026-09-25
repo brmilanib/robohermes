@@ -470,6 +470,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 @media (max-width:1800px){.dev-col{gap:10px}}
 @media (max-width:1440px){.dev-col{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media (max-width:1024px){.dev-col{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.dev-col{grid-template-columns:1fr}}
 @media (max-width:390px){.dev-col{grid-template-columns:1fr}.dev-prog{gap:8px}.dev-prog-it{flex-basis:100%}}
 .modal-bg.tarefa{align-items:stretch;justify-content:flex-end;padding:0}
 .modal-bg.tarefa .modal{max-width:560px;border-radius:0;height:100dvh;max-height:100dvh;display:flex;flex-direction:column;padding:0 0 env(safe-area-inset-bottom,0px);overflow:hidden}
@@ -492,7 +493,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .tf-st{padding:0 16px calc(12px + env(safe-area-inset-bottom,0px))}
 @media (max-width:600px){.modal-bg.tarefa .modal{max-width:none}}
 @media (max-width:420px){.tf-bts{gap:6px}.tf-bts .btn{font-size:12px;padding:6px 8px;white-space:nowrap}}
-.modal .tw,.modal .rolar{max-height:calc(100dvh - 220px);overflow:auto}
+.modal .tw,.modal .rolar{max-height:60dvh;overflow:auto}
 .au-msg{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:10px;background:var(--card)}
 .au-msg .quem{font-weight:700;font-size:13px;margin-bottom:4px}
 .au-msg.gpt{border-left:4px solid #10a37f} .au-msg.ds{border-left:4px solid #4d6bfe} .au-msg.claude{border-left:4px solid #d97757} .au-msg.sis{border-left:4px solid var(--muted);color:var(--muted)}
