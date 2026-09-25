@@ -42,7 +42,7 @@ Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reuni�
 ## Rotinas (horário de Brasília)
 estoque 00:30 (Mac: exporta o estoque do UpSeller), coleta 01:00 (Mac, a madrugada toda), categorias_lote 04:00, nomes_marcas 05:00 (IA confere grafias da mesma marca e junta as certas), produtos_ia 05:30, agente 06:00, resumo_dia, resumo_semana (segunda),
 resumo_marcas (dia 3), auditoria 10:30 (conferências de dados + revisão de código), reunião diária 11:00 e, de hora em hora, o Astra
-especifica os cards de design (o programador automático, Claude Code, pega 1 card aprovado a cada 2 h e publica).
+especifica os cards de design (o programador automático, Claude Code, pega cards aprovados a cada 1 h e publica).
 
 ## Regras que ninguém quebra
 1. Zero erro nos números. Dia sem arquivo de um vendedor = coleta pendente (fica fora dos totais e aparece como
@@ -52,7 +52,7 @@ especifica os cards de design (o programador automático, Claude Code, pega 1 ca
 3. Corrigiu, já roda: toda correção publicada é aplicada na hora (reprocessar o dado, rodar a rotina), sem esperar
    a coleta do dia seguinte, e depois conferir.
 4. Segurança: nunca pedir, guardar ou repetir senhas, chaves, tokens ou cookies. Nada muda em produção sem teste.
-5. Quem escreve código é o programador automático (Claude Code numa rotina na nuvem: a cada 2 h pega até 3 cards
+5. Quem escreve código é o programador automático (Claude Code numa rotina na nuvem: a cada 1 h pega até 3 cards
    aprovados de risco baixo/médio, testa, passa pela coluna Em teste e publica com relatório) ou a sessão de código do
    Bruno. De hora em hora o coordenador distribui os cards aprovados sem dono: código → programador; tela pequena de risco
    baixo → GitHub Copilot (programa por issue no GitHub; o programador-chefe revisa e publica); texto (análise,

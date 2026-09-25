@@ -2722,7 +2722,7 @@ function devCard(t) {
         <div class="dc-ev">${esc(ev ? ev.texto.slice(0, 110) : "trabalhando na tarefa")}</div>
         <div class="muted" style="font-size:11px">${t.iniciado_em ? "começou " + desde(t.iniciado_em) : ""}${ev ? " · último passo " + desde(ev.criado_em) : ""}</div></div></div>`
       : parado ? `<div class="dc-parado">⏸ Parado ${ev ? "desde " + esc(desde(ev.criado_em)) : ""} · ${(t.responsavel || "claude_code") === "claude_code"
-          ? "o programador automático retoma na próxima rodada (a cada 2 h)" : "sem atividade do agente"}${ev ? `<div class="dc-ev">${esc(ev.texto.slice(0, 110))}</div>` : ""}</div>`
+          ? "o programador automático retoma na próxima rodada (a cada 1 h)" : "sem atividade do agente"}${ev ? `<div class="dc-ev">${esc(ev.texto.slice(0, 110))}</div>` : ""}</div>`
       : `<p class="dc-desc">${esc(t.descricao || "")}</p>`}
     <div class="dc-rod">${esc(quem(t.proposto_por))} → ${esc(quem(t.decidido_por))} · ${esc(desde(t.atualizado_em || t.criado_em))}</div></div>`;
 }
@@ -2734,8 +2734,8 @@ async function telaDev(silencioso) {
   if (silencioso && !(location.hash === "#/central" || location.hash.startsWith("#/reuniao/dev"))) return;
   const ts = r.tarefas, n = st => ts.filter(t => t.status === st).length;
   const pedem = ts.filter(t => t.aguardando);
-  // PROG_MIN = 40, PROG_CADA_H = 2 (mudou a rotina em claude.ai → Rotinas? atualize aqui)
-  const PROG_MIN = 40, PROG_CADA_H = 2;
+  // PROG_MIN = 40, PROG_CADA_H = 1 (mudou a rotina em claude.ai → Rotinas? atualize aqui)
+  const PROG_MIN = 40, PROG_CADA_H = 1;
   const agora = new Date();
   const prox = new Date(agora);
   prox.setUTCSeconds(0, 0); prox.setUTCMinutes(PROG_MIN);
@@ -2813,7 +2813,7 @@ async function abrirTarefa(id) {
       ${t.relatorio ? `<details class="tf-rel" open><summary>📄 Relatório final</summary>${mdCodigo(t.relatorio)}</details>` : ""}
       <div class="tf-lin" id="tf-lin">${x.eventos.map(bolha).join("") || `<div class="tf-sis">Ainda sem passos registrados.</div>`}
         ${vivo ? `<div class="tf-b trab"><span class="dc-dig"><i></i><i></i><i></i></span> ${esc(ag[1])} ${t.status === "em_teste" ? "está testando" : "está trabalhando"}…</div>` : ""}
-        ${parado ? `<div class="tf-sis">⏸ Sem atividade há mais de ${DEV_ATIVO_MIN} min. ${(t.responsavel || "claude_code") === "claude_code" ? "O programador automático retoma na próxima rodada (a cada 2 h); " : ""}escreva aqui que o agente responde na hora.</div>` : ""}</div>
+        ${parado ? `<div class="tf-sis">⏸ Sem atividade há mais de ${DEV_ATIVO_MIN} min. ${(t.responsavel || "claude_code") === "claude_code" ? "O programador automático retoma na próxima rodada (a cada 1 h); " : ""}escreva aqui que o agente responde na hora.</div>` : ""}</div>
       ${(t.aguardando || t.status === "proposta") ? `<div class="tf-pede">${t.aguardando ? `<b>⏳ ${esc(ag[1])} precisa de você:</b> ${esc(t.aguardando)}` : "Esta tarefa é uma proposta. Aprovar manda para a fila de desenvolvimento."}
         <div class="tf-bts"><button class="btn primary small" data-dec="aprovar">✅ Aprovar</button><button class="btn small" data-dec="recusar">❌ Não aprovar</button></div></div>` : ""}
       <div class="tf-in"><textarea id="tf-txt" rows="1" placeholder="Escreva para o agente desta tarefa…"></textarea><button class="btn primary" id="tf-env" title="Enviar">➤</button></div>
