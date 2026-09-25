@@ -156,6 +156,43 @@ def test_aprovacao_automatica_por_risco():
     assert "status" not in r.patch[51] and r.patch[51]["aguardando"], r.patch
 
 
+class RepoDuvida:
+    def __init__(s, mensagens_hoje=0):
+        s.t = {"reuniao_mensagens": [{"id": i} for i in range(mensagens_hoje)], "tarefa_eventos": [], "reuniao_tarefas": []}
+
+    def _req(s, m, tab, params=None, corpo=None, prefer=None):
+        if m == "GET":
+            return s.t.get(tab, [])
+        if m == "POST":
+            linhas = [dict(r, id=len(s.t.setdefault(tab, [])) + i + 1) for i, r in enumerate(corpo)]
+            s.t.setdefault(tab, []).extend(linhas)
+            return linhas if prefer and "representation" in prefer else None
+        return None
+
+
+def test_37_duvida_chama_especialista_e_fecha_no_card():
+    import reuniao
+    reuniao.ia.tem = lambda q: True
+    reuniao.ia.perguntar = lambda pedido, **kw: ("Decisão do coordenador: use o Preço Médio.", None, "claude")
+    reuniao.agentes.perguntar = lambda chave, texto, max_tokens=800: f"Resposta do {chave}"
+
+    r = RepoDuvida()
+    decisao = reuniao.duvida(r, 5, "Qual a regra de cálculo do preço médio?", quem="claude_code")
+    assert "Decisão do coordenador" in decisao, decisao
+    tipos = [m["meta"]["tipo"] for m in r.t["reuniao_mensagens"]]
+    assert tipos == ["duvida", "resposta_duvida", "decisao"], tipos
+    assert r.t["reuniao_mensagens"][0]["meta"]["para"] == "deepseek", r.t["reuniao_mensagens"][0]
+    passo = next(e for e in r.t["tarefa_eventos"] if e["tipo"] == "passo")
+    assert passo["tarefa_id"] == 5 and "Dúvida" in passo["texto"] and "Decisão do coordenador" in passo["texto"], passo
+
+    r2 = RepoDuvida(mensagens_hoje=reuniao.LIMITE_DUVIDAS_DIA)
+    try:
+        reuniao.duvida(r2, 5, "outra pergunta de código", quem="claude_code")
+        assert False, "devia recusar por limite diário"
+    except reuniao.ErroDuvida as e:
+        assert "Limite" in str(e), e
+
+
 class RepoMac:
     def __init__(self):
         self.mac_comandos = []

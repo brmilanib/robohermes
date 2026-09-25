@@ -796,6 +796,18 @@ def atender(metodo, rota, q, corpo, token):
             if not (ia.tem("chatgpt") or ia.tem("claude") or ia.tem("deepseek")):
                 raise ErroNuvem("Nenhuma IA configurada na Vercel.")
             return _json({"novas": reuniao.rodada(repo, texto[:4000])})
+        if rota == "reuniao_duvida" and metodo == "POST":
+            # qualquer agente (programador automático, agente do card, especialistas) abre uma dúvida ligada a um card
+            d = json.loads(corpo or b"{}")
+            tid = int(d.get("tarefa_id") or 0)
+            texto = str(d.get("texto") or "").strip()
+            if not tid or not texto:
+                raise ErroNuvem("Informe o card e a dúvida.")
+            try:
+                decisao = reuniao.duvida(repo, tid, texto, quem=str(d.get("quem") or "claude_code")[:40], para=d.get("para"))
+            except reuniao.ErroDuvida as e:
+                raise ErroNuvem(str(e))
+            return _json({"ok": True, "decisao": decisao})
         if rota == "reuniao_tarefas":
             ts = repo._todos("reuniao_tarefas", {"select": "*", "order": "id.desc"})
             try:
@@ -2378,9 +2390,11 @@ def rota_estoque(repo, metodo, rota, q, corpo):
 PAPEL_CARD = ("Você é o agente responsável por esta tarefa de desenvolvimento do nubi e está conversando com o dono (Bruno) "
               "dentro do card. Responda em português do Brasil, curto e direto (até 8 linhas), sempre sobre ESTA tarefa. "
               "O que você PODE fazer agora: explicar, conferir o que já foi feito pelos passos do card, dizer o próximo passo e "
-              "pedir ao Mac mini UM comando da lista fechada abaixo (ele roda sozinho em até 1 minuto e a saída aparece no card). "
+              "pedir ao Mac mini UM comando da lista fechada abaixo (ele roda sozinho em até 1 minuto e a saída aparece no card) "
+              "ou abrir uma DÚVIDA na Sala para outro agente, quando não souber algo com certeza. "
               "O que você NÃO faz: escrever ou publicar código (isso é da sessão do Claude Code, que só anda quando está aberta; "
-              "diga isso com clareza quando for o caso), inventar comandos fora da lista, ou dizer que fez algo que não fez. "
+              "diga isso com clareza quando for o caso), inventar comandos fora da lista, dizer que fez algo que não fez, ou "
+              "inventar uma resposta técnica que você não tem certeza (abra uma dúvida em vez disso). "
               "Nunca peça senhas, chaves ou tokens.")
 
 
@@ -2406,11 +2420,19 @@ def responder_card(repo, tid):
               f"\nCOMANDOS PERMITIDOS (chave: o que faz):\n{lista}"
               + (f"\n\nCAIXA DE CONHECIMENTO (fixos):\n{caixa}" if caixa else "")
               + f"\n\nCONVERSA DO CARD (mais antiga primeiro; 'voce' é o dono):\n{hist}"
-              '\n\nResponda SOMENTE com JSON: {"resposta": "<texto para o dono>", "comando": "<chave da lista ou null>"}')
+              '\n\nResponda SOMENTE com JSON: {"resposta": "<texto para o dono, ou vazio se só abrir dúvida>", '
+              '"comando": "<chave da lista ou null>", "duvida": "<pergunta objetiva para outro agente da Sala, ou null>"}')
     ia.USO["origem"] = f"card #{tid}"
     j, _, qual = ia.perguntar_json(pedido, web=False, max_tokens=1500, qual="claude" if ia.tem("claude") else None,
                                    sistema=agentes.SISTEMA)
     resposta = str(j.get("resposta") or "").strip()
+    duvida_texto = str(j.get("duvida") or "").strip()
+    if duvida_texto:
+        try:
+            decisao = reuniao.duvida(repo, int(tid), duvida_texto, quem="agente_card")
+            resposta = (resposta + "\n\n" if resposta else "") + f"💬 Abri uma dúvida na Sala: \"{duvida_texto}\" — resposta: {decisao}"
+        except reuniao.ErroDuvida as e:
+            resposta = resposta or f"Eu não sabia responder com certeza e não consegui abrir uma dúvida agora ({e})."
     if not resposta:
         raise ErroNuvem("resposta vazia da IA")
     autor = "claude" if qual == "claude" else {"chatgpt": "chatgpt", "codex": "chatgpt", "deepseek": "deepseek", "ollama": "gptoss"}.get(qual, "claude")

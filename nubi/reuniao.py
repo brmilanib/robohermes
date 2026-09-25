@@ -80,6 +80,81 @@ def _decidir(historico, tarefas, opinioes, extra):
     return j, q
 
 
+# Dúvida entre agentes ligada a um card (sem tabela/coluna nova: usa reuniao_mensagens.meta e tarefa_eventos)
+LIMITE_DUVIDAS_DIA = 20
+DESIGN_RE = re.compile(r"layout|design|\bux\b|\bui\b|tela|navega|menu|visual|celular|mobile|responsiv|cabe[çc]alho", re.I)
+DADOS_RE = re.compile(r"n[úu]mero|total|venda|c[áa]lcul|conta|reconcilia|dados|pre[çc]o|custo|estoque|coleta|banco|desempenho|token|schema|json", re.I)
+CODIGO_RE = re.compile(r"c[óo]digo|fun[çc][ãa]o\b|endpoint|rota\b|\bbug\b|deploy|refatora|implementa[çc][ãa]o|teste automatizado", re.I)
+
+
+class ErroDuvida(Exception):
+    pass
+
+
+def _especialista(texto, para=None):
+    """Quem responde: quem foi citado (@nome) ou o especialista do assunto; None = só o coordenador responde."""
+    p = str(para or "").lower().strip("@ ")
+    if p in agentes.AGENTES or p == "hermes":
+        return p
+    if DESIGN_RE.search(texto):
+        return "astra"
+    if DADOS_RE.search(texto):
+        return "deepseek"
+    if CODIGO_RE.search(texto):
+        return "chatgpt"
+    return None
+
+
+def duvida(repo, tarefa_id, texto, quem="claude_code", para=None):
+    """
+    Uma dúvida ligada a um card: grava na Sala, chama o coordenador + 1 especialista (1 rodada só) e copia a
+    melhor resposta como passo no card. Devolve o texto da decisão.
+    """
+    agora = lambda: datetime.now(timezone.utc).isoformat()
+    texto = str(texto or "").strip()[:2000]
+    if not texto:
+        raise ErroDuvida("Escreva a dúvida.")
+    if not ia.tem("claude"):
+        raise ErroDuvida("Coordenador (Claude) não configurado.")
+    hoje = datetime.now(timezone.utc).date().isoformat()
+    ja_hoje = repo._req("GET", "reuniao_mensagens", {"select": "id", "meta->>tipo": "eq.duvida", "criado_em": f"gte.{hoje}"}) or []
+    if len(ja_hoje) >= LIMITE_DUVIDAS_DIA:
+        raise ErroDuvida(f"Limite de {LIMITE_DUVIDAS_DIA} dúvidas por dia na Sala; ela entra na pauta da próxima reunião.")
+    especialista = _especialista(texto, para)
+    msg = repo._req("POST", "reuniao_mensagens", corpo=[{"autor": quem, "texto": texto,
+                    "meta": {"tipo": "duvida", "tarefa_id": tarefa_id, "para": especialista}, "criado_em": agora()}],
+                    prefer="return=representation")
+    duvida_id = (msg or [{}])[0].get("id")
+    resposta_esp, nome_esp = "", ""
+    if especialista in agentes.AGENTES and ia.tem(agentes.AGENTES[especialista]["qual"]):
+        nome_esp = agentes.AGENTES[especialista]["nome"]
+        try:
+            resposta_esp = agentes.perguntar(especialista, f"DÚVIDA de outro agente sobre o card #{tarefa_id}:\n{texto}", max_tokens=900)
+        except Exception:  # noqa: BLE001
+            resposta_esp = ""
+        if resposta_esp.strip():
+            repo._req("POST", "reuniao_mensagens", corpo=[{"autor": nome_esp, "texto": resposta_esp,
+                      "meta": {"tipo": "resposta_duvida", "duvida_id": duvida_id, "tarefa_id": tarefa_id}, "criado_em": agora()}],
+                      prefer="return=minimal")
+    pedido = (
+        "Você é o Claude, coordenador dos agentes do nubi. Um agente abriu uma dúvida ligada a um card de desenvolvimento "
+        "(não é a reunião nem uma tarefa nova). Dê a MELHOR RESPOSTA, curta (até 6 linhas), objetiva, para quem vai "
+        f"implementar o card.\nCARD #{tarefa_id}\nDÚVIDA: {texto}\n"
+        + (f"\nRESPOSTA DE {nome_esp}: {resposta_esp}\n" if resposta_esp.strip() else "")
+        + "\n\nResponda só o texto da decisão, em português, sem JSON e sem repetir a dúvida.")
+    decisao, _, _ = ia.perguntar(pedido, web=False, max_tokens=700, qual="claude", sistema=agentes.SISTEMA)
+    decisao = decisao.strip()
+    if not decisao:
+        raise ErroDuvida("o coordenador não respondeu à dúvida")
+    repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "Claude", "texto": decisao,
+              "meta": {"tipo": "decisao", "duvida_id": duvida_id, "tarefa_id": tarefa_id}, "criado_em": agora()}],
+              prefer="return=minimal")
+    repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": tarefa_id, "autor": "claude", "tipo": "passo",
+              "texto": f"💬 Dúvida na Sala: {texto[:300]}\n➡️ {decisao[:1500]}", "criado_em": agora()}], prefer="return=minimal")
+    repo._req("PATCH", "reuniao_tarefas", {"id": f"eq.{tarefa_id}"}, corpo={"atualizado_em": agora()}, prefer="return=minimal")
+    return decisao
+
+
 # Travas que valem mesmo se a IA classificar errado: isso sempre vai para o Bruno aprovar
 RISCO_ALTO = re.compile(r"senha|chave d[ae] api|api key|chave secreta|token de acesso|access token|cookie|credencia|acesso d[eo]|apagar|excluir|deletar|delete|drop |truncate|"
                         r"migra[çc][ãa]o d[oe] banco|schema do banco|estrutura do banco|drop table|alter table|pagamento|cobran[çc]a|cart[ãa]o|compra|pre[çc]o de venda|"
