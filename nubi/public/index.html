@@ -434,7 +434,8 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .dev-alerta{margin-top:10px;background:#fff4e5;border:1px solid #f5c26b;color:#7a4b00;border-radius:10px;padding:8px 12px;font-size:13px}
 .dev-alerta a{color:inherit;font-weight:600}
 .dev-col{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:12px;align-items:start}
-.dev-coluna{background:var(--soft);border-radius:14px;padding:10px;display:grid;gap:8px;align-content:start;min-height:120px}
+.dev-coluna{background:var(--soft);border-radius:14px;padding:10px;display:grid;gap:8px;align-content:start;min-height:120px;min-width:0;grid-template-columns:minmax(0,1fr)}
+.dev-card,.dev-card *{min-width:0;overflow-wrap:anywhere}   /* 25/09: link comprido num passo esticava o card e invadia a coluna ao lado */
 .dev-coluna.c-em_teste{background:linear-gradient(180deg,rgba(122,90,248,.10),var(--soft) 120px)}
 .tf-b.erro{border-left:3px solid #dc2626}.tf-b.rel{border-left:3px solid #16a34a}
 .tf-rel{margin:0 14px 10px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--card)}.tf-rel summary{cursor:pointer;font-weight:600}
@@ -2714,7 +2715,7 @@ const DEV_COLS = [["proposta", "Propostas", "o Claude aprova as de risco baixo/m
   ["feita", "Feitas", "testadas, publicadas e com relatório"]];
 const AG_INFO = {claude_code: ["💻", "Claude (código)", "#b3541e"], claude: ["✴️", "Claude", "#d97757"], chatgpt: ["🧠", "ChatGPT", "#10a37f"],
   deepseek: ["🐋", "DeepSeek", "#4d6bfe"], gptoss: ["🦙", "gpt-oss", "#6b4fb3"], hermes: ["🪽", "Hermes", "#a2741a"], astra: ["🎨", "Astra", "#e0457b"],
-  qwen: ["🔎", "Qwen", "#615ced"], copilot: ["🐙", "Copilot", "#6e40c9"], claude_mac: ["🔨", "Ferreiro (Claude no Mac)", "#8a4b2a"], revisor: ["🧪", "Revisor", "#7a5af8"],
+  qwen: ["🔎", "Qwen", "#615ced"], copilot: ["🐙", "Copilot", "#6e40c9"], claude_mac: ["🔨", "Ferreiro (Claude no Mac)", "#8a4b2a"], codex: ["🧠", "Codex", "#10a37f"], revisor: ["🧪", "Revisor", "#7a5af8"],
   voce: ["👤", "Você", "#00a884"], sistema: ["⚙️", "Sistema", "#667781"], mac: ["🖥️", "Mac mini", "#3b4a54"]};
 // "trabalhando" só quando houve atividade de verdade nos últimos 20 min (antes o card piscava para sempre)
 const DEV_ATIVO_MIN = 20;
