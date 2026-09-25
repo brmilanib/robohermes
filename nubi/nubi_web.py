@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import statistics
 import time
 import traceback
 import unicodedata
@@ -559,6 +560,53 @@ def rodar_agente(repo, origem, marca=None, segundos=TEMPO_MAX):
     return dict(reg, marcas=mudaram, log=log, regra_aplicada=regra)
 
 
+def _dt_utc(ts):
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except Exception:  # noqa: BLE001
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _duracoes_feitas_por_responsavel(tarefas):
+    por_resp = {}
+    for t in tarefas:
+        if t.get("status") != "feita":
+            continue
+        resp = str(t.get("responsavel") or "").strip()
+        if not resp:
+            continue
+        ini, fim = _dt_utc(t.get("iniciado_em")), _dt_utc(t.get("atualizado_em"))
+        if not ini or not fim or fim < ini:
+            continue
+        dur = (fim - ini).total_seconds() / 60
+        por_resp.setdefault(resp, []).append((fim, dur))
+    refs = {}
+    for resp, vals in por_resp.items():
+        vals.sort(key=lambda x: x[0], reverse=True)
+        refs[resp] = [d for _, d in vals[:20]]
+    return refs
+
+
+def _previsao_min_card_execucao(tarefa, refs_por_responsavel, agora=None):
+    if tarefa.get("status") not in ("em_desenvolvimento", "em_teste"):
+        return None
+    resp = str(tarefa.get("responsavel") or "").strip()
+    refs = refs_por_responsavel.get(resp) if resp else None
+    if not refs or len(refs) < 3:
+        return None
+    ini = _dt_utc(tarefa.get("iniciado_em"))
+    if not ini:
+        return None
+    ag = agora or datetime.now(timezone.utc)
+    rodando = max(0, (ag - ini).total_seconds() / 60)
+    return max(5, int(math.ceil(statistics.median(refs) - rodando)))
+
+
 def atender(metodo, rota, q, corpo, token):
     """Devolve (status, tipo de conteúdo, bytes, cabeçalhos extras)."""
     t0 = time.monotonic()
@@ -823,13 +871,24 @@ def atender(metodo, rota, q, corpo, token):
                 evs = repo._req("GET", "tarefa_eventos", {"select": "tarefa_id,autor,tipo,texto,criado_em", "order": "id.desc", "limit": 400}) or []
             except ErroNuvem:
                 evs = []
+            try:
+                apelidos = {a["id"]: a["apelido"] for a in repo._todos("agentes", {"select": "id,apelido"}) if a.get("apelido")}
+            except ErroNuvem:
+                apelidos = {}
+            refs = _duracoes_feitas_por_responsavel(ts)
             ult = {}
             for e in evs:
                 ult.setdefault(e["tarefa_id"], e)
             for t in ts:
                 t["ultimo_evento"] = ult.get(t["id"])
                 t["n_eventos"] = sum(1 for e in evs if e["tarefa_id"] == t["id"])
-            return _json({"tarefas": ts, "status": reuniao.STATUS})
+                if t.get("status") in ("em_desenvolvimento", "em_teste"):
+                    t["previsao_min"] = _previsao_min_card_execucao(t, refs)
+                if t.get("responsavel") in apelidos:
+                    t["responsavel_apelido"] = apelidos[t["responsavel"]]
+                if t.get("testador") in apelidos:
+                    t["testador_apelido"] = apelidos[t["testador"]]
+            return _json({"tarefas": ts, "status": reuniao.STATUS, "apelidos": apelidos})
         if rota == "tarefa_eventos":
             tid = int(q.get("id") or 0)
             t = (repo._req("GET", "reuniao_tarefas", {"select": "*", "id": repo._eq(tid)}) or [None])[0]

@@ -421,6 +421,27 @@ def test_43_pauta_proximos_da_fila_usa_ordem_fila():
     assert fila.index("#41") < fila.index("#29"), fila   # mesma prioridade: risco baixo sai antes de médio
 
 
+def test_71_previsao_min_card_execucao():
+    from datetime import datetime, timedelta, timezone
+    agora = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
+
+    def feita(dur, i):
+        fim = agora - timedelta(hours=i + 1)
+        ini = fim - timedelta(minutes=dur)
+        return {"status": "feita", "responsavel": "claude_code", "iniciado_em": ini.isoformat(), "atualizado_em": fim.isoformat()}
+
+    refs = nubi_web._duracoes_feitas_por_responsavel([feita(40, 0), feita(60, 1), feita(80, 2)])
+    em_exec = {"status": "em_desenvolvimento", "responsavel": "claude_code", "iniciado_em": (agora - timedelta(minutes=20)).isoformat()}
+    assert nubi_web._previsao_min_card_execucao(em_exec, refs, agora=agora) == 40
+
+    refs_2 = nubi_web._duracoes_feitas_por_responsavel([feita(40, 0), feita(55, 1)])
+    assert nubi_web._previsao_min_card_execucao(em_exec, refs_2, agora=agora) is None
+
+    refs_curta = nubi_web._duracoes_feitas_por_responsavel([feita(10, 0), feita(10, 1), feita(10, 2)])
+    em_exec_longo = {"status": "em_desenvolvimento", "responsavel": "claude_code", "iniciado_em": (agora - timedelta(minutes=30)).isoformat()}
+    assert nubi_web._previsao_min_card_execucao(em_exec_longo, refs_curta, agora=agora) == 5
+
+
 class RepoReuniao:
     def __init__(s):
         s.t = {"reuniao_mensagens": [], "reuniao_tarefas": []}

@@ -2734,26 +2734,35 @@ const AG_INFO = {claude_code: ["💻", "Claude (código)", "#b3541e"], claude: [
 const DEV_ATIVO_MIN = 20;
 const devAtivo = t => ["em_desenvolvimento", "em_teste"].includes(t.status) && [t.ultimo_evento?.criado_em, t.iniciado_em].some(x => x && Date.now() - new Date(x) < DEV_ATIVO_MIN * 60000);
 const agInfo = k => AG_INFO[k] || AG_INFO[Object.keys(AG_INFO).find(x => AG_INFO[x][1] === k)] || ["🤖", k || "Agente", "#667781"];
+let DEV_APELIDOS = {};
+const agNome = (id, nome) => DEV_APELIDOS[id] ? `${nome} (${DEV_APELIDOS[id]})` : nome;
 const quem = x => !x ? "?" : /^voc[eê]$/i.test(x) ? "Você" : x;
 const desde = t => { if (!t) return ""; const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
   return m < 1 ? "agora" : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h ${m % 60} min` : `há ${Math.floor(m / 1440)} d`; };
 function devCard(t) {
   const PRI = {urgente: "bad", alta: "", media: "", baixa: ""};
-  const vivo = devAtivo(t), parado = ["em_desenvolvimento", "em_teste"].includes(t.status) && !vivo, ev = t.ultimo_evento;
-  const ag = agInfo(t.status === "em_teste" ? (t.testador || "revisor") : (t.responsavel || "claude_code"));
+  const emExec = ["em_desenvolvimento", "em_teste"].includes(t.status);
+  const vivo = devAtivo(t), parado = emExec && !vivo, ev = t.ultimo_evento;
+  const ag = agInfo(t.responsavel || "claude_code");
+  const agNm = agNome(t.responsavel, ag[1]);
+  const prev = t.previsao_min == null ? "sem previsão" : `~${Math.max(5, +t.previsao_min || 0)} min`;
   return `<div class="dev-card ${vivo ? "vivo" : ""} ${t.aguardando ? "pede" : ""}" data-abrir="${t.id}" tabindex="0" role="button" aria-label="Abrir tarefa ${t.id}">
     <div class="dc-top"><span class="dc-id">#${t.id}</span><span class="st ${PRI[t.prioridade] || ""}">${esc(t.prioridade || "")}</span>${t.area ? `<span class="st">${esc(t.area)}</span>` : ""}
       ${t.risco ? `<span class="st ${t.risco === "alto" ? "bad" : t.risco === "medio" ? "warn" : "good"}" title="risco avaliado pelo Claude">risco ${esc(t.risco === "medio" ? "médio" : t.risco)}</span>` : ""}
       ${t.status === "proposta" ? `<span class="st warn" title="abre a tarefa para aprovar ou não aprovar">toque para aprovar</span>` : ""}
       ${t.n_eventos ? `<span class="dc-n" title="passos registrados">💬 ${t.n_eventos}</span>` : ""}</div>
     <h4>${esc(t.titulo)}</h4>
-    ${t.aguardando ? `<div class="dc-pede">⏳ Precisa de você: ${esc(t.aguardando.slice(0, 120))}</div>` : ""}
+    ${t.aguardando ? `<div class="dc-pede">🙋 precisa da sua aprovação: ${esc(t.aguardando.slice(0, 120))}</div>
+      <div class="tf-bts"><button class="btn primary small" data-dec-card="aprovar" data-tarefa-id="${t.id}">✅ Aprovar</button>
+      <button class="btn small" data-dec-card="recusar" data-tarefa-id="${t.id}">❌ Não aprovar</button></div>` : ""}
     ${vivo ? `<div class="dc-vivo"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><div><b>${esc(ag[1])}</b>${t.status === "em_teste" ? " testando" : ""} <span class="dc-dig"><i></i><i></i><i></i></span>
         <div class="dc-ev">${esc(ev ? ev.texto.slice(0, 110) : "trabalhando na tarefa")}</div>
         <div class="muted" style="font-size:11px">${t.iniciado_em ? "começou " + desde(t.iniciado_em) : ""}${ev ? " · último passo " + desde(ev.criado_em) : ""}</div></div></div>`
       : parado ? `<div class="dc-parado">⏸ Parado ${ev ? "desde " + esc(desde(ev.criado_em)) : ""} · ${(t.responsavel || "claude_code") === "claude_code"
           ? "o programador automático retoma na próxima rodada (a cada 1 h)" : "sem atividade do agente"}${ev ? `<div class="dc-ev">${esc(ev.texto.slice(0, 110))}</div>` : ""}</div>`
       : `<p class="dc-desc">${esc(t.descricao || "")}</p>`}
+    ${emExec ? `<div class="muted" style="font-size:11px;display:flex;align-items:center;gap:6px"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><b>${esc(agNm)}</b></div>
+      <div class="muted" style="font-size:11px">⏱ ${esc(prev)}</div>` : ""}
     <div class="dc-rod">${esc(quem(t.proposto_por))} → ${esc(quem(t.decidido_por))} · ${esc(desde(t.atualizado_em || t.criado_em))}</div></div>`;
 }
 async function telaDev(silencioso) {
@@ -2762,6 +2771,7 @@ async function telaDev(silencioso) {
   let r;
   try { r = await api("reuniao_tarefas"); } catch (e) { if (!silencioso) main.innerHTML = opsAbas("dev") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (silencioso && !(location.hash === "#/central" || location.hash.startsWith("#/reuniao/dev"))) return;
+  DEV_APELIDOS = r.apelidos || {};
   const ts = r.tarefas, n = st => ts.filter(t => t.status === st).length;
   const pedem = ts.filter(t => t.aguardando);
   // PROG_MIN = 40, PROG_CADA_H = 1 (mudou a rotina em claude.ai → Rotinas? atualize aqui)
@@ -2798,6 +2808,21 @@ async function telaDev(silencioso) {
   main.querySelectorAll("[data-abrir]").forEach(el => {
     const abrir = e => { e.preventDefault(); abrirTarefa(+el.dataset.abrir); };
     el.onclick = abrir; el.onkeydown = e => { if (e.key === "Enter") abrir(e); };
+  });
+  main.querySelectorAll("[data-dec-card]").forEach(el => el.onclick = async e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const id = +el.dataset.tarefaId;
+    if (!id) return;
+    const decisao = el.dataset.decCard;
+    el.disabled = true;
+    try {
+      await api("tarefa_responder", {}, {method: "POST", body: JSON.stringify({id, texto: "", decisao})});
+      telaDev(true);
+    } catch (er) {
+      el.disabled = false;
+      toast(er.message, 6000);
+    }
   });
   $("#dev-nova").onclick = async () => {
     const titulo = prompt("Título da tarefa:"); if (!titulo) return;
