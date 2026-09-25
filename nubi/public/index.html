@@ -464,6 +464,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .tf{display:flex;flex-direction:column;height:100%;min-height:0}
 .tf-cab{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
 .tf-desc{padding:8px 16px;border-bottom:1px solid var(--line);font-size:13px}.tf-desc summary{cursor:pointer;color:var(--muted)}
+.tf-desc textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;color:var(--ink);background:var(--card);resize:vertical;margin-top:6px}
 .tf-lin{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:var(--soft);min-height:0}
 .tf-b{max-width:88%;background:var(--card);border-radius:12px;padding:7px 10px 5px;font-size:13px;align-self:flex-start;box-shadow:0 1px .5px rgba(0,0,0,.1)}
 .tf-b.eu{align-self:flex-end;background:#d9fdd3;color:#111b21}
@@ -2670,6 +2671,24 @@ async function atualizarReuniao(rolar) {
   box.innerHTML = waDesenhar(S.reu.msgs) + dig;
   if (noFim) box.scrollTop = box.scrollHeight;
 }
+// Modelo obrigatório da descrição (card #44): card só executa com os 4 itens preenchidos (nem só o placeholder).
+const CARD_MODELO = [["Escopo", [/^escopo$/i]],
+  ["Arquivo/função", [/^arquivo\s*\/\s*fun[cç][aã]o$/i, /^arquivo\s+e\s+fun[cç][aã]o$/i, /^arquivo\s*\/\s*m[oó]dulo$/i]],
+  ["Teste", [/^teste$/i]], ["Critério de aceite", [/^crit[eé]rio\s+de\s+aceite$/i]]];
+const CARD_MODELO_LINHAS = {"Escopo": "Escopo: [o que mudar e os limites da alteração]", "Arquivo/função": "Arquivo/função: [onde implementar]",
+  "Teste": "Teste: [como verificar a mudança]", "Critério de aceite": "Critério de aceite: [resultado verificável para considerar pronto]"};
+function cardSecoes(desc) {
+  const linhas = (desc || "").split("\n"), marcas = [];
+  linhas.forEach((linha, i) => { const m = linha.match(/^\s*([^:\n]{1,40}):\s*(.*)$/); if (!m) return;
+    const rot = m[1].trim();
+    for (const [nome, variantes] of CARD_MODELO) if (variantes.some(v => v.test(rot))) { marcas.push([i, nome, m[2]]); break; } });
+  const secoes = {};
+  marcas.forEach(([i, nome, resto], idx) => { const fim = idx + 1 < marcas.length ? marcas[idx + 1][0] : linhas.length;
+    secoes[nome] = [resto, ...linhas.slice(i + 1, fim)].join("\n").trim(); });
+  return secoes;
+}
+const cardFaltando = desc => { const secoes = cardSecoes(desc);
+  return CARD_MODELO.map(([nome]) => nome).filter(nome => !secoes[nome] || /^\[.*\]$/.test(secoes[nome])); };
 const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em execução", "warn"], em_teste: ["Em teste", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"]};
 const DEV_COLS = [["proposta", "Propostas", "o Claude aprova as de risco baixo/médio; as de risco alto esperam você"], ["aprovada", "Aprovadas", "na fila para desenvolver"],
   ["em_desenvolvimento", "Em execução", "um agente está trabalhando"], ["em_teste", "Em teste", "outro agente testa; erro volta para execução"],
@@ -2760,7 +2779,15 @@ async function telaDev(silencioso) {
 }
 async function abrirTarefa(id) {
   let r;
-  try { r = await api("tarefa_eventos", {id}); } catch (e) { return toast(e.message, 6000); }
+  try { r = await api("tarefa_eventos", {id}); }
+  catch (e) {
+    document.querySelectorAll(".modal-bg.tarefa").forEach(x => x.remove());
+    const bg = modal(`<div class="tf"><div class="tf-cab"><h2 style="margin:0;font-size:17px">Não foi possível carregar o card</h2><div style="flex:1"></div><button class="btn small" data-fechar>✕</button></div>
+      <p class="muted">${esc(e.message)}</p><button class="btn primary" id="tf-retry">Tentar novamente</button></div>`);
+    bg.classList.add("tarefa");
+    $("#tf-retry", bg).onclick = () => { bg.remove(); abrirTarefa(id); };
+    return;
+  }
   document.querySelectorAll(".modal-bg.tarefa").forEach(x => x.remove());
   const bg = modal(`<div class="tf" id="tf"></div>`); bg.classList.add("tarefa");
   const desenhar = x => {
@@ -2774,7 +2801,12 @@ async function abrirTarefa(id) {
     };
     $("#tf", bg).innerHTML = `<div class="tf-cab"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><div style="min-width:0"><div class="muted" style="font-size:12px">#${t.id} · ${esc(DEV_ST[t.status][0])} · ${esc(ag[1])}</div>
         <h2 style="margin:0;font-size:17px">${esc(t.titulo)}</h2></div><div style="flex:1"></div><button class="btn small" data-fechar>✕</button></div>
-      ${t.descricao ? `<details class="tf-desc" ${x.eventos.length ? "" : "open"}><summary>O que é para fazer</summary><p>${esc(t.descricao)}</p>${t.notas ? `<p><b>Nota:</b> ${esc(t.notas)}</p>` : ""}</details>` : ""}
+      <details class="tf-desc" ${x.eventos.length && t.descricao ? "" : "open"}><summary>O que é para fazer${cardFaltando(t.descricao).length ? ` <span class="st warn">card incompleto</span>` : ""}</summary>
+        <textarea id="tf-desc-ta" rows="6" placeholder="Escopo: [o que mudar e os limites da alteração]&#10;Arquivo/função: [onde implementar]&#10;Teste: [como verificar a mudança]&#10;Critério de aceite: [resultado verificável para considerar pronto]">${esc(t.descricao || "")}</textarea>
+        <p class="muted" style="font-size:12px;margin:4px 0">Para executar, preencha os quatro itens do modelo.</p>
+        <p class="st warn" id="tf-desc-erro" style="display:${cardFaltando(t.descricao).length ? "" : "none"}">${cardFaltando(t.descricao).length ? `Card incompleto. Preencha: ${esc(cardFaltando(t.descricao).join(", "))}.` : ""}</p>
+        <div class="tf-bts"><button class="btn small" id="tf-desc-modelo">Inserir modelo</button><button class="btn primary small" id="tf-desc-salvar" disabled>Salvar descrição</button></div>
+        ${t.notas ? `<p><b>Nota:</b> ${esc(t.notas)}</p>` : ""}</details>
       ${t.relatorio ? `<details class="tf-rel" open><summary>📄 Relatório final</summary>${mdCodigo(t.relatorio)}</details>` : ""}
       <div class="tf-lin" id="tf-lin">${x.eventos.map(bolha).join("") || `<div class="tf-sis">Ainda sem passos registrados.</div>`}
         ${vivo ? `<div class="tf-b trab"><span class="dc-dig"><i></i><i></i><i></i></span> ${esc(ag[1])} ${t.status === "em_teste" ? "está testando" : "está trabalhando"}…</div>` : ""}
@@ -2784,6 +2816,23 @@ async function abrirTarefa(id) {
       <div class="tf-in"><textarea id="tf-txt" rows="1" placeholder="Escreva para o agente desta tarefa…"></textarea><button class="btn primary" id="tf-env" title="Enviar">➤</button></div>
       <div class="tf-st"><label class="muted" style="font-size:12px">Status <select id="tf-status" class="mes">${Object.keys(DEV_ST).map(k => `<option value="${k}" ${k === t.status ? "selected" : ""}>${DEV_ST[k][0]}</option>`).join("")}</select></label></div>`;
     const lin = $("#tf-lin", bg); lin.scrollTop = lin.scrollHeight;
+    const atualizarDesc = () => {
+      const val = $("#tf-desc-ta", bg).value, falt = cardFaltando(val);
+      $("#tf-desc-erro", bg).style.display = falt.length ? "" : "none";
+      $("#tf-desc-erro", bg).textContent = falt.length ? `Card incompleto. Preencha: ${falt.join(", ")}.` : "";
+      $("#tf-desc-salvar", bg).disabled = val === (t.descricao || "");
+    };
+    $("#tf-desc-ta", bg).oninput = atualizarDesc;
+    $("#tf-desc-modelo", bg).onclick = () => {
+      const ta = $("#tf-desc-ta", bg), falt = cardFaltando(ta.value);
+      if (!falt.length) return;
+      ta.value = (ta.value.trim() ? ta.value.trim() + "\n\n" : "") + falt.map(n => CARD_MODELO_LINHAS[n]).join("\n");
+      atualizarDesc();
+    };
+    $("#tf-desc-salvar", bg).onclick = async () => {
+      try { await api("reuniao_tarefa_salvar", {}, {method: "POST", body: JSON.stringify({id: t.id, descricao: $("#tf-desc-ta", bg).value})}); toast("Descrição salva"); atualizar(); }
+      catch (e) { toast(e.message, 6000); }
+    };
     const responder = async (decisao) => {
       const texto = $("#tf-txt", bg).value.trim();
       if (!decisao && !texto) return;
@@ -2805,7 +2854,7 @@ async function abrirTarefa(id) {
   const atualizar = async () => { try { const x = await api("tarefa_eventos", {id}); if (document.body.contains(bg)) desenhar(x); } catch { /* tenta de novo no próximo ciclo */ } };
   desenhar(r);
   const tm = setInterval(() => { if (!document.body.contains(bg)) { clearInterval(tm); telaDev(true); return; }
-    if (document.activeElement !== $("#tf-txt", bg) && !S.tfEnviando) atualizar(); }, 5000);
+    if (![$("#tf-txt", bg), $("#tf-desc-ta", bg)].includes(document.activeElement) && !S.tfEnviando) atualizar(); }, 5000);
 }
 // ---------- Auditoria de dados e código (ChatGPT analisa, Claude revisa; ninguém muda nada sozinho) ----------
 function mdCodigo(t) {

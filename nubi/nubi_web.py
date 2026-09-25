@@ -2616,6 +2616,45 @@ AGENTES_TEXTO = {"chatgpt", "deepseek", "astra", "gptoss"}      # trabalham pela
 AGENTES_MAC = {"hermes", "qwen"}                                 # trabalham no Mac (Ollama, grátis)
 ENTREGA_TENTATIVAS = 3
 
+# Card #44: card aprovado só executa com os 4 itens preenchidos na descrição (nem só o placeholder do modelo).
+CARD_MODELO = [
+    ("Escopo", (r"escopo",)),
+    ("Arquivo/função", (r"arquivo\s*/\s*fun[cç][aã]o", r"arquivo\s+e\s+fun[cç][aã]o", r"arquivo\s*/\s*modulo", r"arquivo\s*/\s*módulo")),
+    ("Teste", (r"teste",)),
+    ("Critério de aceite", (r"crit[eé]rio\s+de\s+aceite",)),
+]
+CARD_MODELO_TXT = ("Escopo: [o que mudar e os limites da alteração]\n"
+                    "Arquivo/função: [onde implementar]\nTeste: [como verificar a mudança]\n"
+                    "Critério de aceite: [resultado verificável para considerar pronto]")
+
+
+def _card_secoes(descricao):
+    """Quebra a descrição do card nas seções rotuladas "Rótulo: texto" (card #44); devolve {nome canônico: corpo}."""
+    linhas = (descricao or "").splitlines()
+    marcas = []
+    for i, linha in enumerate(linhas):
+        m = re.match(r"\s*([^:\n]{1,40}):\s*(.*)$", linha)
+        if not m:
+            continue
+        rotulo = m.group(1).strip().lower()
+        for nome, variantes in CARD_MODELO:
+            if any(re.fullmatch(v, rotulo) for v in variantes):
+                marcas.append((i, nome, m.group(2)))
+                break
+    secoes = {}
+    for idx, (i, nome, resto) in enumerate(marcas):
+        fim = marcas[idx + 1][0] if idx + 1 < len(marcas) else len(linhas)
+        secoes[nome] = "\n".join([resto] + linhas[i + 1:fim]).strip()
+    return secoes
+
+
+def card_pronto(descricao):
+    """True + [] se a descrição tem os 4 itens do modelo preenchidos (card #44); senão False + os que faltam/vazios."""
+    secoes = _card_secoes(descricao)
+    faltando = [nome for nome, _ in CARD_MODELO
+                if not secoes.get(nome) or re.fullmatch(r"\[.*\]", secoes[nome].strip())]
+    return not faltando, faltando
+
 
 def _conhecimento_fixo(repo, n=6):
     try:
@@ -2734,6 +2773,13 @@ def trabalhar_agentes(repo, limite=2):
         if len([x for x in saida if not x.startswith("Mac")]) >= limite:
             break
         tid, resp = t["id"], t["responsavel"]
+        ok, faltando = card_pronto(t.get("descricao"))
+        if not ok:
+            msg = f"Card não executado: preencha {', '.join(faltando)} na descrição."
+            ultimo = (repo._req("GET", "tarefa_eventos", {"select": "texto", "tarefa_id": repo._eq(tid), "order": "id.desc", "limit": 1}) or [None])[0]
+            if not ultimo or ultimo.get("texto") != msg:
+                _evento(repo, tid, "sistema", msg, tipo="status")
+            continue
         if resp in AGENTES_MAC:
             est = (repo._req("GET", "mac_estado", {"select": "visto_em", "id": "eq.1"}) or [None])[0]
             online = bool(est and (datetime.now(timezone.utc) - datetime.fromisoformat(str(est["visto_em"]).replace("Z", "+00:00"))).total_seconds() < 300)

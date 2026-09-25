@@ -423,6 +423,79 @@ def test_11_terminal_recusa_comando_fora_da_lista_e_registra():
     assert resp["ok"] and r3.mac_comandos[0]["status"] == "pendente", (resp, r3.mac_comandos)
 
 
+def test_44_card_pronto_exige_os_4_itens():
+    completo = ("Escopo: mudar a cor do botão.\nArquivo/função: public/index.html, devCard.\n"
+                "Teste: abrir Central e ver o botão verde.\nCritério de aceite: botão fica verde em todas as telas.")
+    ok, faltando = nubi_web.card_pronto(completo)
+    assert ok and not faltando, (ok, faltando)
+
+    vazio_ok, vazio_falt = nubi_web.card_pronto("")
+    assert not vazio_ok and vazio_falt == ["Escopo", "Arquivo/função", "Teste", "Critério de aceite"], vazio_falt
+
+    so_placeholder = ("Escopo: mudar a cor do botão.\nArquivo/função: [onde implementar]\n"
+                       "Teste: abrir Central e ver o botão verde.\nCritério de aceite: botão fica verde em todas as telas.")
+    ok2, falt2 = nubi_web.card_pronto(so_placeholder)
+    assert not ok2 and falt2 == ["Arquivo/função"], falt2
+
+    sem_teste = "Escopo: x.\nArquivo/função: y.\nCritério de aceite: z."
+    ok3, falt3 = nubi_web.card_pronto(sem_teste)
+    assert not ok3 and falt3 == ["Teste"], falt3
+
+    # variações de maiúsculas/espaço e o rótulo alternativo "arquivo e função" continuam válidas
+    variado = "  ESCOPO : a.\nArquivo e Função:  b.\nteste:c.\nCRITÉRIO DE ACEITE:d."
+    ok4, falt4 = nubi_web.card_pronto(variado)
+    assert ok4 and not falt4, falt4
+
+
+class RepoAgentes:
+    def __init__(s, cards):
+        s.cards = {c["id"]: dict(c) for c in cards}
+        s.eventos = []
+
+    def _req(s, m, tab, params=None, corpo=None, prefer=None):
+        if tab == "reuniao_tarefas" and m == "GET":
+            return list(s.cards.values())
+        if tab == "reuniao_tarefas" and m == "PATCH":
+            tid = int(str(params["id"]).split(".")[-1])
+            s.cards[tid].update(corpo)
+            return []
+        if tab == "tarefa_eventos" and m == "POST":
+            s.eventos.extend(corpo)
+            return []
+        if tab == "tarefa_eventos" and m == "GET":
+            tid = int(str(params["tarefa_id"]).split(".")[-1])
+            evs = [e for e in s.eventos if e["tarefa_id"] == tid]
+            return [evs[-1]] if evs else []
+        return []
+
+    def _eq(s, v):
+        return f"eq.{v}"
+
+
+def test_44_trabalhar_agentes_pula_card_incompleto():
+    incompleto = {"id": 60, "status": "aprovada", "aguardando": None, "responsavel": "chatgpt", "risco": "baixo",
+                  "titulo": "Card sem modelo", "descricao": "Só um texto solto, sem os 4 itens."}
+    completo = {"id": 61, "status": "aprovada", "aguardando": None, "responsavel": "chatgpt", "risco": "baixo",
+                "titulo": "Card com modelo", "descricao": ("Escopo: a.\nArquivo/função: b.\nTeste: c.\nCritério de aceite: d.")}
+    r = RepoAgentes([incompleto, completo])
+    nubi_web.agentes.perguntar = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("sem rede no teste"))
+    nubi_web.trabalhar_agentes(r, limite=2)
+
+    # o incompleto nunca sai de "aprovada" nem ganha "Peguei o card"; fica só o aviso de card não executado
+    assert r.cards[60]["status"] == "aprovada", r.cards[60]
+    textos60 = [e["texto"] for e in r.eventos if e["tarefa_id"] == 60]
+    assert textos60 == ["Card não executado: preencha Escopo, Arquivo/função, Teste, Critério de aceite na descrição."], textos60
+
+    # o completo passou pelo gate: recebeu "Peguei o card" antes de tentar (e falhar) a chamada real
+    textos61 = [e["texto"] for e in r.eventos if e["tarefa_id"] == 61]
+    assert "Peguei o card e estou trabalhando nele." in textos61, textos61
+
+    # rodando de novo não duplica o aviso do card incompleto (dedup pelo último evento)
+    nubi_web.trabalhar_agentes(r, limite=2)
+    textos60_de_novo = [e["texto"] for e in r.eventos if e["tarefa_id"] == 60]
+    assert textos60_de_novo == textos60, textos60_de_novo
+
+
 if __name__ == "__main__":
     falhou = 0
     for nome, f in list(globals().items()):

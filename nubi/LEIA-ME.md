@@ -496,3 +496,38 @@ Menu Ajustes → 🛠️ Central: abas 📋 Desenvolvimento (tarefas decididas p
 editáveis), ⏱️ Execuções (cada vez que uma rotina rodou — tabela `rotinas_execucoes` — e as coletas do Mac),
 🚨 Erros (rotinas e coletas com falha, erros da última auditoria e agentes que não responderam), 🧪 Auditoria,
 💬 Sala de reunião e 📥 Coletor.
+
+### Card pronto para executar (modelo obrigatório da descrição)
+
+Todo card aprovado precisa desses quatro itens na descrição, nesta ordem, antes de qualquer agente (inclusive o
+programador automático) começar a implementar:
+
+```
+Escopo: [o que mudar e os limites da alteração]
+Arquivo/função: [onde implementar]
+Teste: [como verificar a mudança]
+Critério de aceite: [resultado verificável para considerar pronto]
+```
+
+Abrindo o card em Central → Desenvolvimento, o botão **Inserir modelo** acrescenta só os títulos que faltam (nunca
+apaga o que já foi escrito). Cada item precisa de texto de verdade — deixar só o placeholder entre colchetes conta
+como vazio. Exemplo completo (passa):
+
+```
+Escopo: mudar a cor do botão "Aprovar" para verde.
+Arquivo/função: public/index.html, função devCard.
+Teste: abrir Central → Desenvolvimento e ver o botão verde num card de proposta.
+Critério de aceite: botão "Aprovar" fica verde em todas as telas, sem mudar o "Não aprovar".
+```
+
+Exemplo incompleto (recusa, falta Teste e Critério de aceite está só com o placeholder):
+
+```
+Escopo: mudar a cor do botão "Aprovar" para verde.
+Arquivo/função: public/index.html, função devCard.
+Critério de aceite: [resultado verificável para considerar pronto]
+```
+
+Card incompleto nunca muda de coluna: `trabalhar_agentes` (nubi_web.py) pula o card e grava o evento "Card não
+executado: preencha {itens} na descrição." em vez de marcar `em_desenvolvimento`; o programador automático
+(Claude Code) faz a mesma conferência a olho antes de começar (PROGRAMADOR.md).
