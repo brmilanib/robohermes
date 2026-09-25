@@ -473,8 +473,8 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 @media (max-width:600px){.dev-col{grid-template-columns:1fr}}
 @media (max-width:390px){.dev-col{grid-template-columns:1fr}.dev-prog{gap:8px}.dev-prog-it{flex-basis:100%}}
 .modal-bg.tarefa{align-items:stretch;justify-content:flex-end;padding:0}
-.modal-bg.tarefa .modal{max-width:560px;border-radius:0;height:100%;max-height:100%;display:flex;flex-direction:column;padding:0;overflow-y:auto;overflow-x:hidden}
-.tf{display:flex;flex-direction:column;height:100%;min-height:0}
+.modal-bg.tarefa .modal{max-width:560px;border-radius:0;height:100%;max-height:100%;display:flex;flex-direction:column;padding:0;overflow:hidden}
+.tf{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden}
 .tf-cab{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
 .tf-desc{padding:8px 16px;border-bottom:1px solid var(--line);font-size:13px}.tf-desc summary{cursor:pointer;color:var(--muted)}
 .tf-desc textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;color:var(--ink);background:var(--card);resize:vertical;margin-top:6px}
