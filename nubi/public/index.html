@@ -335,6 +335,9 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .in-kpi b{font-size:24px;font-variant-numeric:tabular-nums}
 .in-kpi .o{font-size:12px;color:var(--muted)}
 .in-grade{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:14px}
+.in-foco{margin-top:14px}.in-foco-grade{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px;margin-top:6px}
+.in-foco .md{font-size:13px;min-width:0}.in-foco-lista li{gap:8px}
+@media (max-width:900px){.in-foco-grade{grid-template-columns:1fr}}
 .in-grade h2,.in-resumo h2{margin:0 0 10px;font-size:15px}
 .in-duas{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .in-sub{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px}
@@ -848,6 +851,13 @@ async function telaInicio() {
       <div class="card pad in-resumo-lado">${r.resumo ? `<h2>Resumo da IA · dados até ${ddmm(r.resumo.data)}</h2><div class="md">${mdSimples(resumoLinhas)}</div>
         <a class="in-mais" href="#/vendedores">Ler o resumo completo →</a>` : `<h2>Resumo da IA</h2><p class="muted">O resumo do dia aparece aqui quando for gerado.</p>`}</div>
     </section>
+    ${r.foco ? `<section class="card pad in-foco"><div class="in-dev-cab"><h2>🐋 Onde focar hoje · análise do DeepSeek</h2>
+        <span class="muted" style="font-size:12px">concorrentes de ${esc((r.foco.mes || "").slice(5, 7) + "/" + (r.foco.mes || "").slice(0, 4))} × seu estoque · ${esc(desde(r.foco.criado_em))}</span></div>
+      <div class="in-foco-grade"><div class="md">${mdSimples(r.foco.texto)}</div>
+        <div><div class="in-sub">Mais vendidos nos concorrentes</div><ul class="in-lista in-foco-lista">${(r.foco.produtos || []).map(p => `<li>
+          <span class="in-trunc" title="${esc(p.produto)}">${esc(p.produto)}</span><span>${p.preco_medio == null ? "—" : abrev(p.preco_medio)}</span>
+          <span class="st ${p.situacao === "tenho" ? "good" : p.situacao === "zerado" ? "warn" : "bad"}" title="${p.meu_sku ? esc(p.meu_sku + " · " + p.meu_disponivel + " un.") : "não achei no seu estoque (confira)"}">${esc(p.situacao)}</span></li>`).join("")}</ul>
+          <p class="muted" style="font-size:11.5px;margin:6px 0 0">Preço = preço médio nos concorrentes. Estoque cruzado pelo título do produto: confira antes de decidir.</p></div></div></section>` : ""}
     <section class="in-grade in-baixo">
       <div class="card pad"><h2>Próximas datas de vendas</h2><ul class="in-datas">${datasVendas(agora).map(x => `<li><span class="in-dias ${x.dias <= 15 ? "perto" : ""}">${x.dias === 0 ? "hoje" : x.dias + (x.dias === 1 ? " dia" : " dias")}</span>
         <b>${esc(x.n)}</b><span class="muted">${x.dt.toLocaleDateString("pt-BR", {day: "2-digit", month: "short", weekday: "short"})}</span></li>`).join("")}</ul></div>

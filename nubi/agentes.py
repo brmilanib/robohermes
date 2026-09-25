@@ -40,7 +40,7 @@ Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reuni�
 (Nomes de marcas, Nomes de vendedores, Produtos iguais). No celular há uma barra de atalhos embaixo.
 
 ## Rotinas (horário de Brasília)
-estoque 00:30 (Mac: exporta o estoque do UpSeller), coleta 01:00 (Mac, a madrugada toda), categorias_lote 04:00, nomes_marcas 05:00 (IA confere grafias da mesma marca e junta as certas), produtos_ia 05:30, agente 06:00, resumo_dia, resumo_semana (segunda), noticias 07:00 (IA com busca na web: até 8 novidades de Mercado Livre/Shopee/Amazon/TikTok Shop em ia_resumos 'noticias|data'; o Início mostra também dólar do dia e datas de vendas),
+estoque 00:30 (Mac: exporta o estoque do UpSeller), coleta 01:00 (Mac, a madrugada toda), categorias_lote 04:00, nomes_marcas 05:00 (IA confere grafias da mesma marca e junta as certas), produtos_ia 05:30, agente 06:00, resumo_dia, analise_foco 09:15 (DeepSeek: concorrentes × meu estoque, onde focar; vai para o Início), resumo_semana (segunda), noticias 07:00 (IA com busca na web: até 8 novidades de Mercado Livre/Shopee/Amazon/TikTok Shop em ia_resumos 'noticias|data'; o Início mostra também dólar do dia e datas de vendas),
 resumo_marcas (dia 3), auditoria 10:30 (conferências de dados + revisão de código), reunião diária 11:00 e, de hora em hora, o Astra
 especifica os cards de design (o programador automático, Claude Code, pega cards aprovados a cada 1 h e publica).
 

@@ -1718,6 +1718,13 @@ def tela_inicio(repo):
     out["coleta"] = col[0] if col else None
     if out["coleta"]:
         out["coleta"]["mensagem"] = (out["coleta"].get("mensagem") or "")[:200]
+    # análise diária do DeepSeek (rotina analise_foco): onde focar, cruzando os concorrentes com o meu estoque
+    fo = seguro(lambda: repo._req("GET", "ia_resumos", {"select": "chave,texto,ia,criado_em,dados", "chave": "like.foco|*",
+                                                        "order": "chave.desc", "limit": 1}), []) or []
+    if fo:
+        dd = fo[0].get("dados") or {}
+        out["foco"] = {"texto": fo[0]["texto"], "ia": fo[0].get("ia"), "criado_em": fo[0]["criado_em"], "mes": dd.get("mes"),
+                       "vendedores": dd.get("vendedores"), "produtos": (dd.get("produtos") or [])[:8]}
     return out
 
 
@@ -1789,6 +1796,122 @@ def gerar_noticias(repo, forcar=False):
     texto = "\n".join(f"- **{n.get('marketplace') or ''}** {n['titulo']}: {n.get('resumo') or ''} ([fonte]({n['fonte']}))" for n in itens)
     _guardar_resumo(repo, chave, texto or "sem novidades", qual, {"noticias": itens})
     return {"chave": chave, "novo": True, "n": len(itens)}
+
+
+_PALAVRAS_VAZIAS = {"perfume", "perfumes", "masculino", "feminino", "unissex", "eau", "de", "da", "do", "parfum", "toilette",
+                    "edp", "edt", "original", "importado", "ml", "com", "para", "e", "o", "a", "the", "lacrado", "kit", "spray"}
+
+
+def _tokens_produto(titulo):
+    """Palavras que identificam o produto (sem acento, sem as genéricas) + o volume em ml."""
+    t = unicodedata.normalize("NFKD", str(titulo or "").lower()).encode("ascii", "ignore").decode()
+    vol = re.search(r"(\d{2,4})\s*ml", t)
+    pal = {p for p in re.findall(r"[a-z0-9]+", t) if len(p) >= 3 and p not in _PALAVRAS_VAZIAS and not p.isdigit()
+           and not re.fullmatch(r"\d+ml", p)}                       # volume não conta como palavra do produto
+    return pal, (vol.group(1) if vol else None)
+
+
+def casar_estoque(titulo, estoque):
+    """O item do MEU estoque que é o mesmo produto do concorrente (os SKUs são diferentes: casa pelo título).
+    Mesmo volume quando os dois têm; pelo menos 2 palavras em comum e 60% das palavras do concorrente."""
+    pal, vol = _tokens_produto(titulo)
+    if len(pal) < 2:
+        return None
+    melhor, nota_m = None, 0.0
+    for it in estoque:
+        p2, v2 = it["_tok"]
+        if vol and v2 and vol != v2:
+            continue
+        comum = len(pal & p2)
+        nota = comum / len(pal)
+        if comum >= 2 and nota >= 0.6 and nota > nota_m:
+            melhor, nota_m = it, nota
+    return melhor
+
+
+def dados_foco(repo, limite=30):
+    """Números da análise diária do DeepSeek (card do Bruno, 25/09), todos calculados aqui — a IA só interpreta:
+    produtos que mais vendem nos concorrentes monitorados no mês (R$, unidades, vendedores, preço médio = 'Preço Médio' do
+    Nubimetrics) cruzados com o MEU estoque do UpSeller (tenho/zerado/não tenho, custo e margem antes das taxas)."""
+    rels = _vend_rels(repo)
+    if not rels:
+        return None
+    mes = max(r["mes"] for r in rels)[:7]
+    ult = {}
+    for r in rels:
+        if r["mes"][:7] == mes and (r["vendedor"] not in ult or str(r.get("importado_em")) > str(ult[r["vendedor"]].get("importado_em"))):
+            ult[r["vendedor"]] = r
+    prods = {}
+    for vend, r in ult.items():
+        for l in _vend_linhas(repo, r["id"]):
+            u = int(l.get("unidades") or 0)
+            if u <= 0:
+                continue
+            chave = l.get("gtin") or nubi.compacta(f"{l.get('marca') or ''} {l.get('titulo') or ''}")[:70]
+            p = prods.setdefault(chave, {"titulo": l.get("titulo") or "", "marca": l.get("marca") or "", "v": 0.0, "u": 0,
+                                         "vendedores": set(), "_pu": 0.0, "precos": []})
+            p["v"] += float(l.get("vendas") or 0)
+            p["u"] += u
+            p["vendedores"].add(vend)
+            if l.get("preco"):
+                p["_pu"] += float(l["preco"]) * u
+                p["precos"].append(float(l["preco"]))
+    top = sorted(prods.values(), key=lambda p: -p["v"])[:limite]
+    at = (repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": 1}) or [None])[0]
+    estoque = []
+    if at:
+        estoque = repo._todos("estoque_itens", {"select": "sku,titulo,disponivel,atual,custo_medio", "atualizacao_id": repo._eq(at["id"])})
+        for it in estoque:
+            it["_tok"] = _tokens_produto(it.get("titulo"))
+    linhas = []
+    for p in top:
+        pm = round(p["_pu"] / p["u"], 2) if p["_pu"] else None
+        meu = casar_estoque(p["titulo"], estoque) if estoque else None
+        disp = int(float(meu.get("disponivel") if meu.get("disponivel") is not None else meu.get("atual") or 0)) if meu else None
+        custo = float(meu["custo_medio"]) if meu and meu.get("custo_medio") else None
+        linhas.append({"produto": p["titulo"][:90], "marca": p["marca"], "vendas": round(p["v"], 2), "unidades": p["u"],
+                       "vendedores": len(p["vendedores"]), "preco_medio": pm,
+                       "preco_min": min(p["precos"]) if p["precos"] else None, "preco_max": max(p["precos"]) if p["precos"] else None,
+                       "meu_sku": meu["sku"] if meu else None, "meu_disponivel": disp, "meu_custo": custo,
+                       "margem_antes_taxas": round(pm - custo, 2) if pm and custo else None,
+                       "situacao": "não tenho" if not meu else "zerado" if not disp else "tenho"})
+    return {"mes": mes, "vendedores": len(ult), "estoque_de": at["criado_em"] if at else None, "produtos": linhas}
+
+
+def analise_foco(repo, forcar=False):
+    """Rotina diária 'analise_foco' (DeepSeek): onde o Bruno deve focar, com os números de dados_foco. Uma por dia."""
+    hoje = _agora_br().date().isoformat()
+    chave = f"foco|{hoje}"
+    if not forcar and repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave), "limit": 1}):
+        return "já feita hoje"
+    d = dados_foco(repo)
+    if not d or not d["produtos"]:
+        return "sem dados de concorrentes"
+    fm = lambda x: "—" if x is None else f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    tabela = "\n".join(
+        f"{i}. {p['produto']} ({p['marca']}): vendas {fm(p['vendas'])}, {p['unidades']} un., {p['vendedores']} vendedor(es), "
+        f"preço médio {fm(p['preco_medio'])} (de {fm(p['preco_min'])} a {fm(p['preco_max'])}); MEU ESTOQUE: {p['situacao']}"
+        + (f", SKU {p['meu_sku']}, {p['meu_disponivel']} un., custo {fm(p['meu_custo'])}, margem antes das taxas {fm(p['margem_antes_taxas'])}"
+           if p["meu_sku"] else "") for i, p in enumerate(d["produtos"], 1))
+    pedido = (
+        "Você é o DeepSeek, analista de números do nubi. Abaixo, os produtos que mais venderam no mês "
+        f"{d['mes'][5:7]}/{d['mes'][:4]} nos {d['vendedores']} concorrentes monitorados, já cruzados com o estoque do Bruno "
+        "(os números foram calculados pelo sistema: NÃO recalcule e NÃO invente nenhum número; o cruzamento com o estoque é "
+        "pelo título e pode errar — diga 'confira' quando for decisivo). Margem 'antes das taxas' não desconta as tarifas do "
+        "marketplace nem o frete.\n\nTABELA:\n" + tabela +
+        "\n\nEscreva em português do Brasil, direto, em markdown curto, com estas seções:\n"
+        "## Onde focar hoje\n3 a 5 produtos, cada um com o porquê em 1 linha (vende muito, poucos vendedores, eu tenho estoque, "
+        "margem boa) e a ação (anunciar/impulsionar, repor, comprar, rever preço).\n"
+        "## Preço\nonde o meu custo deixa competir com o preço médio e onde não dá.\n"
+        "## Repor ou comprar\no que vende bem e eu tenho zerado ou não tenho.\n"
+        "## Atenção\n1 ou 2 riscos (produto com muitos vendedores e preço caindo, margem apertada).")
+    ia.USO["origem"] = "rotina analise_foco"
+    txt, _, qual = ia.perguntar(pedido, web=False, max_tokens=2500, qual="deepseek", modelo="pro", sistema=agentes.SISTEMA)
+    if not (txt or "").strip():
+        return "o DeepSeek não respondeu"
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": txt.strip(), "ia": ia.nome(qual), "dados": d}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return f"análise do dia gravada ({len(d['produtos'])} produtos, {d['vendedores']} concorrentes)"
 
 
 def inicio_extras(repo):
@@ -2100,7 +2223,8 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "resumo_semana", "resumo_marcas", "noticias", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
+NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "resumo_semana", "resumo_marcas", "nomes_marcas",
+               "noticias", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
 
@@ -2281,6 +2405,8 @@ def rodar_rotinas(repo, so=None):
             elif rid == "noticias":
                 x = gerar_noticias(repo, forcar=bool(so))
                 res = f"{x.get('n', 0)} notícia(s) gravada(s)" if x["novo"] else "já existia"
+            elif rid == "analise_foco":
+                res = analise_foco(repo, forcar=bool(so))
             elif rid == "nomes_marcas":
                 res = conferir_nomes_marcas(repo)
             elif rid == "resumo_marcas":
