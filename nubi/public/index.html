@@ -414,6 +414,10 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .ops-abas .badge{margin-left:4px}
 @media (max-width:640px){.ops-abas{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}}
 .dev-cab{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.dev-prog{margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card);display:flex;gap:12px;flex-wrap:wrap}
+.dev-prog b{display:block;font-size:12px}
+.dev-prog-it{flex:1 1 180px;min-width:0;font-size:13px}
+.dev-prog-it a{font-weight:600;word-break:break-word}
 .dev-alerta{margin-top:10px;background:#fff4e5;border:1px solid #f5c26b;color:#7a4b00;border-radius:10px;padding:8px 12px;font-size:13px}
 .dev-alerta a{color:inherit;font-weight:600}
 .dev-col{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:12px;align-items:start}
@@ -446,6 +450,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 @media (prefers-reduced-motion: reduce){.vivo .dc-av::after,.dc-dig i{animation:none}}
 @media (max-width:1000px){.dev-col{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:600px){.dev-col{grid-template-columns:1fr}}
+@media (max-width:390px){.dev-prog{gap:8px}.dev-prog-it{flex-basis:100%}}
 .modal-bg.tarefa{align-items:stretch;justify-content:flex-end;padding:0}
 .modal-bg.tarefa .modal{max-width:560px;border-radius:0;height:100%;display:flex;flex-direction:column;padding:0}
 .tf{display:flex;flex-direction:column;height:100%;min-height:0}
@@ -2672,9 +2677,32 @@ async function telaDev(silencioso) {
   if (silencioso && !(location.hash === "#/central" || location.hash.startsWith("#/reuniao/dev"))) return;
   const ts = r.tarefas, n = st => ts.filter(t => t.status === st).length;
   const pedem = ts.filter(t => t.aguardando);
+  // PROG_MIN = 40, PROG_CADA_H = 2 (mudou a rotina em claude.ai → Rotinas? atualize aqui)
+  const PROG_MIN = 40, PROG_CADA_H = 2;
+  const agora = new Date();
+  const prox = new Date(agora);
+  prox.setUTCSeconds(0, 0); prox.setUTCMinutes(PROG_MIN);
+  while (prox <= agora || prox.getUTCHours() % PROG_CADA_H !== 0) prox.setUTCHours(prox.getUTCHours() + 1);
+  const faltaMin = Math.max(0, Math.round((prox - agora) / 60000));
+  const faltaTxt = faltaMin < 60 ? `${faltaMin} min` : `${Math.floor(faltaMin / 60)} h${faltaMin % 60 ? ` ${faltaMin % 60} min` : ""}`;
+  const proxExec = `${prox.toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit"})} (em ${faltaTxt})`;
+  const priOrdem = {urgente: 0, alta: 1, media: 2, baixa: 3};
+  const riscoOrdem = {baixo: 0, medio: 1, alto: 2};
+  const proxCard = ts.filter(t => t.status === "aprovada" && !t.aguardando && (t.risco || "medio") !== "alto" && (!t.responsavel || t.responsavel === "claude_code"))
+    .sort((a, b) => (priOrdem[a.prioridade || "media"] ?? 2) - (priOrdem[b.prioridade || "media"] ?? 2)
+      || (riscoOrdem[a.risco || "medio"] ?? 1) - (riscoOrdem[b.risco || "medio"] ?? 1)
+      || ((+a.id || 0) - (+b.id || 0)))[0];
+  const ultimo = ts.map(t => ({...t.ultimo_evento, tarefa_id: t.id}))
+    .filter(e => e?.autor === "claude_code" && e?.criado_em)
+    .sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em))[0];
   main.innerHTML = opsAbas("dev") + `<div class="dev-cab"><h1 style="margin:0">📋 Desenvolvimento</h1>
       <span class="muted">propostas → aprovadas → em execução → feitas · clique num card para ver tudo e conversar</span><div style="flex:1"></div>
       <button class="btn" id="dev-nova">+ Nova tarefa</button></div>
+    <div class="dev-prog">
+      <div class="dev-prog-it"><b>💻 Programador automático</b><span class="muted">Próxima execução</span><br>${esc(proxExec)}</div>
+      <div class="dev-prog-it"><span class="muted">Próximo card</span><br>${proxCard ? `<a href="#" data-abrir="${proxCard.id}">#${proxCard.id} ${esc(proxCard.titulo)}</a>` : "fila vazia"}</div>
+      <div class="dev-prog-it"><span class="muted">Último trabalho</span><br>${ultimo ? `${esc(desde(ultimo.criado_em))} · #${ultimo.tarefa_id} · ${esc((ultimo.texto || "").slice(0, 90))}` : "sem registro ainda"}</div>
+    </div>
     ${pedem.length ? `<div class="dev-alerta">⏳ ${pedem.length} tarefa(s) esperando sua resposta: ${pedem.map(t => `<a href="#" data-abrir="${t.id}">#${t.id} ${esc(t.titulo)}</a>`).join(" · ")}</div>` : ""}
     <div class="dev-col">${DEV_COLS.map(([c, tit, sub]) => `<section class="dev-coluna c-${c}"><div class="dev-ct"><b>${tit}</b> <span class="dev-cn">${n(c)}</span><div class="muted">${sub}</div></div>
       ${ts.filter(t => t.status === c).map(devCard).join("") || `<p class="muted" style="font-size:12.5px">Nada aqui.</p>`}</section>`).join("")}</div>
