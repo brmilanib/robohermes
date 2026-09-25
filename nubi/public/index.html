@@ -104,8 +104,8 @@ table.t td.first{font-weight:500}
 .log{background:var(--soft);border-radius:8px;padding:10px 12px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;max-height:300px;overflow:auto;margin-top:10px}
 .modal-bg{position:fixed;inset:0;background:rgba(10,15,25,.45);display:flex;align-items:flex-start;justify-content:center;z-index:50;
   padding:clamp(12px,3dvh,32px) 16px calc(clamp(12px,3dvh,32px) + env(safe-area-inset-bottom,0px));overflow:auto}
-.modal{max-width:640px;width:100%;padding:18px;max-height:calc(100vh - (clamp(24px,6vh,64px) + env(safe-area-inset-bottom,0px)));
-  max-height:calc(100dvh - (clamp(24px,6dvh,64px) + env(safe-area-inset-bottom,0px)));
+.modal{max-width:640px;width:100%;padding:18px;max-height:calc(100vh - (clamp(24px,6vh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
+  max-height:calc(100dvh - (clamp(24px,6dvh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
   overflow:auto;overscroll-behavior:contain}
 .form-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px}
 @media (max-width:600px){.form-row{grid-template-columns:1fr}}
@@ -580,10 +580,8 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
   body.menu-aberto::after{content:"";position:fixed;inset:0;background:rgba(10,15,25,.45);z-index:44}
   .subnav{display:flex}
   main{padding:12px}
-  .vabas{overflow-x:auto;max-width:100%}
-}
-@media (max-width:390px){
   .in-kpis,.in-ops,.in-grade,.in-foco-grade,.in-duas,.in-baixo{grid-template-columns:1fr !important}
+  .vabas{overflow-x:auto;max-width:100%}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 /* Minhas Lojas → Estoque */
