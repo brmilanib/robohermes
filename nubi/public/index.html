@@ -756,9 +756,11 @@ function datasVendas(hoje) {
   const h0 = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   return lista.map(([n, dt]) => ({n, dt, dias: Math.round((dt - h0) / 864e5)})).filter(x => x.dias >= 0).sort((a, b) => a.dias - b.dias).slice(0, 6);
 }
+// cidade da previsão do tempo na Início (pedido do Bruno, card #41); cada pessoa pode trocar no ✎ ao lado do nome
+const CIDADE_PADRAO = {nome: "Maringá, PR", lat: -23.4205, lon: -51.9333};
 async function carregarTempo(box) {
   let cid; try { cid = JSON.parse(localStorage.getItem("nubi.cidade") || "null"); } catch { cid = null; }
-  cid = cid || {nome: "Curitiba", lat: -25.43, lon: -49.27};
+  cid = cid || CIDADE_PADRAO;
   try {
     const r = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${cid.lat}&longitude=${cid.lon}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=America%2FSao_Paulo&forecast_days=3`)).json();
     const [ic, tx] = tempoDe(r.current.weather_code), dsem = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
