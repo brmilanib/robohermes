@@ -474,10 +474,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 @media (max-width:600px){.dev-col{grid-template-columns:1fr}}
 @media (max-width:390px){.dev-col{grid-template-columns:1fr}.dev-prog{gap:8px}.dev-prog-it{flex-basis:100%}}
 .modal-bg.tarefa{align-items:stretch;justify-content:flex-end;padding:0}
-.modal-bg.tarefa .modal{max-width:560px;border-radius:0;height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
-  height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
-  max-height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
-  max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
+.modal-bg.tarefa .modal{max-width:560px;border-radius:0;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;
   display:flex;flex-direction:column;padding:0;overflow:hidden}
 .tf{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden}
 .tf-cab{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -493,9 +490,9 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .tf-pede{margin:0;padding:10px 16px;background:#fff4e5;color:#7a4b00;font-size:13px;border-top:1px solid #f5c26b;overflow-wrap:anywhere}
 .tf-bts{display:flex;gap:8px;margin-top:8px}
 .tf-bts .btn{flex:1;justify-content:center;min-width:0}
-.tf-in{display:flex;gap:8px;padding:10px 16px;border-top:1px solid var(--line)}
+.tf-in{display:flex;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)}
 .tf-in textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:18px;padding:9px 14px;font:inherit;min-height:40px;max-height:120px;background:var(--card);color:var(--ink)}
-.tf-st{padding:0 16px calc(12px + env(safe-area-inset-bottom,0px))}
+.tf-st{padding:0 16px 12px}
 @media (max-width:600px){.modal-bg.tarefa .modal{max-width:none}}
 @media (max-width:420px){.tf-bts{gap:6px}.tf-bts .btn{font-size:12px;padding:6px 8px;white-space:nowrap}}
 .au-msg{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:10px;background:var(--card)}
@@ -574,6 +571,7 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 @media (max-width:900px){
   body{font-size:max(16px,1rem)}
   .btn,.tab,.ops-abas a,#barra-baixo a{min-height:44px}
+  input:not([type=checkbox]):not([type=radio]),select,textarea{min-height:44px}
   header.top{padding:8px 12px;gap:8px}
   header.top .logo small,#selm,.status-pill .tx{display:none}
   header.top .btn .rot{display:none}
