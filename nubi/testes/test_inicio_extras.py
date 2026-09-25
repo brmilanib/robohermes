@@ -94,17 +94,21 @@ def test_noticias_ia_falsa_grava_uma_vez_por_dia():
                               "fonte": "https://exemplo.com/a"},
                              {"marketplace": "Amazon", "titulo": "Sem fonte", "resumo": "descartada"}]
                 + [{"marketplace": "ML", "titulo": f"N{i}", "fonte": f"https://x/{i}"} for i in range(10)]}, [], "claude"
+    original = ia.perguntar_json
     ia.perguntar_json = falsa
-    repo = Repo()
-    x = nubi_web.gerar_noticias(repo)
-    assert x["novo"] and x["n"] == 8, x                           # no máximo 8 e só com fonte
-    assert perguntas == [True]                                    # com busca na web
-    reg = repo.t["ia_resumos"]
-    assert len(reg) == 1 and reg[0]["chave"] == f"noticias|{nubi_web._agora_br().date().isoformat()}", reg
-    assert reg[0]["dados"]["noticias"][0]["fonte"] == "https://exemplo.com/a"
-    assert "[fonte](https://exemplo.com/a)" in reg[0]["texto"] and "Sem fonte" not in reg[0]["texto"]
-    assert nubi_web.gerar_noticias(repo) == {"chave": reg[0]["chave"], "novo": False}
-    assert perguntas == [True] and len(repo.t["ia_resumos"]) == 1  # 2ª vez no mesmo dia não chama a IA
+    try:
+        repo = Repo()
+        x = nubi_web.gerar_noticias(repo)
+        assert x["novo"] and x["n"] == 8, x                           # no máximo 8 e só com fonte
+        assert perguntas == [True]                                    # com busca na web
+        reg = repo.t["ia_resumos"]
+        assert len(reg) == 1 and reg[0]["chave"] == f"noticias|{nubi_web._agora_br().date().isoformat()}", reg
+        assert reg[0]["dados"]["noticias"][0]["fonte"] == "https://exemplo.com/a"
+        assert "[fonte](https://exemplo.com/a)" in reg[0]["texto"] and "Sem fonte" not in reg[0]["texto"]
+        assert nubi_web.gerar_noticias(repo) == {"chave": reg[0]["chave"], "novo": False}
+        assert perguntas == [True] and len(repo.t["ia_resumos"]) == 1  # 2ª vez no mesmo dia não chama a IA
+    finally:
+        ia.perguntar_json = original
 
 
 def test_rota_devolve_os_4_blocos_com_sem_dados():
