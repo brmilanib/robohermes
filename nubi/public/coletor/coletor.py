@@ -1935,6 +1935,7 @@ def cmd_vigiar():
         if novo and novo != Path(__file__).read_bytes():
             compile(novo, "coletor.py", "exec")
             motivo = "versão nova do coletor"
+            _soltar("repetir-falhas")    # a correção pode ser para o que falhou hoje: o Hermes roda de novo (estoque/Gestor)
     except Exception:  # noqa: BLE001
         pass
     cfg = ler_config()
@@ -2760,6 +2761,41 @@ def _hermes_vigia(cfg):
     return 0
 
 
+def cmd_repetir_falhas(args, cfg):
+    """(automático, a cada versão nova do coletor) "Corrigiu, já roda": estoque/Gestor cuja última execução de hoje falhou
+    rodam de novo com o código novo — antes ficavam esperando o dia seguinte (limite de 3 tentativas por dia)."""
+    trava = PASTA / "repetir-falhas.pid"
+    if _pid_vivo(trava):
+        return 0
+    trava.write_text(str(os.getpid()))
+    try:
+        time.sleep(90)                                   # a coleta da versão nova começa primeiro
+        token = token_nubi(cfg)
+        hoje = (datetime.now(timezone.utc) - timedelta(hours=3)).date().isoformat()
+        ultima = {}
+        for e in api(token, "coletor_status", timeout=60).get("execucoes") or []:   # mais recente primeiro
+            ultima.setdefault(e["tarefa"], e)
+        alvo = [t for t in ("estoque", "gestor") if t in ultima and not ultima[t]["ok"]
+                and _br(ultima[t]["iniciado_em"])[:5] == f"{hoje[8:10]}/{hoje[5:7]}"]
+        for tarefa in alvo:
+            fim = time.time() + 4 * 3600
+            while _outra_rodando() and time.time() < fim:   # espera a coleta terminar (o Chrome é um só)
+                time.sleep(30)
+            print(f"{datetime.now():%d/%m %H:%M} repetir-falhas: {tarefa} falhou hoje -> rodando com a versão nova", flush=True)
+            subprocess.run([sys.executable, str(Path(__file__).resolve()), tarefa], stdin=subprocess.DEVNULL,
+                           capture_output=True, timeout=3600)
+            depois = next((e for e in api(token, "coletor_status", timeout=60).get("execucoes") or [] if e["tarefa"] == tarefa), {})
+            _postar_hermes(token, f"🩺 Saiu versão nova do coletor: rodei de novo a tarefa **{tarefa}**, que tinha falhado hoje "
+                                  f"({(ultima[tarefa].get('mensagem') or '')[:120]}). Agora: "
+                                  + ("✅ " if depois.get("ok") else "⚠️ ") + (depois.get("mensagem") or "sem resultado")[:200])
+        return 0
+    finally:
+        try:
+            trava.unlink()
+        except OSError:
+            pass
+
+
 def _postar_hermes(token, texto):
     try:
         api(token, "reuniao_postar", corpo={"autor": "Hermes", "texto": texto, "modelo": "vigia", "tokens_in": 0,
@@ -2825,6 +2861,7 @@ def main():
     hc.add_argument("--modelo", default=None)
     sub.add_parser("entrar-gestor", help="login no Gestor Seller (uma vez), para importar a planilha sozinho")
     sub.add_parser("hermes-vigia", help="(automático) o Hermes trata as falhas novas: diagnostica, conserta e tenta de novo")
+    sub.add_parser("repetir-falhas", help="(automático) roda de novo o estoque/Gestor que falhou hoje, com a versão nova")
     cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
     cv.add_argument("--modelo", default=None)
     gsn = sub.add_parser("guardar-senha", help="guarda no Chaveiro do Mac o login de um site (para o coletor entrar sozinho)")
@@ -2866,6 +2903,8 @@ def main():
         return cmd_guardar_senha(args, cfg)
     if args.cmd == "conversar":
         return cmd_conversar(args, cfg)
+    if args.cmd == "repetir-falhas":
+        return cmd_repetir_falhas(args, cfg)
     if args.cmd == "entrar-auto":
         return cmd_entrar_auto(args, cfg)
     if args.cmd == "agendar":

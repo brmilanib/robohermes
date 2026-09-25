@@ -86,6 +86,30 @@ def test_login_vencido_sem_senha_abre_a_janela_e_roda_de_novo():
     assert len(chamadas) == 4 and "só com você" in posts[-1]["texto"]
 
 
+def test_versao_nova_roda_de_novo_o_que_falhou_hoje():
+    soltos, posts, cards = _preparar()
+    from datetime import datetime, timedelta, timezone
+    agora = datetime.now(timezone.utc).isoformat()
+    ontem = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    execs = [{"tarefa": "gestor", "ok": False, "iniciado_em": agora, "mensagem": "conferência: SKU não encontrado"},
+             {"tarefa": "estoque", "ok": True, "iniciado_em": agora, "mensagem": "640 SKUs"},
+             {"tarefa": "diario", "ok": False, "iniciado_em": ontem, "mensagem": "login"}]
+    rodou = []
+
+    def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
+        if rota == "coletor_status":
+            if rodou:
+                return {"execucoes": [{"tarefa": "gestor", "ok": True, "iniciado_em": agora, "mensagem": "custo conferido"}] + execs}
+            return {"execucoes": execs}
+        posts.append(corpo)
+        return {}
+    c.api = api
+    c.subprocess.run = lambda cmd, **k: rodou.append(cmd[-1]) or _Rc(0)
+    c.cmd_repetir_falhas(None, c.ler_config())
+    assert rodou == ["gestor"]                           # só o que falhou hoje (estoque deu certo; diario é de ontem)
+    assert "rodei de novo a tarefa **gestor**" in posts[-1]["texto"] and "✅ custo conferido" in posts[-1]["texto"]
+
+
 def test_erro_desconhecido_sem_ollama_avisa():
     soltos, posts, _ = _preparar()
     c.anotar_falha("gestor", "algo inédito")
