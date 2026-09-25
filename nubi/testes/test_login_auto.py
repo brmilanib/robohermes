@@ -15,15 +15,15 @@ SENHA, CODIGO = "SenhaSecreta#123", "482913"
 
 PAGINAS = {
     "/pt/inventory/list": """<html><head><meta charset="utf-8"></head><body><form id="f">
-      <input type="email" name="email"><input type="password" name="senha"><button type="submit">Entrar</button>
+      <input type="email" name="email"><input type="password" name="senha"><button>Ingressar</button>
       <a href="#">Esqueci a senha</a></form>
       <div id="cod" style="display:none">Digite o código enviado ao seu e-mail
         <input maxlength="1"><input maxlength="1"><input maxlength="1"><input maxlength="1"><input maxlength="1"><input maxlength="1">
         <button onclick="confere()">Verificar</button></div>
       <div id="ok" style="display:none">Importar & Exportar</div>
       <script>
-        document.getElementById('f').onsubmit = e => { e.preventDefault();
-          if (document.querySelector('[name=senha]').value === '%s') { e.target.style.display='none';
+        document.querySelector('#f button').onclick = e => { e.preventDefault();   // como o "Ingressar" do Nubimetrics
+          if (document.querySelector('[name=senha]').value === '%s') { document.getElementById('f').style.display='none';
             document.getElementById('cod').style.display='block'; } };
         function confere(){ const c=[...document.querySelectorAll('[maxlength="1"]')].map(i=>i.value).join('');
           if (c === '%s') { document.getElementById('cod').style.display='none'; document.getElementById('ok').style.display='block'; } }

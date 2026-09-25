@@ -2170,7 +2170,7 @@ def cmd_guardar_senha(args, cfg):
 def _botao_enviar(pg):
     b = pg.locator("button[type=submit]:visible, input[type=submit]:visible")
     if not b.count():
-        b = pg.get_by_role("button", name=re.compile(r"entrar|login|log in|acessar|sign in|continuar|confirmar|verificar", re.I))
+        b = pg.get_by_role("button", name=re.compile(r"entrar|ingressar|login|log in|acessar|sign in|continuar|confirmar|verificar", re.I))
     for i in range(b.count()):
         if not PROIBIDO_CLICAR.search(b.nth(i).inner_text() or ""):
             return b.nth(i)
@@ -2511,16 +2511,21 @@ def _hermes_vigia(cfg):
             _abrir_card_erro(token, tarefa, f, diag)
         elif acao == "janela_login":
             site = next((k for k in JANELA_LOGIN if k in f["erro"].lower()), "")
-            ja = (cfg.get("hermes_janela") or {}).get(hoje, [])
-            if not site or site in ja:
+            ja = (cfg.get("hermes_login") or {}).get(hoje, [])
+            if not site or ja.count(site) >= 2:
                 texto += "Ação: o login é só com você — rode no Mac: ~/.nubi-coletor/coletor " + JANELA_LOGIN.get(site, "entrar")
                 aviso_mac("Hermes: login vencido", f"{tarefa}: entre de novo no site")
             else:
-                cfg.setdefault("hermes_janela", {})[hoje] = ja + [site]
+                cfg.setdefault("hermes_login", {})[hoje] = ja + [site]
                 salvar_config(cfg)
+                # 25/09: logo depois da coleta falhar, o histórico diário abria o mesmo Chrome; o login não conseguia abrir
+                # (perfil em uso) e "fechava" em 1 min. Espera o navegador do coletor ficar livre.
+                fim_espera = time.time() + 1800
+                while _outra_rodando() and time.time() < fim_espera:
+                    time.sleep(20)
                 chave = {"gestor seller": "gestor"}.get(site, site)
                 auto = subprocess.run([sys.executable, str(Path(__file__).resolve()), "entrar-auto", chave],
-                                      stdin=subprocess.DEVNULL, capture_output=True, timeout=600)
+                                      stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
                 if auto.returncode == 0:
                     if tarefa in MEDICO_TAREFAS:
                         _soltar(tarefa)
@@ -2529,7 +2534,8 @@ def _hermes_vigia(cfg):
                                       else "a próxima coleta já entra normal."))
                     texto = ""
                     continue
-                texto += "Tentei entrar sozinho e não deu (sem senha salva, captcha ou tela nova). "
+                motivo = " / ".join(x.strip() for x in (auto.stdout or "").splitlines()[-3:] if x.strip())[:300]
+                texto += f"Tentei entrar sozinho e não deu ({motivo or 'sem detalhe'}). "
                 texto += (f"Ação: abri a janela de login do {site.title()} no Mac mini. Com a senha salva no navegador é só clicar "
                           "em Entrar (10 min). Assim que entrar, eu rodo a tarefa de novo sozinho.")
                 aviso_mac("Hermes: clique em Entrar", f"Janela de login do {site.title()} aberta no Mac mini")

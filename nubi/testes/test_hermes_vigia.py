@@ -54,7 +54,7 @@ def test_hermes_conserta_e_depois_abre_card():
 
 class _Rc:
     def __init__(self, rc):
-        self.returncode = rc
+        self.returncode, self.stdout = rc, "Nubimetrics: sem senha salva no navegador do coletor nem no Chaveiro"
 
 
 def test_login_vencido_entra_sozinho_e_roda_de_novo():
@@ -77,9 +77,13 @@ def test_login_vencido_sem_senha_abre_a_janela_e_roda_de_novo():
     assert chamadas == ["upseller", "entrar-upseller"]  # tentou sozinho; não deu -> abriu a janela (o Bruno clica)
     assert soltos == [("estoque", None)]                # entrou -> rodou a tarefa de novo
     assert "Tentei entrar sozinho" in posts[0]["texto"] and "Login do Upseller feito" in posts[1]["texto"]
+    assert "sem senha salva" in posts[0]["texto"]       # o motivo do login automático aparece na Sala
     c.anotar_falha("estoque", "O UpSeller pediu login de novo.")
-    c.cmd_hermes_vigia(None, c.ler_config())            # 2ª vez no dia: não tenta de novo, só avisa
-    assert chamadas == ["upseller", "entrar-upseller"] and "só com você" in posts[-1]["texto"]
+    c.cmd_hermes_vigia(None, c.ler_config())            # 2ª vez no dia: tenta de novo
+    assert len(chamadas) == 4
+    c.anotar_falha("estoque", "O UpSeller pediu login de novo.")
+    c.cmd_hermes_vigia(None, c.ler_config())            # 3ª vez: não tenta mais, só avisa
+    assert len(chamadas) == 4 and "só com você" in posts[-1]["texto"]
 
 
 def test_erro_desconhecido_sem_ollama_avisa():
