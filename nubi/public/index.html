@@ -3755,7 +3755,7 @@ async function telaVendPeriodo(c) {
       ${!c.ganhos.length && !c.perdas.length ? `<div class="card pad bi-card"><h2>Produtos em alta e em queda</h2><div class="muted">Aparecem quando o coletor trouxer o período exato de ${esc(mesCurto(c.mes_ant))} (próxima coleta diária).</div></div>` : ""}
     </div>`;
   $("#vmes").onchange = e => { location.hash = e.target.value ? `#/vendedores?mes=${e.target.value}` : "#/vendedores"; };
-  const col = (S.coletor || [])[0];
+  const col = ((S.coletor || []).find(coletorRodando) || (S.coletor || [])[0]);
   if (col && (coletorRodando(col) || (!col.ok && !col.em_andamento))) main.insertAdjacentHTML("afterbegin", `<p class="aviso ${coletorRodando(col) ? "" : "warn"}" style="margin:0 0 10px">
     ${coletorRodando(col) ? `Coletor baixando agora${col.total ? ` (${col.feito || 0} de ${col.total})` : ""}: ${esc(col.atual || "")}` : `A última coleta terminou com erros: ${esc((col.mensagem || "").slice(0, 120))}`}
     <a class="btn" href="#/coletor">ver</a></p>`);
@@ -3864,7 +3864,7 @@ async function telaVendedores(mes) {
     </div>`;
   $("#vmes").onchange = e => { location.hash = e.target.value ? `#/vendedores?mes=${e.target.value}` : "#/vendedores"; };
   resumoDia();
-  const c = (S.coletor || [])[0];
+  const c = ((S.coletor || []).find(coletorRodando) || (S.coletor || [])[0]);
   if (c && (coletorRodando(c) || (!c.ok && !c.em_andamento))) main.insertAdjacentHTML("afterbegin", `<p class="aviso ${coletorRodando(c) ? "" : "warn"}" style="margin:0 0 10px">
     ${coletorRodando(c) ? `Coletor baixando agora${c.total ? ` (${c.feito || 0} de ${c.total})` : ""}: ${esc(c.atual || "")}` : `A última coleta falhou: ${esc((c.mensagem || "").slice(0, 120))}`}
     <a class="btn" href="#/coletor">ver</a></p>`);
@@ -4908,7 +4908,7 @@ function quando(iso) {
   return min < 1 ? "agora" : min < 60 ? `há ${min} min` : min < 1440 ? `há ${Math.round(min / 60)} h` : `há ${Math.round(min / 1440)} dia(s)`;
 }
 function desenharAgente() {
-  const c = (S.coletor || [])[0], ec = $("#coletor-st"), pill = $("#st-pill");
+  const c = ((S.coletor || []).find(coletorRodando) || (S.coletor || [])[0]), ec = $("#coletor-st"), pill = $("#st-pill");
   if (pill) {
     const vivo = coletorRodando(c), pct = vivo && c.total ? Math.round(100 * (c.feito || 0) / c.total) : 0;
     pill.className = "status-pill " + (!c ? "nada" : vivo ? "rodando" : c.ok || c.em_andamento ? "" : "erro");
