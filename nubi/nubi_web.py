@@ -9,6 +9,7 @@ navegador. Este módulo tem três partes:
 3. atender() — as rotas da API chamadas pela página (api/app.py).
 """
 
+import hashlib
 import json
 import math
 import os
@@ -2625,6 +2626,11 @@ def rodar_rotinas(repo, so=None):
     agora = _agora_br()
     rot = {r["id"]: r for r in repo._todos("rotinas", {"select": "*", "order": "ordem,id"})}
     out = {}
+    if not so:
+        try:                                            # base de conhecimento: junta o que mudou na última hora (fase 1, 26/09)
+            out["saber"] = agentes.sincronizar_saber(repo, forcar=True)
+        except Exception as e:  # noqa: BLE001
+            out["saber"] = f"erro: {str(e)[:120]}"
     for rid in NO_SERVIDOR:
         r = rot.get(rid)
         if rid == "design" and r and not so:
@@ -2820,7 +2826,15 @@ def ligar_registro_uso(repo, origem):
                 reg["custo_usd"] = round(custo, 6)
         repo._req("PATCH", "agentes_uso", {"id": f"eq.{d['id']}"}, corpo=reg, prefer="return=minimal")
         return None
-    ia.USO.update({"gravar": gravar, "origem": origem})
+    def gravar_web(pergunta, resposta, links, qual):
+        # base de conhecimento (fase 1, 26/09): toda pesquisa na internet dos agentes fica guardada, com a pergunta, a resposta e as fontes
+        agora_ = datetime.now(timezone.utc).isoformat()
+        chave = hashlib.sha1(f"{agora_}|{pergunta}".encode()).hexdigest()[:20]
+        repo._req("POST", "saber", corpo=[{"tipo": "pesquisa_web", "titulo": re.sub(r"\s+", " ", pergunta)[:160],
+                                           "texto": f"PERGUNTA:\n{pergunta[:6000]}\n\nRESPOSTA:\n{resposta[:12000]}",
+                                           "autor": ia.nome(qual), "fonte_tabela": "web", "fonte_id": chave, "links": links[:20],
+                                           "tags": [str(origem or "")[:60]], "criado_em": agora_}], prefer="return=minimal")
+    ia.USO.update({"gravar": gravar, "origem": origem, "web": gravar_web})
 
 
 def _resumo_uso(xs):

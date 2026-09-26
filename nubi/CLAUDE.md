@@ -121,3 +121,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Versão nova do coletor → `repetir-falhas` roda de novo o que falhou hoje. Card 🩺 fechado → `memorizar_solucoes` (rotina
   `design`) guarda "Solução: …" fixa na caixa; se o erro voltar, o Hermes mostra a solução na Sala e no card.
 - Card aprovado sem os 4 itens do #44 não trava a fila: `completar_modelos` (rotina `design`) e o programador preenchem.
+
+## Base de conhecimento própria (26/09) — ver docs/base-de-conhecimento.md
+
+- Tudo o que o time diz, decide, erra, resolve e pesquisa na internet vai para a tabela `saber` (fase 1).
+  A função do banco `saber_sincronizar` roda de hora em hora e antes das buscas; as pesquisas na internet entram na hora,
+  pelo gancho `ia.USO["web"]`. Nunca apagar itens dessa tabela.
+- Busca: `buscar_arquivo` (barra da Sala e `BUSCAR:` dos agentes). Fase 2 (próxima): pedaços com frase de contexto +
+  pgvector + busca híbrida + reordenação, as técnicas da Anthropic e da OpenAI.

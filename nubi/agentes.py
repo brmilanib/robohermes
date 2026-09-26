@@ -42,7 +42,7 @@ Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reuni�
 (Nomes de marcas, Nomes de vendedores, Produtos iguais). No celular há uma barra de atalhos embaixo.
 
 ## Rotinas (horário de Brasília)
-estoque 00:30 (Mac: exporta o estoque do UpSeller), coleta 01:00 (Mac, a madrugada toda), categorias_lote 04:00, nomes_marcas 05:00 (IA confere grafias da mesma marca e junta as certas), produtos_ia 05:30 (junta títulos sem GTIN do mesmo perfume; GTINs diferentes com o mesmo nome NUNCA junta sozinho: vão para o Bruno conferir em Produtos iguais, metodo gtin_conferir → manual ou gtin_nao), agente 06:00, resumo_dia, analise_foco 09:15 (DeepSeek: concorrentes × meu estoque, onde focar; vai para o Início), analise_semana (sábado 10:00: plano da semana do DeepSeek para começar a segunda, ia_resumos "foco_semana|data", vai para o Início), resumo_semana (segunda), ARQUIVO (26/09): todas as mensagens da Sala e das conversas diretas ficam guardadas para sempre em reuniao_mensagens e, com a caixa de conhecimento, são pesquisáveis (função buscar_arquivo, sem acento; na Sala o Bruno usa a barra de pesquisa; os agentes pedem com "BUSCAR: palavras" antes de responder, na reunião, na conversa direta e no Laboratório), rankeamento 08:30 (LABORATÓRIO DE RANKEAMENTO, tabela rank_box, tela Minhas Lojas → 🧪 Rankeamento: pesquisador com web + todos os agentes contribuem com técnicas/hipóteses/experimentos do algoritmo do Mercado Livre — tags, exposição, relevância — e votam; o coordenador marca testando/comprovada/descartada e escreve o plano de ação por anúncio; o objetivo nº 1 do Bruno é os anúncios dele subirem de posição), posicoes (todo dia 07:30, Mac: acha os anúncios das minhas lojas do Mercado Livre em ml_lojas → meus_anuncios e anota posição/página na busca do termo de cada um em anuncio_posicoes; tela Minhas Lojas → Posição do anúncio), noticias 07:00 (IA com busca na web: até 8 novidades de Mercado Livre/Shopee/Amazon/TikTok Shop em ia_resumos 'noticias|data'; o Início mostra também dólar do dia e datas de vendas),
+estoque 00:30 (Mac: exporta o estoque do UpSeller), coleta 01:00 (Mac, a madrugada toda), categorias_lote 04:00, nomes_marcas 05:00 (IA confere grafias da mesma marca e junta as certas), produtos_ia 05:30 (junta títulos sem GTIN do mesmo perfume; GTINs diferentes com o mesmo nome NUNCA junta sozinho: vão para o Bruno conferir em Produtos iguais, metodo gtin_conferir → manual ou gtin_nao), agente 06:00, resumo_dia, analise_foco 09:15 (DeepSeek: concorrentes × meu estoque, onde focar; vai para o Início), analise_semana (sábado 10:00: plano da semana do DeepSeek para começar a segunda, ia_resumos "foco_semana|data", vai para o Início), resumo_semana (segunda), BASE DE CONHECIMENTO / ARQUIVO (26/09): tudo o que o time diz, decide, erra, resolve e pesquisa na internet fica guardado para sempre na tabela saber (conversas, decisões, dúvidas, erros, soluções, cards, análises, rankeamento, pesquisas na internet com links) e é pesquisável (função buscar_arquivo, sem acento; na Sala o Bruno usa a barra de pesquisa; os agentes pedem com "BUSCAR: palavras" antes de responder, na reunião, na conversa direta e no Laboratório), rankeamento 08:30 (LABORATÓRIO DE RANKEAMENTO, tabela rank_box, tela Minhas Lojas → 🧪 Rankeamento: pesquisador com web + todos os agentes contribuem com técnicas/hipóteses/experimentos do algoritmo do Mercado Livre — tags, exposição, relevância — e votam; o coordenador marca testando/comprovada/descartada e escreve o plano de ação por anúncio; o objetivo nº 1 do Bruno é os anúncios dele subirem de posição), posicoes (todo dia 07:30, Mac: acha os anúncios das minhas lojas do Mercado Livre em ml_lojas → meus_anuncios e anota posição/página na busca do termo de cada um em anuncio_posicoes; tela Minhas Lojas → Posição do anúncio), noticias 07:00 (IA com busca na web: até 8 novidades de Mercado Livre/Shopee/Amazon/TikTok Shop em ia_resumos 'noticias|data'; o Início mostra também dólar do dia e datas de vendas),
 resumo_marcas (dia 3), auditoria 10:30 (conferências de dados + revisão de código), reunião diária 11:00 e, de hora em hora, o Astra
 especifica os cards de design (o programador automático, Claude Code, pega cards aprovados a cada 1 h e publica).
 
@@ -253,12 +253,32 @@ INSTRUCAO_ARQUIVO = ("\n\nFERRAMENTA ARQUIVO: todas as mensagens da Sala, das co
                      "Ao usar algo do arquivo, cite a data. Não invente o que não achou.")
 
 
-def buscar_arquivo(repo, termo, lim=12):
-    """Pesquisa (sem acento, todas as palavras) nas mensagens da Sala/diretas e na caixa de conhecimento; mais recentes primeiro."""
+_SYNC = {"t": 0.0}
+
+
+def sincronizar_saber(repo, completo=False, forcar=False):
+    """Junta na base única (tabela saber) o que mudou nas últimas 48 h: conversas, decisões, dúvidas, erros, cards, análises,
+    rankeamento e conhecimento (função saber_sincronizar no banco, idempotente). No máximo 1 vez por minuto por servidor."""
+    import time as _t
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    if not forcar and _t.time() - _SYNC["t"] < 60:
+        return None
+    _SYNC["t"] = _t.time()
+    desde = None if completo else (_dt.now(_tz.utc) - _td(hours=48)).isoformat()
+    return repo._req("POST", "rpc/saber_sincronizar", corpo={"desde": desde})
+
+
+def buscar_arquivo(repo, termo, lim=12, tipos=None):
+    """Pesquisa na BASE DE CONHECIMENTO do nubi (tabela saber: conversas, decisões, dúvidas, erros e soluções, cards,
+    análises, rankeamento, conhecimento e pesquisas na internet), sem acento, todas as palavras; mais recentes primeiro."""
     termo = str(termo or "").strip()[:120]
     if len(termo) < 2:
         return []
-    return repo._req("POST", "rpc/buscar_arquivo", corpo={"q": termo, "lim": int(lim)}) or []
+    try:
+        sincronizar_saber(repo)
+    except Exception:  # noqa: BLE001 — a busca funciona com o que já está na base
+        pass
+    return repo._req("POST", "rpc/buscar_arquivo", corpo={"q": termo, "lim": int(lim), "tipos": tipos or None}) or []
 
 
 def arquivo_texto(linhas):
@@ -266,8 +286,11 @@ def arquivo_texto(linhas):
         return "(nada encontrado no arquivo)"
     out = []
     for r in linhas:
-        onde = "conhecimento: " + (r.get("titulo") or "") if r["origem"] == "conhecimento" else f"conversa {r.get('conversa') or 'sala'}"
-        out.append(f"[{str(r.get('criado_em') or '')[:10]} · {onde} · {r.get('autor')}] {str(r.get('texto') or '')[:500]}")
+        tipo = r.get("tipo") or r.get("origem")
+        onde = (f"conversa {r.get('conversa') or 'sala'}" if r.get("origem") == "mensagem"
+                else f"{tipo}: " + str(r.get("titulo") or "")[:100])
+        fontes = " fontes: " + ", ".join((r.get("links") or [])[:3]) if r.get("links") else ""
+        out.append(f"[{str(r.get('criado_em') or '')[:10]} · {tipo} · {onde} · {r.get('autor')}] {str(r.get('texto') or '')[:500]}{fontes}")
     return "\n".join(out)
 
 

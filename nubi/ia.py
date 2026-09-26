@@ -123,7 +123,7 @@ def _ollama(pergunta, max_tokens, modelo=None, sistema=None):
 
 
 # Registro de uso (aba Agentes): nubi_web liga USO["gravar"]; cada chamada grava início, fim, tokens e modelo.
-USO = {"gravar": None, "origem": ""}
+USO = {"gravar": None, "origem": "", "web": None}   # web: guarda cada pesquisa na internet na base de conhecimento (26/09)
 PROVEDOR = (("api.anthropic.com", "claude"), ("api.openai.com", "chatgpt"), ("api.deepseek.com", "deepseek"),
             ("ollama.com", "gptoss"))
 
@@ -234,7 +234,13 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, siste
         partes = [c for o in r.get("output", []) if o.get("type") == "message" for c in o.get("content", [])]
         texto = " ".join(c.get("text", "") for c in partes)
         links = [a.get("url") for c in partes for a in (c.get("annotations") or []) if a.get("url")]
-    return texto.strip(), list(dict.fromkeys(l for l in links if l)), ia
+    links = list(dict.fromkeys(l for l in links if l))
+    if web and USO.get("web"):
+        try:                                           # pedido do Bruno: toda pesquisa na internet fica guardada na base
+            USO["web"](pergunta, texto.strip(), links, ia)
+        except Exception:  # noqa: BLE001 — guardar nunca derruba a resposta
+            pass
+    return texto.strip(), links, ia
 
 
 def _primeiro_json(texto):

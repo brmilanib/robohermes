@@ -326,6 +326,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .wa-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none;align-self:flex-start;padding-top:2px}
 .wa-hr{font-size:11px;color:var(--muted)}.wa-li.nova .wa-hr{color:#25d366;font-weight:600}.wa-li.nova .tx small{color:var(--ink)}
 .wa-busca{padding:8px 10px 0}.wa-busca input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:18px;padding:8px 14px;background:var(--soft);font:inherit;font-size:13.5px;color:var(--ink)}
+.wa-tipo{font-size:10.5px;font-weight:600;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:0 6px;margin-left:4px;color:var(--muted)}
 .wa-res .tx small mark{background:#fff3a3;color:inherit;border-radius:3px;padding:0 1px}.wa-res .tx small{-webkit-line-clamp:3}
 .wa-b.wa-achada{box-shadow:0 0 0 3px #ffd54f;animation:waPisca 1.6s ease-in-out 2}@keyframes waPisca{50%{box-shadow:0 0 0 6px #ffe082}}
 .wa-chips{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line)}
@@ -3018,7 +3019,12 @@ function waLigarLista() {
   });
 }
 // não lidas (pedido do Bruno, 26/09): abre na 1ª mensagem não lida e marca como lida quando a conversa está na tela
-// pesquisa (pedido do Bruno, 26/09): mensagens do grupo e das diretas + caixa de conhecimento, guardadas para sempre
+// tipos da base de conhecimento (tabela saber, fase 1 de 26/09)
+const SABER_TIPOS = {conversa: {ic: "💬", nome: "Conversa"}, decisao: {ic: "⚖️", nome: "Decisão"}, duvida: {ic: "❓", nome: "Dúvida"},
+  erro: {ic: "🚨", nome: "Erro"}, solucao: {ic: "✅", nome: "Solução"}, card: {ic: "📋", nome: "Card"}, analise: {ic: "📊", nome: "Análise"},
+  rankeamento: {ic: "🧪", nome: "Rankeamento"}, pesquisa_web: {ic: "🌐", nome: "Pesquisa na internet"}, conhecimento: {ic: "📚", nome: "Conhecimento"},
+  regra: {ic: "📏", nome: "Regra"}, procedimento: {ic: "🛠️", nome: "Procedimento"}};
+// pesquisa (pedido do Bruno, 26/09): toda a base de conhecimento (conversas, decisões, dúvidas, erros, cards, análises, pesquisas)
 function waResultadosHtml(rs, q) {
   if (!rs.length) return `<div class="muted" style="padding:14px;font-size:13px">Nada encontrado para “${esc(q)}”.</div>`;
   const pals = q.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/\s+/).filter(w => w.length >= 2);
@@ -3028,9 +3034,10 @@ function waResultadosHtml(rs, q) {
   const trecho = t => { const n = (t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); const i = Math.max(0, n.indexOf(pals[0] || "") - 60);
     return (i ? "…" : "") + (t || "").slice(i, i + 220).replace(/\n+/g, " ") + ((t || "").length > i + 220 ? "…" : ""); };
   return `<div class="muted" style="padding:8px 12px;font-size:12px">${rs.length} resultado(s)${rs.length >= 40 ? " (os 40 mais recentes)" : ""}</div>` + rs.map((r, i) => {
-    const c = r.origem === "conhecimento" ? {ic: "📚", nome: "Caixa de conhecimento"} : (CONVERSAS.find(x => x.k === r.conversa) || CONVERSAS[0]);
+    const c = r.origem === "mensagem" ? (CONVERSAS.find(x => x.k === r.conversa) || CONVERSAS[0]) : (SABER_TIPOS[r.tipo] || {ic: "📚", nome: "Conhecimento"});
+    const selo = r.origem === "mensagem" && ["decisao", "duvida", "erro"].includes(r.tipo) ? ` <span class="wa-tipo">${SABER_TIPOS[r.tipo].nome}</span>` : "";
     const quando = new Date(r.criado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit"});
-    return `<div class="wa-li wa-res" data-res="${i}"><div class="av">${c.ic}</div><div class="tx"><b>${esc(c.nome)}${r.titulo ? " · " + esc(r.titulo.slice(0, 60)) : ""}</b>
+    return `<div class="wa-li wa-res" data-res="${i}"><div class="av">${c.ic}</div><div class="tx"><b>${esc(c.nome)}${r.origem !== "mensagem" && r.titulo ? " · " + esc(r.titulo.slice(0, 60)) : ""}${selo}</b>
       <small><span class="muted">${esc(r.autor === "voce" ? "Você" : r.autor || "")}:</span> ${marcar(trecho(r.texto))}</small></div>
       <div class="wa-meta"><span class="wa-hr">${quando}</span></div></div>`; }).join("");
 }
@@ -3046,8 +3053,11 @@ function waLigarBusca() {
     S.reu.res = r.resultados || []; lista.innerHTML = waResultadosHtml(S.reu.res, q);
     lista.querySelectorAll("[data-res]").forEach(el => el.onclick = () => {
       const x = S.reu.res[+el.dataset.res];
-      if (x.origem === "conhecimento") { modal(`<h2>📚 ${esc(x.titulo || "Conhecimento")}</h2><p class="muted" style="font-size:12px">${esc(x.autor || "")} · ${new Date(x.criado_em).toLocaleString("pt-BR")}</p>
-          <div class="md">${mdSimples(x.texto || "")}</div><div style="text-align:right;margin-top:10px"><button class="btn" data-fechar>Fechar</button></div>`); return; }
+      if (x.origem !== "mensagem") { const t = SABER_TIPOS[x.tipo] || {ic: "📚", nome: "Conhecimento"};
+        modal(`<h2>${t.ic} ${esc(x.titulo || t.nome)}</h2><p class="muted" style="font-size:12px">${esc(t.nome)} · ${esc(x.autor || "")} · ${new Date(x.criado_em).toLocaleString("pt-BR")}</p>
+          <div class="md" style="max-height:60vh;overflow:auto">${mdSimples(x.texto || "")}</div>
+          ${(x.links || []).length ? `<p style="font-size:12px;margin:8px 0 0">Fontes: ${x.links.slice(0, 6).map(l => `<a href="${esc(l)}" target="_blank" rel="noopener">${esc(l.replace(/^https?:\/\//, "").slice(0, 50))}</a>`).join(" · ")}</p>` : ""}
+          <div style="text-align:right;margin-top:10px"><button class="btn" data-fechar>Fechar</button></div>`); return; }
       S.reu.irPara = x.id;
       const alvo = x.conversa && x.conversa !== "sala" ? `#/reuniao/d/${x.conversa}` : "#/reuniao";
       if (location.hash === alvo) telaReuniao(); else location.hash = alvo;
