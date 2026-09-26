@@ -2678,7 +2678,7 @@ def rodar_rotinas(repo, so=None):
         except Exception as e:  # noqa: BLE001
             out["saber"] = f"erro: {str(e)[:120]}"
         try:                                            # fase 2: pedaços + frase de contexto + vetores do que é novo (26/09)
-            out["saber_indice"] = saber.indexar(repo, segundos=110)
+            out["saber_indice"] = saber.indexar(repo, segundos=40)     # curto: o cron tem 300 s para tudo
             out["saber_avaliacao"] = avaliar_saber(repo)
         except Exception as e:  # noqa: BLE001
             out["saber_indice"] = f"erro: {str(e)[:120]}"
@@ -2766,6 +2766,32 @@ def rodar_rotinas(repo, so=None):
         _registrar_execucao(repo, rid, "manual" if so else "agendada", inicio, res)
         out[rid] = res
     return out
+
+
+def indexar_aos_poucos(repo, a_cada_min=8, segundos=20):
+    """Fase 2: o cron da Vercel chega atrasado e tem pouco tempo; o tique do Mac (a cada minuto) indexa um pouco a cada
+    8 min, até 20 s, marcando a vez em ia_resumos. Nunca derruba o tique."""
+    try:
+        chave = "saber_indice|vez"
+        r = (repo._req("GET", "ia_resumos", {"select": "criado_em", "chave": repo._eq(chave)}) or [{}])[0]
+        if r.get("criado_em") and datetime.now(timezone.utc) - datetime.fromisoformat(
+                str(r["criado_em"]).replace("Z", "+00:00")) < timedelta(minutes=a_cada_min):
+            return None
+        repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": "", "ia": "indice",
+                                                "criado_em": datetime.now(timezone.utc).isoformat()}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        res = saber.indexar(repo, segundos=segundos, lote=25)
+        repo._req("PATCH", "ia_resumos", {"chave": repo._eq(chave)}, corpo={"texto": res[:300]}, prefer="return=minimal")
+        if res == "nada novo para indexar":
+            avaliar_saber(repo)
+        return res
+    except Exception as e:  # noqa: BLE001
+        try:
+            repo._req("PATCH", "ia_resumos", {"chave": repo._eq("saber_indice|vez")}, corpo={"texto": f"erro: {str(e)[:250]}"},
+                      prefer="return=minimal")
+        except Exception:  # noqa: BLE001
+            pass
+        return None
 
 
 def avaliar_saber(repo):
@@ -4093,6 +4119,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         return (repo._req("GET", "mac_comandos", {"select": "*", "id": repo._eq(int(q.get("id") or 0))}) or [None])[0] or {}
     if rota == "mac_tick" and metodo == "POST":
         # o Mac: estado + saídas dos comandos em andamento; recebe os pendentes e as mensagens novas da Sala
+        indexar_aos_poucos(repo)
         if d.get("info") is not None:
             repo._req("POST", "mac_estado", corpo=[{"id": 1, "visto_em": agora_, "info": d["info"]}],
                       prefer="resolution=merge-duplicates,return=minimal")
