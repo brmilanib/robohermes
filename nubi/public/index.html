@@ -1249,6 +1249,7 @@ async function rotear() {
   if (sec === "nomes" && location.hash.startsWith("#/central/execucoes")) return telaExecucoes();
   if (sec === "nomes" && location.hash.startsWith("#/central/erros")) return telaErros();
   if (sec === "nomes" && location.hash.startsWith("#/central/agentes")) return telaAgentes();
+  if (sec === "nomes" && location.hash.startsWith("#/central/custos")) return telaCustos();
   if (sec === "nomes" && location.hash.startsWith("#/central/terminal")) return telaTerminal();
   if (sec === "nomes" && location.hash.startsWith("#/central/conhecimento")) return telaConhecimento();
   if (sec === "nomes" && location.hash.startsWith("#/central")) return telaDev();
@@ -2497,6 +2498,7 @@ const OPS_ABAS = [
   {k: "sala", h: "#/reuniao", t: "💬 Sala de reunião", on: h => h === "#/reuniao"},
   {k: "conhecimento", h: "#/central/conhecimento", t: "📚 Conhecimento", on: h => h.startsWith("#/central/conhecimento")},
   {k: "agentes", h: "#/central/agentes", t: "🤖 Agentes", on: h => h.startsWith("#/central/agentes")},
+  {k: "custos", h: "#/central/custos", t: "💰 Custos", on: h => h.startsWith("#/central/custos")},
   {k: "terminal", h: "#/central/terminal", t: "🖥️ Terminal do Mac", on: h => h.startsWith("#/central/terminal")},
   {k: "coletor", h: "#/coletor", t: "📥 Coletor", on: h => h === "#/coletor"},
 ];
@@ -3095,6 +3097,30 @@ async function telaAgentes(silencioso) {
     if (!location.hash.startsWith("#/central/agentes")) return clearInterval(S.agT);
     if (!document.activeElement || document.activeElement.tagName !== "INPUT") telaAgentes(true);
   }, 15000);
+  desenharMenu();
+}
+// ---------- Custos: teto por provedor, tarefas em espera e custo por tarefa/rotina (card #10) ----------
+async function telaCustos() {
+  const main = $("#main");
+  main.innerHTML = opsAbas("custos") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando os custos</div></div>`;
+  let r;
+  try { r = await api("agentes_custos"); } catch (e) { main.innerHTML = opsAbas("custos") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  const v = x => x == null ? `<span class="muted">Sem dados</span>` : usd(x);
+  const t = x => x == null ? `<span class="muted">Não configurado</span>` : usd(x);
+  main.innerHTML = opsAbas("custos") + `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>💰 Custos de IA</h1>
+      <span class="muted">dia e mês no horário de Brasília · teto em NUBI_TETO_&lt;PROVEDOR&gt; = "dia/mês" (US$)</span></div>
+    <div class="ag-grid">${r.provedores.map(p => `<div class="card pad"><div class="ag-cab"><h2>${esc(p.nome)}</h2><div style="flex:1"></div>
+      <span class="st ${p.estourado ? "bad" : ""}">${p.estourado ? "teto atingido" : p.teto_dia == null && p.teto_mes == null ? "sem teto" : "dentro do teto"}</span></div>
+      <div class="ag-m"><span class="l">Hoje</span>${v(p.hoje)} / ${t(p.teto_dia)}</div>
+      <div class="ag-m"><span class="l">Neste mês</span>${v(p.mes)} / ${t(p.teto_mes)}</div></div>`).join("")}</div>
+    <div class="card pad" style="margin-top:14px"><h2>⏸ Em espera hoje</h2>
+      ${r.espera.length ? `<ul>${r.espera.map(x => `<li>${esc(x.origem || "tarefa")} <span class="muted">· ${esc(x.motivo)}</span></li>`).join("")}</ul>`
+        : `<p class="muted">Nenhuma tarefa em espera por custo.</p>`}</div>
+    <div class="card pad" style="margin-top:14px"><h2>Custo por tarefa/rotina no mês</h2>
+      <div class="sub">Tarefa que caiu para o modelo local aparece como <code>local</code> (custo 0), nunca no provedor original.</div>
+      ${r.log.length ? `<div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Tarefa/rotina</th><th>Provedor</th><th>Chamadas</th><th>Custo</th></tr></thead>
+      <tbody>${r.log.map(x => `<tr><td class="first wrap">${esc(x.origem)}</td><td>${esc(x.provedor || "")}</td><td>${nfmt(x.chamadas)}</td><td>${v(x.custo)}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="muted">Sem dados</p>`}</div>`;
   desenharMenu();
 }
 // ---------- Terminal do Mac: estado do Mac mini e comandos da lista fechada, com a saída ao vivo ----------

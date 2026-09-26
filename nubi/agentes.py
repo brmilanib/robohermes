@@ -44,7 +44,8 @@ vira rascunho SÓ com dado real (pedido em store_orders sem dado sensível, base
 estoque); sem dado, a conversa fica "precisa de você" com uma pergunta objetiva ao Bruno e a resposta dele vira item da
 base; tom cordial e humano com IA grátis, conferido por regras (número inventado, promessa, dado sensível barram); nada
 sai sem aprovação; log e taxa de acerto em atendimento_rascunhos),
-Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reunião, Agentes, Coletor) e Ajustes
+Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reunião, Agentes, Custos: teto diário/mensal por
+provedor em NUBI_TETO_<PROVEDOR>; estourou, texto cai para o modelo local e conferência fica em espera, Coletor) e Ajustes
 (Nomes de marcas, Nomes de vendedores, Produtos iguais). No celular há uma barra de atalhos embaixo.
 
 ## Rotinas (horário de Brasília)
