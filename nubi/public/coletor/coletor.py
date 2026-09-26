@@ -511,6 +511,11 @@ def listar_vendedores(pg, cfg):
     return list(vistos.items()), avisos
 
 
+# a tabela do grupo terminou de carregar: tem linhas de vendedor visíveis e nenhum "esqueleto" (barras cinza) na tabela
+JS_GRUPO_PRONTO = """() => [...document.querySelectorAll('td a[aria-label="Analise um concorrente"]')]
+  .some(a => a.offsetParent !== null) && !document.querySelector('table .MuiSkeleton-root')"""
+
+
 def baixar_grupo(pg, cfg, dia, destino):
     """
     Tabela do grupo no dia (a tela 'Comparar concorrentes' do Nubimetrics): vendas, unidades, visitas, conversão e share
@@ -518,7 +523,13 @@ def baixar_grupo(pg, cfg, dia, destino):
     """
     alvo = ((int(dia[8:10]), int(dia[5:7])), (int(dia[8:10]), int(dia[5:7])))
     url = f"{BASE}/competition/dashboardbycompetitor?group={cfg['grupo']}&range=CUSTOM&from={dia}&to={dia}"
-    ir(pg, url, 'td a[aria-label="Analise um concorrente"]')
+    try:
+        ir(pg, url, 'td a[aria-label="Analise um concorrente"]')
+    except SessaoExpirada:
+        raise
+    except Falha:                                       # a tabela às vezes fica carregando para sempre: recarrega 1 vez
+        log(f"  grupo {dia[8:10]}/{dia[5:7]}: a tabela não apareceu; recarrego a página")
+        ir(pg, url, 'td a[aria-label="Analise um concorrente"]')
     fim_t = time.time() + 40
     while periodo_na_tela(pg) != alvo and time.time() < fim_t:
         pg.wait_for_timeout(700)
@@ -532,6 +543,11 @@ def baixar_grupo(pg, cfg, dia, destino):
             enviar_foto(pg, f"grupo {dia}: período não mudou", tela)
             raise Falha(f"a tabela do grupo não mudou para {dia} (na tela: {periodo_na_tela(pg)}) " + diagnostico(pg))
     devagar(4)                                          # a tabela recarrega com o período novo
+    try:                                                # exportar carregando sai "0 concorrente selecionado" (vazio)
+        pg.wait_for_function(JS_GRUPO_PRONTO, timeout=90000)
+    except Exception:  # noqa: BLE001
+        enviar_foto(pg, f"grupo {dia}: tabela sem vendedores", resumo_tela(pg))
+        raise Falha(f"a tabela do grupo de {dia} não carregou os vendedores em 90 s " + diagnostico(pg))
     botao = botao_exportar(pg)
     if not botao.count():
         tela = resumo_tela(pg)
