@@ -1739,6 +1739,9 @@ def tela_inicio(repo):
         out["dia"]["top"] = [{k: v.get(k) for k in ("vendedor", "v", "dif")} for v in pnl.get("mais_venderam", [])[:3]]
         out["dia"]["queda"] = [{k: v.get(k) for k in ("vendedor", "v", "dif")} for v in pnl.get("mais_cairam", [])[:3]]
         out["dia"]["produto"] = [{"t": p.get("produto"), "m": p.get("marca"), "v": p.get("v"), "u": p.get("u"), "dif": p.get("dif")} for p in pnl.get("produtos_alta", [])[:3]]
+        # cobertura da coleta do dia (card #68, widget Vendas dos concorrentes): quantos vendedores pendentes x total
+        out["dia"]["pendentes"] = len(pnl.get("sem_coleta") or [])
+        out["dia"]["total_vendedores"] = out["dia"]["pendentes"] + len(pnl.get("vendedores") or [])
     rs = seguro(lambda: repo._req("GET", "ia_resumos", {"select": "chave,texto,dados,criado_em", "chave": "like.vendedores|*",
                                                         "order": "chave.desc", "limit": 1}), []) or []
     out["resumo"] = {"data": rs[0]["chave"].split("|")[1], "texto": (rs[0].get("texto") or "")[:1500]} if rs else None
@@ -1774,6 +1777,14 @@ def tela_inicio(repo):
     est = seguro(lambda: repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em,skus,unidades,valor,zerados,resumo,analise_por",
                                                                    "order": "id.desc", "limit": 1}), []) or []
     out["estoque"] = est[0] if est else None
+    if out["estoque"]:
+        # "baixo" não é uma coluna gravada em estoque_atualizacoes (resumo é só texto): mesma fórmula de
+        # estoque.totais() (atual > 0 e <= estoque_min), sem criar limite novo (card #68 widget Estoque).
+        # None (não [] ou 0) se a consulta falhar: sem confundir "consulta falhou" com "zero baixo de verdade".
+        itens_est = seguro(lambda: repo._todos("estoque_itens", {"select": "atual,estoque_min",
+                                                                  "atualizacao_id": repo._eq(out["estoque"]["id"])}))
+        out["estoque"]["baixo"] = (sum(1 for it in itens_est if (it.get("atual") or 0) > 0 and it.get("estoque_min")
+                                        and it["atual"] <= it["estoque_min"]) if itens_est is not None else None)
     out["coleta"] = col[0] if col else None
     if out["coleta"]:
         out["coleta"]["mensagem"] = (out["coleta"].get("mensagem") or "")[:200]

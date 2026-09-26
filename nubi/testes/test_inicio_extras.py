@@ -130,6 +130,54 @@ def test_rota_devolve_os_4_blocos_com_sem_dados():
     assert x["analises"]["auditoria"]["resumo"] == "3 conferências ok"
 
 
+def test_68_cobertura_da_coleta_e_estoque_baixo_no_inicio():
+    # card #68 (widgets do Início): pendentes/total_vendedores (cobertura da coleta do dia) e estoque.baixo
+    # (mesma fórmula de estoque.totais(), não uma coluna gravada) — isola só o que o card #68 acrescentou,
+    # sem reconstruir _painel_dia/_vend_rels de verdade (monkeypatch, igual ao padrão de testes/test_foco.py).
+    original_painel = nubi_web._painel_dia
+    nubi_web._painel_dia = lambda repo, d=None: {
+        "tem": True, "data": "2026-09-25", "data_mes": None, "base": "7 dias",
+        "sem_coleta": ["AUMA", "LOJA X"],
+        "vendedores": [{"vendedor": f"LOJA {i}", "v": 100.0, "dif": 0} for i in range(14)],
+        "total": {"v": 1400.0, "u": 140, "var": 0.1},
+        "mais_venderam": [], "mais_cairam": [], "produtos_alta": [], "produtos_queda": [],
+    }
+    repo = Repo({"estoque_atualizacoes": [{"id": 9, "criado_em": "2026-09-25T13:00:00+00:00", "skus": 3, "unidades": 10,
+                                           "valor": 100.0, "zerados": 1, "resumo": [], "analise_por": None}],
+                 "estoque_itens": [{"atual": 0, "estoque_min": 5},          # zerado: não conta como "baixo"
+                                   {"atual": 2, "estoque_min": 5},          # baixo (atual > 0 e <= mínimo)
+                                   {"atual": 20, "estoque_min": 5},         # acima do mínimo: ok
+                                   {"atual": 3, "estoque_min": None}]})     # sem mínimo cadastrado: não conta
+    repo._todos = lambda tab, params=None, metodo="GET", corpo=None: (
+        [dict(x) for x in repo.t.get(tab, [])] if tab == "estoque_itens" else [])
+    try:
+        out = nubi_web.tela_inicio(repo)
+    finally:
+        nubi_web._painel_dia = original_painel
+    assert out["dia"]["pendentes"] == 2, out["dia"]
+    assert out["dia"]["total_vendedores"] == 16, out["dia"]     # 2 pendentes + 14 com dado no dia
+    assert out["estoque"]["baixo"] == 1, out["estoque"]
+
+
+def test_68_estoque_baixo_vira_none_quando_a_consulta_falha():
+    # "zero erro nos números": consulta que falha nunca pode virar 0 baixos por engano.
+    original_painel = nubi_web._painel_dia
+    nubi_web._painel_dia = lambda repo, d=None: {"tem": False}
+    repo = Repo({"estoque_atualizacoes": [{"id": 9, "criado_em": "2026-09-25T13:00:00+00:00", "skus": 3,
+                                           "unidades": 10, "valor": 100.0, "zerados": 1, "resumo": [], "analise_por": None}]})
+
+    def _todos_falha(tab, params=None, metodo="GET", corpo=None):
+        if tab == "estoque_itens":
+            raise RuntimeError("Supabase fora do ar")
+        return []
+    repo._todos = _todos_falha
+    try:
+        out = nubi_web.tela_inicio(repo)
+    finally:
+        nubi_web._painel_dia = original_painel
+    assert out["estoque"]["baixo"] is None, out["estoque"]
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):
