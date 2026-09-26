@@ -13,7 +13,7 @@ import coletor as c  # noqa: E402
 CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
 PAGINA = Path(tempfile.mkdtemp()) / "chat.html"
 PAGINA.write_text("""<html><head><meta charset="utf-8"><title>Bate-papo da loja</title></head><body>
-<div>Não respondidos</div><div>leidianearaujo182 · Vocês vendem perfumes tester?</div>
+<div>Não respondidos</div><div class="item" style="cursor:pointer" onclick="document.body.dataset.aberta=1"><b>leidianearaujo182</b> · Vocês vendem perfumes tester?</div>
 <textarea placeholder="Insira / para respostas salvas"></textarea>
 <button onclick="localStorage.enviado=document.querySelector('textarea').value">Enviar</button>
 <button>Reembolsar</button></body></html>""", encoding="utf-8")
@@ -156,6 +156,17 @@ def test_shopee_usa_o_mesmo_atendente_com_o_canal_certo():
     assert corpo["canal"] == "shopee"
     assert "Shopee" in json.dumps(ch["ultima"][0], ensure_ascii=False)
     assert any("Atendente Shopee" in json.dumps(cp, ensure_ascii=False) for r, cp in ch["api"] if r == "reuniao_postar")
+
+
+def test_conversa_da_lista_feita_de_div_aparece_para_clicar():
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(URL)
+        texto = c._nav_ler(pg, {})
+        ctx.close()
+    assert "leidianearaujo182" in texto.split("ELEMENTOS:")[1]
 
 
 if __name__ == "__main__":

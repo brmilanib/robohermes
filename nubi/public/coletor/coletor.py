@@ -3665,8 +3665,17 @@ PROIBIDO_DIGITAR = re.compile(r"senha|password|passwd|cpf|cnpj|cart[aã]o|card|c
 JS_ELEMENTOS = r"""() => {
   const vis = e => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e);
     return r.width > 2 && r.height > 2 && s.visibility !== 'hidden' && s.display !== 'none'; };
-  const els = [...document.querySelectorAll('a[href], button, input, textarea, select, [role=button], [role=link], [role=tab], [contenteditable=true]')]
-    .filter(vis).slice(0, 90);
+  const base = [...document.querySelectorAll('a[href], button, input, textarea, select, [role=button], [role=link], [role=tab], [role=listitem], [role=option], [contenteditable=true]')]
+    .filter(vis);
+  // 26/09: a lista de conversas da TikTok/Shopee é feita de <div> clicáveis (cursor de mãozinha), sem botão nem link;
+  // entram também os blocos clicáveis com texto curto que não estão dentro de um elemento já listado
+  const dentro = e => base.some(b => b !== e && (b.contains(e) || e.contains(b)));
+  const extra = [...document.querySelectorAll('div, li, span')].filter(e => {
+    if (!vis(e) || getComputedStyle(e).cursor !== 'pointer') return false;
+    const t = (e.innerText || '').trim(); if (t.length < 2 || t.length > 220) return false;
+    const pai = e.parentElement; if (pai && getComputedStyle(pai).cursor === 'pointer' && (pai.innerText || '').trim().length <= 220) return false;
+    return !dentro(e); });
+  const els = [...base.slice(0, 80), ...extra.slice(0, 60)];
   return els.map((e, i) => { e.setAttribute('data-nubi-n', i);
     return {n: i, tag: e.tagName.toLowerCase(), tipo: (e.getAttribute('type') || '').toLowerCase(),
       nome: (e.getAttribute('name') || e.id || '').slice(0, 40),
@@ -4118,7 +4127,13 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
     resumo = (f"{'🎵' if canal == 'tiktok_shop' else '🛍️'} {autor}: {estado.get('registradas', 0)} mensagem(ns) trazida(s) para o nubi, "
               f"{estado.get('enviadas', 0)} resposta(s) enviada(s) (~US$ {custo:.2f}; {estado.get('gratis', 0)} passo(s) com a IA "
               f"grátis, {estado.get('pago', 0)} com a paga).")
-    if estado.get("registradas") or estado.get("enviadas") or (fim and re.search(r"login|captcha|verifica", fim, re.I)):
+    aviso_login = bool(fim and re.search(r"login|captcha|verifica|credenc", fim, re.I))
+    k_aviso = f"{canal}_aviso_login"
+    ja_avisou = aviso_login and str(cfg.get(k_aviso) or "") > (datetime.now() - timedelta(hours=3)).isoformat()
+    if estado.get("registradas") or estado.get("enviadas") or (aviso_login and not ja_avisou):
+        if aviso_login and not estado.get("registradas"):
+            cfg[k_aviso] = datetime.now().isoformat()          # avisa do login no máximo a cada 3 h (não enche a Sala)
+            salvar_config(cfg)
         _postar_hermes_como(token, autor, resumo + (f"\n{fim[:600]}" if fim else ""), custo)
     return custo, estado, resumo + (f"\n{fim}" if fim else "")
 
