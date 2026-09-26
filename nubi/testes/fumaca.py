@@ -13,7 +13,7 @@ import urllib.request
 AQUI = os.path.dirname(os.path.abspath(__file__))
 PORTA = os.environ.get("PORTA", "8799")
 ROTAS = ["rotinas", "reuniao_tarefas", "reuniao", "estoque", "conhecimento", "conhecimento_pendente", "memoria_pendente",
-         "ops_execucoes", "ops_erros", "agentes", "mac_painel", "inicio", "inicio_extras", "coletor_status"]
+         "ops_execucoes", "ops_erros", "agentes", "mac_painel", "inicio", "inicio_extras", "inicio_decisoes", "coletor_status"]
 
 env = dict(os.environ, IA_FALSA="1", OLLAMA_API_KEY="x", ANTHROPIC_API_KEY="x", PORTA=PORTA)
 srv = subprocess.Popen([sys.executable, "-W", "ignore", os.path.join(AQUI, "servidor_teste", "servidor.py")], env=env,

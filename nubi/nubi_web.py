@@ -1070,6 +1070,8 @@ def atender(metodo, rota, q, corpo, token):
             return _json(tela_inicio(repo))
         if rota == "inicio_extras":
             return _json(inicio_extras(repo))
+        if rota == "inicio_decisoes":
+            return _json(inicio_decisoes(repo))
         if rota == "resumo_dia":
             # resumo diário dos vendedores monitorados (o mais recente, ou o de ?data=AAAA-MM-DD)
             if metodo == "POST":
@@ -1911,6 +1913,54 @@ def tela_inicio(repo):
         out["foco"] = {"texto": fo[0]["texto"], "ia": fo[0].get("ia"), "criado_em": fo[0]["criado_em"], "mes": dd.get("mes"),
                        "vendedores": dd.get("vendedores"), "produtos": (dd.get("produtos") or [])[:8]}
     return out
+
+
+def inicio_decisoes(repo):
+    """Painel 'Decisões de hoje' da Início (card #24): risco de dado, oportunidade de preço e execução.
+    Cada bloco vem com fonte e referência; falha na consulta vira None ('sem dados'), nunca zero inventado."""
+    def seguro(f, padrao=None):
+        try:
+            return f()
+        except Exception:  # noqa: BLE001 — um bloco com problema não derruba o painel inteiro
+            return padrao
+    hoje = _agora_br().date()
+
+    pnl = seguro(lambda: _painel_dia(repo), {"tem": False}) or {"tem": False}
+    pendentes = None
+    if pnl.get("tem"):
+        itens = [{"vendedor": v, "dia": pnl.get("data")} for v in (pnl.get("sem_coleta") or [])]
+        pendentes = {"total": len(itens), "itens": itens[:10], "fonte": "Central > Coletor", "referencia": pnl.get("data")}
+
+    au = seguro(lambda: (repo._req("GET", "auditorias", {"select": "data,conferencias", "order": "data.desc", "limit": 1}) or [None])[0])
+    alertas = None
+    if au:
+        ach = [a for a in (au.get("conferencias") or []) if a.get("nivel") in ("erro", "alerta")]
+        alertas = {"total": len(ach), "itens": [{"titulo": a.get("titulo"), "area": a.get("area"), "nivel": a.get("nivel")}
+                                                for a in ach[:10]],
+                   "fonte": "Central > Auditoria", "referencia": au.get("data")}
+
+    # Oportunidade de preço: a especificação do Astra pede confirmar com o Bruno (definição de "preço atual",
+    # cobertura da média, regra do top 5, produtos agrupados) antes de implementar — até lá, "sem dados".
+    preco = {"sem_dados": True,
+             "motivo": "Aguardando o Bruno definir preço atual, cobertura da média, regra do top 5 e produtos agrupados (card #24)."}
+
+    propostas = seguro(lambda: repo._todos("reuniao_tarefas", {"select": "id,titulo,responsavel", "status": "eq.proposta"}))
+    aguardando_aprovacao = None if propostas is None else {
+        "total": len(propostas), "itens": [{"id": t["id"], "titulo": t["titulo"], "responsavel": t.get("responsavel")}
+                                            for t in propostas[:10]],
+        "fonte": "Central > Desenvolvimento", "referencia": hoje.isoformat()}
+
+    usos = seguro(lambda: repo._todos("agentes_uso", {"select": "inicio,custo_usd", "inicio": f"gte.{hoje.replace(day=1).isoformat()}"}))
+    custo_hoje = None if usos is None else round(sum(float(u.get("custo_usd") or 0) for u in usos if _br(u["inicio"]).date() == hoje), 4)
+    # ainda não existe teto de custo registrado no banco (card #10 pendente): nunca deduzir "travada" pelo valor
+    # gasto sozinho (regra do plano técnico do card #24) — a lista fica vazia até o card #10 gravar o estado.
+    travadas_por_custo = {"total": 0, "itens": [], "custo_hoje": custo_hoje, "fonte": "agentes_uso (log #17)",
+                          "referencia": hoje.isoformat()}
+
+    return {"gerado_em": datetime.now(timezone.utc).isoformat(),
+            "risco": {"pendentes": pendentes, "alertas": alertas},
+            "preco": preco,
+            "execucao": {"aguardando_aprovacao": aguardando_aprovacao, "travadas_por_custo": travadas_por_custo}}
 
 
 # Card #69: dados novos do Início (dólar do dia, datas de vendas, notícias dos marketplaces, análises dos agentes)

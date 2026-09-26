@@ -427,7 +427,9 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .in-noticias .in-not-cab{display:flex;gap:6px;align-items:baseline;color:var(--muted);font-size:11.5px}
 .in-dolar b{font-size:28px;font-variant-numeric:tabular-nums}
 .in-dolar .o{font-size:12px;color:var(--muted)}
-@media (max-width:1000px){.in-status3{grid-template-columns:1fr 1fr}}
+.in-decisoes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.in-decisoes .in-lista li{grid-template-columns:minmax(0,1fr) auto}
+@media (max-width:1000px){.in-status3{grid-template-columns:1fr 1fr}.in-decisoes{grid-template-columns:1fr}}
 @media (max-width:480px){.in-status3{grid-template-columns:1fr 1fr}.in-vendas-hoje b{font-size:26px}}
 @media (max-width:640px){
   table.t:not(.no-card){display:block;width:100%}
@@ -918,6 +920,8 @@ async function telaInicio() {
   if (!location.hash.startsWith("#/inicio")) return;
   let ex = {};
   try { ex = await api("inicio_extras"); } catch { /* dólar/datas/notícias viram "sem dados" nos widgets */ }
+  let dec = null;
+  try { dec = await api("inicio_decisoes"); } catch { /* painel de decisões avisa erro em vez de sumir */ }
   const agora = new Date(), hr = agora.getHours();
   const saud = (hr < 12 ? "Bom dia" : hr < 18 ? "Boa tarde" : "Boa noite") + (/^brmilani@/.test(S.sessao?.user?.email || "") ? ", Bruno" : "");
   const d = r.dia || {}, t = d.total || {}, c = r.contagens || {}, tf = r.tarefas || {}, col = r.coleta, ops = S.opsRes || {};
@@ -925,6 +929,41 @@ async function telaInicio() {
   const ddmm = x => x ? x.slice(8, 10) + "/" + x.slice(5, 7) : "—";
   const lin = x => `<li><a href="#/concorrentes/${encodeURIComponent(x.vendedor)}">${esc(x.vendedor)}</a><span>${abrev(x.v)}</span>
     <span class="${(x.dif || 0) < 0 ? "neg" : "pos"}" title="diferença contra a média de 7 dias">${x.dif == null ? "" : (x.dif >= 0 ? "+" : "−") + abrev(Math.abs(x.dif)).replace("R$ ", "")}</span></li>`;
+  // Card #24: painel "Decisões de hoje" (risco de dado, oportunidade de preço, execução) — bloco null = "sem dados"
+  // (nunca consultado ou consulta falhou); bloco.total === 0 = consultado com sucesso e vazio de verdade.
+  const decBloco = (bloco, vazio, item) => !bloco ? `<p class="muted" style="font-size:12.5px">sem dados</p>`
+    : !bloco.total ? `<p class="muted" style="font-size:12.5px">${vazio}</p>`
+    : `<ul class="in-lista">${bloco.itens.map(item).join("")}</ul>${bloco.total > bloco.itens.length ? `<p class="muted" style="font-size:11px;margin-top:4px">e mais ${bloco.total - bloco.itens.length}…</p>` : ""}`;
+  const decFonte = bloco => bloco ? `<p class="muted" style="font-size:11px;margin-top:4px">Fonte: ${esc(bloco.fonte)} · ${ddmm(bloco.referencia)}</p>` : "";
+  const decisoesHtml = !dec ? `<section class="card pad"><h2>Decisões de hoje</h2><p class="muted">Não foi possível carregar o painel de decisões agora.</p></section>` : `
+    <section class="card pad">
+      <h2>Decisões de hoje</h2>
+      <div class="in-decisoes">
+        <div>
+          <div class="in-sub">Risco de dado</div>
+          ${decBloco(dec.risco?.pendentes, "✅ Nenhuma pendência", x => `<li><a href="#/coletor">${esc(x.vendedor)}</a><span>${ddmm(x.dia)}</span></li>`)}
+          ${decFonte(dec.risco?.pendentes)}
+          <div style="margin-top:10px"></div>
+          ${decBloco(dec.risco?.alertas, "✅ Nenhum alerta", a => `<li><a href="#/auditoria">${esc(a.titulo)}</a><span>${esc(a.nivel)}</span></li>`)}
+          ${decFonte(dec.risco?.alertas)}
+        </div>
+        <div>
+          <div class="in-sub">Oportunidade de preço</div>
+          <p class="muted" style="font-size:12.5px">sem dados</p>
+          <p class="muted" style="font-size:11px">${esc(dec.preco?.motivo || "")}</p>
+        </div>
+        <div>
+          <div class="in-sub">Execução</div>
+          <b style="font-size:11.5px">Esperando aprovação</b>
+          ${decBloco(dec.execucao?.aguardando_aprovacao, "✅ Nada esperando aprovação", x => `<li><a href="#/central">#${x.id} ${esc(x.titulo)}</a><span>${esc(x.responsavel || "—")}</span></li>`)}
+          ${decFonte(dec.execucao?.aguardando_aprovacao)}
+          <div style="margin-top:10px"></div>
+          <b style="font-size:11.5px">Travadas por custo</b>
+          ${decBloco(dec.execucao?.travadas_por_custo, "✅ Nenhuma tarefa nesta situação", x => `<li>${esc(x.titulo)}</li>`)}
+          <p class="muted" style="font-size:11px;margin-top:4px">Custo hoje: ${dec.execucao?.travadas_por_custo?.custo_hoje == null ? "sem dados" : "US$ " + dec.execucao.travadas_por_custo.custo_hoje.toFixed(2).replace(".", ",")} · Fonte: agentes_uso (log #17)</p>
+        </div>
+      </div>
+    </section>`;
   const colTxt = !col ? ["", "sem coleta registrada"] : col.em_andamento ? ["warn", "rodando agora"]
     : col.ok ? ["good", "ok · " + new Date(col.terminado_em || col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})]
     : ["bad", "falhou · " + new Date(col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})];
@@ -936,6 +975,7 @@ async function telaInicio() {
       <div class="in-hora"><span class="in-relogio" id="in-relogio"></span><span class="in-agora" id="in-agora"></span></div>
     </section>
     ${(r.aguardando_voce || []).length ? `<a class="in-pede" href="#/central">⏳ ${r.aguardando_voce.length} tarefa(s) esperando sua resposta: ${r.aguardando_voce.map(t => esc("#" + t.id + " " + t.titulo)).join(" · ")}</a>` : ""}
+    ${decisoesHtml}
 
     <a class="card pad in-vendas-hoje" href="#/vendas-dia">
       <div class="in-vh-cab"><span class="l">Vendas dos concorrentes · ${ddmm(d.data)}</span>
