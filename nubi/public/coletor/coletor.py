@@ -1610,8 +1610,73 @@ def ml_achar_loja(pg, nome, max_paginas=6):
         return alvo, anuncios
     # sem página da loja: busca pelo nome e fica só com os cards "Por <loja>"
     pg.goto(f"{ML_LISTA}/{slug}", wait_until="domcontentloaded", timeout=45000)
-    achados = [x for x in ml_resultados(pg) if junto in re.sub(r"[^a-z0-9]", "", _ml_slug(x["vendedor"]))]
+    achados = [x for x in ml_resultados(pg) if _eh_da_loja(x, junto)]
     return (pg.url if achados else None), achados
+
+
+def _eh_da_loja(item, junto):
+    return bool(junto) and junto in re.sub(r"[^a-z0-9]", "", _ml_slug(item.get("vendedor")))
+
+
+def ml_lista_do_vendedor(pg, item, max_paginas=6):
+    """Abre um anúncio da loja e segue para a lista completa do vendedor ('Ver mais anúncios/produtos do vendedor')."""
+    link = item.get("link")
+    if not link:
+        return None, []
+    pg.goto(link, wait_until="domcontentloaded", timeout=45000)
+    devagar(2.5)
+    ver = pg.locator("a", has_text=re.compile(r"(ver|ir para).{0,20}(an[úu]ncios|produtos|loja)", re.I))
+    if not ver.count():
+        return None, []
+    href = ver.first.get_attribute("href")
+    alvo = urllib.parse.urljoin(pg.url, href or "")
+    pg.goto(alvo, wait_until="domcontentloaded", timeout=45000)
+    anuncios = []
+    for _ in range(max_paginas):
+        novos = [x for x in ml_resultados(pg) if x["id"] not in {a["id"] for a in anuncios}]
+        anuncios += novos
+        prox = pg.locator("a[title='Seguinte'], li.andes-pagination__button--next a")
+        if not novos or not prox.count():
+            break
+        prox.first.click()
+        pg.wait_for_load_state("domcontentloaded")
+    return alvo, anuncios
+
+
+def ml_achar_pelos_produtos(pg, lojas, buscas):
+    """Dica do Bruno: busca os MEUS produtos no ML e acha as lojas pelos cards 'Por <loja>'.
+    Devolve {nome_loja: (url, anúncios)}; cada loja achada vira a lista completa do vendedor."""
+    faltam = {lj: re.sub(r"[^a-z0-9]", "", _ml_slug(lj)) for lj in lojas}
+    cartas = {}
+    for termo in buscas:
+        if not faltam:
+            break
+        try:
+            pg.goto(f"{ML_LISTA}/{_ml_slug(termo)}", wait_until="domcontentloaded", timeout=45000)
+            res = ml_resultados(pg)
+        except Falha:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log(f"  busca '{termo}': erro {str(e)[:100]}")
+            continue
+        for lj, junto in list(faltam.items()):
+            it = next((x for x in res if _eh_da_loja(x, junto)), None)
+            if it:
+                log(f"  {lj}: achei pelo produto '{termo}' ({it['id']})")
+                cartas[lj] = it
+                del faltam[lj]
+        devagar(3)
+    out = {}
+    for lj, it in cartas.items():
+        try:
+            url, an = ml_lista_do_vendedor(pg, it)
+        except Falha:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log(f"  {lj}: não abri a lista do vendedor ({str(e)[:100]})")
+            url, an = None, []
+        out[lj] = (url or it.get("link"), an or [it])
+    return out
 
 
 def coletar_ml_lojas(p, cfg, token):
@@ -1623,7 +1688,17 @@ def coletar_ml_lojas(p, cfg, token):
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
     total, erros, partes = 0, 0, []
     try:
+        pelos_produtos = {}
+        if conf.get("buscas_produtos"):              # 1º jeito (dica do Bruno): pelos meus produtos
+            pelos_produtos = ml_achar_pelos_produtos(pg, [lj["nome"] for lj in lojas], conf["buscas_produtos"])
         for lj in lojas:
+            if lj["nome"] in pelos_produtos:
+                url, an = pelos_produtos[lj["nome"]]
+                api(token, "ml_anuncios_gravar", corpo={"loja": lj["nome"], "url": url or "", "anuncios": an}, timeout=60)
+                total += len(an)
+                partes.append(f"{lj['nome']}: {len(an)} anúncio(s)")
+                log(f"  {partes[-1]}")
+                continue
             try:
                 url, an = ml_achar_loja(pg, lj["nome"])
             except Falha:

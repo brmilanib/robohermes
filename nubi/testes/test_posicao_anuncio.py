@@ -46,6 +46,30 @@ def test_le_a_pagina_de_busca_na_ordem():
     assert r[1]["vendedor"] == "AURASCENT" and r[1]["preco"] == 1249 and r[1]["foto"].endswith("foto1.webp")
 
 
+def test_acha_a_loja_pelos_meus_produtos():
+    """Dica do Bruno: busca o meu produto, acha o card 'Por AURASCENT', abre o anúncio e segue para a lista do vendedor."""
+    from playwright.sync_api import sync_playwright
+    busca = PAGINA.replace("https://www.mercadolivre.com.br/club-de-nuit/p/MLB19876543?pdp_filters=item_id%3AMLB4440002222",
+                           "https://produto.mercadolivre.com.br/MLB-4440002222-club")
+    anuncio = '<html><body><h1>Club</h1><a href="https://lista.mercadolivre.com.br/_CustId_123">Ver mais anúncios do vendedor</a></body></html>'
+    loja = ('<html><body><ol><li class="ui-search-layout__item"><a href="https://produto.mercadolivre.com.br/MLB-4440002222-a">Club</a></li>'
+            '<li class="ui-search-layout__item"><a href="https://produto.mercadolivre.com.br/MLB-4440007777-b">Asad</a></li></ol></body></html>')
+    with sync_playwright() as p:
+        exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+        b = p.chromium.launch(**({"executable_path": exe} if os.path.exists(exe) else {}))
+        pg = b.new_page()
+        pg.route("https://lista.mercadolivre.com.br/_CustId_123", lambda r: r.fulfill(body=loja, content_type="text/html; charset=utf-8"))
+        pg.route("https://lista.mercadolivre.com.br/club-*", lambda r: r.fulfill(body=busca, content_type="text/html; charset=utf-8"))
+        pg.route("https://lista.mercadolivre.com.br/asad*", lambda r: r.fulfill(body="<html><body>nada</body></html>", content_type="text/html; charset=utf-8"))
+        pg.route("https://produto.mercadolivre.com.br/**", lambda r: r.fulfill(body=anuncio, content_type="text/html; charset=utf-8"))
+        c.devagar = lambda *a, **k: None
+        out = c.ml_achar_pelos_produtos(pg, ["aurascent", "pureperfumaria"], ["asad lattafa 100ml", "club nuit intense 105ml"])
+        b.close()
+    assert list(out) == ["aurascent"]                                     # a outra loja não apareceu nas buscas
+    url, an = out["aurascent"]
+    assert url.endswith("_CustId_123") and [x["id"] for x in an] == ["MLB4440002222", "MLB4440007777"]
+
+
 def test_posicao_organica_e_pagina():
     itens = [{"id": "MLB1", "patrocinado": True}] + [{"id": f"MLB{i}", "vendedor": "X"} for i in range(2, 60)]
     ls = w.posicoes_de_busca("club de nuit", itens, {"MLB55"}, "2026-09-26")

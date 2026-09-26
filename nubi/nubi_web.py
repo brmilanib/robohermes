@@ -3393,7 +3393,22 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         lojas = repo._todos("ml_lojas", {"select": "nome,url", "ativo": "is.true"})
         an = repo._todos("meus_anuncios", {"select": "id,titulo,termo", "ativo": "is.true"})
         termos = sorted({(a.get("termo") or "").strip() for a in an if (a.get("termo") or "").strip()})
-        return {"lojas": lojas, "anuncios": an, "termos": termos, "por_pagina": ML_POR_PAGINA}
+        # dica do Bruno (26/09): as lojas se acham buscando os MEUS produtos (os do estoque do UpSeller com mais valor)
+        buscas = []
+        try:
+            at = (repo._req("GET", "estoque_atualizacoes", {"select": "id", "order": "id.desc", "limit": 1}) or [None])[0]
+            if at:
+                its = repo._todos("estoque_itens", {"select": "titulo,atual,subtotal", "atualizacao_id": repo._eq(at["id"])})
+                its = sorted((i for i in its if (i.get("atual") or 0) > 0 and i.get("titulo")), key=lambda i: -(i.get("subtotal") or 0))
+                for i in its:
+                    t = termo_padrao(i["titulo"])
+                    if t and t not in buscas:
+                        buscas.append(t)
+                    if len(buscas) >= 15:
+                        break
+        except ErroNuvem:
+            pass
+        return {"lojas": lojas, "anuncios": an, "termos": termos, "buscas_produtos": buscas, "por_pagina": ML_POR_PAGINA}
     if rota == "ml_anuncios_gravar" and metodo == "POST":
         # o coletor achou os anúncios de uma loja: grava (sem apagar o termo que o Bruno editou)
         loja = str(d.get("loja") or "").strip().lower()
