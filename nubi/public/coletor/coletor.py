@@ -2936,7 +2936,14 @@ def _ambiente_projeto(repo):
         raise Falha("falta um Python 3.11 ou mais novo no Mac. No Terminal: brew install python@3.12")
     if not (venv / "bin" / "python").exists():
         subprocess.run([py, "-m", "venv", str(venv)], check=True, capture_output=True, timeout=300)
-    instalar_da_caixa(venv / "bin" / "python", caixa, PASTA / "wheelhouse")
+    try:
+        instalar_da_caixa(venv / "bin" / "python", caixa, PASTA / "wheelhouse")
+    except Falha as e:
+        # venv que já funcionava (ex.: outro Python, sem roda na caixa) continua em uso: o Ferreiro e o Astra não param
+        if marca.exists():
+            print(f"caixa de pacotes: {e}; sigo com o ambiente que já estava pronto", flush=True)
+            return venv / "bin"
+        raise
     r = subprocess.run([str(venv / "bin" / "python"), "-m", "playwright", "install", "chromium"],
                        capture_output=True, text=True, timeout=1800)
     if r.returncode:
