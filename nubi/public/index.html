@@ -698,7 +698,11 @@ function telaLogin(msg) {
       <button class="btn primary" id="bent" style="width:100%;justify-content:center">Entrar</button>
     </form>
     <p id="lm" class="${msg ? "alerta" : "muted"}" style="margin-top:12px">${esc(msg || "")}</p>
-    <p style="margin:6px 0 0;font-size:12.5px"><a href="#" id="blink">Entrar com link no e-mail</a></p>
+    <p style="margin:6px 0 0;font-size:12.5px"><a href="#" id="blink">Esqueci a senha: entrar com código no e-mail</a></p>
+    <form id="fcod" style="display:none;margin-top:10px">
+      <input id="cod" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="código do e-mail (6 números)">
+      <button class="btn primary" id="bcod" style="width:100%;justify-content:center">Entrar com o código</button>
+    </form>
   </div>`;
   $("#fl").onsubmit = async e => {
     e.preventDefault();
@@ -716,8 +720,29 @@ function telaLogin(msg) {
     if (!email) { $("#lm").className = "alerta"; $("#lm").textContent = "Digite o e-mail primeiro."; return; }
     $("#lm").className = "muted"; $("#lm").innerHTML = '<span class="spin"></span> Enviando…';
     const {error} = await sb.auth.signInWithOtp({email, options: {emailRedirectTo: location.origin, shouldCreateUser: false}});
-    $("#lm").textContent = error ? "Não foi possível enviar: " + error.message
-      : "Enviamos um link para " + email + ". Abra-o neste mesmo navegador.";
+    if (error) {
+      $("#lm").className = "alerta";
+      $("#lm").textContent = /rate limit/i.test(error.message)
+        ? "Muitos e-mails em pouco tempo. Espere cerca de 1 hora e peça de novo (uma vez só)."
+        : "Não foi possível enviar: " + error.message;
+      return;
+    }
+    // 26/09: código de 6 números digitado aqui mesmo (funciona no app instalado no iPhone, onde o link abre no Safari)
+    $("#lm").className = "muted";
+    $("#lm").textContent = "Enviamos um código para " + email + ". Digite abaixo (não precisa abrir o link).";
+    $("#fcod").style.display = ""; $("#cod").focus();
+  };
+  $("#fcod").onsubmit = async e => {
+    e.preventDefault();
+    const email = $("#em").value.trim(), token = $("#cod").value.replace(/\D/g, "");
+    if (!email || token.length < 6) { $("#lm").className = "alerta"; $("#lm").textContent = "Digite o e-mail e o código de 6 números."; return; }
+    const bt = $("#bcod"); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> Entrando…';
+    const {error} = await sb.auth.verifyOtp({email, token, type: "email"});
+    if (error) {
+      $("#lm").className = "alerta";
+      $("#lm").textContent = /expired|invalid/i.test(error.message) ? "Código errado ou vencido. Peça outro." : "Não foi possível entrar: " + error.message;
+      bt.disabled = false; bt.textContent = "Entrar com o código";
+    } else setTimeout(() => { try { trocarSenha(); } catch (_) {} }, 2500);   // entrou sem senha: já abre "Trocar senha"
   };
 }
 
