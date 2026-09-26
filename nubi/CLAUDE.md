@@ -137,3 +137,6 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   teto de US$ 2 (budget da sessão), no máximo US$ 6 por dia (`NUBI_PESQUISA_TETO`). Estado em `ia_resumos` `pesquisa|…`.
 - Pedido: "/pesquisar pergunta" na Sala ou rota `pesquisa_pedir`. `conferir` roda no cron de hora em hora e quando a
   Sala é aberta: o relatório vai para a Sala, para `saber` (fonte `pesquisa_profunda`) e o custo para `agentes_uso`.
+- Internet para todos os agentes (26/09): `agentes.com_arquivo` aceita `PESQUISAR:` (1 por resposta; limites
+  `NUBI_WEB_POR_AGENTE`=6 e `NUBI_WEB_POR_DIA`=40, contados no `saber` pela etiqueta `agente:x`; recusa senha/chave/dado
+  pessoal) e `PESQUISA_PROFUNDA:` só para o coordenador. Hermes e Qwen (Mac) usam a rota `agente_pesquisar`.

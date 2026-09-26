@@ -871,6 +871,13 @@ def atender(metodo, rota, q, corpo, token):
                 repo._req("POST", "reuniao_leituras", corpo=[{"conversa": conv, "ultimo_id": uid, "lido_em": datetime.now(timezone.utc).isoformat()}],
                           prefer="resolution=merge-duplicates,return=minimal")
             return _json({"ok": True})
+        if rota == "agente_pesquisar" and metodo == "POST":
+            # Hermes e Qwen (Mac) pesquisam na internet pelo servidor, com as mesmas regras e limites dos outros agentes
+            d = json.loads(corpo or b"{}")
+            quem = {"Hermes": "hermes", "Qwen (revisor)": "qwen"}.get(str(d.get("autor") or ""))
+            if not quem:
+                raise ErroNuvem("Autor não permitido.")
+            return _json({"texto": agentes.pesquisar_web(repo, d.get("pergunta"), quem)})
         if rota == "reuniao_postar" and metodo == "POST":
             # agentes locais do Mac mini (Hermes e outros via Ollama) postam a resposta sem abrir uma rodada nova
             d = json.loads(corpo or b"{}")
@@ -957,7 +964,7 @@ def atender(metodo, rota, q, corpo, token):
             try:
                 if chave == "claude":
                     resposta = agentes.com_arquivo(lambda t: ia.perguntar(agentes.voz("claude") + t, web=False, max_tokens=800, qual="claude",
-                                                                         sistema=agentes.SISTEMA)[0], pedido, arq)
+                                                                         sistema=agentes.SISTEMA)[0], pedido, arq, quem="claude")
                     nome = "Claude"
                 else:
                     nome = agentes.AGENTES[chave]["nome"]
@@ -2865,7 +2872,8 @@ def ligar_registro_uso(repo, origem):
         repo._req("POST", "saber", corpo=[{"tipo": "pesquisa_web", "titulo": re.sub(r"\s+", " ", pergunta)[:160],
                                            "texto": f"PERGUNTA:\n{pergunta[:6000]}\n\nRESPOSTA:\n{resposta[:12000]}",
                                            "autor": ia.nome(qual), "fonte_tabela": "web", "fonte_id": chave, "links": links[:20],
-                                           "tags": [str(origem or "")[:60]], "criado_em": agora_}], prefer="return=minimal")
+                                           "tags": [str(origem or "")[:60]] + ([ia.USO["quem"]] if ia.USO.get("quem") else []),
+                                           "criado_em": agora_}], prefer="return=minimal")
     ia.USO.update({"gravar": gravar, "origem": origem, "web": gravar_web})
 
 

@@ -123,7 +123,7 @@ def _ollama(pergunta, max_tokens, modelo=None, sistema=None):
 
 
 # Registro de uso (aba Agentes): nubi_web liga USO["gravar"]; cada chamada grava início, fim, tokens e modelo.
-USO = {"gravar": None, "origem": "", "web": None}   # web: guarda cada pesquisa na internet na base de conhecimento (26/09)
+USO = {"gravar": None, "origem": "", "web": None, "quem": None}   # web: guarda cada pesquisa na internet na base de conhecimento (26/09)
 PROVEDOR = (("api.anthropic.com", "claude"), ("api.openai.com", "chatgpt"), ("api.deepseek.com", "deepseek"),
             ("ollama.com", "gptoss"))
 
