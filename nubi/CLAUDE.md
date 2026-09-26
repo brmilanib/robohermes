@@ -155,3 +155,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - O servidor (`preparar_anexos`) baixa só quadros/prévias e áudio, transcreve (`ia.transcrever`, gpt-4o-transcribe →
   whisper-1) e manda as imagens para quem enxerga (`agentes.ve_imagens`: ChatGPT, Astra, Claude). A transcrição fica no
   texto da mensagem (entra na base de conhecimento) e em `meta.anexos`. A tela mostra foto/vídeo com link assinado de 1 h.
+
+## Astra com cards e Ferreiro com fila (26/09, pedido do Bruno)
+
+- O Astra é o responsável por design, usabilidade e organização. Na conversa direta ele grava cards com
+  `CRIAR_CARD: {json}` (`criar_cards_do_agente`, até 6 por dia, sem duplicar título; risco alto vira `proposta` com
+  `aguardando`). Executor `ferreiro` → `responsavel=claude_mac`; `chefe` → `claude_code`.
+- Fila do Ferreiro (`ferreiro_proximo`, no tique do Mac, a cada 5 min): se não há `programar_card` pendente/rodando nem
+  card dele em andamento há menos de 90 min, pega o próximo `aprovada` com `responsavel=claude_mac` (🩺 primeiro, depois
+  prioridade), pulando risco alto e card com `aguardando`. O Chefe continua revisando e publicando o branch do Ferreiro.

@@ -965,6 +965,8 @@ def atender(metodo, rota, q, corpo, token):
                 f"[{_br(m['criado_em']):%d/%m %H:%M}] {'Bruno' if m['autor'] == 'voce' else m['autor']}: {str(m['texto'])[:700]}" for m in hist)
                 + "\n\n") if hist else ""
             pedido = contexto + "NOVA MENSAGEM DO BRUNO: " + texto_voce
+            if chave in CRIA_CARDS:
+                pedido += INSTRUCAO_CRIAR_CARD
             if imagens and not agentes.ve_imagens(chave):
                 pedido += "\n\n(Você não enxerga imagens: responda pela transcrição e sugira mandar para o Astra ou o ChatGPT.)"
             elif imagens:
@@ -983,6 +985,8 @@ def atender(metodo, rota, q, corpo, token):
             except Exception:  # noqa: BLE001
                 resposta = ""
             resposta = (resposta or "").strip()
+            if resposta and chave in CRIA_CARDS:
+                resposta = criar_cards_do_agente(repo, chave, resposta)
             if resposta:
                 repo._req("POST", "reuniao_mensagens", corpo=[{"autor": nome, "texto": resposta[:8000], "meta": meta,
                           "criado_em": agora_()}], prefer="return=minimal")
@@ -2768,6 +2772,46 @@ def rodar_rotinas(repo, so=None):
     return out
 
 
+PRIORIDADE_ORDEM = {"urgente": 0, "alta": 1, "media": 2, "média": 2, "baixa": 3}
+
+
+def ferreiro_proximo(repo, a_cada_min=5):
+    """Card #89 (pedido do Bruno, 26/09): o Ferreiro livre pega na hora o próximo card aprovado dele (responsável claude_mac),
+    sem esperar ninguém. Pula risco alto e card com pergunta em aberto; um de cada vez (a trava do Mac também impede dois)."""
+    try:
+        chave = "ferreiro|vez"
+        r = (repo._req("GET", "ia_resumos", {"select": "criado_em", "chave": repo._eq(chave)}) or [{}])[0]
+        agora = datetime.now(timezone.utc)
+        if r.get("criado_em") and agora - datetime.fromisoformat(str(r["criado_em"]).replace("Z", "+00:00")) < timedelta(minutes=a_cada_min):
+            return None
+        repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": "", "ia": "ferreiro", "criado_em": agora.isoformat()}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        if repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.programar_card", "status": "in.(pendente,rodando)", "limit": 1}):
+            return "Ferreiro ocupado (comando na fila)"
+        limite = (agora - timedelta(minutes=90)).isoformat()
+        if repo._req("GET", "reuniao_tarefas", {"select": "id", "responsavel": "eq.claude_mac", "status": "eq.em_desenvolvimento",
+                                                 "iniciado_em": f"gte.{limite}", "limit": 1}):
+            return "Ferreiro ocupado (card em andamento)"
+        fila = [t for t in (repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,prioridade,risco,aguardando", "status": "eq.aprovada",
+                                                                   "responsavel": "eq.claude_mac", "order": "id"}) or [])
+                if (t.get("risco") or "") != "alto" and not t.get("aguardando")]
+        if not fila:
+            return None
+        t = sorted(fila, key=lambda x: (0 if str(x.get("titulo") or "").startswith("🩺") else 1,
+                                        PRIORIDADE_ORDEM.get(str(x.get("prioridade") or "media"), 2), x["id"]))[0]
+        ag = agora.isoformat()
+        repo._req("POST", "mac_comandos", corpo=[{"comando": "programar_card", "arg": str(t["id"]), "pedido_por": "fila do Ferreiro",
+                                                  "status": "pendente", "criado_em": ag, "tarefa_id": t["id"]}], prefer="return=minimal")
+        repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(t["id"])}, corpo={"status": "em_desenvolvimento", "iniciado_em": ag,
+                                                                                 "atualizado_em": ag}, prefer="return=minimal")
+        repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": t["id"], "autor": "claude_mac", "tipo": "passo", "criado_em": ag,
+                                                    "texto": "🔨 Ferreiro livre: peguei este card agora (fila automática)."}],
+                  prefer="return=minimal")
+        return f"Ferreiro pegou o card #{t['id']}"
+    except Exception:  # noqa: BLE001 — nunca derruba o tique do Mac
+        return None
+
+
 def indexar_aos_poucos(repo, a_cada_min=8, segundos=20):
     """Fase 2: o cron da Vercel chega atrasado e tem pouco tempo; o tique do Mac (a cada minuto) indexa um pouco a cada
     8 min, até 20 s, marcando a vez em ia_resumos. Nunca derruba o tique."""
@@ -4014,6 +4058,80 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
     raise ErroNuvem("Rota desconhecida.", 404)
 
 
+# Astra com permissão de gravar cards (pedido do Bruno, 26/09): design, usabilidade e organização; o código vai para o
+# Ferreiro (Claude Code no Mac), que entrega num branch, e o Chefe revisa e publica.
+CRIA_CARDS = {"astra": "Astra (design)"}
+CARDS_POR_DIA = 6
+INSTRUCAO_CRIAR_CARD = (
+    "\n\nFERRAMENTA CARDS (você pode gravar cards no quadro de Desenvolvimento): quando o Bruno pedir uma mudança de design, "
+    "usabilidade ou organização, ou autorizar a sua proposta, crie o card escrevendo NO FINAL da resposta, uma linha por card:\n"
+    "CRIAR_CARD: {\"titulo\": \"...\", \"escopo\": \"o que mudar\", \"arquivo\": \"tela/arquivo\", \"teste\": \"como testar\", "
+    "\"aceite\": \"quando está pronto\", \"prioridade\": \"alta|media|baixa\", \"risco\": \"baixo|medio|alto\", "
+    "\"executor\": \"ferreiro|chefe\"}\n"
+    "Regras: executor ferreiro = o Ferreiro programa na hora e o Chefe revisa e publica (use para telas e layout); chefe = "
+    "mudança grande ou de servidor. Risco alto (dados, senhas, apagar, estrutura do banco, pagamentos) vira proposta para o "
+    "Bruno aprovar. Não crie card repetido nem sem pedido/autorização do Bruno. Não escreva que o card foi criado: eu confirmo "
+    "com o número.")
+
+
+def criar_cards_do_agente(repo, chave, resposta):
+    """Tira as linhas CRIAR_CARD: {...} da resposta, grava os cards e troca cada linha pela confirmação com o número."""
+    dec = json.JSONDecoder()
+    autor = CRIA_CARDS[chave]
+    hoje = datetime.now(timezone(timedelta(hours=-3))).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    try:
+        feitos_hoje = len(repo._req("GET", "reuniao_tarefas", {"select": "id", "proposto_por": repo._eq(autor),
+                                                                "criado_em": f"gte.{hoje.isoformat()}"}) or [])
+    except ErroNuvem:
+        feitos_hoje = 0
+    saida, i, avisos = [], 0, []
+    for m in re.finditer(r"CRIAR_CARD:\s*", resposta):
+        if m.start() < i:
+            continue
+        saida.append(resposta[i:m.start()])
+        try:
+            obj, fim = dec.raw_decode(resposta, m.end())
+        except ValueError:
+            i = m.end()
+            avisos.append("⚠️ um card veio num formato que não entendi e não foi gravado.")
+            continue
+        i = fim
+        if not isinstance(obj, dict) or not str(obj.get("titulo") or "").strip():
+            continue
+        if feitos_hoje >= CARDS_POR_DIA:
+            avisos.append(f"⚠️ limite de {CARDS_POR_DIA} cards por dia do {autor} atingido: \"{str(obj['titulo'])[:80]}\" não foi gravado.")
+            continue
+        titulo = re.sub(r"\s+", " ", str(obj["titulo"])).strip()[:140]
+        if repo._req("GET", "reuniao_tarefas", {"select": "id", "titulo": repo._eq(titulo), "status": "neq.recusada", "limit": 1}):
+            avisos.append(f"ℹ️ já existe um card \"{titulo[:80]}\"; não dupliquei.")
+            continue
+        risco = str(obj.get("risco") or "medio").lower().replace("é", "e")
+        risco = risco if risco in ("baixo", "medio", "alto") else "medio"
+        pri = str(obj.get("prioridade") or "media").lower().replace("é", "e")
+        pri = pri if pri in ("alta", "media", "baixa") else "media"
+        executor = "claude_mac" if str(obj.get("executor") or "ferreiro").lower().startswith("ferr") else "claude_code"
+        desc = (f"Card criado pelo {autor} a pedido do Bruno (conversa direta, {datetime.now(timezone(timedelta(hours=-3))):%d/%m %H:%M}).\n\n"
+                f"## Escopo\n{str(obj.get('escopo') or '')[:3000]}\n\n## Arquivo/função\n{str(obj.get('arquivo') or '')[:800]}\n\n"
+                f"## Teste\n{str(obj.get('teste') or '')[:1500]}\n\n## Critério de aceite\n{str(obj.get('aceite') or '')[:1500]}\n\n"
+                f"Designer responsável: {autor} (confere o visual depois). Programação: "
+                + ("Ferreiro (Claude Code no Mac), branch próprio; o Chefe revisa e publica." if executor == "claude_mac"
+                   else "Chefe (Claude Code)."))
+        alto = risco == "alto"
+        novo = repo._req("POST", "reuniao_tarefas", corpo=[{
+            "titulo": titulo, "descricao": desc, "tipo": "melhoria", "status": "proposta" if alto else "aprovada", "prioridade": pri,
+            "area": "site", "proposto_por": autor, "decidido_por": None if alto else f"Bruno (conversa com o {autor})",
+            "responsavel": executor, "risco": risco,
+            "aguardando": "Risco alto: o Bruno precisa aprovar antes de programar." if alto else None}],
+            prefer="return=representation") or [{}]
+        feitos_hoje += 1
+        quem = "Ferreiro" if executor == "claude_mac" else "Chefe"
+        saida.append(f"✅ **Card #{novo[0].get('id')} criado**: {titulo} · executor: {quem}"
+                     + (" · ⏳ risco alto, esperando sua aprovação no card" if alto else " · já na fila"))
+    saida.append(resposta[i:])
+    txt = "".join(saida).strip()
+    return txt + ("\n\n" + "\n".join(avisos) if avisos else "")
+
+
 ANEXO_MAX_IMAGENS = 12
 
 
@@ -4120,6 +4238,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
     if rota == "mac_tick" and metodo == "POST":
         # o Mac: estado + saídas dos comandos em andamento; recebe os pendentes e as mensagens novas da Sala
         indexar_aos_poucos(repo)
+        ferreiro_proximo(repo)
         if d.get("info") is not None:
             repo._req("POST", "mac_estado", corpo=[{"id": 1, "visto_em": agora_, "info": d["info"]}],
                       prefer="resolution=merge-duplicates,return=minimal")
