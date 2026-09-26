@@ -149,9 +149,64 @@ def ollama_web(pergunta, max_resultados=5):
 
 
 # Registro de uso (aba Agentes): nubi_web liga USO["gravar"]; cada chamada grava início, fim, tokens e modelo.
-USO = {"gravar": None, "origem": "", "web": None, "quem": None}   # web: guarda cada pesquisa na internet na base de conhecimento (26/09)
+USO = {"gravar": None, "origem": "", "web": None, "quem": None,   # web: guarda cada pesquisa na internet na base de conhecimento (26/09)
+       "nivel": None, "gasto": None, "espera": None, "local": False}   # teto por provedor (card #10)
 PROVEDOR = (("api.anthropic.com", "claude"), ("api.openai.com", "chatgpt"), ("api.deepseek.com", "deepseek"),
             ("ollama.com", "gptoss"))
+
+# Teto de custo por provedor (card #10): NUBI_TETO_<PROVEDOR> = "dia/mês" em US$ (ex.: NUBI_TETO_DEEPSEEK="2/30"; um lado
+# vazio = sem teto nesse período), somado em agentes_uso com o dia e o mês de Brasília (USO["gasto"]). Estourou: tarefa de
+# texto/triagem (USO["nivel"]) cai para o modelo local (gpt-oss grátis, gravado como agente 'local', custo 0); conferência
+# de número, nível 3 e o que não disser o nível ficam em espera (EmEspera, sem chamar o provedor) e o dono é avisado.
+TETO_PROVEDORES = {"deepseek": "DeepSeek", "codex": "Codex", "sonnet": "Claude Sonnet", "claude_code": "Claude Code"}
+NIVEL_DEGRADA = ("texto", "triagem")
+
+
+class EmEspera(SemIA):
+    pass
+
+
+def provedor(agente, modelo):
+    """Provedor do teto a partir da linha de agentes_uso (não há coluna própria): Codex e Sonnet pelo nome do modelo."""
+    m = str(modelo or "").lower()
+    if agente == "deepseek":
+        return "deepseek"
+    if agente == "chatgpt" and "codex" in m:
+        return "codex"
+    if agente == "claude" and "sonnet" in m:
+        return "sonnet"
+    if agente == "claude_mac":                         # Ferreiro (Claude Code no Mac); o teto dele na hora é NUBI_FERREIRO_TETO
+        return "claude_code"
+    return None
+
+
+def teto(prov):
+    """(teto do dia, teto do mês) em US$ do provedor; None = sem teto nesse período."""
+    partes = (os.environ.get(f"NUBI_TETO_{prov.upper()}") or "").split("/")
+    out = []
+    for p in (partes + [""])[:2]:
+        try:
+            out.append(float(p.replace(",", ".")) if p.strip() else None)
+        except ValueError:
+            out.append(None)
+    return tuple(out)
+
+
+def _conferir_teto(agente, modelo):
+    prov = provedor(agente, modelo)
+    if not prov or not USO.get("gasto"):
+        return
+    t_dia, t_mes = teto(prov)
+    if t_dia is None and t_mes is None:
+        return
+    try:
+        g_dia, g_mes = USO["gasto"](prov)
+    except Exception:  # noqa: BLE001 — sem conseguir somar não trava nada (o custo continua registrado)
+        return
+    if t_dia is not None and g_dia >= t_dia:
+        raise EmEspera(f"teto diário do {TETO_PROVEDORES[prov]} atingido (US$ {g_dia:.2f} de US$ {t_dia:.2f})")
+    if t_mes is not None and g_mes >= t_mes:
+        raise EmEspera(f"teto mensal do {TETO_PROVEDORES[prov]} atingido (US$ {g_mes:.2f} de US$ {t_mes:.2f})")
 
 
 def _tokens(r):
@@ -182,6 +237,10 @@ def _post_json(url, corpo, cab, timeout=90):
     agente = next((a for h, a in PROVEDOR if h in url), None)
     if agente == "chatgpt" and "astra" in str(corpo.get("model") or ""):
         agente = "astra"                               # o designer (gpt-6-astra) tem cartão e custo próprios
+    if agente and USO.get("local"):
+        agente = "local"                               # tarefa degradada pelo teto: nunca fica no provedor original
+    if agente:
+        _conferir_teto(agente, corpo.get("model"))     # antes de chamar: estourou, nem chega no provedor
     gravar = USO["gravar"] if agente else None
     rid = None
     if gravar:
@@ -202,9 +261,10 @@ def _post_json(url, corpo, cab, timeout=90):
     if gravar:
         try:
             ent, leitura, criacao, sai = _tokens(r)
-            gravar("fim", {"id": rid, "ok": True, "modelo": str(r.get("model") or corpo.get("model") or ""),
-                           "tokens_in": ent, "cache_read_tokens": leitura, "cache_creation_tokens": criacao,
-                           "tokens_out": sai, "latencia_ms": int((time.monotonic() - t0) * 1000)})
+            gravar("fim", dict({"id": rid, "ok": True, "modelo": str(r.get("model") or corpo.get("model") or ""),
+                                "tokens_in": ent, "cache_read_tokens": leitura, "cache_creation_tokens": criacao,
+                                "tokens_out": sai, "latencia_ms": int((time.monotonic() - t0) * 1000)},
+                               **({"custo_usd": 0.0} if agente == "local" else {})))
         except Exception:  # noqa: BLE001
             pass
     return r
@@ -214,19 +274,40 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, siste
     """
     qual: 'chatgpt', 'claude', 'deepseek' ou 'codex' (ChatGPT com o modelo de código) — padrão: disponivel();
     modelo: troca o modelo só nesta pergunta ('pro' no DeepSeek = o modelo maior); sistema: instruções fixas do agente.
+    Teto do provedor estourado (card #10): texto/triagem responde no modelo local ('local'); o resto fica em espera.
     """
+    try:
+        return _perguntar(pergunta, web, max_tokens, qual, modelo, sistema, imagens)
+    except EmEspera as e:
+        if USO.get("nivel") not in NIVEL_DEGRADA or not tem("ollama"):
+            if USO.get("espera"):
+                try:
+                    USO["espera"](str(e))
+                except Exception:  # noqa: BLE001 — o aviso nunca troca o erro
+                    pass
+            raise
+        USO["local"] = True
+        try:
+            return _ollama(pergunta, max_tokens, None, sistema), [], "local"
+        finally:
+            USO["local"] = False
+
+
+def _perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sistema=None, imagens=None):
     ia = qual or disponivel()
     if ia == "codex":
         if not tem("chatgpt"):
             raise SemIA("falta a chave da OpenAI")
         mc = modelo_codex()
         try:
-            t, l, _ = perguntar(pergunta, web=False, max_tokens=max(max_tokens, 4000), qual="chatgpt", modelo=mc, sistema=sistema)
+            t, l, _ = _perguntar(pergunta, web=False, max_tokens=max(max_tokens, 4000), qual="chatgpt", modelo=mc, sistema=sistema)
             if t:
                 return t, l, "chatgpt"
+        except EmEspera:
+            raise                                      # teto do Codex: não troca por outro modelo pago
         except Exception:  # noqa: BLE001 — Codex fora do ar ou sem acesso: o modelo padrão responde
             pass
-        return perguntar(pergunta, web=False, max_tokens=max_tokens, qual="chatgpt", sistema=sistema)
+        return _perguntar(pergunta, web=False, max_tokens=max_tokens, qual="chatgpt", sistema=sistema)
     if not ia or not tem(ia):
         raise SemIA("nenhuma chave de IA configurada" if not ia else f"falta a chave da IA {nome(ia)}")
     if ia == "ollama":

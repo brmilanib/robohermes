@@ -39,7 +39,8 @@ cada atualização é uma foto completa do export Lista de Estoque do UpSeller, 
 Início (resumo de tudo: vendas do último dia, contagens, próximas datas de vendas, resumo da IA, operação),
 Ranking de marcas, Explorador, Concorrentes (Visão geral, Comparar, Vendas diárias, Alertas, Vendedores),
 Minhas Lojas (Estoque: estoque do UpSeller, o que entrou/saiu/zerou e a análise do agente Estoquista),
-Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reunião, Agentes, Coletor) e Ajustes
+Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reunião, Agentes, Custos: teto diário/mensal por
+provedor em NUBI_TETO_<PROVEDOR>; estourou, texto cai para o modelo local e conferência fica em espera, Coletor) e Ajustes
 (Nomes de marcas, Nomes de vendedores, Produtos iguais). No celular há uma barra de atalhos embaixo.
 
 ## Rotinas (horário de Brasília)
