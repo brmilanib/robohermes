@@ -12,15 +12,33 @@ Dry-run obrigatório (card #2): todo conector novo roda em dry-run por padrão (
 no Supabase, só loga local). A escrita real só acontece com os dois flags explícitos:
 dry_run=False e checklist_aprovado_por_bruno=True. Nenhuma rotina automática muda esses
 flags; é o Bruno quem aprova o checklist manual antes de ligar a escrita de uma loja.
+
+Retry isolado por conector (card #3): coletar_lojas roda cada loja na sua própria thread, com
+retry/backoff exponencial + jitter e Retry-After (conector levanta ErroRateLimit no 429).
+Falha ou rate-limit numa loja não para nem atrasa as outras; a loja que falhar volta como
+"pendente" com erro e tentativas, e dados=None (nunca zero, fica fora dos totais).
 """
 
+import random
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
 BRASILIA = timezone(timedelta(hours=-3))
 
 
 class ErroConector(Exception):
     pass
+
+
+class ErroRateLimit(ErroConector):
+    """HTTP 429 da loja. retry_after: valor do cabeçalho Retry-After (segundos ou data HTTP), se veio."""
+
+    def __init__(self, mensagem="HTTP 429", retry_after=None):
+        super().__init__(mensagem)
+        self.retry_after = retry_after
 
 
 class StoreConnector:
@@ -96,3 +114,67 @@ def persistir_pedidos(repo, source, pedidos, dry_run=None, checklist_aprovado_po
     if corpo:
         repo._req("POST", "store_orders", corpo=corpo, prefer="resolution=merge-duplicates,return=minimal")
     return len(corpo), avisos
+
+
+def segundos_retry_after(valor, agora=None):
+    """Retry-After em segundos (aceita "120" ou data HTTP); None se ausente ou ilegível."""
+    if valor is None:
+        return None
+    texto = str(valor).strip()
+    try:
+        return max(0.0, float(texto))
+    except ValueError:
+        pass
+    try:
+        quando = parsedate_to_datetime(texto)
+    except (TypeError, ValueError):
+        return None
+    if quando is None:
+        return None
+    return max(0.0, (quando - (agora or datetime.now(timezone.utc))).total_seconds())
+
+
+def espera_backoff(tentativa, inicial, maximo, jitter, aleatorio=random.random):
+    """Espera antes da tentativa k (k >= 2): min(maximo, inicial * 2^(k-2)) * (1 + U(0, jitter))."""
+    return min(maximo, inicial * 2 ** (tentativa - 2)) * (1 + aleatorio() * jitter)
+
+
+def _nome_loja(conector):
+    return getattr(conector, "source", None) or type(conector).__name__
+
+
+def coletar_com_retry(conector, metodo="fetch_orders", max_tentativas=3, backoff_inicial_s=2, backoff_max_s=60,
+                      jitter=0.25, dormir=time.sleep, aleatorio=random.random, **kwargs):
+    """Chama conector.<metodo>(**kwargs) com retry; nunca levanta. Retorna dict com source, status
+    ("ok" ou "pendente"), dados (None se pendente, nunca zero), tentativas, erro e aviso."""
+    source = _nome_loja(conector)
+    erro = None
+    for tentativa in range(1, max_tentativas + 1):
+        if tentativa > 1:
+            espera = espera_backoff(tentativa, backoff_inicial_s, backoff_max_s, jitter, aleatorio)
+            retry_after = segundos_retry_after(getattr(erro, "retry_after", None))
+            dormir(espera if retry_after is None else max(retry_after, espera))
+        try:
+            dados = getattr(conector, metodo)(**kwargs)
+            return {"source": source, "status": "ok", "dados": dados, "tentativas": tentativa, "erro": None,
+                    "aviso": None}
+        except Exception as e:  # noqa: BLE001 — erro de uma loja não pode derrubar as outras
+            erro = e
+    return {"source": source, "status": "pendente", "dados": None, "tentativas": max_tentativas,
+            "erro": f"{type(erro).__name__}: {erro}"[:500],
+            "aviso": f"Coleta pendente: não foi possível concluir a coleta de {source} "
+                     f"({max_tentativas} tentativa(s))."}
+
+
+def coletar_lojas(conectores, metodo="fetch_orders", **opcoes):
+    """Coleta todas as lojas em paralelo (uma thread "coleta-<source>" por loja), cada uma com retry
+    próprio. Retorna {source: resultado de coletar_com_retry}."""
+    if not conectores:
+        return {}
+
+    def rodar(conector):
+        threading.current_thread().name = f"coleta-{_nome_loja(conector)}"
+        return coletar_com_retry(conector, metodo, **opcoes)
+
+    with ThreadPoolExecutor(max_workers=len(conectores)) as ex:
+        return {r["source"]: r for r in ex.map(rodar, conectores)}
