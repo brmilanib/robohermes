@@ -472,7 +472,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 }
 #barra-baixo{display:none}
 @media (max-width:900px){
-  #barra-baixo{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--card);
+  #barra-baixo{display:grid;grid-template-columns:repeat(4,1fr);position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--card);
     border-top:1px solid var(--line);padding:4px 4px calc(4px + env(safe-area-inset-bottom,0px))}
   #barra-baixo a{display:grid;justify-items:center;gap:1px;font-size:10.5px;color:var(--muted);text-decoration:none;padding:4px 0;border-radius:10px}
   #barra-baixo a .ic{font-size:19px;line-height:1.1}
@@ -864,16 +864,17 @@ function moldura() {
   $("#bsair").onclick = async () => { await sb.auth.signOut(); location.hash = ""; };
   desenharMenu();
 }
-// Celular: barra de atalhos embaixo, como num app (Início, Ranking, Comparar, Central e o menu completo).
+// Celular: barra de atalhos embaixo, como num app (Início, Concorrentes, Lojas e Mais, que abre o menu completo).
 function desenharBarraBaixo() {
   let b = $("#barra-baixo");
   if (!b) { b = document.createElement("nav"); b.id = "barra-baixo"; b.setAttribute("aria-label", "Atalhos"); document.body.appendChild(b); }
-  const h = location.hash, sec = secaoAtual();
+  const sec = secaoAtual();
   const i = (href, ic, t, on) => `<a href="${href}" class="${on ? "on" : ""}"><span class="ic">${ic}</span><span>${t}</span></a>`;
-  b.innerHTML = i("#/inicio", "🏠", "Início", sec === "inicio") + i("#/ranking", "🏆", "Ranking", sec === "ranking")
-    + i("#/concorrentes", "⚖️", "Comparar", h.startsWith("#/concorrentes") || h.startsWith("#/vendas-dia") || h.startsWith("#/vendedores"))
-    + i("#/central", "🛠️", "Central", sec === "nomes" && OPS_ABAS.some(a => a.on(decodeURIComponent(h))))
-    + `<a href="#" id="bb-menu"><span class="ic">☰</span><span>Menu</span></a>`;
+  // Fase 1 do card #26 (Astra, 26/09): 4 itens fixos — Início · Concorrentes · Lojas · Mais.
+  // "Mais" abre a mesma gaveta do menu lateral (Ranking, Explorador, Central, Ajustes) e destaca quando a tela ativa está lá.
+  b.innerHTML = i("#/inicio", "🏠", "Início", sec === "inicio") + i("#/concorrentes", "⚖️", "Concorrentes", sec === "vendedores")
+    + i("#/estoque", "📦", "Lojas", sec === "lojas")
+    + `<a href="#" id="bb-menu" class="${sec === "ranking" || sec === "explorador" || sec === "nomes" ? "on" : ""}"><span class="ic">☰</span><span>Mais</span></a>`;
   $("#bb-menu").onclick = e => { e.preventDefault(); e.stopPropagation(); document.body.classList.toggle("menu-aberto"); };
 }
 // ---------- Início: um resumo de tudo (o mais importante primeiro) ----------
@@ -982,13 +983,12 @@ async function telaInicio() {
     : ["bad", "falhou · " + new Date(col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})];
   const resumoLinhas = r.resumo ? r.resumo.texto.split("\n").filter(x => x.trim() && !/^#/.test(x.trim())).slice(0, 5).join("\n") : "";
   const semDado = "sem dados";
+  // Fase 1 do card #26: Início orientada à decisão — título/data/status da coleta primeiro,
+  // saudação/relógio/clima (informação secundária) por último. Ordem revisada pelo Astra (26/09).
   main.innerHTML = `<div class="inicio">
     <section class="in-topo">
-      <div class="in-ola"><h1>${esc(saud)}</h1><span class="muted in-data" id="in-data"></span></div>
-      <div class="in-hora"><span class="in-relogio" id="in-relogio"></span><span class="in-agora" id="in-agora"></span></div>
+      <div class="in-ola"><h1>Início</h1><span class="muted in-data">dados de ${ddmm(d.data)} · <span class="st ${colTxt[0]}">${esc(colTxt[1])}</span></span></div>
     </section>
-    ${(r.aguardando_voce || []).length ? `<a class="in-pede" href="#/central">⏳ ${r.aguardando_voce.length} tarefa(s) esperando sua resposta: ${r.aguardando_voce.map(t => esc("#" + t.id + " " + t.titulo)).join(" · ")}</a>` : ""}
-    ${decisoesHtml}
 
     <a class="card pad in-vendas-hoje" href="#/vendas-dia">
       <div class="in-vh-cab"><span class="l">Vendas dos concorrentes · ${ddmm(d.data)}</span>
@@ -1037,32 +1037,40 @@ async function telaInicio() {
       </a>
     </section>
 
+    ${(r.aguardando_voce || []).length ? `<a class="in-pede" href="#/central">⏳ ${r.aguardando_voce.length} tarefa(s) esperando sua resposta: ${r.aguardando_voce.map(t => esc("#" + t.id + " " + t.titulo)).join(" · ")}</a>` : ""}
+    ${decisoesHtml}
+
     ${(r.andamento || []).length ? `<section class="card pad in-dev"><div class="in-dev-cab"><h2>Time em ação</h2><a class="in-mais" style="margin:0" href="#/central">Ver o desenvolvimento →</a></div>
       ${r.andamento.map(t => { const a = agInfo(t.responsavel || "claude_code"); return `<a class="in-dev-it vivo" href="#/central"><span class="dc-av" style="--c:${a[2]}">${a[0]}</span>
         <span><b>${esc(t.titulo)}</b><span class="muted"> · em execução com ${esc(a[1])}</span></span><span class="dc-dig"><i></i><i></i><i></i></span></a>`; }).join("")}</section>` : ""}
-
-    <section class="in-grade in-baixo">
-      <div class="card pad in-dolar"><h2>Dólar hoje</h2>
-        ${ex.dolar ? `<b>R$ ${ex.dolar.venda.toFixed(4).replace(".", ",")}</b>
-          <span class="o">compra R$ ${ex.dolar.compra.toFixed(4).replace(".", ",")}${ex.dolar.variacao == null ? "" : ` · <span class="${ex.dolar.variacao >= 0 ? "pos" : "neg"}">${ex.dolar.variacao >= 0 ? "▲" : "▼"} ${nf1.format(Math.abs(ex.dolar.variacao))}%</span>`}</span>
-          <p class="muted" style="font-size:11px;margin-top:8px">USD/BRL · AwesomeAPI${ex.dolar.quando ? " · " + new Date(ex.dolar.quando.replace(" ", "T")).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : ""}</p>`
-        : `<p class="muted">${semDado}</p>`}</div>
-      <div class="card pad"><h2>Próximas datas de vendas</h2><ul class="in-datas">${datasVendas(agora).map(x => `<li><span class="in-dias ${x.dias <= 15 ? "perto" : ""}">${x.dias === 0 ? "hoje" : x.dias + (x.dias === 1 ? " dia" : " dias")}</span>
-        <b>${esc(x.n)}</b><span class="muted">${x.dt.toLocaleDateString("pt-BR", {day: "2-digit", month: "short", weekday: "short"})}</span></li>`).join("")}</ul></div>
-    </section>
-
-    ${ex.noticias && (ex.noticias.itens || []).length ? `<section class="card pad in-noticias"><div class="in-dev-cab"><h2>Notícias dos marketplaces</h2><span class="muted" style="font-size:11.5px">${ddmm(ex.noticias.data)}</span></div>
-      <ul>${ex.noticias.itens.map(n => `<li><div class="in-not-cab">${n.marketplace ? `<span class="in-chip">${esc(n.marketplace)}</span>` : ""}${n.fonte ? `<span>${esc(hostname(n.fonte))}</span>` : ""}</div>
-        <a href="${esc(urlHttp(n.fonte || ""))}" target="_blank" rel="noopener"><b>${esc(n.titulo || "")}</b></a>${n.resumo ? `<span class="muted">${esc(n.resumo)}</span>` : ""}</li>`).join("")}</ul></section>` : ""}
-
-    <section class="card pad in-tempo" id="in-tempo"><div class="muted">Carregando a previsão…</div></section>
 
     <section class="in-ops">
       <a class="card in-op" href="#/central"><span class="l">Esperando você aprovar</span><b>${nf0.format(tf.proposta || 0)}</b></a>
       <a class="card in-op" href="#/central"><span class="l">Na fila / em código</span><b>${nf0.format((tf.aprovada || 0) + (tf.em_desenvolvimento || 0))}</b></a>
       <a class="card in-op" href="#/central/erros"><span class="l">Erros hoje</span><b class="${ops.erros_hoje ? "neg" : ""}">${nf0.format(ops.erros_hoje || 0)}</b></a>
       <a class="card in-op" href="#/central/agentes"><span class="l">IA hoje · mês</span><b>US$ ${(r.ia?.custo_hoje || 0).toFixed(2).replace(".", ",")}</b><span class="muted">· US$ ${(r.ia?.custo_mes || 0).toFixed(2).replace(".", ",")}</span></a>
-    </section></div>`;
+    </section>
+
+    <div class="card pad"><h2>Próximas datas de vendas</h2><ul class="in-datas">${datasVendas(agora).map(x => `<li><span class="in-dias ${x.dias <= 15 ? "perto" : ""}">${x.dias === 0 ? "hoje" : x.dias + (x.dias === 1 ? " dia" : " dias")}</span>
+        <b>${esc(x.n)}</b><span class="muted">${x.dt.toLocaleDateString("pt-BR", {day: "2-digit", month: "short", weekday: "short"})}</span></li>`).join("")}</ul></div>
+
+    <section class="in-topo">
+      <div class="in-ola"><h1>${esc(saud)}</h1><span class="muted in-data" id="in-data"></span></div>
+      <div class="in-hora"><span class="in-relogio" id="in-relogio"></span><span class="in-agora" id="in-agora"></span></div>
+    </section>
+    <section class="in-grade in-baixo">
+      <div class="card pad in-dolar"><h2>Dólar hoje</h2>
+        ${ex.dolar ? `<b>R$ ${ex.dolar.venda.toFixed(4).replace(".", ",")}</b>
+          <span class="o">compra R$ ${ex.dolar.compra.toFixed(4).replace(".", ",")}${ex.dolar.variacao == null ? "" : ` · <span class="${ex.dolar.variacao >= 0 ? "pos" : "neg"}">${ex.dolar.variacao >= 0 ? "▲" : "▼"} ${nf1.format(Math.abs(ex.dolar.variacao))}%</span>`}</span>
+          <p class="muted" style="font-size:11px;margin-top:8px">USD/BRL · AwesomeAPI${ex.dolar.quando ? " · " + new Date(ex.dolar.quando.replace(" ", "T")).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : ""}</p>`
+        : `<p class="muted">${semDado}</p>`}</div>
+      <section class="card pad in-tempo" id="in-tempo"><div class="muted">Carregando a previsão…</div></section>
+    </section>
+
+    ${ex.noticias && (ex.noticias.itens || []).length ? `<section class="card pad in-noticias"><div class="in-dev-cab"><h2>Notícias dos marketplaces</h2><span class="muted" style="font-size:11.5px">${ddmm(ex.noticias.data)}</span></div>
+      <ul>${ex.noticias.itens.map(n => `<li><div class="in-not-cab">${n.marketplace ? `<span class="in-chip">${esc(n.marketplace)}</span>` : ""}${n.fonte ? `<span>${esc(hostname(n.fonte))}</span>` : ""}</div>
+        <a href="${esc(urlHttp(n.fonte || ""))}" target="_blank" rel="noopener"><b>${esc(n.titulo || "")}</b></a>${n.resumo ? `<span class="muted">${esc(n.resumo)}</span>` : ""}</li>`).join("")}</ul></section>` : ""}
+    </div>`;
   const tic = () => {
     const x = $("#in-relogio"); if (!x) return clearInterval(S.relT);
     const n = new Date();
@@ -1096,7 +1104,7 @@ document.addEventListener("click", e => {
   const c = document.querySelector("details.conta[open]");
   if (c && !e.target.closest("details.conta")) c.open = false;
 });
-// Menu lateral por grupos: Mercado, Concorrentes e Ajustes.
+// Menu lateral: Início, Ranking de marcas, Explorador, Concorrentes, Minhas Lojas, Central e Ajustes (Astra, card #26).
 function desenharMenu() {
   const sec = secaoAtual(), h = decodeURIComponent(location.hash);
   const it = (href, ic, txt, on, extra = "") => `<a class="navi ${on ? "on" : ""}" href="${href}"><span class="ic">${ic}</span><span>${esc(txt)}</span>${extra}</a>`;
@@ -1125,7 +1133,6 @@ function desenharMenu() {
   const rkAberto = ab.ranking ?? sec === "ranking";
   $("#side").innerHTML = `
     ${it("#/inicio", "🏠", "Início", sec === "inicio")}
-    <div class="grupo">Mercado</div>
     ${it("#/ranking", "🏆", "Ranking de marcas", sec === "ranking", seta("ranking", cats.length > 0, rkAberto))}
     ${rkAberto && cats.length ? sub(cats) : ""}
     ${it("#/", "🔎", "Explorador", sec === "explorador", cont(S.painel.length) + seta("explorador", S.painel.length > 0))}
@@ -1140,7 +1147,7 @@ function desenharMenu() {
     ${ab.vendedores ? `<div class="subnav" id="sub-vend"></div>` : ""}
     <div class="grupo">Minhas Lojas</div>
     ${it("#/estoque", "📦", "Estoque", sec === "lojas")}
-    <div class="grupo">Operação</div>
+    <div class="grupo">Central</div>
     ${it("#/central", "🛠️", "Central", OPS_ABAS.some(a => a.on(h)),
       S.opsRes && S.opsRes.erros_hoje ? `<span class="badge" title="erros hoje (aba Erros)">${S.opsRes.erros_hoje}</span>` : "")}
     <div class="grupo">Ajustes</div>
