@@ -133,6 +133,22 @@ def test_astra_sem_codex_devolve_para_a_fila():
     assert passos[-1]["status"] == "aprovada" and "npm install -g @openai/codex" in passos[-1]["texto"]
 
 
+def test_sobras_no_clone_vao_para_o_stash():
+    """26/09: sobras de outro card travavam a troca de branch e o Ferreiro trabalhava num branch velho."""
+    passos, sala = _preparar(_claude_falso())
+    projeto = c.PASTA / "projeto"
+    if not (projeto / ".git").exists():
+        assert c.cmd_programar(type("A", (), {"id": "81"})(), c.ler_config()) == 0
+    (projeto / "nubi" / "coletor.txt").write_text("sobra de outro card\n")
+    c._gasto_ferreiro(c.ler_config())
+    c.salvar_config({})
+    assert c.cmd_programar(type("A", (), {"id": "82"})(), c.ler_config()) == 0
+    assert passos[-1]["status"] == "em_teste" and "ferreiro/card-82" in passos[-1]["texto"]
+    atual = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=projeto, capture_output=True, text=True).stdout.strip()
+    assert atual == "ferreiro/card-82"
+    assert "sobras antes do card 82" in subprocess.run(["git", "stash", "list"], cwd=projeto, capture_output=True, text=True).stdout
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

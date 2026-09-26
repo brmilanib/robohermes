@@ -2927,8 +2927,14 @@ def cmd_programar(args, cfg, quem="ferreiro"):
                 raise Falha("não consegui clonar o projeto: " + (r.stderr or r.stdout)[-300:])
         _git(repo, "fetch", "origin", BRANCH_NUBI)
         ramo = f"{quem}/card-{tid}"
-        _git(repo, "reset", "--hard")                      # o outro programador pode ter deixado o clone sujo
-        _git(repo, "checkout", "-B", ramo, f"origin/{BRANCH_NUBI}")
+        # sobras de uma rodada anterior impediam a troca de branch e o programador seguia num branch velho (26/09):
+        # guarda as sobras no stash (nunca apaga) e só segue se o checkout der certo
+        if _git(repo, "status", "--porcelain").stdout.strip():
+            _git(repo, "-c", "user.name=nubi", "-c", "user.email=nubi@nubi.local", "stash", "push", "-u", "-m",
+                 f"sobras antes do card {tid}")
+        co = _git(repo, "checkout", "-B", ramo, f"origin/{BRANCH_NUBI}")
+        if co.returncode:
+            raise Falha(f"não consegui trocar para o branch {ramo}: " + (co.stderr or co.stdout)[-300:])
         _passo_card(token, tid, (f"🎨 Astra (Codex no Mac, modelo {ASTRA_MODELO}) pegou o card na hora." if astra else
                                  "🔨 Ferreiro (Claude Code no Mac) pegou o card na hora.") + f" Trabalhando no branch {ramo}.",
                     "em_desenvolvimento")
