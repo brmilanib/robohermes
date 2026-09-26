@@ -4126,12 +4126,15 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         desde = (_agora_br().date() - timedelta(days=70)).isoformat()
         ps = repo._todos("anuncio_posicoes", {"select": "data,termo,anuncio_id,titulo,vendedor,meu,posicao,posicao_organica,pagina,patrocinado",
                                               "data": f"gte.{desde}", "order": "data.desc"})
-        hist = {}
+        hist, medido = {}, {}
         for p in ps:
             hist.setdefault((p["anuncio_id"], p["termo"]), []).append(p)
+            medido.setdefault(p["termo"], p["data"])     # última busca do termo (meus + concorrentes)
         for a in an:
             h = hist.get((a["id"], (a.get("termo") or "").strip())) or []
-            a["atual"] = h[0] if h else None
+            # medição antiga não é a de hoje: se a última busca do termo não achou o anúncio, ele está fora do top
+            a["medido_em"] = medido.get((a.get("termo") or "").strip())
+            a["atual"] = h[0] if h and h[0]["data"] == a["medido_em"] else None
             ant = next((x for x in h[1:] if str(x["data"]) <= str((date.fromisoformat(str(h[0]["data"])[:10]) - timedelta(days=6)))), None) if h else None
             a["anterior"] = ant
             a["serie"] = [{"data": x["data"], "posicao": x["posicao_organica"] or x["posicao"], "pagina": x["pagina"]} for x in reversed(h[:8])]
