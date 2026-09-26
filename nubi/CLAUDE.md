@@ -129,3 +129,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   pelo gancho `ia.USO["web"]`. Nunca apagar itens dessa tabela.
 - Busca: `buscar_arquivo` (barra da Sala e `BUSCAR:` dos agentes). Fase 2 (próxima): pedaços com frase de contexto +
   pgvector + busca híbrida + reordenação, as técnicas da Anthropic e da OpenAI.
+
+## Pesquisador nubi (26/09)
+
+- Agente gerenciado da Anthropic (`agent_01NHnnK9D6xL385kM8FVxcxb`, console do Bruno) para pesquisa profunda.
+  `pesquisador.py`: o nubi cria o ambiente (rede liberada) na primeira vez, abre a sessão com o contexto em português e
+  teto de US$ 2 (budget da sessão), no máximo US$ 6 por dia (`NUBI_PESQUISA_TETO`). Estado em `ia_resumos` `pesquisa|…`.
+- Pedido: "/pesquisar pergunta" na Sala ou rota `pesquisa_pedir`. `conferir` roda no cron de hora em hora e quando a
+  Sala é aberta: o relatório vai para a Sala, para `saber` (fonte `pesquisa_profunda`) e o custo para `agentes_uso`.

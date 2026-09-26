@@ -34,6 +34,7 @@ import pesquisa_marca
 import produtos_iguais
 import auditoria
 import agentes
+import pesquisador
 import estoque
 import reuniao
 import vend_bi
@@ -838,7 +839,25 @@ def atender(metodo, rota, q, corpo, token):
         if rota == "reuniao_buscar":
             # barra de pesquisa da Sala (pedido do Bruno, 26/09): mensagens (grupo e diretas) + caixa de conhecimento
             return _json({"resultados": agentes.buscar_arquivo(repo, q.get("q"), int(q.get("n") or 40))})
+        if rota == "pesquisa_pedir" and metodo == "POST":
+            # Pesquisador nubi (26/09): pesquisa profunda com o agente gerenciado da Anthropic
+            d = json.loads(corpo or b"{}")
+            try:
+                return _json({"ok": True, "chave": pesquisador.pedir(repo, d.get("pergunta"), str(d.get("origem") or "tela"))})
+            except pesquisador.ErroPesquisa as e:
+                raise ErroNuvem(str(e))
+        if rota == "pesquisas":
+            try:
+                pesquisador.conferir(repo)
+            except Exception:  # noqa: BLE001
+                pass
+            return _json({"pesquisas": pesquisador.listar(repo, int(q.get("n") or 20)), "gasto_hoje": pesquisador.gasto_hoje(repo),
+                          "teto_dia": pesquisador.TETO_DIA_USD})
         if rota == "reuniao_conversas":
+            try:                                                     # a Sala aberta também traz as pesquisas prontas
+                pesquisador.conferir(repo)
+            except Exception:  # noqa: BLE001
+                pass
             # última mensagem de cada conversa (Sala + uma por agente), para a lista estilo WhatsApp (card #64, fase 2)
             out, nao, lido = reuniao_nao_lidas(repo)
             return _json({"conversas": out, "nao_lidas": nao, "lido": lido})
@@ -883,6 +902,15 @@ def atender(metodo, rota, q, corpo, token):
             texto = str(d.get("texto") or "").strip()
             if not texto:
                 raise ErroNuvem("Escreva a mensagem.")
+            if texto.lower().startswith("/pesquisar"):
+                # "/pesquisar <pergunta>" na Sala chama o Pesquisador nubi (pesquisa profunda, relatório volta na Sala)
+                repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "voce", "texto": texto[:4000],
+                          "criado_em": datetime.now(timezone.utc).isoformat()}], prefer="return=minimal")
+                try:
+                    pesquisador.pedir(repo, texto[len("/pesquisar"):], "sala")
+                except pesquisador.ErroPesquisa as e:
+                    raise ErroNuvem(str(e))
+                return _json({"novas": []})
             if not (ia.tem("chatgpt") or ia.tem("claude") or ia.tem("deepseek")):
                 raise ErroNuvem("Nenhuma IA configurada na Vercel.")
             return _json({"novas": reuniao.rodada(repo, texto[:4000])})
@@ -2631,6 +2659,10 @@ def rodar_rotinas(repo, so=None):
             out["saber"] = agentes.sincronizar_saber(repo, forcar=True)
         except Exception as e:  # noqa: BLE001
             out["saber"] = f"erro: {str(e)[:120]}"
+        try:                                            # Pesquisador nubi: abre as pedidas e traz as prontas (26/09)
+            out["pesquisas"] = pesquisador.conferir(repo, forcar=True)
+        except Exception as e:  # noqa: BLE001
+            out["pesquisas"] = f"erro: {str(e)[:120]}"
     for rid in NO_SERVIDOR:
         r = rot.get(rid)
         if rid == "design" and r and not so:
