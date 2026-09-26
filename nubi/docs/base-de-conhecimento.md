@@ -46,3 +46,28 @@ errado e pesquisado. No futuro, vira o material de treino de um agente especiali
   - a ferramenta `BUSCAR:` dos agentes (reunião, conversas diretas e Laboratório);
   - `agentes.buscar_arquivo`.
 - **Nada é apagado.** Decisões antigas continuam lá. Na fase 3 elas ganham `substituido_por`.
+
+## Fase 2: dicas de otimização (26/09)
+
+Fontes: guias de boas práticas da [Blip](https://community.blip.ai/studio-219/guia-de-boas-praticas-criando-bases-de-conhecimento-para-agentes-de-ia-5430)
+e da [Clint](https://ajuda.clint.digital/pt-BR/articles/12052517-como-construir-uma-base-de-conhecimento-para-o-seu-agente-de-ia).
+O artigo da Creativia que o Bruno mandou ainda não entrou: o site é bloqueado na rede da sessão de código. Quando o texto
+chegar, as dicas dele entram aqui, marcadas como "Creativia".
+
+1. **Um assunto por pedaço.** Pedaço curto, com começo e fim claros (uma decisão, um erro e sua solução, uma regra).
+   Pedaço misturado atrapalha a busca.
+2. **Pergunta e resposta.** Sempre que der, guardar no formato "pergunta → resposta", que é como os agentes perguntam.
+3. **Metadados em todo pedaço:** tipo, data do fato, autor, fonte (link ou tabela) e validade. Filtrar por eles antes
+   de buscar (ex.: só `decisao` dos últimos 30 dias).
+4. **Frase de contexto** (técnica da Anthropic) no começo de cada pedaço: de onde veio, quando e sobre o quê.
+5. **Tamanho e sobreposição.** Pedaços de ~300 a 800 tokens, com uma pequena sobreposição entre pedaços do mesmo texto
+   longo, para não cortar uma ideia no meio.
+6. **Sem duplicado e sem contradição.** Mesmo assunto repetido vira um só; decisão nova marca a antiga como substituída
+   (base da fase 3).
+7. **Revisão fixa, pelo menos a cada 15 dias.** Uma rotina lista o que está velho, duplicado ou contraditório e o
+   Hermes/Qwen propõe a limpeza (sem apagar: marca `substituido_por`).
+8. **Teste com perguntas reais.** Um conjunto de 30 a 50 perguntas que o Bruno e os agentes já fizeram, com a resposta
+   certa. A cada mudança, medir quantas a busca acerta (taxa de acerto) e só publicar se não piorar.
+9. **"Não sei" é resposta válida.** Se a busca não achar nada relevante, o agente diz que não encontrou na base, em vez
+   de inventar.
+10. **Citar a fonte.** Toda resposta que usa a base mostra de onde veio (tipo, data e link), para o Bruno conferir.
