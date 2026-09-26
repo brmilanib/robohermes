@@ -79,6 +79,27 @@ def test_posicao_organica_e_pagina():
     assert not any(x["anuncio_id"] == "MLB1" for x in ls)                                     # patrocinado não é concorrente do topo
 
 
+def test_tela_nao_mostra_posicao_velha_como_atual():
+    """Semana passada o MLB55 estava em 54º; nesta semana a busca do termo não o achou (fora do top): a tela não pode
+    repetir o 54º como posição de hoje. Termo que nunca foi buscado = coleta pendente (nunca zero)."""
+    semana1 = w.posicoes_de_busca("club", [{"id": f"MLB{i}"} for i in range(1, 60)], {"MLB55"}, "2026-09-20")
+    semana2 = w.posicoes_de_busca("club", [{"id": f"MLB{i}"} for i in range(100, 250)], {"MLB55"}, "2026-09-27")
+    tabelas = {"ml_lojas": [], "anuncio_posicoes": sorted(semana1 + semana2, key=lambda x: x["data"], reverse=True),
+               "meus_anuncios": [{"id": "MLB55", "termo": "club"}, {"id": "MLB77", "termo": "asad"}]}
+
+    class Repo:
+        def _todos(self, t, q=None):
+            return [dict(x) for x in tabelas.get(t, [])]
+
+        def _req(self, *a, **k):
+            return []
+    r = w.rota_posicoes(Repo(), "GET", "posicoes", {}, None)
+    club, asad = r["anuncios"]
+    assert club["medido_em"] == "2026-09-27" and club["atual"] is None          # fora do top, não o 54º da semana passada
+    assert asad["medido_em"] is None and asad["atual"] is None                  # coleta pendente
+    assert "a.medido_em" in Path(__file__).resolve().parents[1].joinpath("public", "index.html").read_text()
+
+
 def test_anuncio_pelo_link_colado():
     a = w.anuncio_do_link("https://www.mercadolivre.com.br/body-splash-haya-perfume-mist-lattafa-250ml-body-splash-arabe-importado/up/"
                           "MLBU3825091812?pdp_filters=item_id%3AMLB6365511140&tracking_id=a7#polycard_client=mshops-appearance-api&component=tabbed_carousel"
