@@ -1471,6 +1471,188 @@ def coletar_estoque(p, cfg, token, enviar=True):
     return 1, 1, 0, (linhas[1] if len(linhas) > 1 else linhas[0])[:200]
 
 
+# ---------------------------------------------------------------------------
+# Mercado Livre: meus anúncios e a posição de cada um na busca (card #78, "Posição do anúncio")
+# ---------------------------------------------------------------------------
+ML_LISTA = "https://lista.mercadolivre.com.br"
+ML_POR_PAGINA = 48
+# resultados de uma página de busca ou de loja, na ordem da tela (layout novo "poly-card" e o antigo "ui-search")
+JS_ML_RESULTADOS = r"""() => {
+  const cards = [...document.querySelectorAll('li.ui-search-layout__item, div.poly-card, div.ui-search-result__wrapper, li.ui-search-result')];
+  const topo = cards.filter(c => !cards.some(o => o !== c && o.contains(c)));
+  return topo.map(c => {
+    const links = [...c.querySelectorAll('a[href]')].map(a => a.href);
+    const t = c.querySelector('.poly-component__title, .ui-search-item__title, h2, h3');
+    const txt = c.innerText || '';
+    const sel = c.querySelector('.poly-component__seller, .ui-search-official-store-label, .ui-search-item__group__element--seller');
+    const vend = ((sel ? sel.textContent : '').replace(/^\s*(?:Por|Vendido por)\s+/i, '') ||
+                  (txt.match(/(?:^|\n)\s*(?:Por|Vendido por)\s+([^\n]+)/i) || [])[1] || '');
+    const img = c.querySelector('img');
+    const fr = c.querySelector('.andes-money-amount__fraction');
+    return {links, titulo: (t ? t.textContent : '').trim(), vendedor: vend.trim(), patrocinado: /\bPatrocinado\b/i.test(txt),
+            foto: img ? (img.getAttribute('data-src') || img.getAttribute('src') || '') : '',
+            preco: fr ? Number(fr.textContent.replace(/\D/g, '')) : null};
+  });
+}"""
+
+
+def ml_id(links):
+    """Código do anúncio (MLB123…) a partir dos links do card; anúncio patrocinado vem por um link de clique com o
+    destino codificado. Prefere o item (item_id/wid) ao código do catálogo (/p/MLB…)."""
+    for h in links or []:
+        u = urllib.parse.unquote(urllib.parse.unquote(h or ""))
+        m = re.search(r"(?:item_id[:=]|wid=)(MLB-?\d{6,})", u) or re.search(r"/(MLB-\d{6,})", u) or re.search(r"(MLB\d{8,})", u)
+        if m:
+            return m.group(1).replace("-", "").upper()
+    return None
+
+
+def _ml_bloqueado(pg):
+    u = pg.url
+    return any(x in u for x in ("account-verification", "/gz/", "captcha", "login")) or \
+        bool(pg.locator("text=/não sou um robô|confirme que você é humano|verifica[çc][ãa]o de seguran/i").count())
+
+
+def ml_resultados(pg):
+    devagar(2.5)
+    if _ml_bloqueado(pg):
+        enviar_foto(pg, "Mercado Livre pediu verificação", resumo_tela(pg))
+        raise Falha("o Mercado Livre pediu verificação (captcha/login) " + diagnostico(pg))
+    out = []
+    for x in pg.evaluate(JS_ML_RESULTADOS):
+        aid = ml_id(x.get("links"))
+        if aid:
+            out.append({"id": aid, "titulo": x.get("titulo") or "", "vendedor": x.get("vendedor") or "",
+                        "patrocinado": bool(x.get("patrocinado")), "foto": x.get("foto") or "", "preco": x.get("preco"),
+                        "link": next((h for h in x.get("links") or [] if "mercadolivre.com.br" in h and "click" not in h), "")})
+    return out
+
+
+def _ml_slug(t):
+    t = unicodedata.normalize("NFKD", str(t or "").lower())
+    return re.sub(r"[^a-z0-9]+", "-", "".join(c for c in t if not unicodedata.combining(c))).strip("-")
+
+
+def _pagina_da_loja(pg, junto):
+    """A página aberta é mesmo da loja (o nome aparece no título ou no cabeçalho) e não um 'página não encontrada'."""
+    try:
+        cab = pg.title() + " " + " ".join(pg.locator("h1").all_inner_texts()[:3])
+    except Exception:  # noqa: BLE001
+        return False
+    if re.search(r"n[ãa]o existe|n[ãa]o encontrad|p[áa]gina indispon", cab, re.I):
+        return False
+    return junto in re.sub(r"[^a-z0-9]", "", _ml_slug(cab))
+
+
+def ml_achar_loja(pg, nome, max_paginas=6):
+    """Acha a página com os anúncios da loja e devolve (url, anúncios). Tenta a loja oficial, o perfil do vendedor
+    ('Ver todos os produtos') e, por último, a busca pelo nome da loja filtrando os cards do vendedor."""
+    slug, junto = _ml_slug(nome), re.sub(r"[^a-z0-9]", "", _ml_slug(nome))
+    tentativas = [f"https://www.mercadolivre.com.br/loja/{slug}", f"https://www.mercadolivre.com.br/pagina/{junto}",
+                  f"https://www.mercadolivre.com.br/perfil/{junto.upper()}"]
+    alvo = None
+    for url in tentativas:
+        try:
+            pg.goto(url, wait_until="domcontentloaded", timeout=45000)
+        except Exception:  # noqa: BLE001
+            continue
+        devagar(2)
+        if not _pagina_da_loja(pg, junto):              # 404 ou outra página: as sugestões do ML NÃO são meus anúncios
+            continue
+        ver = pg.locator("a", has_text=re.compile(r"ver (todos|mais)( os)? (produtos|an[úu]ncios)|ir para a loja", re.I))
+        if ver.count():
+            href = ver.first.get_attribute("href")
+            if href:
+                alvo = urllib.parse.urljoin(pg.url, href)
+                break
+        if ml_resultados(pg):
+            alvo = pg.url
+            break
+    anuncios = []
+    if alvo:
+        log(f"  loja {nome}: {alvo}")
+        pg.goto(alvo, wait_until="domcontentloaded", timeout=45000)
+        for _ in range(max_paginas):
+            novos = [x for x in ml_resultados(pg) if x["id"] not in {a["id"] for a in anuncios}]
+            anuncios += novos
+            prox = pg.locator("a[title='Seguinte'], li.andes-pagination__button--next a")
+            if not novos or not prox.count():
+                break
+            prox.first.click()
+            pg.wait_for_load_state("domcontentloaded")
+        return alvo, anuncios
+    # sem página da loja: busca pelo nome e fica só com os cards "Por <loja>"
+    pg.goto(f"{ML_LISTA}/{slug}", wait_until="domcontentloaded", timeout=45000)
+    achados = [x for x in ml_resultados(pg) if junto in re.sub(r"[^a-z0-9]", "", _ml_slug(x["vendedor"]))]
+    return (pg.url if achados else None), achados
+
+
+def coletar_ml_lojas(p, cfg, token):
+    conf = api(token, "ml_config", timeout=30)
+    lojas = conf.get("lojas") or []
+    if not lojas:
+        return 0, 0, 0, "nenhuma loja cadastrada em Posição do anúncio"
+    ctx = abrir_navegador(p, cfg)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    total, erros, partes = 0, 0, []
+    try:
+        for lj in lojas:
+            try:
+                url, an = ml_achar_loja(pg, lj["nome"])
+            except Falha:
+                raise
+            except Exception as e:  # noqa: BLE001
+                erros += 1
+                enviar_foto(pg, f"loja {lj['nome']}: {str(e)[:120]}", resumo_tela(pg))
+                partes.append(f"{lj['nome']}: erro ({str(e)[:80]})")
+                continue
+            api(token, "ml_anuncios_gravar", corpo={"loja": lj["nome"], "url": url or "", "anuncios": an,
+                                                     "obs": "" if an else "não achei a loja no Mercado Livre (confira o nome)"}, timeout=60)
+            total += len(an)
+            partes.append(f"{lj['nome']}: {len(an)} anúncio(s)")
+            log(f"  {partes[-1]}")
+            devagar(4)
+    finally:
+        ctx.close()
+    return len(lojas), total, erros, "; ".join(partes)[:300]
+
+
+def coletar_ml_posicoes(p, cfg, token, paginas=3):
+    conf = api(token, "ml_config", timeout=30)
+    if not conf.get("anuncios") and conf.get("lojas"):
+        coletar_ml_lojas(p, cfg, token)                 # primeira vez: acha os anúncios das lojas antes
+        conf = api(token, "ml_config", timeout=30)
+    termos = conf.get("termos") or []
+    if not termos:
+        return 0, 0, 0, "nenhum termo de busca (cadastre as lojas ou os termos em Posição do anúncio)"
+    por = int(conf.get("por_pagina") or ML_POR_PAGINA)
+    ctx = abrir_navegador(p, cfg)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    feitos, meus, erros = 0, 0, 0
+    try:
+        for termo in termos:
+            itens = []
+            try:
+                for n in range(paginas):
+                    url = f"{ML_LISTA}/{_ml_slug(termo)}" + (f"_Desde_{n * por + 1}_NoIndex_True" if n else "")
+                    pg.goto(url, wait_until="domcontentloaded", timeout=45000)
+                    itens += ml_resultados(pg)
+                    devagar(2)
+                r = api(token, "ml_posicoes_gravar", corpo={"termo": termo, "itens": itens}, timeout=60)
+                feitos += 1
+                meus += r.get("meus") or 0
+                log(f"  '{termo}': {len(itens)} resultados, {r.get('meus', 0)} anúncio(s) meu(s) no top {paginas * por}")
+            except Falha:
+                raise
+            except Exception as e:  # noqa: BLE001
+                erros += 1
+                log(f"  '{termo}': ERRO {str(e)[:150]}")
+            devagar(3)
+    finally:
+        ctx.close()
+    return feitos, meus, erros, f"{feitos} busca(s), {meus} posição(ões) dos meus anúncios anotada(s)"
+
+
 def cmd_entrar_upseller(args, cfg):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -1851,6 +2033,7 @@ def comando_mac(chave, arg=""):
         "entrar_auto_nubimetrics": [c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [c, "entrar-auto", "upseller"],
         "entrar_auto_gestor": [c, "entrar-auto", "gestor"],
         "ferreiro_status": [c, "programar", "0"],
+        "ml_lojas": [c, "ml-lojas"], "ml_posicoes": [c, "ml-posicoes"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -2028,6 +2211,9 @@ def cmd_vigiar():
         if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Gestor Seller -> importando a planilha", flush=True)
             return _soltar("gestor")
+        if not motivo and _fora_da_janela_coleta() and _na_hora(cfg, token, "ml_posicoes_pendente", "posicoes_tentativas"):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: hora da posição dos anúncios no Mercado Livre", flush=True)
+            return _soltar("ml-posicoes")
         if (not motivo and _fora_da_janela_coleta() and not _outra_rodando() and not _pid_vivo(PASTA / "memoria.pid")
                 and _na_hora(cfg, token, "memoria_pendente", "memoria_tentativas")):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora da memória (Hermes documenta, Qwen revisa)", flush=True)
@@ -3321,6 +3507,8 @@ def main():
     pgr.add_argument("id")
     ea = sub.add_parser("entrar-auto", help="entra sozinho no site (senha do navegador/Chaveiro, código do e-mail)")
     ea.add_argument("site", choices=["nubimetrics", "upseller", "gestor"])
+    sub.add_parser("ml-lojas", help="Mercado Livre: acha os anúncios das minhas lojas")
+    sub.add_parser("ml-posicoes", help="Mercado Livre: posição dos meus anúncios na busca")
     gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
     gs.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     es = sub.add_parser("estoque", help="exporta a Lista de Estoque do UpSeller e manda para o nubi")
@@ -3406,6 +3594,10 @@ def main():
         return executar("estoque", lambda p, cfg, token: coletar_estoque(p, cfg, token, not args.sem_enviar))
     if args.cmd == "gestor":
         return executar("gestor", coletar_gestor)
+    if args.cmd == "ml-lojas":
+        return executar("ml_lojas", coletar_ml_lojas)
+    if args.cmd == "ml-posicoes":
+        return executar("ml_posicoes", coletar_ml_posicoes)
     if args.cmd == "atualizar":
         novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro

@@ -802,6 +802,8 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"ok": True})
         if rota.startswith("mac_"):
             return _json(rota_mac(repo, metodo, rota, q, corpo, token))
+        if rota.startswith("ml_") or rota == "posicoes":
+            return _json(rota_posicoes(repo, metodo, rota, q, corpo))
         if rota.startswith("agentes"):
             return _json(rota_agentes(repo, metodo, rota, q, corpo))
         if rota.startswith("rotina") or rota.startswith("ops_"):
@@ -3340,8 +3342,143 @@ COMANDOS_MAC = {
     "entrar_auto_gestor": "Entrar sozinho no Gestor Seller",
     "ferreiro_status": "Ferreiro: conferir se está pronto (Claude Code, chave e git no Mac)",
     "programar_card": "Ferreiro programar um card agora (número do card)",
+    "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
+
+
+# ---------- Posição do anúncio no Mercado Livre (card #78, pedido do Bruno em 25/09) ----------
+# O coletor do Mac (Chrome) acha os anúncios das minhas lojas (ml_lojas → meus_anuncios) e, toda semana, a posição e a
+# página de cada um na busca do seu termo (anuncio_posicoes). 48 anúncios por página; patrocinado conta à parte.
+ML_POR_PAGINA = 48
+_ML_COMUNS = {"perfume", "perfumes", "original", "originais", "lacrado", "importado", "masculino", "feminino", "unissex",
+              "arabe", "edp", "edt", "eau", "de", "parfum", "toilette", "para", "com", "da", "do", "e", "ml"}
+
+
+def termo_padrao(titulo):
+    """Termo de busca inicial de um anúncio: marca + nome do perfume + tamanho, sem as palavras de anúncio (o Bruno edita)."""
+    t = nubi.sem_acento(str(titulo or "")).lower()
+    vol = re.search(r"(\d{2,4})\s*ml", t)
+    ps = [w for w in re.findall(r"[a-z0-9]+", re.sub(r"\d{2,4}\s*ml", " ", t)) if w not in _ML_COMUNS and not w.isdigit()]
+    return " ".join(ps[:5] + ([vol.group(1) + "ml"] if vol else []))
+
+
+def posicoes_de_busca(termo, itens, meus_ids, data):
+    """itens: resultados da busca na ordem da tela [{id, titulo, vendedor, patrocinado}] → linhas de anuncio_posicoes
+    dos meus anúncios e dos 3 primeiros concorrentes orgânicos. Posição orgânica ignora os patrocinados."""
+    linhas, org, vistos, concorrentes = [], 0, set(), 0
+    for i, it in enumerate(itens, start=1):
+        aid = str(it.get("id") or "").upper().replace("-", "")
+        if not aid or aid in vistos:
+            continue
+        vistos.add(aid)
+        patroc = bool(it.get("patrocinado"))
+        if not patroc:
+            org += 1
+        meu = aid in meus_ids
+        if meu or (not patroc and concorrentes < 3):
+            concorrentes += 0 if meu else 1
+            linhas.append({"data": data, "termo": termo, "anuncio_id": aid, "titulo": str(it.get("titulo") or "")[:200],
+                           "vendedor": str(it.get("vendedor") or "")[:80], "meu": meu, "posicao": i,
+                           "posicao_organica": None if patroc else org, "pagina": (i - 1) // ML_POR_PAGINA + 1,
+                           "patrocinado": patroc})
+    return linhas
+
+
+def rota_posicoes(repo, metodo, rota, q, corpo):
+    d = json.loads(corpo or b"{}") if metodo == "POST" else {}
+    agora_ = datetime.now(timezone.utc).isoformat()
+    if rota == "ml_config":
+        # para o coletor: as lojas e os termos de busca de cada anúncio meu
+        lojas = repo._todos("ml_lojas", {"select": "nome,url", "ativo": "is.true"})
+        an = repo._todos("meus_anuncios", {"select": "id,titulo,termo", "ativo": "is.true"})
+        termos = sorted({(a.get("termo") or "").strip() for a in an if (a.get("termo") or "").strip()})
+        return {"lojas": lojas, "anuncios": an, "termos": termos, "por_pagina": ML_POR_PAGINA}
+    if rota == "ml_anuncios_gravar" and metodo == "POST":
+        # o coletor achou os anúncios de uma loja: grava (sem apagar o termo que o Bruno editou)
+        loja = str(d.get("loja") or "").strip().lower()
+        ja = {a["id"]: a for a in repo._todos("meus_anuncios", {"select": "id,termo"})}
+        regs = []
+        for x in d.get("anuncios") or []:
+            aid = str(x.get("id") or "").upper().replace("-", "")
+            if not re.fullmatch(r"MLB\d{6,}", aid):
+                continue
+            regs.append({"id": aid, "loja": loja, "titulo": str(x.get("titulo") or "")[:200],
+                         "preco": x.get("preco") if isinstance(x.get("preco"), (int, float)) else None,
+                         "link": str(x.get("link") or "")[:500], "foto": str(x.get("foto") or "")[:500],
+                         "termo": (ja.get(aid) or {}).get("termo") or termo_padrao(x.get("titulo")), "visto_em": agora_})
+        for i in range(0, len(regs), 200):
+            repo._req("POST", "meus_anuncios", corpo=regs[i:i + 200], prefer="resolution=merge-duplicates,return=minimal")
+        if loja:
+            repo._req("PATCH", "ml_lojas", {"nome": repo._eq(loja)},
+                      corpo={"achado_em": agora_, "url": str(d.get("url") or "")[:500] or None,
+                             "obs": f"{len(regs)} anúncio(s) achado(s)" if regs else str(d.get("obs") or "nenhum anúncio achado")[:300]},
+                      prefer="return=minimal")
+        return {"ok": True, "gravados": len(regs)}
+    if rota == "ml_posicoes_gravar" and metodo == "POST":
+        termo = str(d.get("termo") or "").strip()
+        meus = {a["id"] for a in repo._todos("meus_anuncios", {"select": "id"})}
+        linhas = posicoes_de_busca(termo, d.get("itens") or [], meus, _agora_br().date().isoformat())
+        if linhas:
+            repo._req("DELETE", "anuncio_posicoes", {"termo": repo._eq(termo), "data": repo._eq(linhas[0]["data"])})
+            repo._req("POST", "anuncio_posicoes", corpo=linhas, prefer="return=minimal")
+        return {"ok": True, "linhas": len(linhas), "meus": sum(1 for x in linhas if x["meu"])}
+    if rota == "ml_posicoes_pendente":
+        rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.posicoes"}) or [None])[0]
+        agora = _agora_br()
+        ult = (repo._req("GET", "anuncio_posicoes", {"select": "data", "order": "data.desc", "limit": 1}) or [None])[0]
+        hoje_ok = bool(ult and str(ult["data"])[:10] == agora.date().isoformat())
+        na_hora = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "07:30"))
+        return {"rodar": na_hora and not hoje_ok, "horario": (rot or {}).get("horario")}
+    if rota == "posicoes":
+        lojas = repo._todos("ml_lojas", {"select": "*", "order": "nome"})
+        an = repo._todos("meus_anuncios", {"select": "*", "order": "loja,titulo"})
+        desde = (_agora_br().date() - timedelta(days=70)).isoformat()
+        ps = repo._todos("anuncio_posicoes", {"select": "data,termo,anuncio_id,titulo,vendedor,meu,posicao,posicao_organica,pagina,patrocinado",
+                                              "data": f"gte.{desde}", "order": "data.desc"})
+        hist = {}
+        for p in ps:
+            hist.setdefault((p["anuncio_id"], p["termo"]), []).append(p)
+        for a in an:
+            h = hist.get((a["id"], (a.get("termo") or "").strip())) or []
+            a["atual"] = h[0] if h else None
+            ant = next((x for x in h[1:] if str(x["data"]) <= str((date.fromisoformat(str(h[0]["data"])[:10]) - timedelta(days=6)))), None) if h else None
+            a["anterior"] = ant
+            a["serie"] = [{"data": x["data"], "posicao": x["posicao_organica"] or x["posicao"], "pagina": x["pagina"]} for x in reversed(h[:8])]
+        ult_data = ps[0]["data"] if ps else None
+        concorrentes = {}
+        for p in ps:
+            if p["data"] == ult_data and not p["meu"]:
+                concorrentes.setdefault(p["termo"], []).append(p)
+        rot = (repo._req("GET", "rotinas", {"select": "horario,dias_semana,ativo,ultima_execucao", "id": "eq.posicoes"}) or [None])[0]
+        pedido = (repo._req("GET", "mac_comandos", {"select": "comando,status,criado_em", "comando": "in.(ml_lojas,ml_posicoes)",
+                                                    "order": "id.desc", "limit": 2}) or [])
+        return {"lojas": lojas, "anuncios": an, "ultima_data": ult_data, "concorrentes": concorrentes, "rotina": rot,
+                "pedidos": pedido, "por_pagina": ML_POR_PAGINA}
+    if rota == "ml_loja_salvar" and metodo == "POST":
+        nome = str(d.get("nome") or "").strip().lower()
+        if not nome:
+            raise ErroNuvem("Nome da loja vazio.")
+        if d.get("remover"):
+            repo._req("PATCH", "ml_lojas", {"nome": repo._eq(nome)}, corpo={"ativo": False}, prefer="return=minimal")
+        else:
+            repo._req("POST", "ml_lojas", corpo=[{"nome": nome, "ativo": True}], prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True}
+    if rota == "ml_anuncio_salvar" and metodo == "POST":
+        aid = str(d.get("id") or "").upper()
+        mud = {k: d[k] for k in ("termo", "ativo") if k in d}
+        if "termo" in mud:
+            mud["termo"] = str(mud["termo"] or "").strip()[:120]
+        repo._req("PATCH", "meus_anuncios", {"id": repo._eq(aid)}, corpo=mud, prefer="return=minimal")
+        return {"ok": True}
+    if rota == "ml_pedir" and metodo == "POST":
+        k = "ml_lojas" if d.get("o_que") == "lojas" else "ml_posicoes"
+        pend = repo._req("GET", "mac_comandos", {"select": "id", "comando": repo._eq(k), "status": "in.(pendente,rodando)", "limit": 1}) or []
+        if not pend:
+            repo._req("POST", "mac_comandos", corpo=[{"comando": k, "arg": "", "status": "pendente", "pedido_por": "Bruno"}],
+                      prefer="return=minimal")
+        return {"ok": True, "ja_havia": bool(pend)}
+    raise ErroNuvem("Rota desconhecida.", 404)
 
 
 def rota_mac(repo, metodo, rota, q, corpo, token):
