@@ -93,6 +93,23 @@ def test_astra_programa_os_cards_dele_primeiro():
     assert "executor: Astra (eu mesmo)" in out
 
 
+def test_quadro_real_na_conversa_direta():
+    class R(Repo):
+        def _req(self, m, t, q=None, corpo=None, prefer=None):
+            if t == "reuniao_tarefas" and q.get("responsavel") == "eq.astra":
+                return [{"id": 90}]
+            if t == "reuniao_tarefas":
+                return [{"id": 89, "titulo": "Agente livre", "status": "em_desenvolvimento", "responsavel": "claude_mac"},
+                        {"id": 90, "titulo": "Mostrar executor", "status": "aprovada", "responsavel": "astra", "aguardando": None}]
+            if t == "tarefa_eventos":
+                return [{"tarefa_id": 89, "autor": "claude_mac", "tipo": "passo", "texto": "Ferreiro pegou o card",
+                         "criado_em": "2026-09-26T16:45:00+00:00"}]
+            return []
+    q = w.quadro_para_agente(R(), "astra", "como está o #89?")
+    assert "#89 Agente livre · situação: em_desenvolvimento · executor: Ferreiro" in q and "13:45" in q
+    assert "#90 Mostrar executor" in q and "executor: Astra" in q and "não lê esta conversa" in q
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

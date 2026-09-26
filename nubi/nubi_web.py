@@ -964,7 +964,7 @@ def atender(metodo, rota, q, corpo, token):
             contexto = ("CONVERSA DIRETA ATÉ AGORA (você e o Bruno):\n" + "\n".join(
                 f"[{_br(m['criado_em']):%d/%m %H:%M}] {'Bruno' if m['autor'] == 'voce' else m['autor']}: {str(m['texto'])[:700]}" for m in hist)
                 + "\n\n") if hist else ""
-            pedido = contexto + "NOVA MENSAGEM DO BRUNO: " + texto_voce
+            pedido = contexto + quadro_para_agente(repo, chave, texto_voce) + "NOVA MENSAGEM DO BRUNO: " + texto_voce
             if chave in CRIA_CARDS:
                 pedido += INSTRUCAO_CRIAR_CARD
             if imagens and not agentes.ve_imagens(chave):
@@ -4185,6 +4185,43 @@ def criar_cards_do_agente(repo, chave, resposta):
     saida.append(resposta[i:])
     txt = "".join(saida).strip()
     return txt + ("\n\n" + "\n".join(avisos) if avisos else "")
+
+
+RESP_NOME = {"claude_code": "Chefe (Claude Code, revisa e publica)", "claude_mac": "Ferreiro (Claude Code no Mac)",
+             "astra": "Astra (programa no Mac)", "navegador": "Navegador (Chrome do Mac)", "copilot": "Copilot",
+             "hermes": "Hermes", "chatgpt": "ChatGPT", "deepseek": "DeepSeek", "claude": "Claude (coordenador)"}
+
+
+def quadro_para_agente(repo, chave, texto):
+    """Andamento REAL dos cards para a conversa direta (26/09: o Astra respondia 'sem confirmação' porque não via o quadro):
+    os cards citados (#N) e os cards abertos do próprio agente, com situação, responsável e o último passo."""
+    try:
+        ids = {int(x) for x in re.findall(r"#(\d{1,5})", texto or "")}
+        meus = repo._req("GET", "reuniao_tarefas", {"select": "id", "responsavel": repo._eq(chave),
+                                                    "status": "not.in.(feita,recusada)", "limit": 15}) or []
+        ids |= {t["id"] for t in meus}
+        if not ids:
+            return ""
+        lista = ",".join(str(i) for i in sorted(ids)[:20])
+        ts = repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,status,responsavel,aguardando,atualizado_em",
+                                                  "id": f"in.({lista})", "order": "id"}) or []
+        evs = repo._req("GET", "tarefa_eventos", {"select": "tarefa_id,autor,tipo,texto,criado_em", "tarefa_id": f"in.({lista})",
+                                                  "order": "id.desc", "limit": 200}) or []
+        ult = {}
+        for e in evs:
+            ult.setdefault(e["tarefa_id"], e)
+        linhas = []
+        for t in ts:
+            e = ult.get(t["id"])
+            linhas.append(f"- #{t['id']} {str(t['titulo'])[:90]} · situação: {t['status']} · executor: "
+                          f"{RESP_NOME.get(t.get('responsavel'), t.get('responsavel') or 'sem responsável')}"
+                          + (f" · esperando: {str(t['aguardando'])[:120]}" if t.get("aguardando") else "")
+                          + (f" · último passo ({_br(e['criado_em']):%d/%m %H:%M}, {e['autor']}): {str(e['texto'])[:220]}" if e else ""))
+        return ("QUADRO DE DESENVOLVIMENTO AGORA (dados reais do banco; use isto para responder sobre andamento, sem dizer que "
+                "não tem acesso):\n" + "\n".join(linhas) + "\nO Chefe (Claude Code) não lê esta conversa: ele trabalha nas sessões "
+                "com o Bruno e na rotina de hora em hora; a fila automática do Mac chama Ferreiro, Astra e Navegador sozinha.\n\n")
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 ANEXO_MAX_IMAGENS = 12
