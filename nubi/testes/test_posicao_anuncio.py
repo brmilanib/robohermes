@@ -87,6 +87,27 @@ def test_anuncio_pelo_link_colado():
     assert w.anuncio_do_link("https://www.mercadolivre.com.br/ajuda") is None
 
 
+def test_le_o_vendedor_do_anuncio_colado():
+    from playwright.sync_api import sync_playwright
+    paginas = {"MLB1": '<html><body><h1>Body Splash Haya 250ml</h1><figure><img src="https://http2.mlstatic.com/haya.webp"></figure>'
+                       '<span class="andes-money-amount__fraction">89</span><div class="ui-pdp-seller__header__title">AURASCENT</div></body></html>',
+               "MLB2": '<html><body><h1>Asad</h1><div>Vendido por\nPUREPERFUMARIA\n+1000 vendas</div></body></html>'}
+    enviados = []
+    c.api = lambda token, rota, params=None, corpo=None, **k: enviados.append((rota, corpo)) or {"ok": True}
+    c.devagar = lambda *a, **k: None
+    with sync_playwright() as p:
+        exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+        b = p.chromium.launch(**({"executable_path": exe} if os.path.exists(exe) else {}))
+        pg = b.new_page()
+        pg.route("https://www.mercadolivre.com.br/**", lambda r: r.fulfill(
+            body=paginas["MLB1" if "MLB1" in r.request.url else "MLB2"], content_type="text/html; charset=utf-8"))
+        c.ml_completar_anuncios(pg, "T", [{"id": "MLB1", "link": "https://www.mercadolivre.com.br/x/up/MLBU1?pdp_filters=item_id%3AMLB1"},
+                                          {"id": "MLB2", "link": "https://www.mercadolivre.com.br/y/p/MLB2"}])
+        b.close()
+    assert enviados[0][1]["vendedor"] == "AURASCENT" and enviados[0][1]["preco"] == 89 and enviados[0][1]["foto"].endswith("haya.webp")
+    assert enviados[1][1]["vendedor"] == "PUREPERFUMARIA"
+
+
 def test_termo_padrao():
     assert w.termo_padrao("Perfume Club De Nuit Intense Man 105ml Masculino Armaf") == "club nuit intense man armaf 105ml"
 

@@ -3577,7 +3577,9 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
                         break
         except ErroNuvem:
             pass
-        return {"lojas": lojas, "anuncios": an, "termos": termos, "buscas_produtos": buscas, "por_pagina": ML_POR_PAGINA}
+        sem_loja = [x for x in repo._todos("meus_anuncios", {"select": "id,link,titulo", "ativo": "is.true", "loja": "is.null"}) if x.get("link")]
+        return {"lojas": lojas, "anuncios": an, "termos": termos, "buscas_produtos": buscas, "sem_loja": sem_loja,
+                "por_pagina": ML_POR_PAGINA}
     if rota == "ml_anuncios_gravar" and metodo == "POST":
         # o coletor achou os anúncios de uma loja: grava (sem apagar o termo que o Bruno editou)
         loja = str(d.get("loja") or "").strip().lower()
@@ -3599,6 +3601,23 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
                              "obs": f"{len(regs)} anúncio(s) achado(s)" if regs else str(d.get("obs") or "nenhum anúncio achado")[:300]},
                       prefer="return=minimal")
         return {"ok": True, "gravados": len(regs)}
+    if rota == "ml_anuncio_completar" and metodo == "POST":
+        # o Mac abriu o anúncio e leu o vendedor, a foto e o preço (anúncio colado pelo Bruno sem loja)
+        aid = str(d.get("id") or "").upper()
+        vend = str(d.get("vendedor") or "").strip()
+        mud = {"visto_em": agora_}
+        if vend:
+            mud["loja"] = vend.lower()[:80]
+            if not repo._req("GET", "ml_lojas", {"select": "nome", "nome": repo._eq(mud["loja"])}):
+                repo._req("POST", "ml_lojas", corpo=[{"nome": mud["loja"], "ativo": True, "obs": "achada pelo anúncio " + aid}],
+                          prefer="resolution=merge-duplicates,return=minimal")
+        for k in ("titulo", "foto"):
+            if d.get(k):
+                mud[k] = str(d[k])[:500 if k == "foto" else 200]
+        if isinstance(d.get("preco"), (int, float)) and d["preco"] > 0:
+            mud["preco"] = d["preco"]
+        repo._req("PATCH", "meus_anuncios", {"id": repo._eq(aid)}, corpo=mud, prefer="return=minimal")
+        return {"ok": True, "loja": mud.get("loja")}
     if rota == "ml_posicoes_gravar" and metodo == "POST":
         termo = str(d.get("termo") or "").strip()
         meus = {a["id"] for a in repo._todos("meus_anuncios", {"select": "id"})}

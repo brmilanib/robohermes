@@ -1696,15 +1696,56 @@ def ml_achar_pelos_produtos(pg, lojas, buscas):
     return out
 
 
+JS_ML_VENDEDOR = r"""() => {
+  const q = s => document.querySelector(s);
+  let v = '';
+  const cab = q('.ui-pdp-seller__header__title, .ui-seller-data-header__title, .ui-pdp-seller__link-trigger, [data-testid="seller-info"] h2');
+  if (cab) v = cab.textContent;
+  if (!v) { const m = (document.body.innerText || '').match(/(?:Vendido por|Loja oficial|Vendedor)\s*:?\s*\n?\s*([^\n]{2,60})/i); if (m) v = m[1]; }
+  if (!v) { const a = [...document.querySelectorAll('a[href*="/perfil/"]')][0]; if (a) v = decodeURIComponent(a.href.split('/perfil/')[1].split(/[?#/]/)[0]).replace(/\+/g, ' '); }
+  const h1 = q('h1'), img = q('.ui-pdp-gallery__figure img, figure img'), fr = q('.ui-pdp-price__second-line .andes-money-amount__fraction, .andes-money-amount__fraction');
+  return {vendedor: (v || '').replace(/^\s*(Vendido por|Loja oficial)\s*/i, '').replace(/\s*\+?\d+\s*(mil)?\s*vendas.*$/i, '').trim(),
+          titulo: h1 ? h1.textContent.trim() : '', foto: img ? (img.getAttribute('data-zoom') || img.getAttribute('src') || '') : '',
+          preco: fr ? Number(fr.textContent.replace(/\D/g, '')) : null};
+}"""
+
+
+def ml_completar_anuncios(pg, token, sem_loja):
+    """Anúncios que o Bruno colou sem loja: abre cada um e lê o vendedor ('Vendido por …'), o título, a foto e o preço."""
+    feitos = []
+    for a in sem_loja[:20]:
+        try:
+            pg.goto(a["link"], wait_until="domcontentloaded", timeout=45000)
+            devagar(2.5)
+            if _ml_bloqueado(pg):
+                enviar_foto(pg, "Mercado Livre pediu verificação", resumo_tela(pg))
+                raise Falha("o Mercado Livre pediu verificação (captcha/login) " + diagnostico(pg))
+            x = pg.evaluate(JS_ML_VENDEDOR)
+        except Falha:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log(f"  {a['id']}: não abri o anúncio ({str(e)[:100]})")
+            continue
+        if not x.get("vendedor"):
+            enviar_foto(pg, f"{a['id']}: não achei o vendedor na página", resumo_tela(pg))
+        api(token, "ml_anuncio_completar", corpo=dict(x, id=a["id"]), timeout=30)
+        log(f"  {a['id']}: loja {x.get('vendedor') or '?'}")
+        feitos.append(f"{a['id']} → {x.get('vendedor') or '?'}")
+        devagar(3)
+    return feitos
+
+
 def coletar_ml_lojas(p, cfg, token):
     conf = api(token, "ml_config", timeout=30)
     lojas = conf.get("lojas") or []
-    if not lojas:
+    if not lojas and not conf.get("sem_loja"):
         return 0, 0, 0, "nenhuma loja cadastrada em Posição do anúncio"
     ctx = abrir_navegador(p, cfg)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
     total, erros, partes = 0, 0, []
     try:
+        if conf.get("sem_loja"):                     # anúncios colados sem loja: o vendedor vem da página do anúncio
+            partes += ml_completar_anuncios(pg, token, conf["sem_loja"])
         pelos_produtos = {}
         if conf.get("buscas_produtos"):              # 1º jeito (dica do Bruno): pelos meus produtos
             pelos_produtos = ml_achar_pelos_produtos(pg, [lj["nome"] for lj in lojas], conf["buscas_produtos"])
