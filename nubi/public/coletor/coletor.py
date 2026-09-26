@@ -1192,7 +1192,8 @@ def cmd_configurar(args, cfg):
     elif grupo:
         print(f"  '{grupo}' não é um número; mantive o grupo {cfg['grupo']}.")
     salvar_config(cfg)
-    print("OK: login do nubi conferido e guardado no Chaveiro do Mac.")
+    print("OK: login do nubi conferido e guardado " + ("no Chaveiro do Mac." if sys.platform == "darwin"
+                                                        else "no Gerenciador de Credenciais deste computador."))
 
 
 def testar_sessao(p, cfg, visivel):
@@ -3359,11 +3360,12 @@ def _credencial(site, cfg=None):
 def cmd_guardar_senha(args, cfg):
     """O Bruno guarda (uma vez, no próprio Mac) o login de um site no Chaveiro, para o coletor entrar sozinho."""
     site = args.site
-    nome = {"gmail": "Gmail (código do UpSeller)", "anthropic": "Anthropic (chave da API do Ferreiro)",
+    nome = {"gmail": "Gmail (código do UpSeller)", "anthropic": "Anthropic (chave da API do Ferreiro e do atendente)",
             "openai": "OpenAI (chave da API do Astra programador)"}.get(site) or LOGIN_SITES[site][0]
     usuario = input(f"E-mail/usuário do {nome}: ").strip()
     if site == "anthropic":
-        senha = getpass.getpass("Chave da API (Console → Chaves de API → criar 'Ferreiro Mac'; começa com sk-ant-): ").strip()
+        senha = getpass.getpass("Chave da API (console.anthropic.com → API Keys → criar uma; começa com sk-ant-; "
+                                "não aparece enquanto cola): ").strip()
     elif site == "openai":
         senha = getpass.getpass("Chave da API da OpenAI (platform.openai.com → API keys → criar 'Astra Mac'; começa com sk-): ").strip()
     elif site == "gmail":
