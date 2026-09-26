@@ -121,6 +121,7 @@ def test_astra_programa_no_branch_dele():
     c._credencial = lambda site, cfg=None: ("bruno", "sk-falsa") if site in ("openai", "anthropic") else ("", "")
     assert c.cmd_programar(type("A", (), {"id": "90"})(), c.ler_config(), quem="astra") == 0
     assert "astra/card-90" in passos[-1]["texto"] and passos[-1]["status"] == "em_teste" and "Painel maior" in passos[-1]["texto"]
+    assert all(p_["quem"] == "astra" for p_ in passos)                    # o servidor sabe que é o Astra, não o Ferreiro
     ramos = subprocess.run(["git", "branch", "-a"], cwd=c.REPO_GIT, capture_output=True, text=True).stdout
     assert "astra/card-90" in ramos
     assert c._cards_astra_hoje(c.ler_config()) == 1 and sala[-1]["autor"] == "Astra (design)"

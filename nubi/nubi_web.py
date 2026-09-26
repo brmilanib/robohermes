@@ -1051,14 +1051,19 @@ def atender(metodo, rota, q, corpo, token):
             tid, tipo = int(d.get("id") or 0), str(d.get("tipo") or "passo")
             if not tid or tipo not in ("passo", "erro_teste", "relatorio"):
                 raise ErroNuvem("Card ou tipo inválido.")
-            _evento(repo, tid, "claude_mac", str(d.get("texto") or "")[:7500], tipo=tipo)
+            quem = "astra" if d.get("quem") == "astra" else "claude_mac"     # Ferreiro ou Astra programando no Mac (26/09)
+            _evento(repo, tid, quem, str(d.get("texto") or "")[:7500], tipo=tipo)
             reg = {"atualizado_em": datetime.now(timezone.utc).isoformat()}
             if d.get("status") == "em_desenvolvimento":
-                reg.update(status="em_desenvolvimento", responsavel="claude_mac", iniciado_em=reg["atualizado_em"])
+                reg.update(status="em_desenvolvimento", responsavel=quem, iniciado_em=reg["atualizado_em"])
             elif d.get("status") == "em_teste":
-                reg.update(status="em_teste", responsavel="claude_mac", testador="claude_code")
-            elif d.get("status") == "aprovada":           # não conseguiu: devolve para o programador-chefe
-                reg.update(status="aprovada", responsavel="claude_code")
+                reg.update(status="em_teste", responsavel=quem, testador="claude_code")
+            elif d.get("status") == "aprovada":
+                # não conseguiu: volta para a fila do mesmo programador (a fila espera 1 h); na 3ª falha do dia, o Chefe assume
+                desde = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+                falhas = len(repo._req("GET", "tarefa_eventos", {"select": "id", "tarefa_id": f"eq.{tid}", "tipo": "eq.erro_teste",
+                                                                  "autor": f"eq.{quem}", "criado_em": f"gte.{desde}"}) or [])
+                reg.update(status="aprovada", responsavel="claude_code" if falhas >= 3 else quem)
             repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo=reg, prefer="return=minimal")
             return _json({"ok": True})
         if rota == "tarefa_responder" and metodo == "POST":

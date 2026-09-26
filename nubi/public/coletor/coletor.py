@@ -2884,9 +2884,10 @@ def _git(pasta, *args, timeout=300):
     return subprocess.run(["git", *args], cwd=str(pasta), capture_output=True, text=True, timeout=timeout)
 
 
-def _passo_card(token, tid, texto, status=None, tipo="passo"):
+def _passo_card(token, tid, texto, status=None, tipo="passo", quem="claude_mac"):
     try:
-        api(token, "tarefa_mac_passo", corpo={"id": tid, "texto": texto, "tipo": tipo, **({"status": status} if status else {})},
+        api(token, "tarefa_mac_passo", corpo={"id": tid, "texto": texto, "tipo": tipo, "quem": quem,
+                                              **({"status": status} if status else {})},
             metodo="POST", timeout=60)
     except Exception as e:  # noqa: BLE001
         print(f"ferreiro: não escrevi no card ({e})", flush=True)
@@ -2914,7 +2915,7 @@ def cmd_programar(args, cfg, quem="ferreiro"):
         porque = f"indisponível: {motivo}" if not ok else f"limite do dia atingido ({limite})"
         print(f"{nome} {porque}")
         try:                                              # devolve o card para a fila com o motivo (o servidor espera 1 h)
-            _passo_card(token, tid, f"⏸ {nome} {porque}. O card volta para a fila.", "aprovada", tipo="erro_teste")
+            _passo_card(token, tid, f"⏸ {nome} {porque}. O card volta para a fila.", "aprovada", tipo="erro_teste", quem=("astra" if astra else "claude_mac"))
         except Exception:  # noqa: BLE001
             pass
         return 1
@@ -2939,7 +2940,7 @@ def cmd_programar(args, cfg, quem="ferreiro"):
             raise Falha(f"não consegui trocar para o branch {ramo}: " + (co.stderr or co.stdout)[-300:])
         _passo_card(token, tid, (f"🎨 Astra (Codex no Mac, modelo {ASTRA_MODELO}) pegou o card na hora." if astra else
                                  "🔨 Ferreiro (Claude Code no Mac) pegou o card na hora.") + f" Trabalhando no branch {ramo}.",
-                    "em_desenvolvimento")
+                    "em_desenvolvimento", quem=("astra" if astra else "claude_mac"))
         historico = "\n".join(f"[{e['autor']}] {e['texto'][:1500]}" for e in evs[-12:])
         pedido = (
             (f"Você é o Astra, designer de produto e UX do nubi, agora programando você mesmo no Mac mini. Leia nubi/CLAUDE.md antes. "
@@ -3000,22 +3001,22 @@ def cmd_programar(args, cfg, quem="ferreiro"):
                       else "os testes não passaram no Mac")
             _passo_card(token, tid, f"⚠️ {nome} não conseguiu fechar ({motivo}" + ("" if astra else f"; custo US$ {custo:.2f}")
                         + "). Volta para a fila.\n\n" + (relatorio[:4000] or (testes.stdout + testes.stderr)[-1500:]),
-                        "aprovada", tipo="erro_teste")
+                        "aprovada", tipo="erro_teste", quem=("astra" if astra else "claude_mac"))
             _postar_hermes_como(token, autor, f"⚠️ Card #{tid}: não consegui fechar ({motivo}). Devolvi para a fila.", custo)
             return 1
         env_push = _git(repo, "push", "-f", "origin", ramo)
         if env_push.returncode:
             _passo_card(token, tid, f"⚠️ {nome} fez o card, mas não conseguiu enviar o branch para o GitHub (login do GitHub no Mac: "
-                        "gh auth login). Volta para a fila.\n\n" + relatorio[:4000], "aprovada", tipo="erro_teste")
+                        "gh auth login). Volta para a fila.\n\n" + relatorio[:4000], "aprovada", tipo="erro_teste", quem=("astra" if astra else "claude_mac"))
             return 1
         _passo_card(token, tid, f"📦 **Entrega do {nome}** (branch `{ramo}`, {novos} commit(s), testes do Mac ✅"
                     + ("" if astra else f", custo US$ {custo:.2f}") + f"). O Chefe revisa, junta e publica.\n\n{relatorio[:6000]}",
-                    "em_teste")
+                    "em_teste", quem=("astra" if astra else "claude_mac"))
         _postar_hermes_como(token, autor, f"{'🎨' if astra else '🔨'} Card #{tid} pronto no branch {ramo} (testes ✅). "
                                           "Chefe: revisar, juntar e publicar.", custo)
         return 0
     except Exception as e:  # noqa: BLE001
-        _passo_card(token, tid, f"⚠️ {nome} parou: {str(e)[:300]}. Volta para a fila.", "aprovada", tipo="erro_teste")
+        _passo_card(token, tid, f"⚠️ {nome} parou: {str(e)[:300]}. Volta para a fila.", "aprovada", tipo="erro_teste", quem=("astra" if astra else "claude_mac"))
         return 1
     finally:
         try:
@@ -3182,12 +3183,14 @@ PROIBIDO_CLICAR = re.compile(r"esquec|forgot|recuper|redefin|reset|cadastr|criar
 def _credencial(site, cfg=None):
     """(usuário, senha) do Chaveiro do Mac; senha "" se o Bruno não guardou (aí vale o preenchimento do Chrome)."""
     cfg = cfg or ler_config()
-    usuario = (cfg.get("logins") or {}).get(site, "")
-    if not usuario or sys.platform != "darwin":
+    usuario = (cfg.get("logins") or {}).get(site, "") or (ler_config().get("logins") or {}).get(site, "")
+    if sys.platform != "darwin":
         return usuario, ""
-    r = subprocess.run(["security", "find-generic-password", "-s", f"{SERVICO_CHAVEIRO}-{site}", "-a", usuario, "-w"],
-                       capture_output=True, text=True)
-    return usuario, (r.stdout.strip() if r.returncode == 0 else "")
+    # 26/09: outro processo do coletor com a configuração antiga na memória pode apagar o login do arquivo; a senha
+    # continua no Chaveiro, então sem usuário procura só pelo serviço
+    cmd = ["security", "find-generic-password", "-s", f"{SERVICO_CHAVEIRO}-{site}"] + (["-a", usuario] if usuario else []) + ["-w"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    return usuario or "chaveiro", (r.stdout.strip() if r.returncode == 0 else "")
 
 
 def cmd_guardar_senha(args, cfg):
