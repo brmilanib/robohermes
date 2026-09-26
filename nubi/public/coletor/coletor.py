@@ -2861,13 +2861,43 @@ def _python_novo():
     return None
 
 
+def _nome_pacote(linha):
+    return re.split(r"[=<>!~\[;@ ]", linha.strip(), maxsplit=1)[0].lower().replace("_", "-")
+
+
+def fora_da_caixa(pacotes, caixa_texto):
+    """Pacotes pedidos que não estão na caixa de aprovados (public/coletor/caixa.txt, card #28)."""
+    ok = {_nome_pacote(x) for x in caixa_texto.splitlines() if x.strip() and not x.lstrip().startswith("#")}
+    return [p for p in pacotes if _nome_pacote(p) not in ok]
+
+
+def instalar_da_caixa(python, caixa, wheelhouse, pacotes=()):
+    """Instala SÓ o que está na caixa, a partir da cópia local (wheelhouse), com os hashes conferidos pelo pip
+    (--require-hashes). Pacote fora da lista é recusado: pacote novo = risco alto, o Bruno aprova (card #28)."""
+    fora = fora_da_caixa(pacotes, caixa.read_text())
+    if fora:
+        raise Falha("pacote fora da caixa de aprovados (risco alto, o Bruno aprova): " + ", ".join(fora))
+    wheelhouse.mkdir(parents=True, exist_ok=True)
+    pip = [str(python), "-m", "pip"]
+    instalar = pip + ["install", "-q", "--no-index", "--find-links", str(wheelhouse), "--require-hashes", "-r", str(caixa)]
+    r = subprocess.run(instalar, capture_output=True, text=True, timeout=1800)
+    if r.returncode:   # falta roda na cópia local: baixa só o que está na caixa (hash conferido) e instala de novo, sem rede
+        r = subprocess.run(pip + ["download", "-q", "--require-hashes", "-r", str(caixa), "-d", str(wheelhouse)],
+                           capture_output=True, text=True, timeout=1800)
+        if not r.returncode:
+            r = subprocess.run(instalar, capture_output=True, text=True, timeout=1800)
+    if r.returncode:
+        raise Falha("não consegui instalar pela caixa de pacotes: " + (r.stderr or r.stdout)[-300:])
+
+
 def _ambiente_projeto(repo):
     """venv só do Ferreiro com as bibliotecas do projeto (pandas, openpyxl, playwright + Chromium): no 1º teste (25/09),
-    8 dos 16 testes não rodaram porque o Python do Mac não tinha as bibliotecas. Devolve a pasta bin do venv."""
+    8 dos 16 testes não rodaram porque o Python do Mac não tinha as bibliotecas. Devolve a pasta bin do venv.
+    Instala só pela caixa de pacotes aprovados, da cópia local em ~/.nubi-coletor/wheelhouse (card #28)."""
     venv = PASTA / "venv-projeto"
-    reqs = (repo / "nubi" / "requirements.txt").read_bytes() if (repo / "nubi" / "requirements.txt").exists() else b""
+    caixa = repo / "nubi" / "public" / "coletor" / "caixa.txt"
     marca = venv / ".pronto"
-    assinatura = hashlib.sha1(reqs + b"playwright").hexdigest()
+    assinatura = hashlib.sha1(caixa.read_bytes() if caixa.exists() else b"").hexdigest()
     if marca.exists() and marca.read_text() == assinatura:
         return venv / "bin"
     py = _python_novo()
@@ -2875,12 +2905,11 @@ def _ambiente_projeto(repo):
         raise Falha("falta um Python 3.11 ou mais novo no Mac. No Terminal: brew install python@3.12")
     if not (venv / "bin" / "python").exists():
         subprocess.run([py, "-m", "venv", str(venv)], check=True, capture_output=True, timeout=300)
-    pip = [str(venv / "bin" / "python"), "-m", "pip", "install", "-q"]
-    for cmd in (pip + ["--upgrade", "pip"], pip + ["-r", str(repo / "nubi" / "requirements.txt"), "playwright"],
-                [str(venv / "bin" / "python"), "-m", "playwright", "install", "chromium"]):
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-        if r.returncode:
-            raise Falha("não consegui preparar o Python do projeto: " + (r.stderr or r.stdout)[-300:])
+    instalar_da_caixa(venv / "bin" / "python", caixa, PASTA / "wheelhouse")
+    r = subprocess.run([str(venv / "bin" / "python"), "-m", "playwright", "install", "chromium"],
+                       capture_output=True, text=True, timeout=1800)
+    if r.returncode:
+        raise Falha("não consegui preparar o Python do projeto: " + (r.stderr or r.stdout)[-300:])
     marca.write_text(assinatura)
     return venv / "bin"
 
