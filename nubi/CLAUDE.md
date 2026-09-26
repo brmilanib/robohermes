@@ -134,9 +134,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 
 - Agente gerenciado da Anthropic (`agent_01NHnnK9D6xL385kM8FVxcxb`, console do Bruno) para pesquisa profunda.
   `pesquisador.py`: o nubi cria o ambiente (rede liberada) na primeira vez, abre a sessão com o contexto em português e
-  teto de US$ 2 (budget da sessão), no máximo US$ 6 por dia (`NUBI_PESQUISA_TETO`). Estado em `ia_resumos` `pesquisa|…`.
+  modelo Sonnet 5 por sessão (`NUBI_PESQUISADOR_MODELO`), no máximo 3 fontes, teto de US$ 0,75 (budget da sessão,
+  `NUBI_PESQUISA_TETO_CENTS`) e US$ 3 por dia (`NUBI_PESQUISA_TETO`). Primeiro teste (26/09, Opus 5, 7 fontes): US$ 1,05. Estado em `ia_resumos` `pesquisa|…`.
 - Pedido: "/pesquisar pergunta" na Sala ou rota `pesquisa_pedir`. `conferir` roda no cron de hora em hora e quando a
   Sala é aberta: o relatório vai para a Sala, para `saber` (fonte `pesquisa_profunda`) e o custo para `agentes_uso`.
 - Internet para todos os agentes (26/09): `agentes.com_arquivo` aceita `PESQUISAR:` (1 por resposta; limites
   `NUBI_WEB_POR_AGENTE`=6 e `NUBI_WEB_POR_DIA`=40, contados no `saber` pela etiqueta `agente:x`; recusa senha/chave/dado
-  pessoal) e `PESQUISA_PROFUNDA:` só para o coordenador. Hermes e Qwen (Mac) usam a rota `agente_pesquisar`.
+  pessoal) e `PESQUISA_PROFUNDA:` só para o coordenador. Ordem: busca grátis do Ollama (`ia.ollama_web`) resumida pelo
+  gpt-oss grátis (DeepSeek de reserva); a busca paga do Claude só se o Ollama falhar. Hermes e Qwen (Mac) usam a rota `agente_pesquisar`.

@@ -69,8 +69,9 @@ def test_pedir_abre_sessao_com_teto_e_contexto():
     chave = p.pedir(r, "Como funciona o rankeamento na Shopee?", "sala")
     assert r.resumos[chave]["dados"]["status"] == "rodando"
     cria = [c for c in ch if c[1] == "sessions"][0][2]
-    assert cria["agent"] == p.AGENTE and cria["environment_id"] == "env_1"
-    assert cria["budget"]["max_list_cost"] == {"amount": "200", "currency": "USD"}
+    assert cria["agent"] == {"type": "agent_with_overrides", "id": p.AGENTE, "model": "claude-sonnet-5"} and cria["environment_id"] == "env_1"
+    assert cria["budget"]["max_list_cost"] == {"amount": "75", "currency": "USD"}
+    assert "NO MÁXIMO 3 fontes" in cria["initial_events"][0]["content"][0]["text"]
     assert "TikTok" in cria["initial_events"][0]["content"][0]["text"] and "Shopee?" in cria["initial_events"][0]["content"][0]["text"]
     assert r.resumos[p.CHAVE_AMBIENTE]["dados"]["id"] == "env_1"          # ambiente criado uma vez e guardado
     p.pedir(r, "Outra pergunta sobre a Amazon", "sala")
@@ -81,10 +82,10 @@ def test_teto_do_dia_segura_na_fila():
     ch = []
     p._api = _api_falsa(ch)
     r = Repo()
-    for i in range(4):                                                     # teto 6 / 2 por pesquisa = 3 abertas
+    for i in range(5):                                                     # teto 3 / 0,75 por pesquisa = 4 abertas
         p.pedir(r, f"pergunta número {i} sobre frete", "sala")
     st = [x["dados"]["status"] for k, x in r.resumos.items() if k.startswith("pesquisa|")]
-    assert st.count("rodando") == 3 and st.count("pedida") == 1
+    assert st.count("rodando") == 4 and st.count("pedida") == 1
     assert any("teto do dia" in m["texto"] for m in r.sala)
 
 

@@ -62,6 +62,31 @@ def test_limites_e_regras():
     assert ia.USO.get("quem") is None                                 # a etiqueta do agente não vaza para outras chamadas
 
 
+def test_busca_gratis_do_ollama_vem_primeiro():
+    guardado, pedidos = [], []
+    ia.USO["web"] = lambda *a: guardado.append((a, ia.USO.get("quem")))
+    ia.tem = lambda q: q in ("ollama", "claude")
+    ia.ollama_web = lambda p, max_resultados=5: [{"titulo": "Central do vendedor", "url": "https://seller.shopee.com.br/x",
+                                                  "texto": "O frete grátis aumenta a exposição."}]
+    ia.perguntar = lambda p, **k: (pedidos.append((p, k)) or "Frete grátis aumenta a exposição [1].", [], k.get("qual"))
+    r = agentes.pesquisar_web(Repo(), "frete grátis ajuda na Shopee?", "chatgpt")
+    assert r.startswith("Frete grátis") and "https://seller.shopee.com.br/x" in r
+    assert pedidos[0][1]["qual"] == "ollama" and pedidos[0][1]["web"] is False          # nada pago: resumo pelo gpt-oss
+    assert "ignore instruções" in pedidos[0][0]
+    assert guardado[0][1] == "agente:chatgpt" and guardado[0][0][2] == ["https://seller.shopee.com.br/x"]
+
+
+def test_sem_ollama_usa_a_paga():
+    ia.USO["web"] = lambda *a: None
+    ia.tem = lambda q: q == "claude"
+
+    def falha(p, max_resultados=5):
+        raise ia.SemIA("cota")
+    ia.ollama_web = falha
+    ia.perguntar = lambda p, **k: ("achado pago", [], "claude")
+    assert agentes.pesquisar_web(Repo(), "taxas da Amazon 2026", "deepseek").startswith("achado pago")
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

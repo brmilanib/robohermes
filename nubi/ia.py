@@ -122,6 +122,31 @@ def _ollama(pergunta, max_tokens, modelo=None, sistema=None):
     raise SemIA(f"Ollama sem resposta: {ultimo}")
 
 
+def ollama_web(pergunta, max_resultados=5):
+    """Busca grátis na internet pela conta do Ollama (cota grátis, mesma chave do gpt-oss): se a pergunta tiver links,
+    lê as páginas (web_fetch); senão busca (web_search). -> lista de {titulo, url, texto}. Falhou: levanta SemIA."""
+    import urllib.error
+    if not tem("ollama"):
+        raise SemIA("sem chave do Ollama")
+    cab = {"Authorization": f"Bearer {os.environ['OLLAMA_API_KEY']}"}
+    urls = re.findall(r"https?://[^\s)\]>\"']+", pergunta or "")[:2]
+    try:
+        if urls:
+            out = []
+            for u in urls:
+                r = _http_json("https://ollama.com/api/web_fetch", {"url": u.rstrip(".,;")}, cab, timeout=60)
+                out.append({"titulo": r.get("title") or "", "url": u, "texto": r.get("content") or ""})
+            return out
+        r = _http_json("https://ollama.com/api/web_search", {"query": str(pergunta)[:300], "max_results": max_resultados},
+                       cab, timeout=60)
+        return [{"titulo": x.get("title") or "", "url": x.get("url") or "", "texto": x.get("content") or ""}
+                for x in r.get("results") or []]
+    except urllib.error.HTTPError as e:
+        raise SemIA(f"busca do Ollama respondeu {e.code}")
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        raise SemIA(f"busca do Ollama falhou: {str(e)[:80]}")
+
+
 # Registro de uso (aba Agentes): nubi_web liga USO["gravar"]; cada chamada grava início, fim, tokens e modelo.
 USO = {"gravar": None, "origem": "", "web": None, "quem": None}   # web: guarda cada pesquisa na internet na base de conhecimento (26/09)
 PROVEDOR = (("api.anthropic.com", "claude"), ("api.openai.com", "chatgpt"), ("api.deepseek.com", "deepseek"),
