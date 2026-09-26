@@ -3967,7 +3967,13 @@ def _atendente_enviar(pg, ent, estado, aprovadas, token):
 
 
 def _atendente_marca(pg):
-    return hashlib.sha1(re.sub(r"\s+", " ", pg.inner_text("body", timeout=15000))[:4000].encode()).hexdigest()
+    """Assinatura da caixa de entrada SEM números, horários e datas relativas: a taxa de resposta, 'Sessões de hoje' e
+    '16:02' → 'Ontem' mudam sozinhos e faziam a IA rodar à toa. Só nome de cliente ou texto novo mudam a assinatura."""
+    t = pg.inner_text("body", timeout=15000)
+    t = re.sub(r"\d+([.,:/]\d+)*\s*%?", " ", t)
+    t = re.sub(r"\b(ontem|hoje|agora|domingo|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado)(-feira)?\b|\b(jan|fev|mar|abr|mai|jun|jul|"
+               r"ago|set|out|nov|dez)\b|\bh[aá]\s+\w+", " ", t, flags=re.I)
+    return hashlib.sha1(re.sub(r"\s+", " ", t)[:6000].encode()).hexdigest()
 
 
 def _rodada_atendente(pg, cfg, chave, token, gasto):
@@ -3982,7 +3988,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
         marca = _atendente_marca(pg)
     except Exception:  # noqa: BLE001
         marca = None
-    if marca and marca == cfg.get("tiktok_marca_v3") and not aprovadas and not fechados:
+    if marca and marca == cfg.get("tiktok_marca_v4") and not aprovadas and not fechados:
         return 0.0, {"nada": True}, "Nada novo no chat e nada para enviar."     # sem gasto
     pedido = ("RESPOSTAS APROVADAS PARA ENVIAR (id · cliente · texto):\n"
               + ("\n".join(f"{i['id']} · {i['cliente']} · {i['texto'][:300]}" for i in aprovadas.values()) or "(nenhuma)")
@@ -4057,7 +4063,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
             cfg["tiktok_chat_url"] = pg.url.split("?")[0]
         pg.goto(cfg.get("tiktok_chat_url") or ATENDENTE_URL, timeout=60000)
         pg.wait_for_timeout(4000)
-        cfg["tiktok_marca_v3"] = _atendente_marca(pg)   # v2: a versão com histórico lê tudo uma vez
+        cfg["tiktok_marca_v4"] = _atendente_marca(pg)   # v2: a versão com histórico lê tudo uma vez
     except Exception:  # noqa: BLE001
         pass
     salvar_config(cfg)
