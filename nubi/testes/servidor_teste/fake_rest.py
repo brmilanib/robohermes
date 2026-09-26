@@ -25,31 +25,52 @@ def _campo(k):
     return lambda r: r.get(k)
 
 
+def _bate(pega, op, r):
+    """Um row bate com uma condição só (ex.: 'eq.direta', 'is.null'), pega = _campo(coluna)."""
+    if op.startswith("eq."):
+        return str(pega(r)) == op[3:]
+    if op.startswith("neq."):
+        return str(pega(r)) != op[4:]
+    if op.startswith("gt."):
+        return float(pega(r) or 0) > float(op[3:])
+    if op == "is.null":
+        return pega(r) is None
+    if op == "not.is.null":
+        return pega(r) is not None
+    if op.startswith("lte."):
+        return float(pega(r) or 0) <= float(op[4:])
+    if op.startswith("gte."):
+        return str(pega(r)) >= op[4:]
+    if op.startswith("like."):
+        import fnmatch
+        return fnmatch.fnmatchcase(str(pega(r)), op[5:])
+    if op.startswith("in.("):
+        return str(pega(r)) in set(op[4:-1].split(","))
+    return True
+
+
+_OP_RE = __import__("re").compile(r"^(?P<campo>.+?)\.(?P<op>is\.null|not\.is\.null|eq\.[^,)]*|neq\.[^,)]*|"
+                                   r"gte\.[^,)]*|gt\.[^,)]*|lte\.[^,)]*|like\.[^,)]*|in\.\([^)]*\))$")
+
+
+def _ou(r, expr):
+    """Filtro 'or=(a.eq.1,b->>c.neq.d)' do PostgREST: r bate se QUALQUER cláusula bater."""
+    for cl in expr.strip("()").split(","):
+        m = _OP_RE.match(cl)
+        if m and _bate(_campo(m.group("campo")), m.group("op"), r):
+            return True
+    return False
+
+
 def filtra(rows, params):
     out = rows
     for k, v in params.items():
+        if k == "or" and isinstance(v, str):
+            out = [r for r in out if _ou(r, v)]
+            continue
         pega = _campo(k)
-        if isinstance(v, str) and v.startswith("eq."):
-            val = v[3:]
-            out = [r for r in out if str(pega(r)) == val]
-        elif isinstance(v, str) and v.startswith("neq."):
-            out = [r for r in out if str(pega(r)) != v[4:]]
-        elif isinstance(v, str) and v.startswith("gt."):
-            out = [r for r in out if float(pega(r) or 0) > float(v[3:])]
-        elif isinstance(v, str) and v == "is.null":
-            out = [r for r in out if pega(r) is None]
-        elif isinstance(v, str) and v == "not.is.null":
-            out = [r for r in out if pega(r) is not None]
-        elif isinstance(v, str) and v.startswith("lte."):
-            out = [r for r in out if float(pega(r) or 0) <= float(v[4:])]
-        elif isinstance(v, str) and v.startswith("gte."):
-            out = [r for r in out if str(pega(r)) >= v[4:]]
-        elif isinstance(v, str) and v.startswith("like."):
-            import fnmatch
-            out = [r for r in out if fnmatch.fnmatchcase(str(pega(r)), v[5:])]
-        elif isinstance(v, str) and v.startswith("in.("):
-            vals = set(v[4:-1].split(","))
-            out = [r for r in out if str(pega(r)) in vals]
+        if isinstance(v, str) and (v.startswith(("eq.", "neq.", "gt.", "lte.", "gte.", "like.", "in.(")) or v in ("is.null", "not.is.null")):
+            out = [r for r in out if _bate(pega, v, r)]
     if "order" in params:
         for campo in reversed(params["order"].split(",")):
             desc = campo.endswith(".desc"); campo = campo.split(".")[0]

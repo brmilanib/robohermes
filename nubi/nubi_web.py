@@ -499,6 +499,10 @@ def _preparar(repo):
 
 AGENTE_EMAIL = os.environ.get("NUBI_AGENTE_EMAIL", "")
 AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)")   # modelos grátis que rodam no Mac mini (Ollama)
+# Conversa direta na Sala (card #64, fase 2): nome de exibição de cada agente que aparece na lista de conversas.
+CONVERSA_NOME = {"claude": "Claude", "chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss",
+                 "astra": "Astra (design)", "hermes": "Hermes", "qwen": "Qwen (revisor)",
+                 "claude_mac": "Ferreiro (Claude no Mac)", "copilot": "Copilot"}
 AGENTE_SENHA = os.environ.get("NUBI_AGENTE_SENHA", "")
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 TEMPO_MAX = 240          # segundos por rodada (a função da Vercel tem 300)
@@ -811,7 +815,14 @@ def atender(metodo, rota, q, corpo, token):
 
         if rota == "reuniao":
             apos = int(q.get("apos") or 0)
-            msgs = repo._todos("reuniao_mensagens", {"select": "id,autor,texto,criado_em,meta", "id": f"gt.{apos}", "order": "id"})
+            conversa = str(q.get("conversa") or "sala").strip()
+            p = {"select": "id,autor,texto,criado_em,meta", "id": f"gt.{apos}", "order": "id"}
+            if conversa == "sala":
+                p["or"] = "(meta.is.null,meta->>conversa.neq.direta)"
+            else:
+                p["meta->>conversa"] = "eq.direta"
+                p["meta->>agente"] = f"eq.{conversa}"
+            msgs = repo._todos("reuniao_mensagens", p)
             if not apos:
                 msgs = msgs[-200:]
             try:
@@ -821,6 +832,19 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"mensagens": msgs, "agentes": {k: ia.tem(k) for k in ("chatgpt", "deepseek", "claude", "ollama")},
                           "apelidos": apel,
                           **({"sistema": agentes.SISTEMA} if q.get("sistema") else {})})
+        if rota == "reuniao_conversas":
+            # última mensagem de cada conversa (Sala + uma por agente), para a lista estilo WhatsApp (card #64, fase 2)
+            out = {}
+            for chave in ("sala",) + tuple(CONVERSA_NOME):
+                p = {"select": "autor,texto,criado_em", "order": "id.desc", "limit": 1}
+                if chave == "sala":
+                    p["or"] = "(meta.is.null,meta->>conversa.neq.direta)"
+                else:
+                    p["meta->>conversa"] = "eq.direta"
+                    p["meta->>agente"] = f"eq.{chave}"
+                ult = repo._req("GET", "reuniao_mensagens", p)
+                out[chave] = ult[0] if ult else None
+            return _json({"conversas": out})
         if rota == "reuniao_postar" and metodo == "POST":
             # agentes locais do Mac mini (Hermes e outros via Ollama) postam a resposta sem abrir uma rodada nova
             d = json.loads(corpo or b"{}")
@@ -855,6 +879,51 @@ def atender(metodo, rota, q, corpo, token):
             if not (ia.tem("chatgpt") or ia.tem("claude") or ia.tem("deepseek")):
                 raise ErroNuvem("Nenhuma IA configurada na Vercel.")
             return _json({"novas": reuniao.rodada(repo, texto[:4000])})
+        if rota == "reuniao_enviar_direto" and metodo == "POST":
+            # conversa direta com um agente (card #64, fase 2): a Sala vira lista de conversas, uma por agente
+            d = json.loads(corpo or b"{}")
+            chave = str(d.get("agente") or "").strip().lower()
+            texto = str(d.get("texto") or "").strip()
+            if chave not in CONVERSA_NOME:
+                raise ErroNuvem("Agente inválido.")
+            if not texto:
+                raise ErroNuvem("Escreva a mensagem.")
+            meta = {"conversa": "direta", "agente": chave}
+            agora_ = lambda: datetime.now(timezone.utc).isoformat()  # noqa: E731
+            repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "voce", "texto": texto[:4000], "meta": meta,
+                      "criado_em": agora_()}], prefer="return=minimal")
+            aviso_mac = ("O Ferreiro atende só pelo comando fechado do Mac (card 🩺 urgente ou Central); conversa "
+                         "direta com ele fica para a próxima fase." if chave == "claude_mac" else
+                         "O Copilot atende por tarefa do GitHub aberta pelo Chefe; conversa direta com ele fica para "
+                         "a próxima fase." if chave == "copilot" else
+                         f"{CONVERSA_NOME[chave]} responde pelo Mac quando processar (assíncrono)." if chave in ("hermes", "qwen")
+                         else "")
+            if aviso_mac:
+                repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "sistema", "texto": aviso_mac, "meta": meta,
+                          "criado_em": agora_()}], prefer="return=minimal")
+                return _json({"ok": True})
+            if chave == "claude":
+                if not ia.tem("claude"):
+                    raise ErroNuvem("Claude (coordenador) não configurado.")
+                resposta, _, _ = ia.perguntar(agentes.voz("claude") + texto, web=False, max_tokens=800, qual="claude",
+                                               sistema=agentes.SISTEMA)
+                nome = "Claude"
+            else:
+                if not ia.tem(agentes.AGENTES[chave]["qual"]):
+                    raise ErroNuvem(f"{CONVERSA_NOME[chave]} não configurado.")
+                nome = agentes.AGENTES[chave]["nome"]
+                try:
+                    resposta = agentes.perguntar(chave, texto)
+                except Exception:  # noqa: BLE001
+                    resposta = ""
+            resposta = (resposta or "").strip()
+            if resposta:
+                repo._req("POST", "reuniao_mensagens", corpo=[{"autor": nome, "texto": resposta[:8000], "meta": meta,
+                          "criado_em": agora_()}], prefer="return=minimal")
+            else:
+                repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "sistema", "texto": "sem resposta do agente",
+                          "meta": meta, "criado_em": agora_()}], prefer="return=minimal")
+            return _json({"ok": True})
         if rota == "reuniao_duvida" and metodo == "POST":
             # qualquer agente (programador automático, agente do card, especialistas) abre uma dúvida ligada a um card
             d = json.loads(corpo or b"{}")

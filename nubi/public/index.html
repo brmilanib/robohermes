@@ -316,11 +316,29 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .cc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .cc-seg button{border:0;background:var(--card);color:var(--muted);padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
 .cc-seg button.on{background:var(--soft);color:var(--ink);font-weight:600}
-.wa{display:flex;flex-direction:column;height:calc(100dvh - 150px);min-height:360px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card)}
+.wa-wrap{display:flex;height:calc(100dvh - 150px);min-height:360px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card)}
+.wa-list{width:280px;flex:0 0 auto;overflow-y:auto;border-right:1px solid var(--line);background:var(--card)}
+.wa-li{display:flex;gap:10px;align-items:center;padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--line)}
+.wa-li:hover{background:var(--soft)}
+.wa-li.on{background:var(--soft)}
+.wa-li .av{width:38px;height:38px;border-radius:50%;background:#25d366;display:grid;place-items:center;font-size:18px;flex:none}
+.wa-li .tx{min-width:0}
+.wa-li .tx b{display:block;font-size:13.5px}
+.wa-li .tx small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--muted);font-size:12px}
+.wa{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden}
 .wa-top{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#075e54;color:#fff;
   position:sticky;top:0;z-index:2;flex:0 0 auto}
 .wa-top .av{width:34px;height:34px;border-radius:50%;background:#25d366;display:grid;place-items:center;font-size:18px}
 .wa-top small{opacity:.85}
+.wa-voltar{display:none;background:none;border:0;color:#fff;font-size:20px;cursor:pointer;padding:0 4px 0 0}
+@media (max-width:640px){
+  .wa-wrap{position:relative}
+  .wa-list{position:absolute;inset:0;width:100%;z-index:1}
+  .wa{position:absolute;inset:0;z-index:2;display:none}
+  .wa-wrap.aberta .wa-list{display:none}
+  .wa-wrap.aberta .wa{display:flex}
+  .wa-voltar{display:inline-block}
+}
 .wa-msgs{flex:1;overflow-y:auto;overflow-x:hidden;padding:14px;display:flex;flex-direction:column;gap:6px;min-height:0;
   background:#efeae2 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ccircle cx='2' cy='2' r='1' fill='%23d9d2c5'/%3E%3C/svg%3E")}
 :root[data-theme="dark"] .wa-msgs{background:#0b141a}
@@ -2902,8 +2920,30 @@ async function telaTerminal(silencioso) {
   S.macT = setInterval(() => { if (!location.hash.startsWith("#/central/terminal")) return clearInterval(S.macT); telaTerminal(true); }, vivo ? 3000 : 20000);
   desenharMenu();
 }
-// ---------- Sala de reunião dos agentes (grupo tipo WhatsApp; o Claude decide) ----------
+// ---------- Sala de reunião dos agentes (mensageiro estilo WhatsApp; lista de conversas + Claude decide) ----------
 const AG_COR = {"Hermes": "#a2741a", "Qwen (revisor)": "#615ced", "gpt-oss": "#6b4fb3", "Astra (design)": "#e0457b", "ChatGPT": "#10a37f", "DeepSeek": "#4d6bfe", "Claude": "#d97757", "Claude (código)": "#b3541e", "sistema": "#667781", "voce": "#00a884"};
+// Sala do time (broadcast, reuniao_enviar) + uma conversa direta por agente (reuniao_enviar_direto, card #64 fase 2).
+// claude_mac (Ferreiro) e copilot aparecem na lista mas ainda não respondem ao vivo (próxima fase); hermes/qwen avisam
+// que respondem pelo Mac, de forma assíncrona.
+const CONVERSAS = [
+  {k: "sala", nome: "Sala do time", ic: "👥"}, {k: "claude", nome: "Claude", ic: "🤖"},
+  {k: "chatgpt", nome: "ChatGPT", ic: "🔍"}, {k: "deepseek", nome: "DeepSeek", ic: "🐋"},
+  {k: "gptoss", nome: "gpt-oss", ic: "🪙"}, {k: "astra", nome: "Astra (design)", ic: "🎨"},
+  {k: "hermes", nome: "Hermes", ic: "🦉"}, {k: "qwen", nome: "Qwen (revisor)", ic: "📚"},
+  {k: "claude_mac", nome: "Ferreiro (Claude no Mac)", ic: "🔨"}, {k: "copilot", nome: "Copilot", ic: "🐙"},
+];
+function conversaAtual() {
+  const m = decodeURIComponent(location.hash).match(/^#\/reuniao\/d\/([a-z_]+)$/);
+  return (m && CONVERSAS.some(c => c.k === m[1])) ? m[1] : "sala";
+}
+function waListaHtml(conv, previas) {
+  return CONVERSAS.map(c => {
+    const p = (previas || {})[c.k];
+    const prev = p ? esc((p.texto || "").split("\n")[0]).slice(0, 90) : "Nenhuma mensagem ainda";
+    return `<div class="wa-li ${c.k === conv ? "on" : ""}" data-conv="${c.k}"><div class="av">${c.ic}</div>
+      <div class="tx"><b>${esc(c.nome)}</b><small>${prev}</small></div></div>`;
+  }).join("");
+}
 function waBolha(m) {
   const hr = new Date(m.criado_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
   if (m.autor === "sistema") return `<div class="wa-b sis">${mdSimples(m.texto)}<span class="hr">${hr}</span></div>`;
@@ -2912,38 +2952,50 @@ function waBolha(m) {
   return `<div class="wa-b ${eu ? "eu" : ""} ${m.meta && m.meta.decisao ? "dec" : ""}">${eu ? "" : `<div class="nm" style="color:${cor}">${esc(m.autor)}${ap ? ` “${esc(ap)}”` : ""}${m.meta && m.meta.decisao ? " · decisão" : ""}</div>`}
     <div class="md">${mdSimples(m.texto)}</div><span class="hr">${hr}</span></div>`;
 }
-function waDesenhar(msgs) {
+function waDesenhar(msgs, vazio) {
   let html = "", dia = "";
   for (const m of msgs) {
     const d = new Date(m.criado_em).toLocaleDateString("pt-BR");
     if (d !== dia) { dia = d; html += `<div class="wa-dia">${d === new Date().toLocaleDateString("pt-BR") ? "Hoje" : d}</div>`; }
     html += waBolha(m);
   }
-  return html || `<div class="wa-b sis">A sala está vazia. Escreva uma pergunta ou uma ideia: o ChatGPT e o DeepSeek opinam e o Claude decide e registra as tarefas.</div>`;
+  return html || `<div class="wa-b sis">${vazio}</div>`;
 }
 async function telaReuniao() {
   const main = $("#main");
+  const conv = conversaAtual(), direta = conv !== "sala";
   main.innerHTML = opsAbas("sala") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a sala de reunião</div></div>`;
-  let r;
-  try { r = await api("reuniao"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  S.reu = {msgs: r.mensagens, ult: r.mensagens.length ? r.mensagens[r.mensagens.length - 1].id : 0, apel: r.apelidos || {}};
+  let r, rc;
+  try { [r, rc] = await Promise.all([api("reuniao", direta ? {conversa: conv} : {}), api("reuniao_conversas")]); }
+  catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  S.reu = {msgs: r.mensagens, ult: r.mensagens.length ? r.mensagens[r.mensagens.length - 1].id : 0, apel: r.apelidos || {},
+           conv, previas: rc.conversas || {}};
   const ag = r.agentes, on = k => ag[k] ? "" : " (sem chave)";
+  const info = CONVERSAS.find(c => c.k === conv);
+  const vazio = direta ? `Nenhuma mensagem ainda. Escreva para ${esc(info.nome)}.`
+    : "A sala está vazia. Escreva uma pergunta ou uma ideia: o ChatGPT e o DeepSeek opinam e o Claude decide e registra as tarefas.";
   main.innerHTML = opsAbas("sala") + `
-    <div class="wa"><div class="wa-top"><div class="av">🤖</div><div><b>Agentes do nubi</b><br>
-      <small>você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, gpt-oss${on("ollama")}, Hermes e Qwen (Mac), Astra (design), Claude${on("claude")} (coordena e decide) · @chatgpt, @deepseek, @gptoss ou @astra (design, sob demanda) chama só um</small></div></div>
-      <div class="wa-msgs" id="wa-msgs">${waDesenhar(S.reu.msgs)}</div>
-      <div class="wa-in"><textarea id="wa-txt" rows="1" placeholder="Mensagem para os agentes (Enter envia, Shift+Enter quebra linha)"></textarea><button id="wa-env" title="Enviar">➤</button></div></div>
-    <p class="muted" id="wa-nota" style="font-size:12px;margin:6px 0 0">Todo dia às 11h eles se reúnem sozinhos para discutir a auditoria. O que eles propõem vai para 📋 Desenvolvimento, você aprova e o Claude (código) implementa.</p>`;
+    <div class="wa-wrap ${direta ? "aberta" : ""}" id="wa-wrap">
+      <div class="wa-list" id="wa-list">${waListaHtml(conv, S.reu.previas)}</div>
+      <div class="wa">
+        <div class="wa-top"><button class="wa-voltar" id="wa-voltar" title="Conversas">←</button><div class="av">${info.ic}</div><div>
+          <b>${esc(info.nome)}</b><br>
+          <small>${direta ? "Conversa direta" : `você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, gpt-oss${on("ollama")}, Hermes e Qwen (Mac), Astra (design), Claude${on("claude")} (coordena e decide) · @chatgpt, @deepseek, @gptoss ou @astra (design, sob demanda) chama só um`}</small></div></div>
+        <div class="wa-msgs" id="wa-msgs">${waDesenhar(S.reu.msgs, vazio)}</div>
+        <div class="wa-in"><textarea id="wa-txt" rows="1" placeholder="${direta ? `Mensagem para ${esc(info.nome)} (Enter envia, Shift+Enter quebra linha)` : "Mensagem para os agentes (Enter envia, Shift+Enter quebra linha)"}"></textarea><button id="wa-env" title="Enviar">➤</button></div>
+      </div>
+    </div>
+    <p class="muted" id="wa-nota" style="font-size:12px;margin:6px 0 0">${direta ? `Conversa direta: só ${esc(info.nome)} responde aqui.` : "Todo dia às 11h eles se reúnem sozinhos para discutir a auditoria. O que eles propõem vai para 📋 Desenvolvimento, você aprova e o Claude (código) implementa."}</p>`;
   // como no WhatsApp: a conversa ocupa a tela e só as mensagens rolam (cabeçalho e caixa de texto ficam fixos,
   // com position:sticky no CSS como rede de segurança caso esta conta em pixels saia um pouco errada)
   const ajustarWa = () => {
-    const wa = main.querySelector(".wa");
-    if (!wa) { window.removeEventListener("resize", ajustarWa); window.visualViewport?.removeEventListener("resize", ajustarWa); return; }
+    const wrap = main.querySelector(".wa-wrap");
+    if (!wrap) { window.removeEventListener("resize", ajustarWa); window.visualViewport?.removeEventListener("resize", ajustarWa); return; }
     window.scrollTo(0, 0);
     const alt = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     const bb = $("#barra-baixo"), barra = bb && getComputedStyle(bb).display !== "none" ? bb.offsetHeight : 0;
-    const topo = wa.getBoundingClientRect().top, nota = ($("#wa-nota") || {offsetHeight: 0}).offsetHeight + 14 + barra;
-    wa.style.height = Math.max(360, alt - topo - nota) + "px";
+    const topo = wrap.getBoundingClientRect().top, nota = ($("#wa-nota") || {offsetHeight: 0}).offsetHeight + 14 + barra;
+    wrap.style.height = Math.max(360, alt - topo - nota) + "px";
   };
   ajustarWa();
   window.removeEventListener("resize", S.waAjuste || (() => {}));
@@ -2953,16 +3005,24 @@ async function telaReuniao() {
   window.visualViewport?.addEventListener("resize", ajustarWa);
   requestAnimationFrame(ajustarWa);          // depois do layout assentar (fonte, texto de wa-nota quebrando linha)
   const box = $("#wa-msgs"); box.scrollTop = box.scrollHeight;
+  main.querySelectorAll(".wa-li").forEach(el => el.onclick = () => {
+    const k = el.dataset.conv;
+    if (k === conv) { $("#wa-wrap").classList.add("aberta"); return; }     // mesma conversa: só reabre no celular
+    location.hash = k === "sala" ? "#/reuniao" : `#/reuniao/d/${k}`;
+  });
+  const voltar = $("#wa-voltar"); if (voltar) voltar.onclick = () => $("#wa-wrap").classList.remove("aberta");
   const ta = $("#wa-txt");
   ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; };
   const enviar = async () => {
     const texto = ta.value.trim(); if (!texto) return;
     ta.value = ""; ta.oninput(); $("#wa-env").disabled = true;
     const agora = new Date().toISOString();
-    box.insertAdjacentHTML("beforeend", waBolha({autor: "voce", texto, criado_em: agora}) + `<div class="wa-dig" id="wa-dig">Os agentes estão digitando…</div>`);
+    box.insertAdjacentHTML("beforeend", waBolha({autor: "voce", texto, criado_em: agora}) + `<div class="wa-dig" id="wa-dig">${direta ? esc(info.nome) + " está digitando…" : "Os agentes estão digitando…"}</div>`);
     box.scrollTop = box.scrollHeight;
-    try { await api("reuniao_enviar", {}, {method: "POST", body: JSON.stringify({texto})}); }
-    catch (e) { toast(e.message, 7000); }
+    try {
+      if (direta) await api("reuniao_enviar_direto", {}, {method: "POST", body: JSON.stringify({agente: conv, texto})});
+      else await api("reuniao_enviar", {}, {method: "POST", body: JSON.stringify({texto})});
+    } catch (e) { toast(e.message, 7000); }
     const d = $("#wa-dig"); if (d) d.remove();
     $("#wa-env").disabled = false;
     await atualizarReuniao(true);
@@ -2974,13 +3034,13 @@ async function telaReuniao() {
 }
 async function atualizarReuniao(rolar) {
   let r;
-  try { r = await api("reuniao", {apos: S.reu.ult}); } catch { return; }
+  try { r = await api("reuniao", S.reu.conv !== "sala" ? {apos: S.reu.ult, conversa: S.reu.conv} : {apos: S.reu.ult}); } catch { return; }
   if (!r.mensagens.length) return;
   S.reu.msgs = S.reu.msgs.concat(r.mensagens); S.reu.ult = r.mensagens[r.mensagens.length - 1].id;
   const box = $("#wa-msgs"); if (!box) return;
   const noFim = rolar || box.scrollHeight - box.scrollTop - box.clientHeight < 80;
   const dig = $("#wa-dig") ? $("#wa-dig").outerHTML : "";
-  box.innerHTML = waDesenhar(S.reu.msgs) + dig;
+  box.innerHTML = waDesenhar(S.reu.msgs, "") + dig;
   if (noFim) box.scrollTop = box.scrollHeight;
 }
 // Modelo obrigatório da descrição (card #44): card só executa com os 4 itens preenchidos (nem só o placeholder).
