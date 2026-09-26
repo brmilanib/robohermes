@@ -219,6 +219,33 @@ def test_mensagem_livre_do_bruno_sai_e_fica_fora_do_acerto():
     assert a.metricas(r)["total"]["decididos"] == 0
 
 
+def test_historico_do_chat_e_agradecimento():
+    r = Repo()
+    hist = [{"de": "cliente", "texto": "Boa noite"}, {"de": "cliente", "texto": "Qual endereço consta no envio?"},
+            {"de": "loja", "texto": "Oi! O CEP registrado é 39535-000."}, {"de": "cliente", "texto": "Obgd"}]
+    x = a.receber(r, "tiktok_shop", "", cliente="alana", externo_id="alana", historico=hist,
+                  gerar=_ia(iter(["Por nada! Qualquer coisa, é só chamar! 😊"])))
+    assert x["intencao"] == "agradecimento" and x.get("automatico")                 # agradeceu: responde sozinho
+    msgs = [(m["de"], m["texto"]) for m in r.t["atendimento_mensagens"]]
+    assert msgs[:4] == [(h["de"], h["texto"]) for h in hist]                        # histórico na ordem, sem repetir
+    a.receber(r, "tiktok_shop", "", cliente="alana", externo_id="alana", historico=hist, gerar=_ia(iter([])))
+    assert len([m for m in r.t["atendimento_mensagens"] if m["texto"] == "Boa noite"]) == 1
+    y = a.receber(r, "tiktok_shop", "", cliente="sami", externo_id="sami", respondido=True,
+                  historico=[{"de": "cliente", "texto": "cadê?"}, {"de": "loja", "texto": "Está a caminho!"}])
+    assert y["status"] == "historico" and not [z for z in r.t["atendimento_rascunhos"] if z["conversa_id"] == y["conversa_id"]]
+
+
+def test_duvida_antiga_se_resolve_quando_a_base_aprende():
+    r = Repo()
+    z = a.receber(r, "tiktok_shop", "vocês vendem tester?", cliente="leo", externo_id="leo", gerar=_ia(iter([])))
+    assert z["status"] == "precisa_info"
+    assert a.receber(r, "tiktok_shop", "vocês vendem tester?", cliente="leo", externo_id="leo", gerar=_ia(iter([])))["id"] == z["id"]
+    a.salvar_item_kb(r, "principal", "Vendemos perfumes tester?", "Sim, vendemos tester.")
+    y = a.receber(r, "tiktok_shop", "vocês vendem tester?", cliente="leo", externo_id="leo",
+                  gerar=_ia(iter(["Oi! Sim, vendemos tester! Qualquer coisa, é só chamar!"])))
+    assert y.get("automatico") and [x["status"] for x in r.t["atendimento_rascunhos"]][0] == "substituido"
+
+
 def test_atendente_do_mac_e_chamado_quando_ligado():
     r = Repo()
     assert a.atendente_proximo(r) is None                                # desligado

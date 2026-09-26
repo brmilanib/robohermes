@@ -88,6 +88,8 @@ INTENCOES = [   # ordem importa: reclamação vence rastreio ("chegou quebrado")
     ("reclamacao", r"quebr|vaz(ou|ando|amento)|errad|falsific|\bfalso\b|nao (e|eh) original|pessim|horriv|absurd|reclam|procon|golpe"
                    r"|enganad|danificad|amassad|faltou|faltando|incomplet|decepcion"),
     ("troca_devolucao", r"troc|devolv|devoluc|reembols|estorn|cancel|arrepend"),
+    ("agradecimento", r"^\s*(obg|obgd|obrigad[oa]|muito obrigad[oa]|valeu|vlw|brigad[oa]|grat[ao]|agrade[cç]o|ok,? obrigad[oa]|show|perfeito)"
+                      r"[\s!.,😊🙏❤️👍🥰]*(demais|mesmo|viu)?[\s!.,😊🙏❤️👍🥰]*$"),
     ("rastreio", r"rastre|onde (esta|ta)|\bcade\b|chega|chegou|entreg|transportad|enviad|enviou|despach|prazo|previs|atras"),
     ("pedido", r"\bpedido|\bcompra|comprei"),
     ("produto", r"tester|original|\bml\b|mililitr|fragr|cheiro|\bnotas?\b|dura|fixa|lote|embalag|versao|\btem (o|a|esse|essa|esses|essas)\b"
@@ -225,7 +227,7 @@ def buscar_dados(repo, can, conversa, texto, resposta_operador=None):
     if not falta and intento == "reclamacao" and not kb and not resposta_operador:
         falta = (f"Reclamação do cliente: “{str(texto).strip()[:300]}”. Como você quer tratar (troca, devolução, pedir foto)? "
                  "Não respondo reclamação sem a sua orientação.")
-    if not falta and not tem_dado and intento != "saudacao":
+    if not falta and not tem_dado and intento not in ("saudacao", "agradecimento"):
         falta = (f"Cliente pergunta: “{str(texto).strip()[:300]}” — não tenho essa informação na base da loja nem nos pedidos. "
                  "Pode me responder? Guardo a resposta na base para as próximas vezes.")
     return fatos, falta
@@ -383,7 +385,7 @@ def mensagem_manual(repo, conversa_id, texto, operador="Bruno"):
 
 
 AUTO_CHAVE = "atendimento|auto"
-AUTO_INTENCOES = {"produto", "horario", "saudacao", "outro"}
+AUTO_INTENCOES = {"produto", "horario", "saudacao", "agradecimento", "outro"}
 AUTO_NOTA = 0.75
 
 
@@ -401,15 +403,43 @@ def pode_sozinho(repo, fatos):
         return True
     if fatos.get("intencao") not in AUTO_INTENCOES or "pedido" in fatos:
         return False
-    if fatos.get("intencao") == "saudacao":
+    if fatos.get("intencao") in ("saudacao", "agradecimento"):
         return True
     return any(float(k.get("cobre") or 0) >= AUTO_NOTA for k in fatos.get("base_de_conhecimento") or [])
 
 
-def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, externo_id=None, gerar=None, pedido_dados=None):
-    """Mensagem nova de cliente (do conector do canal ou colada pelo operador): grava e gera o rascunho."""
+def _separar_historico(historico, respondido):
+    """[{de, texto}] do chat → (mensagens anteriores, texto do cliente ainda sem resposta)."""
+    hist = [{"de": "loja" if str(h.get("de") or "").lower() in ("loja", "vendedor", "atendente", "seller") else "cliente",
+             "texto": str(h.get("texto") or "").strip()[:5000]} for h in historico or [] if str(h.get("texto") or "").strip()]
+    if respondido or not hist or hist[-1]["de"] != "cliente":
+        return hist, ""
+    fim = len(hist)
+    while fim and hist[fim - 1]["de"] == "cliente":
+        fim -= 1
+    return hist[:fim], "\n".join(h["texto"] for h in hist[fim:])
+
+
+def _gravar_historico(repo, conversa_id, hist):
+    """Grava as mensagens do chat que o nubi ainda não tem, na ordem (as antigas não se repetem)."""
+    tem = {(m["de"], m["texto"].strip()) for m in repo._req("GET", "atendimento_mensagens", {
+        "select": "de,texto", "conversa_id": f"eq.{conversa_id}", "limit": 5000}) or []}
+    novas = [dict(h, conversa_id=conversa_id, criado_em=_agora()) for h in hist if (h["de"], h["texto"]) not in tem]
+    if novas:
+        repo._req("POST", "atendimento_mensagens", corpo=novas, prefer="return=minimal")
+    return len(novas)
+
+
+def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, externo_id=None, gerar=None, pedido_dados=None,
+            historico=None, respondido=False):
+    """Mensagem nova de cliente (do conector do canal ou colada pelo operador): grava e gera o rascunho.
+    historico = o chat inteiro lido na tela ([{de, texto}]): grava o que falta; respondido = a loja já respondeu (só guarda)."""
+    anteriores = []
+    if historico:
+        anteriores, pendente = _separar_historico(historico, respondido)
+        texto = pendente or ("" if respondido else texto)
     texto = str(texto or "").strip()
-    if not texto:
+    if not texto and not (historico and respondido):
         raise ValueError("mensagem vazia")
     canal(canal_id)
     conversa = None
@@ -432,10 +462,23 @@ def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, ext
             conversa.update(muda)
         ult = (repo._req("GET", "atendimento_mensagens", {"select": "id,de,texto", "conversa_id": f"eq.{conversa['id']}",
                                                           "de": "eq.cliente", "order": "id.desc", "limit": 1}) or [None])[0]
-        if ult and ult["texto"].strip() == texto[:5000].strip():
-            # o atendente do Mac lê a mesma conversa de novo: não duplica a mensagem nem o rascunho
-            return (repo._req("GET", "atendimento_rascunhos", {"select": "*", "conversa_id": f"eq.{conversa['id']}",
-                                                               "order": "id.desc", "limit": 1}) or [{"status": "ja_recebida"}])[0]
+        if texto and ult and ult["texto"].strip() == texto[:5000].strip():
+            # o atendente lê a mesma conversa de novo: não duplica a mensagem nem o rascunho
+            r = (repo._req("GET", "atendimento_rascunhos", {"select": "*", "conversa_id": f"eq.{conversa['id']}",
+                                                            "order": "id.desc", "limit": 1}) or [{"status": "ja_recebida"}])[0]
+            if r.get("status") == "precisa_info" and not r.get("resposta_operador"):
+                # a pergunta ainda espera o Bruno, mas agora pode haver dado (item novo na base, versão nova): tenta de novo
+                if not buscar_dados(repo, canal(canal_id), conversa, ult["texto"])[1]:
+                    repo._req("PATCH", "atendimento_rascunhos", {"id": f"eq.{r['id']}"}, prefer="return=minimal",
+                              corpo={"status": "substituido", "motivo": "resolvido com dado novo"})
+                    return processar(repo, conversa, ult, gerar)
+            return r
+    if anteriores:
+        _gravar_historico(repo, conversa["id"], anteriores)
+    if not texto:                     # conversa já respondida: só o histórico, sem rascunho
+        repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{conversa['id']}"}, prefer="return=minimal",
+                  corpo={"status": "respondida", "atualizado_em": _agora()})
+        return {"status": "historico", "conversa_id": conversa["id"]}
     msg = _inserir(repo, "atendimento_mensagens", {"conversa_id": conversa["id"], "de": "cliente", "texto": texto[:5000],
                                                    "criado_em": _agora()})
     return processar(repo, conversa, msg, gerar)
@@ -651,7 +694,9 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
     if nome == "atendimento_receber" and metodo == "POST":
         return {"rascunho": receber(repo, d.get("canal") or "tiktok_shop", d.get("texto"), d.get("loja"), d.get("cliente"),
                                     d.get("pedido") or None, d.get("externo_id") or None,
-                                    pedido_dados=d.get("pedido_dados") if isinstance(d.get("pedido_dados"), dict) else None)}
+                                    pedido_dados=d.get("pedido_dados") if isinstance(d.get("pedido_dados"), dict) else None,
+                                    historico=d.get("historico") if isinstance(d.get("historico"), list) else None,
+                                    respondido=bool(d.get("respondido")))}
     if nome == "atendimento_decidir" and metodo == "POST":
         return decidir(repo, d["id"], d.get("acao"), d.get("texto"), operador)
     if nome == "atendimento_responder" and metodo == "POST":
