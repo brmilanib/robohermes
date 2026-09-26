@@ -103,13 +103,37 @@ def test_le_o_vendedor_do_anuncio_colado():
         exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
         b = p.chromium.launch(**({"executable_path": exe} if os.path.exists(exe) else {}))
         pg = b.new_page()
-        pg.route("https://www.mercadolivre.com.br/**", lambda r: r.fulfill(
-            body=paginas["MLB1" if "MLB1" in r.request.url else "MLB2"], content_type="text/html; charset=utf-8"))
+        pg.route("https://produto.mercadolivre.com.br/**", lambda r: r.fulfill(
+            body=paginas["MLB1" if "MLB-1" in r.request.url else "MLB2"], content_type="text/html; charset=utf-8"))
         c.ml_completar_anuncios(pg, "T", [{"id": "MLB1", "link": "https://www.mercadolivre.com.br/x/up/MLBU1?pdp_filters=item_id%3AMLB1"},
                                           {"id": "MLB2", "link": "https://www.mercadolivre.com.br/y/p/MLB2"}])
         b.close()
     assert enviados[0][1]["vendedor"] == "AURASCENT" and enviados[0][1]["preco"] == 89 and enviados[0][1]["foto"].endswith("haya.webp")
     assert enviados[1][1]["vendedor"] == "PUREPERFUMARIA"
+
+
+def test_anuncio_colado_da_vitrine_nao_para_no_login_do_ml():
+    """O link colado (vitrine, /up/) manda quem não está logado para a verificação do ML; o coletor abre pela
+    página do item (produto.mercadolivre.com.br/MLB-<n>) e, se mesmo assim vier bloqueado, segue para o próximo
+    em vez de derrubar a tarefa inteira."""
+    from playwright.sync_api import sync_playwright
+    enviados = []
+    fotos = []
+    c.api = lambda token, rota, params=None, corpo=None, **k: enviados.append((rota, corpo)) or {"ok": True}
+    c.devagar = lambda *a, **k: None
+    c.enviar_foto = lambda pg, msg, *a, **k: fotos.append(msg)
+    with sync_playwright() as p:
+        exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+        b = p.chromium.launch(**({"executable_path": exe} if os.path.exists(exe) else {}))
+        pg = b.new_page()
+        # o ML bloqueia tudo (produto e /up/): simula o Mercado Livre pedindo verificação de segurança
+        pg.route("https://produto.mercadolivre.com.br/**", lambda r: r.fulfill(
+            body="<html><body>Confirme que você é humano: verificação de segurança</body></html>",
+            content_type="text/html; charset=utf-8"))
+        c.ml_completar_anuncios(pg, "T", [{"id": "MLB1", "link": "https://www.mercadolivre.com.br/x/up/MLBU1?pdp_filters=item_id%3AMLB1"}])
+        b.close()
+    assert not enviados                                   # não gravou nada (não achou vendedor: ficou bloqueado)
+    assert fotos and "verificação" in fotos[0]
 
 
 def test_termo_padrao():

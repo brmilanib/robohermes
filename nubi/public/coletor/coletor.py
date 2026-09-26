@@ -1714,15 +1714,20 @@ JS_ML_VENDEDOR = r"""() => {
 
 
 def ml_completar_anuncios(pg, token, sem_loja):
-    """Anúncios que o Bruno colou sem loja: abre cada um e lê o vendedor ('Vendido por …'), o título, a foto e o preço."""
+    """Anúncios que o Bruno colou sem loja: abre cada um e lê o vendedor ('Vendido por …'), o título, a foto e o preço.
+    Abre pela página do item (produto.mercadolivre.com.br/MLB-<n>), não pelo link colado (da vitrine, /up/): esse link
+    manda quem não está logado para a verificação do ML, mesmo o anúncio sendo público."""
     feitos = []
     for a in sem_loja[:20]:
+        m = re.match(r"MLB(\d+)$", a["id"])
+        link = f"https://produto.mercadolivre.com.br/MLB-{m.group(1)}" if m else a["link"]
         try:
-            pg.goto(a["link"], wait_until="domcontentloaded", timeout=45000)
+            pg.goto(link, wait_until="domcontentloaded", timeout=45000)
             devagar(2.5)
             if _ml_bloqueado(pg):
                 enviar_foto(pg, "Mercado Livre pediu verificação", resumo_tela(pg))
-                raise Falha("o Mercado Livre pediu login (verificação de robô): rode entrar-ml no Mac " + diagnostico(pg))
+                log(f"  {a['id']}: o Mercado Livre pediu verificação, deixo para a próxima coleta")
+                continue
             x = pg.evaluate(JS_ML_VENDEDOR)
         except Falha:
             raise
