@@ -3973,7 +3973,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
         marca = _atendente_marca(pg)
     except Exception:  # noqa: BLE001
         marca = None
-    if marca and marca == cfg.get("tiktok_marca") and not aprovadas:
+    if marca and marca == cfg.get("tiktok_marca_v2") and not aprovadas:
         return 0.0, {"nada": True}, "Nada novo no chat e nada para enviar."     # sem gasto
     pedido = ("RESPOSTAS APROVADAS PARA ENVIAR (id · cliente · texto):\n"
               + ("\n".join(f"{i['id']} · {i['cliente']} · {i['texto'][:300]}" for i in aprovadas.values()) or "(nenhuma)")
@@ -4030,7 +4030,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
             cfg["tiktok_chat_url"] = pg.url.split("?")[0]
         pg.goto(cfg.get("tiktok_chat_url") or ATENDENTE_URL, timeout=60000)
         pg.wait_for_timeout(4000)
-        cfg["tiktok_marca"] = _atendente_marca(pg)
+        cfg["tiktok_marca_v2"] = _atendente_marca(pg)   # v2: a versão com histórico lê tudo uma vez
     except Exception:  # noqa: BLE001
         pass
     salvar_config(cfg)
