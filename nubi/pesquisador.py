@@ -193,7 +193,7 @@ def _concluir(repo, p, s):
     u = s.get("usage") or {}
     try:
         repo._req("POST", "agentes_uso", corpo=[{
-            "agente": "claude", "modelo": "pesquisador (agente gerenciado)", "origem": f"pesquisa {d.get('origem') or ''}"[:60],
+            "agente": "pesquisador", "modelo": "claude-opus-5 (agente gerenciado)", "origem": f"pesquisa {d.get('origem') or ''}"[:60],
             "inicio": d.get("iniciada_em") or d.get("pedida_em"), "fim": d["concluida_em"], "ok": bool(rel),
             "tokens_in": int(u.get("input_tokens") or 0), "tokens_out": int(u.get("output_tokens") or 0),
             "custo_usd": custo, "erro": d.get("erro")}], prefer="return=minimal")

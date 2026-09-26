@@ -2857,6 +2857,12 @@ function agCard(a, periodo) {
       <div class="ag-m"><span class="l">✅ Pode</span><ul>${a.perfil.pode.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
       <div class="ag-m"><span class="l">⛔ Não pode</span><ul>${a.perfil.nao_pode.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
     </details>` : ""}
+    ${a.limites ? `<div class="ag-m"><span class="l">Gasto de hoje</span><b>${usd(a.limites.gasto_hoje)}</b> de ${usd(a.limites.teto_dia)} por dia
+      · teto ${usd(a.limites.teto_pesquisa)} por pesquisa${a.limites.rodando ? ` · ${a.limites.rodando} rodando` : ""}${a.limites.fila ? ` · ${a.limites.fila} na fila` : ""}</div>
+      <div class="ag-m"><span class="l">Últimas pesquisas</span>${a.limites.ultimas.length ? `<ul>${a.limites.ultimas.map(x => `<li>${esc((x.pergunta || "").slice(0, 110))}
+        <span class="muted">· ${esc({pedida: "na fila", rodando: "rodando", feita: "pronta", erro: "erro"}[x.status] || x.status || "")}${x.custo_usd != null ? " · " + usd(x.custo_usd) : ""}</span></li>`).join("")}</ul>`
+        : `<span class="muted">nenhuma ainda — peça na Sala com /pesquisar pergunta</span>`}</div>` : ""}
+    ${a.internet_hoje ? `<div class="ag-m"><span class="l">Internet hoje</span>${nfmt(a.internet_hoje)} de ${nfmt(a.internet_limite)} pesquisas</div>` : ""}
     <div class="ag-m"><span class="l">Modelo</span>${a.modelo_atual ? `<code>${esc(a.modelo_atual)}</code>` : `<span class="muted">ainda sem uso registrado</span>`}</div>
     ${bloco("Ontem", a.ontem)}${bloco(AG_PERIODOS[periodo] || "Hoje", a[periodo] || a.hoje)}
     ${a.sem_preco ? `<div class="ag-m muted" style="font-size:12px">⚠️ há chamadas de um modelo sem preço cadastrado (tabela de preços abaixo): o custo está incompleto.</div>` : ""}

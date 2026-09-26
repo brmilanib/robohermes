@@ -2814,7 +2814,8 @@ def rotina_8h(repo):
 AGENTE_QUAL = {"chatgpt": "codex", "deepseek": "deepseek", "gptoss": "ollama", "claude": "claude", "astra": "chatgpt"}   # testáveis daqui
 AGENTE_MODELO = {"deepseek": "pro", "astra": "gpt-6-astra"}
 AGENTE_AUTOR = {"chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss", "claude": "Claude", "astra": "Astra (design)", "qwen": "Qwen (revisor)",
-                "hermes": "Hermes", "claude_code": "Claude (código)", "claude_mac": "Ferreiro", "copilot": "Copilot"}
+                "hermes": "Hermes", "claude_code": "Claude (código)", "claude_mac": "Ferreiro", "copilot": "Copilot",
+                "pesquisador": "Pesquisador nubi"}
 
 
 def _precos(repo):
@@ -2906,6 +2907,10 @@ def _agentes_painel(repo):
     ult_msg = {}
     for m in repo._req("GET", "reuniao_mensagens", {"select": "autor,criado_em", "order": "id.desc", "limit": 400}) or []:
         ult_msg.setdefault(m["autor"], m["criado_em"])
+    try:
+        internet = agentes.buscas_web_hoje(repo)                      # pesquisas na internet de cada agente hoje (26/09)
+    except Exception:  # noqa: BLE001
+        internet = {}
     for a in ags:
         u = [x for x in usos if x["agente"] == a["id"]]
         dia = [x for x in u if _br(x["inicio"]).date() == hoje]
@@ -2917,7 +2922,7 @@ def _agentes_painel(repo):
         rodando = [x for x in u if not x.get("fim") and str(x["inicio"]) > (agora - timedelta(minutes=10)).isoformat()]
         erros = [x for x in u if x.get("ok") is False and str(x["inicio"]) > (agora - timedelta(hours=24)).isoformat()]
         qual = AGENTE_QUAL.get(a["id"])
-        chave = ia.tem(qual) if qual else None
+        chave = ia.tem(qual) if qual else (ia.tem("claude") if a["id"] == "pesquisador" else None)
         ultima = max([str(x["inicio"]) for x in u] + [str(ult_msg.get(AGENTE_AUTOR.get(a["id"]), ""))] or [""])
         a.update({
             "hoje": _resumo_uso(dia), "mes": _resumo_uso(mes), "ontem": _resumo_uso(ontem),
@@ -2927,8 +2932,19 @@ def _agentes_painel(repo):
             "modelo_atual": next((x["modelo"] for x in reversed(u) if x.get("modelo") and x.get("ok")), None),
             "ultima_atividade": ultima or None, "chave": chave, "testavel": bool(qual),
             "status": "executando" if rodando else "sem chave" if chave is False else "com erro" if erros
-            else "ativo" if qual or (ultima and ultima > (agora - timedelta(hours=24)).isoformat()) else "parado",
-            "perfil": agentes.PERFIS.get(a["id"])})
+            else "ativo" if qual or chave or (ultima and ultima > (agora - timedelta(hours=24)).isoformat()) else "parado",
+            "perfil": agentes.PERFIS.get(a["id"]),
+            "internet_hoje": internet.get(a["id"], 0), "internet_limite": agentes.WEB_POR_AGENTE})
+        if a["id"] == "pesquisador":
+            try:
+                ps = pesquisador.listar(repo, 30)
+                a["limites"] = {"gasto_hoje": pesquisador.gasto_hoje(repo), "teto_dia": pesquisador.TETO_DIA_USD,
+                                "teto_pesquisa": pesquisador.TETO_SESSAO_CENTS / 100,
+                                "rodando": sum(1 for x in ps if x["status"] == "rodando"),
+                                "fila": sum(1 for x in ps if x["status"] == "pedida"),
+                                "ultimas": [{k: x[k] for k in ("pergunta", "status", "custo_usd", "pedida_em")} for x in ps[:5]]}
+            except Exception:  # noqa: BLE001
+                a["limites"] = None
     return {"agentes": ags, "precos": sorted(_precos(repo).values(), key=lambda p: p["modelo"])}
 
 
