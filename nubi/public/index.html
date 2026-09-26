@@ -3653,6 +3653,7 @@ function situacaoInfo(t) {
     return {texto, motivo: null, classe: "warn"};
   }
   if (t.situacao === "aguardando_bruno" && (t.aguardando || t.status === "proposta")) return null;   // já aparece no aviso grande, sem repetir
+  if (t.situacao === "aguardando_distribuicao") return null;   // a linha do executor já diz "Sem responsável — aguardando distribuição"
   return {texto: SIT_TXT[t.situacao] || t.situacao, motivo: t.situacao_motivo || null, classe: SIT_CLASSE[t.situacao] || ""};
 }
 const desde = t => { if (!t) return ""; const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
