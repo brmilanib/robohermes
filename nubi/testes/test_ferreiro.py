@@ -168,6 +168,18 @@ def test_ferreiro_responde_a_conversa_direta():
     assert c._gasto_ferreiro(c.ler_config()) == 1.25
 
 
+def test_teste_que_falha_aparece_com_o_nome():
+    repo = Path(tempfile.mkdtemp())
+    (repo / "nubi" / "testes").mkdir(parents=True)
+    (repo / "nubi" / "testes" / "test_ok.py").write_text("print('ok')\n")
+    (repo / "nubi" / "testes" / "test_ruim.py").write_text("raise AssertionError('botão sumiu')\n")
+    (repo / "nubi" / "testes" / "fumaca.py").write_text("print('ok')\n")
+    r = c._testes_projeto(repo, dict(os.environ))
+    assert r.returncode == 1 and "test_ruim.py" in r.stdout and "botão sumiu" in r.stdout and "test_ok.py" not in r.stdout
+    (repo / "nubi" / "testes" / "test_ruim.py").write_text("print('ok')\n")
+    assert c._testes_projeto(repo, dict(os.environ)).returncode == 0
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

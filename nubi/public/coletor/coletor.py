@@ -2949,6 +2949,13 @@ def _git(pasta, *args, timeout=300):
     return subprocess.run(["git", *args], cwd=str(pasta), capture_output=True, text=True, timeout=timeout)
 
 
+def _testes_projeto(repo, env):
+    """Roda todos os testes do projeto e a fumaça; cada um que falha aparece com o nome e o fim da saída."""
+    return subprocess.run(["/bin/sh", "-c", 'r=0; for f in nubi/testes/test_*.py nubi/testes/fumaca.py; do '
+                           'o=$(python3 "$f" 2>&1) || { r=1; echo "❌ $f"; echo "$o" | tail -n 15; }; done; exit $r'],
+                          cwd=str(repo), capture_output=True, text=True, timeout=1800, env=env)
+
+
 def _passo_card(token, tid, texto, status=None, tipo="passo", quem="claude_mac"):
     try:
         api(token, "tarefa_mac_passo", corpo={"id": tid, "texto": texto, "tipo": tipo, "quem": quem,
@@ -3016,8 +3023,11 @@ def cmd_programar(args, cfg, quem="ferreiro"):
             + f"\n\nCARD #{tid}: {t['titulo']}\n"
             f"{t.get('descricao') or ''}\n\nHISTÓRICO DO CARD:\n{historico}\n\n"
             "Regras: reproduza o problema com um teste em nubi/testes/ (página falsa, como os testes do coletor; nunca os sites "
-            "reais), corrija, rode TODOS os nubi/testes/test_*.py e python3 nubi/testes/fumaca.py até passar. Faça UM commit em "
-            "português explicando a causa e a solução. NÃO faça push, NÃO publique, NÃO mexa em senhas, chaves, no banco nem no "
+            "reais), corrija, rode TODOS os nubi/testes/test_*.py e python3 nubi/testes/fumaca.py até passar. "
+            + ("NÃO faça commit (o sandbox não deixa): o coletor faz o commit depois. Se o histórico mostrar testes que "
+               "falharam numa tentativa anterior, comece por eles. " if astra else
+               "Faça UM commit em português explicando a causa e a solução. ")
+            + "NÃO faça push, NÃO publique, NÃO mexa em senhas, chaves, no banco nem no "
             "Branch Tracking. No fim, responda com um relatório curto em markdown com as seções ## Causa, ## Solução e ## Testes.")
         bin_py = _ambiente_projeto(repo)                   # python3 do projeto (com as bibliotecas) vem primeiro
         env = {**os.environ, "ANTHROPIC_API_KEY": _credencial("anthropic", cfg)[1],
@@ -3049,23 +3059,26 @@ def cmd_programar(args, cfg, quem="ferreiro"):
             _gasto_ferreiro(cfg, custo)
             relatorio = str(saida.get("result") or "").strip()
         novos = _git(repo, "rev-list", "--count", f"origin/{BRANCH_NUBI}..HEAD").stdout.strip()
-        testes = subprocess.run(["/bin/sh", "-c", "set -e; for f in nubi/testes/test_*.py; do python3 \"$f\" >/dev/null; done; "
-                                 "python3 nubi/testes/fumaca.py >/dev/null"], cwd=str(repo), capture_output=True, text=True,
-                                timeout=1800, env=env)
+        testes = _testes_projeto(repo, env)
         if astra and novos in ("", "0") and _git(repo, "status", "--porcelain").stdout.strip():
             _git(repo, "add", "-A")                       # o Codex às vezes deixa a mudança sem commit: o coletor faz o commit
             _git(repo, "-c", "user.name=Astra (nubi)", "-c", "user.email=astra@nubi.local", "commit", "-m",
                  f"Card #{tid}: {t['titulo'][:80]} (Astra)")
             novos = _git(repo, "rev-list", "--count", f"origin/{BRANCH_NUBI}..HEAD").stdout.strip()
-            testes = subprocess.run(["/bin/sh", "-c", "set -e; for f in nubi/testes/test_*.py; do python3 \"$f\" >/dev/null; done; "
-                                     "python3 nubi/testes/fumaca.py >/dev/null"], cwd=str(repo), capture_output=True, text=True,
-                                    timeout=1800, env=env)
+            testes = _testes_projeto(repo, env)
         ferramenta = "o Codex" if astra else "o Claude Code"
         if r.returncode or novos in ("", "0") or testes.returncode:
             motivo = (f"{ferramenta} parou com erro" if r.returncode else "nenhum commit" if novos in ("", "0")
                       else "os testes não passaram no Mac")
+            falhas = ""
+            if testes.returncode and not r.returncode and novos not in ("", "0"):
+                # 26/09: o card só dizia "testes não passaram", sem qual. Agora vai o teste que falhou e o branch vai para o
+                # GitHub (só o branch do agente, nunca publicado) para o Chefe e a próxima tentativa verem o que quebrou
+                falhas = "## Testes que falharam no Mac\n\n```\n" + (testes.stdout + testes.stderr)[-2500:] + "\n```\n\n"
+                if not _git(repo, "push", "-f", "origin", ramo).returncode:
+                    falhas += f"Branch `{ramo}` enviado ao GitHub para conferência (não publicado).\n\n"
             _passo_card(token, tid, f"⚠️ {nome} não conseguiu fechar ({motivo}" + ("" if astra else f"; custo US$ {custo:.2f}")
-                        + "). Volta para a fila.\n\n" + (relatorio[:4000] or (testes.stdout + testes.stderr)[-1500:]),
+                        + "). Volta para a fila.\n\n" + falhas + (relatorio[:3000] or (testes.stdout + testes.stderr)[-1500:]),
                         "aprovada", tipo="erro_teste", quem=("astra" if astra else "claude_mac"))
             _postar_hermes_como(token, autor, f"⚠️ Card #{tid}: não consegui fechar ({motivo}). Devolvi para a fila.", custo)
             return 1
