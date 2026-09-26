@@ -2253,6 +2253,8 @@ def comando_mac(chave, arg=""):
         return [c, "hermes-card", arg] if str(arg).isdigit() else None
     if chave == "programar_card":
         return [c, "programar", arg] if str(arg).isdigit() else None
+    if chave == "ferreiro_conversa":
+        return [c, "ferreiro-conversa"]
     if chave == "navegar_card":
         return [c, "navegar", arg] if str(arg).isdigit() else None
     if chave == "programar_astra":
@@ -3021,6 +3023,57 @@ def cmd_programar(args, cfg, quem="ferreiro"):
     except Exception as e:  # noqa: BLE001
         _passo_card(token, tid, f"⚠️ {nome} parou: {str(e)[:300]}. Volta para a fila.", "aprovada", tipo="erro_teste", quem=("astra" if astra else "claude_mac"))
         return 1
+    finally:
+        try:
+            trava.unlink()
+        except OSError:
+            pass
+
+
+def cmd_ferreiro_conversa(args, cfg):
+    """Pedido do Bruno (26/09): o Ferreiro atende a conversa direta no nubi. Lê a conversa, o quadro real e o código do projeto
+    (só leitura: não edita, não faz commit) e responde; mudança de código vira card (CRIAR_CARD) que a fila dele programa."""
+    trava = PASTA / "ferreiro-conversa.pid"
+    if _pid_vivo(trava):
+        print("O Ferreiro já está respondendo a conversa.")
+        return 1
+    ok, motivo = ferreiro_pronto(cfg)
+    gasto = _gasto_ferreiro(cfg)
+    token = token_nubi(cfg)
+    if not ok or gasto >= FERREIRO_TETO_DIA:
+        aviso = f"indisponível: {motivo}" if not ok else f"teto do dia atingido (US$ {gasto:.2f})"
+        api(token, "reuniao_postar", corpo={"autor": FERREIRO_AUTOR, "texto": f"⚠️ Não consigo responder agora ({aviso}).",
+                                             "direta": "claude_mac", "modelo": FERREIRO_MODELO}, metodo="POST", timeout=60)
+        return 1
+    trava.write_text(str(os.getpid()))
+    try:
+        ctx = api(token, "conversa_contexto", {"agente": "claude_mac"}, timeout=60)
+        hist = "\n".join(f"[{_br(m.get('criado_em'))}] {'Bruno' if m['autor'] == 'voce' else m['autor']}: {str(m['texto'])[:1500]}"
+                         for m in (ctx.get("historico") or [])[-20:])
+        pedido = (
+            "Você é o Ferreiro, programador do nubi no Mac mini, atendendo o Bruno na conversa direta do nubi (o Chefe não fica no "
+            "chat, então você resolve por aqui). Você está na pasta do projeto: pode LER o código (Read, Grep, Glob, git log/diff) "
+            "para investigar, mas NÃO edite nem faça commit agora. Responda em português, curto e direto, com o que achou. Se "
+            "precisar mudar código, crie o card para você mesmo programar (a fila do Mac pega em minutos).\n\n"
+            + str(ctx.get("quadro") or "") + "CONVERSA:\n" + hist + "\n" + str(ctx.get("instrucao_cards") or ""))
+        repo = PASTA / "projeto"
+        cwd = str(repo) if (repo / ".git").exists() else str(PASTA)
+        env = {**os.environ, "ANTHROPIC_API_KEY": _credencial("anthropic", cfg)[1]}
+        r = subprocess.run([_claude_bin(), "-p", pedido, "--output-format", "json", "--model", FERREIRO_MODELO,
+                            "--max-turns", "25", "--allowedTools",
+                            "Read,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(git status:*),Bash(ls:*)"],
+                           cwd=cwd, env=env, capture_output=True, text=True, timeout=900)
+        try:
+            saida = json.loads(r.stdout or "{}")
+        except ValueError:
+            saida = {"result": (r.stdout or r.stderr or "")[-3000:]}
+        custo = float(saida.get("total_cost_usd") or saida.get("cost_usd") or 0)
+        _gasto_ferreiro(cfg, custo)
+        texto = str(saida.get("result") or "").strip() or "(não consegui responder agora; tente de novo em alguns minutos)"
+        api(token, "reuniao_postar", corpo={"autor": FERREIRO_AUTOR, "texto": texto[:7500], "direta": "claude_mac",
+                                             "modelo": FERREIRO_MODELO, "custo_usd": custo, "tokens_in": 0, "tokens_out": 0},
+            metodo="POST", timeout=60)
+        return 0
     finally:
         try:
             trava.unlink()
@@ -4051,6 +4104,7 @@ def main():
     gsn.add_argument("site", choices=["nubimetrics", "upseller", "gestor", "gmail", "anthropic", "openai"])
     pgr = sub.add_parser("programar", help="o Ferreiro (Claude Code no Mac, pela API) corrige o card N e envia num branch")
     pgr.add_argument("id")
+    sub.add_parser("ferreiro-conversa", help="o Ferreiro responde a conversa direta com o Bruno no nubi (só leitura do projeto)")
     nvg = sub.add_parser("navegar", help="o Navegador (Claude controlando o Chrome do coletor) faz a tarefa do card N")
     nvg.add_argument("id")
     pga = sub.add_parser("programar-astra", help="o Astra (Codex no Mac, modelo do Astra) faz o card de design N e envia num branch")
@@ -4099,6 +4153,8 @@ def main():
         return cmd_conversar(args, cfg)
     if args.cmd == "programar":
         return cmd_programar(args, cfg)
+    if args.cmd == "ferreiro-conversa":
+        return cmd_ferreiro_conversa(args, cfg)
     if args.cmd == "navegar":
         return cmd_navegar(args, cfg)
     if args.cmd == "programar-astra":

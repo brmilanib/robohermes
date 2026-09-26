@@ -150,6 +150,24 @@ def test_sobras_no_clone_vao_para_o_stash():
     assert "sobras antes do card 82" in subprocess.run(["git", "stash", "list"], cwd=projeto, capture_output=True, text=True).stdout
 
 
+def test_ferreiro_responde_a_conversa_direta():
+    passos, sala = _preparar(_claude_falso(commita=False))
+    chamadas = []
+    velho = c.api
+
+    def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
+        chamadas.append((rota, params, corpo))
+        if rota == "conversa_contexto":
+            return {"historico": [{"autor": "voce", "texto": "por que o #89 parou?", "criado_em": "2026-09-26T17:00:00+00:00"}],
+                    "quadro": "QUADRO: #89 em_desenvolvimento\n", "instrucao_cards": "FERRAMENTA CARDS"}
+        return velho(token, rota, params, corpo, metodo, timeout)
+    c.api = api
+    assert c.cmd_ferreiro_conversa(None, c.ler_config()) == 0
+    post = [x for x in chamadas if x[0] == "reuniao_postar"][-1][2]
+    assert post["direta"] == "claude_mac" and post["autor"] == "Ferreiro (Claude no Mac)" and "Causa" in post["texto"]
+    assert c._gasto_ferreiro(c.ler_config()) == 1.25
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

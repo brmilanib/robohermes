@@ -567,7 +567,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 @media (max-width:600px){.dev-col{grid-template-columns:1fr}}
 @media (max-width:390px){.dev-col{grid-template-columns:1fr}.dev-prog{gap:8px}.dev-prog-it{flex-basis:100%}}
 .modal-bg.tarefa{align-items:stretch;justify-content:flex-end;padding:0}
-.modal-bg.tarefa .modal{max-width:560px;border-radius:0;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;
+.modal-bg.tarefa .modal{max-width:min(760px,100vw);border-radius:0;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;
   display:flex;flex-direction:column;padding:0;overflow:hidden}
 .tf{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden auto;overscroll-behavior:contain}   /* 26/09 #94: com overflow:hidden o relatório longo cortava o fim do card */
 .tf pre{white-space:pre-wrap;overflow-wrap:anywhere}
@@ -575,7 +575,8 @@ html:has(.modal-bg.tarefa){overflow:hidden}   /* quadro atrás não rola com o c
 .tf-cab{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
 .tf-desc{padding:8px 16px;border-bottom:1px solid var(--line);font-size:13px}.tf-desc summary{cursor:pointer;color:var(--muted)}
 .tf-desc textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;color:var(--ink);background:var(--card);resize:vertical;margin-top:6px}
-.tf-lin{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:var(--soft);min-height:min(240px,45dvh)}
+.tf-lin{flex:1 0 auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:var(--soft);min-height:min(240px,45dvh)}   /* 26/09 #91: uma rolagem só (a do painel) */
+.tf-novas{position:sticky;bottom:74px;align-self:center;z-index:3;border:0;border-radius:16px;padding:6px 14px;background:#00a884;color:#fff;font-size:13px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.25)}
 .tf-b{max-width:88%;background:var(--card);border-radius:12px;padding:7px 10px 5px;font-size:13px;align-self:flex-start;box-shadow:0 1px .5px rgba(0,0,0,.1)}
 .tf-b.eu{align-self:flex-end;background:#d9fdd3;color:#111b21}
 .tf-b.perg{border-left:3px solid #f97316}
@@ -585,7 +586,7 @@ html:has(.modal-bg.tarefa){overflow:hidden}   /* quadro atrás não rola com o c
 .tf-pede{margin:0;padding:10px 16px;background:#fff4e5;color:#7a4b00;font-size:13px;border-top:1px solid #f5c26b;overflow-wrap:anywhere}
 .tf-bts{display:flex;gap:8px;margin-top:8px}
 .tf-bts .btn{flex:1;justify-content:center;min-width:0}
-.tf-in{display:flex;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)}
+.tf-in{display:flex;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);position:sticky;bottom:0;background:var(--card);z-index:2}
 .tf-in textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:18px;padding:9px 14px;font:inherit;min-height:40px;max-height:120px;background:var(--card);color:var(--ink)}
 .tf-st{padding:0 16px 12px}
 @media (max-width:600px){.modal-bg.tarefa .modal{max-width:none}}
@@ -3290,6 +3291,17 @@ async function telaReuniao() {
   if ($("#wa-clip")) {
     $("#wa-clip").onclick = () => $("#wa-arq").click();
     $("#wa-arq").onchange = e => { S.reu.arqs = S.reu.arqs.concat([...e.target.files]).slice(0, 6); e.target.value = ""; chips(); };
+    // colar print (Cmd+V / Ctrl+V) direto na caixa de texto, como no chat do Claude (pedido do Bruno, 26/09)
+    ta.addEventListener("paste", e => {
+      const imgs = [...(e.clipboardData && e.clipboardData.items || [])].filter(it => it.kind === "file" && it.type.startsWith("image/"))
+        .map(it => it.getAsFile()).filter(Boolean);
+      if (!imgs.length) return;
+      e.preventDefault();
+      const hora = new Date().toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}).replace(":", "h");
+      S.reu.arqs = S.reu.arqs.concat(imgs.map((f, i) => new File([f], `print-${hora}${imgs.length > 1 ? "-" + (i + 1) : ""}.png`,
+        {type: f.type || "image/png"}))).slice(0, 6);
+      chips(); toast("Print anexado: envie quando quiser");
+    });
   }
   const enviar = async () => {
     const texto = ta.value.trim(), arqs = direta ? S.reu.arqs.slice() : [];
@@ -3480,7 +3492,16 @@ async function abrirTarefa(id) {
   }
   document.querySelectorAll(".modal-bg.tarefa").forEach(x => x.remove());
   const bg = modal(`<div class="tf" id="tf"></div>`); bg.classList.add("tarefa");
+  let ultimo = "";
   const desenhar = x => {
+    // 26/09 #91: o painel era redesenhado a cada 5 s e a leitura voltava para o topo/fim sozinha; agora só redesenha
+    // quando algo mudou e devolve a posição de leitura e as seções abertas
+    const assinatura = JSON.stringify([x.tarefa, x.eventos.length, (x.eventos[x.eventos.length - 1] || {}).id]);
+    if (assinatura === ultimo) return;
+    const tfEl = $("#tf", bg), primeira = !ultimo, topo = tfEl.scrollTop;
+    const noFim = tfEl.scrollHeight - tfEl.scrollTop - tfEl.clientHeight < 60, nEventosAntes = bg._nEv || 0;
+    const abertos = {desc: $(".tf-desc", bg) ? $(".tf-desc", bg).open : null, rel: $(".tf-rel", bg) ? $(".tf-rel", bg).open : null};
+    ultimo = assinatura;
     const t = x.tarefa, ag = agInfo(t.status === "em_teste" ? (t.testador || "revisor") : (t.responsavel || "claude_code")), ue = x.eventos[x.eventos.length - 1];
     const vivo = devAtivo({...t, ultimo_evento: ue}), parado = ["em_desenvolvimento", "em_teste"].includes(t.status) && !vivo;
     const bolha = e => {
@@ -3505,7 +3526,18 @@ async function abrirTarefa(id) {
         <div class="tf-bts"><button class="btn primary small" data-dec="aprovar">✅ Aprovar</button><button class="btn small" data-dec="recusar">❌ Não aprovar</button></div></div>` : ""}
       <div class="tf-in"><textarea id="tf-txt" rows="1" placeholder="Escreva para o agente desta tarefa…"></textarea><button class="btn primary" id="tf-env" title="Enviar">➤</button></div>
       <div class="tf-st"><label class="muted" style="font-size:12px">Status <select id="tf-status" class="mes">${Object.keys(DEV_ST).map(k => `<option value="${k}" ${k === t.status ? "selected" : ""}>${DEV_ST[k][0]}</option>`).join("")}</select></label></div>`;
-    const lin = $("#tf-lin", bg); lin.scrollTop = lin.scrollHeight;
+    if (abertos.desc !== null && $(".tf-desc", bg)) $(".tf-desc", bg).open = abertos.desc;
+    if (abertos.rel !== null && $(".tf-rel", bg)) $(".tf-rel", bg).open = abertos.rel;
+    bg._nEv = x.eventos.length;
+    if (primeira) tfEl.scrollTop = 0;                          // abre no topo: título, situação e resumo
+    else if (noFim) tfEl.scrollTop = tfEl.scrollHeight;        // quem já estava no fim acompanha as novidades
+    else {
+      tfEl.scrollTop = topo;                                   // quem está lendo fica onde está
+      if (x.eventos.length > nEventosAntes) {
+        $("#tf-lin", bg).insertAdjacentHTML("beforeend", `<button class="tf-novas" id="tf-novas">Novidades ↓</button>`);
+        $("#tf-novas", bg).onclick = () => { tfEl.scrollTo({top: tfEl.scrollHeight, behavior: "smooth"}); $("#tf-novas", bg).remove(); };
+      }
+    }
     const atualizarDesc = () => {
       const val = $("#tf-desc-ta", bg).value, falt = cardFaltando(val);
       $("#tf-desc-erro", bg).style.display = falt.length ? "" : "none";
@@ -3527,7 +3559,7 @@ async function abrirTarefa(id) {
       const texto = $("#tf-txt", bg).value.trim();
       if (!decisao && !texto) return;
       const lin = $("#tf-lin", bg), env = $("#tf-env", bg);
-      if (texto) { lin.insertAdjacentHTML("beforeend", `<div class="tf-b eu"><div class="md">${mdSimples(texto)}</div></div><div class="tf-b trab" id="tf-dig"><span class="dc-dig"><i></i><i></i><i></i></span> o agente está respondendo…</div>`); lin.scrollTop = lin.scrollHeight; }
+      if (texto) { lin.insertAdjacentHTML("beforeend", `<div class="tf-b eu"><div class="md">${mdSimples(texto)}</div></div><div class="tf-b trab" id="tf-dig"><span class="dc-dig"><i></i><i></i><i></i></span> o agente está respondendo…</div>`); const tfEl = $("#tf", bg); tfEl.scrollTop = tfEl.scrollHeight; }
       $("#tf-txt", bg).value = ""; env.disabled = true; S.tfEnviando = true;
       try { await api("tarefa_responder", {}, {method: "POST", body: JSON.stringify({id: t.id, texto, decisao})}); }
       catch (e) { toast(e.message, 6000); $("#tf-txt", bg).value = texto; }

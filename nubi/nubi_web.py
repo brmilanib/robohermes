@@ -901,8 +901,12 @@ def atender(metodo, rota, q, corpo, token):
                             "apelido": str(d["apelido"]).strip()[:30], "atualizado_em": agora_}, prefer="return=minimal")
                 except ErroNuvem:
                     pass
+            meta_p = {"local": True, "modelo": str(d.get("modelo") or "")[:60]}
+            if d.get("direta") in CRIA_CARDS:              # resposta na conversa direta (Ferreiro), podendo criar cards
+                meta_p.update(conversa="direta", agente=d["direta"])
+                texto = criar_cards_do_agente(repo, d["direta"], texto)
             r = repo._req("POST", "reuniao_mensagens", corpo=[{"autor": autor, "texto": texto[:8000],
-                          "meta": {"local": True, "modelo": str(d.get("modelo") or "")[:60]},
+                          "meta": meta_p,
                           "criado_em": datetime.now(timezone.utc).isoformat()}], prefer="return=representation")
             return _json({"ok": True, "id": (r or [{}])[0].get("id")})
         if rota == "reuniao_enviar" and metodo == "POST":
@@ -934,8 +938,7 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem("Escreva a mensagem.")
             # confere ANTES de gravar qualquer coisa (como a reuniao_enviar antiga): sem isso, uma chave que falta na
             # Vercel deixava a mensagem do usuário órfã na conversa, sem resposta nem aviso (achado do revisor)
-            aviso_mac = ("O Ferreiro atende só pelo comando fechado do Mac (card 🩺 urgente ou Central); conversa "
-                         "direta com ele fica para a próxima fase." if chave == "claude_mac" else
+            aviso_mac = ("" if chave == "claude_mac" else
                          "O Copilot atende por tarefa do GitHub aberta pelo Chefe; conversa direta com ele fica para "
                          "a próxima fase." if chave == "copilot" else
                          f"{CONVERSA_NOME[chave]} ainda não responde à conversa direta (fica para a próxima fase); o "
@@ -956,6 +959,16 @@ def atender(metodo, rota, q, corpo, token):
             if aviso_mac:
                 repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "sistema", "texto": aviso_mac, "meta": meta,
                           "criado_em": agora_()}], prefer="return=minimal")
+                return _json({"ok": True})
+            if chave == "claude_mac":
+                # 26/09 (pedido do Bruno): o Ferreiro atende a conversa direta pelo Mac (Claude Code lendo o projeto), porque o
+                # Chefe não fica no chat; se precisar mudar código, ele cria o card e a fila dele programa
+                if not repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.ferreiro_conversa",
+                                                         "status": "in.(pendente,rodando)", "limit": 1}):
+                    repo._req("POST", "mac_comandos", corpo=[{"comando": "ferreiro_conversa", "arg": "1", "pedido_por": "Bruno",
+                                                              "status": "pendente", "criado_em": agora_()}], prefer="return=minimal")
+                repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "sistema", "texto": "🔨 O Ferreiro recebeu no Mac e "
+                          "responde em alguns minutos.", "meta": meta, "criado_em": agora_()}], prefer="return=minimal")
                 return _json({"ok": True})
             # a conversa direta agora vai com o histórico dela (antes o agente via só a última mensagem) e com o ARQUIVO
             hist = repo._req("GET", "reuniao_mensagens", {"select": "autor,texto,criado_em", "meta->>conversa": "eq.direta",
@@ -1044,6 +1057,17 @@ def atender(metodo, rota, q, corpo, token):
             if autor not in AGENTES_MAC:
                 raise ErroNuvem("Autor não permitido.")
             return _json({"ok": True, "resultado": entregar_card(repo, int(d.get("id") or 0), autor, str(d.get("texto") or ""))})
+        if rota == "conversa_contexto":
+            # o Ferreiro (Mac) lê a conversa direta dele, o quadro real e as regras de criar card antes de responder
+            ag = str(q.get("agente") or "claude_mac")
+            if ag not in CRIA_CARDS:
+                raise ErroNuvem("Agente inválido.")
+            hist = repo._req("GET", "reuniao_mensagens", {"select": "id,autor,texto,criado_em", "meta->>conversa": "eq.direta",
+                                                          "meta->>agente": f"eq.{ag}", "order": "id.desc", "limit": 25}) or []
+            hist = [m for m in reversed(hist) if m["autor"] != "sistema"]
+            ultima = next((m["texto"] for m in reversed(hist) if m["autor"] == "voce"), "")
+            return _json({"historico": hist, "quadro": quadro_para_agente(repo, ag, ultima),
+                          "instrucao_cards": INSTRUCAO_CRIAR_CARD, "sistema": agentes.SISTEMA})
         if rota == "navegador_print" and metodo == "POST":
             # print do Navegador (Mac): vai para o Storage (bucket anexos) e aparece na Sala e no card
             import base64
@@ -3708,6 +3732,7 @@ COMANDOS_MAC = {
     "programar_astra": "Astra programar um card de design agora (número do card)",
     "astra_status": "Astra programador: conferir se está pronto (Codex, chave da OpenAI e git no Mac)",
     "navegar_card": "Navegador fazer a tarefa de um card no Chrome do Mac (número do card)",
+    "ferreiro_conversa": "Ferreiro responder a conversa direta com o Bruno",
     "navegador_status": "Navegador: conferir se está pronto (chave e gasto do dia)",
     "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
     "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora",
@@ -4110,7 +4135,8 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
 
 # Astra com permissão de gravar cards (pedido do Bruno, 26/09): design, usabilidade e organização; o código vai para o
 # Ferreiro (Claude Code no Mac), que entrega num branch, e o Chefe revisa e publica.
-CRIA_CARDS = {"astra": "Astra (design)"}
+CRIA_CARDS = {"astra": "Astra (design)", "claude_mac": "Ferreiro (Claude no Mac)"}
+EXECUTOR_PADRAO = {"astra": "astra", "claude_mac": "ferreiro"}
 CARDS_POR_DIA = 6
 INSTRUCAO_CRIAR_CARD = (
     "\n\nFERRAMENTA CARDS (você pode gravar cards no quadro de Desenvolvimento): quando o Bruno pedir uma mudança de design, "
@@ -4161,7 +4187,7 @@ def criar_cards_do_agente(repo, chave, resposta):
         risco = risco if risco in ("baixo", "medio", "alto") else "medio"
         pri = str(obj.get("prioridade") or "media").lower().replace("é", "e")
         pri = pri if pri in ("alta", "media", "baixa") else "media"
-        ex = str(obj.get("executor") or "astra").lower()
+        ex = str(obj.get("executor") or EXECUTOR_PADRAO.get(chave, "chefe")).lower()
         executor = ("astra" if ex.startswith("astra") else "claude_mac" if ex.startswith("ferr")
                     else "navegador" if ex.startswith("naveg") else "claude_code")
         desc = (f"Card criado pelo {autor} a pedido do Bruno (conversa direta, {datetime.now(timezone(timedelta(hours=-3))):%d/%m %H:%M}).\n\n"
@@ -4179,7 +4205,9 @@ def criar_cards_do_agente(repo, chave, resposta):
             "aguardando": "Risco alto: o Bruno precisa aprovar antes de programar." if alto else None}],
             prefer="return=representation") or [{}]
         feitos_hoje += 1
-        quem = {"astra": "Astra (eu mesmo)", "claude_mac": "Ferreiro", "navegador": "Navegador"}.get(executor, "Chefe")
+        quem = {"astra": "Astra", "claude_mac": "Ferreiro", "navegador": "Navegador"}.get(executor, "Chefe")
+        if executor == {"astra": "astra", "claude_mac": "claude_mac"}.get(chave):
+            quem += " (eu mesmo)"
         saida.append(f"✅ **Card #{novo[0].get('id')} criado**: {titulo} · executor: {quem}"
                      + (" · ⏳ risco alto, esperando sua aprovação no card" if alto else " · já na fila"))
     saida.append(resposta[i:])

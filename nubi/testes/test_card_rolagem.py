@@ -12,14 +12,14 @@ LONGO = "<p>" + "Linha comprida do relatório final. " * 8 + "</p>"
 PAGINA = f"""<html><head><style>{CSS}</style></head><body>
   <div id="quadro" style="height:4000px">quadro de desenvolvimento</div>
   <script>
-  function abrir(relatorio) {{
+  function abrir(relatorio, passos = 30) {{
     const bg = document.createElement("div"); bg.className = "modal-bg tarefa";
     bg.innerHTML = `<div class="card modal"><div class="tf" id="tf">
       <div class="tf-cab"><h2 style="margin:0;font-size:17px">Card longo</h2><div style="flex:1"></div><button class="btn small">✕</button></div>
       <details class="tf-desc" open><summary>O que é para fazer</summary><textarea rows="6"></textarea></details>
       <details class="tf-rel" open><summary>📄 Relatório final</summary>${{relatorio}}
         <pre>${{"x".repeat(400)}}</pre></details>
-      <div class="tf-lin" id="tf-lin">${{'<div class="tf-b">passo</div>'.repeat(30)}}</div>
+      <div class="tf-lin" id="tf-lin">${{'<div class="tf-b">passo</div>'.repeat(passos)}}</div>
       <div class="tf-in"><textarea id="tf-txt" rows="1"></textarea><button class="btn primary">➤</button></div>
       <div class="tf-st" id="fim"><select id="tf-status"><option>Feita</option></select></div></div></div>`;
     document.body.appendChild(bg);
@@ -72,10 +72,29 @@ def test_card_curto_usa_a_altura_toda():
         nav = _navegador(p)
         pg = nav.new_page(viewport={"width": 1280, "height": 800})
         pg.set_content(PAGINA)
-        pg.evaluate("abrir('')")
+        pg.evaluate("abrir('', 3)")        # 26/09 #91: uma rolagem só; card curto (poucos passos) não rola
         assert pg.locator("#tf").evaluate("e => e.scrollHeight <= e.clientHeight + 1")   # nada para rolar no painel
         fim = pg.locator("#fim").bounding_box()
         assert fim["y"] + fim["height"] <= 800 + 1
+        nav.close()
+
+
+def test_novidade_nao_tira_quem_esta_lendo_do_lugar():
+    """26/09 #91: o Bruno subia para ler e a tela voltava sozinha. Com o card longo rolado no meio, chegar um passo novo
+    não mexe na posição; o painel é um só (a caixa de mensagem fica fixa embaixo)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        nav = _navegador(p)
+        pg = nav.new_page(viewport={"width": 1280, "height": 800})
+        pg.set_content(PAGINA)
+        pg.evaluate(f"abrir({LONGO * 12!r})")
+        pg.locator("#tf").evaluate("e => e.scrollTop = 400")
+        pg.evaluate("document.getElementById('tf-lin').insertAdjacentHTML('beforeend', '<div class=\"tf-b\">passo novo</div>')")
+        assert pg.locator("#tf").evaluate("e => e.scrollTop") == 400
+        caixa = pg.locator(".tf-in").bounding_box()
+        assert caixa["y"] + caixa["height"] <= 800 + 1                     # caixa de mensagem sempre visível
+        largura = pg.locator(".modal-bg.tarefa .modal").bounding_box()["width"]
+        assert 700 <= largura <= 760                                        # painel maior no computador
         nav.close()
 
 

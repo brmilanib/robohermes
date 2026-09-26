@@ -110,6 +110,13 @@ def test_quadro_real_na_conversa_direta():
     assert "#90 Mostrar executor" in q and "executor: Astra" in q and "não lê esta conversa" in q
 
 
+def test_ferreiro_cria_card_para_ele_mesmo():
+    r = Repo()
+    out = w.criar_cards_do_agente(r, "claude_mac", 'Achei a causa.\nCRIAR_CARD: {"titulo": "Corrigir fila parada", "risco": "medio"}')
+    assert r.tarefas[0]["responsavel"] == "claude_mac" and r.tarefas[0]["proposto_por"] == "Ferreiro (Claude no Mac)"
+    assert "executor: Ferreiro (eu mesmo)" in out
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

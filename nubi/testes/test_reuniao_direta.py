@@ -172,7 +172,9 @@ def test_enviar_direto_hermes_e_ferreiro_avisam_sem_chamar_ia():
     autores = [m["autor"] for m in r.t["reuniao_mensagens"]]
     assert autores == ["voce", "sistema"] * 3, autores
     assert "Mac" in r.t["reuniao_mensagens"][1]["texto"]
-    assert "próxima fase" in r.t["reuniao_mensagens"][3]["texto"]
+    # 26/09: o Ferreiro atende a conversa pelo Mac (pedido fica na fila do Mac, sem chamar IA no servidor)
+    assert "Ferreiro recebeu no Mac" in r.t["reuniao_mensagens"][3]["texto"]
+    assert any(c.get("comando") == "ferreiro_conversa" for c in r.t.get("mac_comandos", []))
     assert "próxima fase" in r.t["reuniao_mensagens"][5]["texto"]
 
 
