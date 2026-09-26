@@ -615,6 +615,42 @@ def _previsao_min_card_execucao(tarefa, refs_por_responsavel, agora=None):
     return max(5, int(math.ceil(statistics.median(refs) - rodando)))
 
 
+DEV_ATIVO_MIN = 20   # mesmo valor do front (public/index.html): card "trabalhando" só com passo/início recente
+
+
+def _situacao_card(tarefa, agora=None):
+    """Situação real do card para o quadro e o detalhe (card #90, especificação do Astra): nunca deduzir no
+    navegador (título, descrição ou cor da coluna) — sempre a partir de reuniao_tarefas/tarefa_eventos.
+    Devolve (situacao, motivo, proxima_rodada_iso); qualquer um pode vir None."""
+    status = tarefa.get("status")
+    if status in ("feita", "recusada", "proposta"):
+        return ("aguardando_bruno", None, None) if status == "proposta" else (None, None, None)
+    if tarefa.get("aguardando"):
+        return "aguardando_bruno", None, None
+    resp = tarefa.get("responsavel")
+    if status == "aprovada":
+        if not resp:
+            return "aguardando_distribuicao", None, None
+        if resp == "claude_code":
+            ag = agora or datetime.now(timezone.utc)
+            prox = ag.replace(minute=40, second=0, microsecond=0)
+            if prox <= ag:
+                prox += timedelta(hours=1)
+            return "aguardando_rodada_confirmada", None, prox.isoformat()
+        return "aguardando_rodada", None, None
+    if status in ("em_desenvolvimento", "em_teste"):
+        ag = agora or datetime.now(timezone.utc)
+        ev = tarefa.get("ultimo_evento")
+        marcos = [m for m in (_dt_utc(ev.get("criado_em")) if ev else None, _dt_utc(tarefa.get("iniciado_em"))) if m]
+        vivo = any((ag - m).total_seconds() / 60 < DEV_ATIVO_MIN for m in marcos)
+        if vivo:
+            return ("em_teste" if status == "em_teste" else "em_execucao"), None, None
+        if ev and ev.get("tipo") == "erro_teste":
+            return "falhou", (ev.get("texto") or "")[:200], None
+        return "bloqueado", (ev.get("texto") or "")[:200] if ev else "Sem atividade recente.", None
+    return None, None, None
+
+
 def atender(metodo, rota, q, corpo, token):
     """Devolve (status, tipo de conteúdo, bytes, cabeçalhos extras)."""
     t0 = time.monotonic()
@@ -1040,11 +1076,13 @@ def atender(metodo, rota, q, corpo, token):
             ult = {}
             for e in evs:
                 ult.setdefault(e["tarefa_id"], e)
+            agora = datetime.now(timezone.utc)
             for t in ts:
                 t["ultimo_evento"] = ult.get(t["id"])
                 t["n_eventos"] = sum(1 for e in evs if e["tarefa_id"] == t["id"])
                 if t.get("status") in ("em_desenvolvimento", "em_teste"):
                     t["previsao_min"] = _previsao_min_card_execucao(t, refs)
+                t["situacao"], t["situacao_motivo"], t["proxima_rodada"] = _situacao_card(t, agora)
                 if t.get("responsavel") in apelidos:
                     t["responsavel_apelido"] = apelidos[t["responsavel"]]
                 if t.get("testador") in apelidos:
@@ -1056,6 +1094,8 @@ def atender(metodo, rota, q, corpo, token):
             if not t:
                 raise ErroNuvem("Tarefa não encontrada.", 404)
             evs = repo._todos("tarefa_eventos", {"select": "*", "tarefa_id": f"eq.{tid}", "order": "id"})
+            t["ultimo_evento"] = evs[-1] if evs else None
+            t["situacao"], t["situacao_motivo"], t["proxima_rodada"] = _situacao_card(t)
             return _json({"tarefa": t, "eventos": evs})
         if rota == "tarefa_agente_entregar" and metodo == "POST":
             # o Hermes (Mac) entrega o card que fez; o coordenador testa

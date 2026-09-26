@@ -551,6 +551,11 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .dc-n{margin-left:auto;font-size:11px;color:var(--muted)}
 .dc-desc{margin:0;font-size:12px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .dc-rod{font-size:11px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.dc-exec{display:flex;gap:6px;align-items:center;font-size:12.5px;overflow-wrap:anywhere;min-width:0}
+.dc-exec .dc-av{width:20px;height:20px;font-size:11px}
+.dc-sit{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;font-size:11.5px}
+.dc-sit .st{white-space:normal;text-align:left}
+.dc-sit-mot{color:var(--muted);overflow-wrap:anywhere;min-width:0}
 .dc-pede{font-size:12px;background:#fff4e5;color:#7a4b00;border-radius:8px;padding:5px 8px}
 .dc-vivo{display:flex;gap:9px;align-items:flex-start;background:var(--soft);border-radius:10px;padding:8px}
 .dc-vivo b{font-size:12.5px}.dc-ev{font-size:12.3px;margin:2px 0}
@@ -3624,7 +3629,32 @@ const devAtivo = t => ["em_desenvolvimento", "em_teste"].includes(t.status) && [
 const agInfo = k => AG_INFO[k] || AG_INFO[Object.keys(AG_INFO).find(x => AG_INFO[x][1] === k)] || ["🤖", k || "Agente", "#667781"];
 let DEV_APELIDOS = {};
 const agNome = (id, nome) => DEV_APELIDOS[id] ? `${nome} (${DEV_APELIDOS[id]})` : nome;
-const quem = x => !x ? "?" : /^voc[eê]$/i.test(x) ? "Você" : x;
+const quem = x => !x ? "Não informado" : /^voc[eê]$/i.test(x) ? "Você" : x;
+// Executor do card (#90, pedido do Bruno/Astra): sempre a mesma fonte (AG_INFO + apelidos da aba Agentes), nunca
+// deduzido do título; sem responsável nunca vira "Bruno" nem some — mostra o aviso de espera.
+const SEM_RESP = ["❔", "Sem responsável — aguardando distribuição", "#667781"];
+function execInfo(t) {
+  const resp = t.responsavel || null;
+  const ag = resp ? agInfo(resp) : SEM_RESP;
+  const nome = resp ? agNome(resp, ag[1]) : ag[1];
+  return {chave: resp, icone: ag[0], cor: ag[2], nome};
+}
+// Situação e motivo vêm do servidor (rota reuniao_tarefas/tarefa_eventos), nunca deduzidos aqui pela cor da coluna.
+const SIT_TXT = {aguardando_distribuicao: "Aguardando distribuição", aguardando_rodada: "Aguardando próxima rodada",
+  em_execucao: "Em execução", em_teste: "Testando", bloqueado: "Bloqueado", falhou: "Falhou", aguardando_bruno: "Aguardando o Bruno"};
+const SIT_CLASSE = {aguardando_distribuicao: "", aguardando_rodada: "warn", aguardando_rodada_confirmada: "warn",
+  em_execucao: "good", em_teste: "warn", bloqueado: "bad", falhou: "bad", aguardando_bruno: "warn"};
+function situacaoInfo(t) {
+  if (!t.situacao) return null;
+  if (t.situacao === "aguardando_rodada_confirmada") {
+    const texto = t.proxima_rodada ? `Próxima rodada ${new Date(t.proxima_rodada).toLocaleString("pt-BR",
+      {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})} (Brasília)`
+      : "Aguardando próxima rodada";
+    return {texto, motivo: null, classe: "warn"};
+  }
+  if (t.situacao === "aguardando_bruno" && (t.aguardando || t.status === "proposta")) return null;   // já aparece no aviso grande, sem repetir
+  return {texto: SIT_TXT[t.situacao] || t.situacao, motivo: t.situacao_motivo || null, classe: SIT_CLASSE[t.situacao] || ""};
+}
 const desde = t => { if (!t) return ""; const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
   return m < 1 ? "agora" : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h ${m % 60} min` : `há ${Math.floor(m / 1440)} d`; };
 function devCard(t) {
@@ -3632,7 +3662,7 @@ function devCard(t) {
   const emExec = ["em_desenvolvimento", "em_teste"].includes(t.status);
   const vivo = devAtivo(t), parado = emExec && !vivo, ev = t.ultimo_evento;
   const ag = agInfo(t.status === "em_teste" ? (t.testador || "revisor") : (t.responsavel || "claude_code"));
-  const dono = agInfo(t.responsavel || "claude_code"), agNm = agNome(t.responsavel || "claude_code", dono[1]);
+  const exec = execInfo(t), sit = situacaoInfo(t);
   const prev = t.previsao_min == null ? "sem previsão" : `~${Math.max(5, +t.previsao_min || 0)} min`;
   return `<div class="dev-card ${vivo ? "vivo" : ""} ${t.aguardando ? "pede" : ""}" data-abrir="${t.id}" tabindex="0" role="button" aria-label="Abrir tarefa ${t.id}">
     <div class="dc-top"><span class="dc-id">#${t.id}</span><span class="st ${PRI[t.prioridade] || ""}">${esc(t.prioridade || "")}</span>${t.area ? `<span class="st">${esc(t.area)}</span>` : ""}
@@ -3640,6 +3670,8 @@ function devCard(t) {
       ${t.status === "proposta" ? `<span class="st warn" title="abre a tarefa para aprovar ou não aprovar">toque para aprovar</span>` : ""}
       ${t.n_eventos ? `<span class="dc-n" title="passos registrados">💬 ${t.n_eventos}</span>` : ""}</div>
     <h4>${esc(t.titulo)}</h4>
+    <div class="dc-exec"><span class="dc-av" style="--c:${exec.cor}">${exec.icone}</span><b>${esc(exec.nome)}</b></div>
+    ${sit ? `<div class="dc-sit"><span class="st ${sit.classe}">${esc(sit.texto)}</span>${sit.motivo ? `<span class="dc-sit-mot">${esc(sit.motivo)}</span>` : ""}</div>` : ""}
     ${t.aguardando ? `<div class="dc-pede">🙋 precisa da sua aprovação: ${esc(t.aguardando.slice(0, 120))}</div>
       <div class="tf-bts"><button class="btn primary small" data-dec-card="aprovar" data-tarefa-id="${t.id}">✅ Aprovar</button>
       <button class="btn small" data-dec-card="recusar" data-tarefa-id="${t.id}">❌ Não aprovar</button></div>` : ""}
@@ -3649,9 +3681,8 @@ function devCard(t) {
       : parado ? `<div class="dc-parado">⏸ Parado ${ev ? "desde " + esc(desde(ev.criado_em)) : ""} · ${(t.responsavel || "claude_code") === "claude_code"
           ? "o programador automático retoma na próxima rodada (a cada 1 h)" : "sem atividade do agente"}${ev ? `<div class="dc-ev">${esc(ev.texto.slice(0, 110))}</div>` : ""}</div>`
       : `<p class="dc-desc">${esc(t.descricao || "")}</p>`}
-    ${emExec ? `<div class="muted" style="font-size:11px;display:flex;align-items:center;gap:6px"><span class="dc-av" style="--c:${dono[2]}">${dono[0]}</span><b>${esc(agNm)}</b></div>
-      <div class="muted" style="font-size:11px">⏱ ${esc(prev)}</div>` : ""}
-    <div class="dc-rod">${esc(quem(t.proposto_por))} → ${esc(quem(t.decidido_por))} · ${esc(desde(t.atualizado_em || t.criado_em))}</div></div>`;
+    ${emExec ? `<div class="muted" style="font-size:11px">⏱ ${esc(prev)}</div>` : ""}
+    <div class="dc-rod">Pedido por ${esc(quem(t.proposto_por))} · Aprovado por ${esc(quem(t.decidido_por))} · ${esc(desde(t.atualizado_em || t.criado_em))}</div></div>`;
 }
 async function telaDev(silencioso) {
   const main = $("#main");
@@ -3754,8 +3785,13 @@ async function abrirTarefa(id) {
       return `<div class="tf-b ${eu ? "eu" : ""} ${e.tipo === "pergunta" ? "perg" : ""} ${e.tipo === "erro_teste" ? "erro" : ""} ${e.tipo === "relatorio" || e.tipo === "teste_ok" ? "rel" : ""}">${eu ? "" : `<div class="tf-nm" style="color:${a[2]}">${a[0]} ${esc(a[1])}${e.tipo === "pergunta" ? " · pergunta" : e.tipo === "erro_teste" ? " · ❌ teste falhou" : e.tipo === "teste_ok" ? " · ✅ teste aprovado" : e.tipo === "relatorio" ? " · 📄 relatório final" : ""}</div>`}
         ${mdCodigo(e.texto)}<span class="tf-hr">${new Date(e.criado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</span></div>`;
     };
-    $("#tf", bg).innerHTML = `<div class="tf-cab"><span class="dc-av" style="--c:${ag[2]}">${ag[0]}</span><div style="min-width:0"><div class="muted" style="font-size:12px">#${t.id} · ${esc(DEV_ST[t.status][0])} · ${esc(ag[1])}</div>
-        <h2 style="margin:0;font-size:17px">${esc(t.titulo)}</h2></div><div style="flex:1"></div><button class="btn small" data-fechar>✕</button></div>
+    const exec = execInfo(t), sit = situacaoInfo(t);
+    $("#tf", bg).innerHTML = `<div class="tf-cab"><span class="dc-av" style="--c:${exec.cor}">${exec.icone}</span><div style="min-width:0"><div class="muted" style="font-size:12px">#${t.id} · ${esc(DEV_ST[t.status][0])}</div>
+        <h2 style="margin:0;font-size:17px">${esc(t.titulo)}</h2>
+        <div class="dc-exec"><b>${esc(exec.nome)}</b></div>
+        ${sit ? `<div class="dc-sit"><span class="st ${sit.classe}">${esc(sit.texto)}</span>${sit.motivo ? `<span class="dc-sit-mot">${esc(sit.motivo)}</span>` : ""}</div>` : ""}
+        <div class="muted" style="font-size:11px">Pedido por ${esc(quem(t.proposto_por))} · Aprovado por ${esc(quem(t.decidido_por))}</div>
+        </div><div style="flex:1"></div><button class="btn small" data-fechar>✕</button></div>
       <details class="tf-desc" ${x.eventos.length && t.descricao ? "" : "open"}><summary>O que é para fazer${cardFaltando(t.descricao).length ? ` <span class="st warn">card incompleto</span>` : ""}</summary>
         <textarea id="tf-desc-ta" rows="6" placeholder="Escopo: [o que mudar e os limites da alteração]&#10;Arquivo/função: [onde implementar]&#10;Teste: [como verificar a mudança]&#10;Critério de aceite: [resultado verificável para considerar pronto]">${esc(t.descricao || "")}</textarea>
         <p class="muted" style="font-size:12px;margin:4px 0">Para executar, preencha os quatro itens do modelo.</p>
