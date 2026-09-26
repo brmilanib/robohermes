@@ -325,6 +325,9 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .wa-li .tx{min-width:0;flex:1}
 .wa-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none;align-self:flex-start;padding-top:2px}
 .wa-hr{font-size:11px;color:var(--muted)}.wa-li.nova .wa-hr{color:#25d366;font-weight:600}.wa-li.nova .tx small{color:var(--ink)}
+.wa-chips{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line)}
+.wa-chips button{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:5px 12px;font-size:12.5px;cursor:pointer;color:var(--ink)}
+.wa-chips button.on{background:#d9fdd3;border-color:#25d366;color:#0b6b3a;font-weight:600}.wa-chips b{color:#1a8f4e}.wa-pin{font-size:11px;opacity:.6}
 .wa-n{min-width:20px;height:20px;border-radius:10px;background:#25d366;color:#fff;font-size:11.5px;font-weight:700;display:grid;place-items:center;padding:0 6px}
 .wa-novas{align-self:center;background:#e1f3fb;color:#1f7a99;font-size:12px;font-weight:600;border-radius:8px;padding:4px 12px;margin:8px 0;box-shadow:0 1px .5px rgba(0,0,0,.1)}
 .wa-li .tx b{display:block;font-size:13.5px}
@@ -2984,15 +2987,32 @@ function conversaAtual() {
   return (m && CONVERSAS.some(c => c.k === m[1])) ? m[1] : "sala";
 }
 function waListaHtml(conv, previas, naoLidas) {
-  return CONVERSAS.map(c => {
+  // como no WhatsApp: Sala do time fixada no topo, o resto pela conversa mais recente; filtros Todas / Não lidas
+  const quando = c => ((previas || {})[c.k] || {}).criado_em || "";
+  const total = Object.values(naoLidas || {}).reduce((a, n) => a + (n || 0), 0);
+  const filtro = (S.reu && S.reu.filtro) || "todas";
+  const lista = [CONVERSAS[0], ...CONVERSAS.slice(1).sort((a, b) => quando(b).localeCompare(quando(a)))]
+    .filter(c => filtro === "todas" || ((naoLidas || {})[c.k] || 0) > 0);
+  const chips = `<div class="wa-chips"><button data-waf="todas" class="${filtro === "todas" ? "on" : ""}">Todas</button>
+    <button data-waf="nao" class="${filtro === "nao" ? "on" : ""}">Não lidas${total ? ` <b>${total}</b>` : ""}</button></div>`;
+  return chips + (lista.length ? "" : `<div class="muted" style="padding:14px;font-size:13px">Tudo lido 👌</div>`) + lista.map(c => {
     const p = (previas || {})[c.k], n = (naoLidas || {})[c.k] || 0;
     const prev = p ? esc((p.texto || "").split("\n")[0]).slice(0, 90) : "Nenhuma mensagem ainda";
     const hr = p ? (new Date(p.criado_em).toDateString() === new Date().toDateString()
       ? new Date(p.criado_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}) : new Date(p.criado_em).toLocaleDateString("pt-BR", {day: "2-digit", month: "2-digit"})) : "";
     return `<div class="wa-li ${c.k === conv ? "on" : ""} ${n ? "nova" : ""}" data-conv="${c.k}"><div class="av">${c.ic}</div>
       <div class="tx"><b>${esc(c.nome)}</b><small>${prev}</small></div>
-      <div class="wa-meta"><span class="wa-hr">${hr}</span>${n ? `<span class="wa-n" title="mensagens não lidas">${n > 99 ? "99+" : n}</span>` : ""}</div></div>`;
+      <div class="wa-meta"><span class="wa-hr">${hr}</span>${c.k === "sala" && !n ? `<span class="wa-pin" title="fixada">📌</span>` : ""}${n ? `<span class="wa-n" title="mensagens não lidas">${n > 99 ? "99+" : n}</span>` : ""}</div></div>`;
   }).join("");
+}
+function waLigarLista() {
+  const lista = $("#wa-list"); if (!lista) return;
+  lista.querySelectorAll("[data-waf]").forEach(b => b.onclick = e => { e.stopPropagation(); S.reu.filtro = b.dataset.waf;
+    lista.innerHTML = waListaHtml(S.reu.conv, S.reu.previas, S.reu.naoLidas); waLigarLista(); });
+  lista.querySelectorAll(".wa-li").forEach(el => el.onclick = () => {
+    if (el.dataset.conv === S.reu.conv) { $("#wa-wrap").classList.add("aberta"); requestAnimationFrame(() => { waIrNaoLida(); waMarcarLido(); }); }
+    else location.hash = el.dataset.conv === "sala" ? "#/reuniao" : `#/reuniao/d/${el.dataset.conv}`;
+  });
 }
 // não lidas (pedido do Bruno, 26/09): abre na 1ª mensagem não lida e marca como lida quando a conversa está na tela
 function waVisivel() { const w = $("#wa-wrap"); return !!w && (w.classList.contains("aberta") || getComputedStyle($("#wa-list")).display === "none" || window.innerWidth > 900); }
@@ -3080,11 +3100,7 @@ async function telaReuniao() {
   // a conversa pode estar escondida atrás da lista no celular: só posiciona e marca como lida quando aparece
   const posicionar = () => requestAnimationFrame(() => { waIrNaoLida(); waMarcarLido(); });
   if (waVisivel()) posicionar();
-  main.querySelectorAll(".wa-li").forEach(el => el.onclick = () => {
-    const k = el.dataset.conv;
-    if (k === conv) { $("#wa-wrap").classList.add("aberta"); posicionar(); return; }     // mesma conversa: só reabre no celular
-    location.hash = k === "sala" ? "#/reuniao" : `#/reuniao/d/${k}`;
-  });
+  waLigarLista();
   const voltar = $("#wa-voltar"); if (voltar) voltar.onclick = () => $("#wa-wrap").classList.remove("aberta");
   const ta = $("#wa-txt");
   ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; };
@@ -3113,9 +3129,7 @@ async function atualizarReuniao(rolar) {
   S.reu.voltas = (S.reu.voltas || 0) + 1;
   if (S.reu.voltas % 2 === 0) {                                  // a cada ~20 s: contadores das outras conversas
     try { const rc = await api("reuniao_conversas"); S.reu.previas = rc.conversas || {}; S.reu.naoLidas = Object.assign(rc.nao_lidas || {}, waVisivel() ? {[S.reu.conv]: 0} : {});
-      const lista = $("#wa-list"); if (lista) { lista.innerHTML = waListaHtml(S.reu.conv, S.reu.previas, S.reu.naoLidas);
-        lista.querySelectorAll(".wa-li").forEach(el => el.onclick = () => { if (el.dataset.conv === S.reu.conv) { $("#wa-wrap").classList.add("aberta"); requestAnimationFrame(() => { waIrNaoLida(); waMarcarLido(); }); }
-          else location.hash = el.dataset.conv === "sala" ? "#/reuniao" : `#/reuniao/d/${el.dataset.conv}`; }); } } catch { /* segue */ }
+      const lista = $("#wa-list"); if (lista) { lista.innerHTML = waListaHtml(S.reu.conv, S.reu.previas, S.reu.naoLidas); waLigarLista(); } } catch { /* segue */ }
   }
   if (!r.mensagens.length) return;
   S.reu.msgs = S.reu.msgs.concat(r.mensagens); S.reu.ult = r.mensagens[r.mensagens.length - 1].id;
