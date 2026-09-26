@@ -834,17 +834,18 @@ def atender(metodo, rota, q, corpo, token):
                           **({"sistema": agentes.SISTEMA} if q.get("sistema") else {})})
         if rota == "reuniao_conversas":
             # última mensagem de cada conversa (Sala + uma por agente), para a lista estilo WhatsApp (card #64, fase 2)
-            out = {}
-            for chave in ("sala",) + tuple(CONVERSA_NOME):
-                p = {"select": "autor,texto,criado_em", "order": "id.desc", "limit": 1}
-                if chave == "sala":
-                    p["or"] = "(meta.is.null,meta->>conversa.neq.direta)"
-                else:
-                    p["meta->>conversa"] = "eq.direta"
-                    p["meta->>agente"] = f"eq.{chave}"
-                ult = repo._req("GET", "reuniao_mensagens", p)
-                out[chave] = ult[0] if ult else None
-            return _json({"conversas": out})
+            out, nao, lido = reuniao_nao_lidas(repo)
+            return _json({"conversas": out, "nao_lidas": nao, "lido": lido})
+        if rota == "reuniao_lido" and metodo == "POST":
+            d = json.loads(corpo or b"{}")
+            conv, uid = str(d.get("conversa") or "sala"), int(d.get("ultimo_id") or 0)
+            if conv != "sala" and conv not in CONVERSA_NOME:
+                raise ErroNuvem("Conversa desconhecida.")
+            atual = (repo._req("GET", "reuniao_leituras", {"select": "ultimo_id", "conversa": repo._eq(conv)}) or [{}])[0].get("ultimo_id") or 0
+            if uid > int(atual):                                     # nunca volta para trás (outro aparelho pode estar à frente)
+                repo._req("POST", "reuniao_leituras", corpo=[{"conversa": conv, "ultimo_id": uid, "lido_em": datetime.now(timezone.utc).isoformat()}],
+                          prefer="resolution=merge-duplicates,return=minimal")
+            return _json({"ok": True})
         if rota == "reuniao_postar" and metodo == "POST":
             # agentes locais do Mac mini (Hermes e outros via Ollama) postam a resposta sem abrir uma rodada nova
             d = json.loads(corpo or b"{}")
@@ -3865,6 +3866,28 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
     raise ErroNuvem("Rota desconhecida.", 404)
 
 
+def reuniao_nao_lidas(repo):
+    """Última mensagem de cada conversa da Sala + quantas não lidas (pedido do Bruno, 26/09: igual ao WhatsApp)."""
+    out, nao, lido = {}, {}, {}
+    try:
+        lido = {r["conversa"]: int(r["ultimo_id"] or 0) for r in repo._todos("reuniao_leituras", {"select": "conversa,ultimo_id"})}
+    except ErroNuvem:
+        lido = {}
+    for chave in ("sala",) + tuple(CONVERSA_NOME):
+        p = {"select": "id,autor,texto,criado_em", "order": "id.desc", "limit": 1}
+        if chave == "sala":
+            p["or"] = "(meta.is.null,meta->>conversa.neq.direta)"
+        else:
+            p["meta->>conversa"] = "eq.direta"
+            p["meta->>agente"] = f"eq.{chave}"
+        ult = repo._req("GET", "reuniao_mensagens", p)
+        out[chave] = ult[0] if ult else None
+        if ult and ult[0]["id"] > lido.get(chave, 0):
+            q2 = dict(p, select="id", limit=100, id=f"gt.{lido.get(chave, 0)}", autor="neq.voce")
+            nao[chave] = len(repo._req("GET", "reuniao_mensagens", q2) or [])
+    return out, nao, lido
+
+
 def rota_mac(repo, metodo, rota, q, corpo, token):
     d = json.loads(corpo or b"{}") if metodo == "POST" else {}
     agora_ = datetime.now(timezone.utc).isoformat()
@@ -4004,7 +4027,8 @@ def rota_rotinas(repo, metodo, rota, q, corpo):
         hoje = _agora_br().date().isoformat()
         return {"erros_hoje": sum(1 for e in er if _br(e["inicio"]).date().isoformat() == hoje),
                 "aprovadas": len(repo._req("GET", "reuniao_tarefas", {"select": "id", "status": "eq.aprovada"}) or []),
-                "rodando": sum(1 for e in ex if e.get("em_andamento"))}
+                "rodando": sum(1 for e in ex if e.get("em_andamento")),
+                "sala_nao_lidas": sum(reuniao_nao_lidas(repo)[1].values())}
     if rota == "rotina_salvar" and metodo == "POST":
         d = json.loads(corpo or b"{}")
         reg = {k: d[k] for k in CAMPOS_ROTINA if k in d}

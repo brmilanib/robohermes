@@ -322,7 +322,11 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .wa-li:hover{background:var(--soft)}
 .wa-li.on{background:var(--soft)}
 .wa-li .av{width:38px;height:38px;border-radius:50%;background:#25d366;display:grid;place-items:center;font-size:18px;flex:none}
-.wa-li .tx{min-width:0}
+.wa-li .tx{min-width:0;flex:1}
+.wa-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none;align-self:flex-start;padding-top:2px}
+.wa-hr{font-size:11px;color:var(--muted)}.wa-li.nova .wa-hr{color:#25d366;font-weight:600}.wa-li.nova .tx small{color:var(--ink)}
+.wa-n{min-width:20px;height:20px;border-radius:10px;background:#25d366;color:#fff;font-size:11.5px;font-weight:700;display:grid;place-items:center;padding:0 6px}
+.wa-novas{align-self:center;background:#e1f3fb;color:#1f7a99;font-size:12px;font-weight:600;border-radius:8px;padding:4px 12px;margin:8px 0;box-shadow:0 1px .5px rgba(0,0,0,.1)}
 .wa-li .tx b{display:block;font-size:13.5px}
 .wa-li .tx small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--muted);font-size:12px}
 .wa{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden}
@@ -2452,7 +2456,8 @@ function opsAbas(ativa) {
     api("ops_resumo").then(r => { S.opsRes = r; const b = $("#ops-abas"); if (b) b.outerHTML = opsAbas(ativa); desenharMenu(); }).catch(() => {});
   }
   const n = S.opsRes || {}, bd = k => k === "erros" && n.erros_hoje ? ` <span class="badge">${n.erros_hoje}</span>`
-    : k === "dev" && n.aprovadas ? ` <span class="badge" style="background:var(--good,#1a7f37)">${n.aprovadas}</span>` : "";
+    : k === "dev" && n.aprovadas ? ` <span class="badge" style="background:var(--good,#1a7f37)">${n.aprovadas}</span>`
+    : k === "sala" && n.sala_nao_lidas ? ` <span class="badge" style="background:#25d366" title="mensagens não lidas">${n.sala_nao_lidas}</span>` : "";
   return `<nav class="ops-abas" id="ops-abas">${OPS_ABAS.map(a => `<a href="${a.h}" class="${a.k === ativa ? "on" : ""}">${a.t}${bd(a.k)}</a>`).join("")}</nav>`;
 }
 function duracao(a, b) {
@@ -2978,20 +2983,45 @@ function conversaAtual() {
   const m = decodeURIComponent(location.hash).match(/^#\/reuniao\/d\/([a-z_]+)$/);
   return (m && CONVERSAS.some(c => c.k === m[1])) ? m[1] : "sala";
 }
-function waListaHtml(conv, previas) {
+function waListaHtml(conv, previas, naoLidas) {
   return CONVERSAS.map(c => {
-    const p = (previas || {})[c.k];
+    const p = (previas || {})[c.k], n = (naoLidas || {})[c.k] || 0;
     const prev = p ? esc((p.texto || "").split("\n")[0]).slice(0, 90) : "Nenhuma mensagem ainda";
-    return `<div class="wa-li ${c.k === conv ? "on" : ""}" data-conv="${c.k}"><div class="av">${c.ic}</div>
-      <div class="tx"><b>${esc(c.nome)}</b><small>${prev}</small></div></div>`;
+    const hr = p ? (new Date(p.criado_em).toDateString() === new Date().toDateString()
+      ? new Date(p.criado_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}) : new Date(p.criado_em).toLocaleDateString("pt-BR", {day: "2-digit", month: "2-digit"})) : "";
+    return `<div class="wa-li ${c.k === conv ? "on" : ""} ${n ? "nova" : ""}" data-conv="${c.k}"><div class="av">${c.ic}</div>
+      <div class="tx"><b>${esc(c.nome)}</b><small>${prev}</small></div>
+      <div class="wa-meta"><span class="wa-hr">${hr}</span>${n ? `<span class="wa-n" title="mensagens não lidas">${n > 99 ? "99+" : n}</span>` : ""}</div></div>`;
   }).join("");
+}
+// não lidas (pedido do Bruno, 26/09): abre na 1ª mensagem não lida e marca como lida quando a conversa está na tela
+function waVisivel() { const w = $("#wa-wrap"); return !!w && (w.classList.contains("aberta") || getComputedStyle($("#wa-list")).display === "none" || window.innerWidth > 900); }
+function waIrNaoLida() {
+  const box = $("#wa-msgs"); if (!box || !S.reu) return;
+  const lido = S.reu.lido || 0;
+  const novas = [...box.querySelectorAll(".wa-b[data-id]")].filter(b => +b.dataset.id > lido && !b.classList.contains("eu"));
+  box.querySelectorAll(".wa-novas").forEach(x => x.remove());
+  if (lido && novas.length) {
+    novas[0].insertAdjacentHTML("beforebegin", `<div class="wa-novas">${novas.length} mensage${novas.length > 1 ? "ns" : "m"} não lida${novas.length > 1 ? "s" : ""}</div>`);
+    box.scrollTop = Math.max(0, box.querySelector(".wa-novas").offsetTop - box.offsetTop - 8);
+  } else box.scrollTop = box.scrollHeight;
+}
+async function waMarcarLido() {
+  if (!S.reu || !S.reu.msgs.length || !waVisivel()) return;
+  const ult = S.reu.msgs[S.reu.msgs.length - 1].id;
+  if (ult <= (S.reu.lidoEnviado || 0)) return;
+  S.reu.lidoEnviado = ult;
+  try { await api("reuniao_lido", {}, {method: "POST", body: JSON.stringify({conversa: S.reu.conv, ultimo_id: ult})}); } catch { return; }
+  if (S.reu.naoLidas) S.reu.naoLidas[S.reu.conv] = 0;
+  const li = document.querySelector(`.wa-li[data-conv="${S.reu.conv}"]`);
+  if (li) { li.classList.remove("nova"); li.querySelector(".wa-n")?.remove(); }
 }
 function waBolha(m) {
   const hr = new Date(m.criado_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
-  if (m.autor === "sistema") return `<div class="wa-b sis">${mdSimples(m.texto)}<span class="hr">${hr}</span></div>`;
+  if (m.autor === "sistema") return `<div class="wa-b sis" data-id="${m.id || ""}">${mdSimples(m.texto)}<span class="hr">${hr}</span></div>`;
   const eu = m.autor === "voce", cor = AG_COR[m.autor] || (m.autor.startsWith("Claude") ? "#d97757" : "#8e44ad");
   const ap = (S.reu && S.reu.apel || {})[m.autor];
-  return `<div class="wa-b ${eu ? "eu" : ""} ${m.meta && m.meta.decisao ? "dec" : ""}">${eu ? "" : `<div class="nm" style="color:${cor}">${esc(m.autor)}${ap ? ` “${esc(ap)}”` : ""}${m.meta && m.meta.decisao ? " · decisão" : ""}</div>`}
+  return `<div class="wa-b ${eu ? "eu" : ""} ${m.meta && m.meta.decisao ? "dec" : ""}" data-id="${m.id || ""}">${eu ? "" : `<div class="nm" style="color:${cor}">${esc(m.autor)}${ap ? ` “${esc(ap)}”` : ""}${m.meta && m.meta.decisao ? " · decisão" : ""}</div>`}
     <div class="md">${mdSimples(m.texto)}</div><span class="hr">${hr}</span></div>`;
 }
 function waDesenhar(msgs, vazio) {
@@ -3011,14 +3041,14 @@ async function telaReuniao() {
   try { [r, rc] = await Promise.all([api("reuniao", direta ? {conversa: conv} : {}), api("reuniao_conversas")]); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.reu = {msgs: r.mensagens, ult: r.mensagens.length ? r.mensagens[r.mensagens.length - 1].id : 0, apel: r.apelidos || {},
-           conv, previas: rc.conversas || {}};
+           conv, previas: rc.conversas || {}, naoLidas: rc.nao_lidas || {}, lido: (rc.lido || {})[conv] || 0, lidoEnviado: 0};
   const ag = r.agentes, on = k => ag[k] ? "" : " (sem chave)";
   const info = CONVERSAS.find(c => c.k === conv);
   const vazio = direta ? `Nenhuma mensagem ainda. Escreva para ${esc(info.nome)}.`
     : "A sala está vazia. Escreva uma pergunta ou uma ideia: o ChatGPT e o DeepSeek opinam e o Claude decide e registra as tarefas.";
   main.innerHTML = opsAbas("sala") + `
     <div class="wa-wrap ${direta ? "aberta" : ""}" id="wa-wrap">
-      <div class="wa-list" id="wa-list">${waListaHtml(conv, S.reu.previas)}</div>
+      <div class="wa-list" id="wa-list">${waListaHtml(conv, S.reu.previas, S.reu.naoLidas)}</div>
       <div class="wa">
         <div class="wa-top"><button class="wa-voltar" id="wa-voltar" title="Conversas">←</button><div class="av">${info.ic}</div><div>
           <b>${esc(info.nome)}</b><br>
@@ -3046,10 +3076,13 @@ async function telaReuniao() {
   window.addEventListener("resize", ajustarWa);
   window.visualViewport?.addEventListener("resize", ajustarWa);
   requestAnimationFrame(ajustarWa);          // depois do layout assentar (fonte, texto de wa-nota quebrando linha)
-  const box = $("#wa-msgs"); box.scrollTop = box.scrollHeight;
+  const box = $("#wa-msgs");
+  // a conversa pode estar escondida atrás da lista no celular: só posiciona e marca como lida quando aparece
+  const posicionar = () => requestAnimationFrame(() => { waIrNaoLida(); waMarcarLido(); });
+  if (waVisivel()) posicionar();
   main.querySelectorAll(".wa-li").forEach(el => el.onclick = () => {
     const k = el.dataset.conv;
-    if (k === conv) { $("#wa-wrap").classList.add("aberta"); return; }     // mesma conversa: só reabre no celular
+    if (k === conv) { $("#wa-wrap").classList.add("aberta"); posicionar(); return; }     // mesma conversa: só reabre no celular
     location.hash = k === "sala" ? "#/reuniao" : `#/reuniao/d/${k}`;
   });
   const voltar = $("#wa-voltar"); if (voltar) voltar.onclick = () => $("#wa-wrap").classList.remove("aberta");
@@ -3077,6 +3110,13 @@ async function telaReuniao() {
 async function atualizarReuniao(rolar) {
   let r;
   try { r = await api("reuniao", S.reu.conv !== "sala" ? {apos: S.reu.ult, conversa: S.reu.conv} : {apos: S.reu.ult}); } catch { return; }
+  S.reu.voltas = (S.reu.voltas || 0) + 1;
+  if (S.reu.voltas % 2 === 0) {                                  // a cada ~20 s: contadores das outras conversas
+    try { const rc = await api("reuniao_conversas"); S.reu.previas = rc.conversas || {}; S.reu.naoLidas = Object.assign(rc.nao_lidas || {}, waVisivel() ? {[S.reu.conv]: 0} : {});
+      const lista = $("#wa-list"); if (lista) { lista.innerHTML = waListaHtml(S.reu.conv, S.reu.previas, S.reu.naoLidas);
+        lista.querySelectorAll(".wa-li").forEach(el => el.onclick = () => { if (el.dataset.conv === S.reu.conv) { $("#wa-wrap").classList.add("aberta"); requestAnimationFrame(() => { waIrNaoLida(); waMarcarLido(); }); }
+          else location.hash = el.dataset.conv === "sala" ? "#/reuniao" : `#/reuniao/d/${el.dataset.conv}`; }); } } catch { /* segue */ }
+  }
   if (!r.mensagens.length) return;
   S.reu.msgs = S.reu.msgs.concat(r.mensagens); S.reu.ult = r.mensagens[r.mensagens.length - 1].id;
   const box = $("#wa-msgs"); if (!box) return;
@@ -3084,6 +3124,7 @@ async function atualizarReuniao(rolar) {
   const dig = $("#wa-dig") ? $("#wa-dig").outerHTML : "";
   box.innerHTML = waDesenhar(S.reu.msgs, "") + dig;
   if (noFim) box.scrollTop = box.scrollHeight;
+  waMarcarLido();
 }
 // Modelo obrigatório da descrição (card #44): card só executa com os 4 itens preenchidos (nem só o placeholder).
 const CARD_MODELO = [["Escopo", [/^escopo$/i]],
