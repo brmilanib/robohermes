@@ -802,7 +802,7 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"ok": True})
         if rota.startswith("mac_"):
             return _json(rota_mac(repo, metodo, rota, q, corpo, token))
-        if rota.startswith("ml_") or rota == "posicoes":
+        if rota.startswith("ml_") or rota == "posicoes" or rota.startswith("rank_"):
             return _json(rota_posicoes(repo, metodo, rota, q, corpo))
         if rota.startswith("agentes"):
             return _json(rota_agentes(repo, metodo, rota, q, corpo))
@@ -2360,7 +2360,7 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "resumo_semana", "resumo_marcas", "nomes_marcas",
+NO_SERVIDOR = ("rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "resumo_semana", "resumo_marcas", "nomes_marcas",
                "noticias", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
@@ -2542,6 +2542,8 @@ def rodar_rotinas(repo, so=None):
             elif rid == "noticias":
                 x = gerar_noticias(repo, forcar=bool(so))
                 res = f"{x.get('n', 0)} notícia(s) gravada(s)" if x["novo"] else "já existia"
+            elif rid == "rankeamento":
+                res = laboratorio_rankeamento(repo, forcar=bool(so))
             elif rid == "analise_foco":
                 res = analise_foco(repo, forcar=bool(so))
             elif rid == "analise_semana":
@@ -3385,6 +3387,154 @@ def posicoes_de_busca(termo, itens, meus_ids, data):
     return linhas
 
 
+# ---------- Laboratório de Rankeamento (pedido do Bruno, 26/09): a box onde todos os agentes juntam técnicas ----------
+RANK_TIPOS = ("tecnica", "hipotese", "experimento", "resultado", "pergunta", "plano", "comentario")
+RANK_STATUS = ("nova", "testando", "comprovada", "descartada")
+
+
+def _rank_contexto(repo, n=40):
+    """O que os agentes leem antes de contribuir: a box (sem os comentários) e a situação dos meus anúncios."""
+    box = repo._req("GET", "rank_box", {"select": "id,tipo,titulo,texto,autor,status,fonte,anuncio_id,votos",
+                                        "tipo": "neq.comentario", "order": "atualizado_em.desc", "limit": n}) or []
+    an = repo._todos("meus_anuncios", {"select": "id,loja,titulo,preco,termo", "ativo": "is.true"})[:25]
+    ps = repo._req("GET", "anuncio_posicoes", {"select": "data,termo,anuncio_id,titulo,vendedor,meu,posicao,posicao_organica,pagina,patrocinado",
+                                                "order": "data.desc", "limit": 300}) or []
+    ult = ps[0]["data"] if ps else None
+    atual = {p["anuncio_id"]: p for p in ps if p["data"] == ult and p["meu"]}
+    topo = {}
+    for p in ps:
+        if p["data"] == ult and not p["meu"]:
+            topo.setdefault(p["termo"], []).append(p)
+    linhas_box = "\n".join(f"#{b['id']} [{b['tipo']}/{b['status']}] {b['titulo']} — {str(b.get('texto') or '')[:220]} (por {b['autor']}"
+                           f"{', fonte ' + b['fonte'] if b.get('fonte') else ''}{', votos ' + json.dumps(b['votos'], ensure_ascii=False) if b.get('votos') else ''})"
+                           for b in box) or "(vazia)"
+    linhas_an = "\n".join(f"{a['id']} ({a.get('loja')}) {a.get('titulo')} · R$ {a.get('preco') or '?'} · busca '{a.get('termo')}' · "
+                          + (f"posição {atual[a['id']].get('posicao_organica') or atual[a['id']]['posicao']}, página {atual[a['id']]['pagina']}"
+                             if a["id"] in atual else "posição ainda não medida / fora do top 144")
+                          for a in an) or "(ainda sem anúncios meus cadastrados)"
+    linhas_topo = "\n".join(f"'{t}': " + "; ".join(f"{x.get('posicao_organica') or x['posicao']}º {x.get('titulo')} ({x.get('vendedor')})" for x in xs[:3])
+                            for t, xs in list(topo.items())[:10]) or "(sem medição ainda)"
+    return box, an, f"BOX DE RANKEAMENTO (mais recentes):\n{linhas_box}\n\nMEUS ANÚNCIOS:\n{linhas_an}\n\nTOPO DAS BUSCAS:\n{linhas_topo}"
+
+
+def _rank_gravar(repo, itens, autor, existentes):
+    """Grava as contribuições novas (sem repetir título já na box); devolve quantas entraram."""
+    vistos = {nubi.compacta(b["titulo"]) for b in existentes}
+    regs = []
+    for x in itens or []:
+        if not isinstance(x, dict) or not str(x.get("titulo") or "").strip():
+            continue
+        k = nubi.compacta(x["titulo"])
+        if k in vistos:
+            continue
+        vistos.add(k)
+        tipo = x.get("tipo") if x.get("tipo") in RANK_TIPOS else "tecnica"
+        regs.append({"tipo": tipo, "titulo": str(x["titulo"])[:200], "texto": str(x.get("texto") or "")[:3000], "autor": autor,
+                     "fonte": str(x.get("fonte") or "")[:500] or None, "anuncio_id": (str(x.get("anuncio_id") or "").upper() or None)})
+    if regs:
+        repo._req("POST", "rank_box", corpo=regs, prefer="return=minimal")
+    return len(regs)
+
+
+def _rank_votar(repo, votos, autor):
+    n = 0
+    for v in votos or []:
+        try:
+            bid, val = int(v.get("id")), (1 if int(v.get("voto")) > 0 else -1)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        b = (repo._req("GET", "rank_box", {"select": "id,votos", "id": repo._eq(bid)}) or [None])[0]
+        if not b:
+            continue
+        vs = dict(b.get("votos") or {})
+        vs[autor] = val
+        repo._req("PATCH", "rank_box", {"id": repo._eq(bid)}, corpo={"votos": vs}, prefer="return=minimal")
+        if v.get("motivo"):
+            repo._req("POST", "rank_box", corpo=[{"tipo": "comentario", "titulo": "voto", "texto": str(v["motivo"])[:600],
+                                                  "autor": autor, "pai_id": bid}], prefer="return=minimal")
+        n += 1
+    return n
+
+
+PEDIDO_RANK = ("Você está no LABORATÓRIO DE RANKEAMENTO do nubi: o objetivo do Bruno é entender o algoritmo de busca do Mercado Livre "
+               "(relevância, conversão, vendas recentes, preço, frete/Full, reputação e MercadoLíder, qualidade do anúncio, fotos, ficha "
+               "técnica/atributos, catálogo, tags como 'Mais vendido', 'Oferta do dia', 'Full', 'Loja oficial', 'Recomendado', anúncio "
+               "patrocinado/Mercado Ads, perguntas respondidas, reclamações) para fazer os anúncios DELE subirem de posição e vender mais. "
+               "Todos os agentes trabalham juntos na mesma box: leia o que os outros já escreveram, NÃO repita, complemente, discorde com "
+               "argumento e vote. Não invente números nem regras do ML: o que for suposição é 'hipotese'; o que tem fonte, ponha o link; "
+               "o que dá para testar num anúncio, proponha como 'experimento' (o que mudar, em qual anúncio, o que medir e por quantos dias).\n\n")
+
+
+def laboratorio_rankeamento(repo, forcar=False):
+    """Rotina 'rankeamento' (todo dia): pesquisador com web → agentes contribuem e votam → coordenador fecha status e plano."""
+    if not ia.disponivel():
+        return "sem chave de IA"
+    hoje = _agora_br().date().isoformat()
+    if not forcar and repo._req("GET", "rank_box", {"select": "id", "tipo": "eq.plano", "autor": "eq.Claude",
+                                                    "criado_em": f"gte.{hoje}T03:00:00+00:00", "limit": 1}):
+        return "já feito hoje"
+    box, _, ctx = _rank_contexto(repo)
+    feitos = []
+    # 1) pesquisador: técnicas com fonte real
+    try:
+        j, _, _ = ia.perguntar_json(PEDIDO_RANK + ctx + "\n\nVocê é o PESQUISADOR. Pesquise na web (central do vendedor do Mercado Livre, "
+                                    "Mercado Livre Developers, blogs e cursos de vendedores sérios) e traga até 3 técnicas NOVAS (que não estão na box) "
+                                    "sobre como o ML ranqueia e expõe anúncios, cada uma com link. Responda SÓ JSON: "
+                                    '{"contribuicoes": [{"tipo": "tecnica", "titulo": "...", "texto": "o que é e como aplicar nos anúncios do Bruno", "fonte": "https://..."}]}',
+                                    web=True, max_tokens=2500, qual="claude", sistema=agentes.SISTEMA)
+        n = _rank_gravar(repo, j.get("contribuicoes"), "Claude (pesquisa)", box)
+        feitos.append(f"pesquisa {n}")
+    except Exception as e:  # noqa: BLE001
+        feitos.append(f"pesquisa falhou ({str(e)[:80]})")
+    # 2) cada agente contribui (com o jeito dele) e vota nas ideias dos outros
+    for chave in agentes.ativos():
+        nome = agentes.AGENTES[chave]["nome"]
+        box, _, ctx = _rank_contexto(repo)
+        try:
+            t = agentes.perguntar(chave, PEDIDO_RANK + ctx + "\n\nSua vez: traga no máximo 2 contribuições NOVAS (técnica, hipótese, experimento "
+                                  "num anúncio específico do Bruno com o ID MLB, ou pergunta) e vote em até 4 itens da box (+1 concorda, -1 discorda, "
+                                  "com motivo curto). Responda SÓ JSON: {\"contribuicoes\": [{\"tipo\": \"tecnica|hipotese|experimento|pergunta\", "
+                                  "\"titulo\": \"...\", \"texto\": \"...\", \"anuncio_id\": \"MLB... ou vazio\", \"fonte\": \"link ou vazio\"}], "
+                                  "\"votos\": [{\"id\": 12, \"voto\": 1, \"motivo\": \"...\"}]}", max_tokens=1800)
+            j = ia._primeiro_json(t)
+            n = _rank_gravar(repo, j.get("contribuicoes"), nome, box)
+            v = _rank_votar(repo, j.get("votos"), nome)
+            feitos.append(f"{nome} {n}+{v}v")
+        except Exception as e:  # noqa: BLE001
+            feitos.append(f"{nome} falhou ({str(e)[:60]})")
+    # 3) coordenador: status das ideias e o plano de ação de cada anúncio
+    box, an, ctx = _rank_contexto(repo, n=60)
+    try:
+        j, _, _ = ia.perguntar_json(PEDIDO_RANK + ctx + "\n\nVocê é o COORDENADOR. Com o que o time escreveu e votou: (a) atualize o status "
+                                    "(nova/testando/comprovada/descartada) de até 8 itens — 'comprovada' só com fonte oficial ou resultado medido "
+                                    "nas posições; (b) escreva o PLANO DE AÇÃO de hoje: as 5 ações de maior impacto, cada uma dizendo em qual "
+                                    "anúncio (ID MLB) ou 'todos', o que fazer e como vamos medir. Responda SÓ JSON: "
+                                    '{"status": [{"id": 3, "status": "testando", "motivo": "..."}], "plano": "markdown curto em português", '
+                                    '"resumo_sala": "3 linhas para a Sala"}', web=False, max_tokens=2500, qual="claude", sistema=agentes.SISTEMA)
+        ids = {b["id"] for b in box}
+        for x in j.get("status") or []:
+            try:
+                bid = int(x.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if bid in ids and x.get("status") in RANK_STATUS:
+                repo._req("PATCH", "rank_box", {"id": repo._eq(bid)}, corpo={"status": x["status"], "atualizado_em": datetime.now(timezone.utc).isoformat()},
+                          prefer="return=minimal")
+                if x.get("motivo"):
+                    repo._req("POST", "rank_box", corpo=[{"tipo": "comentario", "titulo": "status", "texto": f"→ {x['status']}: {str(x['motivo'])[:500]}",
+                                                          "autor": "Claude", "pai_id": bid}], prefer="return=minimal")
+        if j.get("plano"):
+            repo._req("POST", "rank_box", corpo=[{"tipo": "plano", "titulo": f"Plano de ação de {hoje[8:10]}/{hoje[5:7]}", "texto": str(j["plano"])[:6000],
+                                                  "autor": "Claude", "status": "testando"}], prefer="return=minimal")
+        if j.get("resumo_sala"):
+            repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "Claude", "texto": "🧪 **Laboratório de Rankeamento**\n" + str(j["resumo_sala"])[:1500]
+                                                           + "\n(Minhas Lojas → 🧪 Rankeamento)"}], prefer="return=minimal")
+        feitos.append("plano ok")
+    except Exception as e:  # noqa: BLE001
+        feitos.append(f"coordenador falhou ({str(e)[:80]})")
+    return "; ".join(feitos)[:300]
+
+
 def rota_posicoes(repo, metodo, rota, q, corpo):
     d = json.loads(corpo or b"{}") if metodo == "POST" else {}
     agora_ = datetime.now(timezone.utc).isoformat()
@@ -3486,6 +3636,38 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
             mud["termo"] = str(mud["termo"] or "").strip()[:120]
         repo._req("PATCH", "meus_anuncios", {"id": repo._eq(aid)}, corpo=mud, prefer="return=minimal")
         return {"ok": True}
+    if rota == "rank_box":
+        todos = repo._todos("rank_box", {"select": "*", "order": "atualizado_em.desc"})
+        coment = {}
+        for b in todos:
+            if b["tipo"] == "comentario" and b.get("pai_id"):
+                coment.setdefault(b["pai_id"], []).append(b)
+        itens = [dict(b, comentarios=sorted(coment.get(b["id"], []), key=lambda c: c["criado_em"])) for b in todos if b["tipo"] != "comentario"]
+        plano = next((b for b in itens if b["tipo"] == "plano"), None)
+        an = repo._todos("meus_anuncios", {"select": "id,titulo,loja", "ativo": "is.true"})
+        rot = (repo._req("GET", "rotinas", {"select": "horario,ativo,ultima_execucao,ultimo_resultado", "id": "eq.rankeamento"}) or [None])[0]
+        return {"itens": [b for b in itens if b["tipo"] != "plano"], "plano": plano, "anuncios": an, "rotina": rot}
+    if rota == "rank_salvar" and metodo == "POST":
+        # o Bruno escreve na box (técnica, pergunta, resultado) ou comenta/muda o status de um item
+        if d.get("id"):
+            mud = {k: d[k] for k in ("status",) if d.get(k) in RANK_STATUS}
+            if mud:
+                mud["atualizado_em"] = agora_
+                repo._req("PATCH", "rank_box", {"id": repo._eq(int(d["id"]))}, corpo=mud, prefer="return=minimal")
+            if str(d.get("comentario") or "").strip():
+                repo._req("POST", "rank_box", corpo=[{"tipo": "comentario", "titulo": "comentário", "texto": str(d["comentario"])[:2000],
+                                                      "autor": "Bruno", "pai_id": int(d["id"])}], prefer="return=minimal")
+                repo._req("PATCH", "rank_box", {"id": repo._eq(int(d["id"]))}, corpo={"atualizado_em": agora_}, prefer="return=minimal")
+            return {"ok": True}
+        tit = str(d.get("titulo") or "").strip()
+        if not tit:
+            raise ErroNuvem("Escreva um título.")
+        repo._req("POST", "rank_box", corpo=[{"tipo": d.get("tipo") if d.get("tipo") in RANK_TIPOS else "tecnica", "titulo": tit[:200],
+                                              "texto": str(d.get("texto") or "")[:4000], "autor": "Bruno", "fonte": str(d.get("fonte") or "")[:500] or None,
+                                              "anuncio_id": str(d.get("anuncio_id") or "").upper() or None}], prefer="return=minimal")
+        return {"ok": True}
+    if rota == "rank_rodar" and metodo == "POST":
+        return {"ok": True, "resultado": laboratorio_rankeamento(repo, forcar=True)}
     if rota == "ml_pedir" and metodo == "POST":
         k = "ml_lojas" if d.get("o_que") == "lojas" else "ml_posicoes"
         pend = repo._req("GET", "mac_comandos", {"select": "id", "comando": repo._eq(k), "status": "in.(pendente,rodando)", "limit": 1}) or []

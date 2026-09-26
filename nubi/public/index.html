@@ -68,6 +68,10 @@ h2{font-size:16px;margin:0 0 10px}
 .alerta{color:var(--bad);font-weight:600}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:10px;margin:14px 0}
 .kpi{padding:12px}
+.rk-plano{border-left:4px solid var(--accent)}.rk-form{display:grid;gap:8px}.rk-form textarea,.rk-form input,.rk-form select{width:100%;box-sizing:border-box}
+.rk-lista{display:grid;gap:6px;margin-top:10px}.rk-it{border:1px solid var(--line);border-radius:10px;padding:8px 10px}.rk-it summary{cursor:pointer;font-size:13px;overflow-wrap:anywhere}
+.rk-corpo{margin-top:8px;font-size:13px}.rk-com{font-size:12.5px;border-left:2px solid var(--line);padding:2px 8px;margin-top:6px;overflow-wrap:anywhere}
+.rk-acoes{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}.rk-acoes input{flex:1;min-width:160px}
 .po-lojas{display:grid;gap:6px}.po-loja{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.po-loja .muted{flex:1;min-width:0;font-size:12.5px;overflow-wrap:anywhere}
 .po-lista{display:grid;gap:10px}.po-an{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
 .po-an img,.po-sem-foto{width:56px;height:56px;object-fit:contain;border-radius:8px;background:var(--soft);display:grid;place-items:center}
@@ -1119,7 +1123,7 @@ async function rotear() {
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   desenharBarraBaixo();
   if (sec === "inicio") return telaInicio();
-  if (sec === "lojas") return location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : telaEstoque();
+  if (sec === "lojas") return location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -2448,7 +2452,61 @@ function esFiltrar(k) {
 }
 const esAbas = ativa => `<div class="seg" style="margin-bottom:12px"><button class="${ativa === "estoque" ? "on" : ""}" onclick="location.hash='#/estoque'">📦 Estoque</button>
   <button class="${ativa === "gestor" ? "on" : ""}" onclick="location.hash='#/estoque/gestor'">🧾 Planilha do Gestor Seller</button>
-  <button class="${ativa === "posicoes" ? "on" : ""}" onclick="location.hash='#/estoque/posicoes'">📈 Posição do anúncio</button></div>`;
+  <button class="${ativa === "posicoes" ? "on" : ""}" onclick="location.hash='#/estoque/posicoes'">📈 Posição do anúncio</button>
+  <button class="${ativa === "rank" ? "on" : ""}" onclick="location.hash='#/estoque/rankeamento'">🧪 Rankeamento</button></div>`;
+// ---------- Minhas Lojas → 🧪 Laboratório de Rankeamento: a box onde todos os agentes juntam técnicas do algoritmo do ML ----------
+const RK_TIPO = {tecnica: "🛠️ Técnica", hipotese: "💭 Hipótese", experimento: "🧪 Experimento", resultado: "📊 Resultado", pergunta: "❓ Pergunta"};
+const RK_ST = {nova: ["", "nova"], testando: ["warn", "testando"], comprovada: ["good", "✅ comprovada"], descartada: ["bad", "descartada"]};
+async function telaRankeamento() {
+  const main = $("#main");
+  main.innerHTML = esAbas("rank") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo o laboratório</div></div>`;
+  let r;
+  try { r = await api("rank_box"); } catch (e) { main.innerHTML = esAbas("rank") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/estoque/rankeamento")) return;
+  S.rkFiltro = S.rkFiltro || "todas";
+  const itens = r.itens.filter(b => S.rkFiltro === "todas" || b.status === S.rkFiltro || b.tipo === S.rkFiltro);
+  const votos = b => { const v = Object.values(b.votos || {}); const mais = v.filter(x => x > 0).length, menos = v.filter(x => x < 0).length;
+    return v.length ? `<span class="muted" title="${esc(Object.entries(b.votos).map(([k, x]) => k + (x > 0 ? " 👍" : " 👎")).join(", "))}">👍 ${mais}${menos ? ` · 👎 ${menos}` : ""}</span>` : ""; };
+  const anNome = id => { const a = r.anuncios.find(x => x.id === id); return a ? `${esc(id)} · ${esc((a.titulo || "").slice(0, 40))}` : esc(id); };
+  const rot = r.rotina || {};
+  main.innerHTML = esAbas("rank") + `<div class="es-cab"><h1>🧪 Laboratório de Rankeamento</h1>
+      <span class="muted">todos os agentes estudando o algoritmo do Mercado Livre para os seus anúncios subirem</span>
+      <div class="acoes"><button class="btn small primary" id="rk-rodar">▶ Rodar o time agora</button></div></div>
+    <p class="muted" style="font-size:12.5px;margin:4px 0 10px">Todo dia às ${esc(rot.horario || "08:30")}: o pesquisador (Claude com busca na web) traz técnicas com fonte;
+      ChatGPT, DeepSeek e gpt-oss leem a box e a posição dos seus anúncios, propõem técnicas, hipóteses e testes e votam nas ideias dos outros; o coordenador
+      decide o que está comprovado e escreve o plano de ação. Você também pode escrever aqui.${rot.ultimo_resultado ? ` Última rodada: ${esc(rot.ultimo_resultado)}.` : ""}</p>
+    ${r.plano ? `<div class="card pad rk-plano"><h2>🎯 ${esc(r.plano.titulo)}</h2><div class="md">${mdSimples(r.plano.texto || "")}</div></div>`
+      : `<div class="card pad rk-plano"><h2>🎯 Plano de ação</h2><p class="muted">O primeiro plano sai na primeira rodada do time (toque em ▶ Rodar o time agora).</p></div>`}
+    <div class="card pad" style="margin-top:14px"><h2>✍️ Escrever na box</h2>
+      <form id="rk-novo" class="rk-form"><select id="rk-tipo">${Object.entries(RK_TIPO).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select>
+        <input id="rk-tit" placeholder="Título (ex.: foto com fundo branco sobe a conversão?)" required>
+        <textarea id="rk-txt" rows="2" placeholder="Detalhe, o que você viu, link…"></textarea>
+        <select id="rk-an"><option value="">todos os anúncios</option>${r.anuncios.map(a => `<option value="${esc(a.id)}">${esc(a.id)} · ${esc((a.titulo || "").slice(0, 50))}</option>`).join("")}</select>
+        <button class="btn small primary">Publicar</button></form></div>
+    <div class="card pad" style="margin-top:14px"><div class="es-cab" style="margin:0"><h2 style="margin:0">📚 A box <span class="muted" style="font-weight:500">${r.itens.length}</span></h2>
+      <div class="seg">${[["todas", "Todas"], ["comprovada", "✅ Comprovadas"], ["testando", "Testando"], ["experimento", "🧪 Experimentos"], ["pergunta", "❓ Perguntas"]]
+        .map(([k, t]) => `<button data-rkf="${k}" class="${S.rkFiltro === k ? "on" : ""}">${t}</button>`).join("")}</div></div>
+      ${!itens.length ? `<p class="muted">Nada aqui ainda.</p>` : `<div class="rk-lista">${itens.map(b => `<details class="rk-it">
+        <summary><span class="st ${RK_ST[b.status]?.[0] || ""}">${RK_ST[b.status]?.[1] || esc(b.status)}</span> <b>${esc(b.titulo)}</b>
+          <span class="muted">· ${RK_TIPO[b.tipo] || esc(b.tipo)} · ${esc(b.autor)}${b.anuncio_id ? " · " + anNome(b.anuncio_id) : ""}</span> ${votos(b)}${b.comentarios.length ? ` <span class="muted">💬 ${b.comentarios.length}</span>` : ""}</summary>
+        <div class="rk-corpo"><div class="md">${mdSimples(b.texto || "")}</div>
+          ${b.fonte ? `<p style="font-size:12px;margin:6px 0 0">Fonte: <a href="${esc(b.fonte)}" target="_blank" rel="noopener">${esc(b.fonte.slice(0, 80))}</a></p>` : ""}
+          ${b.comentarios.map(c => `<div class="rk-com"><b>${esc(c.autor)}</b> ${esc(c.texto || "")}</div>`).join("")}
+          <div class="rk-acoes"><input placeholder="Comentar…" data-rk-com="${b.id}">
+            <select data-rk-st="${b.id}">${Object.entries(RK_ST).map(([k, v]) => `<option value="${k}" ${b.status === k ? "selected" : ""}>${v[1]}</option>`).join("")}</select></div></div></details>`).join("")}</div>`}</div>`;
+  $("#rk-rodar").onclick = async () => { const bt = $("#rk-rodar"); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> O time está trabalhando (2 a 4 min)…';
+    try { const x = await api("rank_rodar", {}, {method: "POST", body: "{}"}); toast(x.resultado || "Pronto.", 8000); telaRankeamento(); }
+    catch (e) { toast(e.message, 8000); bt.disabled = false; bt.textContent = "▶ Rodar o time agora"; } };
+  $("#rk-novo").onsubmit = async e => { e.preventDefault();
+    try { await api("rank_salvar", {}, {method: "POST", body: JSON.stringify({tipo: $("#rk-tipo").value, titulo: $("#rk-tit").value, texto: $("#rk-txt").value, anuncio_id: $("#rk-an").value})});
+      toast("Publicado na box: o time lê na próxima rodada."); telaRankeamento(); } catch (er) { toast(er.message, 6000); } };
+  main.querySelectorAll("[data-rkf]").forEach(b => b.onclick = () => { S.rkFiltro = b.dataset.rkf; telaRankeamento(); });
+  main.querySelectorAll("[data-rk-com]").forEach(i => i.onkeydown = async e => { if (e.key !== "Enter" || !i.value.trim()) return; e.preventDefault();
+    try { await api("rank_salvar", {}, {method: "POST", body: JSON.stringify({id: +i.dataset.rkCom, comentario: i.value})}); telaRankeamento(); } catch (er) { toast(er.message, 6000); } });
+  main.querySelectorAll("[data-rk-st]").forEach(sel => sel.onchange = async () => {
+    try { await api("rank_salvar", {}, {method: "POST", body: JSON.stringify({id: +sel.dataset.rkSt, status: sel.value})}); toast("Status atualizado."); } catch (er) { toast(er.message, 6000); } });
+  desenharMenu();
+}
 // ---------- Minhas Lojas → Posição do anúncio (card #78): posição e página de cada anúncio meu na busca do Mercado Livre ----------
 async function telaPosicoes() {
   const main = $("#main");
