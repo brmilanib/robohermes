@@ -116,6 +116,38 @@ def test_enviar_direto_ao_claude_usa_ia_perguntar():
     assert [m["autor"] for m in r.t["reuniao_mensagens"]] == ["voce", "Claude"]
 
 
+def test_enviar_direto_claude_com_falha_na_ia_nao_deixa_mensagem_orfa():
+    # achado do revisor: o ramo "claude" chamava ia.perguntar sem try/except (o ramo dos demais agentes tinha);
+    # uma exceção ali subia até o handler genérico (500) e deixava a mensagem do usuário sem resposta nem aviso
+    r = RepoSala()
+    nubi_web.RepoSupabase = lambda token: r
+    nubi_web.ligar_registro_uso = lambda *a, **k: None
+    ia.tem = lambda q: True
+
+    def _falha(pedido, **kw):
+        raise RuntimeError("timeout")
+    ia.perguntar = _falha
+    status, ctype, body, _ = nubi_web.atender("POST", "reuniao_enviar_direto", {}, _corpo({"agente": "claude", "texto": "e aí?"}), "t")
+    assert status == 200 and json.loads(body) == {"ok": True}, (status, body)
+    autores_textos = [(m["autor"], m["texto"]) for m in r.t["reuniao_mensagens"]]
+    assert autores_textos == [("voce", "e aí?"), ("sistema", "sem resposta do agente")], autores_textos
+
+
+def test_enviar_direto_sem_chave_nao_grava_mensagem_orfa():
+    # achado do revisor: a mensagem "voce" era gravada ANTES de checar ia.tem(); sem chave configurada,
+    # ErroNuvem subia depois de já ter gravado, deixando a mensagem do usuário órfã (sem resposta nem aviso)
+    r = RepoSala()
+    nubi_web.RepoSupabase = lambda token: r
+    nubi_web.ligar_registro_uso = lambda *a, **k: None
+    ia.tem = lambda q: False
+    status, ctype, body, _ = nubi_web.atender("POST", "reuniao_enviar_direto", {}, _corpo({"agente": "chatgpt", "texto": "oi"}), "t")
+    assert status == 400 and "não configurado" in json.loads(body)["erro"], (status, body)
+    assert r.t["reuniao_mensagens"] == []          # nada gravado: nem a mensagem do usuário
+    status, ctype, body, _ = nubi_web.atender("POST", "reuniao_enviar_direto", {}, _corpo({"agente": "claude", "texto": "oi"}), "t")
+    assert status == 400 and "Claude" in json.loads(body)["erro"], (status, body)
+    assert r.t["reuniao_mensagens"] == []
+
+
 def test_enviar_direto_sem_resposta_nao_inventa():
     r = RepoSala()
     nubi_web.RepoSupabase = lambda token: r

@@ -888,34 +888,38 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem("Agente inválido.")
             if not texto:
                 raise ErroNuvem("Escreva a mensagem.")
-            meta = {"conversa": "direta", "agente": chave}
-            agora_ = lambda: datetime.now(timezone.utc).isoformat()  # noqa: E731
-            repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "voce", "texto": texto[:4000], "meta": meta,
-                      "criado_em": agora_()}], prefer="return=minimal")
+            # confere ANTES de gravar qualquer coisa (como a reuniao_enviar antiga): sem isso, uma chave que falta na
+            # Vercel deixava a mensagem do usuário órfã na conversa, sem resposta nem aviso (achado do revisor)
             aviso_mac = ("O Ferreiro atende só pelo comando fechado do Mac (card 🩺 urgente ou Central); conversa "
                          "direta com ele fica para a próxima fase." if chave == "claude_mac" else
                          "O Copilot atende por tarefa do GitHub aberta pelo Chefe; conversa direta com ele fica para "
                          "a próxima fase." if chave == "copilot" else
-                         f"{CONVERSA_NOME[chave]} responde pelo Mac quando processar (assíncrono)." if chave in ("hermes", "qwen")
+                         f"{CONVERSA_NOME[chave]} ainda não responde à conversa direta (fica para a próxima fase); o "
+                         "trabalho dele no Mac continua igual, fora daqui." if chave in ("hermes", "qwen")
                          else "")
+            if not aviso_mac:
+                if chave == "claude" and not ia.tem("claude"):
+                    raise ErroNuvem("Claude (coordenador) não configurado.")
+                if chave in agentes.AGENTES and not ia.tem(agentes.AGENTES[chave]["qual"]):
+                    raise ErroNuvem(f"{CONVERSA_NOME[chave]} não configurado.")
+            meta = {"conversa": "direta", "agente": chave}
+            agora_ = lambda: datetime.now(timezone.utc).isoformat()  # noqa: E731
+            repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "voce", "texto": texto[:4000], "meta": meta,
+                      "criado_em": agora_()}], prefer="return=minimal")
             if aviso_mac:
                 repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "sistema", "texto": aviso_mac, "meta": meta,
                           "criado_em": agora_()}], prefer="return=minimal")
                 return _json({"ok": True})
-            if chave == "claude":
-                if not ia.tem("claude"):
-                    raise ErroNuvem("Claude (coordenador) não configurado.")
-                resposta, _, _ = ia.perguntar(agentes.voz("claude") + texto, web=False, max_tokens=800, qual="claude",
-                                               sistema=agentes.SISTEMA)
-                nome = "Claude"
-            else:
-                if not ia.tem(agentes.AGENTES[chave]["qual"]):
-                    raise ErroNuvem(f"{CONVERSA_NOME[chave]} não configurado.")
-                nome = agentes.AGENTES[chave]["nome"]
-                try:
+            try:
+                if chave == "claude":
+                    resposta, _, _ = ia.perguntar(agentes.voz("claude") + texto, web=False, max_tokens=800, qual="claude",
+                                                   sistema=agentes.SISTEMA)
+                    nome = "Claude"
+                else:
+                    nome = agentes.AGENTES[chave]["nome"]
                     resposta = agentes.perguntar(chave, texto)
-                except Exception:  # noqa: BLE001
-                    resposta = ""
+            except Exception:  # noqa: BLE001
+                resposta = ""
             resposta = (resposta or "").strip()
             if resposta:
                 repo._req("POST", "reuniao_mensagens", corpo=[{"autor": nome, "texto": resposta[:8000], "meta": meta,
