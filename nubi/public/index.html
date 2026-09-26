@@ -556,6 +556,10 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .dc-sit{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;font-size:11.5px}
 .dc-sit .st{white-space:normal;text-align:left}
 .dc-sit-mot{color:var(--muted);overflow-wrap:anywhere;min-width:0}
+.dev-filtro{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:6px;min-width:0}
+.dev-filtro label{display:flex;align-items:center;gap:6px;min-width:0;flex:1 1 auto}
+.dev-filtro select{min-width:0;max-width:100%;text-overflow:ellipsis}
+.dev-filtro-n{font-size:11.5px;margin-left:auto}
 .dc-pede{font-size:12px;background:#fff4e5;color:#7a4b00;border-radius:8px;padding:5px 8px}
 .dc-vivo{display:flex;gap:9px;align-items:flex-start;background:var(--soft);border-radius:10px;padding:8px}
 .dc-vivo b{font-size:12.5px}.dc-ev{font-size:12.3px;margin:2px 0}
@@ -3656,6 +3660,18 @@ function situacaoInfo(t) {
   if (t.situacao === "aguardando_distribuicao") return null;   // a linha do executor já diz "Sem responsável — aguardando distribuição"
   return {texto: SIT_TXT[t.situacao] || t.situacao, motivo: t.situacao_motivo || null, classe: SIT_CLASSE[t.situacao] || ""};
 }
+// Filtro por executor em Feitas (#93, pedido do Bruno/Astra): nunca usa autor/solicitante/designer, só reuniao_tarefas.responsavel.
+// Fica num módulo à parte para sobreviver ao redesenho automático da tela (mesmo padrão de DEV_APELIDOS).
+let DEV_FILTRO_EXEC = "";
+const SEM_EXEC_VAL = "_sem_";
+function execFiltroOpcoes(feitas) {
+  const vistos = new Map(); let temSemExecutor = false;
+  feitas.forEach(t => { if (!t.responsavel) { temSemExecutor = true; return; } if (!vistos.has(t.responsavel)) vistos.set(t.responsavel, execInfo(t).nome); });
+  const opcoes = [...vistos.entries()].map(([valor, rotulo]) => ({valor, rotulo})).sort((a, b) => a.rotulo.localeCompare(b.rotulo, "pt-BR"));
+  if (temSemExecutor) opcoes.push({valor: SEM_EXEC_VAL, rotulo: "Sem executor informado"});
+  return opcoes;
+}
+const execFiltroAplica = (t, filtro) => !filtro || (filtro === SEM_EXEC_VAL ? !t.responsavel : t.responsavel === filtro);
 const desde = t => { if (!t) return ""; const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
   return m < 1 ? "agora" : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h ${m % 60} min` : `há ${Math.floor(m / 1440)} d`; };
 function devCard(t) {
@@ -3712,6 +3728,10 @@ async function telaDev(silencioso) {
   const ultimo = ts.map(t => ({...t.ultimo_evento, tarefa_id: t.id}))
     .filter(e => e?.autor === "claude_code" && e?.criado_em)
     .sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em))[0];
+  const feitas = ts.filter(t => t.status === "feita");
+  const execOpcoes = execFiltroOpcoes(feitas);
+  if (DEV_FILTRO_EXEC && !execOpcoes.some(o => o.valor === DEV_FILTRO_EXEC)) DEV_FILTRO_EXEC = "";   // executor sumiu (ex.: card reaberto)
+  const feitasFiltradas = feitas.filter(t => execFiltroAplica(t, DEV_FILTRO_EXEC));
   main.innerHTML = opsAbas("dev") + `<div class="dev-cab"><h1 style="margin:0">📋 Desenvolvimento</h1>
       <span class="muted">propostas → aprovadas → em execução → feitas · clique num card para ver tudo e conversar</span><div style="flex:1"></div>
       <button class="btn" id="dev-nova">+ Nova tarefa</button></div>
@@ -3721,10 +3741,25 @@ async function telaDev(silencioso) {
       <div class="dev-prog-it"><span class="muted">Último trabalho</span><br>${ultimo ? `${esc(desde(ultimo.criado_em))} · #${ultimo.tarefa_id} · ${esc((ultimo.texto || "").slice(0, 90))}` : "sem registro ainda"}</div>
     </div>
     ${pedem.length ? `<div class="dev-alerta">⏳ ${pedem.length} tarefa(s) esperando sua resposta: ${pedem.map(t => `<a href="#" data-abrir="${t.id}">#${t.id} ${esc(t.titulo)}</a>`).join(" · ")}</div>` : ""}
-    <div class="dev-col">${DEV_COLS.map(([c, tit, sub]) => `<section class="dev-coluna c-${c}"><div class="dev-ct"><b>${tit}</b> <span class="dev-cn">${n(c)}</span><div class="muted">${sub}</div></div>
-      ${ts.filter(t => t.status === c).map(devCard).join("") || `<p class="muted" style="font-size:12.5px">Nada aqui.</p>`}</section>`).join("")}</div>
+    <div class="dev-col">${DEV_COLS.map(([c, tit, sub]) => { if (c !== "feita") return `<section class="dev-coluna c-${c}"><div class="dev-ct"><b>${tit}</b> <span class="dev-cn">${n(c)}</span><div class="muted">${sub}</div></div>
+      ${ts.filter(t => t.status === c).map(devCard).join("") || `<p class="muted" style="font-size:12.5px">Nada aqui.</p>`}</section>`;
+      return `<section class="dev-coluna c-feita"><div class="dev-ct"><b>${tit}</b> <span class="dev-cn">${n(c)}</span><div class="muted">${sub}</div></div>
+        ${execOpcoes.length ? `<div class="dev-filtro">
+          <label class="muted" style="font-size:11.5px">Executor <select id="dev-filtro-exec" class="mes">
+            <option value="">Todos</option>
+            ${execOpcoes.map(o => `<option value="${esc(o.valor)}" ${o.valor === DEV_FILTRO_EXEC ? "selected" : ""}>${esc(o.rotulo)}</option>`).join("")}
+          </select></label>
+          ${DEV_FILTRO_EXEC ? `<button class="btn small ghost" id="dev-filtro-limpar" type="button">Limpar filtros</button>` : ""}
+          <span class="muted dev-filtro-n">${feitasFiltradas.length} card${feitasFiltradas.length === 1 ? "" : "s"} encontrado${feitasFiltradas.length === 1 ? "" : "s"}</span>
+        </div>` : ""}
+        ${feitas.length === 0 ? `<p class="muted" style="font-size:12.5px">Nenhum card feito ainda.</p>`
+          : feitasFiltradas.length === 0 ? `<p class="muted" style="font-size:12.5px">Nenhum card encontrado com estes filtros.</p>`
+          : feitasFiltradas.map(devCard).join("")}</section>`;
+    }).join("")}</div>
     ${n("recusada") ? `<details style="margin-top:14px"><summary class="muted">Recusadas (${n("recusada")})</summary>
       <div class="dev-col" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${ts.filter(t => t.status === "recusada").map(devCard).join("")}</div></details>` : ""}`;
+  if ($("#dev-filtro-exec", main)) $("#dev-filtro-exec", main).onchange = e => { DEV_FILTRO_EXEC = e.target.value; telaDev(true); };
+  if ($("#dev-filtro-limpar", main)) $("#dev-filtro-limpar", main).onclick = () => { DEV_FILTRO_EXEC = ""; telaDev(true); };
   main.querySelectorAll("[data-abrir]").forEach(el => {
     const abrir = e => { e.preventDefault(); abrirTarefa(+el.dataset.abrir); };
     el.onclick = abrir; el.onkeydown = e => { if (e.key === "Enter") abrir(e); };
