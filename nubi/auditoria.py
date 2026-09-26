@@ -157,10 +157,7 @@ def conferencias(repo, hoje=None):
                   if (g.get("similaridade") or 1) < 0.86]
     except Exception:  # noqa: BLE001
         fracos = []
-    for g in fracos[:10]:
-        ach.append({"nivel": "info", "area": "produtos iguais", "titulo": "Junção com parecença baixa: conferir",
-                    "detalhe": f"“{g['titulo']}” junto de “{g['grupo_titulo']}” (parecença {g['similaridade']:.2f}). "
-                               f"Regras: {regras_juncao(g['titulo'], g['grupo_titulo'])}"})
+    ach.extend(achados_parecenca_baixa(fracos))
     # 7) rotinas com erro
     for r in repo._todos("rotinas", {"select": "id,nome,ultimo_resultado"}):
         if str(r.get("ultimo_resultado") or "").startswith("erro"):
@@ -236,6 +233,37 @@ def achados_categoria_manual_invalida(manuais):
                         "o relatório trata a marca como \"Sem categoria\" até alguém escolher de novo em "
                         "Minhas marcas → Categorias."}
             for chave, cat in sorted(manuais.items()) if cat not in categorias.CATEGORIAS]
+
+
+def atributos_lado(titulo):
+    """Volume, concentração e gênero que produtos_iguais extrai de UM título (card #86). O export do Nubimetrics
+    corta todo título em ~40 caracteres (vend_anuncios.titulo e produto_grupos.titulo/grupo_titulo têm sempre
+    esse tamanho quando cortados; ver produtos_iguais.numeros); um atributo não encontrado é "—", mas só quando
+    o título não parece cortado — cortado, avisa que pode ter mais em vez de parecer campo vazio de verdade."""
+    import produtos_iguais as pi
+    cortado = len(titulo or "") >= 39
+    falta = "— (título cortado, pode ter mais)" if cortado else "— (campo vazio no título)"
+    vol, conc, gen = pi.volumes(titulo), pi.concentracoes(titulo), pi.genero(titulo)
+    return {"volume": ", ".join(f"{v}ml" for v in sorted(vol)) if vol else falta,
+            "concentracao": ", ".join(sorted(conc)) if conc else falta,
+            "genero": {"m": "masculino", "f": "feminino"}.get(gen) or falta,
+            "cortado": cortado}
+
+
+def achados_parecenca_baixa(fracos):
+    """Achados de "Junção com parecença baixa" (card #86): título inteiro de cada lado (o que já está em
+    produto_grupos, sem cortar de novo na exibição) com o volume, a concentração e o gênero que as regras
+    extraíram de cada um, deixando claro se um "—" é campo vazio no anúncio ou o título cortado no export."""
+    out = []
+    for g in fracos[:10]:
+        la, lb = atributos_lado(g.get("titulo")), atributos_lado(g.get("grupo_titulo"))
+        out.append({"nivel": "info", "area": "produtos iguais", "titulo": "Junção com parecença baixa: conferir",
+                     "detalhe": f"“{g.get('titulo')}” (volume {la['volume']} · concentração {la['concentracao']} · "
+                                f"gênero {la['genero']}) junto de “{g.get('grupo_titulo')}” (volume {lb['volume']} · "
+                                f"concentração {lb['concentracao']} · gênero {lb['genero']}) "
+                                f"(parecença {(g.get('similaridade') or 0):.2f}). "
+                                f"Regras: {regras_juncao(g.get('titulo'), g.get('grupo_titulo'))}"})
+    return out
 
 
 def regras_juncao(a, b):
