@@ -1140,6 +1140,8 @@ def atender(metodo, rota, q, corpo, token):
                     repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": tid, "autor": "sistema", "tipo": "status",
                                                                 "texto": f"o agente não conseguiu responder agora ({str(e)[:150]})"}],
                               prefer="return=minimal")
+            if mud.get("status") == "aprovada" or (atual.get("status") == "aprovada" and dec == "aprovar"):
+                return _json({"ok": True, "assumidos": assumir_aprovados(repo, tid)})   # card #89: começa na hora
             return _json({"ok": True})
         if rota == "reuniao_tarefa_salvar" and metodo == "POST":
             d = json.loads(corpo or b"{}")
@@ -1164,7 +1166,11 @@ def atender(metodo, rota, q, corpo, token):
                     raise ErroNuvem("Dê um título para a tarefa.")
                 reg.update(proposto_por=str(d.get("autor") or "voce")[:40], decidido_por="voce")
                 novo = repo._req("POST", "reuniao_tarefas", corpo=[reg], prefer="return=representation") or [{}]
+                if reg.get("status") == "aprovada" and novo[0].get("id"):
+                    return _json({"ok": True, "id": novo[0]["id"], "assumidos": assumir_aprovados(repo, novo[0]["id"])})
                 return _json({"ok": True, "id": novo[0].get("id")})
+            if reg.get("status") == "aprovada" or "responsavel" in reg:   # card #89: aprovou/atribuiu, começa na hora
+                return _json({"ok": True, "assumidos": assumir_aprovados(repo, int(d["id"]))})
             return _json({"ok": True})
 
         if rota == "auditoria":
@@ -2836,10 +2842,34 @@ TRAVA_MAC = {"ferreiro": (("programar_card", "programar_astra"), ("claude_mac", 
              "navegador": (("navegar_card",), ("navegador",))}
 
 
-def ferreiro_proximo(repo, a_cada_min=5, quem="ferreiro"):
+FERREIRO_TENTATIVAS = 2          # cards do Chefe (claude_code) que o Ferreiro pega: no máximo 2 vezes cada
+
+
+def _pegar(repo, tid, corpo, **filtro):
+    """Trava do card #89: só um processo pega o card (PATCH condicional; quem chega depois recebe lista vazia)."""
+    return bool(repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid), "status": "eq.aprovada", **filtro},
+                          corpo=corpo, prefer="return=representation"))
+
+
+def _motivo_card(repo, tid, msg):
+    """Mostra no card por que ele não começou, sem repetir o mesmo aviso a cada rodada."""
+    ultimo = (repo._req("GET", "tarefa_eventos", {"select": "texto", "tarefa_id": repo._eq(tid), "order": "id.desc", "limit": 1}) or [None])[0]
+    if not ultimo or ultimo.get("texto") != msg:
+        _evento(repo, tid, "sistema", msg, tipo="status")
+
+
+def _mac_online(repo):
+    est = (repo._req("GET", "mac_estado", {"select": "visto_em", "id": "eq.1"}) or [None])[0]
+    return bool(est and est.get("visto_em") and (datetime.now(timezone.utc) - datetime.fromisoformat(
+        str(est["visto_em"]).replace("Z", "+00:00"))).total_seconds() < 300)
+
+
+def ferreiro_proximo(repo, a_cada_min=1, quem="ferreiro"):
     """Card #89 (pedido do Bruno, 26/09): o programador do Mac livre (Ferreiro ou Astra) pega na hora o próximo card aprovado
-    dele, sem esperar ninguém. Pula risco alto, card com pergunta em aberto e card que voltou com erro há menos de 1 h; um
-    de cada vez (os dois usam o mesmo clone do projeto no Mac)."""
+    dele, sem esperar ninguém. O Ferreiro também pega os cards de código do Chefe (claude_code), que antes esperavam a rodada
+    de hora em hora (no máximo FERREIRO_TENTATIVAS vezes cada). Pula risco alto, card com pergunta em aberto e card que voltou
+    com erro há menos de 1 h; ficou indisponível (⏸ sem chave, no teto), espera 1 h. Um de cada vez (os dois usam o mesmo
+    clone do projeto no Mac); o PATCH condicional garante que dois processos não pegam o mesmo card."""
     resp, comando, nome, ic = PROGRAMADORES_MAC[quem]
     try:
         chave = f"{quem}|vez"
@@ -2857,23 +2887,34 @@ def ferreiro_proximo(repo, a_cada_min=5, quem="ferreiro"):
         if repo._req("GET", "reuniao_tarefas", {"select": "id", "responsavel": f"in.({','.join(resps)})", "status": "eq.em_desenvolvimento",
                                                  "iniciado_em": f"gte.{limite}", "limit": 1}):
             return f"{nome} espera (card em andamento no Mac)"
-        fila = [t for t in (repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,prioridade,risco,aguardando", "status": "eq.aprovada",
-                                                                   "responsavel": f"eq.{resp}", "order": "id"}) or [])
+        pausa = repo._req("GET", "tarefa_eventos", {"select": "texto", "autor": f"eq.{resp}", "tipo": "eq.erro_teste", "texto": "like.⏸*",
+                                                     "criado_em": f"gte.{(agora - timedelta(hours=1)).isoformat()}", "limit": 1})
+        if pausa:
+            return f"{nome} indisponível, tenta de novo em 1 h ({pausa[0]['texto'][:120]})"
+        donos = (resp, "claude_code") if quem == "ferreiro" else (resp,)
+        fila = [t for t in (repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,prioridade,risco,aguardando,responsavel",
+                                                                   "status": "eq.aprovada", "responsavel": f"in.({','.join(donos)})",
+                                                                   "order": "id"}) or [])
                 if (t.get("risco") or "") != "alto" and not t.get("aguardando")]
         if fila:
+            ids = "in.(" + ",".join(str(t["id"]) for t in fila) + ")"
             recentes = {e["tarefa_id"] for e in (repo._req("GET", "tarefa_eventos", {
-                "select": "tarefa_id", "tipo": "eq.erro_teste", "tarefa_id": "in.(" + ",".join(str(t["id"]) for t in fila) + ")",
+                "select": "tarefa_id", "tipo": "eq.erro_teste", "tarefa_id": ids,
                 "criado_em": f"gte.{(agora - timedelta(hours=1)).isoformat()}"}) or [])}
-            fila = [t for t in fila if t["id"] not in recentes]
+            pegou = [e["tarefa_id"] for e in (repo._req("GET", "tarefa_eventos", {
+                "select": "tarefa_id", "autor": f"eq.{resp}", "tarefa_id": ids, "texto": f"like.{ic}*livre:*"}) or [])]
+            fila = [t for t in fila if t["id"] not in recentes
+                    and not (t["responsavel"] == "claude_code" and pegou.count(t["id"]) >= FERREIRO_TENTATIVAS)]
         if not fila:
             return None
-        t = sorted(fila, key=lambda x: (0 if str(x.get("titulo") or "").startswith("🩺") else 1,
+        t = sorted(fila, key=lambda x: (0 if str(x.get("titulo") or "").startswith("🩺") else 1, 0 if x["responsavel"] == resp else 1,
                                         PRIORIDADE_ORDEM.get(str(x.get("prioridade") or "media"), 2), x["id"]))[0]
         ag = agora.isoformat()
+        if not _pegar(repo, t["id"], {"status": "em_desenvolvimento", "responsavel": resp, "iniciado_em": ag, "atualizado_em": ag},
+                      responsavel=f"eq.{t['responsavel']}"):
+            return None                                    # outro processo pegou no mesmo instante
         repo._req("POST", "mac_comandos", corpo=[{"comando": comando, "arg": str(t["id"]), "pedido_por": f"fila do {nome}",
                                                   "status": "pendente", "criado_em": ag, "tarefa_id": t["id"]}], prefer="return=minimal")
-        repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(t["id"])}, corpo={"status": "em_desenvolvimento", "iniciado_em": ag,
-                                                                                 "atualizado_em": ag}, prefer="return=minimal")
         repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": t["id"], "autor": resp, "tipo": "passo", "criado_em": ag,
                                                     "texto": f"{ic} {nome} livre: peguei este card agora (fila automática)."}],
                   prefer="return=minimal")
@@ -3665,39 +3706,40 @@ def entregar_card(repo, tid, autor, texto):
 
 def trabalhar_agentes(repo, limite=2):
     """Os agentes responsáveis (não o programador) fazem os cards aprovados deles. Risco alto e cards esperando o Bruno ficam."""
-    cards = [t for t in (repo._req("GET", "reuniao_tarefas", {"select": "*", "status": "eq.aprovada", "aguardando": "is.null",
-                                                              "order": "id"}) or [])
-             if t.get("responsavel") in AGENTES_TEXTO | AGENTES_MAC and (t.get("risco") or "medio") != "alto"]
+    cards = sorted([t for t in (repo._req("GET", "reuniao_tarefas", {"select": "*", "status": "eq.aprovada", "aguardando": "is.null",
+                                                                     "order": "id"}) or [])
+                    if t.get("responsavel") in AGENTES_TEXTO | AGENTES_MAC], key=ordem_fila)
     saida, caixa = [], None
     for t in cards:
         if len([x for x in saida if not x.startswith("Mac")]) >= limite:
             break
         tid, resp = t["id"], t["responsavel"]
+        if (t.get("risco") or "medio") == "alto":
+            _motivo_card(repo, tid, "Card não executado sozinho: risco alto só anda com o Bruno.")
+            continue
         ok, faltando = card_pronto(t.get("descricao"))
         if not ok:
-            msg = f"Card não executado: preencha {', '.join(faltando)} na descrição."
-            ultimo = (repo._req("GET", "tarefa_eventos", {"select": "texto", "tarefa_id": repo._eq(tid), "order": "id.desc", "limit": 1}) or [None])[0]
-            if not ultimo or ultimo.get("texto") != msg:
-                _evento(repo, tid, "sistema", msg, tipo="status")
+            _motivo_card(repo, tid, f"Card não executado: preencha {', '.join(faltando)} na descrição.")
             continue
         if resp in AGENTES_MAC:
-            est = (repo._req("GET", "mac_estado", {"select": "visto_em", "id": "eq.1"}) or [None])[0]
-            online = bool(est and (datetime.now(timezone.utc) - datetime.fromisoformat(str(est["visto_em"]).replace("Z", "+00:00"))).total_seconds() < 300)
+            online = _mac_online(repo)
             ja = repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.hermes_card", "arg": repo._eq(str(tid)),
                                                     "status": "in.(pendente,rodando)", "limit": 1})
+            if not online:
+                _motivo_card(repo, tid, f"{resp} indisponível: o Mac mini está sem sinal; o card começa quando ele voltar.")
             if not online or ja:
                 continue
             agora_ = datetime.now(timezone.utc).isoformat()
+            if not _pegar(repo, tid, {"status": "em_desenvolvimento", "iniciado_em": agora_, "atualizado_em": agora_}):
+                continue                                   # outro processo já pegou este card
             repo._req("POST", "mac_comandos", corpo=[{"comando": "hermes_card", "arg": str(tid), "pedido_por": "coordenador",
                                                       "status": "pendente", "criado_em": agora_, "tarefa_id": tid}], prefer="return=minimal")
-            repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo={"status": "em_desenvolvimento", "iniciado_em": agora_,
-                                                                                 "atualizado_em": agora_}, prefer="return=minimal")
             _evento(repo, tid, "hermes", "🪽 Peguei o card: vou fazer no Mac mini (grátis) e entrego aqui.")
             saida.append(f"Mac #{tid}")
             continue
         agora_ = datetime.now(timezone.utc).isoformat()
-        repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo={"status": "em_desenvolvimento", "iniciado_em": agora_,
-                                                                             "atualizado_em": agora_}, prefer="return=minimal")
+        if not _pegar(repo, tid, {"status": "em_desenvolvimento", "iniciado_em": agora_, "atualizado_em": agora_}):
+            continue                                       # outro processo já pegou este card
         _evento(repo, tid, resp, "Peguei o card e estou trabalhando nele.")
         if caixa is None:
             caixa = _conhecimento_fixo(repo)
@@ -3712,6 +3754,36 @@ def trabalhar_agentes(repo, limite=2):
             continue
         saida.append(entregar_card(repo, tid, resp, txt))
     return "; ".join(saida)
+
+
+def assumir_aprovados(repo, tid):
+    """Card #89: aprovou ou atribuiu um card, o responsável livre começa na hora, sem esperar a rotina de hora em hora.
+    Sem dono: o coordenador distribui; texto: roda pelo servidor; código: a fila do Ferreiro/Astra/Navegador põe o card no
+    Mac (pega no próximo sinal, 1 min). Quem não pode começar mostra o motivo no card."""
+    partes = []
+    for nome_, f_ in (("distribuição", distribuir_cards), ("agentes", lambda r: trabalhar_agentes(r, limite=1))):
+        try:
+            r_ = f_(repo)
+        except Exception as e:  # noqa: BLE001
+            r_ = f"erro em {nome_}: {str(e)[:120]}"
+        if r_:
+            partes.append(r_)
+    t = (repo._req("GET", "reuniao_tarefas", {"select": "id,status,responsavel,risco,aguardando", "id": repo._eq(int(tid))}) or [{}])[0]
+    quem = {"claude_mac": "ferreiro", "claude_code": "ferreiro", "astra": "astra", "navegador": "navegador"}.get(t.get("responsavel"))
+    if t.get("status") == "aprovada" and not t.get("aguardando") and quem:
+        if (t.get("risco") or "medio") == "alto":
+            _motivo_card(repo, tid, "Card não executado sozinho: risco alto só anda com o Bruno.")
+        elif not _mac_online(repo):
+            _motivo_card(repo, tid, "Programador do Mac indisponível: o Mac mini está sem sinal"
+                         + ("; o card fica para o programador-chefe (rodada de hora em hora)." if t["responsavel"] == "claude_code"
+                            else "; o card começa quando ele voltar."))
+        else:
+            r_ = ferreiro_proximo(repo, a_cada_min=0, quem=quem)
+            if r_ and f"#{tid}" not in r_:                 # ocupado ou indisponível: o card diz por que ainda não começou
+                _motivo_card(repo, tid, f"Aguardando: {r_}. Começa assim que ficar livre.")
+            if r_:
+                partes.append(r_)
+    return " · ".join(partes)
 
 # Terminal do Mac: lista FECHADA (o Mac confere de novo do lado dele); nada vira comando livre
 COMANDOS_MAC = {
@@ -4358,9 +4430,6 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
     if rota == "mac_tick" and metodo == "POST":
         # o Mac: estado + saídas dos comandos em andamento; recebe os pendentes e as mensagens novas da Sala
         indexar_aos_poucos(repo)
-        if not ferreiro_proximo(repo, quem="astra"):       # design primeiro (Astra); se não pegou nada, o Ferreiro
-            ferreiro_proximo(repo)
-        ferreiro_proximo(repo, quem="navegador")           # o Navegador tem fila própria (usa o Chrome, não o clone)
         if d.get("info") is not None:
             repo._req("POST", "mac_estado", corpo=[{"id": 1, "visto_em": agora_, "info": d["info"]}],
                       prefer="resolution=merge-duplicates,return=minimal")
@@ -4378,6 +4447,11 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
                     repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": c["tarefa_id"], "autor": "mac", "tipo": "passo", "criado_em": agora_,
                                                                 "texto": f"{ic} Mac terminou **{COMANDOS_MAC.get(c['comando'], c['comando'])}**:\n```\n{fim}\n```"}],
                               prefer="return=minimal")
+        # card #89: depois de gravar as saídas, quem acabou de terminar já pega o próximo card neste mesmo sinal
+        # (sem espera entre vezes: a trava do PATCH condicional já impede dois pegarem o mesmo card)
+        if "pegou" not in (ferreiro_proximo(repo, a_cada_min=0, quem="astra") or ""):   # design primeiro (Astra); não pegou, o Ferreiro
+            ferreiro_proximo(repo, a_cada_min=0)
+        ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
         pend = []
         if d.get("info") is not None:
             pend = repo._req("GET", "mac_comandos", {"select": "id,comando,arg", "status": "eq.pendente", "order": "id", "limit": 3}) or []

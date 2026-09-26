@@ -22,6 +22,7 @@ def _preparar():
     c.aviso_mac = lambda *a: None
     c._outra_rodando = lambda: None
     c.time.sleep = lambda s: None
+    c.ferreiro_pronto = lambda cfg=None: (False, "sem Ferreiro no teste")   # não lê o Chaveiro do Mac de verdade
 
     def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
         if rota == "conhecimento":

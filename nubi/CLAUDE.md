@@ -161,9 +161,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - O Astra é o responsável por design, usabilidade e organização. Na conversa direta ele grava cards com
   `CRIAR_CARD: {json}` (`criar_cards_do_agente`, até 6 por dia, sem duplicar título; risco alto vira `proposta` com
   `aguardando`). Executor `ferreiro` → `responsavel=claude_mac`; `chefe` → `claude_code`.
-- Fila do Ferreiro (`ferreiro_proximo`, no tique do Mac, a cada 5 min): se não há `programar_card` pendente/rodando nem
-  card dele em andamento há menos de 90 min, pega o próximo `aprovada` com `responsavel=claude_mac` (🩺 primeiro, depois
-  prioridade), pulando risco alto e card com `aguardando`. O Chefe continua revisando e publicando o branch do Ferreiro.
+- Fila do Ferreiro (`ferreiro_proximo`, em todo tique do Mac, 1 min, logo depois de gravar as saídas): se não há
+  `programar_card` pendente/rodando nem card dele em andamento há menos de 90 min, pega o próximo `aprovada` com
+  `responsavel=claude_mac` ou `claude_code` (🩺 primeiro, depois os dele, depois prioridade; card do Chefe no máximo
+  `FERREIRO_TENTATIVAS`=2 vezes), pulando risco alto e card com `aguardando`. Voltou com ⏸ (sem chave, no teto): espera 1 h.
+  O Chefe continua revisando e publicando o branch do Ferreiro.
+- Card #89: aprovar ou atribuir um card (`tarefa_responder`, `reuniao_tarefa_salvar`) chama `assumir_aprovados`: distribui,
+  roda um card de texto e põe o de código na fila do Mac na hora; quem não pode começar grava o motivo no card
+  (`_motivo_card`, sem repetir). Pegar card é sempre com a trava `_pegar` (PATCH condicional em `status=aprovada`).
 - **Astra programador** (autorizado pelo Bruno em 26/09): `coletor programar-astra <card>` usa o Codex da OpenAI no Mac
   com o modelo do Astra (`NUBI_ASTRA_MODELO`, chave da OpenAI só no Chaveiro: `coletor guardar-senha openai`), sandbox
   `workspace-write`, branch `astra/card-<id>`, testes do projeto, até 4 cards por dia; nunca publica. Cards com

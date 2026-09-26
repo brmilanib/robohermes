@@ -30,9 +30,16 @@ class Repo:
                     xs = [x for x in xs if x.get(k) == q[k][3:]]
                 if k in q and q[k].startswith("neq."):
                     xs = [x for x in xs if x.get(k) != q[k][4:]]
+                if k in q and q[k].startswith("in."):
+                    xs = [x for x in xs if x.get(k) in q[k][4:-1].split(",")]
             return xs
         if t == "reuniao_tarefas" and m == "PATCH":
             self.patches.append((q, corpo))
+            alvo = [x for x in self.tarefas if f"eq.{x['id']}" == q["id"] and all(
+                f"eq.{x.get(k)}" == v for k, v in q.items() if k in ("status", "responsavel"))]
+            for x in alvo:
+                x.update(corpo)
+            return alvo
         if t == "mac_comandos":
             if m == "POST":
                 self.comandos += corpo
@@ -77,7 +84,7 @@ def test_ferreiro_livre_pega_o_proximo():
     assert w.ferreiro_proximo(r) == "Ferreiro pegou o card #89"                      # 🩺 primeiro
     assert r.comandos[0]["comando"] == "programar_card" and r.comandos[0]["arg"] == "89"
     assert r.patches[0][1]["status"] == "em_desenvolvimento"
-    assert w.ferreiro_proximo(r) is None                                              # espera 5 min entre vezes
+    assert w.ferreiro_proximo(r) is None                                              # espera 1 min entre vezes
     r.resumos.clear()
     assert "clone do projeto no Mac está em uso" in w.ferreiro_proximo(r)
 

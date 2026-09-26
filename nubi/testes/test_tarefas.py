@@ -561,8 +561,10 @@ class RepoAgentes:
             return list(s.cards.values())
         if tab == "reuniao_tarefas" and m == "PATCH":
             tid = int(str(params["id"]).split(".")[-1])
+            if params.get("status", "eq." + s.cards[tid]["status"]) != "eq." + s.cards[tid]["status"]:
+                return []                                  # trava do card #89: já foi pego por outro processo
             s.cards[tid].update(corpo)
-            return []
+            return [s.cards[tid]]
         if tab == "tarefa_eventos" and m == "POST":
             s.eventos.extend(corpo)
             return []
