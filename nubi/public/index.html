@@ -3664,9 +3664,12 @@ function situacaoInfo(t) {
 // Fica num módulo à parte para sobreviver ao redesenho automático da tela (mesmo padrão de DEV_APELIDOS).
 let DEV_FILTRO_EXEC = "";
 const SEM_EXEC_VAL = "_sem_";
-function execFiltroOpcoes(feitas) {
-  const vistos = new Map(); let temSemExecutor = false;
+function execFiltroOpcoes(feitas, filtroAtual) {
+  const vistos = new Map(); let temSemExecutor = filtroAtual === SEM_EXEC_VAL;
   feitas.forEach(t => { if (!t.responsavel) { temSemExecutor = true; return; } if (!vistos.has(t.responsavel)) vistos.set(t.responsavel, execInfo(t).nome); });
+  // mantém o filtro escolhido como opção mesmo se o executor não aparecer mais em nenhum Feito (ex.: card reaberto):
+  // assim "Nenhum card encontrado com estes filtros" é alcançável, em vez de o filtro sumir sozinho sem explicação.
+  if (filtroAtual && filtroAtual !== SEM_EXEC_VAL && !vistos.has(filtroAtual)) vistos.set(filtroAtual, agNome(filtroAtual, agInfo(filtroAtual)[1]));
   const opcoes = [...vistos.entries()].map(([valor, rotulo]) => ({valor, rotulo})).sort((a, b) => a.rotulo.localeCompare(b.rotulo, "pt-BR"));
   if (temSemExecutor) opcoes.push({valor: SEM_EXEC_VAL, rotulo: "Sem executor informado"});
   return opcoes;
@@ -3729,8 +3732,7 @@ async function telaDev(silencioso) {
     .filter(e => e?.autor === "claude_code" && e?.criado_em)
     .sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em))[0];
   const feitas = ts.filter(t => t.status === "feita");
-  const execOpcoes = execFiltroOpcoes(feitas);
-  if (DEV_FILTRO_EXEC && !execOpcoes.some(o => o.valor === DEV_FILTRO_EXEC)) DEV_FILTRO_EXEC = "";   // executor sumiu (ex.: card reaberto)
+  const execOpcoes = execFiltroOpcoes(feitas, DEV_FILTRO_EXEC);
   const feitasFiltradas = feitas.filter(t => execFiltroAplica(t, DEV_FILTRO_EXEC));
   main.innerHTML = opsAbas("dev") + `<div class="dev-cab"><h1 style="margin:0">📋 Desenvolvimento</h1>
       <span class="muted">propostas → aprovadas → em execução → feitas · clique num card para ver tudo e conversar</span><div style="flex:1"></div>
