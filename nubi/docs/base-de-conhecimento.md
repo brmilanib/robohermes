@@ -51,8 +51,7 @@ errado e pesquisado. No futuro, vira o material de treino de um agente especiali
 
 Fontes: guias de boas práticas da [Blip](https://community.blip.ai/studio-219/guia-de-boas-praticas-criando-bases-de-conhecimento-para-agentes-de-ia-5430)
 e da [Clint](https://ajuda.clint.digital/pt-BR/articles/12052517-como-construir-uma-base-de-conhecimento-para-o-seu-agente-de-ia).
-O artigo da Creativia que o Bruno mandou ainda não entrou: o site é bloqueado na rede da sessão de código. Quando o texto
-chegar, as dicas dele entram aqui, marcadas como "Creativia".
+O artigo da Creativia foi lido pelo Pesquisador nubi em 26/09; as dicas dele estão na seção seguinte.
 
 1. **Um assunto por pedaço.** Pedaço curto, com começo e fim claros (uma decisão, um erro e sua solução, uma regra).
    Pedaço misturado atrapalha a busca.
@@ -71,3 +70,29 @@ chegar, as dicas dele entram aqui, marcadas como "Creativia".
 9. **"Não sei" é resposta válida.** Se a busca não achar nada relevante, o agente diz que não encontrou na base, em vez
    de inventar.
 10. **Citar a fonte.** Toda resposta que usa a base mostra de onde veio (tipo, data e link), para o Bruno conferir.
+
+### Creativia: "Como criar uma base de conhecimento para um agente de IA" (18/08/2026)
+
+Lido por inteiro pelo Pesquisador nubi em 26/09 (relatório completo na base: "Pesquisa profunda"). O artigo trata de
+governança e organização, não de técnica: não traz frase de contexto, RRF nem números. O que ele acrescenta à fase 2:
+
+11. **Dono, data, versão e fonte oficial em cada item.** Nada entra no índice sem data e dono. Regra ou taxa de
+    marketplace desatualizada vira resposta errada com cara de certa.
+12. **Metadados como filtro antes da busca:** plataforma, tema, data da fonte, versão, link e nível de acesso. No pgvector,
+    o filtro com índice HNSW roda depois da varredura: usar índice parcial por plataforma ou `hnsw.iterative_scan`.
+13. **Testes negativos:** perguntas fora da base, ambíguas, confidenciais, com premissa falsa, sobre versão antiga,
+    misturando políticas e fora do escopo. A base precisa passar nelas antes de publicar.
+14. **Métricas:** acerto da busca (recall@20), precisão contra a fonte, respostas sem evidência e resolução sem o Bruno.
+15. **Duas versões da mesma regra:** mostrar as duas com a data e perguntar, nunca escolher sozinho.
+16. **Não jogar tudo na base** e não tentar resolver com prompt o que é problema de dado.
+
+Parâmetros técnicos confirmados nas fontes oficiais (Anthropic, OpenAI e pgvector):
+- frase de contexto de 50 a 100 tokens, aplicada no vetor **e** no índice de texto (o maior ganho vem dos dois juntos);
+- pedaços de 800 tokens com 400 de sobreposição para começar (testar 400/200 nas tabelas de taxas);
+- busca híbrida: `tsvector` em português + `vector`, fundidos por RRF;
+- reordenar cerca de 150 candidatos e entregar os 20 melhores;
+- glossário de perfumaria (árabes, body splash, decant, GTIN) no pedido que escreve a frase de contexto.
+
+Ponto de atenção: a Anthropic diz que uma base menor que cerca de 200 mil tokens cabe inteira no prompt com cache, sem RAG.
+A `saber` tinha cerca de 120 mil tokens em 26/09, mas cresce todo dia. A fase 2 continua valendo, e um teste próprio em
+português vem antes de confiar nos números publicados, que são em inglês.
