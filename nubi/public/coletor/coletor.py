@@ -554,7 +554,7 @@ def baixar_grupo(pg, cfg, dia, destino):
         enviar_foto(pg, f"grupo {dia}: sem botão EXPORTAR", tela)
         raise Falha("não achei o botão EXPORTAR da tabela do grupo " + diagnostico(pg))
     with pg.expect_download(timeout=120000) as d:
-        clicar_exportar(pg, botao.last, dia)
+        clicar_exportar(pg, exportar_alcancavel(botao), dia)
     arq = destino / d.value.suggested_filename
     d.value.save_as(str(arq))
     devagar(2)
@@ -568,6 +568,23 @@ def botao_exportar(pg):
     baixava uma tabela só com o cabeçalho ("a tabela do grupo veio vazia", card #75).
     """
     return pg.locator("button:visible, [role=button]:visible", has_text=re.compile(r"^\s*EXPORTAR\s*$", re.I))
+
+
+# o clique no meio do botão chega nele (e não no que está por cima)
+JS_ALCANCA = """b => { b.scrollIntoView({block: 'center'}); const r = b.getBoundingClientRect();
+  const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!el && b.contains(el); }"""
+
+
+def exportar_alcancavel(botoes):
+    """
+    Dos EXPORTAR visíveis, o último que o clique alcança. A tela tem outro EXPORTAR com tamanho (conta como visível)
+    depois do da tabela, mas atrás do conteúdo: o .last pegava ele, o log mostrava "coberto por" várias camadas MUI e o
+    clique pelo próprio botão baixava a tabela vazia (card #79). Se nenhum for alcançável, fica o .last, como antes.
+    """
+    for i in reversed(range(botoes.count())):
+        if botoes.nth(i).evaluate(JS_ALCANCA):
+            return botoes.nth(i)
+    return botoes.last
 
 
 # o que está no meio do botão, se não for ele: sobe até o maior pedaço que não contém o botão e o deixa "transparente" ao clique
