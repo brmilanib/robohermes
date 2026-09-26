@@ -769,7 +769,7 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
                                                     "criado_em": _agora()}], prefer="resolution=merge-duplicates,return=minimal")
         fech = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{FECHADOS_CHAVE}"}) or [{}])[0].get("texto") == "pendente"
         conhecidos = [c["cliente"] for c in repo._req("GET", "atendimento_conversas", {"select": "cliente", "canal": "eq.tiktok_shop",
-                                                                                       "limit": 2000}) or [] if c.get("cliente")] if fech else []
+                                                                                       "limit": 2000}) or [] if c.get("cliente")]
         return {"itens": para_enviar(repo), "atendente": atendente_ligado(repo), "importar_fechados": fech, "conhecidos": conhecidos}
     if nome == "atendimento_fechados" and metodo == "POST":
         repo._req("POST", "ia_resumos", corpo=[{"chave": FECHADOS_CHAVE, "texto": "pendente" if d.get("importar") else "feito",

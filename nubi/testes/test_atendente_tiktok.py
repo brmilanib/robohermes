@@ -115,10 +115,10 @@ def test_cliente_errado_nao_envia():
 def test_sem_novidade_nao_chama_a_ia():
     ch = _preparar([("terminar", {"resumo": "nada"})])
     c.cmd_atender_tiktok(None, c.ler_config())                            # 1ª rodada guarda a marca da caixa de entrada
-    antes, marca = ch["claude"], c.ler_config().get("tiktok_marca_v2")
+    antes, marca = ch["claude"], c.ler_config().get("tiktok_marca_v3")
     assert marca
     ch2 = _preparar([], aprovadas=())
-    c.salvar_config({"tiktok_marca_v2": marca})
+    c.salvar_config({"tiktok_marca_v3": marca})
     c.cmd_atender_tiktok(None, c.ler_config())
     assert ch2["claude"] == 0 and antes == 1                               # nada novo: zero gasto
 
