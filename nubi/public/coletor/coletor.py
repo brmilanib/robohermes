@@ -3890,13 +3890,14 @@ ATENDENTE_URL = os.environ.get("NUBI_TIKTOK_CHAT", "https://seller-br.tiktok.com
 # plataformas que o atendente atende pelo navegador: canal → (nome, endereço inicial do chat, domínio permitido, autor na Sala)
 PLATAFORMAS = {
     "tiktok_shop": ("TikTok Shop", ATENDENTE_URL, "tiktok", "Atendente TikTok"),
-    "shopee": ("Shopee", os.environ.get("NUBI_SHOPEE_CHAT", "https://seller.shopee.com.br/"), "shopee", "Atendente Shopee"),
+    "shopee": ("Shopee", os.environ.get("NUBI_SHOPEE_CHAT", "https://seller.shopee.com.br/webchat/conversations"), "shopee",
+               "Atendente Shopee"),
 }
 DICAS_PLATAFORMA = {   # onde fica o chat em cada central do vendedor (visto nos prints do Bruno, 26/09)
     "tiktok_shop": "O chat é o 'Bate-papo da loja' (Caixa de entrada: Todos, Não respondidos; aba Fechados).",
-    "shopee": "Na Shopee o chat fica no ÍCONE DE BALÃO no canto direito da central do vendedor (com o número de mensagens "
-              "esperando): clique nele para abrir a lista de conversas. Se aparecer o aviso 'Alguns compradores estão "
-              "esperando…', use 'Responder agora'. Não clique em nada fora do chat.",
+    "shopee": "O chat é a página 'Shopee Chat' (abas 'Atendendo Hoje' e 'Todos os Chats'; lista 'Todos os compradores' com "
+              "avisos 'Expira em breve'/'Atrasado'). Use a aba 'Todos os Chats'. Se cair na central do vendedor, clique no "
+              "ÍCONE DE BALÃO no canto direito ou em 'Responder agora'. Não mexa no 'Assistente AI' nem em Configuração.",
 }
 
 
