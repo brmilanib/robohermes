@@ -168,14 +168,41 @@ def aviso_mac(titulo, texto):
 # Login no nubi (para enviar os arquivos)
 # ---------------------------------------------------------------------------
 
+def _keyring():
+    """Windows/Linux: Gerenciador de Credenciais pelo pacote keyring (pip install keyring). None se não houver."""
+    try:
+        import keyring
+        return keyring
+    except ImportError:
+        return None
+
+
+def cofre_ler(servico, conta):
+    if sys.platform == "darwin":
+        cmd = ["security", "find-generic-password", "-s", servico] + (["-a", conta] if conta else []) + ["-w"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    kr = _keyring()
+    try:
+        return (kr.get_password(servico, conta or "chave") or "") if kr else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def cofre_gravar(servico, conta, senha):
+    if sys.platform == "darwin":
+        subprocess.run(["security", "add-generic-password", "-U", "-s", servico, "-a", conta, "-w", senha], check=True)
+        return
+    kr = _keyring()
+    if not kr:
+        raise Falha("Falta o pacote keyring para guardar senhas neste computador. No PowerShell: pip install keyring")
+    kr.set_password(servico, conta or "chave", senha)
+
+
 def senha_chaveiro(email):
     if os.environ.get("NUBI_SENHA"):
         return os.environ["NUBI_SENHA"]
-    if sys.platform != "darwin":
-        return ""
-    r = subprocess.run(["security", "find-generic-password", "-s", SERVICO_CHAVEIRO, "-a", email, "-w"],
-                       capture_output=True, text=True)
-    return r.stdout.strip() if r.returncode == 0 else ""
+    return cofre_ler(SERVICO_CHAVEIRO, email)
 
 
 TOKEN = {"cfg": None, "troca": {}}   # o login do nubi vale 1 h: nas coletas longas, api() entra de novo sozinho
@@ -232,7 +259,7 @@ def abrir_navegador(p, cfg, visivel=None):
     if visivel is None:
         visivel = bool(cfg.get("mostrar_navegador") or os.environ.get("NUBI_VER"))
     opcoes = dict(user_data_dir=str(PASTA / "perfil"), headless=not visivel, accept_downloads=True,
-                  viewport={"width": 1500, "height": 950}, locale="pt-BR", user_agent=UA,
+                  viewport={"width": 1500, "height": 950}, locale="pt-BR", **({"user_agent": UA} if sys.platform == "darwin" else {}),
                   args=["--disable-blink-features=AutomationControlled"],
                   # extensões ligadas (26/09): o Hunter Spy que o Bruno instala no perfil do coletor mostra loja e cidade
                   ignore_default_args=["--enable-automation", "--disable-extensions",
@@ -1143,10 +1170,10 @@ def cmd_configurar(args, cfg):
         padrao = cfg.get("nubi_email") or ""
         email = (input(f"E-mail do nubi{f' [{padrao}]' if padrao else ''}: ").strip() or padrao).lower()
         senha = getpass.getpass("Senha do nubi: ")
-        if sys.platform == "darwin":
-            subprocess.run(["security", "add-generic-password", "-U", "-s", SERVICO_CHAVEIRO, "-a", email,
-                            "-w", senha], check=True)
-        else:
+        try:
+            cofre_gravar(SERVICO_CHAVEIRO, email, senha)
+        except Falha as e:
+            print(f"  {e}")
             os.environ["NUBI_SENHA"] = senha
         cfg["nubi_email"] = email
         salvar_config(cfg)
@@ -1235,8 +1262,7 @@ def _outra_rodando():
     trava = PASTA / "rodando.pid"
     try:
         pid = int(trava.read_text().strip())
-        if pid != os.getpid():
-            os.kill(pid, 0)
+        if pid != os.getpid() and _processo_vivo(pid):
             return pid
     except (OSError, ValueError):
         pass
@@ -2342,8 +2368,7 @@ def despachar(cfg):
         modelo = LOCAIS[chave][1]
         pid = (est.get("sala_pid") or {}).get(chave)
         try:
-            if pid:
-                os.kill(int(pid), 0)
+            if pid and _processo_vivo(int(pid)):
                 continue                                 # ainda respondendo a chamada anterior
         except (OSError, ValueError):
             pass
@@ -3324,13 +3349,11 @@ def _credencial(site, cfg=None):
     """(usuário, senha) do Chaveiro do Mac; senha "" se o Bruno não guardou (aí vale o preenchimento do Chrome)."""
     cfg = cfg or ler_config()
     usuario = (cfg.get("logins") or {}).get(site, "") or (ler_config().get("logins") or {}).get(site, "")
-    if sys.platform != "darwin":
-        return usuario, ""
     # 26/09: outro processo do coletor com a configuração antiga na memória pode apagar o login do arquivo; a senha
-    # continua no Chaveiro, então sem usuário procura só pelo serviço
-    cmd = ["security", "find-generic-password", "-s", f"{SERVICO_CHAVEIRO}-{site}"] + (["-a", usuario] if usuario else []) + ["-w"]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    return usuario or "chaveiro", (r.stdout.strip() if r.returncode == 0 else "")
+    # continua no Chaveiro, então sem usuário procura só pelo serviço (no Windows, pela conta fixa "chave")
+    senha = cofre_ler(f"{SERVICO_CHAVEIRO}-{site}", usuario) or (cofre_ler(f"{SERVICO_CHAVEIRO}-{site}", "chave")
+                                                                 if sys.platform != "darwin" else "")
+    return usuario or "chaveiro", senha
 
 
 def cmd_guardar_senha(args, cfg):
@@ -3338,9 +3361,6 @@ def cmd_guardar_senha(args, cfg):
     site = args.site
     nome = {"gmail": "Gmail (código do UpSeller)", "anthropic": "Anthropic (chave da API do Ferreiro)",
             "openai": "OpenAI (chave da API do Astra programador)"}.get(site) or LOGIN_SITES[site][0]
-    if sys.platform != "darwin":
-        print("Só funciona no Mac (Chaveiro).")
-        return 1
     usuario = input(f"E-mail/usuário do {nome}: ").strip()
     if site == "anthropic":
         senha = getpass.getpass("Chave da API (Console → Chaves de API → criar 'Ferreiro Mac'; começa com sk-ant-): ").strip()
@@ -3354,11 +3374,15 @@ def cmd_guardar_senha(args, cfg):
     if not usuario or not senha:
         print("Nada guardado.")
         return 1
-    subprocess.run(["security", "add-generic-password", "-U", "-s", f"{SERVICO_CHAVEIRO}-{site}", "-a", usuario,
-                    "-w", senha], check=True)
+    try:
+        cofre_gravar(f"{SERVICO_CHAVEIRO}-{site}", usuario, senha)
+    except Falha as e:
+        print(e)
+        return 1
     cfg.setdefault("logins", {})[site] = usuario
     salvar_config(cfg)
-    print(f"OK: login do {nome} guardado no Chaveiro do Mac. O coletor entra sozinho quando o site pedir.")
+    onde = "no Chaveiro do Mac" if sys.platform == "darwin" else "no Gerenciador de Credenciais deste computador"
+    print(f"OK: login do {nome} guardado {onde}. Nunca vai para o nubi.")
     return 0
 
 
@@ -3927,105 +3951,120 @@ def _atendente_enviar(pg, ent, estado, aprovadas, token):
     return f"Enviada a resposta {item['id']} para {item['cliente']}."
 
 
+def _atendente_marca(pg):
+    return hashlib.sha1(re.sub(r"\s+", " ", pg.inner_text("body", timeout=15000))[:4000].encode()).hexdigest()
+
+
+def _rodada_atendente(pg, cfg, chave, token, gasto):
+    """Uma olhada no chat com a página já aberta: envia as aprovadas e traz as novas. Devolve (custo, estado, resumo)."""
+    custo, estado, fim = 0.0, {}, None
+    aprovadas = {i["id"]: i for i in (api(token, "atendimento_para_enviar", timeout=60).get("itens") or [])}
+    try:
+        pg.goto(cfg.get("tiktok_chat_url") or ATENDENTE_URL, timeout=60000)
+        pg.wait_for_timeout(4000)
+        marca = _atendente_marca(pg)
+    except Exception:  # noqa: BLE001
+        marca = None
+    if marca and marca == cfg.get("tiktok_marca") and not aprovadas:
+        return 0.0, {"nada": True}, "Nada novo no chat e nada para enviar."     # sem gasto
+    pedido = ("RESPOSTAS APROVADAS PARA ENVIAR (id · cliente · texto):\n"
+              + ("\n".join(f"{i['id']} · {i['cliente']} · {i['texto'][:300]}" for i in aprovadas.values()) or "(nenhuma)")
+              + f"\n\nO chat está aberto em {pg.url}. Comece com ler.")
+    mensagens = [{"role": "user", "content": pedido}]
+    for _ in range(ATENDENTE_PASSOS):
+        r = _claude_ferramentas(chave, mensagens, PAPEL_ATENDENTE, ATENDENTE_FERRAMENTAS, ATENDENTE_MODELO)
+        u = r.get("usage") or {}
+        custo += (int(u.get("input_tokens") or 0) * ATENDENTE_PRECO[0] + int(u.get("output_tokens") or 0) * ATENDENTE_PRECO[1]) / 1e6
+        blocos = r.get("content") or []
+        mensagens.append({"role": "assistant", "content": blocos})
+        usos = [b for b in blocos if b.get("type") == "tool_use"]
+        if not usos:
+            fim = " ".join(b.get("text", "") for b in blocos if b.get("type") == "text").strip()
+            break
+        resultados = []
+        for b in usos:
+            ent = b.get("input") or {}
+            try:
+                if b["name"] == "registrar":
+                    x = api(token, "atendimento_receber", corpo={
+                        "canal": "tiktok_shop", "cliente": str(ent.get("cliente") or "")[:80],
+                        "externo_id": str(ent.get("cliente") or "")[:80], "texto": str(ent.get("mensagem") or "")[:3000],
+                        "pedido": str(ent.get("pedido_id") or "") or None,
+                        "pedido_dados": dict(ent.get("pedido"), id=ent.get("pedido_id")) if isinstance(ent.get("pedido"), dict) else None},
+                        metodo="POST", timeout=180)["rascunho"]
+                    estado["registradas"] = estado.get("registradas", 0) + 1
+                    if x.get("pelo_mac") and x.get("texto"):
+                        aprovadas[x["id"]] = {"id": x["id"], "cliente": str(ent.get("cliente") or ""), "texto": x["texto"]}
+                        txt = f"Resposta aprovada automaticamente (id {x['id']}). Envie agora com enviar_aprovada nesta conversa."
+                    else:
+                        txt = {"precisa_info": "Registrado: o nubi vai perguntar ao Bruno. Siga para a próxima conversa.",
+                               "pendente": "Registrado: a resposta espera a aprovação do Bruno. Siga para a próxima."}.get(
+                            x.get("status"), "Registrado (já estava no nubi).")
+                elif b["name"] == "enviar_aprovada":
+                    txt = _atendente_enviar(pg, ent, estado, aprovadas, token)
+                elif b["name"] == "terminar":
+                    txt, fim = "Fim.", str(ent.get("resumo") or "")[:2000]
+                elif b["name"] == "abrir" and "tiktok" not in str(ent.get("url") or ""):
+                    txt = "Só o Seller Center da TikTok."
+                else:
+                    txt = _nav_executar(pg, b["name"], ent, estado, False, token, 0)[0]
+            except Exception as ex:  # noqa: BLE001
+                txt = f"Erro: {str(ex)[:300]}"
+            resultados.append({"type": "tool_result", "tool_use_id": b["id"], "content": txt[:12000]})
+        mensagens.append({"role": "user", "content": resultados})
+        if fim is not None or custo + gasto >= ATENDENTE_TETO_DIA:
+            break
+    try:
+        if re.search(r"chat|im|message|bate", pg.url, re.I):
+            cfg["tiktok_chat_url"] = pg.url.split("?")[0]
+        pg.goto(cfg.get("tiktok_chat_url") or ATENDENTE_URL, timeout=60000)
+        pg.wait_for_timeout(4000)
+        cfg["tiktok_marca"] = _atendente_marca(pg)
+    except Exception:  # noqa: BLE001
+        pass
+    salvar_config(cfg)
+    _gasto_atendente(cfg, custo)
+    resumo = (f"🎵 Atendente TikTok: {estado.get('registradas', 0)} mensagem(ns) trazida(s) para o nubi, "
+              f"{estado.get('enviadas', 0)} resposta(s) enviada(s) (~US$ {custo:.2f}).")
+    if estado.get("registradas") or estado.get("enviadas") or (fim and re.search(r"login|captcha|verifica", fim, re.I)):
+        _postar_hermes_como(token, "Atendente TikTok", resumo + (f"\n{fim[:600]}" if fim else ""), custo)
+    return custo, estado, resumo + (f"\n{fim}" if fim else "")
+
+
+def _atendente_pronto(cfg):
+    chave = _credencial("anthropic", cfg)[1]
+    if not chave:
+        return None, ("❌ Atendente sem a chave da Anthropic. Rode: coletor guardar-senha anthropic")
+    gasto = _gasto_atendente(cfg)
+    if gasto >= ATENDENTE_TETO_DIA:
+        return None, f"⏸ Atendente no teto do dia (~US$ {gasto:.2f})."
+    return chave, None
+
+
 def cmd_atender_tiktok(args, cfg):
-    """Uma rodada do atendente: envia as aprovadas e traz as mensagens novas para o nubi. O servidor chama a cada 5 min."""
+    """Uma rodada do atendente (Mac: o servidor chama a cada 5 min)."""
     from playwright.sync_api import sync_playwright
     trava = PASTA / "navegador.pid"                      # usa o mesmo Chrome do Navegador: um de cada vez
     if _pid_vivo(trava):
         print("O Chrome do coletor está em uso pelo Navegador; tento na próxima rodada.")
         return 0
-    chave = _credencial("anthropic", cfg)[1]
-    gasto = _gasto_atendente(cfg)
+    chave, aviso = _atendente_pronto(cfg)
     if not chave:
-        print("❌ Atendente sem a chave da Anthropic (coletor guardar-senha anthropic)")
-        return 1
-    if gasto >= ATENDENTE_TETO_DIA:
-        print(f"⏸ Atendente no teto do dia (~US$ {gasto:.2f}).")
-        return 0
+        print(aviso)
+        return 1 if "chave" in aviso else 0
     token = token_nubi(cfg)
     trava.write_text(str(os.getpid()))
-    custo, estado, fim = 0.0, {}, None
     try:
-        aprovadas = {i["id"]: i for i in (api(token, "atendimento_para_enviar", timeout=60).get("itens") or [])}
         with sync_playwright() as p:
             ctx = abrir_navegador(p, cfg, visivel=True)
-            pg = ctx.pages[0] if ctx.pages else ctx.new_page()
             try:
-                pg.goto(cfg.get("tiktok_chat_url") or ATENDENTE_URL, timeout=60000)
-                pg.wait_for_timeout(4000)
-                marca = hashlib.sha1(re.sub(r"\s+", " ", pg.inner_text("body", timeout=15000))[:4000].encode()).hexdigest()
-            except Exception:  # noqa: BLE001
-                marca = None
-            if marca and marca == cfg.get("tiktok_marca") and not aprovadas:
-                print("Nada novo no chat e nada para enviar.")       # sem gasto
-                ctx.close()
-                return 0
-            pedido = ("RESPOSTAS APROVADAS PARA ENVIAR (id · cliente · texto):\n"
-                      + ("\n".join(f"{i['id']} · {i['cliente']} · {i['texto'][:300]}" for i in aprovadas.values()) or "(nenhuma)")
-                      + f"\n\nO chat está aberto em {pg.url}. Comece com ler.")
-            mensagens = [{"role": "user", "content": pedido}]
-            for _ in range(ATENDENTE_PASSOS):
-                r = _claude_ferramentas(chave, mensagens, PAPEL_ATENDENTE, ATENDENTE_FERRAMENTAS, ATENDENTE_MODELO)
-                u = r.get("usage") or {}
-                custo += (int(u.get("input_tokens") or 0) * ATENDENTE_PRECO[0] + int(u.get("output_tokens") or 0) * ATENDENTE_PRECO[1]) / 1e6
-                blocos = r.get("content") or []
-                mensagens.append({"role": "assistant", "content": blocos})
-                usos = [b for b in blocos if b.get("type") == "tool_use"]
-                if not usos:
-                    fim = " ".join(b.get("text", "") for b in blocos if b.get("type") == "text").strip()
-                    break
-                resultados = []
-                for b in usos:
-                    ent = b.get("input") or {}
-                    try:
-                        if b["name"] == "registrar":
-                            x = api(token, "atendimento_receber", corpo={
-                                "canal": "tiktok_shop", "cliente": str(ent.get("cliente") or "")[:80],
-                                "externo_id": str(ent.get("cliente") or "")[:80], "texto": str(ent.get("mensagem") or "")[:3000],
-                                "pedido": str(ent.get("pedido_id") or "") or None,
-                                "pedido_dados": dict(ent.get("pedido"), id=ent.get("pedido_id")) if isinstance(ent.get("pedido"), dict) else None},
-                                metodo="POST", timeout=180)["rascunho"]
-                            estado["registradas"] = estado.get("registradas", 0) + 1
-                            if x.get("pelo_mac") and x.get("texto"):
-                                aprovadas[x["id"]] = {"id": x["id"], "cliente": str(ent.get("cliente") or ""), "texto": x["texto"]}
-                                txt = f"Resposta aprovada automaticamente (id {x['id']}). Envie agora com enviar_aprovada nesta conversa."
-                            else:
-                                txt = {"precisa_info": "Registrado: o nubi vai perguntar ao Bruno. Siga para a próxima conversa.",
-                                       "pendente": "Registrado: a resposta espera a aprovação do Bruno. Siga para a próxima."}.get(
-                                    x.get("status"), "Registrado (já estava no nubi).")
-                        elif b["name"] == "enviar_aprovada":
-                            txt = _atendente_enviar(pg, ent, estado, aprovadas, token)
-                        elif b["name"] == "terminar":
-                            txt, fim = "Fim.", str(ent.get("resumo") or "")[:2000]
-                        elif b["name"] == "abrir" and "tiktok" not in str(ent.get("url") or ""):
-                            txt = "Só o Seller Center da TikTok."
-                        else:
-                            txt = _nav_executar(pg, b["name"], ent, estado, False, token, 0)[0]
-                    except Exception as ex:  # noqa: BLE001
-                        txt = f"Erro: {str(ex)[:300]}"
-                    resultados.append({"type": "tool_result", "tool_use_id": b["id"], "content": txt[:12000]})
-                mensagens.append({"role": "user", "content": resultados})
-                if fim is not None or custo + gasto >= ATENDENTE_TETO_DIA:
-                    break
-            try:
-                if re.search(r"chat|im|message|bate", pg.url, re.I):
-                    cfg["tiktok_chat_url"] = pg.url.split("?")[0]
-                pg.goto(cfg.get("tiktok_chat_url") or ATENDENTE_URL, timeout=60000)
-                pg.wait_for_timeout(4000)
-                cfg["tiktok_marca"] = hashlib.sha1(re.sub(r"\s+", " ", pg.inner_text("body", timeout=15000))[:4000].encode()).hexdigest()
-                salvar_config(cfg)
+                pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+                print(_rodada_atendente(pg, cfg, chave, token, _gasto_atendente(cfg))[2])
                 guardar_sessao(ctx)
             finally:
                 ctx.close()
-        _gasto_atendente(cfg, custo)
-        resumo = (f"🎵 Atendente TikTok: {estado.get('registradas', 0)} mensagem(ns) trazida(s) para o nubi, "
-                  f"{estado.get('enviadas', 0)} resposta(s) enviada(s) (~US$ {custo:.2f}).")
-        print(resumo + (f"\n{fim}" if fim else ""))
-        if estado.get("registradas") or estado.get("enviadas") or (fim and re.search(r"login|captcha|verifica", fim, re.I)):
-            _postar_hermes_como(token, "Atendente TikTok", resumo + (f"\n{fim[:600]}" if fim else ""), custo)
         return 0
     except Exception as e:  # noqa: BLE001
-        _gasto_atendente(cfg, custo)
         print(f"Atendente parou: {str(e)[:300]}")
         return 1
     finally:
@@ -4035,12 +4074,77 @@ def cmd_atender_tiktok(args, cfg):
             pass
 
 
+ATENDENTE_PC_A_CADA = int(os.environ.get("NUBI_ATENDENTE_SEG", "120"))
+
+
+def cmd_atendente(args, cfg):
+    """Fica ligado (no PC do Bruno ou em qualquer computador): uma janela do Chrome aberta no chat da TikTok Shop, olhando
+    a cada 2 min. Enquanto roda, avisa o nubi e o Mac fica quieto. Ctrl+C para parar."""
+    from playwright.sync_api import sync_playwright
+    chave, aviso = _atendente_pronto(cfg)
+    if not chave:
+        print(aviso)
+        return 1
+    token = token_nubi(cfg)
+    print("🎵 Atendente da TikTok Shop ligado neste computador. Deixe esta janela aberta (Ctrl+C para parar).")
+    print("   Na primeira vez, entre na sua conta do Seller Center na janela do Chrome que vai abrir.")
+    with sync_playwright() as p:
+        ctx = abrir_navegador(p, cfg, visivel=True)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        try:
+            while True:
+                agora = datetime.now().strftime("%H:%M")
+                try:
+                    x = api(token, "atendimento_para_enviar", {"computador": "pc"}, timeout=60)
+                    if x.get("atendente") is False:
+                        print(f"{agora} ⏸ desligado no nubi (Minhas Lojas → TikTok Shop → Ligar atendente).", flush=True)
+                    else:
+                        cfg = ler_config()
+                        chave, aviso = _atendente_pronto(cfg)
+                        print(f"{agora} " + (aviso or _rodada_atendente(pg, cfg, chave, token, _gasto_atendente(cfg))[2]), flush=True)
+                        guardar_sessao(ctx)
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    print(f"{agora} ⚠️ {str(e)[:200]}", flush=True)
+                    if "closed" in str(e).lower():            # o Bruno fechou a janela do Chrome: abre de novo
+                        ctx = abrir_navegador(p, cfg, visivel=True)
+                        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+                time.sleep(ATENDENTE_PC_A_CADA)
+        except KeyboardInterrupt:
+            print("Atendente desligado neste computador.")
+        finally:
+            try:
+                ctx.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return 0
+
+
+def _processo_vivo(pid):
+    if sys.platform == "win32":        # no Windows, os.kill(pid, 0) encerra o processo: pergunta ao sistema sem mexer nele
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(0x1000, False, int(pid))
+        if not h:
+            return False
+        cod = ctypes.c_ulong()
+        ok = k.GetExitCodeProcess(h, ctypes.byref(cod))
+        k.CloseHandle(h)
+        return bool(ok) and cod.value == 259          # STILL_ACTIVE
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except OSError:
+        return False
+
+
 def _pid_vivo(arq):
     try:
-        os.kill(int(arq.read_text().strip()), 0)
-        return True
+        pid = int(arq.read_text().strip())
     except (OSError, ValueError):
         return False
+    return _processo_vivo(pid)
 
 
 def diagnosticar(erro, log_txt=""):
@@ -4323,6 +4427,12 @@ def _abrir_card_erro(token, tarefa, f, diag, motivo="", conhecida=""):
 
 
 def main():
+    if sys.platform == "win32":                          # PC do Bruno: acentos e emojis no PowerShell
+        for f in (sys.stdout, sys.stderr):
+            try:
+                f.reconfigure(encoding="utf-8")
+            except Exception:  # noqa: BLE001
+                pass
     ap = argparse.ArgumentParser(description="Coletor do Nubimetrics para o nubi")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("configurar")
@@ -4375,6 +4485,7 @@ def main():
     sub.add_parser("ferreiro-conversa", help="o Ferreiro responde a conversa direta com o Bruno no nubi (só leitura do projeto)")
     nvg = sub.add_parser("navegar", help="o Navegador (Claude controlando o Chrome do coletor) faz a tarefa do card N")
     nvg.add_argument("id")
+    sub.add_parser("atendente", help="fica ligado neste computador atendendo o chat da TikTok Shop (Ctrl+C para parar)")
     sub.add_parser("atender-tiktok", help="o atendente olha o chat da TikTok Shop, traz as mensagens ao nubi e envia as aprovadas")
     pga = sub.add_parser("programar-astra", help="o Astra (Codex no Mac, modelo do Astra) faz o card de design N e envia num branch")
     pga.add_argument("id")
@@ -4430,6 +4541,8 @@ def main():
         return cmd_programar(args, cfg, quem="astra")
     if args.cmd == "atender-tiktok":
         return cmd_atender_tiktok(args, cfg)
+    if args.cmd == "atendente":
+        return cmd_atendente(args, cfg)
     if args.cmd == "repetir-falhas":
         return cmd_repetir_falhas(args, cfg)
     if args.cmd == "entrar-auto":

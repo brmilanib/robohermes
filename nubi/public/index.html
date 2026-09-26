@@ -2691,7 +2691,8 @@ async function telaAtendimento() {
       <span class="muted">respostas só com dado real</span>
       <div class="acoes"><button class="btn small ${f.atendente ? "" : "primary"}" id="at-ligar">${f.atendente ? "⏸ Desligar atendente" : "▶️ Ligar atendente"}</button>
         <button class="btn small" id="at-agora" title="o Mac olha o chat agora">🔄 Olhar o chat agora</button></div></div>
-    <div class="es-aviso" style="margin:8px 0">${f.atendente ? "🟢 <b>Atendente ligado:</b> o Mac mini olha o chat da TikTok Shop a cada 5 min, traz as mensagens para cá e envia as respostas."
+    <div class="es-aviso" style="margin:8px 0">${f.atendente ? (f.no_pc ? "🟢 <b>Atendente ligado no seu PC:</b> olha o chat da TikTok Shop a cada 2 min, traz as mensagens para cá e envia as respostas."
+        : "🟢 <b>Atendente ligado:</b> o Mac mini olha o chat da TikTok Shop a cada 5 min, traz as mensagens para cá e envia as respostas.")
       : "⚪ <b>Atendente desligado.</b> Ligue para o Mac mini ficar de olho no chat da TikTok Shop (precisa estar logado no Seller Center no Chrome do coletor)."}
       <label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="at-auto" ${f.auto ? "checked" : ""}>
         Responder sozinho o que já aprendeu (pergunta coberta pela base; pedido, troca e reclamação sempre passam por você)</label></div>

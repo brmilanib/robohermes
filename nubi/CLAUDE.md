@@ -202,6 +202,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   o texto APROVADO, confere o nome do cliente na tela e o botão Enviar). Sem mudança na caixa de entrada e nada para enviar,
   não chama a IA. Modelo `NUBI_ATENDENTE_MODELO` (Haiku), teto `NUBI_ATENDENTE_TETO` US$ 3/dia. Ligado no botão da tela
   (`ia_resumos` `atendimento|tiktok_atendente`); o tique do Mac chama a cada 5 min ou na hora se há resposta aprovada.
+- **No PC do Bruno (Windows)**: `python coletor.py atendente` fica ligado com uma janela do Chrome no chat (a cada 2 min,
+  `NUBI_ATENDENTE_SEG`); senhas no Gerenciador de Credenciais (`keyring`, `cofre_ler`/`cofre_gravar`). Enquanto o PC dá
+  sinal (`atendimento|computador`, 10 min), o Mac não é chamado. `_processo_vivo` não usa `os.kill(pid, 0)` no Windows (lá
+  isso ENCERRA o processo).
 - Responder sozinho (`pode_sozinho`, ligado por padrão, `atendimento|auto`): sai sem aprovação quando a pergunta está coberta
   pela base (`cobre` ≥ 0,75) e não é pedido/troca/reclamação, na saudação, e logo depois que o Bruno responde uma dúvida
   embaixo. O resto espera aprovação. O acerto mede só o que o Bruno decidiu; as automáticas contam à parte.

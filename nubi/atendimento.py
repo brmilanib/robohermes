@@ -571,10 +571,20 @@ def marcar_enviado(repo, rascunho_id, ok=True, erro=None):
     return {"ok": True}
 
 
+PC_CHAVE = "atendimento|computador"
+
+
+def atendente_no_pc(repo, minutos=10):
+    r = (repo._req("GET", "ia_resumos", {"select": "criado_em", "chave": f"eq.{PC_CHAVE}"}) or [{}])[0]
+    return bool(r.get("criado_em")) and datetime.now(timezone.utc) - datetime.fromisoformat(
+        str(r["criado_em"]).replace("Z", "+00:00")) < timedelta(minutes=minutos)
+
+
 def atendente_proximo(repo, mac_online=True):
-    """No tique do Mac: ligado, chama o atendente a cada 5 min (ou na hora, se há resposta aprovada esperando)."""
+    """No tique do Mac: ligado, chama o atendente a cada 5 min (ou na hora, se há resposta aprovada esperando).
+    Se o atendente está rodando no PC do Bruno (sinal nos últimos 10 min), o Mac não entra."""
     try:
-        if not mac_online or not atendente_ligado(repo):
+        if not mac_online or not atendente_ligado(repo) or atendente_no_pc(repo):
             return None
         if repo._req("GET", "mac_comandos", {"select": "id", "comando": "in.(atender_tiktok,navegar_card)",
                                              "status": "in.(pendente,rodando)", "limit": 1}):
@@ -597,7 +607,7 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
     d = json.loads(corpo or b"{}") if metodo == "POST" else {}
     if nome == "atendimento_fila":
         return {"conversas": fila(repo, q.get("status")), "canais": [{"id": c.id, "nome": c.nome} for c in CANAIS.values()],
-                "atendente": atendente_ligado(repo), "auto": auto_ligado(repo)}
+                "atendente": atendente_ligado(repo), "auto": auto_ligado(repo), "no_pc": atendente_no_pc(repo)}
     if nome == "atendimento_ligar" and metodo == "POST":
         repo._req("POST", "ia_resumos", corpo=[{"chave": ATENDENTE_CHAVE, "texto": "ligado" if d.get("ligado") else "desligado",
                                                 "ia": "atendente", "criado_em": _agora()}],
@@ -612,7 +622,10 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
                   prefer="resolution=merge-duplicates,return=minimal")
         return {"auto": bool(d.get("ligado"))}
     if nome == "atendimento_para_enviar":
-        return {"itens": para_enviar(repo)}
+        if q.get("computador"):          # o atendente está ligado num computador (PC do Bruno): o Mac fica quieto
+            repo._req("POST", "ia_resumos", corpo=[{"chave": PC_CHAVE, "texto": str(q["computador"])[:20], "ia": "atendente",
+                                                    "criado_em": _agora()}], prefer="resolution=merge-duplicates,return=minimal")
+        return {"itens": para_enviar(repo), "atendente": atendente_ligado(repo)}
     if nome == "atendimento_enviado" and metodo == "POST":
         return marcar_enviado(repo, d["id"], d.get("ok", True), d.get("erro"))
     if nome == "atendimento_receber" and metodo == "POST":

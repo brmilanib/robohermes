@@ -220,6 +220,9 @@ def test_atendente_do_mac_e_chamado_quando_ligado():
     r.t["mac_comandos"][0]["status"] = "ok"
     assert a.atendente_proximo(r) is None                                # menos de 5 min e nada para enviar
     assert a.atendente_proximo(r, mac_online=False) is None
+    r.t["mac_comandos"] = []
+    a.rota(r, "GET", "atendimento_para_enviar", {"computador": "pc"}, None)       # o PC do Bruno está atendendo
+    assert a.atendente_no_pc(r) and a.atendente_proximo(r) is None
 
 
 if __name__ == "__main__":
