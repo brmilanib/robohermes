@@ -538,11 +538,47 @@ def baixar_grupo(pg, cfg, dia, destino):
         enviar_foto(pg, f"grupo {dia}: sem botão EXPORTAR", tela)
         raise Falha("não achei o botão EXPORTAR da tabela do grupo " + diagnostico(pg))
     with pg.expect_download(timeout=120000) as d:
-        botao.last.click()
+        clicar_exportar(pg, botao.last, dia)
     arq = destino / d.value.suggested_filename
     d.value.save_as(str(arq))
     devagar(2)
     return arq
+
+
+# o que está no meio do botão, se não for ele: sobe até o maior pedaço que não contém o botão e o deixa "transparente" ao clique
+JS_DESCOBRIR = """b => { const r = b.getBoundingClientRect();
+  const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  if (!el || b.contains(el)) return '';
+  let c = el; while (c.parentElement && c.parentElement !== document.body && !c.parentElement.contains(b)) c = c.parentElement;
+  c.style.pointerEvents = 'none'; return (c.tagName + ' ' + (c.id || c.className || '')).slice(0, 80); }"""
+
+
+def clicar_exportar(pg, botao, dia):
+    """
+    O EXPORTAR da tabela do grupo às vezes fica desabilitado enquanto a tabela carrega ou coberto (balão do chat, menu
+    ou modal aberto): o clique normal esperava 30 s e desistia. Espera habilitar, fecha/atravessa o que está por cima
+    e, se ainda assim não der, clica pelo próprio botão (só quando ele está visível e habilitado).
+    """
+    fim_t = time.time() + 60
+    while botao.is_disabled() and time.time() < fim_t:
+        pg.wait_for_timeout(700)
+    if botao.is_disabled():
+        enviar_foto(pg, f"grupo {dia}: EXPORTAR desabilitado", resumo_tela(pg))
+        raise Falha("o botão EXPORTAR da tabela do grupo ficou desabilitado por 60 s " + diagnostico(pg))
+    for _ in range(4):
+        botao.scroll_into_view_if_needed()
+        try:
+            botao.click(timeout=5000, trial=True)        # só confere: visível, habilitado e nada por cima
+            return botao.click()
+        except Exception:  # noqa: BLE001
+            pg.keyboard.press("Escape")                  # fecha menu, tooltip ou modal aberto
+            pg.wait_for_timeout(500)
+            coberto = botao.evaluate(JS_DESCOBRIR)
+            if coberto:
+                log(f"  grupo {dia[8:10]}/{dia[5:7]}: EXPORTAR estava coberto por {coberto}")
+    enviar_foto(pg, f"grupo {dia}: EXPORTAR não clicou", resumo_tela(pg))
+    log(f"  grupo {dia[8:10]}/{dia[5:7]}: EXPORTAR não aceitou o clique; clico pelo próprio botão")
+    botao.evaluate("b => b.click()")
 
 
 def coletar_grupo(p, cfg, token, dias, prazo=None):
@@ -1207,6 +1243,7 @@ def _executar(tarefa, func):
         log(("OK: " if ok else "Terminou com erros: ") + msg)
         registrar(token, tarefa, inicio, ok, arquivos, importados, erros, msg)
         if not ok:
+            anotar_falha(tarefa, msg)                 # "com erros" sem exceção também chama o Hermes vigia
             aviso_mac("Coletor nubi", msg)
         return 0 if ok else 1
     except KeyboardInterrupt:
