@@ -123,6 +123,64 @@ def _ollama(pergunta, max_tokens, modelo=None, sistema=None):
     raise SemIA(f"Ollama sem resposta: {ultimo}")
 
 
+def ollama_ferramentas(mensagens, sistema, ferramentas, modelo=None):
+    """gpt-oss grátis usando ferramentas, no formato de mensagens da Anthropic (o atendente do PC/Mac manda assim):
+    converte para o /api/chat do Ollama e devolve {"content": [blocos text/tool_use], "usage": {...}, "modelo": ...}.
+    Resultados de ferramenta antigos são encurtados (só os 2 últimos vão inteiros) para caber e ficar rápido."""
+    import urllib.error
+    import uuid
+    if not tem("ollama"):
+        raise SemIA("sem chave do Ollama")
+    tools = [{"type": "function", "function": {"name": f["name"], "description": f.get("description", ""),
+                                               "parameters": f.get("input_schema") or {"type": "object", "properties": {}}}}
+             for f in ferramentas]
+    msgs = [{"role": "system", "content": sistema}] if sistema else []
+    n_res = sum(1 for m in mensagens if m.get("role") == "user" and isinstance(m.get("content"), list))
+    visto = 0
+    for m in mensagens:
+        c = m.get("content")
+        if isinstance(c, str):
+            msgs.append({"role": m["role"], "content": c})
+            continue
+        if m["role"] == "assistant":
+            texto = " ".join(b.get("text", "") for b in c if b.get("type") == "text").strip()
+            calls = [{"function": {"name": b["name"], "arguments": b.get("input") or {}}} for b in c if b.get("type") == "tool_use"]
+            msgs.append({"role": "assistant", "content": texto, **({"tool_calls": calls} if calls else {})})
+        else:
+            visto += 1
+            for b in c:
+                if b.get("type") == "tool_result":
+                    conteudo = str(b.get("content") or "")
+                    msgs.append({"role": "tool", "content": conteudo if visto > n_res - 2 else conteudo[:600]})
+    ultimo = None
+    for mod in ([modelo] if modelo else OLLAMA_MODELOS):
+        try:
+            r = _post_json("https://ollama.com/api/chat", {"model": mod, "messages": msgs, "tools": tools, "stream": False,
+                                                          "options": {"num_predict": 2000}},
+                           {"Authorization": f"Bearer {os.environ['OLLAMA_API_KEY']}"}, timeout=150)
+        except urllib.error.HTTPError as e:
+            if e.code in (402, 429):
+                raise SemIA(f"cota grátis do Ollama esgotada por agora ({e.code})")
+            ultimo = f"{mod}: {e.code}"
+            continue
+        msg = r.get("message") or {}
+        blocos = [{"type": "text", "text": msg["content"]}] if (msg.get("content") or "").strip() else []
+        for tc in msg.get("tool_calls") or []:
+            f = tc.get("function") or {}
+            args = f.get("arguments") or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    args = {}
+            blocos.append({"type": "tool_use", "id": "g" + uuid.uuid4().hex[:12], "name": f.get("name"), "input": args})
+        if blocos:
+            return {"content": blocos, "modelo": mod, "usage": {"input_tokens": int(r.get("prompt_eval_count") or 0),
+                                                                "output_tokens": int(r.get("eval_count") or 0)}}
+        ultimo = f"{mod} devolveu resposta vazia"
+    raise SemIA(f"gpt-oss sem resposta: {ultimo}")
+
+
 def ollama_web(pergunta, max_resultados=5):
     """Busca grátis na internet pela conta do Ollama (cota grátis, mesma chave do gpt-oss): se a pergunta tiver links,
     lê as páginas (web_fetch); senão busca (web_search). -> lista de {titulo, url, texto}. Falhou: levanta SemIA."""

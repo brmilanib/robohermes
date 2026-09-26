@@ -200,7 +200,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Seller Center no Chrome do coletor (mesma trava do Navegador), traz as mensagens sem resposta (`registrar` →
   `atendimento_receber`, com o painel do pedido em `pedido_dados`) e envia as aprovadas (`enviar_aprovada`: o coletor digita
   o texto APROVADO, confere o nome do cliente na tela e o botão Enviar). Sem mudança na caixa de entrada e nada para enviar,
-  não chama a IA. Modelo `NUBI_ATENDENTE_MODELO` (Haiku), teto `NUBI_ATENDENTE_TETO` US$ 3/dia. Ligado no botão da tela
+  não chama a IA (a assinatura ignora números e horários). Navegação com o **gpt-oss grátis** pelo servidor
+  (`atendimento_navegar_ia` → `ia.ollama_ferramentas`, formato de ferramentas da Anthropic convertido); o Haiku
+  (`NUBI_ATENDENTE_MODELO`) só de reserva, com teto `NUBI_ATENDENTE_TETO` US$ 3/dia (no teto, segue só com o grátis). Ligado no botão da tela
   (`ia_resumos` `atendimento|tiktok_atendente`); o tique do Mac chama a cada 5 min ou na hora se há resposta aprovada.
 - **No PC do Bruno (Windows)**: `python coletor.py atendente` fica ligado com uma janela do Chrome no chat (a cada 2 min,
   `NUBI_ATENDENTE_SEG`); senhas no Gerenciador de Credenciais (`keyring`, `cofre_ler`/`cofre_gravar`). Enquanto o PC dá

@@ -786,6 +786,12 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
         return {"auto": bool(d.get("ligado"))}
     if nome == "atendimento_mensagem" and metodo == "POST":
         return mensagem_manual(repo, d["conversa_id"], d.get("texto"), operador)
+    if nome == "atendimento_navegar_ia" and metodo == "POST":
+        # o atendente (PC/Mac) navega o chat com o gpt-oss grátis pelo servidor (a chave do Ollama fica só aqui)
+        try:
+            return ia.ollama_ferramentas(d.get("mensagens") or [], d.get("sistema") or "", d.get("ferramentas") or [])
+        except ia.SemIA as e:
+            return {"erro_ia": str(e)}
     if nome == "atendimento_para_enviar":
         if q.get("computador"):          # o atendente está ligado num computador (PC do Bruno): o Mac fica quieto
             repo._req("POST", "ia_resumos", corpo=[{"chave": PC_CHAVE, "texto": str(q["computador"])[:20], "ia": "atendente",

@@ -304,6 +304,22 @@ def test_chat_da_aba_fechados_fica_fechado_ate_o_cliente_voltar():
     assert r.t["atendimento_conversas"][0]["status"] == "precisa_info"                # voltou para a caixa de entrada
 
 
+def test_gpt_oss_com_ferramentas_no_formato_da_anthropic():
+    enviados = []
+    ia.tem = lambda q: q == "ollama"
+    ia._post_json = lambda url, corpo, cab, timeout=150: (enviados.append(corpo) or {
+        "message": {"content": "", "tool_calls": [{"function": {"name": "clicar", "arguments": {"n": 3}}}]},
+        "prompt_eval_count": 100, "eval_count": 10})
+    msgs = [{"role": "user", "content": "comece"},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "ler", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "PÁGINA " * 500}]}]
+    r = ia.ollama_ferramentas(msgs, "sistema", [{"name": "clicar", "description": "x", "input_schema": {"type": "object"}}])
+    assert r["content"][0]["name"] == "clicar" and r["content"][0]["input"] == {"n": 3}
+    c = enviados[0]
+    assert c["tools"][0]["function"]["name"] == "clicar" and c["messages"][2]["tool_calls"][0]["function"]["name"] == "ler"
+    assert c["messages"][3]["role"] == "tool"
+
+
 def test_atendente_do_mac_e_chamado_quando_ligado():
     r = Repo()
     assert a.atendente_proximo(r) is None                                # desligado

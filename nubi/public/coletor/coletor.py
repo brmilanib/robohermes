@@ -3976,6 +3976,28 @@ def _atendente_marca(pg):
     return hashlib.sha1(re.sub(r"\s+", " ", t)[:6000].encode()).hexdigest()
 
 
+def _ia_atendente(chave, mensagens, token, estado):
+    """Navegação do atendente: primeiro o gpt-oss grátis (pelo nubi), o Claude Haiku só de reserva — quando o grátis falha,
+    a cota acabou ou ele se perde (3 respostas seguidas sem ferramenta útil)."""
+    if estado.get("gratis_falhas", 0) < 3:
+        try:
+            r = api(token, "atendimento_navegar_ia", corpo={"mensagens": mensagens, "sistema": PAPEL_ATENDENTE,
+                                                            "ferramentas": ATENDENTE_FERRAMENTAS}, metodo="POST", timeout=200)
+            if r.get("content") and any(b.get("type") == "tool_use" for b in r["content"]):
+                estado["gratis_falhas"] = 0
+                estado["gratis"] = estado.get("gratis", 0) + 1
+                return dict(r, usage={"input_tokens": 0, "output_tokens": 0})     # grátis: custo zero
+            estado["gratis_falhas"] = estado.get("gratis_falhas", 0) + 1
+            if r.get("content") and estado["gratis_falhas"] < 3:
+                return dict(r, usage={"input_tokens": 0, "output_tokens": 0})     # texto sem ferramenta = terminou
+        except Exception:  # noqa: BLE001
+            estado["gratis_falhas"] = estado.get("gratis_falhas", 0) + 1
+    if not chave:
+        return {"content": [{"type": "text", "text": "IA grátis indisponível e sem a chave de reserva."}]}
+    estado["pago"] = estado.get("pago", 0) + 1
+    return _claude_ferramentas(chave, mensagens, PAPEL_ATENDENTE, ATENDENTE_FERRAMENTAS, ATENDENTE_MODELO)
+
+
 def _rodada_atendente(pg, cfg, chave, token, gasto):
     """Uma olhada no chat com a página já aberta: envia as aprovadas e traz as novas. Devolve (custo, estado, resumo)."""
     custo, estado, fim = 0.0, {}, None
@@ -4000,7 +4022,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
               + f"\n\nO chat está aberto em {pg.url}. Comece com ler.")
     mensagens = [{"role": "user", "content": pedido}]
     for _ in range(ATENDENTE_PASSOS):
-        r = _claude_ferramentas(chave, mensagens, PAPEL_ATENDENTE, ATENDENTE_FERRAMENTAS, ATENDENTE_MODELO)
+        r = _ia_atendente(chave, mensagens, token, estado)
         u = r.get("usage") or {}
         custo += (int(u.get("input_tokens") or 0) * ATENDENTE_PRECO[0] + int(u.get("output_tokens") or 0) * ATENDENTE_PRECO[1]) / 1e6
         blocos = r.get("content") or []
@@ -4056,8 +4078,11 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
                 txt = f"Erro: {str(ex)[:300]}"
             resultados.append({"type": "tool_result", "tool_use_id": b["id"], "content": txt[:12000]})
         mensagens.append({"role": "user", "content": resultados})
-        if fim is not None or custo + gasto >= ATENDENTE_TETO_DIA:
-            break
+        if fim is not None or (custo > 0 and custo + gasto >= ATENDENTE_TETO_DIA):     # o teto só vale para a IA paga
+            if fim is None:
+                chave = ""                                                               # daqui em diante só a grátis
+            else:
+                break
     try:
         if re.search(r"chat|im|message|bate", pg.url, re.I):
             cfg["tiktok_chat_url"] = pg.url.split("?")[0]
@@ -4069,20 +4094,19 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
     salvar_config(cfg)
     _gasto_atendente(cfg, custo)
     resumo = (f"🎵 Atendente TikTok: {estado.get('registradas', 0)} mensagem(ns) trazida(s) para o nubi, "
-              f"{estado.get('enviadas', 0)} resposta(s) enviada(s) (~US$ {custo:.2f}).")
+              f"{estado.get('enviadas', 0)} resposta(s) enviada(s) (~US$ {custo:.2f}; {estado.get('gratis', 0)} passo(s) com a IA "
+              f"grátis, {estado.get('pago', 0)} com a paga).")
     if estado.get("registradas") or estado.get("enviadas") or (fim and re.search(r"login|captcha|verifica", fim, re.I)):
         _postar_hermes_como(token, "Atendente TikTok", resumo + (f"\n{fim[:600]}" if fim else ""), custo)
     return custo, estado, resumo + (f"\n{fim}" if fim else "")
 
 
 def _atendente_pronto(cfg):
+    """A navegação é com a IA grátis; a chave da Anthropic é só a reserva (e sai de cena no teto do dia)."""
     chave = _credencial("anthropic", cfg)[1]
-    if not chave:
-        return None, ("❌ Atendente sem a chave da Anthropic. Rode: coletor guardar-senha anthropic")
-    gasto = _gasto_atendente(cfg)
-    if gasto >= ATENDENTE_TETO_DIA:
-        return None, f"⏸ Atendente no teto do dia (~US$ {gasto:.2f})."
-    return chave, None
+    if _gasto_atendente(cfg) >= ATENDENTE_TETO_DIA:
+        chave = ""                                  # teto: segue só com a IA grátis
+    return chave or "", None
 
 
 def cmd_atender_tiktok(args, cfg):
@@ -4092,10 +4116,7 @@ def cmd_atender_tiktok(args, cfg):
     if _pid_vivo(trava):
         print("O Chrome do coletor está em uso pelo Navegador; tento na próxima rodada.")
         return 0
-    chave, aviso = _atendente_pronto(cfg)
-    if not chave:
-        print(aviso)
-        return 1 if "chave" in aviso else 0
+    chave, _ = _atendente_pronto(cfg)
     token = token_nubi(cfg)
     trava.write_text(str(os.getpid()))
     try:
@@ -4125,10 +4146,7 @@ def cmd_atendente(args, cfg):
     """Fica ligado (no PC do Bruno ou em qualquer computador): uma janela do Chrome aberta no chat da TikTok Shop, olhando
     a cada 2 min. Enquanto roda, avisa o nubi e o Mac fica quieto. Ctrl+C para parar."""
     from playwright.sync_api import sync_playwright
-    chave, aviso = _atendente_pronto(cfg)
-    if not chave:
-        print(aviso)
-        return 1
+    chave, _ = _atendente_pronto(cfg)
     token = token_nubi(cfg)
     print("🎵 Atendente da TikTok Shop ligado neste computador. Deixe esta janela aberta (Ctrl+C para parar).")
     print("   Na primeira vez, entre na sua conta do Seller Center na janela do Chrome que vai abrir.")

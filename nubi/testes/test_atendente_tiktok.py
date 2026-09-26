@@ -125,6 +125,24 @@ def test_sem_novidade_nao_chama_a_ia():
     assert ch2["claude"] == 0 and antes == 1                               # nada novo: zero gasto
 
 
+def test_navega_com_a_ia_gratis_sem_gastar():
+    ENVIADO.clear()
+    import shutil
+    shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
+    roteiro = iter([("ler", {}), ("terminar", {"resumo": "nada a fazer"})])
+    ch = _preparar([])
+    api_antes = c.api
+
+    def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
+        if rota == "atendimento_navegar_ia":
+            nome, ent = next(roteiro)
+            return {"content": [{"type": "tool_use", "id": "g1", "name": nome, "input": ent}], "usage": {"input_tokens": 999}}
+        return api_antes(token, rota, params, corpo, metodo, timeout)
+    c.api = api
+    c.cmd_atender_tiktok(None, c.ler_config())
+    assert ch["claude"] == 0 and c._gasto_atendente(c.ler_config()) == 0      # tudo com a grátis: US$ 0
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):
