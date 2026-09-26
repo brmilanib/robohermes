@@ -42,7 +42,7 @@ def test_card_longo_rola_ate_o_fim_e_libera_o_fundo():
         pg.evaluate("scrollTo(0, 1200)")
         for _ in range(3):   # fechar e reabrir várias vezes
             pg.evaluate(f"abrir({LONGO * 12!r})")
-            tf = pg.locator("#tf")
+            tf = pg.locator(".modal-bg.tarefa .modal")
             # o painel rola: chega ao seletor de status no fim, sem corte nem rolagem horizontal
             pg.mouse.move(200, 400)
             pg.mouse.wheel(0, 20000)
@@ -73,7 +73,7 @@ def test_card_curto_usa_a_altura_toda():
         pg = nav.new_page(viewport={"width": 1280, "height": 800})
         pg.set_content(PAGINA)
         pg.evaluate("abrir('', 3)")        # 26/09 #91: uma rolagem só; card curto (poucos passos) não rola
-        assert pg.locator("#tf").evaluate("e => e.scrollHeight <= e.clientHeight + 1")   # nada para rolar no painel
+        assert pg.locator(".modal-bg.tarefa .modal").evaluate("e => e.scrollHeight <= e.clientHeight + 1")   # nada para rolar no painel
         fim = pg.locator("#fim").bounding_box()
         assert fim["y"] + fim["height"] <= 800 + 1
         nav.close()
@@ -88,9 +88,9 @@ def test_novidade_nao_tira_quem_esta_lendo_do_lugar():
         pg = nav.new_page(viewport={"width": 1280, "height": 800})
         pg.set_content(PAGINA)
         pg.evaluate(f"abrir({LONGO * 12!r})")
-        pg.locator("#tf").evaluate("e => e.scrollTop = 400")
+        pg.locator(".modal-bg.tarefa .modal").evaluate("e => e.scrollTop = 400")
         pg.evaluate("document.getElementById('tf-lin').insertAdjacentHTML('beforeend', '<div class=\"tf-b\">passo novo</div>')")
-        assert pg.locator("#tf").evaluate("e => e.scrollTop") == 400
+        assert pg.locator(".modal-bg.tarefa .modal").evaluate("e => e.scrollTop") == 400
         caixa = pg.locator(".tf-in").bounding_box()
         assert caixa["y"] + caixa["height"] <= 800 + 1                     # caixa de mensagem sempre visível
         largura = pg.locator(".modal-bg.tarefa .modal").bounding_box()["width"]
