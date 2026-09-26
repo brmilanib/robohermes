@@ -443,6 +443,8 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
   table.t:not(.no-card) td.first{display:block;text-align:left;font-size:14.5px;font-weight:600;order:-1;padding-bottom:4px}
   table.t:not(.no-card) td.first::before{display:none}
   .rolar:has(> table.t:not(.no-card)){max-height:none}
+  /* card #23: indicador de vendas em destaque nos cards do celular (Vendas diárias, Ranking, Alertas) */
+  table.t:not(.no-card) td.card-destaque{font-size:17px;font-weight:700}
 }
 @media (max-width:900px){.bi-grid{grid-template-columns:1fr !important}}
 @media (max-width:640px){
@@ -1701,8 +1703,8 @@ async function telaCategorias(cat) {
           return `<td class="num" style="background:color-mix(in srgb, ${COR_CAT[c]} ${Math.round(Math.min(1, sh * 2.2) * 38)}%, transparent)">${abrev(r.serie[c].vendas[i])}<br><small class="muted">${FMT.pct(sh)}</small></td>`; }).join("")}</tr>`).join("")}</tbody></table></div></div>
       ${principais.map(c => { const top = r.marcas.filter(m => m.categoria === c && m.ultimo).slice(0, 8);
         return top.length ? `<div class="card pad bi-card"><h2>${ICO_CAT[c]} ${esc(c)}: maiores em ${esc(mesCurto(M[ult]))}</h2>
-        <table class="t" style="font-size:12.5px"><tbody>${top.map(m => `<tr><td class="first">${rkLink(m.marca)}</td><td>${sparkSerie(m.vendas.map(v => v || 0))}</td>
-          <td class="num">${abrev(m.ultimo)}</td><td class="num muted">${FMT.pct(m.share_cat)} da categoria</td><td class="num">${pctCor(m.var_mes)}</td></tr>`).join("")}</tbody></table></div>` : ""; }).join("")}
+        <table class="t" style="font-size:12.5px"><thead><tr><th>Marca</th><th>Tendência</th><th class="num">Vendas</th><th class="num">% da categoria</th><th class="num">Variação</th></tr></thead><tbody>${top.map(m => `<tr><td class="first">${rkLink(m.marca)}</td><td>${sparkSerie(m.vendas.map(v => v || 0))}</td>
+          <td class="num card-destaque">${abrev(m.ultimo)}</td><td class="num muted">${FMT.pct(m.share_cat)} da categoria</td><td class="num">${pctCor(m.var_mes)}</td></tr>`).join("")}</tbody></table></div>` : ""; }).join("")}
     </div>
     ${(() => { const alvo = r.marcas.filter(m => (m.categoria === "Outros" || m.categoria === "Sem categoria") && m.fonte !== "manual");
       return alvo.length ? `<div class="card pad" style="margin-top:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
@@ -2126,7 +2128,7 @@ async function telaVendasDia() {
       <div class="card pad bi-card"><h2>Vendedores no período</h2><div class="sub">Total, média por dia e o melhor dia de cada um.</div>
         <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Vendedor</th><th class="num">Total</th><th class="num">Média/dia</th><th class="num">Melhor dia</th><th>Dia a dia</th></tr></thead>
         <tbody>${vs.map(v => `<tr><td class="first"><a href="#/vendas-dia?${new URLSearchParams({...par, vendedor: v.vendedor})}">${esc(v.vendedor)}</a></td>
-          <td class="num">${abrev(v.total)}</td><td class="num">${abrev(v.media)}</td>
+          <td class="num card-destaque">${abrev(v.total)}</td><td class="num">${abrev(v.media)}</td>
           <td class="num">${v.melhor_dia ? `${dm(v.melhor_dia)} <span class="muted">${abrev(v.melhor_v)}</span>` : "—"}</td>
           <td>${sparkSerie(v.v.map(x => x))}</td></tr>`).join("")}</tbody></table></div></div>
       <div class="card pad bi-card" style="grid-column:1/-1"><h2>Mapa do dia a dia</h2>
@@ -3805,7 +3807,7 @@ async function telaAlertas() {
       <tbody>${ps.slice(0, 60).map(p => `<tr><td class="first wrap">${vprodLink(p.chave, p.produto, p.alertas[0].vendedor)}</td><td>${esc(nome(p.marca || ""))}</td>
         <td class="wrap">${p.alertas.map(a => `<span class="sinal ${a.nivel >= 2 ? "bad" : ""}" title="${esc(a.detalhe)}">${esc(a.vendedor)} · ${esc(a.tipo.toLowerCase())}</span>`).join("")}</td>
         <td class="wrap">${p.ainda_vendem.length ? p.ainda_vendem.slice(0, 4).map(v => `<span class="sinal good">${esc(v.vendedor)} · ${nf1.format(v.ritmo)}/dia</span>`).join("") : `<span class="muted">ninguém dos monitorados</span>`}</td>
-        <td class="num">${abrev(p.perda_dia)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">Nenhum alerta agora.</td></tr>`}</tbody></table></div></div>
+        <td class="num card-destaque">${abrev(p.perda_dia)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">Nenhum alerta agora.</td></tr>`}</tbody></table></div></div>
     <h2>Todos os alertas</h2><div id="al-todos" class="painel"></div>`;
   if (r.alertas.length) tabelaAlertas($("#al-todos"), "al_todos", r.alertas, true);
   desenharMenu();
