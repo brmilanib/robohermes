@@ -2691,8 +2691,8 @@ async function telaAtendimento() {
   const t = m.total || {}, conv = f.conversas || [], pct = v => v == null ? "—" : Math.round(v * 100) + "%";
   const st = c => (c.rascunho || {}).status;
   const lojas = [...new Set(conv.map(c => c.loja))].sort(), loja = S.atLoja || "";
-  const filtros = {tudo: () => true, voce: c => st(c) === "precisa_info", aprovar: c => st(c) === "pendente",
-                   sozinho: c => (c.rascunho || {}).decidido_por === "automático"};
+  const filtros = {tudo: c => c.status !== "fechada", voce: c => st(c) === "precisa_info", aprovar: c => st(c) === "pendente",
+                   sozinho: c => (c.rascunho || {}).decidido_por === "automático", fechados: c => c.status === "fechada"};
   const lista = conv.filter(c => (!loja || c.loja === loja) && (filtros[aba] || filtros.tudo)(c));
   const aberta = conv.find(c => c.id === S.atConv) || null;
   const ult = c => (c.mensagens || []).slice(-1)[0] || {};
@@ -2737,8 +2737,9 @@ async function telaAtendimento() {
       <div class="muted" style="font-size:11.5px">aprendido do ${esc(k.confirmado_por || "chat")}</div>
       <div class="at-acoes"><button class="btn small primary" data-kb-aprovar="${k.id}">✅ Aprovar</button><button class="btn small ghost" data-kb-editar="${k.id}">✏️ Editar e aprovar</button>
         <button class="btn small ghost" data-kb-desativar="${k.id}">❌ Descartar</button></div></div>`;
-  const abas = [["tudo", `Tudo (${conv.length})`], ["voce", `🙋 Precisa de você (${conv.filter(filtros.voce).length})`],
-                ["aprovar", `✍️ Aprovar (${conv.filter(filtros.aprovar).length})`], ["sozinho", "🤖 Respondidas sozinho"], ["kb", "📚 Base de conhecimento"]];
+  const abas = [["tudo", `Caixa de entrada (${conv.filter(filtros.tudo).length})`], ["voce", `🙋 Precisa de você (${conv.filter(filtros.voce).length})`],
+                ["aprovar", `✍️ Aprovar (${conv.filter(filtros.aprovar).length})`], ["sozinho", "🤖 Respondidas sozinho"],
+                ["fechados", `🗂️ Fechados (${conv.filter(filtros.fechados).length})`], ["kb", "📚 Base de conhecimento"]];
   const corpo = aba === "kb" ? `<div class="card pad"><div class="es-cab"><h2>Base de conhecimento</h2>
         <div class="acoes"><button class="btn small" id="kb-fechados" title="o atendente abre a aba Fechados do TikTok e traz o histórico">📥 Trazer os chats fechados</button>
           <button class="btn small" id="kb-aprender" title="a IA grátis lê as conversas e propõe perguntas e respostas padrão">🧠 Aprender com os chats</button></div></div>

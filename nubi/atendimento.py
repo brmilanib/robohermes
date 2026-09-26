@@ -467,7 +467,7 @@ def _gravar_historico(repo, conversa_id, hist):
 
 
 def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, externo_id=None, gerar=None, pedido_dados=None,
-            historico=None, respondido=False):
+            historico=None, respondido=False, fechado=False):
     """Mensagem nova de cliente (do conector do canal ou colada pelo operador): grava e gera o rascunho.
     historico = o chat inteiro lido na tela ([{de, texto}]): grava o que falta; respondido = a loja já respondeu (só guarda)."""
     anteriores = []
@@ -514,9 +514,9 @@ def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, ext
             return r
     if anteriores:
         _gravar_historico(repo, conversa["id"], anteriores)
-    if not texto:                     # conversa já respondida: só o histórico, sem rascunho
+    if not texto:                     # conversa já respondida (ou da aba Fechados): só o histórico, sem rascunho
         repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{conversa['id']}"}, prefer="return=minimal",
-                  corpo={"status": "respondida", "atualizado_em": _agora()})
+                  corpo={"status": "fechada" if fechado else "respondida", "atualizado_em": _agora()})
         return {"status": "historico", "conversa_id": conversa["id"]}
     msg = _inserir(repo, "atendimento_mensagens", {"conversa_id": conversa["id"], "de": "cliente", "texto": texto[:5000],
                                                    "criado_em": _agora()})
@@ -811,7 +811,7 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
                                     d.get("pedido") or None, d.get("externo_id") or None,
                                     pedido_dados=d.get("pedido_dados") if isinstance(d.get("pedido_dados"), dict) else None,
                                     historico=d.get("historico") if isinstance(d.get("historico"), list) else None,
-                                    respondido=bool(d.get("respondido")))}
+                                    respondido=bool(d.get("respondido")), fechado=bool(d.get("fechado")))}
     if nome == "atendimento_decidir" and metodo == "POST":
         return decidir(repo, d["id"], d.get("acao"), d.get("texto"), operador)
     if nome == "atendimento_responder" and metodo == "POST":

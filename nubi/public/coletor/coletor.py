@@ -3898,6 +3898,7 @@ ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abri
              "de": {"type": "string", "enum": ["cliente", "loja"]}, "texto": {"type": "string"}}, "required": ["de", "texto"]},
              "description": "mensagens da conversa na ordem, exatamente como estão (ignore avisos do sistema e da plataforma)"},
          "respondido": {"type": "boolean", "description": "true se a última mensagem é da loja (nada a responder)"},
+         "fechado": {"type": "boolean", "description": "true se a conversa está na aba Fechados"},
          "mensagem": {"type": "string", "description": "(opcional) só a última mensagem do cliente, se não mandar o histórico"},
          "pedido_id": {"type": "string"},
          "pedido": {"type": "object", "description": "só o que está escrito no painel do pedido: status, transportadora, rastreio, "
@@ -3988,7 +3989,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
               + "\n\nCONVERSAS QUE JÁ ESTÃO NO NUBI (não precisa registrar de novo, a não ser que tenha mensagem nova): "
               + (", ".join((pend.get("conhecidos") or [])[:300]) or "(nenhuma — registre todas)")
               + (("\n\nIMPORTAR FECHADOS (pedido do Bruno): depois dos passos 1 e 2, abra a aba 'Fechados' e registre com "
-                  "respondido=true o histórico de até 20 conversas que ainda NÃO estão no nubi (role a lista para ver as mais "
+                  "respondido=true e fechado=true o histórico de até 20 conversas que ainda NÃO estão no nubi (role a lista para ver as mais "
                   "antigas). Quando não houver mais nenhuma nova nos Fechados, use fechados_concluido.") if fechados else "")
               + f"\n\nO chat está aberto em {pg.url}. Comece com ler.")
     mensagens = [{"role": "user", "content": pedido}]
@@ -4020,7 +4021,8 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
                     x = api(token, "atendimento_receber", corpo={
                         "canal": "tiktok_shop", "cliente": str(ent.get("cliente") or "")[:80],
                         "externo_id": str(ent.get("cliente") or "")[:80], "texto": str(ent.get("mensagem") or "")[:3000],
-                        "historico": hist or None, "respondido": bool(ent.get("respondido")),
+                        "historico": hist or None, "respondido": bool(ent.get("respondido")) or bool(ent.get("fechado")),
+                        "fechado": bool(ent.get("fechado")),
                         "pedido": str(ent.get("pedido_id") or "") or None,
                         "pedido_dados": dict(ent.get("pedido"), id=ent.get("pedido_id")) if isinstance(ent.get("pedido"), dict) else None},
                         metodo="POST", timeout=180)["rascunho"]

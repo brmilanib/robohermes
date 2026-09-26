@@ -295,6 +295,15 @@ def test_so_a_previa_depois_o_historico_entra_antes_na_ordem():
     assert a.rota(r, "GET", "atendimento_para_enviar", {}, None)["conhecidos"] == ["sami"]
 
 
+def test_chat_da_aba_fechados_fica_fechado_ate_o_cliente_voltar():
+    r = Repo()
+    x = a.receber(r, "tiktok_shop", "", cliente="moi", externo_id="moi", respondido=True, fechado=True,
+                  historico=[{"de": "cliente", "texto": "chegou certinho"}, {"de": "loja", "texto": "Que ótimo!"}])
+    assert r.t["atendimento_conversas"][0]["status"] == "fechada"
+    a.receber(r, "tiktok_shop", "vocês vendem tester?", cliente="moi", externo_id="moi", gerar=_ia(iter([])))
+    assert r.t["atendimento_conversas"][0]["status"] == "precisa_info"                # voltou para a caixa de entrada
+
+
 def test_atendente_do_mac_e_chamado_quando_ligado():
     r = Repo()
     assert a.atendente_proximo(r) is None                                # desligado
