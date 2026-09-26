@@ -2651,12 +2651,31 @@ def cmd_hermes_card(args, cfg):
     return 0
 
 
+TOKENS_OLLAMA = {}   # card #30: tokens por modelo nesta rodada (prompt_eval_count + eval_count); None = não informados
+
+
 def _chamar_ollama(modelo, sistema, pedido, timeout=300):
-    corpo = {"model": modelo, "stream": False,
+    """Card #30: API nativa do Ollama com keep_alive 0 — o modelo sai da memória logo depois de responder, então Hermes
+    e Qwen nunca ficam carregados juntos (16 GB); ela também devolve prompt_eval_count/eval_count para os tokens."""
+    corpo = {"model": modelo, "stream": False, "keep_alive": 0,
              "messages": [{"role": "system", "content": sistema}, {"role": "user", "content": pedido}]}
-    req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(OLLAMA.replace("/v1/chat/completions", "/api/chat"), data=json.dumps(corpo).encode(),
+                                 headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode())["choices"][0]["message"]["content"].strip()
+        j = json.loads(r.read().decode())
+    if j.get("prompt_eval_count") is None and j.get("eval_count") is None:
+        TOKENS_OLLAMA.setdefault(modelo, None)
+    else:
+        TOKENS_OLLAMA[modelo] = (TOKENS_OLLAMA.get(modelo) or 0) + int(j.get("prompt_eval_count") or 0) + int(j.get("eval_count") or 0)
+    return str((j.get("message") or {}).get("content") or "").strip()
+
+
+def _tokens_texto():
+    """Resumo dos tokens da rodada para a linha em Execuções; falta de dado aparece como 'Tokens não informados'."""
+    nomes = {"hermes3:8b": "Hermes", "qwen3:8b": "Qwen"}
+    partes = [f"{nomes.get(m, m)} " + (f"{t} tokens" if t is not None else "Tokens não informados")
+              for m, t in TOKENS_OLLAMA.items()]
+    return " · ".join(partes + ["custo R$ 0 (inferência local)"]) if partes else ""
 
 
 def _json_lista(bruto):
@@ -2698,7 +2717,10 @@ def cmd_hermes_memoria(args, cfg):
 def _hermes_memoria(cfg):
     token = token_nubi(cfg)
 
+    TOKENS_OLLAMA.clear()
+
     def terminar(rid, ok, mensagem):
+        mensagem = " — ".join(x for x in (mensagem, _tokens_texto()) if x)
         if rid:
             try:
                 api(token, "coletor_registrar", corpo={"id": rid, "em_andamento": False, "ok": ok, "mensagem": mensagem,
@@ -2713,6 +2735,15 @@ def _hermes_memoria(cfg):
         return 0
     if _outra_rodando():
         print(f"{datetime.now():%d/%m %H:%M} memória: outra coleta rodando neste Mac; espero a próxima chamada.", flush=True)
+        try:
+            # card #30: fica registrado em Execuções. Linha nova (sem id): o servidor não marca a rotina como feita,
+            # então ela roda depois que a coleta terminar.
+            agora = datetime.now(timezone.utc).isoformat()
+            api(token, "coletor_registrar", corpo={"tarefa": "memoria", "iniciado_em": agora, "terminado_em": agora,
+                                                   "em_andamento": False, "ok": True, "mensagem": "pausado_pela_coleta"},
+                metodo="POST")
+        except Exception as e:  # noqa: BLE001
+            print(f"memória: não consegui registrar a pausa ({e})", flush=True)
         return 0
 
     rid = None

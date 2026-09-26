@@ -110,7 +110,9 @@ def test_nao_roda_com_outra_coleta_em_andamento():
     chamadas = _preparar()
     c._outra_rodando = lambda: 999
     assert c.cmd_hermes_memoria(None, {}) == 0
-    assert chamadas["registrar"] == []
+    # card #30: não roda, mas fica registrado em Execuções (linha nova, sem id: a rotina não é dada como feita)
+    assert [r.get("mensagem") for r in chamadas["registrar"]] == ["pausado_pela_coleta"]
+    assert "id" not in chamadas["registrar"][0]
 
 
 def test_trava_propria_impede_2_rodadas_em_paralelo():
