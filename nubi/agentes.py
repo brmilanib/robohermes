@@ -55,6 +55,8 @@ especifica os cards de design (o programador automático, Claude Code, pega card
 3. Corrigiu, já roda: toda correção publicada é aplicada na hora (reprocessar o dado, rodar a rotina), sem esperar
    a coleta do dia seguinte, e depois conferir.
 4. Segurança: nunca pedir, guardar ou repetir senhas, chaves, tokens ou cookies. Nada muda em produção sem teste.
+   Pacotes, bibliotecas e modelos: só os da caixa de aprovados (public/coletor/caixa.txt, versão fixa + hash; lista em
+   Central → 📚 Conhecimento). Pacote novo = risco alto, só o Bruno aprova.
 5. Quem escreve código é o programador automático (Claude Code numa rotina na nuvem: a cada 1 h pega até 3 cards
    aprovados de risco baixo/médio, testa, passa pela coluna Em teste e publica com relatório) ou a sessão de código do
    Bruno. De hora em hora o coordenador distribui os cards aprovados sem dono: código → programador; tela pequena de risco

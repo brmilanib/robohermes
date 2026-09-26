@@ -2826,16 +2826,36 @@ function ligarEstoque() {
 }
 // ---------- Caixa de conhecimento: a memória que todos os agentes (e o programador automático) leem antes de trabalhar ----------
 const CON_TIPOS = {briefing: "📌 Briefing", regra: "⚖️ Regra", procedimento: "🛠️ Procedimento", decisao: "✅ Decisão", aprendizado: "💡 Aprendizado", conversa: "💬 Conversa"};
+// caixa de pacotes aprovados (card #28): o mesmo coletor/caixa.txt que o coletor usa para instalar (pip --require-hashes)
+function caixaPacotes(txt) {
+  return txt.split("\n").map(l => {
+    const m = l.match(/^\s*(?:# ollama:\s*)?([A-Za-z0-9_.\-:]+)(?:==(\S+))?(?:\s+--hash=sha256:([0-9a-f]+))?\s*(?:#\s*(.*))?$/);
+    if (!m || (l.trim().startsWith("#") && !/^\s*# ollama:/.test(l))) return null;
+    const [onde, uso] = (m[4] || "").split(" · ");
+    return {nome: m[1], versao: m[2] || "", hash: m[3] || "", onde: /# ollama:/.test(l) ? "Ollama (Mac)" : onde || "", uso: uso || ""};
+  }).filter(Boolean);
+}
+function caixaHtml(txt) {
+  const q = (S.conQ || "").toLowerCase(), itens = caixaPacotes(txt).filter(p => !q || (p.nome + " " + p.onde + " " + p.uso).toLowerCase().includes(q));
+  if (!itens.length) return "";
+  return `<details class="card pad" style="margin-top:10px"><summary><b>📦 Caixa de pacotes e bibliotecas</b> · ${itens.length} aprovados
+      <span class="chip" style="background:var(--soft)">pacote novo exige aprovação do Bruno · risco alto</span></summary>
+    <div class="muted" style="font-size:12px;margin:6px 0">o coletor instala só isto, da cópia local no Mac (wheelhouse), com o hash conferido · hash = sha256 da roda do Mac (arm64, Python 3.12)</div>
+    ${itens.map(p => `<div style="padding:6px 0;border-top:1px solid var(--line,#eee)"><b>${esc(p.nome)}</b> ${esc(p.versao || "")}
+      <span class="muted" style="font-size:12px"> · ${esc(p.onde || "não informado")}${p.uso ? " · " + esc(p.uso) : ""}</span>
+      <div style="font-family:monospace;font-size:11px;word-break:break-all">${p.hash ? "sha256:" + esc(p.hash) : "hash: não informado"}</div></div>`).join("")}</details>`;
+}
 async function telaConhecimento() {
   const main = $("#main");
   main.innerHTML = opsAbas("conhecimento") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a caixa de conhecimento</div></div>`;
-  let r;
-  try { r = await api("conhecimento", S.conQ ? {q: S.conQ} : {}); } catch (e) { main.innerHTML = opsAbas("conhecimento") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  let r, caixa = "";
+  try { [r, caixa] = await Promise.all([api("conhecimento", S.conQ ? {q: S.conQ} : {}), fetch("/coletor/caixa.txt").then(x => x.ok ? x.text() : "").catch(() => "")]); } catch (e) { main.innerHTML = opsAbas("conhecimento") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/central/conhecimento")) return;
   main.innerHTML = opsAbas("conhecimento") + `<div class="es-cab"><h1>📚 Caixa de conhecimento</h1>
       <span class="muted">o que os agentes leem antes de trabalhar · o Hermes documenta as conversas aqui</span>
       <div class="acoes"><button class="btn small primary" id="con-novo">+ Adicionar</button></div></div>
     <div class="es-filtros"><input type="search" id="con-q" placeholder="Buscar no conhecimento…" value="${esc(S.conQ || "")}"></div>
+    ${caixaHtml(caixa)}
     ${r.itens.length ? r.itens.map(c => `<details class="card pad con-it" style="margin-top:10px" ${c.fixo ? "open" : ""}><summary><b>${esc(CON_TIPOS[c.tipo] || c.tipo)}</b> · ${esc(c.titulo)}
         ${c.fixo ? `<span class="chip" style="background:var(--soft)">sempre lido</span>` : ""}<span class="muted" style="font-size:12px"> · ${esc(c.autor || "")} · ${esc(desde(c.atualizado_em))}</span></summary>
         ${mdCodigo(c.texto)}<div class="muted" style="font-size:12px;margin-top:6px">${c.fonte ? "fonte: " + esc(c.fonte) + " · " : ""}<a href="#" data-con-ed="${c.id}">editar</a></div></details>`).join("")
