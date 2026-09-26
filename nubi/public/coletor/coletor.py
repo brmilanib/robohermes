@@ -3074,6 +3074,8 @@ def cmd_programar(args, cfg, quem="ferreiro"):
             novos = _git(repo, "rev-list", "--count", f"origin/{BRANCH_NUBI}..HEAD").stdout.strip()
             testes = _testes_projeto(repo, env)
         ferramenta = "o Codex" if astra else "o Claude Code"
+        if astra and r.returncode and novos not in ("", "0") and not testes.returncode:
+            r = subprocess.CompletedProcess(r.args, 0)    # o Codex sai com erro quando o sandbox bloqueia o commit dele; o coletor já fez
         if r.returncode or novos in ("", "0") or testes.returncode:
             motivo = (f"{ferramenta} parou com erro" if r.returncode else "nenhum commit" if novos in ("", "0")
                       else "os testes não passaram no Mac")

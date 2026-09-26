@@ -197,6 +197,22 @@ def test_caixa_que_falha_nao_derruba_o_ambiente_pronto():
         c.instalar_da_caixa, c._python_novo = original, py_original
 
 
+def test_astra_com_codex_saindo_com_erro_mas_trabalho_feito_entrega():
+    """26/09: o Codex saía com erro porque o sandbox bloqueava o commit dele; o coletor faz o commit e entrega igual."""
+    import shutil
+    shutil.rmtree(c.PASTA / "projeto", ignore_errors=True)
+    c.salvar_config({})
+    passos, sala = _preparar(_claude_falso())
+    exe = TMP / "codex_erro"
+    exe.write_text("#!/bin/sh\nout=''\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --output-last-message ]; then out=$2; fi; shift; done\n"
+                   "echo tela nova > nubi/tela.txt\necho '## Feito\nCommit bloqueado' > \"$out\"\nexit 1\n")
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    c._codex_bin = lambda: str(exe)
+    c._credencial = lambda site, cfg=None: ("bruno", "sk-falsa") if site in ("openai", "anthropic") else ("", "")
+    assert c.cmd_programar(type("A", (), {"id": "93"})(), c.ler_config(), quem="astra") == 0
+    assert passos[-1]["status"] == "em_teste" and "astra/card-93" in passos[-1]["texto"]
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

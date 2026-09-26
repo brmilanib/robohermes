@@ -3708,7 +3708,8 @@ def trabalhar_agentes(repo, limite=2):
     """Os agentes responsáveis (não o programador) fazem os cards aprovados deles. Risco alto e cards esperando o Bruno ficam."""
     cards = sorted([t for t in (repo._req("GET", "reuniao_tarefas", {"select": "*", "status": "eq.aprovada", "aguardando": "is.null",
                                                                      "order": "id"}) or [])
-                    if t.get("responsavel") in AGENTES_TEXTO | AGENTES_MAC], key=ordem_fila)
+                    # card do Astra é dele no Mac (Codex, fila ferreiro_proximo): o Astra de texto pegava o mesmo card (26/09)
+                    if t.get("responsavel") in (AGENTES_TEXTO - {"astra"}) | AGENTES_MAC], key=ordem_fila)
     saida, caixa = [], None
     for t in cards:
         if len([x for x in saida if not x.startswith("Mac")]) >= limite:
