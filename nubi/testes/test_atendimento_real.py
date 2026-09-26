@@ -24,6 +24,8 @@ try:
             pg.route("https://cdn.jsdelivr.net/**", lambda r: r.fulfill(content_type="application/javascript", body=STUB))
             pg.route("https://fonts.**", lambda r: r.abort())
             pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/tiktok"); pg.wait_for_selector("#at-nova", timeout=15000)
+            if nome == "cel":
+                pg.uncheck("#at-auto"); pg.wait_for_timeout(1500)
             pg.fill("#at-cli", "Ana"); pg.fill("#at-txt", pergunta)
             pg.click("#at-nova button"); pg.wait_for_timeout(1500)
             pg.click("[data-at-aba=info]"); pg.wait_for_selector(".at-conv.info", timeout=10000)
@@ -31,14 +33,20 @@ try:
             pg.fill(".at-conv.info textarea", resposta)
             pg.fill(".at-conv.info [data-at-tipo]", tipo)
             pg.click("[data-at-responder]"); pg.wait_for_timeout(1500)
-            pg.click("[data-at-aba=fila]"); pg.wait_for_selector("[data-at-txt]", timeout=10000)
-            assert pg.input_value("[data-at-txt]").startswith("Oi!"), nome
-            assert "Dados usados" in pg.inner_text(".at-conv")                 # o operador audita o que foi usado
             larg = pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
             assert larg[0] <= larg[1] + 1, (nome, larg)                         # sem rolagem de lado no celular
-            pg.click("[data-at-ok]"); pg.wait_for_timeout(1500)
-            pg.click("[data-at-aba=feitas]"); pg.wait_for_timeout(1200)
-            assert "aprovado como estava" in pg.inner_text("#main"), nome
+            if nome == "pc":        # responder sozinho ligado: a resposta do Bruno já vai para o Mac enviar
+                pg.click("[data-at-aba=feitas]"); pg.wait_for_timeout(1200)
+                assert "o Mac envia em até 5 min" in pg.inner_text("#main"), nome
+                pg.click("#at-ligar"); pg.wait_for_timeout(1500)
+                assert "Atendente ligado" in pg.inner_text("#main") and "Desligar atendente" in pg.inner_text("#at-ligar")
+            else:                   # desligado: fica na fila e o Bruno aprova
+                pg.click("[data-at-aba=fila]"); pg.wait_for_selector("[data-at-txt]", timeout=10000)
+                assert pg.input_value("[data-at-txt]").startswith("Oi!"), nome
+                assert "Dados usados" in pg.inner_text(".at-conv")             # o operador audita o que foi usado
+                pg.click("[data-at-ok]"); pg.wait_for_timeout(1500)
+                pg.click("[data-at-aba=feitas]"); pg.wait_for_timeout(1200)
+                assert "o Mac envia em até 5 min" in pg.inner_text("#main"), nome
             pg.click("[data-at-aba=kb]"); pg.wait_for_selector(".at-kb-item", timeout=10000)
             assert tipo in pg.inner_text(".at-kb"), nome
             assert not erros, erros

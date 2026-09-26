@@ -32,8 +32,12 @@ class Canal:
     """Um canal de atendimento. Para plugar um canal novo: herdar, dizer de onde vêm os pedidos (source em store_orders)
     e implementar enviar() quando houver integração. Sem integração, a resposta aprovada fica pronta para copiar e colar."""
 
-    def __init__(self, id_, nome, source=None):
+    envia = False      # True = o canal consegue mandar a resposta ao cliente (API ou atendente do Mac)
+
+    def __init__(self, id_, nome, source=None, envia=None):
         self.id, self.nome, self.source = id_, nome, source or id_
+        if envia is not None:
+            self.envia = envia
 
     def buscar_pedido(self, repo, pedido_id):
         linhas = repo._req("GET", "store_orders", {"select": "id_externo,status,dados,atualizado_em",
@@ -44,6 +48,17 @@ class Canal:
         raise CanalNaoConectado(f"O {self.nome} ainda não está ligado ao nubi: copie a resposta aprovada e cole no chat do cliente.")
 
 
+class EnvioPeloMac(CanalNaoConectado):
+    """O canal não tem API: o atendente do Mac (Navegador no Chrome do coletor) digita e envia a resposta aprovada."""
+
+
+class CanalNavegador(Canal):
+    envia = True
+
+    def enviar(self, conversa, texto):
+        raise EnvioPeloMac(f"Aprovado: o atendente do Mac envia no chat do {self.nome} em até 5 min.")
+
+
 CANAIS = {}
 
 
@@ -52,7 +67,7 @@ def registrar_canal(canal):
     return canal
 
 
-for _c in (Canal("tiktok_shop", "TikTok Shop"), Canal("whatsapp", "WhatsApp"), Canal("mercado_livre", "Mercado Livre")):
+for _c in (CanalNavegador("tiktok_shop", "TikTok Shop"), Canal("whatsapp", "WhatsApp"), Canal("mercado_livre", "Mercado Livre")):
     registrar_canal(_c)
 
 
@@ -143,11 +158,13 @@ def buscar_kb(repo, loja, texto, lim=3, corte=0.5):
         p = _raizes(k.get("pergunta")) | _raizes(" ".join(k.get("tags") or []))
         if not p:
             continue
-        nota = len(q & p) / len(p)
+        comum = q & p
+        nota = len(comum) / len(p)
         if nota >= corte:
-            achados.append((nota, k))
-    achados.sort(key=lambda x: -x[0])
-    return [dict(k, nota=round(n, 2)) for n, k in achados[:lim]]
+            # cobre = quanto da pergunta do cliente o item explica (decide se pode sair sozinho)
+            achados.append((nota, k, round(len(comum) / len(q), 2) if len(comum) >= 2 else 0))
+    achados.sort(key=lambda x: (-x[0], -x[2]))
+    return [dict(k, nota=round(n, 2), cobre=c) for n, k, c in achados[:lim]]
 
 
 def buscar_estoque(repo, texto, lim=3):
@@ -181,6 +198,11 @@ def buscar_dados(repo, can, conversa, texto, resposta_operador=None):
     if intento in PRECISA_PEDIDO and sobre_o_pedido:
         if pid:
             linha = can.buscar_pedido(repo, pid)
+            tela = conversa.get("pedido_dados") or {}
+            if not linha and tela and str(tela.get("id") or pid) == str(pid):
+                # pedido lido pelo atendente do Mac no painel do chat (o canal ainda não sincroniza pedidos)
+                linha = {"id_externo": pid, "dados": tela}
+                fatos["pedido_fonte"] = f"painel do pedido no chat do {can.nome}"
             if linha:
                 fatos["pedido"] = pedido_seguro(linha)
             elif not resposta_operador:
@@ -190,7 +212,7 @@ def buscar_dados(repo, can, conversa, texto, resposta_operador=None):
             fatos["pedir_numero_do_pedido"] = True     # resposta pede o número ao cliente; nada é inventado
     kb = buscar_kb(repo, loja, texto)
     if kb:
-        fatos["base_de_conhecimento"] = [{"id": k["id"], "pergunta": k["pergunta"], "resposta": k["resposta"],
+        fatos["base_de_conhecimento"] = [{"id": k["id"], "nota": k["nota"], "cobre": k["cobre"], "pergunta": k["pergunta"], "resposta": k["resposta"],
                                           "confirmado_por": k.get("confirmado_por"), "confirmado_em": k.get("confirmado_em")}
                                          for k in kb]
     if intento in ("produto", "outro"):
@@ -235,7 +257,7 @@ def _numeros(t):
     return {int(x) for x in re.findall(r"\d+", str(t or "")) if len(x) <= 9} | {x for x in re.findall(r"\d{10,}", str(t or ""))}
 
 
-INTERNOS = {"id", "confirmado_em", "confirmado_por", "nota"}    # números de controle não valem como dado para o cliente
+INTERNOS = {"id", "confirmado_em", "confirmado_por", "nota", "cobre"}    # números de controle não valem como dado para o cliente
 
 
 def _sem_internos(x):
@@ -339,10 +361,37 @@ def processar(repo, conversa, mensagem, gerar=None, resposta_operador=None):
     repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{conversa['id']}"},
               corpo={"status": "precisa_info" if reg["status"] == "precisa_info" else "rascunho", "atualizado_em": _agora()},
               prefer="return=minimal")
+    if reg["status"] == "pendente" and can.envia and pode_sozinho(repo, fatos):
+        rasc.update(decidir(repo, rasc["id"], "aprovar", operador="automático"))
+        rasc["automatico"] = True
     return rasc
 
 
-def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, externo_id=None, gerar=None):
+AUTO_CHAVE = "atendimento|auto"
+AUTO_INTENCOES = {"produto", "horario", "saudacao", "outro"}
+AUTO_NOTA = 0.75
+
+
+def auto_ligado(repo):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{AUTO_CHAVE}"}) or [{}])[0]
+    return r.get("texto") != "desligado"          # pedido do Bruno (26/09): ligado por padrão
+
+
+def pode_sozinho(repo, fatos):
+    """Pedido do Bruno (26/09): o que já foi aprendido sai sozinho. Aprendido = a resposta veio da base (item parecido de
+    verdade) ou o Bruno acabou de responder; pedido, troca e reclamação sempre passam por ele."""
+    if not auto_ligado(repo):
+        return False
+    if fatos.get("resposta_do_lojista"):          # o Bruno acabou de responder embaixo: já vai para o cliente
+        return True
+    if fatos.get("intencao") not in AUTO_INTENCOES or "pedido" in fatos:
+        return False
+    if fatos.get("intencao") == "saudacao":
+        return True
+    return any(float(k.get("cobre") or 0) >= AUTO_NOTA for k in fatos.get("base_de_conhecimento") or [])
+
+
+def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, externo_id=None, gerar=None, pedido_dados=None):
     """Mensagem nova de cliente (do conector do canal ou colada pelo operador): grava e gera o rascunho."""
     texto = str(texto or "").strip()
     if not texto:
@@ -355,11 +404,23 @@ def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, ext
     if not conversa:
         conversa = _inserir(repo, "atendimento_conversas", {"canal": canal_id, "loja": loja or LOJA_PADRAO, "cliente": cliente,
                                                             "externo_id": externo_id, "pedido_ref": pedido_ref, "status": "nova",
+                                                            "pedido_dados": pedido_dados or None,
                                                             "criado_em": _agora(), "atualizado_em": _agora()})
-    elif pedido_ref and not conversa.get("pedido_ref"):
-        repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{conversa['id']}"}, corpo={"pedido_ref": pedido_ref},
-                  prefer="return=minimal")
-        conversa["pedido_ref"] = pedido_ref
+    else:
+        muda = {}
+        if pedido_ref and pedido_ref != conversa.get("pedido_ref"):
+            muda["pedido_ref"] = pedido_ref
+        if pedido_dados:
+            muda["pedido_dados"] = pedido_dados
+        if muda:
+            repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{conversa['id']}"}, corpo=muda, prefer="return=minimal")
+            conversa.update(muda)
+        ult = (repo._req("GET", "atendimento_mensagens", {"select": "id,de,texto", "conversa_id": f"eq.{conversa['id']}",
+                                                          "de": "eq.cliente", "order": "id.desc", "limit": 1}) or [None])[0]
+        if ult and ult["texto"].strip() == texto[:5000].strip():
+            # o atendente do Mac lê a mesma conversa de novo: não duplica a mensagem nem o rascunho
+            return (repo._req("GET", "atendimento_rascunhos", {"select": "*", "conversa_id": f"eq.{conversa['id']}",
+                                                               "order": "id.desc", "limit": 1}) or [{"status": "ja_recebida"}])[0]
     msg = _inserir(repo, "atendimento_mensagens", {"conversa_id": conversa["id"], "de": "cliente", "texto": texto[:5000],
                                                    "criado_em": _agora()})
     return processar(repo, conversa, msg, gerar)
@@ -387,20 +448,22 @@ def decidir(repo, rascunho_id, acao, texto=None, operador="Bruno"):
     sem = round(difflib.SequenceMatcher(None, r.get("texto_gerado") or "", final).ratio(), 3)
     status = "aprovado" if acao == "aprovar" or sem >= 0.999 else "editado"
     conversa = _um(repo, "atendimento_conversas", r["conversa_id"]) or {}
-    aviso, enviado_em = None, None
+    aviso, enviado_em, pelo_mac = None, None, False
     try:
         canal(conversa.get("canal") or "tiktok_shop").enviar(conversa, final)
         enviado_em = agora
+    except EnvioPeloMac as e:
+        aviso, pelo_mac = str(e), True
     except CanalNaoConectado as e:
         aviso = str(e)
     repo._req("PATCH", "atendimento_rascunhos", {"id": f"eq.{r['id']}"}, prefer="return=minimal",
               corpo={"status": "enviado" if enviado_em else status, "texto_final": final, "semelhanca": sem,
-                     "decidido_por": operador, "decidido_em": agora, "enviado_em": enviado_em})
+                     "decidido_por": operador, "decidido_em": agora, "enviado_em": enviado_em, "enviar_pelo_mac": pelo_mac})
     repo._req("POST", "atendimento_mensagens", corpo=[{"conversa_id": r["conversa_id"], "de": "loja", "texto": final,
                                                       "criado_em": agora}], prefer="return=minimal")
     repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{r['conversa_id']}"}, prefer="return=minimal",
               corpo={"status": "respondida", "atualizado_em": agora})
-    return {"status": "enviado" if enviado_em else status, "semelhanca": sem, "texto": final, "aviso": aviso}
+    return {"status": "enviado" if enviado_em else status, "semelhanca": sem, "texto": final, "aviso": aviso, "pelo_mac": pelo_mac}
 
 
 def responder_operador(repo, rascunho_id, resposta, operador="Bruno", salvar_kb=True, pergunta_tipo=None, resposta_kb=None,
@@ -443,8 +506,10 @@ def salvar_item_kb(repo, loja, pergunta, resposta, operador="Bruno", origem_rasc
 def metricas(repo, dias=30):
     """Taxa de acerto: aprovados sem edição sobre tudo que o operador decidiu; também por intenção."""
     desde = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
-    linhas = repo._req("GET", "atendimento_rascunhos", {"select": "intencao,status,semelhanca", "criado_em": f"gte.{desde}",
-                                                        "limit": 10000}) or []
+    todas = repo._req("GET", "atendimento_rascunhos", {"select": "intencao,status,semelhanca,decidido_por", "criado_em": f"gte.{desde}",
+                                                       "limit": 10000}) or []
+    automaticas = sum(1 for x in todas if x.get("decidido_por") == "automático")
+    linhas = [x for x in todas if x.get("decidido_por") != "automático"]      # o acerto mede só o que o Bruno decidiu
 
     def conta(ls):
         c = {s: sum(1 for x in ls if x.get("status") == s) for s in
@@ -459,7 +524,8 @@ def metricas(repo, dias=30):
     por = {}
     for x in linhas:
         por.setdefault(x.get("intencao") or "outro", []).append(x)
-    return {"dias": dias, "total": conta(linhas), "por_intencao": {k: conta(v) for k, v in sorted(por.items())}}
+    return {"dias": dias, "total": conta(linhas), "automaticas": automaticas,
+            "por_intencao": {k: conta(v) for k, v in sorted(por.items())}}
 
 
 def fila(repo, status=None, lim=50):
@@ -479,14 +545,80 @@ def fila(repo, status=None, lim=50):
     return conversas
 
 
+ATENDENTE_CHAVE = "atendimento|tiktok_atendente"
+ATENDENTE_A_CADA_MIN = 5
+
+
+def atendente_ligado(repo):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{ATENDENTE_CHAVE}"}) or [{}])[0]
+    return r.get("texto") == "ligado"
+
+
+def para_enviar(repo):
+    """Respostas aprovadas que o atendente do Mac ainda precisa digitar no chat."""
+    rs = repo._req("GET", "atendimento_rascunhos", {"select": "id,conversa_id,texto_final", "enviar_pelo_mac": "eq.true",
+                                                    "enviado_em": "is.null", "order": "id", "limit": 20}) or []
+    if not rs:
+        return []
+    ids = "in.(" + ",".join(str(r["conversa_id"]) for r in rs) + ")"
+    conv = {c["id"]: c for c in repo._req("GET", "atendimento_conversas", {"select": "id,cliente,externo_id,canal", "id": ids}) or []}
+    return [{"id": r["id"], "cliente": (conv.get(r["conversa_id"]) or {}).get("cliente"), "texto": r["texto_final"]} for r in rs]
+
+
+def marcar_enviado(repo, rascunho_id, ok=True, erro=None):
+    corpo = {"enviado_em": _agora(), "status": "enviado"} if ok else {"motivo": f"envio pelo Mac falhou: {erro}"[:500]}
+    repo._req("PATCH", "atendimento_rascunhos", {"id": f"eq.{int(rascunho_id)}"}, corpo=corpo, prefer="return=minimal")
+    return {"ok": True}
+
+
+def atendente_proximo(repo, mac_online=True):
+    """No tique do Mac: ligado, chama o atendente a cada 5 min (ou na hora, se há resposta aprovada esperando)."""
+    try:
+        if not mac_online or not atendente_ligado(repo):
+            return None
+        if repo._req("GET", "mac_comandos", {"select": "id", "comando": "in.(atender_tiktok,navegar_card)",
+                                             "status": "in.(pendente,rodando)", "limit": 1}):
+            return None
+        ult = (repo._req("GET", "mac_comandos", {"select": "criado_em", "comando": "eq.atender_tiktok", "order": "id.desc",
+                                                 "limit": 1}) or [{}])[0].get("criado_em")
+        velho = not ult or datetime.now(timezone.utc) - datetime.fromisoformat(str(ult).replace("Z", "+00:00")) >= timedelta(
+            minutes=ATENDENTE_A_CADA_MIN)
+        if not velho and not para_enviar(repo):
+            return None
+        repo._req("POST", "mac_comandos", corpo=[{"comando": "atender_tiktok", "arg": "", "pedido_por": "atendente TikTok",
+                                                  "status": "pendente", "criado_em": _agora()}], prefer="return=minimal")
+        return "atendente chamado"
+    except Exception:  # noqa: BLE001 — nunca derruba o tique do Mac
+        return None
+
+
 def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
     """Rotas /api/atendimento_* do nubi_web."""
     d = json.loads(corpo or b"{}") if metodo == "POST" else {}
     if nome == "atendimento_fila":
-        return {"conversas": fila(repo, q.get("status")), "canais": [{"id": c.id, "nome": c.nome} for c in CANAIS.values()]}
+        return {"conversas": fila(repo, q.get("status")), "canais": [{"id": c.id, "nome": c.nome} for c in CANAIS.values()],
+                "atendente": atendente_ligado(repo), "auto": auto_ligado(repo)}
+    if nome == "atendimento_ligar" and metodo == "POST":
+        repo._req("POST", "ia_resumos", corpo=[{"chave": ATENDENTE_CHAVE, "texto": "ligado" if d.get("ligado") else "desligado",
+                                                "ia": "atendente", "criado_em": _agora()}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        if d.get("ligado") or d.get("agora"):
+            repo._req("POST", "mac_comandos", corpo=[{"comando": "atender_tiktok", "arg": "", "pedido_por": operador,
+                                                      "status": "pendente", "criado_em": _agora()}], prefer="return=minimal")
+        return {"atendente": bool(d.get("ligado"))}
+    if nome == "atendimento_auto" and metodo == "POST":
+        repo._req("POST", "ia_resumos", corpo=[{"chave": AUTO_CHAVE, "texto": "ligado" if d.get("ligado") else "desligado",
+                                                "ia": "atendente", "criado_em": _agora()}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return {"auto": bool(d.get("ligado"))}
+    if nome == "atendimento_para_enviar":
+        return {"itens": para_enviar(repo)}
+    if nome == "atendimento_enviado" and metodo == "POST":
+        return marcar_enviado(repo, d["id"], d.get("ok", True), d.get("erro"))
     if nome == "atendimento_receber" and metodo == "POST":
         return {"rascunho": receber(repo, d.get("canal") or "tiktok_shop", d.get("texto"), d.get("loja"), d.get("cliente"),
-                                    d.get("pedido") or None, d.get("externo_id") or None)}
+                                    d.get("pedido") or None, d.get("externo_id") or None,
+                                    pedido_dados=d.get("pedido_dados") if isinstance(d.get("pedido_dados"), dict) else None)}
     if nome == "atendimento_decidir" and metodo == "POST":
         return decidir(repo, d["id"], d.get("acao"), d.get("texto"), operador)
     if nome == "atendimento_responder" and metodo == "POST":

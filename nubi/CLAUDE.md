@@ -196,4 +196,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   do lojista na base (com quem confirmou e quando) e gera o rascunho de novo. Item novo de uma resposta antiga: `substitui`
   (a antiga fica `inativa` com `substituido_por`, nunca apagada). `metricas`: acerto = aprovado sem editar / decididos.
 - Tela: Minhas Lojas → 🎵 TikTok Shop (`telaAtendimento`). Testes: `test_atendimento.py`, `test_atendimento_real.py`.
-- Auto-envio: desligado nesta versão; só avaliar para pré-venda 100% coberta pela base depois de medir o acerto.
+- **Atendente do Mac + resposta sozinha** (pedido do Bruno, 26/09 à tarde): `coletor atender-tiktok` abre o chat do
+  Seller Center no Chrome do coletor (mesma trava do Navegador), traz as mensagens sem resposta (`registrar` →
+  `atendimento_receber`, com o painel do pedido em `pedido_dados`) e envia as aprovadas (`enviar_aprovada`: o coletor digita
+  o texto APROVADO, confere o nome do cliente na tela e o botão Enviar). Sem mudança na caixa de entrada e nada para enviar,
+  não chama a IA. Modelo `NUBI_ATENDENTE_MODELO` (Haiku), teto `NUBI_ATENDENTE_TETO` US$ 3/dia. Ligado no botão da tela
+  (`ia_resumos` `atendimento|tiktok_atendente`); o tique do Mac chama a cada 5 min ou na hora se há resposta aprovada.
+- Responder sozinho (`pode_sozinho`, ligado por padrão, `atendimento|auto`): sai sem aprovação quando a pergunta está coberta
+  pela base (`cobre` ≥ 0,75) e não é pedido/troca/reclamação, na saudação, e logo depois que o Bruno responde uma dúvida
+  embaixo. O resto espera aprovação. O acerto mede só o que o Bruno decidiu; as automáticas contam à parte.

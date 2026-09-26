@@ -2664,11 +2664,11 @@ async function telaAtendimento() {
       <input data-at-tipo="${c.rascunho.id}" style="width:100%;margin-top:6px" value="${esc(((c.mensagens || []).filter(x => x.de === "cliente").slice(-1)[0] || {}).texto || "")}"
         title="pergunta-tipo que vai para a base" placeholder="pergunta-tipo para a base">
       ${fontes(c.rascunho)}
-      <div class="at-acoes"><button class="btn small primary" data-at-responder="${c.rascunho.id}">Responder e gerar rascunho</button></div></div>`;
+      <div class="at-acoes"><button class="btn small primary" data-at-responder="${c.rascunho.id}">${c.canal === "tiktok_shop" && f.auto ? "Responder e enviar ao cliente" : "Responder e gerar rascunho"}</button></div></div>`;
   const cartaoFeita = c => { const r = c.rascunho; return `<div class="at-conv">${cab(c)}${msgs(c)}
-      <div class="muted" style="font-size:12px">${{aprovado: "✅ aprovado como estava", editado: "✏️ aprovado com edição", enviado: "📤 enviado", rejeitado: "❌ rejeitado"}[r.status] || r.status}
+      <div class="muted" style="font-size:12px">${r.decidido_por === "automático" ? "🤖 respondido sozinho (base) · " : ""}${{aprovado: r.enviar_pelo_mac ? "✅ aprovado · ⏳ o Mac envia em até 5 min" : "✅ aprovado como estava", editado: r.enviar_pelo_mac ? "✏️ aprovado com edição · ⏳ o Mac envia em até 5 min" : "✏️ aprovado com edição", enviado: "📤 enviado ao cliente", rejeitado: "❌ rejeitado"}[r.status] || r.status}
         ${r.semelhanca != null ? " · " + pct(r.semelhanca) + " igual ao rascunho" : ""} · ${esc(r.decidido_por || "")} ${atQuando(r.decidido_em)}</div>
-      ${["aprovado", "editado"].includes(r.status) ? `<div class="at-acoes"><button class="btn small" data-at-copiar="${r.id}">📋 Copiar resposta para colar no TikTok</button></div>` : ""}</div>`; };
+      ${["aprovado", "editado"].includes(r.status) && !r.enviar_pelo_mac ? `<div class="at-acoes"><button class="btn small" data-at-copiar="${r.id}">📋 Copiar resposta para colar no TikTok</button></div>` : ""}</div>`; };
   const kbItem = k => `<div class="at-kb-item"><b>${esc(k.pergunta)}</b><div style="margin:4px 0;white-space:pre-wrap">${esc(k.resposta)}</div>
       <div class="muted" style="font-size:11.5px">${esc(k.loja)} · confirmado por ${esc(k.confirmado_por || "—")} em ${atQuando(k.confirmado_em)}</div>
       <div class="at-acoes"><button class="btn small ghost" data-kb-editar="${k.id}">✏️ Nova versão</button><button class="btn small ghost" data-kb-desativar="${k.id}">Desativar</button></div></div>`;
@@ -2686,8 +2686,14 @@ async function telaAtendimento() {
       ${(grupos[aba] || []).map(aba === "fila" ? cartaoFila : aba === "info" ? cartaoInfo : cartaoFeita).join("")
         || `<div class="card empty" style="margin-top:12px">${aba === "fila" ? "Nenhum rascunho esperando aprovação." : aba === "info" ? "Nada esperando resposta sua. 🎉" : "Nenhuma conversa respondida ainda."}</div>`}`;
   main.innerHTML = esAbas("tiktok") + `<div class="es-cab"><h1>🎵 TikTok Shop · Atendimento</h1>
-      <span class="muted">respostas só com dado real · nada sai sem a sua aprovação</span></div>
-    <div class="at-num"><span>🎯 acerto ${pct(t.acerto)} <span class="muted">(aprovado sem editar, ${m.dias} dias)</span></span>
+      <span class="muted">respostas só com dado real</span>
+      <div class="acoes"><button class="btn small ${f.atendente ? "" : "primary"}" id="at-ligar">${f.atendente ? "⏸ Desligar atendente" : "▶️ Ligar atendente"}</button>
+        <button class="btn small" id="at-agora" title="o Mac olha o chat agora">🔄 Olhar o chat agora</button></div></div>
+    <div class="es-aviso" style="margin:8px 0">${f.atendente ? "🟢 <b>Atendente ligado:</b> o Mac mini olha o chat da TikTok Shop a cada 5 min, traz as mensagens para cá e envia as respostas."
+      : "⚪ <b>Atendente desligado.</b> Ligue para o Mac mini ficar de olho no chat da TikTok Shop (precisa estar logado no Seller Center no Chrome do coletor)."}
+      <label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="at-auto" ${f.auto ? "checked" : ""}>
+        Responder sozinho o que já aprendeu (pergunta coberta pela base; pedido, troca e reclamação sempre passam por você)</label></div>
+    <div class="at-num"><span>🤖 ${m.automaticas || 0} respondidas sozinho</span><span>🎯 acerto ${pct(t.acerto)} <span class="muted">(aprovado sem editar, ${m.dias} dias)</span></span>
       <span>✍️ ${grupos.fila.length} para aprovar</span><span>🙋 ${grupos.info.length} precisam de você</span>
       <span>✏️ ${t.editado || 0} editados · ❌ ${t.rejeitado || 0} rejeitados</span></div>
     <div class="seg es-seg" style="margin-bottom:12px">${abas.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-at-aba="${k}">${n}</button>`).join("")}</div>${corpo}`;
@@ -2701,7 +2707,8 @@ async function telaAtendimento() {
   main.querySelectorAll("[data-at-ok]").forEach(b => b.onclick = () => { const id = +b.dataset.atOk, txt = main.querySelector(`[data-at-txt="${id}"]`).value.trim();
     const conv = grupos.fila.find(c => c.rascunho.id === id), mudou = txt !== (conv.rascunho.texto_gerado || "").trim();
     agir(() => post("atendimento_decidir", {id, acao: mudou ? "editar" : "aprovar", texto: txt}), x => {
-      if (x.aviso) { try { navigator.clipboard.writeText(x.texto); } catch { /* sem área de transferência */ } return "Aprovado e copiado: cole no chat do TikTok Shop."; }
+      if (x.pelo_mac) return "Aprovado: o Mac envia no chat em até 5 min.";
+      if (x.aviso) { try { navigator.clipboard.writeText(x.texto); } catch { /* sem área de transferência */ } return "Aprovado e copiado: cole no chat."; }
       return "Enviado ao cliente."; }); });
   main.querySelectorAll("[data-at-rej]").forEach(b => b.onclick = () => { const motivo = prompt("Por que rejeitar? (ajuda a treinar)") ; if (motivo === null) return;
     agir(() => post("atendimento_decidir", {id: +b.dataset.atRej, acao: "rejeitar", texto: motivo}), () => "Rejeitado."); });
@@ -2710,7 +2717,13 @@ async function telaAtendimento() {
     b.disabled = true;
     agir(() => post("atendimento_responder", {id, resposta, salvar_kb: main.querySelector(`[data-at-kb="${id}"]`).checked,
       pergunta_tipo: main.querySelector(`[data-at-tipo="${id}"]`).value.trim()}),
-      x => (x.kb ? "Guardado na base. " : "") + (x.rascunho.status === "pendente" ? "Rascunho novo em ✍️ Para aprovar." : "Ainda falta dado: veja de novo em 🙋.")); });
+      x => (x.kb ? "Guardado na base. " : "") + (x.rascunho.automatico ? "Resposta montada: o Mac envia ao cliente em até 5 min."
+        : x.rascunho.status === "pendente" ? "Rascunho novo em ✍️ Para aprovar." : "Ainda falta dado: veja de novo em 🙋.")); });
+  $("#at-ligar").onclick = () => agir(() => post("atendimento_ligar", {ligado: !f.atendente}),
+    x => x.atendente ? "Atendente ligado: o Mac abre o chat da TikTok em até 1 min." : "Atendente desligado.");
+  $("#at-agora").onclick = () => agir(() => post("atendimento_ligar", {ligado: f.atendente, agora: true}), () => "Pedido enviado: o Mac olha o chat em até 1 min.");
+  $("#at-auto").onchange = e => agir(() => post("atendimento_auto", {ligado: e.target.checked}),
+    x => x.auto ? "Ele responde sozinho o que já aprendeu." : "Tudo passa pela sua aprovação.");
   main.querySelectorAll("[data-at-copiar]").forEach(b => b.onclick = () => { const c = grupos.feitas.find(x => x.rascunho.id === +b.dataset.atCopiar);
     try { navigator.clipboard.writeText(c.rascunho.texto_final || ""); toast("Copiado."); } catch { toast("Não consegui copiar."); } });
   if ($("#kb-novo")) $("#kb-novo").onsubmit = e => { e.preventDefault();

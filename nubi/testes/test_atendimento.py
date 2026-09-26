@@ -23,7 +23,9 @@ class Repo:
                 continue
             op, _, val = str(v).partition(".")
             atual = linha.get(k)
-            if op == "eq" and str(atual) != val:
+            if op == "eq" and (str(atual).lower() if isinstance(atual, bool) else str(atual)) != val:
+                return False
+            if op == "is" and atual is not None:
                 return False
             if op == "in" and str(atual) not in val.strip("()").split(","):
                 return False
@@ -96,10 +98,10 @@ def test_resposta_do_lojista_vira_base_e_proxima_vez_nao_pergunta():
     gerar = _ia(iter(["Oi! Não trabalhamos com tester, só perfumes lacrados. Qualquer coisa, é só chamar!"] * 2))
     res = a.responder_operador(r, rasc["id"], "Não vendemos tester, só lacrado.", pergunta_tipo="Vendemos perfumes tester?",
                                gerar=gerar)
-    assert res["rascunho"]["status"] == "pendente" and res["kb"]["confirmado_por"] == "Bruno" and res["kb"]["status"] == "ativa"
+    assert res["rascunho"].get("automatico") and res["kb"]["confirmado_por"] == "Bruno" and res["kb"]["status"] == "ativa"
     assert "resposta_do_lojista" in res["rascunho"]["fontes"]
     novo = a.receber(r, "tiktok_shop", "vocês vendem perfume tester?", gerar=gerar)       # outro cliente, outras palavras
-    assert novo["status"] == "pendente" and novo["fontes"]["base_de_conhecimento"][0]["pergunta"] == "Vendemos perfumes tester?"
+    assert novo.get("automatico") and novo["fontes"]["base_de_conhecimento"][0]["pergunta"] == "Vendemos perfumes tester?"
 
 
 def test_numero_inventado_e_barrado():
@@ -134,9 +136,10 @@ def test_aprovar_editar_rejeitar_e_metricas():
     r = Repo()
     a.salvar_item_kb(r, "principal", "Vocês enviam para todo o Brasil?", "Sim, enviamos para todo o Brasil.")
     texto = "Oi! Sim, enviamos para todo o Brasil. Qualquer coisa, é só chamar!"
-    ids = [a.receber(r, "tiktok_shop", "vocês enviam para todo o Brasil?", gerar=_ia(iter([texto])))["id"] for _ in range(3)]
+    ids = [a.receber(r, "whatsapp", "vocês enviam para todo o Brasil?", externo_id=str(i), gerar=_ia(iter([texto])))["id"]
+           for i in range(3)]
     x = a.decidir(r, ids[0], "aprovar")
-    assert x["status"] == "aprovado" and x["semelhanca"] == 1.0 and "copie" in x["aviso"]   # TikTok ainda sem integração
+    assert x["status"] == "aprovado" and x["semelhanca"] == 1.0 and "copie" in x["aviso"]   # canal sem integração: copiar
     y = a.decidir(r, ids[1], "editar", texto.replace("Oi!", "Oi, tudo bem?"))
     assert y["status"] == "editado" and y["semelhanca"] < 1
     assert a.decidir(r, ids[2], "rejeitar")["status"] == "rejeitado"
@@ -157,10 +160,12 @@ def test_canal_novo_pluga_sem_mudar_a_logica():
         def enviar(self, conversa, texto):
             enviados.append(texto)
     a.registrar_canal(Zap("whatsapp_teste", "WhatsApp (teste)"))
+    a.AUTO_CHAVE_ANTES = a.AUTO_CHAVE
     r = Repo()
     a.salvar_item_kb(r, "todas", "Vocês enviam para todo o Brasil?", "Sim, para todo o Brasil.")
     rasc = a.receber(r, "whatsapp_teste", "enviam para todo o Brasil?", loja="haya",
                      gerar=_ia(iter(["Oi! Sim, para todo o Brasil. Qualquer coisa, é só chamar!"])))
+    assert rasc["status"] == "pendente" and not enviados     # canal sem 'envia': nada sai sozinho
     assert a.decidir(r, rasc["id"], "aprovar")["status"] == "enviado" and enviados
 
 
@@ -175,6 +180,46 @@ def test_ia_de_verdade_usa_so_as_gratis():
         assert False, "não pode cair na IA paga"
     except ia.SemIA:
         pass
+
+
+def test_tiktok_aprendido_sai_sozinho_pelo_mac_e_duvida_vai_ao_bruno():
+    r = Repo()
+    a.salvar_item_kb(r, "principal", "Vendemos perfumes tester?", "Sim, vendemos tester. Pergunte qual perfume o cliente quer.")
+    texto = "Oi! Sim, vendemos tester! Qual perfume você quer? Qualquer coisa, é só chamar!"
+    x = a.receber(r, "tiktok_shop", "vocês vendem tester?", cliente="leidi", externo_id="leidi", gerar=_ia(iter([texto])))
+    assert x.get("automatico") and x["pelo_mac"] and a.para_enviar(r) == [{"id": x["id"], "cliente": "leidi", "texto": texto}]
+    a.marcar_enviado(r, x["id"])
+    assert a.para_enviar(r) == [] and a.metricas(r)["automaticas"] == 1
+    # a mesma mensagem lida de novo pelo atendente não duplica nada
+    a.receber(r, "tiktok_shop", "vocês vendem tester?", cliente="leidi", externo_id="leidi", gerar=_ia(iter([])))
+    assert len(r.t["atendimento_rascunhos"]) == 1
+    # pedido: nunca sai sozinho; o pedido lido no painel do chat vale como dado real
+    tela = {"id": "586222884320019967", "status": "Em trânsito", "previsao_entrega": "entre 28/09 e 04/10", "transportadora": "J&T"}
+    y = a.receber(r, "tiktok_shop", "cadê meu pedido?", cliente="ana", externo_id="ana", pedido_ref="586222884320019967",
+                  pedido_dados=tela, gerar=_ia(iter(["Oi! Entendo a preocupação. Seu pedido está Em trânsito pela J&T, entrega entre 28/09 e 04/10. Qualquer coisa, é só chamar!"])))
+    assert y["status"] == "pendente" and not y.get("automatico") and y["fontes"]["pedido"]["status"] == "Em trânsito"
+    # dúvida: o Bruno responde embaixo e a resposta já vai para o cliente
+    z = a.receber(r, "tiktok_shop", "o Sabah vem com tampa preta ou transparente?", cliente="manu", externo_id="manu", gerar=_ia(iter([])))
+    assert z["status"] == "precisa_info"
+    res = a.responder_operador(r, z["id"], "Tem as duas versões, é o mesmo perfume: mudou o design, depende do lote; a caixa é selada.",
+                               pergunta_tipo="O Sabah vem com tampa preta ou transparente?",
+                               gerar=_ia(iter(["Oi! Temos as duas versões, é o mesmo perfume: só mudou o design e depende do lote. Qualquer coisa, é só chamar!"])))
+    assert res["rascunho"].get("automatico") and {i["cliente"] for i in a.para_enviar(r)} == {"manu"}
+    # desligado: nada sai sozinho
+    r.t["ia_resumos"] = [{"chave": a.AUTO_CHAVE, "texto": "desligado"}]
+    w = a.receber(r, "tiktok_shop", "vocês vendem tester?", cliente="bia", externo_id="bia", gerar=_ia(iter([texto])))
+    assert w["status"] == "pendente" and not w.get("automatico")
+
+
+def test_atendente_do_mac_e_chamado_quando_ligado():
+    r = Repo()
+    assert a.atendente_proximo(r) is None                                # desligado
+    r.t["ia_resumos"] = [{"chave": a.ATENDENTE_CHAVE, "texto": "ligado"}]
+    assert a.atendente_proximo(r) == "atendente chamado"
+    assert a.atendente_proximo(r) is None                                # já tem um na fila
+    r.t["mac_comandos"][0]["status"] = "ok"
+    assert a.atendente_proximo(r) is None                                # menos de 5 min e nada para enviar
+    assert a.atendente_proximo(r, mac_online=False) is None
 
 
 if __name__ == "__main__":

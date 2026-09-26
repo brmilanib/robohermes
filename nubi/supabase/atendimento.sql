@@ -81,3 +81,8 @@ create policy autorizado on public.atendimento_kb for all to authenticated
   using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
 create policy autorizado on public.atendimento_rascunhos for all to authenticated
   using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));
+
+-- 26/09 (pedido do Bruno): o atendente do Mac lê o painel do pedido no chat e envia pelo Chrome o que foi aprovado
+alter table public.atendimento_conversas add column if not exists pedido_dados jsonb;
+alter table public.atendimento_rascunhos add column if not exists enviar_pelo_mac boolean not null default false;
+create index if not exists atendimento_rascunhos_envio on public.atendimento_rascunhos (enviar_pelo_mac, enviado_em);

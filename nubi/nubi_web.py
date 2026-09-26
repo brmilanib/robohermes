@@ -3812,6 +3812,7 @@ COMANDOS_MAC = {
     "programar_astra": "Astra programar um card de design agora (número do card)",
     "astra_status": "Astra programador: conferir se está pronto (Codex, chave da OpenAI e git no Mac)",
     "navegar_card": "Navegador fazer a tarefa de um card no Chrome do Mac (número do card)",
+    "atender_tiktok": "Atendente da TikTok Shop: olhar o chat, trazer mensagens ao nubi e enviar as aprovadas",
     "ferreiro_conversa": "Ferreiro responder a conversa direta com o Bruno",
     "navegador_status": "Navegador: conferir se está pronto (chave e gasto do dia)",
     "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
@@ -4463,6 +4464,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         if "pegou" not in (ferreiro_proximo(repo, a_cada_min=0, quem="astra") or ""):   # design primeiro (Astra); não pegou, o Ferreiro
             ferreiro_proximo(repo, a_cada_min=0)
         ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
+        atendimento.atendente_proximo(repo)     # atendente da TikTok Shop ligado: a cada 5 min ou na hora, se há resposta aprovada
         pend = []
         if d.get("info") is not None:
             pend = repo._req("GET", "mac_comandos", {"select": "id,comando,arg", "status": "eq.pendente", "order": "id", "limit": 3}) or []
