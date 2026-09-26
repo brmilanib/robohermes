@@ -79,6 +79,14 @@ def test_posicao_organica_e_pagina():
     assert not any(x["anuncio_id"] == "MLB1" for x in ls)                                     # patrocinado não é concorrente do topo
 
 
+def test_anuncio_pelo_link_colado():
+    a = w.anuncio_do_link("https://www.mercadolivre.com.br/body-splash-haya-perfume-mist-lattafa-250ml-body-splash-arabe-importado/up/"
+                          "MLBU3825091812?pdp_filters=item_id%3AMLB6365511140&tracking_id=a7#polycard_client=mshops&wid=MLB6365511140", "Aurascent")
+    assert a["id"] == "MLB6365511140" and a["titulo"].startswith("Body Splash Haya") and a["loja"] == "aurascent"
+    assert a["termo"] == "body splash haya mist lattafa 250ml" and "#" not in a["link"]
+    assert w.anuncio_do_link("https://www.mercadolivre.com.br/ajuda") is None
+
+
 def test_termo_padrao():
     assert w.termo_padrao("Perfume Club De Nuit Intense Man 105ml Masculino Armaf") == "club nuit intense man armaf 105ml"
 

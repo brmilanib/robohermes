@@ -2540,6 +2540,9 @@ async function telaPosicoes() {
       <form id="po-nova" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><input id="po-nome" placeholder="nome da loja no Mercado Livre" style="flex:1;min-width:180px">
         <button class="btn small">+ Adicionar loja</button></form></div>
     <div class="card pad" style="margin-top:14px"><h2>Meus anúncios <span class="muted" style="font-weight:500">${ativos.length}</span></h2>
+      <form id="po-link" style="display:flex;gap:8px;margin:4px 0 10px;flex-wrap:wrap"><input id="po-url" placeholder="Colar o link de um anúncio seu do Mercado Livre" style="flex:1;min-width:200px">
+        <select id="po-loja">${r.lojas.filter(l => l.ativo !== false).map(l => `<option>${esc(l.nome)}</option>`).join("")}</select>
+        <button class="btn small primary">+ Adicionar</button></form>
       ${!ativos.length ? `<p class="muted">Nenhum anúncio ainda. Toque em <b>🔎 Achar meus anúncios</b>: o Mac mini procura as lojas acima no Mercado Livre e traz os anúncios para cá.</p>`
       : `<div class="po-lista">${ativos.map(a => `<div class="po-an">
           ${a.foto ? `<img src="${esc(a.foto)}" alt="" loading="lazy">` : `<div class="po-sem-foto">📦</div>`}
@@ -2554,6 +2557,9 @@ async function telaPosicoes() {
   const pedir = async o => { try { const x = await api("ml_pedir", {}, {method: "POST", body: JSON.stringify({o_que: o})});
     toast(x.ja_havia ? "Já tem um pedido na fila do Mac." : "Pedido enviado: o Mac mini busca no Mercado Livre em até 1 min (leva alguns minutos).", 6000); telaPosicoes(); }
     catch (e) { toast(e.message, 6000); } };
+  $("#po-link").onsubmit = async e => { e.preventDefault(); const link = $("#po-url").value.trim(); if (!link) return;
+    try { const x = await api("ml_anuncio_link", {}, {method: "POST", body: JSON.stringify({link, loja: $("#po-loja").value})});
+      toast(`Adicionado: ${x.anuncio.titulo} (busca: "${x.anuncio.termo}")`, 6000); telaPosicoes(); } catch (er) { toast(er.message, 6000); } };
   $("#po-lojas").onclick = () => pedir("lojas");
   $("#po-medir").onclick = () => pedir("posicoes");
   $("#po-nova").onsubmit = async e => { e.preventDefault(); const nome = $("#po-nome").value.trim(); if (!nome) return;

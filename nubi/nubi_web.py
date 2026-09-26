@@ -3365,6 +3365,25 @@ def termo_padrao(titulo):
     return " ".join(ps[:5] + ([vol.group(1) + "ml"] if vol else []))
 
 
+def anuncio_do_link(link, loja=None):
+    """Link de anúncio do ML (produto.mercadolivre…/MLB-123-…, /p/MLB… ou /up/MLBU…?pdp_filters=item_id:MLB…, wid=MLB…)
+    → {id, titulo, link, termo, loja}. O título vem do próprio endereço (o Mac completa foto e preço depois)."""
+    u = urllib.parse.unquote(urllib.parse.unquote(str(link or "").strip()))
+    m = re.search(r"(?:item_id[:=]|wid=)(MLB-?\d{6,})", u) or re.search(r"/(MLB-\d{6,})", u) or re.search(r"\b(MLB\d{8,})\b", u)
+    if not m:
+        return None
+    aid = m.group(1).replace("-", "").upper()
+    caminho = urllib.parse.urlparse(u).path
+    slug = next((p for p in caminho.split("/") if "-" in p and not p.upper().startswith("MLB")), "")
+    if not slug:
+        s2 = re.search(r"/MLB-\d+-([^/_?#]+)", caminho)
+        slug = s2.group(1) if s2 else ""
+    titulo = " ".join(w.capitalize() for w in slug.split("-") if w)[:200]
+    limpo = link.split("#")[0]
+    return {"id": aid, "titulo": titulo or aid, "link": limpo[:500], "termo": termo_padrao(titulo) if titulo else "",
+            "loja": str(loja or "").strip().lower() or None}
+
+
 def posicoes_de_busca(termo, itens, meus_ids, data):
     """itens: resultados da busca na ordem da tela [{id, titulo, vendedor, patrocinado}] → linhas de anuncio_posicoes
     dos meus anúncios e dos 3 primeiros concorrentes orgânicos. Posição orgânica ignora os patrocinados."""
@@ -3629,6 +3648,16 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         else:
             repo._req("POST", "ml_lojas", corpo=[{"nome": nome, "ativo": True}], prefer="resolution=merge-duplicates,return=minimal")
         return {"ok": True}
+    if rota == "ml_anuncio_link" and metodo == "POST":
+        # o Bruno cola o link de um anúncio dele (26/09): tira o código (item_id/wid) e o título do próprio link
+        a = anuncio_do_link(d.get("link"), d.get("loja"))
+        if not a:
+            raise ErroNuvem("Não achei o código do anúncio (MLB…) nesse link.")
+        ja = (repo._req("GET", "meus_anuncios", {"select": "id,termo,loja", "id": repo._eq(a["id"])}) or [None])[0]
+        if ja:
+            a["termo"], a["loja"] = ja.get("termo") or a["termo"], a["loja"] or ja.get("loja")
+        repo._req("POST", "meus_anuncios", corpo=[dict(a, visto_em=agora_, ativo=True)], prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True, "anuncio": a}
     if rota == "ml_anuncio_salvar" and metodo == "POST":
         aid = str(d.get("id") or "").upper()
         mud = {k: d[k] for k in ("termo", "ativo") if k in d}
