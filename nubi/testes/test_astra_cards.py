@@ -41,7 +41,7 @@ class Repo:
             if m == "POST":
                 self.resumos.update({c["chave"]: c for c in corpo})
             return [self.resumos[q["chave"][3:]]] if m == "GET" and q.get("chave", "")[3:] in self.resumos else []
-        if t == "tarefa_eventos":
+        if t == "tarefa_eventos" and m == "POST":
             self.eventos += corpo
         return []
 
@@ -79,7 +79,18 @@ def test_ferreiro_livre_pega_o_proximo():
     assert r.patches[0][1]["status"] == "em_desenvolvimento"
     assert w.ferreiro_proximo(r) is None                                              # espera 5 min entre vezes
     r.resumos.clear()
-    assert w.ferreiro_proximo(r) == "Ferreiro ocupado (comando na fila)"
+    assert "clone do projeto no Mac está em uso" in w.ferreiro_proximo(r)
+
+
+def test_astra_programa_os_cards_dele_primeiro():
+    r = Repo(tarefas=[{"id": 90, "titulo": "Quadro: executor", "status": "aprovada", "responsavel": "astra", "prioridade": "alta"},
+                      {"id": 95, "titulo": "Erro técnico", "status": "aprovada", "responsavel": "claude_mac", "prioridade": "alta"}])
+    assert w.ferreiro_proximo(r, quem="astra") == "Astra pegou o card #90"
+    assert r.comandos[0]["comando"] == "programar_astra" and r.comandos[0]["arg"] == "90"
+    assert "Astra livre" in r.eventos[0]["texto"]
+    assert "espera" in w.ferreiro_proximo(r)                                          # um de cada vez no clone do Mac
+    out = w.criar_cards_do_agente(Repo(), "astra", 'CRIAR_CARD: {"titulo": "Botões maiores no celular", "risco": "baixo"}')
+    assert "executor: Astra (eu mesmo)" in out
 
 
 if __name__ == "__main__":

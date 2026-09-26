@@ -103,7 +103,34 @@ def test_python_velho_pede_brew():
 def test_teto_do_dia():
     passos, sala = _preparar(_claude_falso())
     c._gasto_ferreiro(c.ler_config(), 10.0)
-    assert c.cmd_programar(type("A", (), {"id": "81"})(), c.ler_config()) == 1 and not passos
+    assert c.cmd_programar(type("A", (), {"id": "81"})(), c.ler_config()) == 1
+    # não programa; devolve o card para a fila com o motivo (26/09: a fila automática espera 1 h antes de tentar de novo)
+    assert len(passos) == 1 and passos[0]["status"] == "aprovada" and "limite do dia" in passos[0]["texto"]
+
+
+def test_astra_programa_no_branch_dele():
+    """Astra (Codex falso): muda a tela sem commit; o coletor faz o commit, testa e entrega em astra/card-N."""
+    import shutil
+    shutil.rmtree(c.PASTA / "projeto", ignore_errors=True)
+    passos, sala = _preparar(_claude_falso())
+    exe = TMP / "codex"
+    exe.write_text("#!/bin/sh\nout=''\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --output-last-message ]; then out=$2; fi; shift; done\n"
+                   "echo tela nova > nubi/tela.txt\necho '## Feito\nPainel maior' > \"$out\"\n")
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    c._codex_bin = lambda: str(exe)
+    c._credencial = lambda site, cfg=None: ("bruno", "sk-falsa") if site in ("openai", "anthropic") else ("", "")
+    assert c.cmd_programar(type("A", (), {"id": "90"})(), c.ler_config(), quem="astra") == 0
+    assert "astra/card-90" in passos[-1]["texto"] and passos[-1]["status"] == "em_teste" and "Painel maior" in passos[-1]["texto"]
+    ramos = subprocess.run(["git", "branch", "-a"], cwd=c.REPO_GIT, capture_output=True, text=True).stdout
+    assert "astra/card-90" in ramos
+    assert c._cards_astra_hoje(c.ler_config()) == 1 and sala[-1]["autor"] == "Astra (design)"
+
+
+def test_astra_sem_codex_devolve_para_a_fila():
+    passos, _ = _preparar(_claude_falso())
+    c._codex_bin = lambda: None
+    assert c.cmd_programar(type("A", (), {"id": "91"})(), c.ler_config(), quem="astra") == 1
+    assert passos[-1]["status"] == "aprovada" and "npm install -g @openai/codex" in passos[-1]["texto"]
 
 
 if __name__ == "__main__":

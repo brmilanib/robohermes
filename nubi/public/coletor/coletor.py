@@ -2236,7 +2236,7 @@ def comando_mac(chave, arg=""):
         "entrar": [c, "entrar"], "entrar_upseller": [c, "entrar-upseller"], "entrar_gestor": [c, "entrar-gestor"],
         "entrar_auto_nubimetrics": [c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [c, "entrar-auto", "upseller"],
         "entrar_auto_gestor": [c, "entrar-auto", "gestor"],
-        "ferreiro_status": [c, "programar", "0"],
+        "ferreiro_status": [c, "programar", "0"], "astra_status": [c, "programar-astra", "0"],
         "ml_lojas": [c, "ml-lojas"], "ml_posicoes": [c, "ml-posicoes"], "entrar_ml": [c, "entrar-ml"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
@@ -2250,6 +2250,8 @@ def comando_mac(chave, arg=""):
         return [c, "hermes-card", arg] if str(arg).isdigit() else None
     if chave == "programar_card":
         return [c, "programar", arg] if str(arg).isdigit() else None
+    if chave == "programar_astra":
+        return [c, "programar-astra", arg] if str(arg).isdigit() else None
     return tabela.get(chave)
 
 
@@ -2805,6 +2807,42 @@ def _gasto_ferreiro(cfg, somar=0.0):
     return g.get(hoje, 0.0)
 
 
+# Astra programador (autorizado pelo Bruno em 26/09): o designer programa ele mesmo os cards de design, usabilidade e
+# organização, com o Codex da OpenAI no Mac rodando o modelo do Astra; mesmas regras do Ferreiro: branch astra/card-N,
+# testes do projeto, nunca publica (o Chefe revisa e publica), até ASTRA_CARDS_DIA cards por dia.
+ASTRA_MODELO = os.environ.get("NUBI_ASTRA_MODELO", "gpt-6-astra")
+ASTRA_CARDS_DIA = int(os.environ.get("NUBI_ASTRA_CARDS_DIA", "4"))
+ASTRA_AUTOR = "Astra (design)"
+
+
+def _codex_bin():
+    for c in (shutil.which("codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex", str(Path.home() / ".npm-global" / "bin" / "codex")):
+        if c and Path(c).exists():
+            return c
+    return None
+
+
+def astra_pronto(cfg=None):
+    """(pronto, motivo): tem o Codex instalado, a chave da OpenAI no Chaveiro e o git?"""
+    if not _codex_bin():
+        return False, "Codex não instalado no Mac (npm install -g @openai/codex)"
+    if not _credencial("openai", cfg)[1]:
+        return False, "chave da OpenAI não guardada (coletor guardar-senha openai)"
+    if not shutil.which("git"):
+        return False, "git não instalado"
+    return True, ""
+
+
+def _cards_astra_hoje(cfg, somar=0):
+    hoje = date.today().isoformat()
+    g = {k: v for k, v in (cfg.get("astra_cards") or {}).items() if k == hoje}
+    if somar:
+        g[hoje] = g.get(hoje, 0) + somar
+        cfg["astra_cards"] = g
+        salvar_config(cfg)
+    return g.get(hoje, 0)
+
+
 def _python_novo():
     """Um Python 3.11+ no Mac (o do sistema é 3.9, velho para o projeto). None = precisa de: brew install python@3.12."""
     for c in ("/opt/homebrew/bin/python3.13", "/opt/homebrew/bin/python3.12", "/opt/homebrew/bin/python3.11",
@@ -2852,27 +2890,33 @@ def _passo_card(token, tid, texto, status=None, tipo="passo"):
         print(f"ferreiro: não escrevi no card ({e})", flush=True)
 
 
-def cmd_programar(args, cfg):
-    """O Ferreiro pega o card N, corrige no clone do projeto, testa e envia num branch para o Chefe revisar e publicar."""
-    trava = PASTA / "ferreiro.pid"
-    if _pid_vivo(trava):
-        print("O Ferreiro já está trabalhando em outro card.")
+def cmd_programar(args, cfg, quem="ferreiro"):
+    """O Ferreiro (Claude Code) ou o Astra (Codex com o modelo dele) pega o card N, programa no clone do projeto, testa e
+    envia num branch próprio para o Chefe revisar e publicar."""
+    astra = quem == "astra"
+    nome, autor = ("Astra", ASTRA_AUTOR) if astra else ("Ferreiro", FERREIRO_AUTOR)
+    trava = PASTA / ("astra.pid" if astra else "ferreiro.pid")
+    if _pid_vivo(trava) or (astra and _pid_vivo(PASTA / "ferreiro.pid")) or (not astra and _pid_vivo(PASTA / "astra.pid")):
+        print(f"O {nome} não pode começar agora: o clone do projeto está em uso por outro card.")
         return 1
-    ok, motivo = ferreiro_pronto(cfg)
-    gasto = _gasto_ferreiro(cfg)
-    if str(args.id) == "0":                               # só conferir (comando "Ferreiro: conferir" da Central)
-        print(("✅ Ferreiro pronto" if ok else f"❌ Ferreiro indisponível: {motivo}")
-              + f" · gasto hoje US$ {gasto:.2f} de {FERREIRO_TETO_DIA:.0f} · modelo {FERREIRO_MODELO}")
+    ok, motivo = astra_pronto(cfg) if astra else ferreiro_pronto(cfg)
+    gasto = _cards_astra_hoje(cfg) if astra else _gasto_ferreiro(cfg)
+    limite = f"{gasto} de {ASTRA_CARDS_DIA} cards" if astra else f"US$ {gasto:.2f} de {FERREIRO_TETO_DIA:.0f}"
+    if str(args.id) == "0":                               # só conferir (comando "conferir" da Central)
+        print((f"✅ {nome} pronto" if ok else f"❌ {nome} indisponível: {motivo}")
+              + f" · hoje {limite} · modelo {ASTRA_MODELO if astra else FERREIRO_MODELO}")
         return 0 if ok else 1
-    if not ok:
-        print(f"Ferreiro indisponível: {motivo}")
-        return 1
-    if gasto >= FERREIRO_TETO_DIA:
-        print(f"Teto do dia atingido (US$ {gasto:.2f} de {FERREIRO_TETO_DIA:.0f}); o card fica para o Chefe.")
-        return 1
-    trava.write_text(str(os.getpid()))
     token = token_nubi(cfg)
     tid = int(args.id)
+    if not ok or (gasto >= ASTRA_CARDS_DIA if astra else gasto >= FERREIRO_TETO_DIA):
+        porque = f"indisponível: {motivo}" if not ok else f"limite do dia atingido ({limite})"
+        print(f"{nome} {porque}")
+        try:                                              # devolve o card para a fila com o motivo (o servidor espera 1 h)
+            _passo_card(token, tid, f"⏸ {nome} {porque}. O card volta para a fila.", "aprovada", tipo="erro_teste")
+        except Exception:  # noqa: BLE001
+            pass
+        return 1
+    trava.write_text(str(os.getpid()))
     try:
         x = api(token, "tarefa_eventos", {"id": tid}, timeout=60)
         t, evs = x["tarefa"], x.get("eventos") or []
@@ -2882,13 +2926,20 @@ def cmd_programar(args, cfg):
             if r.returncode:
                 raise Falha("não consegui clonar o projeto: " + (r.stderr or r.stdout)[-300:])
         _git(repo, "fetch", "origin", BRANCH_NUBI)
-        _git(repo, "checkout", "-B", f"ferreiro/card-{tid}", f"origin/{BRANCH_NUBI}")
-        _passo_card(token, tid, f"🔨 Ferreiro (Claude Code no Mac) pegou o card na hora. Trabalhando no branch ferreiro/card-{tid}.",
+        ramo = f"{quem}/card-{tid}"
+        _git(repo, "reset", "--hard")                      # o outro programador pode ter deixado o clone sujo
+        _git(repo, "checkout", "-B", ramo, f"origin/{BRANCH_NUBI}")
+        _passo_card(token, tid, (f"🎨 Astra (Codex no Mac, modelo {ASTRA_MODELO}) pegou o card na hora." if astra else
+                                 "🔨 Ferreiro (Claude Code no Mac) pegou o card na hora.") + f" Trabalhando no branch {ramo}.",
                     "em_desenvolvimento")
         historico = "\n".join(f"[{e['autor']}] {e['texto'][:1500]}" for e in evs[-12:])
         pedido = (
-            f"Você é o Ferreiro, programador de plantão do nubi rodando no Mac mini. Leia nubi/CLAUDE.md antes. Corrija o card "
-            f"#{tid} abaixo com a MENOR mudança possível, no estilo do código em volta.\n\nCARD #{tid}: {t['titulo']}\n"
+            (f"Você é o Astra, designer de produto e UX do nubi, agora programando você mesmo no Mac mini. Leia nubi/CLAUDE.md antes. "
+             f"Implemente o card #{tid} abaixo (design, usabilidade e organização das telas, quase sempre nubi/public/index.html), "
+             "no estilo do código em volta, pensando no Bruno usando no celular e no computador." if astra else
+             "Você é o Ferreiro, programador de plantão do nubi rodando no Mac mini. Leia nubi/CLAUDE.md antes. Corrija o card "
+             f"#{tid} abaixo com a MENOR mudança possível, no estilo do código em volta.")
+            + f"\n\nCARD #{tid}: {t['titulo']}\n"
             f"{t.get('descricao') or ''}\n\nHISTÓRICO DO CARD:\n{historico}\n\n"
             "Regras: reproduza o problema com um teste em nubi/testes/ (página falsa, como os testes do coletor; nunca os sites "
             "reais), corrija, rode TODOS os nubi/testes/test_*.py e python3 nubi/testes/fumaca.py até passar. Faça UM commit em "
@@ -2897,42 +2948,66 @@ def cmd_programar(args, cfg):
         bin_py = _ambiente_projeto(repo)                   # python3 do projeto (com as bibliotecas) vem primeiro
         env = {**os.environ, "ANTHROPIC_API_KEY": _credencial("anthropic", cfg)[1],
                "PATH": f"{bin_py}{os.pathsep}{os.environ.get('PATH', '')}"}
-        print(f"Ferreiro trabalhando no card #{tid}…", flush=True)
-        r = subprocess.run([_claude_bin(), "-p", pedido, "--output-format", "json", "--model", FERREIRO_MODELO,
-                            "--max-turns", "60", "--permission-mode", "acceptEdits",
-                            "--allowedTools", "Read,Edit,Write,Glob,Grep,Bash(python3:*),Bash(git status:*),Bash(git diff:*),"
-                                              "Bash(git add:*),Bash(git commit:*),Bash(git log:*),Bash(ls:*),Bash(node:*)"],
-                           cwd=str(repo), env=env, capture_output=True, text=True, timeout=3600)
-        try:
-            saida = json.loads(r.stdout or "{}")
-        except ValueError:
-            saida = {"result": (r.stdout or r.stderr or "")[-3000:]}
-        custo = float(saida.get("total_cost_usd") or saida.get("cost_usd") or 0)
-        _gasto_ferreiro(cfg, custo)
-        relatorio = str(saida.get("result") or "").strip()
+        print(f"{nome} trabalhando no card #{tid}…", flush=True)
+        if astra:
+            env = {k: v for k, v in env.items() if k != "ANTHROPIC_API_KEY"}
+            chave_oa = _credencial("openai", cfg)[1]
+            env.update({"OPENAI_API_KEY": chave_oa, "CODEX_API_KEY": chave_oa})
+            ultima = PASTA / f"astra-card-{tid}.txt"
+            # sandbox do Codex: escreve só dentro do clone do projeto; o push é feito depois pelo coletor, não pelo agente
+            r = subprocess.run([_codex_bin(), "exec", "--model", ASTRA_MODELO, "--sandbox", "workspace-write",
+                                "--output-last-message", str(ultima), pedido],
+                               cwd=str(repo), env=env, capture_output=True, text=True, timeout=3600)
+            relatorio = (ultima.read_text() if ultima.exists() else (r.stdout or r.stderr or "")[-3000:]).strip()
+            custo = 0.0                                   # o Codex não informa o custo; aparece no uso da OpenAI
+            _cards_astra_hoje(cfg, 1)
+        else:
+            r = subprocess.run([_claude_bin(), "-p", pedido, "--output-format", "json", "--model", FERREIRO_MODELO,
+                                "--max-turns", "60", "--permission-mode", "acceptEdits",
+                                "--allowedTools", "Read,Edit,Write,Glob,Grep,Bash(python3:*),Bash(git status:*),Bash(git diff:*),"
+                                                  "Bash(git add:*),Bash(git commit:*),Bash(git log:*),Bash(ls:*),Bash(node:*)"],
+                               cwd=str(repo), env=env, capture_output=True, text=True, timeout=3600)
+            try:
+                saida = json.loads(r.stdout or "{}")
+            except ValueError:
+                saida = {"result": (r.stdout or r.stderr or "")[-3000:]}
+            custo = float(saida.get("total_cost_usd") or saida.get("cost_usd") or 0)
+            _gasto_ferreiro(cfg, custo)
+            relatorio = str(saida.get("result") or "").strip()
         novos = _git(repo, "rev-list", "--count", f"origin/{BRANCH_NUBI}..HEAD").stdout.strip()
         testes = subprocess.run(["/bin/sh", "-c", "set -e; for f in nubi/testes/test_*.py; do python3 \"$f\" >/dev/null; done; "
                                  "python3 nubi/testes/fumaca.py >/dev/null"], cwd=str(repo), capture_output=True, text=True,
                                 timeout=1800, env=env)
+        if astra and novos in ("", "0") and _git(repo, "status", "--porcelain").stdout.strip():
+            _git(repo, "add", "-A")                       # o Codex às vezes deixa a mudança sem commit: o coletor faz o commit
+            _git(repo, "-c", "user.name=Astra (nubi)", "-c", "user.email=astra@nubi.local", "commit", "-m",
+                 f"Card #{tid}: {t['titulo'][:80]} (Astra)")
+            novos = _git(repo, "rev-list", "--count", f"origin/{BRANCH_NUBI}..HEAD").stdout.strip()
+            testes = subprocess.run(["/bin/sh", "-c", "set -e; for f in nubi/testes/test_*.py; do python3 \"$f\" >/dev/null; done; "
+                                     "python3 nubi/testes/fumaca.py >/dev/null"], cwd=str(repo), capture_output=True, text=True,
+                                    timeout=1800, env=env)
+        ferramenta = "o Codex" if astra else "o Claude Code"
         if r.returncode or novos in ("", "0") or testes.returncode:
-            motivo = ("o Claude Code parou com erro" if r.returncode else "nenhum commit" if novos in ("", "0")
+            motivo = (f"{ferramenta} parou com erro" if r.returncode else "nenhum commit" if novos in ("", "0")
                       else "os testes não passaram no Mac")
-            _passo_card(token, tid, f"⚠️ Ferreiro não conseguiu fechar ({motivo}; custo US$ {custo:.2f}). Volta para o Chefe.\n\n"
-                        + (relatorio[:4000] or (testes.stdout + testes.stderr)[-1500:]), "aprovada", tipo="erro_teste")
-            _postar_hermes_como(token, FERREIRO_AUTOR, f"⚠️ Card #{tid}: não consegui fechar ({motivo}). Devolvi para o Chefe.", custo)
+            _passo_card(token, tid, f"⚠️ {nome} não conseguiu fechar ({motivo}" + ("" if astra else f"; custo US$ {custo:.2f}")
+                        + "). Volta para a fila.\n\n" + (relatorio[:4000] or (testes.stdout + testes.stderr)[-1500:]),
+                        "aprovada", tipo="erro_teste")
+            _postar_hermes_como(token, autor, f"⚠️ Card #{tid}: não consegui fechar ({motivo}). Devolvi para a fila.", custo)
             return 1
-        env_push = _git(repo, "push", "-f", "origin", f"ferreiro/card-{tid}")
+        env_push = _git(repo, "push", "-f", "origin", ramo)
         if env_push.returncode:
-            _passo_card(token, tid, "⚠️ Ferreiro corrigiu, mas não conseguiu enviar o branch para o GitHub (login do GitHub no Mac: "
-                        "gh auth login). Volta para o Chefe.\n\n" + relatorio[:4000], "aprovada", tipo="erro_teste")
+            _passo_card(token, tid, f"⚠️ {nome} fez o card, mas não conseguiu enviar o branch para o GitHub (login do GitHub no Mac: "
+                        "gh auth login). Volta para a fila.\n\n" + relatorio[:4000], "aprovada", tipo="erro_teste")
             return 1
-        _passo_card(token, tid, f"📦 **Entrega do Ferreiro** (branch `ferreiro/card-{tid}`, {novos} commit(s), testes do Mac ✅, "
-                    f"custo US$ {custo:.2f}). O Chefe revisa, junta e publica.\n\n{relatorio[:6000]}", "em_teste")
-        _postar_hermes_como(token, FERREIRO_AUTOR, f"🔨 Card #{tid} corrigido no branch ferreiro/card-{tid} (testes ✅, US$ {custo:.2f}). "
-                                                    "Chefe: revisar, juntar e publicar.", custo)
+        _passo_card(token, tid, f"📦 **Entrega do {nome}** (branch `{ramo}`, {novos} commit(s), testes do Mac ✅"
+                    + ("" if astra else f", custo US$ {custo:.2f}") + f"). O Chefe revisa, junta e publica.\n\n{relatorio[:6000]}",
+                    "em_teste")
+        _postar_hermes_como(token, autor, f"{'🎨' if astra else '🔨'} Card #{tid} pronto no branch {ramo} (testes ✅). "
+                                          "Chefe: revisar, juntar e publicar.", custo)
         return 0
     except Exception as e:  # noqa: BLE001
-        _passo_card(token, tid, f"⚠️ Ferreiro parou: {str(e)[:300]}. Volta para o Chefe.", "aprovada", tipo="erro_teste")
+        _passo_card(token, tid, f"⚠️ {nome} parou: {str(e)[:300]}. Volta para a fila.", "aprovada", tipo="erro_teste")
         return 1
     finally:
         try:
@@ -3110,13 +3185,16 @@ def _credencial(site, cfg=None):
 def cmd_guardar_senha(args, cfg):
     """O Bruno guarda (uma vez, no próprio Mac) o login de um site no Chaveiro, para o coletor entrar sozinho."""
     site = args.site
-    nome = {"gmail": "Gmail (código do UpSeller)", "anthropic": "Anthropic (chave da API do Ferreiro)"}.get(site) or LOGIN_SITES[site][0]
+    nome = {"gmail": "Gmail (código do UpSeller)", "anthropic": "Anthropic (chave da API do Ferreiro)",
+            "openai": "OpenAI (chave da API do Astra programador)"}.get(site) or LOGIN_SITES[site][0]
     if sys.platform != "darwin":
         print("Só funciona no Mac (Chaveiro).")
         return 1
     usuario = input(f"E-mail/usuário do {nome}: ").strip()
     if site == "anthropic":
         senha = getpass.getpass("Chave da API (Console → Chaves de API → criar 'Ferreiro Mac'; começa com sk-ant-): ").strip()
+    elif site == "openai":
+        senha = getpass.getpass("Chave da API da OpenAI (platform.openai.com → API keys → criar 'Astra Mac'; começa com sk-): ").strip()
     elif site == "gmail":
         senha = getpass.getpass("Senha de APP do Google (myaccount.google.com → Segurança → Senhas de app; "
                                 "16 letras, NÃO é a senha normal): ").replace(" ", "")
@@ -3724,9 +3802,11 @@ def main():
     cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
     cv.add_argument("--modelo", default=None)
     gsn = sub.add_parser("guardar-senha", help="guarda no Chaveiro do Mac o login de um site (para o coletor entrar sozinho)")
-    gsn.add_argument("site", choices=["nubimetrics", "upseller", "gestor", "gmail", "anthropic"])
+    gsn.add_argument("site", choices=["nubimetrics", "upseller", "gestor", "gmail", "anthropic", "openai"])
     pgr = sub.add_parser("programar", help="o Ferreiro (Claude Code no Mac, pela API) corrige o card N e envia num branch")
     pgr.add_argument("id")
+    pga = sub.add_parser("programar-astra", help="o Astra (Codex no Mac, modelo do Astra) faz o card de design N e envia num branch")
+    pga.add_argument("id")
     ea = sub.add_parser("entrar-auto", help="entra sozinho no site (senha do navegador/Chaveiro, código do e-mail)")
     ea.add_argument("site", choices=["nubimetrics", "upseller", "gestor"])
     sub.add_parser("entrar-ml", help="Mercado Livre: abre a janela para passar pela verificação (sessão fica salva)")
@@ -3771,6 +3851,8 @@ def main():
         return cmd_conversar(args, cfg)
     if args.cmd == "programar":
         return cmd_programar(args, cfg)
+    if args.cmd == "programar-astra":
+        return cmd_programar(args, cfg, quem="astra")
     if args.cmd == "repetir-falhas":
         return cmd_repetir_falhas(args, cfg)
     if args.cmd == "entrar-auto":

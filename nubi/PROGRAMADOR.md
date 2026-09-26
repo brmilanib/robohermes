@@ -50,6 +50,9 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
    os testes, `git merge --no-ff origin/ferreiro/card-<id>` na branch do nubi, push, deploy (o mesmo único deploy da rodada) e
    feche o card com relatório (## Causa e ## Solução vêm da entrega dele; diga que foi o Ferreiro). Com problema: evento
    `erro_teste` explicando e corrija você mesmo. Isso vem antes dos cards normais e não conta no limite de 3.
+   **Entregas do Astra** (design, usabilidade e organização; autorizado pelo Bruno em 26/09): mesma coisa com
+   `responsavel='astra'` e branch `astra/card-<id>` (Codex no Mac com o modelo do Astra). Revise com atenção extra ao
+   visual no celular e no computador; diga no relatório que foi o Astra.
 2. **Contexto.** Leia `select titulo, texto from conhecimento where fixo or atualizado_em > now() - interval '14 days' order by fixo desc, atualizado_em desc limit 60`
    e as últimas 30 mensagens de `reuniao_mensagens`.
    **Card 🩺 urgente (aberto pelo Hermes) vem antes de tudo** (pedido do Bruno, 25/09: o sistema não pode ficar parado

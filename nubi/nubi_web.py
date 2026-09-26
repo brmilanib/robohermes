@@ -501,7 +501,7 @@ def _preparar(repo):
 # ---------------------------------------------------------------------------
 
 AGENTE_EMAIL = os.environ.get("NUBI_AGENTE_EMAIL", "")
-AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)")   # modelos grátis que rodam no Mac mini (Ollama)
+AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)", "Astra (design)")   # modelos grátis que rodam no Mac mini (Ollama)
 # Conversa direta na Sala (card #64, fase 2): nome de exibição de cada agente que aparece na lista de conversas.
 CONVERSA_NOME = {"claude": "Claude", "chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss",
                  "astra": "Astra (design)", "hermes": "Hermes", "qwen": "Qwen (revisor)",
@@ -887,7 +887,7 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem(f"Autor não permitido: {autor or '?'}.")
             if not texto:
                 raise ErroNuvem("Mensagem vazia.")
-            aid = {"Hermes": "hermes", "Qwen (revisor)": "qwen", "Ferreiro (Claude no Mac)": "claude_mac"}.get(autor)
+            aid = {"Hermes": "hermes", "Qwen (revisor)": "qwen", "Ferreiro (Claude no Mac)": "claude_mac", "Astra (design)": "astra"}.get(autor)
             if aid:
                 agora_ = datetime.now(timezone.utc).isoformat()
                 try:
@@ -2775,39 +2775,51 @@ def rodar_rotinas(repo, so=None):
 PRIORIDADE_ORDEM = {"urgente": 0, "alta": 1, "media": 2, "média": 2, "baixa": 3}
 
 
-def ferreiro_proximo(repo, a_cada_min=5):
-    """Card #89 (pedido do Bruno, 26/09): o Ferreiro livre pega na hora o próximo card aprovado dele (responsável claude_mac),
-    sem esperar ninguém. Pula risco alto e card com pergunta em aberto; um de cada vez (a trava do Mac também impede dois)."""
+PROGRAMADORES_MAC = {"ferreiro": ("claude_mac", "programar_card", "Ferreiro", "🔨"),
+                     "astra": ("astra", "programar_astra", "Astra", "🎨")}
+
+
+def ferreiro_proximo(repo, a_cada_min=5, quem="ferreiro"):
+    """Card #89 (pedido do Bruno, 26/09): o programador do Mac livre (Ferreiro ou Astra) pega na hora o próximo card aprovado
+    dele, sem esperar ninguém. Pula risco alto, card com pergunta em aberto e card que voltou com erro há menos de 1 h; um
+    de cada vez (os dois usam o mesmo clone do projeto no Mac)."""
+    resp, comando, nome, ic = PROGRAMADORES_MAC[quem]
     try:
-        chave = "ferreiro|vez"
+        chave = f"{quem}|vez"
         r = (repo._req("GET", "ia_resumos", {"select": "criado_em", "chave": repo._eq(chave)}) or [{}])[0]
         agora = datetime.now(timezone.utc)
         if r.get("criado_em") and agora - datetime.fromisoformat(str(r["criado_em"]).replace("Z", "+00:00")) < timedelta(minutes=a_cada_min):
             return None
-        repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": "", "ia": "ferreiro", "criado_em": agora.isoformat()}],
+        repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": "", "ia": quem, "criado_em": agora.isoformat()}],
                   prefer="resolution=merge-duplicates,return=minimal")
-        if repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.programar_card", "status": "in.(pendente,rodando)", "limit": 1}):
-            return "Ferreiro ocupado (comando na fila)"
+        if repo._req("GET", "mac_comandos", {"select": "id", "comando": "in.(programar_card,programar_astra)",
+                                             "status": "in.(pendente,rodando)", "limit": 1}):
+            return f"{nome} espera (o clone do projeto no Mac está em uso)"
         limite = (agora - timedelta(minutes=90)).isoformat()
-        if repo._req("GET", "reuniao_tarefas", {"select": "id", "responsavel": "eq.claude_mac", "status": "eq.em_desenvolvimento",
+        if repo._req("GET", "reuniao_tarefas", {"select": "id", "responsavel": "in.(claude_mac,astra)", "status": "eq.em_desenvolvimento",
                                                  "iniciado_em": f"gte.{limite}", "limit": 1}):
-            return "Ferreiro ocupado (card em andamento)"
+            return f"{nome} espera (card em andamento no Mac)"
         fila = [t for t in (repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,prioridade,risco,aguardando", "status": "eq.aprovada",
-                                                                   "responsavel": "eq.claude_mac", "order": "id"}) or [])
+                                                                   "responsavel": f"eq.{resp}", "order": "id"}) or [])
                 if (t.get("risco") or "") != "alto" and not t.get("aguardando")]
+        if fila:
+            recentes = {e["tarefa_id"] for e in (repo._req("GET", "tarefa_eventos", {
+                "select": "tarefa_id", "tipo": "eq.erro_teste", "tarefa_id": "in.(" + ",".join(str(t["id"]) for t in fila) + ")",
+                "criado_em": f"gte.{(agora - timedelta(hours=1)).isoformat()}"}) or [])}
+            fila = [t for t in fila if t["id"] not in recentes]
         if not fila:
             return None
         t = sorted(fila, key=lambda x: (0 if str(x.get("titulo") or "").startswith("🩺") else 1,
                                         PRIORIDADE_ORDEM.get(str(x.get("prioridade") or "media"), 2), x["id"]))[0]
         ag = agora.isoformat()
-        repo._req("POST", "mac_comandos", corpo=[{"comando": "programar_card", "arg": str(t["id"]), "pedido_por": "fila do Ferreiro",
+        repo._req("POST", "mac_comandos", corpo=[{"comando": comando, "arg": str(t["id"]), "pedido_por": f"fila do {nome}",
                                                   "status": "pendente", "criado_em": ag, "tarefa_id": t["id"]}], prefer="return=minimal")
         repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(t["id"])}, corpo={"status": "em_desenvolvimento", "iniciado_em": ag,
                                                                                  "atualizado_em": ag}, prefer="return=minimal")
-        repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": t["id"], "autor": "claude_mac", "tipo": "passo", "criado_em": ag,
-                                                    "texto": "🔨 Ferreiro livre: peguei este card agora (fila automática)."}],
+        repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": t["id"], "autor": resp, "tipo": "passo", "criado_em": ag,
+                                                    "texto": f"{ic} {nome} livre: peguei este card agora (fila automática)."}],
                   prefer="return=minimal")
-        return f"Ferreiro pegou o card #{t['id']}"
+        return f"{nome} pegou o card #{t['id']}"
     except Exception:  # noqa: BLE001 — nunca derruba o tique do Mac
         return None
 
@@ -3659,6 +3671,8 @@ COMANDOS_MAC = {
     "entrar_auto_gestor": "Entrar sozinho no Gestor Seller",
     "ferreiro_status": "Ferreiro: conferir se está pronto (Claude Code, chave e git no Mac)",
     "programar_card": "Ferreiro programar um card agora (número do card)",
+    "programar_astra": "Astra programar um card de design agora (número do card)",
+    "astra_status": "Astra programador: conferir se está pronto (Codex, chave da OpenAI e git no Mac)",
     "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
     "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora",
 }
@@ -4067,9 +4081,10 @@ INSTRUCAO_CRIAR_CARD = (
     "usabilidade ou organização, ou autorizar a sua proposta, crie o card escrevendo NO FINAL da resposta, uma linha por card:\n"
     "CRIAR_CARD: {\"titulo\": \"...\", \"escopo\": \"o que mudar\", \"arquivo\": \"tela/arquivo\", \"teste\": \"como testar\", "
     "\"aceite\": \"quando está pronto\", \"prioridade\": \"alta|media|baixa\", \"risco\": \"baixo|medio|alto\", "
-    "\"executor\": \"ferreiro|chefe\"}\n"
-    "Regras: executor ferreiro = o Ferreiro programa na hora e o Chefe revisa e publica (use para telas e layout); chefe = "
-    "mudança grande ou de servidor. Risco alto (dados, senhas, apagar, estrutura do banco, pagamentos) vira proposta para o "
+    "\"executor\": \"astra|ferreiro|chefe\"}\n"
+    "Regras: executor astra = VOCÊ mesmo programa no Mac (Codex com o seu modelo), num branch seu, e o Chefe revisa e publica: "
+    "use para design, usabilidade e organização de telas (até 4 por dia); ferreiro = correção técnica/erro; chefe = mudança "
+    "grande ou de servidor. Risco alto (dados, senhas, apagar, estrutura do banco, pagamentos) vira proposta para o "
     "Bruno aprovar. Não crie card repetido nem sem pedido/autorização do Bruno. Não escreva que o card foi criado: eu confirmo "
     "com o número.")
 
@@ -4109,12 +4124,14 @@ def criar_cards_do_agente(repo, chave, resposta):
         risco = risco if risco in ("baixo", "medio", "alto") else "medio"
         pri = str(obj.get("prioridade") or "media").lower().replace("é", "e")
         pri = pri if pri in ("alta", "media", "baixa") else "media"
-        executor = "claude_mac" if str(obj.get("executor") or "ferreiro").lower().startswith("ferr") else "claude_code"
+        ex = str(obj.get("executor") or "astra").lower()
+        executor = "astra" if ex.startswith("astra") else "claude_mac" if ex.startswith("ferr") else "claude_code"
         desc = (f"Card criado pelo {autor} a pedido do Bruno (conversa direta, {datetime.now(timezone(timedelta(hours=-3))):%d/%m %H:%M}).\n\n"
                 f"## Escopo\n{str(obj.get('escopo') or '')[:3000]}\n\n## Arquivo/função\n{str(obj.get('arquivo') or '')[:800]}\n\n"
                 f"## Teste\n{str(obj.get('teste') or '')[:1500]}\n\n## Critério de aceite\n{str(obj.get('aceite') or '')[:1500]}\n\n"
-                f"Designer responsável: {autor} (confere o visual depois). Programação: "
-                + ("Ferreiro (Claude Code no Mac), branch próprio; o Chefe revisa e publica." if executor == "claude_mac"
+                f"Designer responsável: {autor}. Programação: "
+                + ("o próprio Astra (Codex no Mac), branch astra/card-N; o Chefe revisa e publica." if executor == "astra"
+                   else "Ferreiro (Claude Code no Mac), branch próprio; o Chefe revisa e publica." if executor == "claude_mac"
                    else "Chefe (Claude Code)."))
         alto = risco == "alto"
         novo = repo._req("POST", "reuniao_tarefas", corpo=[{
@@ -4124,7 +4141,7 @@ def criar_cards_do_agente(repo, chave, resposta):
             "aguardando": "Risco alto: o Bruno precisa aprovar antes de programar." if alto else None}],
             prefer="return=representation") or [{}]
         feitos_hoje += 1
-        quem = "Ferreiro" if executor == "claude_mac" else "Chefe"
+        quem = {"astra": "Astra (eu mesmo)", "claude_mac": "Ferreiro"}.get(executor, "Chefe")
         saida.append(f"✅ **Card #{novo[0].get('id')} criado**: {titulo} · executor: {quem}"
                      + (" · ⏳ risco alto, esperando sua aprovação no card" if alto else " · já na fila"))
     saida.append(resposta[i:])
@@ -4238,7 +4255,8 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
     if rota == "mac_tick" and metodo == "POST":
         # o Mac: estado + saídas dos comandos em andamento; recebe os pendentes e as mensagens novas da Sala
         indexar_aos_poucos(repo)
-        ferreiro_proximo(repo)
+        if not ferreiro_proximo(repo, quem="astra"):       # design primeiro (Astra); se não pegou nada, o Ferreiro
+            ferreiro_proximo(repo)
         if d.get("info") is not None:
             repo._req("POST", "mac_estado", corpo=[{"id": 1, "visto_em": agora_, "info": d["info"]}],
                       prefer="resolution=merge-duplicates,return=minimal")

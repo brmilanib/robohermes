@@ -164,3 +164,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Fila do Ferreiro (`ferreiro_proximo`, no tique do Mac, a cada 5 min): se não há `programar_card` pendente/rodando nem
   card dele em andamento há menos de 90 min, pega o próximo `aprovada` com `responsavel=claude_mac` (🩺 primeiro, depois
   prioridade), pulando risco alto e card com `aguardando`. O Chefe continua revisando e publicando o branch do Ferreiro.
+- **Astra programador** (autorizado pelo Bruno em 26/09): `coletor programar-astra <card>` usa o Codex da OpenAI no Mac
+  com o modelo do Astra (`NUBI_ASTRA_MODELO`, chave da OpenAI só no Chaveiro: `coletor guardar-senha openai`), sandbox
+  `workspace-write`, branch `astra/card-<id>`, testes do projeto, até 4 cards por dia; nunca publica. Cards com
+  `responsavel='astra'` entram na mesma fila (`ferreiro_proximo(quem="astra")`, design primeiro; um de cada vez porque os
+  dois usam o mesmo clone). Não pronto ou no limite: o card volta para `aprovada` com `erro_teste` e a fila espera 1 h.
