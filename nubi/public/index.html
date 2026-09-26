@@ -449,6 +449,9 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .ag-perfil .ag-m{margin-top:6px;overflow-wrap:anywhere}
 .ag-perfil .ag-m .l{display:block;min-width:0}
 .ag-perfil ul{margin:2px 0 0;padding-left:18px}
+.ag-det{margin-top:2px}
+.ag-det summary{cursor:pointer;font-size:11.5px;color:var(--muted)}
+.ag-dl{font-size:11.5px;color:var(--muted);padding:1px 0 1px 10px}
 .ag-teste{font-size:12.5px;border-radius:8px;padding:7px 9px;background:var(--soft)}
 .ag-teste.no{background:var(--bad-bg,#fdecea)}
 .ag-bts{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
@@ -2594,12 +2597,15 @@ async function telaConhecimento() {
 const AG_ST = {"executando": ["warn", "⚙️ executando"], "ativo": ["good", "● ativo"], "com erro": ["bad", "com erro"], "sem chave": ["", "sem chave"], "parado": ["", "○ sem atividade 24h"]};
 const nfmt = n => (+n || 0).toLocaleString("pt-BR");
 const usd = v => "US$ " + (+v || 0).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: v && v < 0.01 ? 4 : 2});
-function agCard(a) {
+const AG_PERIODOS = {hoje: "Hoje", dia7: "7 dias", dia30: "30 dias"};
+function agCard(a, periodo) {
   const st = AG_ST[a.status] || ["", a.status];
   const t = a.ultimo_teste;
   const quandoBR = x => x ? new Date(x).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
-  const bloco = (rot, m) => `<div class="ag-m"><span class="l">${rot}</span><b>${nfmt(m.chamadas)}</b> chamadas ·
-    ${nfmt(m.tokens_in)} / ${nfmt(m.tokens_out)} tokens · <b>${usd(m.custo)}</b></div>`;
+  const bloco = (rot, m) => `<div class="ag-m"><span class="l">${rot}</span>${!m || !m.chamadas ? `<span class="muted">Sem dados</span>` : `<b>${nfmt(m.chamadas)}</b> chamadas ·
+    ${nfmt(m.tokens_in)} / ${nfmt(m.tokens_out)} tokens · <b>${usd(m.custo)}</b>
+    ${m.detalhe && m.detalhe.length > 1 ? `<details class="ag-det"><summary>por rotina/tarefa</summary>
+      ${m.detalhe.map(d => `<div class="ag-dl">${esc(d.origem)}: ${nfmt(d.chamadas)}× · ${usd(d.custo)}</div>`).join("")}</details>` : ""}`}</div>`;
   return `<div class="card pad ag-card" data-ag="${esc(a.id)}">
     <div class="ag-cab"><div class="ag-av" style="background:${esc(a.cor || "#667781")}">${esc(a.icone || "🤖")}</div>
       <div style="min-width:0"><h2>${esc(a.nome)}${a.apelido ? ` <span class="ag-ap">“${esc(a.apelido)}”</span>` : ""}</h2>
@@ -2615,11 +2621,11 @@ function agCard(a) {
       <div class="ag-m"><span class="l">⛔ Não pode</span><ul>${a.perfil.nao_pode.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>
     </details>` : ""}
     <div class="ag-m"><span class="l">Modelo</span>${a.modelo_atual ? `<code>${esc(a.modelo_atual)}</code>` : `<span class="muted">ainda sem uso registrado</span>`}</div>
-    ${bloco("Hoje", a.hoje)}${bloco("No mês", a.mes)}
+    ${bloco("Ontem", a.ontem)}${bloco(AG_PERIODOS[periodo] || "Hoje", a[periodo] || a.hoje)}
     ${a.sem_preco ? `<div class="ag-m muted" style="font-size:12px">⚠️ há chamadas de um modelo sem preço cadastrado (tabela de preços abaixo): o custo está incompleto.</div>` : ""}
     ${a.rodando.length ? `<div class="ag-m"><span class="l">Agora</span>${a.rodando.map(r => esc(r.origem || "tarefa")).join(", ")}</div>` : ""}
     ${a.erros_24h ? `<div class="ag-m" style="color:var(--bad)"><span class="l">Erros 24h</span>${a.erros_24h} · ${esc((a.ultimo_erro || "").slice(0, 160))}</div>` : ""}
-    <div class="ag-m"><span class="l">Última atividade</span>${esc(quandoBR(a.ultima_atividade))}</div>
+    <div class="ag-m"><span class="l">Uso atualizado em</span>${esc(quandoBR(a.ultima_atividade))}</div>
     ${t ? `<div class="ag-teste ${t.ok ? "ok" : "no"}">Último teste (${esc(quandoBR(t.quando))}): ${t.ok ? "✅ funcionando" : "❌ falhou"}
       ${t.modelo_api ? ` · modelo que respondeu: <code>${esc(t.modelo_api)}</code>` : ""} · ${nfmt(t.ms)} ms
       ${t.resposta ? `<div class="muted">“${esc(t.resposta)}”</div>` : ""}${t.erro ? `<div style="color:var(--bad)">${esc(t.erro)}</div>` : ""}</div>` : ""}
@@ -2638,13 +2644,16 @@ async function telaAgentes(silencioso) {
   let r;
   try { r = await api("agentes"); } catch (e) { if (!silencioso) main.innerHTML = opsAbas("agentes") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (silencioso && !location.hash.startsWith("#/central/agentes")) return;
+  const periodo = Object.keys(AG_PERIODOS).includes(new URLSearchParams(location.hash.split("?")[1] || "").get("periodo"))
+    ? new URLSearchParams(location.hash.split("?")[1] || "").get("periodo") : "hoje";
   const tot = k => r.agentes.reduce((s, a) => s + (+a[k].custo || 0), 0);
   main.innerHTML = opsAbas("agentes") + `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><h1>🤖 Agentes</h1>
-      <span class="muted">quem está no time, o que custa e se está funcionando · atualiza sozinho a cada 15 s</span></div>
+      <span class="muted">quem está no time, o que custa e se está funcionando · atualiza sozinho a cada 15 s</span><div style="flex:1"></div>
+      <label class="muted" style="font-size:12px">Uso <select class="mes" id="ag-periodo">${Object.entries(AG_PERIODOS).map(([k, t]) => `<option value="${k}" ${k === periodo ? "selected" : ""}>${t}</option>`).join("")}</select></label></div>
     <div class="kpis">${kpi("Custo hoje", usd(tot("hoje")), "todas as APIs")}${kpi("Custo no mês", usd(tot("mes")), "desde o dia 1")}
       ${kpi("Executando agora", String(r.agentes.filter(a => a.status === "executando").length), "agentes com tarefa em andamento")}
       ${kpi("Com erro (24h)", String(r.agentes.filter(a => a.erros_24h).length), "veja também 🚨 Erros")}</div>
-    <div class="ag-grid">${r.agentes.map(agCard).join("")}</div>
+    <div class="ag-grid">${r.agentes.map(a => agCard(a, periodo)).join("")}</div>
     <div class="card pad" style="margin-top:14px"><h2>Preços por modelo (US$ por 1 milhão de tokens)</h2>
       <div class="sub">O custo de cada chamada = tokens de entrada × preço de entrada + tokens de saída × preço de saída. Um modelo com nome mais longo usa o preço do nome cadastrado que ele começa (ex.: <code>gpt-oss:120b</code> usa <code>gpt-oss</code>). Deixe em branco o que ainda não souber.</div>
       <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Modelo</th><th>Entrada</th><th>Saída</th><th>Observação</th><th></th></tr></thead>
@@ -2654,6 +2663,7 @@ async function telaAgentes(silencioso) {
         <td class="wrap muted">${esc(p.obs || "")}</td><td><button class="btn small" data-psalvar="${esc(p.modelo)}">Salvar</button></td></tr>`).join("")}
         <tr><td><input class="mes" id="pn-m" placeholder="novo modelo" style="width:150px"></td><td><input class="mes" id="pn-e" style="width:80px"></td>
           <td><input class="mes" id="pn-s" style="width:80px"></td><td></td><td><button class="btn small" id="pn-add">Adicionar</button></td></tr></tbody></table></div></div>`;
+  $("#ag-periodo").onchange = e => { location.hash = "#/central/agentes?periodo=" + e.target.value; };
   main.querySelectorAll("[data-testar]").forEach(b => b.onclick = async () => {
     const c = carregando("Testando o agente");
     try { const x = await api("agentes_testar", {}, {method: "POST", body: JSON.stringify({id: b.dataset.testar})});
