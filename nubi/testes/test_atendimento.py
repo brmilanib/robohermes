@@ -232,7 +232,7 @@ def test_historico_do_chat_e_agradecimento():
     x = a.receber(r, "tiktok_shop", "", cliente="alana", externo_id="alana", historico=hist,
                   gerar=_ia(iter(["Por nada! Qualquer coisa, é só chamar! 😊"])))
     assert x["intencao"] == "agradecimento" and x.get("automatico")                 # agradeceu: responde sozinho
-    msgs = [(m["de"], m["texto"]) for m in r.t["atendimento_mensagens"]]
+    msgs = [(m["de"], m["texto"]) for m in sorted(r.t["atendimento_mensagens"], key=lambda m: m["criado_em"])]
     assert msgs[:4] == [(h["de"], h["texto"]) for h in hist]                        # histórico na ordem, sem repetir
     a.receber(r, "tiktok_shop", "", cliente="alana", externo_id="alana", historico=hist, gerar=_ia(iter([])))
     assert len([m for m in r.t["atendimento_mensagens"] if m["texto"] == "Boa noite"]) == 1
@@ -269,6 +269,30 @@ def test_aprende_padroes_dos_chats_como_propostas():
     a.rota(r, "POST", "atendimento_kb_salvar", {}, json.dumps({"aprovar": [kb[0]["id"]]}).encode())
     assert kb[0]["status"] == "ativa" and a.buscar_kb(r, "principal", "vocês trocam se eu não gostar?")
     assert a.aprender_padroes(r, gerar=_ia(iter([])))["lidas"] == 0            # não lê de novo
+
+
+def test_avisos_do_sistema_e_do_chatbot_ficam_de_fora():
+    r = Repo()
+    x = a.receber(r, "tiktok_shop", "", cliente="silvia", externo_id="silvia", respondido=True,
+                  historico=[{"de": "cliente", "texto": "O bate-papo foi encerrado devido à inatividade do cliente"}])
+    assert x["status"] == "so_avisos" and not r.t.get("atendimento_conversas")
+    y = a.receber(r, "tiktok_shop", "", cliente="angela", externo_id="angela", historico=[
+        {"de": "loja", "texto": "[chatbot]Olá, obrigado por entrar em contato conosco."},
+        {"de": "cliente", "texto": "vocês vendem tester?"}, {"de": "loja", "texto": "Temos sim! Qual perfume?"}])
+    assert y["status"] == "historico" and [m["texto"] for m in r.t["atendimento_mensagens"]] == ["vocês vendem tester?", "Temos sim! Qual perfume?"]
+
+
+def test_so_a_previa_depois_o_historico_entra_antes_na_ordem():
+    r = Repo()
+    a.receber(r, "tiktok_shop", "", cliente="sami", externo_id="sami", respondido=True,
+              historico=[{"de": "loja", "texto": "Está a caminho pela J&T!"}])          # só a prévia (1ª rodada)
+    assert a.rota(r, "GET", "atendimento_para_enviar", {}, None)["conhecidos"] == []    # prévia não conta como conhecida
+    a.receber(r, "tiktok_shop", "", cliente="sami", externo_id="sami", respondido=True, historico=[
+        {"de": "cliente", "texto": "cadê meu pedido?"}, {"de": "cliente", "texto": "já faz 5 dias"},
+        {"de": "loja", "texto": "Está a caminho pela J&T!"}])
+    ordem = [m["texto"] for m in sorted(r.t["atendimento_mensagens"], key=lambda m: m["criado_em"])]
+    assert ordem == ["cadê meu pedido?", "já faz 5 dias", "Está a caminho pela J&T!"]
+    assert a.rota(r, "GET", "atendimento_para_enviar", {}, None)["conhecidos"] == ["sami"]
 
 
 def test_atendente_do_mac_e_chamado_quando_ligado():

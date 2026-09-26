@@ -86,7 +86,9 @@ def test_traz_a_mensagem_e_envia_so_o_texto_aprovado():
     ENVIADO.clear()
     aprovado = "Oi! Sim, vendemos tester! Qual perfume você quer? Qualquer coisa, é só chamar!"
     ch = _preparar([("ler", {}),
-                    ("registrar", {"cliente": "leidianearaujo182", "mensagem": "Vocês vendem perfumes tester?"}),
+                    ("registrar", {"cliente": "leidianearaujo182", "historico": [{"de": "cliente", "texto": "Vocês vendem perfumes tester?"}]}),
+                    ("registrar", {"cliente": "leidianearaujo182", "historico": [                   # 1ª foi recusada: prévia
+                        {"de": "cliente", "texto": "Oi, boa tarde"}, {"de": "cliente", "texto": "Vocês vendem perfumes tester?"}]}),
                     ("enviar_aprovada", {"id": 9, "n_campo": 0, "n_botao": 2}),       # botão errado (Reembolsar): recusa
                     ("enviar_aprovada", {"id": 9, "n_campo": 0, "n_botao": 1}),
                     ("terminar", {"resumo": "1 registrada, 1 enviada"})],
@@ -95,7 +97,7 @@ def test_traz_a_mensagem_e_envia_so_o_texto_aprovado():
     rotas = [r for r, _ in ch["api"]]
     assert ("atendimento_receber", ) == tuple(r for r in rotas if r == "atendimento_receber")
     corpo = next(cp for r, cp in ch["api"] if r == "atendimento_receber")
-    assert corpo["cliente"] == "leidianearaujo182" and corpo["canal"] == "tiktok_shop"
+    assert corpo["cliente"] == "leidianearaujo182" and corpo["canal"] == "tiktok_shop" and len(corpo["historico"]) == 2
     assert ENVIADO["texto"] == aprovado                                    # o texto aprovado, digitado pelo coletor
     assert ("atendimento_enviado", {"id": 9, "ok": True}) in ch["api"]
     assert any("Atendente TikTok" in json.dumps(cp, ensure_ascii=False) for r, cp in ch["api"] if r == "reuniao_postar")

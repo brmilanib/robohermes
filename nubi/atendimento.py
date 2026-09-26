@@ -424,10 +424,16 @@ def pode_sozinho(repo, fatos):
     return any(float(k.get("cobre") or 0) >= AUTO_NOTA for k in fatos.get("base_de_conhecimento") or [])
 
 
+AVISO_SISTEMA = re.compile(r"^\s*(\[(chatbot|sauda|informa|compartilh|pedido|produto|cupom|imagem|v[ií]deo)[^\]]*\]|o bate-papo foi "
+                           r"(encerrado|atribu)|o cliente solicitou|para sua seguran[cç]a|pedido entregue\s*$|resposta autom[aá]tica)", re.I)
+
+
 def _separar_historico(historico, respondido):
-    """[{de, texto}] do chat → (mensagens anteriores, texto do cliente ainda sem resposta)."""
+    """[{de, texto}] do chat → (mensagens anteriores, texto do cliente ainda sem resposta). Avisos da plataforma e do
+    chatbot da TikTok ficam de fora (não são conversa nem conhecimento da loja)."""
     hist = [{"de": "loja" if str(h.get("de") or "").lower() in ("loja", "vendedor", "atendente", "seller") else "cliente",
-             "texto": str(h.get("texto") or "").strip()[:5000]} for h in historico or [] if str(h.get("texto") or "").strip()]
+             "texto": str(h.get("texto") or "").strip()[:5000]} for h in historico or []
+            if str(h.get("texto") or "").strip() and not AVISO_SISTEMA.search(str(h.get("texto") or ""))]
     if respondido or not hist or hist[-1]["de"] != "cliente":
         return hist, ""
     fim = len(hist)
@@ -437,12 +443,26 @@ def _separar_historico(historico, respondido):
 
 
 def _gravar_historico(repo, conversa_id, hist):
-    """Grava as mensagens do chat que o nubi ainda não tem, na ordem (as antigas não se repetem)."""
-    tem = {(m["de"], m["texto"].strip()) for m in repo._req("GET", "atendimento_mensagens", {
-        "select": "de,texto", "conversa_id": f"eq.{conversa_id}", "limit": 5000}) or []}
-    novas = [dict(h, conversa_id=conversa_id, criado_em=_agora()) for h in hist if (h["de"], h["texto"]) not in tem]
+    """Grava as mensagens do chat que o nubi ainda não tem, na ordem certa (as antigas não se repetem). Se o nubi já tinha
+    só o fim da conversa (ex.: a prévia da lista), as mensagens de antes entram com horário anterior, sem apagar nada."""
+    exist = repo._req("GET", "atendimento_mensagens", {"select": "de,texto,criado_em", "conversa_id": f"eq.{conversa_id}",
+                                                       "order": "criado_em", "limit": 5000}) or []
+    tem = {(m["de"], m["texto"].strip()): m.get("criado_em") for m in exist}
+    idx = next((i for i, h in enumerate(hist) if (h["de"], h["texto"]) in tem), None)
+    base = datetime.fromisoformat(str(tem[(hist[idx]["de"], hist[idx]["texto"])]).replace("Z", "+00:00")) if idx is not None and \
+        tem[(hist[idx]["de"], hist[idx]["texto"])] else None
+    agora = datetime.now(timezone.utc)
+    novas = []
+    for i, h in enumerate(hist):
+        if (h["de"], h["texto"]) in tem:
+            continue
+        # antes da 1ª que o nubi já tinha: logo antes dela; depois: nos segundos antes de agora (o que vem depois fica depois)
+        quando = base - timedelta(seconds=idx - i) if base is not None and i < idx else agora - timedelta(seconds=len(hist) - i)
+        novas.append(dict(h, conversa_id=conversa_id, criado_em=quando.isoformat()))
     if novas:
         repo._req("POST", "atendimento_mensagens", corpo=novas, prefer="return=minimal")
+        repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{conversa_id}"}, corpo={"aprendido_em": None},
+                  prefer="return=minimal")          # histórico novo: aprende de novo com ele
     return len(novas)
 
 
@@ -451,11 +471,14 @@ def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, ext
     """Mensagem nova de cliente (do conector do canal ou colada pelo operador): grava e gera o rascunho.
     historico = o chat inteiro lido na tela ([{de, texto}]): grava o que falta; respondido = a loja já respondeu (só guarda)."""
     anteriores = []
-    if historico:
+    if historico is not None:
         anteriores, pendente = _separar_historico(historico, respondido)
         texto = pendente or ("" if respondido else texto)
+        respondido = respondido or not pendente
+        if not anteriores and not texto:
+            return {"status": "so_avisos"}          # só avisos do sistema: não cria conversa vazia
     texto = str(texto or "").strip()
-    if not texto and not (historico and respondido):
+    if not texto and not (historico is not None and respondido):
         raise ValueError("mensagem vazia")
     canal(canal_id)
     conversa = None
@@ -612,7 +635,7 @@ def fila(repo, status=None, lim=50):
         return []
     ids = "in.(" + ",".join(str(c["id"]) for c in conversas) + ")"
     rascs = repo._req("GET", "atendimento_rascunhos", {"select": "*", "conversa_id": ids, "order": "id.desc", "limit": 1000}) or []
-    msgs = repo._req("GET", "atendimento_mensagens", {"select": "*", "conversa_id": ids, "order": "id", "limit": 5000}) or []
+    msgs = repo._req("GET", "atendimento_mensagens", {"select": "*", "conversa_id": ids, "order": "criado_em,id", "limit": 5000}) or []
     for c in conversas:
         c["rascunho"] = next((r for r in rascs if r["conversa_id"] == c["id"]), None)
         c["mensagens"] = [m for m in msgs if m["conversa_id"] == c["id"]][-40:]
@@ -768,8 +791,12 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
             repo._req("POST", "ia_resumos", corpo=[{"chave": PC_CHAVE, "texto": str(q["computador"])[:20], "ia": "atendente",
                                                     "criado_em": _agora()}], prefer="resolution=merge-duplicates,return=minimal")
         fech = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{FECHADOS_CHAVE}"}) or [{}])[0].get("texto") == "pendente"
-        conhecidos = [c["cliente"] for c in repo._req("GET", "atendimento_conversas", {"select": "cliente", "canal": "eq.tiktok_shop",
-                                                                                       "limit": 2000}) or [] if c.get("cliente")]
+        # conhecida = conversa com histórico de verdade (2+ mensagens); só a prévia da lista não conta
+        n = {}
+        for m in repo._req("GET", "atendimento_mensagens", {"select": "conversa_id", "limit": 50000}) or []:
+            n[m["conversa_id"]] = n.get(m["conversa_id"], 0) + 1
+        conhecidos = [c["cliente"] for c in repo._req("GET", "atendimento_conversas", {"select": "id,cliente", "canal": "eq.tiktok_shop",
+                                                                                       "limit": 2000}) or [] if c.get("cliente") and n.get(c["id"], 0) >= 2]
         return {"itens": para_enviar(repo), "atendente": atendente_ligado(repo), "importar_fechados": fech, "conhecidos": conhecidos}
     if nome == "atendimento_fechados" and metodo == "POST":
         repo._req("POST", "ia_resumos", corpo=[{"chave": FECHADOS_CHAVE, "texto": "pendente" if d.get("importar") else "feito",
