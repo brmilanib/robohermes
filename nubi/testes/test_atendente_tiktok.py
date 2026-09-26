@@ -49,19 +49,21 @@ def _abrir(p, cfg, visivel=None):
     return ctx
 
 
-def _preparar(roteiro, aprovadas=(), receber=None):
+def _preparar(roteiro, aprovadas=(), receber=None, canais=("tiktok_shop",)):
     chamadas = {"api": [], "claude": 0}
     c.abrir_navegador = _abrir
     c.guardar_sessao = lambda ctx: None
     c._credencial = lambda site, cfg=None: ("bruno", "sk-ant-falsa") if site == "anthropic" else ("", "")
     c.token_nubi = lambda cfg: "T"
     c.ATENDENTE_URL = URL
+    c.PLATAFORMAS["tiktok_shop"] = ("TikTok Shop", URL, "127.0.0.1", "Atendente TikTok")
+    c.PLATAFORMAS["shopee"] = ("Shopee", URL, "127.0.0.1", "Atendente Shopee")
     c.salvar_config({})
 
     def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
         chamadas["api"].append((rota, corpo))
         if rota == "atendimento_para_enviar":
-            return {"itens": list(aprovadas)}
+            return {"itens": list(aprovadas), "canais": list(canais)}
         if rota == "atendimento_receber":
             return {"rascunho": receber or {"id": 7, "status": "precisa_info"}}
         return {}
@@ -141,6 +143,19 @@ def test_navega_com_a_ia_gratis_sem_gastar():
     c.api = api
     c.cmd_atender_tiktok(None, c.ler_config())
     assert ch["claude"] == 0 and c._gasto_atendente(c.ler_config()) == 0      # tudo com a grátis: US$ 0
+
+
+def test_shopee_usa_o_mesmo_atendente_com_o_canal_certo():
+    import shutil
+    shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
+    ch = _preparar([("ler", {}), ("abrir", {"url": "https://seller-br.tiktok.com/x"}),
+                    ("registrar", {"cliente": "joao", "historico": [{"de": "cliente", "texto": "oi"}, {"de": "cliente", "texto": "tem tester?"}]}),
+                    ("terminar", {"resumo": "ok"})], canais=["shopee"])
+    c.cmd_atender_tiktok(None, c.ler_config())
+    corpo = next(cp for r, cp in ch["api"] if r == "atendimento_receber")
+    assert corpo["canal"] == "shopee"
+    assert "Shopee" in json.dumps(ch["ultima"][0], ensure_ascii=False)
+    assert any("Atendente Shopee" in json.dumps(cp, ensure_ascii=False) for r, cp in ch["api"] if r == "reuniao_postar")
 
 
 if __name__ == "__main__":

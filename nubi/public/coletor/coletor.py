@@ -3887,6 +3887,22 @@ ATENDENTE_MODELO = os.environ.get("NUBI_ATENDENTE_MODELO", "claude-haiku-4-5-202
 ATENDENTE_TETO_DIA = float(os.environ.get("NUBI_ATENDENTE_TETO", "3"))
 ATENDENTE_PRECO = (1.0, 5.0)
 ATENDENTE_URL = os.environ.get("NUBI_TIKTOK_CHAT", "https://seller-br.tiktok.com/")
+# plataformas que o atendente atende pelo navegador: canal → (nome, endereço inicial do chat, domínio permitido, autor na Sala)
+PLATAFORMAS = {
+    "tiktok_shop": ("TikTok Shop", ATENDENTE_URL, "tiktok", "Atendente TikTok"),
+    "shopee": ("Shopee", os.environ.get("NUBI_SHOPEE_CHAT", "https://seller.shopee.com.br/"), "shopee", "Atendente Shopee"),
+}
+DICAS_PLATAFORMA = {   # onde fica o chat em cada central do vendedor (visto nos prints do Bruno, 26/09)
+    "tiktok_shop": "O chat é o 'Bate-papo da loja' (Caixa de entrada: Todos, Não respondidos; aba Fechados).",
+    "shopee": "Na Shopee o chat fica no ÍCONE DE BALÃO no canto direito da central do vendedor (com o número de mensagens "
+              "esperando): clique nele para abrir a lista de conversas. Se aparecer o aviso 'Alguns compradores estão "
+              "esperando…', use 'Responder agora'. Não clique em nada fora do chat.",
+}
+
+
+def _plat_cfg(canal):
+    """Chaves no config por plataforma (a TikTok mantém os nomes antigos)."""
+    return ("tiktok_chat_url", "tiktok_marca_v4") if canal == "tiktok_shop" else (f"{canal}_chat_url", f"{canal}_marca")
 ATENDENTE_PASSOS = 90
 ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abrir", "ler", "clicar")] + [
     {"name": "registrar", "description": "Manda ao nubi uma conversa aberta: o histórico lido na tela (cliente e loja, na "
@@ -3914,15 +3930,15 @@ ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abri
      "input_schema": {"type": "object", "properties": {"resumo": {"type": "string"}}, "required": ["resumo"]}},
 ]
 PAPEL_ATENDENTE = (
-    "Você é o atendente da loja do Bruno (perfumaria) no chat da TikTok Shop, usando o Chrome do Mac mini já logado no "
-    "Seller Center. Você NÃO escreve respostas: quem escreve é o nubi, com dado real. Seu trabalho:\n"
+    "Você é o atendente da loja do Bruno (perfumaria) no chat da {PLATAFORMA}, usando o Chrome já logado na central do "
+    "vendedor. Você NÃO escreve respostas: quem escreve é o nubi, com dado real. Seu trabalho:\n"
     "1) Enviar as respostas aprovadas da lista (abra a conversa do cliente certo, leia, use enviar_aprovada).\n"
     "2) Na caixa de entrada (Todos), abrir cada conversa da lista (primeiro as 'Não respondidas'), ler as mensagens e o "
     "painel do pedido (número, status, entrega estimada, logística, rastreio, itens) e usar registrar com o histórico. "
     "OBRIGATÓRIO: registre TODA conversa que ainda não está no nubi, MESMO já respondida (respondido=true) — o nubi guarda o "
     "histórico e aprende com ele; 'já foi respondida' NÃO é motivo para pular. Para cada uma: CLIQUE na conversa, use ler, "
     "e só então registre o histórico completo (a prévia da lista não serve). Ignore avisos do sistema e do chatbot da "
-    "TikTok ('[chatbot]', 'O bate-papo foi encerrado…', '[Compartilhou um pedido]'). Se o registrar disser que a resposta "
+    "plataforma ('[chatbot]', 'O bate-papo foi encerrado…', '[Compartilhou um pedido]', respostas automáticas). Se o registrar disser que a resposta "
     "foi aprovada, envie-a com enviar_aprovada.\n"
     "3) terminar com um resumo.\n"
     "REGRAS FIXAS: nunca digite nada além do que enviar_aprovada faz; não clique em reembolso, cancelamento, devolução, "
@@ -3976,12 +3992,12 @@ def _atendente_marca(pg):
     return hashlib.sha1(re.sub(r"\s+", " ", t)[:6000].encode()).hexdigest()
 
 
-def _ia_atendente(chave, mensagens, token, estado):
+def _ia_atendente(chave, mensagens, token, estado, papel=None):
     """Navegação do atendente: primeiro o gpt-oss grátis (pelo nubi), o Claude Haiku só de reserva — quando o grátis falha,
     a cota acabou ou ele se perde (3 respostas seguidas sem ferramenta útil)."""
     if estado.get("gratis_falhas", 0) < 3:
         try:
-            r = api(token, "atendimento_navegar_ia", corpo={"mensagens": mensagens, "sistema": PAPEL_ATENDENTE,
+            r = api(token, "atendimento_navegar_ia", corpo={"mensagens": mensagens, "sistema": papel or PAPEL_ATENDENTE,
                                                             "ferramentas": ATENDENTE_FERRAMENTAS}, metodo="POST", timeout=200)
             if r.get("content") and any(b.get("type") == "tool_use" for b in r["content"]):
                 estado["gratis_falhas"] = 0
@@ -3995,34 +4011,39 @@ def _ia_atendente(chave, mensagens, token, estado):
     if not chave:
         return {"content": [{"type": "text", "text": "IA grátis indisponível e sem a chave de reserva."}]}
     estado["pago"] = estado.get("pago", 0) + 1
-    return _claude_ferramentas(chave, mensagens, PAPEL_ATENDENTE, ATENDENTE_FERRAMENTAS, ATENDENTE_MODELO)
+    return _claude_ferramentas(chave, mensagens, papel or PAPEL_ATENDENTE, ATENDENTE_FERRAMENTAS, ATENDENTE_MODELO)
 
 
-def _rodada_atendente(pg, cfg, chave, token, gasto):
-    """Uma olhada no chat com a página já aberta: envia as aprovadas e traz as novas. Devolve (custo, estado, resumo)."""
+def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=None):
+    """Uma olhada no chat de uma plataforma com a página já aberta: envia as aprovadas e traz as novas.
+    Devolve (custo, estado, resumo)."""
     custo, estado, fim = 0.0, {}, None
-    pend = api(token, "atendimento_para_enviar", timeout=60)
-    aprovadas = {i["id"]: i for i in (pend.get("itens") or [])}
-    fechados = bool(pend.get("importar_fechados"))
+    nome, url_ini, dominio, autor = PLATAFORMAS[canal]
+    k_url, k_marca = _plat_cfg(canal)
+    papel = PAPEL_ATENDENTE.replace("{PLATAFORMA}", nome)
+    pend = pend or api(token, "atendimento_para_enviar", timeout=60)
+    aprovadas = {i["id"]: i for i in (pend.get("itens") or []) if (i.get("canal") or "tiktok_shop") == canal}
+    fechados = bool(pend.get("importar_fechados")) and canal == "tiktok_shop"
+    conhecidos = (pend.get("conhecidos_por_canal") or {}).get(canal) or (pend.get("conhecidos") if canal == "tiktok_shop" else []) or []
     try:
-        pg.goto(cfg.get("tiktok_chat_url") or ATENDENTE_URL, timeout=60000)
+        pg.goto(cfg.get(k_url) or url_ini, timeout=60000)
         pg.wait_for_timeout(4000)
         marca = _atendente_marca(pg)
     except Exception:  # noqa: BLE001
         marca = None
-    if marca and marca == cfg.get("tiktok_marca_v4") and not aprovadas and not fechados:
-        return 0.0, {"nada": True}, "Nada novo no chat e nada para enviar."     # sem gasto
+    if marca and marca == cfg.get(k_marca) and not aprovadas and not fechados:
+        return 0.0, {"nada": True}, f"{nome}: nada novo no chat e nada para enviar."     # sem gasto
     pedido = ("RESPOSTAS APROVADAS PARA ENVIAR (id · cliente · texto):\n"
               + ("\n".join(f"{i['id']} · {i['cliente']} · {i['texto'][:300]}" for i in aprovadas.values()) or "(nenhuma)")
               + "\n\nCONVERSAS QUE JÁ ESTÃO NO NUBI (não precisa registrar de novo, a não ser que tenha mensagem nova): "
-              + (", ".join((pend.get("conhecidos") or [])[:300]) or "(nenhuma — registre todas)")
+              + (", ".join(conhecidos[:300]) or "(nenhuma — registre todas)")
               + (("\n\nIMPORTAR FECHADOS (pedido do Bruno): depois dos passos 1 e 2, abra a aba 'Fechados' e registre com "
                   "respondido=true e fechado=true o histórico de até 20 conversas que ainda NÃO estão no nubi (role a lista para ver as mais "
                   "antigas). Quando não houver mais nenhuma nova nos Fechados, use fechados_concluido.") if fechados else "")
-              + f"\n\nO chat está aberto em {pg.url}. Comece com ler.")
+              + f"\n\nO chat da {nome} está em {pg.url}. {DICAS_PLATAFORMA.get(canal, '')} Comece com ler.")
     mensagens = [{"role": "user", "content": pedido}]
     for _ in range(ATENDENTE_PASSOS):
-        r = _ia_atendente(chave, mensagens, token, estado)
+        r = _ia_atendente(chave, mensagens, token, estado, papel)
         u = r.get("usage") or {}
         custo += (int(u.get("input_tokens") or 0) * ATENDENTE_PRECO[0] + int(u.get("output_tokens") or 0) * ATENDENTE_PRECO[1]) / 1e6
         blocos = r.get("content") or []
@@ -4047,7 +4068,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
                                            "do pedido. Se a conversa só tem mesmo uma mensagem, registre de novo."})
                         continue
                     x = api(token, "atendimento_receber", corpo={
-                        "canal": "tiktok_shop", "cliente": str(ent.get("cliente") or "")[:80],
+                        "canal": canal, "cliente": str(ent.get("cliente") or "")[:80],
                         "externo_id": str(ent.get("cliente") or "")[:80], "texto": str(ent.get("mensagem") or "")[:3000],
                         "historico": hist or None, "respondido": bool(ent.get("respondido")) or bool(ent.get("fechado")),
                         "fechado": bool(ent.get("fechado")),
@@ -4070,8 +4091,8 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
                     txt = _atendente_enviar(pg, ent, estado, aprovadas, token)
                 elif b["name"] == "terminar":
                     txt, fim = "Fim.", str(ent.get("resumo") or "")[:2000]
-                elif b["name"] == "abrir" and "tiktok" not in str(ent.get("url") or ""):
-                    txt = "Só o Seller Center da TikTok."
+                elif b["name"] == "abrir" and dominio not in str(ent.get("url") or ""):
+                    txt = f"Só a central do vendedor da {nome}."
                 else:
                     txt = _nav_executar(pg, b["name"], ent, estado, False, token, 0)[0]
             except Exception as ex:  # noqa: BLE001
@@ -4085,19 +4106,19 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
                 break
     try:
         if re.search(r"chat|im|message|bate", pg.url, re.I):
-            cfg["tiktok_chat_url"] = pg.url.split("?")[0]
-        pg.goto(cfg.get("tiktok_chat_url") or ATENDENTE_URL, timeout=60000)
+            cfg[k_url] = pg.url.split("?")[0]
+        pg.goto(cfg.get(k_url) or url_ini, timeout=60000)
         pg.wait_for_timeout(4000)
-        cfg["tiktok_marca_v4"] = _atendente_marca(pg)   # v2: a versão com histórico lê tudo uma vez
+        cfg[k_marca] = _atendente_marca(pg)
     except Exception:  # noqa: BLE001
         pass
     salvar_config(cfg)
     _gasto_atendente(cfg, custo)
-    resumo = (f"🎵 Atendente TikTok: {estado.get('registradas', 0)} mensagem(ns) trazida(s) para o nubi, "
+    resumo = (f"{'🎵' if canal == 'tiktok_shop' else '🛍️'} {autor}: {estado.get('registradas', 0)} mensagem(ns) trazida(s) para o nubi, "
               f"{estado.get('enviadas', 0)} resposta(s) enviada(s) (~US$ {custo:.2f}; {estado.get('gratis', 0)} passo(s) com a IA "
               f"grátis, {estado.get('pago', 0)} com a paga).")
     if estado.get("registradas") or estado.get("enviadas") or (fim and re.search(r"login|captcha|verifica", fim, re.I)):
-        _postar_hermes_como(token, "Atendente TikTok", resumo + (f"\n{fim[:600]}" if fim else ""), custo)
+        _postar_hermes_como(token, autor, resumo + (f"\n{fim[:600]}" if fim else ""), custo)
     return custo, estado, resumo + (f"\n{fim}" if fim else "")
 
 
@@ -4107,6 +4128,14 @@ def _atendente_pronto(cfg):
     if _gasto_atendente(cfg) >= ATENDENTE_TETO_DIA:
         chave = ""                                  # teto: segue só com a IA grátis
     return chave or "", None
+
+
+def _canais_do_atendente(pend):
+    """Plataformas ligadas no nubi que este coletor sabe atender (TikTok Shop, Shopee…)."""
+    canais = pend.get("canais")
+    if canais is None:                                   # servidor antigo: só a TikTok
+        canais = ["tiktok_shop"] if pend.get("atendente") else []
+    return [c for c in canais if c in PLATAFORMAS]
 
 
 def cmd_atender_tiktok(args, cfg):
@@ -4124,7 +4153,9 @@ def cmd_atender_tiktok(args, cfg):
             ctx = abrir_navegador(p, cfg, visivel=True)
             try:
                 pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-                print(_rodada_atendente(pg, cfg, chave, token, _gasto_atendente(cfg))[2])
+                pend = api(token, "atendimento_para_enviar", timeout=60)
+                for canal in _canais_do_atendente(pend):
+                    print(_rodada_atendente(pg, cfg, chave, token, _gasto_atendente(cfg), canal, pend)[2])
                 guardar_sessao(ctx)
             finally:
                 ctx.close()
@@ -4143,13 +4174,13 @@ ATENDENTE_PC_A_CADA = int(os.environ.get("NUBI_ATENDENTE_SEG", "120"))
 
 
 def cmd_atendente(args, cfg):
-    """Fica ligado (no PC do Bruno ou em qualquer computador): uma janela do Chrome aberta no chat da TikTok Shop, olhando
-    a cada 2 min. Enquanto roda, avisa o nubi e o Mac fica quieto. Ctrl+C para parar."""
+    """Fica ligado (no PC do Bruno ou em qualquer computador): uma janela do Chrome que passa pelo chat de cada plataforma
+    ligada no nubi (TikTok Shop, Shopee), a cada 2 min. Enquanto roda, avisa o nubi e o Mac fica quieto. Ctrl+C para parar."""
     from playwright.sync_api import sync_playwright
     chave, _ = _atendente_pronto(cfg)
     token = token_nubi(cfg)
-    print("🎵 Atendente da TikTok Shop ligado neste computador. Deixe esta janela aberta (Ctrl+C para parar).")
-    print("   Na primeira vez, entre na sua conta do Seller Center na janela do Chrome que vai abrir.")
+    print("🎵🛍️ Atendente ligado neste computador (TikTok Shop, Shopee). Deixe esta janela aberta (Ctrl+C para parar).")
+    print("   Na primeira vez, entre na central do vendedor de cada plataforma na janela do Chrome que vai abrir.")
     novo = None
     with sync_playwright() as p:
         ctx = abrir_navegador(p, cfg, visivel=True)
@@ -4170,12 +4201,13 @@ def cmd_atendente(args, cfg):
                 voltas += 1
                 try:
                     x = api(token, "atendimento_para_enviar", {"computador": "pc"}, timeout=60)
-                    if x.get("atendente") is False:
-                        print(f"{agora} ⏸ desligado no nubi (Minhas Lojas → TikTok Shop → Ligar atendente).", flush=True)
-                    else:
+                    canais = _canais_do_atendente(x)
+                    if not canais:
+                        print(f"{agora} ⏸ desligado no nubi (Minhas Lojas → TikTok Shop / Shopee → Ligar atendente).", flush=True)
+                    for canal in canais:
                         cfg = ler_config()
-                        chave, aviso = _atendente_pronto(cfg)
-                        print(f"{agora} " + (aviso or _rodada_atendente(pg, cfg, chave, token, _gasto_atendente(cfg))[2]), flush=True)
+                        chave, _ = _atendente_pronto(cfg)
+                        print(f"{agora} " + _rodada_atendente(pg, cfg, chave, token, _gasto_atendente(cfg), canal, x)[2], flush=True)
                         guardar_sessao(ctx)
                 except KeyboardInterrupt:
                     raise
@@ -4562,7 +4594,7 @@ def main():
     sub.add_parser("ferreiro-conversa", help="o Ferreiro responde a conversa direta com o Bruno no nubi (só leitura do projeto)")
     nvg = sub.add_parser("navegar", help="o Navegador (Claude controlando o Chrome do coletor) faz a tarefa do card N")
     nvg.add_argument("id")
-    sub.add_parser("atendente", help="fica ligado neste computador atendendo o chat da TikTok Shop (Ctrl+C para parar)")
+    sub.add_parser("atendente", help="fica ligado neste computador atendendo o chat da TikTok Shop e da Shopee (Ctrl+C para parar)")
     sub.add_parser("atender-tiktok", help="o atendente olha o chat da TikTok Shop, traz as mensagens ao nubi e envia as aprovadas")
     pga = sub.add_parser("programar-astra", help="o Astra (Codex no Mac, modelo do Astra) faz o card de design N e envia num branch")
     pga.add_argument("id")

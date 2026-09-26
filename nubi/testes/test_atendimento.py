@@ -193,7 +193,7 @@ def test_tiktok_aprendido_sai_sozinho_pelo_mac_e_duvida_vai_ao_bruno():
     a.salvar_item_kb(r, "principal", "Vendemos perfumes tester?", "Sim, vendemos tester. Pergunte qual perfume o cliente quer.")
     texto = "Oi! Sim, vendemos tester! Qual perfume você quer? Qualquer coisa, é só chamar!"
     x = a.receber(r, "tiktok_shop", "vocês vendem tester?", cliente="leidi", externo_id="leidi", gerar=_ia(iter([texto])))
-    assert x.get("automatico") and x["pelo_mac"] and a.para_enviar(r) == [{"id": x["id"], "cliente": "leidi", "texto": texto}]
+    assert x.get("automatico") and x["pelo_mac"] and a.para_enviar(r) == [{"id": x["id"], "cliente": "leidi", "texto": texto, "canal": "tiktok_shop"}]
     a.marcar_enviado(r, x["id"])
     assert a.para_enviar(r) == [] and a.metricas(r)["automaticas"] == 1
     # a mesma mensagem lida de novo pelo atendente não duplica nada
@@ -318,6 +318,19 @@ def test_gpt_oss_com_ferramentas_no_formato_da_anthropic():
     c = enviados[0]
     assert c["tools"][0]["function"]["name"] == "clicar" and c["messages"][2]["tool_calls"][0]["function"]["name"] == "ler"
     assert c["messages"][3]["role"] == "tool"
+
+
+def test_shopee_tem_atendente_proprio():
+    r = Repo()
+    a.rota(r, "POST", "atendimento_ligar", {}, json.dumps({"canal": "shopee", "ligado": True}).encode())
+    assert a.canais_ligados(r) == ["shopee"] and not a.atendente_ligado(r, "tiktok_shop")
+    a.salvar_item_kb(r, "principal", "Vocês vendem perfumes tester?", "Sim, vendemos tester.")
+    x = a.receber(r, "shopee", "vocês vendem tester?", cliente="joao", externo_id="joao",
+                  gerar=_ia(iter(["Oi! Sim, vendemos tester! Qualquer coisa, é só chamar!"])))
+    assert x.get("automatico") and a.para_enviar(r)[0]["canal"] == "shopee"
+    f = a.rota(r, "GET", "atendimento_fila", {"canal": "shopee"}, None)
+    assert [c["cliente"] for c in f["conversas"]] == ["joao"] and f["atendente"]
+    assert a.rota(r, "GET", "atendimento_fila", {"canal": "tiktok_shop"}, None)["conversas"] == []
 
 
 def test_atendente_do_mac_e_chamado_quando_ligado():

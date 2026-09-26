@@ -67,7 +67,8 @@ def registrar_canal(canal):
     return canal
 
 
-for _c in (CanalNavegador("tiktok_shop", "TikTok Shop"), Canal("whatsapp", "WhatsApp"), Canal("mercado_livre", "Mercado Livre")):
+for _c in (CanalNavegador("tiktok_shop", "TikTok Shop"), CanalNavegador("shopee", "Shopee"), Canal("whatsapp", "WhatsApp"),
+           Canal("mercado_livre", "Mercado Livre")):
     registrar_canal(_c)
 
 
@@ -625,11 +626,13 @@ def metricas(repo, dias=30):
             "por_intencao": {k: conta(v) for k, v in sorted(por.items())}}
 
 
-def fila(repo, status=None, lim=50):
-    """Conversas com o último rascunho e as mensagens, para a tela de aprovação."""
+def fila(repo, status=None, lim=80, canal_id=None):
+    """Conversas com o último rascunho e as mensagens, para a tela de aprovação (de um canal ou de todos)."""
     p = {"select": "*", "order": "atualizado_em.desc", "limit": lim}
     if status:
         p["status"] = f"in.({status})"
+    if canal_id:
+        p["canal"] = f"eq.{canal_id}"
     conversas = repo._req("GET", "atendimento_conversas", p) or []
     if not conversas:
         return []
@@ -649,20 +652,30 @@ ATENDENTE_CHAVE = "atendimento|tiktok_atendente"
 ATENDENTE_A_CADA_MIN = 5
 
 
-def atendente_ligado(repo):
-    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{ATENDENTE_CHAVE}"}) or [{}])[0]
+def chave_atendente(canal_id="tiktok_shop"):
+    return ATENDENTE_CHAVE if canal_id == "tiktok_shop" else f"atendimento|{canal_id}_atendente"
+
+
+def atendente_ligado(repo, canal_id="tiktok_shop"):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{chave_atendente(canal_id)}"}) or [{}])[0]
     return r.get("texto") == "ligado"
 
 
+def canais_ligados(repo):
+    """Canais pelo navegador (TikTok Shop, Shopee…) com o atendente ligado."""
+    return [c.id for c in CANAIS.values() if isinstance(c, CanalNavegador) and atendente_ligado(repo, c.id)]
+
+
 def para_enviar(repo):
-    """Respostas aprovadas que o atendente do Mac ainda precisa digitar no chat."""
+    """Respostas aprovadas que o atendente (PC/Mac) ainda precisa digitar no chat, com o canal de cada uma."""
     rs = repo._req("GET", "atendimento_rascunhos", {"select": "id,conversa_id,texto_final", "enviar_pelo_mac": "eq.true",
                                                     "enviado_em": "is.null", "order": "id", "limit": 20}) or []
     if not rs:
         return []
     ids = "in.(" + ",".join(str(r["conversa_id"]) for r in rs) + ")"
     conv = {c["id"]: c for c in repo._req("GET", "atendimento_conversas", {"select": "id,cliente,externo_id,canal", "id": ids}) or []}
-    return [{"id": r["id"], "cliente": (conv.get(r["conversa_id"]) or {}).get("cliente"), "texto": r["texto_final"]} for r in rs]
+    return [{"id": r["id"], "cliente": (conv.get(r["conversa_id"]) or {}).get("cliente"), "texto": r["texto_final"],
+             "canal": (conv.get(r["conversa_id"]) or {}).get("canal") or "tiktok_shop"} for r in rs]
 
 
 def marcar_enviado(repo, rascunho_id, ok=True, erro=None):
@@ -684,7 +697,7 @@ def atendente_proximo(repo, mac_online=True):
     """No tique do Mac: ligado, chama o atendente a cada 5 min (ou na hora, se há resposta aprovada esperando).
     Se o atendente está rodando no PC do Bruno (sinal nos últimos 10 min), o Mac não entra."""
     try:
-        if not mac_online or not atendente_ligado(repo) or atendente_no_pc(repo):
+        if not mac_online or not canais_ligados(repo) or atendente_no_pc(repo):
             return None
         if repo._req("GET", "mac_comandos", {"select": "id", "comando": "in.(atender_tiktok,navegar_card)",
                                              "status": "in.(pendente,rodando)", "limit": 1}):
@@ -704,7 +717,7 @@ def atendente_proximo(repo, mac_online=True):
 
 FECHADOS_CHAVE = "atendimento|importar_fechados"
 APRENDER_CHAVE = "atendimento|aprender_vez"
-PAPEL_APRENDIZ = """Você lê conversas reais do chat da loja de perfumes do Bruno (TikTok Shop) e tira PADRÕES para a base de
+PAPEL_APRENDIZ = """Você lê conversas reais do chat da loja de perfumes do Bruno (TikTok Shop, Shopee…) e tira PADRÕES para a base de
 conhecimento do atendimento: perguntas que outros clientes também fariam (política, troca, envio, prazo padrão, tester,
 lote/embalagem, autenticidade, horário, produto) e a resposta que a LOJA deu. Regras:
 - use SÓ o que a LOJA respondeu na conversa; nunca invente;
@@ -769,10 +782,12 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
     """Rotas /api/atendimento_* do nubi_web."""
     d = json.loads(corpo or b"{}") if metodo == "POST" else {}
     if nome == "atendimento_fila":
-        return {"conversas": fila(repo, q.get("status")), "canais": [{"id": c.id, "nome": c.nome} for c in CANAIS.values()],
-                "atendente": atendente_ligado(repo), "auto": auto_ligado(repo), "no_pc": atendente_no_pc(repo)}
+        cid = q.get("canal") or None
+        return {"conversas": fila(repo, q.get("status"), canal_id=cid), "canais": [{"id": c.id, "nome": c.nome} for c in CANAIS.values()],
+                "atendente": atendente_ligado(repo, cid or "tiktok_shop"), "auto": auto_ligado(repo), "no_pc": atendente_no_pc(repo)}
     if nome == "atendimento_ligar" and metodo == "POST":
-        repo._req("POST", "ia_resumos", corpo=[{"chave": ATENDENTE_CHAVE, "texto": "ligado" if d.get("ligado") else "desligado",
+        repo._req("POST", "ia_resumos", corpo=[{"chave": chave_atendente(d.get("canal") or "tiktok_shop"),
+                                                "texto": "ligado" if d.get("ligado") else "desligado",
                                                 "ia": "atendente", "criado_em": _agora()}],
                   prefer="resolution=merge-duplicates,return=minimal")
         if d.get("ligado") or d.get("agora"):
@@ -801,9 +816,13 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
         n = {}
         for m in repo._req("GET", "atendimento_mensagens", {"select": "conversa_id", "limit": 50000}) or []:
             n[m["conversa_id"]] = n.get(m["conversa_id"], 0) + 1
-        conhecidos = [c["cliente"] for c in repo._req("GET", "atendimento_conversas", {"select": "id,cliente", "canal": "eq.tiktok_shop",
-                                                                                       "limit": 2000}) or [] if c.get("cliente") and n.get(c["id"], 0) >= 2]
-        return {"itens": para_enviar(repo), "atendente": atendente_ligado(repo), "importar_fechados": fech, "conhecidos": conhecidos}
+        por_canal = {}
+        for c in repo._req("GET", "atendimento_conversas", {"select": "id,cliente,canal", "limit": 5000}) or []:
+            if c.get("cliente") and n.get(c["id"], 0) >= 2:
+                por_canal.setdefault(c.get("canal") or "tiktok_shop", []).append(c["cliente"])
+        ligados = canais_ligados(repo)
+        return {"itens": para_enviar(repo), "atendente": bool(ligados), "canais": ligados, "importar_fechados": fech,
+                "conhecidos": por_canal.get("tiktok_shop", []), "conhecidos_por_canal": por_canal}
     if nome == "atendimento_fechados" and metodo == "POST":
         repo._req("POST", "ia_resumos", corpo=[{"chave": FECHADOS_CHAVE, "texto": "pendente" if d.get("importar") else "feito",
                                                 "ia": "atendente", "criado_em": _agora()}], prefer="resolution=merge-duplicates,return=minimal")

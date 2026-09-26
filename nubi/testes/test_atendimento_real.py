@@ -49,6 +49,17 @@ try:
             pg.click("[data-at-aba=kb]"); pg.wait_for_selector(".at-kb-item", timeout=10000)
             assert pergunta in pg.inner_text(".at-kb"), nome
             assert not erros, erros
+            if nome == "pc":        # 🛍️ Shopee: mesma tela, conversas só da Shopee
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/shopee"); pg.wait_for_selector("[data-at-aba=tudo]", timeout=15000)
+                pg.click("[data-at-aba=tudo]"); pg.wait_for_selector(".atx", timeout=15000)
+                assert "Shopee · Atendimento" in pg.inner_text("h1") and "Ana pc" not in pg.inner_text(".atx-lista")
+                pg.click("#atx-colar"); pg.fill("#at-cli", "joao shopee"); pg.fill("#at-txt", "vocês têm loja física?")
+                pg.click("#at-nova button"); pg.wait_for_selector(".atx-alerta", timeout=10000)
+                assert "joao shopee" in pg.inner_text(".atx-lista")
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/tiktok"); pg.wait_for_selector("h1", timeout=15000); pg.wait_for_timeout(1500)
+                assert "TikTok Shop · Atendimento" in pg.inner_text("h1")
+                assert "joao shopee" not in pg.inner_text(".atx-lista")
+                assert not erros, erros
         b.close()
 finally:
     srv.terminate()

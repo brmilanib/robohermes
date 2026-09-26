@@ -208,6 +208,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `NUBI_ATENDENTE_SEG`); senhas no Gerenciador de Credenciais (`keyring`, `cofre_ler`/`cofre_gravar`). Enquanto o PC dá
   sinal (`atendimento|computador`, 10 min), o Mac não é chamado. `_processo_vivo` não usa `os.kill(pid, 0)` no Windows (lá
   isso ENCERRA o processo).
+- **Shopee (26/09)**: mesmo módulo e mesmo atendente. Canal `shopee` (`CanalNavegador`), liga/desliga por canal
+  (`chave_atendente`, `canais_ligados`); o coletor passa por cada plataforma ligada (`PLATAFORMAS`, `DICAS_PLATAFORMA`,
+  config por plataforma em `_plat_cfg`). Tela Minhas Lojas → 🛍️ Shopee (`telaAtendimento("shopee")`).
 - Responder sozinho (`pode_sozinho`, ligado por padrão, `atendimento|auto`): sai sem aprovação quando a pergunta está coberta
   pela base (`cobre` ≥ 0,75) e não é pedido/troca/reclamação, na saudação, e logo depois que o Bruno responde uma dúvida
   embaixo. O resto espera aprovação. O acerto mede só o que o Bruno decidiu; as automáticas contam à parte.

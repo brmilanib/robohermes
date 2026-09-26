@@ -1220,8 +1220,9 @@ function desenharMenu() {
       cont((S.vendLista || []).length) + seta("vendedores", (S.vendLista || []).length > 0))}
     ${ab.vendedores ? `<div class="subnav" id="sub-vend"></div>` : ""}
     <div class="grupo">Minhas Lojas</div>
-    ${it("#/estoque", "📦", "Estoque", sec === "lojas" && !h.startsWith("#/estoque/tiktok"))}
+    ${it("#/estoque", "📦", "Estoque", sec === "lojas" && !h.startsWith("#/estoque/tiktok") && !h.startsWith("#/estoque/shopee"))}
     ${it("#/estoque/tiktok", "🎵", "TikTok Shop", h.startsWith("#/estoque/tiktok"))}
+    ${it("#/estoque/shopee", "🛍️", "Shopee", h.startsWith("#/estoque/shopee"))}
     <div class="grupo">Central</div>
     ${it("#/central", "🛠️", "Central", OPS_ABAS.some(a => a.on(h)),
       S.opsRes && S.opsRes.erros_hoje ? `<span class="badge" title="erros hoje (aba Erros)">${S.opsRes.erros_hoje}</span>` : "")}
@@ -1280,7 +1281,7 @@ async function rotear() {
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   desenharBarraBaixo();
   if (sec === "inicio") return telaInicio();
-  if (sec === "lojas") return location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/tiktok") ? telaAtendimento() : telaEstoque();
+  if (sec === "lojas") return location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/tiktok") ? telaAtendimento("tiktok_shop") : location.hash.startsWith("#/estoque/shopee") ? telaAtendimento("shopee") : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -2614,7 +2615,8 @@ const esAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px"><but
   <button class="${ativa === "gestor" ? "on" : ""}" onclick="location.hash='#/estoque/gestor'">🧾 Planilha do Gestor Seller</button>
   <button class="${ativa === "posicoes" ? "on" : ""}" onclick="location.hash='#/estoque/posicoes'">📈 Posição do anúncio</button>
   <button class="${ativa === "rank" ? "on" : ""}" onclick="location.hash='#/estoque/rankeamento'">🧪 Rankeamento</button>
-  <button class="${ativa === "tiktok" ? "on" : ""}" onclick="location.hash='#/estoque/tiktok'">🎵 TikTok Shop</button></div>`;
+  <button class="${ativa === "tiktok" ? "on" : ""}" onclick="location.hash='#/estoque/tiktok'">🎵 TikTok Shop</button>
+  <button class="${ativa === "shopee" ? "on" : ""}" onclick="location.hash='#/estoque/shopee'">🛍️ Shopee</button></div>`;
 // ---------- Minhas Lojas → 🧪 Laboratório de Rankeamento: a box onde todos os agentes juntam técnicas do algoritmo do ML ----------
 const RK_TIPO = {tecnica: "🛠️ Técnica", hipotese: "💭 Hipótese", experimento: "🧪 Experimento", resultado: "📊 Resultado", pergunta: "❓ Pergunta"};
 const RK_ST = {nova: ["", "nova"], testando: ["warn", "testando"], comprovada: ["good", "✅ comprovada"], descartada: ["bad", "descartada"]};
@@ -2678,15 +2680,18 @@ const AT_INTENCAO = {rastreio: "📦 rastreio", pedido: "🧾 pedido", produto: 
   reclamacao: "⚠️ reclamação", horario: "🕘 horário", saudacao: "👋 saudação", outro: "💬 outro", manual: "✍️ manual"};
 const AT_PEDIDO = [["id", "Nº do pedido"], ["status", "Status"], ["transportadora", "Logística"], ["rastreio", "Nº de rastreio"],
   ["previsao_entrega", "Entrega estimada"], ["ultima_atualizacao", "Última atualização"]];
-async function telaAtendimento() {
+const AT_CANAIS = {tiktok_shop: {slug: "tiktok", nome: "TikTok Shop", ic: "🎵"}, shopee: {slug: "shopee", nome: "Shopee", ic: "🛍️"}};
+async function telaAtendimento(canal = "tiktok_shop") {
+  const CN = AT_CANAIS[canal], rotaAqui = "#/estoque/" + CN.slug;
+  if (S.atCanalAtual !== canal) { S.atCanalAtual = canal; S.atConv = null; S.atCarregou = false; }
   const main = $("#main"), aba = S.atAba || "tudo";
-  if (!S.atCarregou) main.innerHTML = esAbas("tiktok") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o atendimento</div></div>`;
+  if (!S.atCarregou) main.innerHTML = esAbas(CN.slug) + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o atendimento</div></div>`;
   let f, m, kb;
   try {
-    [f, m, kb] = await Promise.all([api("atendimento_fila"), api("atendimento_metricas"), aba === "kb" ? api("atendimento_kb") : Promise.resolve({itens: []})]);
+    [f, m, kb] = await Promise.all([api("atendimento_fila", {canal}), api("atendimento_metricas"), aba === "kb" ? api("atendimento_kb") : Promise.resolve({itens: []})]);
     kb.propostas = aba === "kb" ? ((await api("atendimento_kb", {status: "proposta"})).itens || []) : [];
-  } catch (e) { main.innerHTML = esAbas("tiktok") + `<div class="card empty">${esc(e.message)}</div>`; return; }
-  if (!location.hash.startsWith("#/estoque/tiktok")) return;
+  } catch (e) { main.innerHTML = esAbas(CN.slug) + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith(rotaAqui)) return;
   S.atCarregou = true;
   const t = m.total || {}, conv = f.conversas || [], pct = v => v == null ? "—" : Math.round(v * 100) + "%";
   const st = c => (c.rascunho || {}).status;
@@ -2741,7 +2746,7 @@ async function telaAtendimento() {
                 ["aprovar", `✍️ Aprovar (${conv.filter(filtros.aprovar).length})`], ["sozinho", "🤖 Respondidas sozinho"],
                 ["fechados", `🗂️ Fechados (${conv.filter(filtros.fechados).length})`], ["kb", "📚 Base de conhecimento"]];
   const corpo = aba === "kb" ? `<div class="card pad"><div class="es-cab"><h2>Base de conhecimento</h2>
-        <div class="acoes"><button class="btn small" id="kb-fechados" title="o atendente abre a aba Fechados do TikTok e traz o histórico">📥 Trazer os chats fechados</button>
+        <div class="acoes">${canal === "tiktok_shop" ? `<button class="btn small" id="kb-fechados" title="o atendente abre a aba Fechados do TikTok e traz o histórico">📥 Trazer os chats fechados</button>` : ""}
           <button class="btn small" id="kb-aprender" title="a IA grátis lê as conversas e propõe perguntas e respostas padrão">🧠 Aprender com os chats</button></div></div>
       <p class="muted" style="font-size:12.5px">Perguntas-tipo com a resposta padrão da loja. Toda resposta sua a uma dúvida vira um item aqui; os padrões tirados dos chats antigos chegam como propostas e só respondem sozinhos depois que você aprova.</p>
       ${(kb.propostas || []).length ? `<div class="es-cab" style="margin-top:10px"><h3 style="margin:0">🧠 Propostas dos chats (${kb.propostas.length})</h3>
@@ -2759,7 +2764,7 @@ async function telaAtendimento() {
           ${lista.map(item).join("") || `<div class="muted" style="padding:14px">Nenhuma conversa aqui.</div>`}</div>
         <div class="atx-chat">${chat(aberta)}</div>
         <div class="atx-info">${info(aberta)}</div></div>`;
-  main.innerHTML = esAbas("tiktok") + `<div class="es-cab"><h1>🎵 TikTok Shop · Atendimento</h1>
+  main.innerHTML = esAbas(CN.slug) + `<div class="es-cab"><h1>${CN.ic} ${CN.nome} · Atendimento</h1>
       <div class="acoes"><button class="btn small ${f.atendente ? "" : "primary"}" id="at-ligar">${f.atendente ? "⏸ Desligar atendente" : "▶️ Ligar atendente"}</button>
         <button class="btn small" id="at-agora" title="olhar o chat agora">🔄 Sincronizar</button></div></div>
     <div class="at-num"><span>${f.atendente ? (f.no_pc ? "🟢 ligado no seu PC (a cada 2 min)" : "🟢 ligado no Mac mini (a cada 5 min)") : "⚪ atendente desligado"}</span>
@@ -2767,15 +2772,15 @@ async function telaAtendimento() {
       <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="at-auto" ${f.auto ? "checked" : ""}> responder sozinho o que já aprendeu</label></div>
     <div class="seg es-seg" style="margin-bottom:10px">${abas.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-at-aba="${k}">${n}</button>`).join("")}</div>${corpo}`;
   const post = (rota, corpo_) => api(rota, {}, {method: "POST", body: JSON.stringify(corpo_)});
-  const agir = async (fn, ok) => { try { const x = await fn(); if (ok) toast(ok(x), 7000); telaAtendimento(); } catch (e) { toast(e.message, 7000); } };
+  const agir = async (fn, ok) => { try { const x = await fn(); if (ok) toast(ok(x), 7000); telaAtendimento(canal); } catch (e) { toast(e.message, 7000); } };
   if ($("#atx-msgs")) $("#atx-msgs").scrollTop = 1e6;
-  main.querySelectorAll("[data-at-aba]").forEach(b => b.onclick = () => { S.atAba = b.dataset.atAba; telaAtendimento(); });
-  main.querySelectorAll("[data-atx-conv]").forEach(b => b.onclick = () => { S.atConv = +b.dataset.atxConv; telaAtendimento(); });
-  if ($("#atx-voltar")) $("#atx-voltar").onclick = () => { S.atConv = null; telaAtendimento(); };
-  if ($("#atx-loja")) $("#atx-loja").onchange = e => { S.atLoja = e.target.value; telaAtendimento(); };
+  main.querySelectorAll("[data-at-aba]").forEach(b => b.onclick = () => { S.atAba = b.dataset.atAba; telaAtendimento(canal); });
+  main.querySelectorAll("[data-atx-conv]").forEach(b => b.onclick = () => { S.atConv = +b.dataset.atxConv; telaAtendimento(canal); });
+  if ($("#atx-voltar")) $("#atx-voltar").onclick = () => { S.atConv = null; telaAtendimento(canal); };
+  if ($("#atx-loja")) $("#atx-loja").onchange = e => { S.atLoja = e.target.value; telaAtendimento(canal); };
   if ($("#atx-colar")) $("#atx-colar").onclick = () => { S.atColar = !S.atColar; $("#at-nova").hidden = !S.atColar; };
   if ($("#at-nova")) $("#at-nova").onsubmit = e => { e.preventDefault(); const texto = $("#at-txt").value.trim(); if (!texto) return;
-    agir(() => post("atendimento_receber", {canal: "tiktok_shop", texto, cliente: $("#at-cli").value.trim() || null, pedido: $("#at-ped").value.trim() || null}),
+    agir(() => post("atendimento_receber", {canal, texto, cliente: $("#at-cli").value.trim() || null, pedido: $("#at-ped").value.trim() || null}),
       x => { S.atConv = x.rascunho.conversa_id; S.atColar = false;
         return x.rascunho.automatico ? "Já sabia: respondi sozinho." : x.rascunho.status === "pendente" ? "Rascunho pronto: confira e envie." : "Faltou dado: me responda embaixo."; }); };
   if ($("#atx-env")) $("#atx-env").onclick = () => { const r = aberta.rascunho || {}, txt = $("#atx-txt").value.trim(); if (!txt) return toast("Escreva a mensagem.");
@@ -2791,9 +2796,9 @@ async function telaAtendimento() {
     agir(() => post("atendimento_mensagem", {conversa_id: aberta.id, texto: txt}), x => x.pelo_mac ? "Mensagem a caminho do cliente." : "Pronta: copie e cole no chat."); };
   if ($("#atx-rej")) $("#atx-rej").onclick = () => { const motivo = prompt("Por que rejeitar? (ajuda a treinar)"); if (motivo === null) return;
     agir(() => post("atendimento_decidir", {id: aberta.rascunho.id, acao: "rejeitar", texto: motivo}), () => "Rejeitado."); };
-  $("#at-ligar").onclick = () => agir(() => post("atendimento_ligar", {ligado: !f.atendente}),
+  $("#at-ligar").onclick = () => agir(() => post("atendimento_ligar", {canal, ligado: !f.atendente}),
     x => x.atendente ? "Atendente ligado." : "Atendente desligado.");
-  $("#at-agora").onclick = () => agir(() => post("atendimento_ligar", {ligado: f.atendente, agora: true}), () => "Pedido enviado: o chat é olhado em até 1 min.");
+  $("#at-agora").onclick = () => agir(() => post("atendimento_ligar", {canal, ligado: f.atendente, agora: true}), () => "Pedido enviado: o chat é olhado em até 1 min.");
   $("#at-auto").onchange = e => agir(() => post("atendimento_auto", {ligado: e.target.checked}),
     x => x.auto ? "Ele responde sozinho o que já aprendeu." : "Tudo passa pela sua aprovação.");
   if ($("#kb-novo")) $("#kb-novo").onsubmit = e => { e.preventDefault();
@@ -2811,7 +2816,7 @@ async function telaAtendimento() {
     const nova = prompt("Nova resposta padrão (a antiga fica guardada como substituída):", k.resposta); if (!nova || nova.trim() === k.resposta) return;
     agir(() => post("atendimento_kb_salvar", {pergunta: k.pergunta, resposta: nova, loja: k.loja, substitui: k.id}), () => "Nova versão salva."); });
   clearTimeout(S.atTimer);                   // atualiza sozinha a cada 30 s enquanto a tela está aberta (sem apagar o que você digita)
-  S.atTimer = setTimeout(() => { if (location.hash.startsWith("#/estoque/tiktok") && !($("#atx-txt") && $("#atx-txt").value.trim() && document.activeElement === $("#atx-txt"))) telaAtendimento(); }, 30000);
+  S.atTimer = setTimeout(() => { if (location.hash.startsWith(rotaAqui) && !($("#atx-txt") && $("#atx-txt").value.trim() && document.activeElement === $("#atx-txt"))) telaAtendimento(canal); }, 30000);
 }
 
 // ---------- Minhas Lojas → Posição do anúncio (card #78): posição e página de cada anúncio meu na busca do Mercado Livre ----------
