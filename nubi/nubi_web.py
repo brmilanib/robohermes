@@ -2644,12 +2644,30 @@ def ligar_registro_uso(repo, origem):
     ia.USO.update({"gravar": gravar, "origem": origem})
 
 
+def _resumo_uso(xs):
+    """Soma chamadas/tokens/custo de uma lista de agentes_uso e o detalhamento por rotina/tarefa (origem) — card #18.
+    Lista vazia (nenhuma chamada no período) fica com chamadas=0: a tela mostra 'Sem dados', nunca um zero calculado."""
+    grupos = {}
+    for x in xs:
+        g = grupos.setdefault(x.get("origem") or "outros", {"origem": x.get("origem") or "outros",
+                                                              "chamadas": 0, "tokens_in": 0, "tokens_out": 0, "custo": 0.0})
+        g["chamadas"] += 1
+        g["tokens_in"] += int(x.get("tokens_in") or 0)
+        g["tokens_out"] += int(x.get("tokens_out") or 0)
+        g["custo"] += float(x.get("custo_usd") or 0)
+    detalhe = sorted((dict(g, custo=round(g["custo"], 4)) for g in grupos.values()), key=lambda d: -d["custo"])[:8]
+    return {"chamadas": len(xs), "tokens_in": sum(int(x.get("tokens_in") or 0) for x in xs),
+            "tokens_out": sum(int(x.get("tokens_out") or 0) for x in xs),
+            "custo": round(sum(float(x.get("custo_usd") or 0) for x in xs), 4), "detalhe": detalhe}
+
+
 def _agentes_painel(repo):
     ags = repo._todos("agentes", {"select": "*", "order": "ordem"})
     agora = datetime.now(timezone.utc)
     inicio_mes = agora.replace(day=1, hour=3, minute=0, second=0, microsecond=0)    # 00h de Brasília do dia 1
+    janela = min(inicio_mes, agora - timedelta(days=31))   # cobre também Ontem e os últimos 7/30 dias (card #18)
     usos = repo._todos("agentes_uso", {"select": "agente,modelo,origem,inicio,fim,ok,tokens_in,tokens_out,custo_usd,erro",
-                                       "inicio": f"gte.{(min(inicio_mes, agora - timedelta(days=1))).isoformat()}",
+                                       "inicio": f"gte.{janela.isoformat()}",
                                        "order": "inicio"})
     hoje = _agora_br().date()
     ult_msg = {}
@@ -2658,9 +2676,10 @@ def _agentes_painel(repo):
     for a in ags:
         u = [x for x in usos if x["agente"] == a["id"]]
         dia = [x for x in u if _br(x["inicio"]).date() == hoje]
+        ontem = [x for x in u if _br(x["inicio"]).date() == hoje - timedelta(days=1)]
+        dia7 = [x for x in u if _br(x["inicio"]).date() > hoje - timedelta(days=7)]
+        dia30 = [x for x in u if _br(x["inicio"]).date() > hoje - timedelta(days=30)]
         mes = [x for x in u if str(x["inicio"]) >= inicio_mes.isoformat()]
-        soma = lambda xs, k: sum(int(x.get(k) or 0) for x in xs)
-        custo = lambda xs: round(sum(float(x.get("custo_usd") or 0) for x in xs), 4)
         sem_preco = any(x.get("ok") and x.get("custo_usd") is None and (x.get("tokens_in") or x.get("tokens_out")) for x in mes)
         rodando = [x for x in u if not x.get("fim") and str(x["inicio"]) > (agora - timedelta(minutes=10)).isoformat()]
         erros = [x for x in u if x.get("ok") is False and str(x["inicio"]) > (agora - timedelta(hours=24)).isoformat()]
@@ -2668,8 +2687,8 @@ def _agentes_painel(repo):
         chave = ia.tem(qual) if qual else None
         ultima = max([str(x["inicio"]) for x in u] + [str(ult_msg.get(AGENTE_AUTOR.get(a["id"]), ""))] or [""])
         a.update({
-            "hoje": {"chamadas": len(dia), "tokens_in": soma(dia, "tokens_in"), "tokens_out": soma(dia, "tokens_out"), "custo": custo(dia)},
-            "mes": {"chamadas": len(mes), "tokens_in": soma(mes, "tokens_in"), "tokens_out": soma(mes, "tokens_out"), "custo": custo(mes)},
+            "hoje": _resumo_uso(dia), "mes": _resumo_uso(mes), "ontem": _resumo_uso(ontem),
+            "dia7": _resumo_uso(dia7), "dia30": _resumo_uso(dia30),
             "sem_preco": sem_preco, "rodando": [{"origem": x.get("origem"), "desde": x["inicio"]} for x in rodando],
             "erros_24h": len(erros), "ultimo_erro": erros[-1]["erro"] if erros else None,
             "modelo_atual": next((x["modelo"] for x in reversed(u) if x.get("modelo") and x.get("ok")), None),
