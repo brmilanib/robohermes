@@ -19,7 +19,7 @@ errado e pesquisado. No futuro, vira o material de treino de um agente especiali
 | Fase | O quê | Situação |
 |---|---|---|
 | 1 | **Base única** (`saber`): tudo num lugar, com tipo, data, autor, fonte e links; toda pesquisa na internet guardada | ✅ 26/09 |
-| 2 | Pedaços com **frase de contexto** + **vetores** (pgvector) + busca **híbrida** (significado + palavra) + **reordenação** | próxima |
+| 2 | Pedaços com **frase de contexto** + **vetores** (pgvector) + busca **híbrida** (significado + palavra) + **reordenação** | ✅ 26/09 (indexando) |
 | 3 | Organização viva: Hermes/Qwen marcam duplicado, velho e contraditório; decisão nova substitui a antiga (`substituido_por`) | depois |
 | 4 | **Conjunto de treino** (perguntas e respostas revisadas) para um agente próprio do nubi | futuro |
 
@@ -96,3 +96,26 @@ Parâmetros técnicos confirmados nas fontes oficiais (Anthropic, OpenAI e pgvec
 Ponto de atenção: a Anthropic diz que uma base menor que cerca de 200 mil tokens cabe inteira no prompt com cache, sem RAG.
 A `saber` tinha cerca de 120 mil tokens em 26/09, mas cresce todo dia. A fase 2 continua valendo, e um teste próprio em
 português vem antes de confiar nos números publicados, que são em inglês.
+
+## Fase 2 (no ar em 26/09)
+
+- **`saber_trechos`**: cada item da `saber` vira pedaços de ~2.400 caracteres (~650 tokens) com 500 de sobreposição.
+- **Frase de contexto** em todo pedaço:
+  - um cabeçalho fixo e grátis (tipo, origem, data de Brasília, autor e título);
+  - nos itens com mais de um pedaço, uma frase escrita pelo gpt-oss grátis lendo o item inteiro, com o glossário do nubi
+    (técnica da Anthropic). O DeepSeek fica de reserva.
+- **Vetor**: `text-embedding-3-small` de "contexto + pedaço". Custo de centavos para a base toda.
+- **Busca híbrida** (`buscar_hibrido`):
+  - até 60 pedaços por significado (índice HNSW) + até 60 por palavra (`tsvector` em português, sem acento, qualquer
+    palavra);
+  - fusão por posição (RRF, k=60) e o melhor pedaço de cada item;
+  - decisão substituída vale metade.
+- **Reordenação**: para os agentes (`BUSCAR:`), o gpt-oss grátis reordena os 20 melhores. A barra da Sala não reordena,
+  para ficar rápida.
+- **Reserva**: sem OpenAI, sem pedaços ou com erro, a busca volta para a de palavra da fase 1. Enquanto a indexação
+  inicial não termina, os resultados da fase 1 completam a lista.
+- **Atualização**: `saber.indexar` roda de hora em hora e refaz só o que mudou (md5 do título + texto).
+- **Teste**: 20 perguntas reais escritas com outras palavras (`saber.AVALIACAO`). Uma vez por dia, com 95% da base
+  indexada, compara quantas cada busca acha entre as 5 primeiras e posta o placar no card #83.
+- **Ainda não feito** (dicas da Creativia): metadados de plataforma, versão e validade como filtro; testes negativos.
+  Ficam para a fase 3, junto com a curadoria.

@@ -35,6 +35,7 @@ import produtos_iguais
 import auditoria
 import agentes
 import pesquisador
+import saber
 import estoque
 import reuniao
 import vend_bi
@@ -2666,6 +2667,11 @@ def rodar_rotinas(repo, so=None):
             out["saber"] = agentes.sincronizar_saber(repo, forcar=True)
         except Exception as e:  # noqa: BLE001
             out["saber"] = f"erro: {str(e)[:120]}"
+        try:                                            # fase 2: pedaços + frase de contexto + vetores do que é novo (26/09)
+            out["saber_indice"] = saber.indexar(repo, segundos=110)
+            out["saber_avaliacao"] = avaliar_saber(repo)
+        except Exception as e:  # noqa: BLE001
+            out["saber_indice"] = f"erro: {str(e)[:120]}"
         try:                                            # Pesquisador nubi: abre as pedidas e traz as prontas (26/09)
             out["pesquisas"] = pesquisador.conferir(repo, forcar=True)
         except Exception as e:  # noqa: BLE001
@@ -2750,6 +2756,27 @@ def rodar_rotinas(repo, so=None):
         _registrar_execucao(repo, rid, "manual" if so else "agendada", inicio, res)
         out[rid] = res
     return out
+
+
+def avaliar_saber(repo):
+    """Teste da fase 2 (card #83): 1 vez por dia, quando quase tudo já tem pedaços, compara a busca antiga e a nova."""
+    cob = (repo._req("POST", "rpc/saber_cobertura", corpo={}) or [{}])[0]
+    if not cob.get("itens") or (cob.get("indexados") or 0) < 0.95 * cob["itens"]:
+        return f"aguardando indexar ({cob.get('indexados') or 0} de {cob.get('itens') or 0})"
+    chave = f"saber_avaliacao|{_agora_br().date().isoformat()}"
+    if repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave)}):
+        return "já avaliada hoje"
+    r = saber.avaliar(repo)
+    txt = (f"Teste da busca (20 perguntas reais com outras palavras, acerto entre os 5 primeiros): palavra (fase 1) "
+           f"{r['antiga']}/{r['total']} · híbrida {r['hibrida']}/{r['total']} · híbrida reordenada {r['reordenada']}/{r['total']}.")
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": txt, "ia": "teste", "dados": r}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    try:
+        repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": 83, "autor": "claude_code", "tipo": "passo",
+                                                    "texto": txt[:500]}], prefer="return=minimal")
+    except ErroNuvem:
+        pass
+    return txt
 
 
 def _registrar_execucao(repo, rid, origem, inicio, res):

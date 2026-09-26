@@ -127,8 +127,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Tudo o que o time diz, decide, erra, resolve e pesquisa na internet vai para a tabela `saber` (fase 1).
   A função do banco `saber_sincronizar` roda de hora em hora e antes das buscas; as pesquisas na internet entram na hora,
   pelo gancho `ia.USO["web"]`. Nunca apagar itens dessa tabela.
-- Busca: `buscar_arquivo` (barra da Sala e `BUSCAR:` dos agentes). Fase 2 (próxima): pedaços com frase de contexto +
-  pgvector + busca híbrida + reordenação, as técnicas da Anthropic e da OpenAI.
+- Busca: `buscar_arquivo` (barra da Sala e `BUSCAR:` dos agentes).
+- Fase 2 (26/09, `saber.py`, migração `supabase/fase2_saber_trechos.sql`): `saber_trechos` com pedaços de ~650 tokens,
+  frase de contexto (cabeçalho fixo + frase do gpt-oss grátis nos itens longos) e vetor text-embedding-3-small (pgvector,
+  HNSW). `buscar_hibrido` = significado + palavra (português, sem acento) com fusão RRF; os agentes ainda reordenam com o
+  gpt-oss. Sem OpenAI ou sem pedaços, volta para `buscar_arquivo` (fase 1). `saber.indexar` roda no cron de hora em hora
+  (itens novos/alterados pelo md5); `avaliar_saber` roda 1 vez por dia com 95% indexado (20 perguntas de `saber.AVALIACAO`)
+  e posta o placar no card #83.
 
 ## Pesquisador nubi (26/09)
 
