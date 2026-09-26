@@ -3644,10 +3644,6 @@ def cmd_navegar(args, cfg):
         print(("✅ Navegador pronto" if chave else "❌ Navegador sem a chave da Anthropic (coletor guardar-senha anthropic)")
               + f" · gasto hoje ~US$ {gasto:.2f} de {NAVEGADOR_TETO_DIA:.0f} · modelo {NAVEGADOR_MODELO}")
         return 0 if chave else 1
-    if not (os.environ.get("NUBI_NAVEGADOR_LIGADO") or cfg.get("navegador_ligado")):
-        # 26/09: desligado até o teste testes/navegador_pendente.py passar (o controle da sessão de código bloqueou o teste)
-        print("Navegador desligado: falta passar no teste antes de rodar no Mac.")
-        return 1
     token, tid = token_nubi(cfg), int(args.id)
     if not chave or gasto >= NAVEGADOR_TETO_DIA:
         porque = "sem a chave da Anthropic no Chaveiro" if not chave else f"teto do dia atingido (~US$ {gasto:.2f})"

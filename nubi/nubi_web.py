@@ -4295,8 +4295,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         indexar_aos_poucos(repo)
         if not ferreiro_proximo(repo, quem="astra"):       # design primeiro (Astra); se não pegou nada, o Ferreiro
             ferreiro_proximo(repo)
-        if os.environ.get("NUBI_NAVEGADOR_ATIVO") == "1":   # desligado até o teste do Navegador passar (26/09)
-            ferreiro_proximo(repo, quem="navegador")       # o Navegador tem fila própria (usa o Chrome, não o clone)
+        ferreiro_proximo(repo, quem="navegador")           # o Navegador tem fila própria (usa o Chrome, não o clone)
         if d.get("info") is not None:
             repo._req("POST", "mac_estado", corpo=[{"id": 1, "visto_em": agora_, "info": d["info"]}],
                       prefer="resolution=merge-duplicates,return=minimal")
