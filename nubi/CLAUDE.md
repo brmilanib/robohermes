@@ -169,3 +169,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `workspace-write`, branch `astra/card-<id>`, testes do projeto, até 4 cards por dia; nunca publica. Cards com
   `responsavel='astra'` entram na mesma fila (`ferreiro_proximo(quem="astra")`, design primeiro; um de cada vez porque os
   dois usam o mesmo clone). Não pronto ou no limite: o card volta para `aprovada` com `erro_teste` e a fila espera 1 h.
+
+## Agente Navegador (26/09, autorizado pelo Bruno) — DESLIGADO até o teste passar
+
+- `coletor navegar <card>`: o Claude (API, `NUBI_NAVEGADOR_MODELO`) controla o Chrome do coletor com ferramentas próprias
+  (abrir, ler, clicar, digitar, print, pedir_aprovacao, terminar). Regras no código: clique que muda algo só com aprovação
+  do Bruno no card, nunca digita senha/cartão/documento/chave, só http(s), 30 passos e ~US$ 5/dia.
+- Servidor: fila própria (`ferreiro_proximo(quem="navegador")`), prints em `navegador_print`, pergunta vira `aguardando`.
+- Pendente: `testes/navegador_pendente.py` falha na leitura da página e a depuração foi bloqueada pelo controle da sessão.
+  Ligar só depois de passar: `NUBI_NAVEGADOR_ATIVO=1` na Vercel e `navegador_ligado` no config do Mac.

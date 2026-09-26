@@ -501,7 +501,7 @@ def _preparar(repo):
 # ---------------------------------------------------------------------------
 
 AGENTE_EMAIL = os.environ.get("NUBI_AGENTE_EMAIL", "")
-AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)", "Astra (design)")   # modelos grátis que rodam no Mac mini (Ollama)
+AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)", "Astra (design)", "Navegador")   # modelos grátis que rodam no Mac mini (Ollama)
 # Conversa direta na Sala (card #64, fase 2): nome de exibição de cada agente que aparece na lista de conversas.
 CONVERSA_NOME = {"claude": "Claude", "chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss",
                  "astra": "Astra (design)", "hermes": "Hermes", "qwen": "Qwen (revisor)",
@@ -887,7 +887,7 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem(f"Autor não permitido: {autor or '?'}.")
             if not texto:
                 raise ErroNuvem("Mensagem vazia.")
-            aid = {"Hermes": "hermes", "Qwen (revisor)": "qwen", "Ferreiro (Claude no Mac)": "claude_mac", "Astra (design)": "astra"}.get(autor)
+            aid = {"Hermes": "hermes", "Qwen (revisor)": "qwen", "Ferreiro (Claude no Mac)": "claude_mac", "Astra (design)": "astra", "Navegador": "navegador"}.get(autor)
             if aid:
                 agora_ = datetime.now(timezone.utc).isoformat()
                 try:
@@ -1044,14 +1044,35 @@ def atender(metodo, rota, q, corpo, token):
             if autor not in AGENTES_MAC:
                 raise ErroNuvem("Autor não permitido.")
             return _json({"ok": True, "resultado": entregar_card(repo, int(d.get("id") or 0), autor, str(d.get("texto") or ""))})
+        if rota == "navegador_print" and metodo == "POST":
+            # print do Navegador (Mac): vai para o Storage (bucket anexos) e aparece na Sala e no card
+            import base64
+            d = json.loads(corpo or b"{}")
+            tid = int(d.get("tarefa_id") or 0)
+            png = base64.b64decode(str(d.get("png_b64") or ""))
+            if not png.startswith(b"\x89PNG") or len(png) > 8 * 1024 * 1024:
+                raise ErroNuvem("Print inválido.")
+            caminho = f"sala/navegador/{int(time.time() * 1000)}-card{tid}.png"
+            req = urllib.request.Request(f"{SUPABASE_URL}/storage/v1/object/anexos/{caminho}", data=png, method="POST",
+                                         headers={"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {repo.token}",
+                                                  "Content-Type": "image/png"})
+            with urllib.request.urlopen(req, timeout=60):
+                pass
+            legenda = str(d.get("legenda") or "")[:300]
+            repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "Navegador", "texto": f"🧭 Card #{tid}: {legenda}",
+                      "meta": {"anexos": [{"tipo": "imagem", "nome": "print.png", "caminho": caminho}], "tarefa_id": tid},
+                      "criado_em": datetime.now(timezone.utc).isoformat()}], prefer="return=minimal")
+            if tid:
+                _evento(repo, tid, "navegador", f"📸 {legenda}", tipo="passo")
+            return _json({"ok": True, "caminho": caminho})
         if rota == "tarefa_mac_passo" and metodo == "POST":
             # o Ferreiro (Claude Code no Mac mini, pela API) registra o trabalho no card: começou (em_desenvolvimento),
             # passo, e entregou num branch (em_teste, o Chefe revisa, junta e publica). Nunca fecha nem publica.
             d = json.loads(corpo or b"{}")
             tid, tipo = int(d.get("id") or 0), str(d.get("tipo") or "passo")
-            if not tid or tipo not in ("passo", "erro_teste", "relatorio"):
+            if not tid or tipo not in ("passo", "erro_teste", "relatorio", "pergunta"):
                 raise ErroNuvem("Card ou tipo inválido.")
-            quem = "astra" if d.get("quem") == "astra" else "claude_mac"     # Ferreiro ou Astra programando no Mac (26/09)
+            quem = d.get("quem") if d.get("quem") in ("astra", "navegador") else "claude_mac"   # quem está no Mac (26/09)
             _evento(repo, tid, quem, str(d.get("texto") or "")[:7500], tipo=tipo)
             reg = {"atualizado_em": datetime.now(timezone.utc).isoformat()}
             if d.get("status") == "em_desenvolvimento":
@@ -1064,6 +1085,8 @@ def atender(metodo, rota, q, corpo, token):
                 falhas = len(repo._req("GET", "tarefa_eventos", {"select": "id", "tarefa_id": f"eq.{tid}", "tipo": "eq.erro_teste",
                                                                   "autor": f"eq.{quem}", "criado_em": f"gte.{desde}"}) or [])
                 reg.update(status="aprovada", responsavel="claude_code" if falhas >= 3 else quem)
+            if tipo == "pergunta":                          # o Navegador pede a aprovação do Bruno antes de mudar algo
+                reg.update(aguardando=str(d.get("aguardando") or d.get("texto") or "")[:1500], responsavel=quem)
             repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo=reg, prefer="return=minimal")
             return _json({"ok": True})
         if rota == "tarefa_responder" and metodo == "POST":
@@ -2781,7 +2804,12 @@ PRIORIDADE_ORDEM = {"urgente": 0, "alta": 1, "media": 2, "média": 2, "baixa": 3
 
 
 PROGRAMADORES_MAC = {"ferreiro": ("claude_mac", "programar_card", "Ferreiro", "🔨"),
-                     "astra": ("astra", "programar_astra", "Astra", "🎨")}
+                     "astra": ("astra", "programar_astra", "Astra", "🎨"),
+                     "navegador": ("navegador", "navegar_card", "Navegador", "🧭")}
+# o Ferreiro e o Astra dividem o clone do projeto no Mac; o Navegador usa o Chrome do coletor (fila própria)
+TRAVA_MAC = {"ferreiro": (("programar_card", "programar_astra"), ("claude_mac", "astra")),
+             "astra": (("programar_card", "programar_astra"), ("claude_mac", "astra")),
+             "navegador": (("navegar_card",), ("navegador",))}
 
 
 def ferreiro_proximo(repo, a_cada_min=5, quem="ferreiro"):
@@ -2797,11 +2825,12 @@ def ferreiro_proximo(repo, a_cada_min=5, quem="ferreiro"):
             return None
         repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": "", "ia": quem, "criado_em": agora.isoformat()}],
                   prefer="resolution=merge-duplicates,return=minimal")
-        if repo._req("GET", "mac_comandos", {"select": "id", "comando": "in.(programar_card,programar_astra)",
+        cmds, resps = TRAVA_MAC[quem]
+        if repo._req("GET", "mac_comandos", {"select": "id", "comando": f"in.({','.join(cmds)})",
                                              "status": "in.(pendente,rodando)", "limit": 1}):
-            return f"{nome} espera (o clone do projeto no Mac está em uso)"
+            return f"{nome} espera (o clone do projeto no Mac está em uso)" if quem != "navegador" else "Navegador ocupado"
         limite = (agora - timedelta(minutes=90)).isoformat()
-        if repo._req("GET", "reuniao_tarefas", {"select": "id", "responsavel": "in.(claude_mac,astra)", "status": "eq.em_desenvolvimento",
+        if repo._req("GET", "reuniao_tarefas", {"select": "id", "responsavel": f"in.({','.join(resps)})", "status": "eq.em_desenvolvimento",
                                                  "iniciado_em": f"gte.{limite}", "limit": 1}):
             return f"{nome} espera (card em andamento no Mac)"
         fila = [t for t in (repo._req("GET", "reuniao_tarefas", {"select": "id,titulo,prioridade,risco,aguardando", "status": "eq.aprovada",
@@ -3678,6 +3707,8 @@ COMANDOS_MAC = {
     "programar_card": "Ferreiro programar um card agora (número do card)",
     "programar_astra": "Astra programar um card de design agora (número do card)",
     "astra_status": "Astra programador: conferir se está pronto (Codex, chave da OpenAI e git no Mac)",
+    "navegar_card": "Navegador fazer a tarefa de um card no Chrome do Mac (número do card)",
+    "navegador_status": "Navegador: conferir se está pronto (chave e gasto do dia)",
     "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
     "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora",
 }
@@ -4086,9 +4117,10 @@ INSTRUCAO_CRIAR_CARD = (
     "usabilidade ou organização, ou autorizar a sua proposta, crie o card escrevendo NO FINAL da resposta, uma linha por card:\n"
     "CRIAR_CARD: {\"titulo\": \"...\", \"escopo\": \"o que mudar\", \"arquivo\": \"tela/arquivo\", \"teste\": \"como testar\", "
     "\"aceite\": \"quando está pronto\", \"prioridade\": \"alta|media|baixa\", \"risco\": \"baixo|medio|alto\", "
-    "\"executor\": \"astra|ferreiro|chefe\"}\n"
+    "\"executor\": \"astra|ferreiro|navegador|chefe\"}\n"
     "Regras: executor astra = VOCÊ mesmo programa no Mac (Codex com o seu modelo), num branch seu, e o Chefe revisa e publica: "
-    "use para design, usabilidade e organização de telas (até 4 por dia); ferreiro = correção técnica/erro; chefe = mudança "
+    "use para design, usabilidade e organização de telas (até 4 por dia); ferreiro = correção técnica/erro; navegador = tarefa "
+    "no navegador do Mac (conferir, configurar, navegar em sites; pede aprovação antes de mudar algo); chefe = mudança "
     "grande ou de servidor. Risco alto (dados, senhas, apagar, estrutura do banco, pagamentos) vira proposta para o "
     "Bruno aprovar. Não crie card repetido nem sem pedido/autorização do Bruno. Não escreva que o card foi criado: eu confirmo "
     "com o número.")
@@ -4130,7 +4162,8 @@ def criar_cards_do_agente(repo, chave, resposta):
         pri = str(obj.get("prioridade") or "media").lower().replace("é", "e")
         pri = pri if pri in ("alta", "media", "baixa") else "media"
         ex = str(obj.get("executor") or "astra").lower()
-        executor = "astra" if ex.startswith("astra") else "claude_mac" if ex.startswith("ferr") else "claude_code"
+        executor = ("astra" if ex.startswith("astra") else "claude_mac" if ex.startswith("ferr")
+                    else "navegador" if ex.startswith("naveg") else "claude_code")
         desc = (f"Card criado pelo {autor} a pedido do Bruno (conversa direta, {datetime.now(timezone(timedelta(hours=-3))):%d/%m %H:%M}).\n\n"
                 f"## Escopo\n{str(obj.get('escopo') or '')[:3000]}\n\n## Arquivo/função\n{str(obj.get('arquivo') or '')[:800]}\n\n"
                 f"## Teste\n{str(obj.get('teste') or '')[:1500]}\n\n## Critério de aceite\n{str(obj.get('aceite') or '')[:1500]}\n\n"
@@ -4146,7 +4179,7 @@ def criar_cards_do_agente(repo, chave, resposta):
             "aguardando": "Risco alto: o Bruno precisa aprovar antes de programar." if alto else None}],
             prefer="return=representation") or [{}]
         feitos_hoje += 1
-        quem = {"astra": "Astra (eu mesmo)", "claude_mac": "Ferreiro"}.get(executor, "Chefe")
+        quem = {"astra": "Astra (eu mesmo)", "claude_mac": "Ferreiro", "navegador": "Navegador"}.get(executor, "Chefe")
         saida.append(f"✅ **Card #{novo[0].get('id')} criado**: {titulo} · executor: {quem}"
                      + (" · ⏳ risco alto, esperando sua aprovação no card" if alto else " · já na fila"))
     saida.append(resposta[i:])
@@ -4262,6 +4295,8 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         indexar_aos_poucos(repo)
         if not ferreiro_proximo(repo, quem="astra"):       # design primeiro (Astra); se não pegou nada, o Ferreiro
             ferreiro_proximo(repo)
+        if os.environ.get("NUBI_NAVEGADOR_ATIVO") == "1":   # desligado até o teste do Navegador passar (26/09)
+            ferreiro_proximo(repo, quem="navegador")       # o Navegador tem fila própria (usa o Chrome, não o clone)
         if d.get("info") is not None:
             repo._req("POST", "mac_estado", corpo=[{"id": 1, "visto_em": agora_, "info": d["info"]}],
                       prefer="resolution=merge-duplicates,return=minimal")
