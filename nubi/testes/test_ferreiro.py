@@ -180,6 +180,23 @@ def test_teste_que_falha_aparece_com_o_nome():
     assert c._testes_projeto(repo, dict(os.environ)).returncode == 0
 
 
+def test_caixa_que_falha_nao_derruba_o_ambiente_pronto():
+    venv = c.PASTA / "venv-projeto"
+    (venv / "bin").mkdir(parents=True, exist_ok=True)
+    (venv / "bin" / "python").write_text("")
+    (venv / ".pronto").write_text("assinatura-velha")
+    original, py_original = c.instalar_da_caixa, c._python_novo
+    c._python_novo = lambda: sys.executable
+
+    def falha(*a, **k):
+        raise c.Falha("sem roda para este Python")
+    c.instalar_da_caixa = falha
+    try:
+        assert _AMBIENTE_ORIGINAL(Path(tempfile.mkdtemp())) == venv / "bin"
+    finally:
+        c.instalar_da_caixa, c._python_novo = original, py_original
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

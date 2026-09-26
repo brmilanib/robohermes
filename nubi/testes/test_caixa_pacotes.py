@@ -105,7 +105,8 @@ def test_aba_conhecimento_mostra_versao_e_hash():
     </script></body></html>""", encoding="utf-8")
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        b = p.chromium.launch()
+        exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"      # sessão de nuvem; no Mac usa o Chromium do Playwright
+        b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()
         pg = b.new_page()
         pg.goto(pagina.as_uri())
         itens = pg.evaluate("window.ITENS")
