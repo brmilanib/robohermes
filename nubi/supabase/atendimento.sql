@@ -86,3 +86,6 @@ create policy autorizado on public.atendimento_rascunhos for all to authenticate
 alter table public.atendimento_conversas add column if not exists pedido_dados jsonb;
 alter table public.atendimento_rascunhos add column if not exists enviar_pelo_mac boolean not null default false;
 create index if not exists atendimento_rascunhos_envio on public.atendimento_rascunhos (enviar_pelo_mac, enviado_em);
+
+-- 26/09 (pedido do Bruno): aprender padrões com os chats antigos (fechados) → propostas na base
+alter table public.atendimento_conversas add column if not exists aprendido_em timestamptz;

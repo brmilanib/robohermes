@@ -2675,6 +2675,7 @@ async function telaAtendimento() {
   let f, m, kb;
   try {
     [f, m, kb] = await Promise.all([api("atendimento_fila"), api("atendimento_metricas"), aba === "kb" ? api("atendimento_kb") : Promise.resolve({itens: []})]);
+    kb.propostas = aba === "kb" ? ((await api("atendimento_kb", {status: "proposta"})).itens || []) : [];
   } catch (e) { main.innerHTML = esAbas("tiktok") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/estoque/tiktok")) return;
   S.atCarregou = true;
@@ -2723,10 +2724,19 @@ async function telaAtendimento() {
   const kbItem = k => `<div class="at-kb-item"><b>${esc(k.pergunta)}</b><div style="margin:4px 0;white-space:pre-wrap">${esc(k.resposta)}</div>
       <div class="muted" style="font-size:11.5px">${esc(k.loja)} · confirmado por ${esc(k.confirmado_por || "—")} em ${atQuando(k.confirmado_em)}</div>
       <div class="at-acoes"><button class="btn small ghost" data-kb-editar="${k.id}">✏️ Nova versão</button><button class="btn small ghost" data-kb-desativar="${k.id}">Desativar</button></div></div>`;
+  const kbProposta = k => `<div class="at-kb-item" style="border-left:4px solid #d4a017"><b>${esc(k.pergunta)}</b><div style="margin:4px 0;white-space:pre-wrap">${esc(k.resposta)}</div>
+      <div class="muted" style="font-size:11.5px">aprendido do ${esc(k.confirmado_por || "chat")}</div>
+      <div class="at-acoes"><button class="btn small primary" data-kb-aprovar="${k.id}">✅ Aprovar</button><button class="btn small ghost" data-kb-editar="${k.id}">✏️ Editar e aprovar</button>
+        <button class="btn small ghost" data-kb-desativar="${k.id}">❌ Descartar</button></div></div>`;
   const abas = [["tudo", `Tudo (${conv.length})`], ["voce", `🙋 Precisa de você (${conv.filter(filtros.voce).length})`],
                 ["aprovar", `✍️ Aprovar (${conv.filter(filtros.aprovar).length})`], ["sozinho", "🤖 Respondidas sozinho"], ["kb", "📚 Base de conhecimento"]];
-  const corpo = aba === "kb" ? `<div class="card pad"><h2>Base de conhecimento</h2>
-      <p class="muted" style="font-size:12.5px">Perguntas-tipo com a resposta padrão da loja. Toda resposta sua a uma dúvida vira um item aqui.</p>
+  const corpo = aba === "kb" ? `<div class="card pad"><div class="es-cab"><h2>Base de conhecimento</h2>
+        <div class="acoes"><button class="btn small" id="kb-fechados" title="o atendente abre a aba Fechados do TikTok e traz o histórico">📥 Trazer os chats fechados</button>
+          <button class="btn small" id="kb-aprender" title="a IA grátis lê as conversas e propõe perguntas e respostas padrão">🧠 Aprender com os chats</button></div></div>
+      <p class="muted" style="font-size:12.5px">Perguntas-tipo com a resposta padrão da loja. Toda resposta sua a uma dúvida vira um item aqui; os padrões tirados dos chats antigos chegam como propostas e só respondem sozinhos depois que você aprova.</p>
+      ${(kb.propostas || []).length ? `<div class="es-cab" style="margin-top:10px"><h3 style="margin:0">🧠 Propostas dos chats (${kb.propostas.length})</h3>
+        <div class="acoes"><button class="btn small primary" id="kb-aprovar-todas">✅ Aprovar todas</button></div></div>
+        <div class="at-kb">${kb.propostas.map(kbProposta).join("")}</div><h3 style="margin:16px 0 0">Ativos</h3>` : ""}
       <form id="kb-novo" class="at-form"><input id="kb-p" placeholder="Pergunta-tipo (ex.: Vendemos perfumes tester?)" class="larga">
         <textarea id="kb-r" placeholder="Resposta padrão"></textarea><input id="kb-loja" value="principal" placeholder="loja (ou todas)">
         <button class="btn small primary">+ Salvar item</button></form>
@@ -2778,9 +2788,16 @@ async function telaAtendimento() {
     x => x.auto ? "Ele responde sozinho o que já aprendeu." : "Tudo passa pela sua aprovação.");
   if ($("#kb-novo")) $("#kb-novo").onsubmit = e => { e.preventDefault();
     agir(() => post("atendimento_kb_salvar", {pergunta: $("#kb-p").value, resposta: $("#kb-r").value, loja: $("#kb-loja").value.trim() || "principal"}), () => "Item salvo na base."); };
+  main.querySelectorAll("[data-kb-aprovar]").forEach(b => b.onclick = () => agir(() => post("atendimento_kb_salvar", {aprovar: +b.dataset.kbAprovar}), () => "Aprovado: já responde sozinho."));
+  if ($("#kb-aprovar-todas")) $("#kb-aprovar-todas").onclick = () => { if (!confirm(`Aprovar as ${kb.propostas.length} propostas? Elas passam a responder sozinhas.`)) return;
+    agir(() => post("atendimento_kb_salvar", {aprovar: kb.propostas.map(k => k.id)}), x => `${x.aprovados} aprovadas.`); };
+  if ($("#kb-fechados")) $("#kb-fechados").onclick = () => agir(() => post("atendimento_fechados", {importar: true}),
+    () => "Pedido feito: nas próximas rodadas o atendente traz os chats fechados (até 20 por vez).");
+  if ($("#kb-aprender")) $("#kb-aprender").onclick = () => { $("#kb-aprender").disabled = true;
+    agir(() => post("atendimento_aprender", {lote: 6}), x => `Li ${x.lidas} conversa(s) e propus ${x.propostas} padrão(ões).`); };
   main.querySelectorAll("[data-kb-desativar]").forEach(b => b.onclick = () => { if (!confirm("Desativar este item? Ele fica guardado, só deixa de ser usado.")) return;
     agir(() => post("atendimento_kb_salvar", {desativar: +b.dataset.kbDesativar}), () => "Desativado."); });
-  main.querySelectorAll("[data-kb-editar]").forEach(b => b.onclick = () => { const k = kb.itens.find(x => x.id === +b.dataset.kbEditar);
+  main.querySelectorAll("[data-kb-editar]").forEach(b => b.onclick = () => { const k = [...kb.itens, ...(kb.propostas || [])].find(x => x.id === +b.dataset.kbEditar);
     const nova = prompt("Nova resposta padrão (a antiga fica guardada como substituída):", k.resposta); if (!nova || nova.trim() === k.resposta) return;
     agir(() => post("atendimento_kb_salvar", {pergunta: k.pergunta, resposta: nova, loja: k.loja, substitui: k.id}), () => "Nova versão salva."); });
   clearTimeout(S.atTimer);                   // atualiza sozinha a cada 30 s enquanto a tela está aberta (sem apagar o que você digita)

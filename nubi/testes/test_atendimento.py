@@ -252,6 +252,25 @@ def test_duvida_antiga_se_resolve_quando_a_base_aprende():
     assert y.get("automatico") and [x["status"] for x in r.t["atendimento_rascunhos"]][0] == "substituido"
 
 
+def test_aprende_padroes_dos_chats_como_propostas():
+    r = Repo()
+    a.receber(r, "tiktok_shop", "", cliente="ana", externo_id="ana", respondido=True, historico=[
+        {"de": "cliente", "texto": "Vocês trocam se eu não gostar do cheiro?"},
+        {"de": "loja", "texto": "Trocamos em até 7 dias se o lacre estiver intacto."}])
+    a.receber(r, "tiktok_shop", "", cliente="bia", externo_id="bia", respondido=True, historico=[
+        {"de": "cliente", "texto": "oi"}])                                  # sem resposta da loja: nada a aprender
+    resp = json.dumps({"padroes": [{"pergunta": "Vocês trocam se eu não gostar do cheiro?", "resposta": "Trocamos em até 7 dias se o lacre estiver intacto.", "tags": ["troca"]},
+                                   {"pergunta": "Qual meu telefone?", "resposta": "Ligue (11) 98888-7777"}]})
+    res = a.aprender_padroes(r, gerar=_ia(iter([resp])))
+    assert res == {"lidas": 2, "propostas": 1}
+    kb = r.t["atendimento_kb"]
+    assert kb[0]["status"] == "proposta" and kb[0]["confirmado_por"] == "chat de ana"
+    assert a.buscar_kb(r, "principal", "vocês trocam?") == []              # proposta não responde sozinha
+    a.rota(r, "POST", "atendimento_kb_salvar", {}, json.dumps({"aprovar": [kb[0]["id"]]}).encode())
+    assert kb[0]["status"] == "ativa" and a.buscar_kb(r, "principal", "vocês trocam se eu não gostar?")
+    assert a.aprender_padroes(r, gerar=_ia(iter([])))["lidas"] == 0            # não lê de novo
+
+
 def test_atendente_do_mac_e_chamado_quando_ligado():
     r = Repo()
     assert a.atendente_proximo(r) is None                                # desligado

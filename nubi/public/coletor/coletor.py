@@ -3887,7 +3887,7 @@ ATENDENTE_MODELO = os.environ.get("NUBI_ATENDENTE_MODELO", "claude-haiku-4-5-202
 ATENDENTE_TETO_DIA = float(os.environ.get("NUBI_ATENDENTE_TETO", "3"))
 ATENDENTE_PRECO = (1.0, 5.0)
 ATENDENTE_URL = os.environ.get("NUBI_TIKTOK_CHAT", "https://seller-br.tiktok.com/")
-ATENDENTE_PASSOS = 60
+ATENDENTE_PASSOS = 90
 ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abrir", "ler", "clicar")] + [
     {"name": "registrar", "description": "Manda ao nubi uma conversa aberta: o histórico lido na tela (cliente e loja, na "
      "ordem, até as 15 últimas), se a loja já respondeu, e o pedido do painel lateral. Se a última mensagem é do cliente e "
@@ -3907,6 +3907,8 @@ ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abri
      "aprovado; você só indica o campo de mensagem e o botão Enviar da última leitura). Abra antes a conversa do cliente certo.",
      "input_schema": {"type": "object", "properties": {"id": {"type": "integer"}, "n_campo": {"type": "integer"},
                                                        "n_botao": {"type": "integer"}}, "required": ["id", "n_campo", "n_botao"]}},
+    {"name": "fechados_concluido", "description": "Avisa que TODOS os chats da aba Fechados já foram registrados no nubi.",
+     "input_schema": {"type": "object", "properties": {}}},
     {"name": "terminar", "description": "Encerra a rodada com um resumo curto (o que registrou, o que enviou, o que travou).",
      "input_schema": {"type": "object", "properties": {"resumo": {"type": "string"}}, "required": ["resumo"]}},
 ]
@@ -3966,17 +3968,23 @@ def _atendente_marca(pg):
 def _rodada_atendente(pg, cfg, chave, token, gasto):
     """Uma olhada no chat com a página já aberta: envia as aprovadas e traz as novas. Devolve (custo, estado, resumo)."""
     custo, estado, fim = 0.0, {}, None
-    aprovadas = {i["id"]: i for i in (api(token, "atendimento_para_enviar", timeout=60).get("itens") or [])}
+    pend = api(token, "atendimento_para_enviar", timeout=60)
+    aprovadas = {i["id"]: i for i in (pend.get("itens") or [])}
+    fechados = bool(pend.get("importar_fechados"))
     try:
         pg.goto(cfg.get("tiktok_chat_url") or ATENDENTE_URL, timeout=60000)
         pg.wait_for_timeout(4000)
         marca = _atendente_marca(pg)
     except Exception:  # noqa: BLE001
         marca = None
-    if marca and marca == cfg.get("tiktok_marca_v2") and not aprovadas:
+    if marca and marca == cfg.get("tiktok_marca_v2") and not aprovadas and not fechados:
         return 0.0, {"nada": True}, "Nada novo no chat e nada para enviar."     # sem gasto
     pedido = ("RESPOSTAS APROVADAS PARA ENVIAR (id · cliente · texto):\n"
               + ("\n".join(f"{i['id']} · {i['cliente']} · {i['texto'][:300]}" for i in aprovadas.values()) or "(nenhuma)")
+              + (("\n\nIMPORTAR FECHADOS (pedido do Bruno): depois dos passos 1 e 2, abra a aba 'Fechados' e registre com "
+                  "respondido=true o histórico de até 20 conversas que ainda NÃO estão no nubi (role a lista para ver as mais "
+                  "antigas). Já estão no nubi: " + (", ".join((pend.get("conhecidos") or [])[:300]) or "(nenhuma)")
+                  + ". Quando não houver mais nenhuma nova nos Fechados, use fechados_concluido.") if fechados else "")
               + f"\n\nO chat está aberto em {pg.url}. Comece com ler.")
     mensagens = [{"role": "user", "content": pedido}]
     for _ in range(ATENDENTE_PASSOS):
@@ -4011,6 +4019,9 @@ def _rodada_atendente(pg, cfg, chave, token, gasto):
                                "pendente": "Registrado: a resposta espera a aprovação do Bruno. Siga para a próxima.",
                                "historico": "Histórico guardado (já respondida). Siga para a próxima."}.get(
                             x.get("status"), "Registrado (já estava no nubi). Siga para a próxima.")
+                elif b["name"] == "fechados_concluido":
+                    api(token, "atendimento_fechados", corpo={"importar": False}, metodo="POST", timeout=60)
+                    txt = "Ok: importação dos fechados concluída."
                 elif b["name"] == "enviar_aprovada":
                     txt = _atendente_enviar(pg, ent, estado, aprovadas, token)
                 elif b["name"] == "terminar":
