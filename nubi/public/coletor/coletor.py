@@ -1561,7 +1561,7 @@ def ml_resultados(pg):
     devagar(2.5)
     if _ml_bloqueado(pg):
         enviar_foto(pg, "Mercado Livre pediu verificação", resumo_tela(pg))
-        raise Falha("o Mercado Livre pediu verificação (captcha/login) " + diagnostico(pg))
+        raise Falha("o Mercado Livre pediu login (verificação de robô): rode entrar-ml no Mac " + diagnostico(pg))
     out = []
     for x in pg.evaluate(JS_ML_RESULTADOS):
         aid = ml_id(x.get("links"))
@@ -1722,7 +1722,7 @@ def ml_completar_anuncios(pg, token, sem_loja):
             devagar(2.5)
             if _ml_bloqueado(pg):
                 enviar_foto(pg, "Mercado Livre pediu verificação", resumo_tela(pg))
-                raise Falha("o Mercado Livre pediu verificação (captcha/login) " + diagnostico(pg))
+                raise Falha("o Mercado Livre pediu login (verificação de robô): rode entrar-ml no Mac " + diagnostico(pg))
             x = pg.evaluate(JS_ML_VENDEDOR)
         except Falha:
             raise
@@ -1738,12 +1738,48 @@ def ml_completar_anuncios(pg, token, sem_loja):
     return feitos
 
 
+ML_HOME = "https://www.mercadolivre.com.br/"
+
+
+def _ml_navegador(p, cfg):
+    """O ML barra navegador escondido (tela de verificação): as tarefas do ML abrem o Chrome do coletor visível."""
+    return abrir_navegador(p, cfg, visivel=cfg.get("ml_ver", True))
+
+
+def cmd_entrar_ml(args, cfg):
+    """Abre o Mercado Livre no Chrome do coletor para o Bruno passar pela verificação (e entrar, se quiser); guarda a sessão."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        ctx = abrir_navegador(p, cfg, visivel=True)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(ML_HOME)
+        print("Na janela do Mercado Livre: se aparecer a verificação ('não sou um robô'), resolva. Entrar na conta é opcional.")
+        print("Quando a página inicial com a busca aparecer, a sessão fica salva e a janela fecha sozinha (até 10 min).")
+        fim, ok = time.time() + 600, False
+        while time.time() < fim:
+            try:
+                if not _ml_bloqueado(pg) and pg.locator("input[name='as_word'], input.nav-search-input").count():
+                    ok = True
+                    break
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(3)
+        if ok:
+            time.sleep(4)
+            guardar_sessao(ctx)
+            cfg["ml_ver"] = True
+            salvar_config(cfg)
+        ctx.close()
+    print("OK: Mercado Livre liberado no navegador do coletor." if ok else "Tempo esgotado (10 min) sem passar pela verificação do Mercado Livre.")
+    return 0 if ok else 1
+
+
 def coletar_ml_lojas(p, cfg, token):
     conf = api(token, "ml_config", timeout=30)
     lojas = conf.get("lojas") or []
     if not lojas and not conf.get("sem_loja"):
         return 0, 0, 0, "nenhuma loja cadastrada em Posição do anúncio"
-    ctx = abrir_navegador(p, cfg)
+    ctx = _ml_navegador(p, cfg)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
     total, erros, partes = 0, 0, []
     try:
@@ -1789,7 +1825,7 @@ def coletar_ml_posicoes(p, cfg, token, paginas=3):
     if not termos:
         return 0, 0, 0, "nenhum termo de busca (cadastre as lojas ou os termos em Posição do anúncio)"
     por = int(conf.get("por_pagina") or ML_POR_PAGINA)
-    ctx = abrir_navegador(p, cfg)
+    ctx = _ml_navegador(p, cfg)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
     feitos, meus, erros = 0, 0, 0
     try:
@@ -2196,7 +2232,7 @@ def comando_mac(chave, arg=""):
         "entrar_auto_nubimetrics": [c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [c, "entrar-auto", "upseller"],
         "entrar_auto_gestor": [c, "entrar-auto", "gestor"],
         "ferreiro_status": [c, "programar", "0"],
-        "ml_lojas": [c, "ml-lojas"], "ml_posicoes": [c, "ml-posicoes"],
+        "ml_lojas": [c, "ml-lojas"], "ml_posicoes": [c, "ml-posicoes"], "entrar_ml": [c, "entrar-ml"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -3277,7 +3313,7 @@ ACOES_MEDICO = {"repetir": "rodei de novo", "visivel": "rodei de novo com o nave
                 "destravar": "fechei o Chrome travado, destravei o perfil e rodei de novo",
                 "limpar": "limpei arquivos velhos da pasta de downloads e rodei de novo",
                 "janela_login": "abri a janela de login no Mac mini", "avisar": "avisei o Bruno"}
-JANELA_LOGIN = {"nubimetrics": "entrar", "upseller": "entrar-upseller", "gestor seller": "entrar-gestor"}
+JANELA_LOGIN = {"nubimetrics": "entrar", "upseller": "entrar-upseller", "gestor seller": "entrar-gestor", "mercado livre": "entrar-ml"}
 ALERTAS_DEDUP = PASTA / "alertas_dedup.json"
 
 
@@ -3670,6 +3706,7 @@ def main():
     pgr.add_argument("id")
     ea = sub.add_parser("entrar-auto", help="entra sozinho no site (senha do navegador/Chaveiro, código do e-mail)")
     ea.add_argument("site", choices=["nubimetrics", "upseller", "gestor"])
+    sub.add_parser("entrar-ml", help="Mercado Livre: abre a janela para passar pela verificação (sessão fica salva)")
     sub.add_parser("ml-lojas", help="Mercado Livre: acha os anúncios das minhas lojas")
     sub.add_parser("ml-posicoes", help="Mercado Livre: posição dos meus anúncios na busca")
     gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
@@ -3757,6 +3794,8 @@ def main():
         return executar("estoque", lambda p, cfg, token: coletar_estoque(p, cfg, token, not args.sem_enviar))
     if args.cmd == "gestor":
         return executar("gestor", coletar_gestor)
+    if args.cmd == "entrar-ml":
+        return cmd_entrar_ml(args, cfg)
     if args.cmd == "ml-lojas":
         return executar("ml_lojas", coletar_ml_lojas)
     if args.cmd == "ml-posicoes":

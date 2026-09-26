@@ -3344,6 +3344,7 @@ COMANDOS_MAC = {
     "entrar_auto_gestor": "Entrar sozinho no Gestor Seller",
     "ferreiro_status": "Ferreiro: conferir se está pronto (Claude Code, chave e git no Mac)",
     "programar_card": "Ferreiro programar um card agora (número do card)",
+    "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
     "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
