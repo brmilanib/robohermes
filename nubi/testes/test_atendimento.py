@@ -124,6 +124,12 @@ def test_conferencia_de_promessa_e_dado_sensivel():
     assert a.conferir("Chega em 26 dias!", controle, "oi")          # data de confirmação não vale como prazo
 
 
+def test_despedida_nao_repete():
+    t = a._com_encerramento("Oi! Obrigado! 😊 Qualquer dúvida, é só chamar. Qualquer coisa, é só chamar!")
+    assert t == "Oi! Obrigado! 😊 Qualquer dúvida, é só chamar."
+    assert a._com_encerramento("Por nada!").endswith(a.ENCERRAMENTO)
+
+
 def test_ia_diz_que_falta_vira_pergunta():
     r = Repo()
     a.salvar_item_kb(r, "principal", "Qual o horário de atendimento?", "Seg a sex, 9h às 18h.")
