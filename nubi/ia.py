@@ -142,6 +142,9 @@ def _tokens(r):
     return int(ent or 0), leitura, criacao, int(sai or 0)
 
 
+CACHE_MIN_CHARS = 2000    # ~570 tokens: acima do mínimo do cache dos modelos Opus 5 (512 tokens)
+
+
 def _http_json(url, corpo, cab, timeout=90):
     req = urllib.request.Request(url, data=json.dumps(corpo).encode(), method="POST",
                                  headers={"Content-Type": "application/json", **cab})
@@ -210,7 +213,10 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, siste
         corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO_CLAUDE", "claude-opus-5-5"),
                  "max_tokens": max(max_tokens, 16000), "messages": [{"role": "user", "content": pergunta}]}
         if sistema:
-            corpo["system"] = sistema
+            # cache do briefing (26/09, aprovado pelo Bruno): o SISTEMA é igual em todas as chamadas; guardado no cache, as
+            # seguintes (5 min) pagam ~1/10 da entrada. Texto curto (abaixo do mínimo do cache) vai sem marcação.
+            corpo["system"] = ([{"type": "text", "text": sistema, "cache_control": {"type": "ephemeral"}}]
+                               if len(sistema) >= CACHE_MIN_CHARS else sistema)
         if web:
             corpo["tools"] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]
         cab = {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"}
