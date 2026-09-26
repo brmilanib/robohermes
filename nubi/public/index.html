@@ -313,22 +313,26 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .cc-seg button{border:0;background:var(--card);color:var(--muted);padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
 .cc-seg button.on{background:var(--soft);color:var(--ink);font-weight:600}
 .wa{display:flex;flex-direction:column;height:calc(100dvh - 150px);min-height:360px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card)}
-.wa-top{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#075e54;color:#fff}
+.wa-top{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#075e54;color:#fff;
+  position:sticky;top:0;z-index:2;flex:0 0 auto}
 .wa-top .av{width:34px;height:34px;border-radius:50%;background:#25d366;display:grid;place-items:center;font-size:18px}
 .wa-top small{opacity:.85}
-.wa-msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:6px;
+.wa-msgs{flex:1;overflow-y:auto;overflow-x:hidden;padding:14px;display:flex;flex-direction:column;gap:6px;min-height:0;
   background:#efeae2 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ccircle cx='2' cy='2' r='1' fill='%23d9d2c5'/%3E%3C/svg%3E")}
 :root[data-theme="dark"] .wa-msgs{background:#0b141a}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .wa-msgs{background:#0b141a}}
-.wa-b{max-width:78%;padding:6px 10px 4px;border-radius:10px;box-shadow:0 1px .5px rgba(0,0,0,.13);font-size:13.5px;line-height:1.4;background:#fff;color:#111b21;align-self:flex-start;position:relative}
+.wa-b{max-width:78%;padding:6px 10px 4px;border-radius:10px;box-shadow:0 1px .5px rgba(0,0,0,.13);font-size:13.5px;line-height:1.4;background:#fff;color:#111b21;align-self:flex-start;position:relative;
+  overflow-wrap:anywhere;word-break:break-word}
 .wa-b.eu{align-self:flex-end;background:#d9fdd3}
 .wa-b.sis{align-self:center;background:#fff5c4;color:#54656f;font-size:12px;max-width:90%;text-align:center}
 .wa-b .nm{font-weight:700;font-size:12.5px;margin-bottom:2px}
 .wa-b .hr{float:right;font-size:10.5px;color:#667781;margin:6px 0 0 10px}
 .wa-b .md p{margin:2px 0} .wa-b .md ul{margin:2px 0;padding-left:18px} .wa-b .md h3{font-size:13px;margin:4px 0 2px}
+.wa-b .md pre,.wa-b .md code{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}
 .wa-b.dec{border-left:3px solid #d97757}
 .wa-dia{align-self:center;background:#fff;color:#54656f;font-size:11.5px;border-radius:8px;padding:3px 10px;margin:6px 0;box-shadow:0 1px .5px rgba(0,0,0,.1)}
-.wa-in{display:flex;gap:8px;padding:8px 10px;background:#f0f2f5;align-items:flex-end}
+.wa-in{display:flex;gap:8px;padding:8px 10px;background:#f0f2f5;align-items:flex-end;
+  position:sticky;bottom:0;z-index:2;flex:0 0 auto}
 :root[data-theme="dark"] .wa-in{background:#202c33}
 .wa-in textarea{flex:1;resize:none;border:0;border-radius:18px;padding:9px 14px;font:inherit;max-height:120px;min-height:40px;background:#fff;color:#111b21}
 .wa-in button{width:42px;height:42px;border-radius:50%;border:0;background:#00a884;color:#fff;font-size:18px;cursor:pointer}
@@ -2866,15 +2870,24 @@ async function telaReuniao() {
       <div class="wa-msgs" id="wa-msgs">${waDesenhar(S.reu.msgs)}</div>
       <div class="wa-in"><textarea id="wa-txt" rows="1" placeholder="Mensagem para os agentes (Enter envia, Shift+Enter quebra linha)"></textarea><button id="wa-env" title="Enviar">➤</button></div></div>
     <p class="muted" id="wa-nota" style="font-size:12px;margin:6px 0 0">Todo dia às 11h eles se reúnem sozinhos para discutir a auditoria. O que eles propõem vai para 📋 Desenvolvimento, você aprova e o Claude (código) implementa.</p>`;
-  // como no WhatsApp: a conversa ocupa a tela e só as mensagens rolam (cabeçalho e caixa de texto ficam fixos)
+  // como no WhatsApp: a conversa ocupa a tela e só as mensagens rolam (cabeçalho e caixa de texto ficam fixos,
+  // com position:sticky no CSS como rede de segurança caso esta conta em pixels saia um pouco errada)
   const ajustarWa = () => {
-    const wa = main.querySelector(".wa"); if (!wa) return window.removeEventListener("resize", ajustarWa);
+    const wa = main.querySelector(".wa");
+    if (!wa) { window.removeEventListener("resize", ajustarWa); window.visualViewport?.removeEventListener("resize", ajustarWa); return; }
     window.scrollTo(0, 0);
+    const alt = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     const bb = $("#barra-baixo"), barra = bb && getComputedStyle(bb).display !== "none" ? bb.offsetHeight : 0;
     const topo = wa.getBoundingClientRect().top, nota = ($("#wa-nota") || {offsetHeight: 0}).offsetHeight + 14 + barra;
-    wa.style.height = Math.max(360, window.innerHeight - topo - nota) + "px";
+    wa.style.height = Math.max(360, alt - topo - nota) + "px";
   };
-  ajustarWa(); window.removeEventListener("resize", S.waAjuste || (() => {})); S.waAjuste = ajustarWa; window.addEventListener("resize", ajustarWa);
+  ajustarWa();
+  window.removeEventListener("resize", S.waAjuste || (() => {}));
+  window.visualViewport?.removeEventListener("resize", S.waAjuste || (() => {}));
+  S.waAjuste = ajustarWa;
+  window.addEventListener("resize", ajustarWa);
+  window.visualViewport?.addEventListener("resize", ajustarWa);
+  requestAnimationFrame(ajustarWa);          // depois do layout assentar (fonte, texto de wa-nota quebrando linha)
   const box = $("#wa-msgs"); box.scrollTop = box.scrollHeight;
   const ta = $("#wa-txt");
   ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; };
