@@ -68,6 +68,8 @@ h2{font-size:16px;margin:0 0 10px}
 .alerta{color:var(--bad);font-weight:600}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:10px;margin:14px 0}
 .kpi{padding:12px}
+.pi-pares{display:grid;gap:8px;margin-top:10px}.pi-par{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:8px;font-size:12.5px}
+.pi-par-t{flex:1 1 280px;min-width:0;overflow-wrap:anywhere}.pi-par-b{display:flex;gap:6px}
 .kpi-link{cursor:pointer;transition:transform .12s,box-shadow .12s}.kpi-link:hover,.kpi-link:focus-visible{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.08);outline:none}
 .kpi-link .l::after{content:" ›";color:var(--muted)}
 .kpi .v{font-size:17px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -2115,6 +2117,17 @@ async function telaProdutosIguais() {
     <p class="muted" style="margin:4px 0 0;font-size:13px">Anúncios sem GTIN que são o mesmo perfume escrito de outro jeito. A IA compara o sentido dos títulos e só junta
       quando marca, tamanho, concentração (EDT/EDP/Elixir), gênero e o nome do perfume batem. Nas análises (vendas diárias, resumo do dia, mesmo período)
       eles contam como um produto só. Achou um errado? <b>Separar</b> tira o título do grupo e a IA não junta mais. Roda todo dia às 5h30 (Tarefas de rotina).</p>
+    ${(r.conferir_gtins || []).length ? `<div class="card pad pi-conf" style="margin-top:14px"><h2>🔎 Confira: GTINs diferentes com o mesmo nome (${r.conferir_gtins.length})</h2>
+      <div class="sub">O mesmo perfume no título, mas com códigos de barras diferentes. Pode ser o vendedor que cadastrou o GTIN errado, ou dois produtos de verdade
+        (EDT x Parfum, edição limitada). O nubi não junta sozinho: se for o mesmo, toque em <b>Juntar</b> e as vendas passam a contar como um produto só.</div>
+      <div class="pi-pares">${r.conferir_gtins.map(x => { const [ga, gb] = x.chave.slice(4).split("|");
+        return `<div class="pi-par"><div class="pi-par-t"><div>${esc(x.grupo_titulo || "")} <span class="muted">· GTIN ${esc(ga)} (vende mais)</span></div>
+          <div>${esc(x.titulo || "")} <span class="muted">· GTIN ${esc(gb)}</span></div>
+          <div class="muted" style="font-size:11.5px">${esc(x.marca || "")} · parecença ${nf2.format(x.similaridade || 0)} ·
+            <a href="https://www.google.com/search?q=${encodeURIComponent(ga)}" target="_blank" rel="noopener">pesquisar ${esc(ga)}</a> ·
+            <a href="https://www.google.com/search?q=${encodeURIComponent(gb)}" target="_blank" rel="noopener">pesquisar ${esc(gb)}</a></div></div>
+        <div class="pi-par-b"><button class="btn small primary" data-gtin-par="${esc(x.chave)}" data-juntar="1">Juntar</button>
+          <button class="btn small" data-gtin-par="${esc(x.chave)}">Não é o mesmo</button></div></div>`; }).join("")}</div></div>` : ""}
     ${!r.grupos.length ? `<div class="card empty" style="margin-top:14px"><h2>Nada juntado ainda</h2><p>A tarefa "Juntar produtos iguais (IA)" roda de madrugada. Para rodar agora: Central → 🗓️ Rotinas → ▶ Rodar agora.</p></div>` : ""}
     <div class="bi-grid">${gs.slice(0, 200).map(g => `<div class="card pad bi-card"><h2 style="font-size:14px">${vprodLink(g.grupo, g.titulo, "")}</h2>
       <div class="sub">${esc(g.marca)} · ${g.grupo.startsWith("T:") ? "sem GTIN (o título que mais vende dá o nome)" : "GTIN " + esc(g.grupo)}</div>
@@ -2129,6 +2142,12 @@ async function telaProdutosIguais() {
   main.querySelectorAll("[data-sep]").forEach(x => x.onclick = async () => {
     try { await api("vend_produto_separar", {}, {method: "POST", body: JSON.stringify({chave: x.dataset.sep, titulo: x.dataset.tit})}); toast("Separado. A IA não junta mais este título."); telaProdutosIguais(); }
     catch (e) { toast(e.message, 6000); }
+  });
+  main.querySelectorAll("[data-gtin-par]").forEach(x => x.onclick = async () => {
+    x.disabled = true;
+    try { await api("vend_gtin_decidir", {}, {method: "POST", body: JSON.stringify({par: x.dataset.gtinPar, juntar: !!x.dataset.juntar})});
+      toast(x.dataset.juntar ? "Juntado: as vendas dos dois GTINs contam como um produto só." : "Ok, ficam separados (não pergunto de novo).", 5000); telaProdutosIguais(); }
+    catch (e) { x.disabled = false; toast(e.message, 6000); }
   });
   main.querySelectorAll("[data-desf]").forEach(x => x.onclick = async () => {
     try { await api("vend_produto_separar", {}, {method: "POST", body: JSON.stringify({chave: x.dataset.desf, desfazer: 1})}); telaProdutosIguais(); }

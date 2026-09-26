@@ -54,7 +54,7 @@ def numeros(t):
 
 def _final_cortado(t):
     """Última palavra (pela metade) de um título cortado nos 40 caracteres, ou None."""
-    if len(t or "") < 39:
+    if len(t or "") < 39 or re.search(r"\d\s*m?l?$", _norm(t).strip()):     # "…105ml" no fim é tamanho, não palavra cortada
         return None
     m = re.search(r"([a-z]+)$", _norm(t).strip())
     return m.group(1) if m else None
@@ -182,3 +182,34 @@ def agrupar(itens, vetores, bloqueados=(), limiar=LIMIAR):
                 if j != lider:
                     saida[itens[idx[j]]["chave"]] = (itens[idx[lider]]["chave"], float(S[j, lider]))
     return saida
+
+
+def gtins_parecidos(itens, vetores, limiar=0.88, maximo=40):
+    """
+    GTINs diferentes com o mesmo nome de perfume (pedido do Bruno, 26/09: "Club De Nuit Intense" com 2 GTINs no Início).
+    Pode ser o vendedor que cadastrou o GTIN errado ou dois produtos de verdade (EDT x Parfum, edição limitada), por isso
+    NUNCA junta sozinho: devolve os pares para conferir [(gtin_maior_venda, gtin_outro, similaridade)], maiores vendas primeiro.
+    """
+    if not itens:
+        return []
+    MARCAS_PALAVRAS.clear()
+    MARCAS_PALAVRAS.update(w for it in itens for w in re.findall(r"[a-z]{3,}", _norm(it.get("marca"))))
+    V = np.asarray(vetores, dtype=np.float32)
+    V /= np.linalg.norm(V, axis=1, keepdims=True) + 1e-9
+    por_marca = {}
+    for i, it in enumerate(itens):
+        if not it["chave"].startswith("T:"):
+            por_marca.setdefault((it.get("marca") or "").strip().upper(), []).append(i)
+    pares = []
+    for marca, idx in por_marca.items():
+        if not marca or len(idx) < 2:
+            continue
+        S = V[idx] @ V[idx].T
+        for x in range(len(idx)):
+            for y in range(x + 1, len(idx)):
+                a, b = itens[idx[x]], itens[idx[y]]
+                if S[x, y] >= limiar and compativeis(a, b):
+                    maior, outro = (a, b) if (a.get("v") or 0) >= (b.get("v") or 0) else (b, a)
+                    pares.append((maior["chave"], outro["chave"], float(S[x, y]), (a.get("v") or 0) + (b.get("v") or 0)))
+    pares.sort(key=lambda p: -p[3])
+    return [(a, b, s) for a, b, s, _ in pares[:maximo]]

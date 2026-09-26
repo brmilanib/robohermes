@@ -1480,11 +1480,41 @@ def _vendas_dias(repo, desde, ate):
 
 
 def _mapa_grupos(repo):
-    """{chave: grupo} dos produtos iguais juntados pela IA (títulos diferentes do mesmo perfume)."""
+    """{chave: grupo} dos produtos iguais: títulos juntados pela IA ('ia') e GTINs que o Bruno juntou na conferência
+    ('manual', 26/09). Resolve a corrente (título → GTIN que foi juntado a outro GTIN → GTIN final)."""
     try:
-        return {r["chave"]: r["grupo"] for r in repo._todos("produto_grupos", {"select": "chave,grupo", "metodo": "eq.ia"})}
+        m = {r["chave"]: r["grupo"] for r in repo._todos("produto_grupos", {"select": "chave,grupo", "metodo": "in.(ia,manual)"})}
     except ErroNuvem:
         return {}
+    for k in list(m):
+        g, vistos = m[k], {k}
+        while g in m and g not in vistos:
+            vistos.add(g)
+            g = m[g]
+        m[k] = g
+    return m
+
+
+def conferir_gtins(repo, por):
+    """GTINs diferentes com o mesmo nome de perfume: nunca junta sozinho; grava os pares 'gtin_conferir' para o Bruno
+    decidir em Ajustes → Produtos iguais (Juntar = 'manual'; Não é o mesmo = 'gtin_nao', não pergunta de novo)."""
+    rs = repo._todos("produto_grupos", {"select": "chave,metodo"})
+    decididos = {r["chave"] for r in rs if r["metodo"] in ("gtin_nao", "manual", "separado")}
+    gt = sorted((x for x in por.values() if not x["chave"].startswith("T:") and x["marca"]), key=lambda x: -x["v"])[:1500]
+    if len(gt) < 2:
+        return 0
+    vet = ia.embeddings([produtos_iguais.texto_embedding(x) for x in gt])
+    pares = [(a, b, sim) for a, b, sim in produtos_iguais.gtins_parecidos(gt, vet)
+             if f"par:{a}|{b}" not in decididos and b not in decididos]
+    nomes = {x["chave"]: x for x in gt}
+    repo._req("DELETE", "produto_grupos", {"metodo": "eq.gtin_conferir"})
+    agora_ = datetime.now(timezone.utc).isoformat()
+    regs = [{"chave": f"par:{a}|{b}", "grupo": a, "titulo": nomes[b]["titulo"][:200], "grupo_titulo": nomes[a]["titulo"][:200],
+             "marca": nomes[a]["marca"], "similaridade": round(sim, 4), "metodo": "gtin_conferir", "atualizado_em": agora_}
+            for a, b, sim in pares]
+    if regs:
+        repo._req("POST", "produto_grupos", corpo=regs, prefer="resolution=merge-duplicates,return=minimal")
+    return len(regs)
 
 
 def agrupar_produtos(repo):
@@ -1517,7 +1547,13 @@ def agrupar_produtos(repo):
              "atualizado_em": datetime.now(timezone.utc).isoformat()} for k, (g, sim) in res.items()]
     for i in range(0, len(regs), 500):
         repo._req("POST", "produto_grupos", corpo=regs[i:i + 500], prefer="resolution=merge-duplicates,return=minimal")
-    return f"{len(regs)} título(s) juntado(s) a outro do mesmo produto ({len(sem)} produtos sem GTIN conferidos)"
+    try:
+        n_gtin = conferir_gtins(repo, por)
+    except Exception as e:  # noqa: BLE001
+        n_gtin = f"erro na conferência de GTINs: {str(e)[:120]}"
+    extra = (f"; {n_gtin} par(es) de GTINs diferentes com o mesmo nome para o Bruno conferir" if isinstance(n_gtin, int)
+             else f"; {n_gtin}") if n_gtin else ""
+    return f"{len(regs)} título(s) juntado(s) a outro do mesmo produto ({len(sem)} produtos sem GTIN conferidos){extra}"
 
 
 def _painel_dia(repo, d=None):
@@ -1915,13 +1951,14 @@ def dados_foco(repo, limite=30):
     for r in rels:
         if r["mes"][:7] == mes and (r["vendedor"] not in ult or str(r.get("importado_em")) > str(ult[r["vendedor"]].get("importado_em"))):
             ult[r["vendedor"]] = r
-    prods = {}
+    prods, grp = {}, {k: g for k, g in _mapa_grupos(repo).items() if not k.startswith("T:")}
     for vend, r in ult.items():
         for l in _vend_linhas(repo, r["id"]):
             u = int(l.get("unidades") or 0)
             if u <= 0:
                 continue
             chave = l.get("gtin") or nubi.compacta(f"{l.get('marca') or ''} {l.get('titulo') or ''}")[:70]
+            chave = grp.get(chave, chave)                    # GTINs que o Bruno juntou na conferência (Produtos iguais)
             p = prods.setdefault(chave, {"titulo": l.get("titulo") or "", "marca": l.get("marca") or "", "gtin": l.get("gtin"), "v": 0.0, "u": 0,
                                          "vendedores": set(), "_pu": 0.0, "precos": []})
             p["v"] += float(l.get("vendas") or 0)
@@ -4220,13 +4257,35 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         rs = repo._todos("produto_grupos", {"select": "*", "order": "marca,grupo"})
         grupos = {}
         for r in rs:
-            if r["metodo"] != "ia":
+            if r["metodo"] not in ("ia", "manual"):
                 continue
             g = grupos.setdefault(r["grupo"], {"grupo": r["grupo"], "titulo": r.get("grupo_titulo") or r["grupo"],
                                                "marca": r.get("marca") or "", "membros": []})
-            g["membros"].append({"chave": r["chave"], "titulo": r.get("titulo"), "similaridade": r.get("similaridade")})
+            g["membros"].append({"chave": r["chave"], "titulo": r.get("titulo"), "similaridade": r.get("similaridade"),
+                                 "metodo": r["metodo"]})
         separados = [r for r in rs if r["metodo"] == "separado"]
-        return {"grupos": sorted(grupos.values(), key=lambda g: (g["marca"], g["titulo"] or "")), "separados": separados}
+        conferir = sorted((r for r in rs if r["metodo"] == "gtin_conferir"), key=lambda r: -(r.get("similaridade") or 0))
+        return {"grupos": sorted(grupos.values(), key=lambda g: (g["marca"], g["titulo"] or "")), "separados": separados,
+                "conferir_gtins": conferir}
+
+    if rota == "vend_gtin_decidir" and metodo == "POST":
+        # conferência de GTINs diferentes com o mesmo nome (26/09): o Bruno junta ou diz que não é o mesmo
+        d = json.loads(corpo or b"{}")
+        par = str(d.get("par") or "")
+        r = (repo._req("GET", "produto_grupos", {"select": "*", "chave": repo._eq(par)}) or [None])[0]
+        if not r or not par.startswith("par:"):
+            raise ErroNuvem("Par não encontrado (a lista pode ter sido refeita; recarregue).")
+        a_, b_ = par[4:].split("|", 1)
+        agora_ = datetime.now(timezone.utc).isoformat()
+        if d.get("juntar"):
+            repo._req("POST", "produto_grupos", corpo=[{"chave": b_, "grupo": a_, "titulo": r.get("titulo") or "",
+                                                         "grupo_titulo": r.get("grupo_titulo") or "", "marca": r.get("marca") or "",
+                                                         "similaridade": r.get("similaridade"), "metodo": "manual", "atualizado_em": agora_}],
+                      prefer="resolution=merge-duplicates,return=minimal")
+            repo._req("DELETE", "produto_grupos", {"chave": repo._eq(par)})
+        else:
+            repo._req("PATCH", "produto_grupos", {"chave": repo._eq(par)}, corpo={"metodo": "gtin_nao", "atualizado_em": agora_})
+        return {"ok": True}
 
     if rota == "vend_produto_separar" and metodo == "POST":
         d = json.loads(corpo or b"{}")
