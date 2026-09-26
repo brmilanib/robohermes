@@ -234,7 +234,9 @@ def abrir_navegador(p, cfg, visivel=None):
     opcoes = dict(user_data_dir=str(PASTA / "perfil"), headless=not visivel, accept_downloads=True,
                   viewport={"width": 1500, "height": 950}, locale="pt-BR", user_agent=UA,
                   args=["--disable-blink-features=AutomationControlled"],
-                  ignore_default_args=["--enable-automation"])
+                  # extensões ligadas (26/09): o Hunter Spy que o Bruno instala no perfil do coletor mostra loja e cidade
+                  ignore_default_args=["--enable-automation", "--disable-extensions",
+                                       "--disable-component-extensions-with-background-pages"])
     exe = os.environ.get("NUBI_CHROMIUM")
     ctx = None
     if exe:
