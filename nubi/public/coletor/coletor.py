@@ -532,7 +532,7 @@ def baixar_grupo(pg, cfg, dia, destino):
             enviar_foto(pg, f"grupo {dia}: período não mudou", tela)
             raise Falha(f"a tabela do grupo não mudou para {dia} (na tela: {periodo_na_tela(pg)}) " + diagnostico(pg))
     devagar(4)                                          # a tabela recarrega com o período novo
-    botao = pg.locator("button, [role=button]", has_text=re.compile(r"^\s*EXPORTAR\s*$", re.I))
+    botao = botao_exportar(pg)
     if not botao.count():
         tela = resumo_tela(pg)
         enviar_foto(pg, f"grupo {dia}: sem botão EXPORTAR", tela)
@@ -543,6 +543,15 @@ def baixar_grupo(pg, cfg, dia, destino):
     d.value.save_as(str(arq))
     devagar(2)
     return arq
+
+
+def botao_exportar(pg):
+    """
+    O EXPORTAR visível da tabela do grupo. Com outro EXPORTAR escondido depois dele na página (menu/aba fechada), o .last
+    pegava o escondido: o clique não chegava nele (parecia "coberto" pelo que está atrás) e o clique pelo próprio botão
+    baixava uma tabela só com o cabeçalho ("a tabela do grupo veio vazia", card #75).
+    """
+    return pg.locator("button:visible, [role=button]:visible", has_text=re.compile(r"^\s*EXPORTAR\s*$", re.I))
 
 
 # o que está no meio do botão, se não for ele: sobe até o maior pedaço que não contém o botão e o deixa "transparente" ao clique
@@ -577,6 +586,8 @@ def clicar_exportar(pg, botao, dia):
             if coberto:
                 log(f"  grupo {dia[8:10]}/{dia[5:7]}: EXPORTAR estava coberto por {coberto}")
     enviar_foto(pg, f"grupo {dia}: EXPORTAR não clicou", resumo_tela(pg))
+    if not botao.is_visible():
+        raise Falha("o botão EXPORTAR da tabela do grupo não está visível " + diagnostico(pg))
     log(f"  grupo {dia[8:10]}/{dia[5:7]}: EXPORTAR não aceitou o clique; clico pelo próprio botão")
     botao.evaluate("b => b.click()")
 
