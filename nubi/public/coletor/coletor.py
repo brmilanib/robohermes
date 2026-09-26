@@ -1704,7 +1704,10 @@ JS_ML_VENDEDOR = r"""() => {
   if (!v) { const m = (document.body.innerText || '').match(/(?:Vendido por|Loja oficial|Vendedor)\s*:?\s*\n?\s*([^\n]{2,60})/i); if (m) v = m[1]; }
   if (!v) { const a = [...document.querySelectorAll('a[href*="/perfil/"]')][0]; if (a) v = decodeURIComponent(a.href.split('/perfil/')[1].split(/[?#/]/)[0]).replace(/\+/g, ' '); }
   const h1 = q('h1'), img = q('.ui-pdp-gallery__figure img, figure img'), fr = q('.ui-pdp-price__second-line .andes-money-amount__fraction, .andes-money-amount__fraction');
+  const perfil = [...document.querySelectorAll('a[href*="_CustId_"], a[href*="seller_id="]')].map(a => a.href)[0] || '';
+  const sid = (perfil.match(/_CustId_(\d+)|seller_id=(\d+)/) || []).slice(1).find(Boolean) || '';
   return {vendedor: (v || '').replace(/^\s*(Vendido por|Loja oficial)\s*/i, '').replace(/\s*\+?\d+\s*(mil)?\s*vendas.*$/i, '').trim(),
+          vendedor_id: sid,
           titulo: h1 ? h1.textContent.trim() : '', foto: img ? (img.getAttribute('data-zoom') || img.getAttribute('src') || '') : '',
           preco: fr ? Number(fr.textContent.replace(/\D/g, '')) : null};
 }"""

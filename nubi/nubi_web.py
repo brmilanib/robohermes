@@ -3380,8 +3380,20 @@ def anuncio_do_link(link, loja=None):
         slug = s2.group(1) if s2 else ""
     titulo = " ".join(w.capitalize() for w in slug.split("-") if w)[:200]
     limpo = link.split("#")[0]
+    # anatomia do link (26/09, a pedido do Bruno): o que cada pedaço diz sobre o anúncio e de onde ele foi aberto
+    up = re.search(r"/up/(MLBU\d+)", u)
+    cat = re.search(r"/p/(MLB\d+)", u)
+    frag = urllib.parse.parse_qs(urllib.parse.urlparse(u).fragment.replace("#", "&"))
+    qs = urllib.parse.parse_qs(urllib.parse.urlparse(u).query)
+    pega = lambda k: (frag.get(k) or qs.get(k) or [None])[0]                     # noqa: E731
+    sid, cli = pega("sid") or "", pega("polycard_client") or ""
+    origem = ("vitrine" if sid == "storefronts" or "mshops" in cli else "busca" if sid == "search" or "search" in cli
+              else "catalogo" if cat else "anuncio")
+    contexto = {k: v for k, v in {"sid": sid or None, "polycard_client": cli or None, "componente": pega("component"),
+                                  "vitrine_titulo": pega("title"), "posicao_no_carrossel": pega("global_position")}.items() if v}
     return {"id": aid, "titulo": titulo or aid, "link": limpo[:500], "termo": termo_padrao(titulo) if titulo else "",
-            "loja": str(loja or "").strip().lower() or None}
+            "loja": str(loja or "").strip().lower() or None, "user_product": up.group(1) if up else None,
+            "catalogo": cat.group(1) if cat else None, "origem": origem, "contexto": contexto}
 
 
 def posicoes_de_busca(termo, itens, meus_ids, data):
@@ -3606,7 +3618,10 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         aid = str(d.get("id") or "").upper()
         vend = str(d.get("vendedor") or "").strip()
         mud = {"visto_em": agora_}
+        if d.get("vendedor_id"):
+            mud["vendedor_id"] = str(d["vendedor_id"])[:40]
         if vend:
+            mud["vendedor"] = vend[:80]
             mud["loja"] = vend.lower()[:80]
             if not repo._req("GET", "ml_lojas", {"select": "nome", "nome": repo._eq(mud["loja"])}):
                 repo._req("POST", "ml_lojas", corpo=[{"nome": mud["loja"], "ativo": True, "obs": "achada pelo anúncio " + aid}],

@@ -81,9 +81,13 @@ def test_posicao_organica_e_pagina():
 
 def test_anuncio_pelo_link_colado():
     a = w.anuncio_do_link("https://www.mercadolivre.com.br/body-splash-haya-perfume-mist-lattafa-250ml-body-splash-arabe-importado/up/"
-                          "MLBU3825091812?pdp_filters=item_id%3AMLB6365511140&tracking_id=a7#polycard_client=mshops&wid=MLB6365511140", "Aurascent")
+                          "MLBU3825091812?pdp_filters=item_id%3AMLB6365511140&tracking_id=a7#polycard_client=mshops-appearance-api&component=tabbed_carousel"
+                          "&wid=MLB6365511140&title=Os+melhors+Body+Splashs&sid=storefronts&global_position=12", "Aurascent")
+    assert w.anuncio_do_link("https://www.mercadolivre.com.br/x/up/MLBU1?pdp_filters=item_id%3AMLB6365511140#sid=storefronts&title=Os+melhors+Body+Splashs&global_position=12")["contexto"] == \
+        {"sid": "storefronts", "vitrine_titulo": "Os melhors Body Splashs", "posicao_no_carrossel": "12"}
     assert a["id"] == "MLB6365511140" and a["titulo"].startswith("Body Splash Haya") and a["loja"] == "aurascent"
     assert a["termo"] == "body splash haya mist lattafa 250ml" and "#" not in a["link"]
+    assert a["user_product"] == "MLBU3825091812" and a["origem"] == "vitrine" and a["catalogo"] is None
     assert w.anuncio_do_link("https://www.mercadolivre.com.br/ajuda") is None
 
 
