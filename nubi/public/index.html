@@ -569,11 +569,13 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .modal-bg.tarefa{align-items:stretch;justify-content:flex-end;padding:0}
 .modal-bg.tarefa .modal{max-width:560px;border-radius:0;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;
   display:flex;flex-direction:column;padding:0;overflow:hidden}
-.tf{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden}
+.tf{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden auto;overscroll-behavior:contain}   /* 26/09 #94: com overflow:hidden o relatório longo cortava o fim do card */
+.tf pre{white-space:pre-wrap;overflow-wrap:anywhere}
+html:has(.modal-bg.tarefa){overflow:hidden}   /* quadro atrás não rola com o card aberto; libera sozinho ao fechar */
 .tf-cab{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
 .tf-desc{padding:8px 16px;border-bottom:1px solid var(--line);font-size:13px}.tf-desc summary{cursor:pointer;color:var(--muted)}
 .tf-desc textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;color:var(--ink);background:var(--card);resize:vertical;margin-top:6px}
-.tf-lin{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:var(--soft);min-height:0}
+.tf-lin{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:var(--soft);min-height:min(240px,45dvh)}
 .tf-b{max-width:88%;background:var(--card);border-radius:12px;padding:7px 10px 5px;font-size:13px;align-self:flex-start;box-shadow:0 1px .5px rgba(0,0,0,.1)}
 .tf-b.eu{align-self:flex-end;background:#d9fdd3;color:#111b21}
 .tf-b.perg{border-left:3px solid #f97316}
