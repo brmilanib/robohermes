@@ -378,8 +378,8 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .in-estoque-link{display:block;text-decoration:none;color:inherit}
 .in-vendas-hoje .in-vh-cab{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .in-vendas-hoje b{font-size:32px;font-variant-numeric:tabular-nums;line-height:1.1}
-.chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;border-radius:999px;padding:3px 9px;background:var(--soft);color:var(--muted)}
-.chip.warn{background:#fff4e5;color:#7a4b00}
+.in-chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;border-radius:999px;padding:3px 9px;background:var(--soft);color:var(--muted)}
+.in-chip.warn{background:var(--warn-bg);color:var(--warn)}
 .in-status3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .in-agentes{display:grid;gap:14px}
 .in-agentes .in-dev-cab{margin-bottom:2px}
@@ -645,6 +645,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const hostname = url => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
+const urlHttp = url => { try { return ["http:", "https:"].includes(new URL(url).protocol) ? url : "#"; } catch { return "#"; } };
 const nf0 = new Intl.NumberFormat("pt-BR", {maximumFractionDigits: 0});
 const nf1 = new Intl.NumberFormat("pt-BR", {minimumFractionDigits: 1, maximumFractionDigits: 1});
 const nf2 = new Intl.NumberFormat("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -874,7 +875,7 @@ async function telaInicio() {
 
     <a class="card pad in-vendas-hoje" href="#/vendas-dia">
       <div class="in-vh-cab"><span class="l">Vendas dos concorrentes · ${ddmm(d.data)}</span>
-        ${d.tem ? (d.pendentes ? `<span class="chip warn">⚠️ ${d.pendentes} de ${d.total_vendedores} vendedor(es) pendente(s)</span>` : `<span class="chip">coleta completa</span>`) : ""}</div>
+        ${d.tem ? (d.pendentes ? `<span class="in-chip warn">⚠️ ${d.pendentes} de ${d.total_vendedores} vendedor(es) pendente(s)</span>` : `<span class="in-chip">coleta completa</span>`) : ""}</div>
       <b>${d.tem ? abrev(t.v) : "—"}</b>
       <span class="o">${d.tem ? `${nf0.format(t.u || 0)} un · ${pct(t.var)} vs média de 7 dias` : "as vendas do dia aparecem aqui quando o coletor trouxer o primeiro dia"}</span>
     </a>
@@ -934,8 +935,8 @@ async function telaInicio() {
     </section>
 
     ${ex.noticias && (ex.noticias.itens || []).length ? `<section class="card pad in-noticias"><div class="in-dev-cab"><h2>Notícias dos marketplaces</h2><span class="muted" style="font-size:11.5px">${ddmm(ex.noticias.data)}</span></div>
-      <ul>${ex.noticias.itens.map(n => `<li><div class="in-not-cab">${n.marketplace ? `<span class="chip">${esc(n.marketplace)}</span>` : ""}${n.fonte ? `<span>${esc(hostname(n.fonte))}</span>` : ""}</div>
-        <a href="${esc(n.fonte || "#")}" target="_blank" rel="noopener"><b>${esc(n.titulo || "")}</b></a>${n.resumo ? `<span class="muted">${esc(n.resumo)}</span>` : ""}</li>`).join("")}</ul></section>` : ""}
+      <ul>${ex.noticias.itens.map(n => `<li><div class="in-not-cab">${n.marketplace ? `<span class="in-chip">${esc(n.marketplace)}</span>` : ""}${n.fonte ? `<span>${esc(hostname(n.fonte))}</span>` : ""}</div>
+        <a href="${esc(urlHttp(n.fonte || ""))}" target="_blank" rel="noopener"><b>${esc(n.titulo || "")}</b></a>${n.resumo ? `<span class="muted">${esc(n.resumo)}</span>` : ""}</li>`).join("")}</ul></section>` : ""}
 
     <section class="card pad in-tempo" id="in-tempo"><div class="muted">Carregando a previsão…</div></section>
 
