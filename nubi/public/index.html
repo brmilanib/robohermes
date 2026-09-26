@@ -685,6 +685,36 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 /* Minhas Lojas → TikTok Shop → Atendimento (26/09) */
+.atx{display:grid;grid-template-columns:300px minmax(0,1fr) 290px;height:calc(100vh - 230px);min-height:480px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+.atx-lista{border-right:1px solid var(--line);overflow:auto}
+.atx-busca{display:flex;gap:6px;padding:8px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}
+.atx-busca select{flex:1;min-width:0}
+.atx-colar{display:grid;gap:6px;padding:8px;border-bottom:1px solid var(--line)}
+.atx-colar[hidden]{display:none}
+.atx-colar textarea{min-height:60px;font:inherit}
+.atx-item{display:flex;gap:10px;padding:10px;border-bottom:1px solid var(--line);cursor:pointer}
+.atx-item:hover{background:var(--bg)} .atx-item.on{background:var(--soft)}
+.atx-av{flex:0 0 36px;height:36px;border-radius:50%;background:var(--soft);display:flex;align-items:center;justify-content:center;font-weight:700}
+.atx-it{min-width:0;flex:1}
+.atx-l1,.atx-l2{display:flex;justify-content:space-between;gap:6px;font-size:13px}
+.atx-l2 span:first-child{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--muted)}
+.atx-pill{font-size:10.5px;border-radius:999px;padding:1px 6px;white-space:nowrap}
+.atx-pill.amarelo{background:rgba(212,160,23,.18)} .atx-pill.azul{background:rgba(37,99,235,.14)} .atx-pill.verde{background:rgba(47,125,91,.15)}
+.atx-chat{display:flex;flex-direction:column;min-width:0;min-height:0}
+.atx-cab{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
+.atx-voltar{display:none}
+.atx-msgs{flex:1;overflow:auto;padding:14px;background:var(--bg);display:flex;flex-direction:column}
+.atx-alerta{margin:0;padding:10px 14px;border-top:1px solid var(--line);background:rgba(212,160,23,.12);font-size:13px}
+.atx-alerta.azul{background:rgba(37,99,235,.08)} .atx-alerta label{display:flex;gap:6px;align-items:center;margin-top:6px}
+.atx-in{border-top:1px solid var(--line);padding:10px}
+.atx-in textarea{width:100%;min-height:70px;font:inherit;font-size:13.5px;border:1px solid var(--line);border-radius:10px;padding:8px;box-sizing:border-box;background:var(--card);color:inherit}
+.atx-info{border-left:1px solid var(--line);overflow:auto;padding:12px;font-size:13px}
+.atx-info h3{font-size:13.5px;margin:0 0 8px}
+.atx-kv{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px dashed var(--line)}
+.atx-kv span{color:var(--muted)} .atx-kv b{text-align:right;word-break:break-word}
+.atx-vazio{margin:auto;color:var(--muted)}
+@media (max-width:1100px){.atx{grid-template-columns:280px minmax(0,1fr)} .atx-info{display:none}}
+@media (max-width:700px){.atx{grid-template-columns:1fr;height:calc(100vh - 250px)} .atx.com-conv .atx-lista{display:none} .atx:not(.com-conv) .atx-chat{display:none} .atx-voltar{display:inline-block}}
 .es-seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
 .es-seg button{white-space:nowrap;flex:0 0 auto}
 .at-num{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px}
@@ -2629,106 +2659,123 @@ async function telaRankeamento() {
     try { await api("rank_salvar", {}, {method: "POST", body: JSON.stringify({id: +sel.dataset.rkSt, status: sel.value})}); toast("Status atualizado."); } catch (er) { toast(er.message, 6000); } });
   desenharMenu();
 }
-// ---------- Minhas Lojas → 🎵 TikTok Shop → Atendimento (26/09): dado real → rascunho → você aprova; nada sai sozinho ----------
+// ---------- Minhas Lojas → 🎵 TikTok Shop → Atendimento (26/09): no formato do UpSeller — conversas à esquerda, chat no meio,
+// pedido à direita. Dado real → resposta; o que já aprendeu sai sozinho; dúvida vem para o Bruno responder embaixo. ----------
 const atQuando = t => t ? new Date(t).toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
+const atHora = t => { if (!t) return ""; const d = new Date(t), hoje = new Date();
+  return d.toDateString() === hoje.toDateString() ? d.toLocaleTimeString("pt-BR", {timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit"})
+    : d.toLocaleDateString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit"}); };
 const AT_INTENCAO = {rastreio: "📦 rastreio", pedido: "🧾 pedido", produto: "🧴 produto", troca_devolucao: "🔁 troca/devolução",
-  reclamacao: "⚠️ reclamação", horario: "🕘 horário", saudacao: "👋 saudação", outro: "💬 outro"};
+  reclamacao: "⚠️ reclamação", horario: "🕘 horário", saudacao: "👋 saudação", outro: "💬 outro", manual: "✍️ manual"};
+const AT_PEDIDO = [["id", "Nº do pedido"], ["status", "Status"], ["transportadora", "Logística"], ["rastreio", "Nº de rastreio"],
+  ["previsao_entrega", "Entrega estimada"], ["ultima_atualizacao", "Última atualização"]];
 async function telaAtendimento() {
-  const main = $("#main"), aba = S.atAba || "fila";
-  main.innerHTML = esAbas("tiktok") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o atendimento</div></div>`;
+  const main = $("#main"), aba = S.atAba || "tudo";
+  if (!S.atCarregou) main.innerHTML = esAbas("tiktok") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o atendimento</div></div>`;
   let f, m, kb;
   try {
     [f, m, kb] = await Promise.all([api("atendimento_fila"), api("atendimento_metricas"), aba === "kb" ? api("atendimento_kb") : Promise.resolve({itens: []})]);
   } catch (e) { main.innerHTML = esAbas("tiktok") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/estoque/tiktok")) return;
-  const t = m.total || {}, conv = f.conversas || [];
+  S.atCarregou = true;
+  const t = m.total || {}, conv = f.conversas || [], pct = v => v == null ? "—" : Math.round(v * 100) + "%";
   const st = c => (c.rascunho || {}).status;
-  const grupos = {fila: conv.filter(c => st(c) === "pendente"), info: conv.filter(c => st(c) === "precisa_info"),
-                  feitas: conv.filter(c => ["aprovado", "editado", "enviado", "rejeitado"].includes(st(c)))};
-  const pct = v => v == null ? "—" : Math.round(v * 100) + "%";
-  const msgs = c => (c.mensagens || []).map(x => `<div class="at-msg ${x.de === "loja" ? "loja" : "cliente"}">${esc(x.texto)}
-      <div class="muted" style="font-size:11px">${x.de === "loja" ? "loja" : esc(c.cliente || "cliente")} · ${atQuando(x.criado_em)}</div></div>`).join("");
-  const fontes = r => `<details class="at-fontes"><summary>🔍 Dados usados para montar a resposta</summary><pre>${esc(JSON.stringify(r.fontes || {}, null, 1))}</pre></details>`;
-  const cab = c => `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b>${esc(c.cliente || "Cliente")}</b>
-      <span class="muted">${esc((f.canais.find(x => x.id === c.canal) || {}).nome || c.canal)} · ${esc(c.loja)}${c.pedido_ref ? " · pedido " + esc(c.pedido_ref) : ""}</span>
-      <span class="muted" style="margin-left:auto">${esc(AT_INTENCAO[(c.rascunho || {}).intencao] || "")}</span></div>`;
-  const cartaoFila = c => `<div class="at-conv">${cab(c)}${msgs(c)}
-      <div class="in-sub" style="margin-top:8px">✍️ Rascunho (${esc(c.rascunho.modelo || "IA grátis")}) — edite se quiser</div>
-      <textarea data-at-txt="${c.rascunho.id}">${esc(c.rascunho.texto_gerado || "")}</textarea>${fontes(c.rascunho)}
-      <div class="at-acoes"><button class="btn small primary" data-at-ok="${c.rascunho.id}">✅ Aprovar</button>
-        <button class="btn small ghost" data-at-rej="${c.rascunho.id}">❌ Rejeitar</button></div></div>`;
-  const cartaoInfo = c => `<div class="at-conv info">${cab(c)}${msgs(c)}
-      <div class="es-aviso" style="margin:8px 0">🙋 <b>Preciso de você:</b> ${esc(c.rascunho.pergunta_operador || "")}</div>
-      ${c.rascunho.motivo ? `<div class="muted" style="font-size:12px">motivo: ${esc(c.rascunho.motivo)}</div>` : ""}
-      <textarea data-at-resp="${c.rascunho.id}" placeholder="Sua resposta (o dado real). Ex.: Não vendemos tester, só perfumes lacrados."></textarea>
-      <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:6px"><input type="checkbox" data-at-kb="${c.rascunho.id}" checked>
-        Salvar na base de conhecimento desta loja (não pergunto de novo)</label>
-      <input data-at-tipo="${c.rascunho.id}" style="width:100%;margin-top:6px" value="${esc(((c.mensagens || []).filter(x => x.de === "cliente").slice(-1)[0] || {}).texto || "")}"
-        title="pergunta-tipo que vai para a base" placeholder="pergunta-tipo para a base">
-      ${fontes(c.rascunho)}
-      <div class="at-acoes"><button class="btn small primary" data-at-responder="${c.rascunho.id}">${c.canal === "tiktok_shop" && f.auto ? "Responder e enviar ao cliente" : "Responder e gerar rascunho"}</button></div></div>`;
-  const cartaoFeita = c => { const r = c.rascunho; return `<div class="at-conv">${cab(c)}${msgs(c)}
-      <div class="muted" style="font-size:12px">${r.decidido_por === "automático" ? "🤖 respondido sozinho (base) · " : ""}${{aprovado: r.enviar_pelo_mac ? "✅ aprovado · ⏳ o Mac envia em até 5 min" : "✅ aprovado como estava", editado: r.enviar_pelo_mac ? "✏️ aprovado com edição · ⏳ o Mac envia em até 5 min" : "✏️ aprovado com edição", enviado: "📤 enviado ao cliente", rejeitado: "❌ rejeitado"}[r.status] || r.status}
-        ${r.semelhanca != null ? " · " + pct(r.semelhanca) + " igual ao rascunho" : ""} · ${esc(r.decidido_por || "")} ${atQuando(r.decidido_em)}</div>
-      ${["aprovado", "editado"].includes(r.status) && !r.enviar_pelo_mac ? `<div class="at-acoes"><button class="btn small" data-at-copiar="${r.id}">📋 Copiar resposta para colar no TikTok</button></div>` : ""}</div>`; };
+  const lojas = [...new Set(conv.map(c => c.loja))].sort(), loja = S.atLoja || "";
+  const filtros = {tudo: () => true, voce: c => st(c) === "precisa_info", aprovar: c => st(c) === "pendente",
+                   sozinho: c => (c.rascunho || {}).decidido_por === "automático"};
+  const lista = conv.filter(c => (!loja || c.loja === loja) && (filtros[aba] || filtros.tudo)(c));
+  const aberta = conv.find(c => c.id === S.atConv) || null;
+  const ult = c => (c.mensagens || []).slice(-1)[0] || {};
+  const sinal = c => st(c) === "precisa_info" ? `<span class="atx-pill amarelo">🙋 você</span>` : st(c) === "pendente" ? `<span class="atx-pill azul">✍️ aprovar</span>`
+    : (c.rascunho || {}).decidido_por === "automático" ? `<span class="atx-pill verde">🤖</span>` : "";
+  const nomeCanal = c => (f.canais.find(x => x.id === c.canal) || {}).nome || c.canal;
+  const item = c => `<div class="atx-item ${aberta && aberta.id === c.id ? "on" : ""}" data-atx-conv="${c.id}">
+      <div class="atx-av">${esc((c.cliente || "?").slice(0, 1).toUpperCase())}</div>
+      <div class="atx-it"><div class="atx-l1"><b>${esc(c.cliente || "Cliente")}</b><span class="muted">${atHora(ult(c).criado_em || c.atualizado_em)}</span></div>
+        <div class="atx-l2"><span>${esc(String(ult(c).texto || "").slice(0, 60))}</span>${sinal(c)}</div>
+        <div class="muted" style="font-size:11px">${esc(nomeCanal(c))} · ${esc(c.loja)}</div></div></div>`;
+  const quem = (c, x) => { if (x.de !== "loja") return esc(c.cliente || "cliente");
+    const r = (c.respostas || []).find(y => (y.texto || "").trim() === (x.texto || "").trim()) || {};
+    return (r.por === "automático" ? "🤖 automático" : esc(r.por || "loja")) + (r.pelo_mac ? (r.enviado_em ? " · ✓ enviado" : " · ⏳ enviando") : ""); };
+  const chat = c => { if (!c) return `<div class="atx-vazio">Escolha uma conversa à esquerda.</div>`;
+    const r = c.rascunho || {};
+    const acao = r.status === "precisa_info" ? `<div class="atx-alerta">🙋 <b>Preciso de você:</b> ${esc(r.pergunta_operador || "")}
+        <label><input type="checkbox" id="atx-kb" checked> guardar a resposta na base (não pergunto de novo)</label></div>`
+      : r.status === "pendente" ? `<div class="atx-alerta azul">✍️ <b>Rascunho para aprovar</b> (${esc(AT_INTENCAO[r.intencao] || "")}) — edite embaixo se quiser e envie.</div>` : "";
+    const inicial = r.status === "pendente" ? (r.texto_gerado || "") : "";
+    return `<div class="atx-cab"><div><b>${esc(c.cliente || "Cliente")}</b> <span class="muted">${esc(nomeCanal(c))} · ${esc(c.loja)}</span></div>
+        <button class="btn small ghost atx-voltar" id="atx-voltar">← conversas</button></div>
+      <div class="atx-msgs" id="atx-msgs">${(c.mensagens || []).map(x => `<div class="at-msg ${x.de === "loja" ? "loja" : "cliente"}">${esc(x.texto)}
+          <div class="muted" style="font-size:11px">${quem(c, x)} · ${atQuando(x.criado_em)}</div></div>`).join("")}</div>
+      ${acao}
+      <div class="atx-in"><textarea id="atx-txt" placeholder="${r.status === "precisa_info" ? "Sua resposta (o dado real): eu monto a mensagem e envio ao cliente" : "Enviar mensagem ao comprador"}">${esc(inicial)}</textarea>
+        <div class="at-acoes">${r.status === "pendente" ? `<button class="btn small ghost" id="atx-rej">❌ Rejeitar rascunho</button>` : ""}
+          <button class="btn small primary" id="atx-env" style="margin-left:auto">➤ Enviar</button></div></div>`; };
+  const info = c => { if (!c) return ""; const r = c.rascunho || {}, p = c.pedido_dados || (r.fontes || {}).pedido || {};
+    const linhas = AT_PEDIDO.filter(([k]) => p[k] || (k === "id" && c.pedido_ref)).map(([k, n]) => `<div class="atx-kv"><span>${n}</span><b>${esc(String(k === "id" ? (p.id || c.pedido_ref) : p[k]))}</b></div>`).join("");
+    const itens = (p.itens || []).map(i => `<div class="atx-kv"><span>${esc(i.nome || "")}</span><b>${esc(i.variacao || "")}${i.quantidade ? " ×" + esc(String(i.quantidade)) : ""}</b></div>`).join("");
+    return `<h3>Informação do pedido</h3>${linhas || itens ? linhas + itens : `<p class="muted">Sem pedido ligado a esta conversa.</p>`}
+      <h3 style="margin-top:14px">Atendimento</h3>
+      <div class="atx-kv"><span>Assunto</span><b>${esc(AT_INTENCAO[r.intencao] || "—")}</b></div>
+      <div class="atx-kv"><span>Criado</span><b>${atQuando(c.criado_em)}</b></div>
+      <div class="atx-kv"><span>Atualizado</span><b>${atQuando(c.atualizado_em)}</b></div>
+      <details class="at-fontes"><summary>🔍 Dados usados na resposta</summary><pre>${esc(JSON.stringify(r.fontes || {}, null, 1))}</pre></details>`; };
   const kbItem = k => `<div class="at-kb-item"><b>${esc(k.pergunta)}</b><div style="margin:4px 0;white-space:pre-wrap">${esc(k.resposta)}</div>
       <div class="muted" style="font-size:11.5px">${esc(k.loja)} · confirmado por ${esc(k.confirmado_por || "—")} em ${atQuando(k.confirmado_em)}</div>
       <div class="at-acoes"><button class="btn small ghost" data-kb-editar="${k.id}">✏️ Nova versão</button><button class="btn small ghost" data-kb-desativar="${k.id}">Desativar</button></div></div>`;
-  const abas = [["fila", `✍️ Para aprovar (${grupos.fila.length})`], ["info", `🙋 Precisa de você (${grupos.info.length})`], ["feitas", "📜 Respondidas"], ["kb", "📚 Base de conhecimento"]];
+  const abas = [["tudo", `Tudo (${conv.length})`], ["voce", `🙋 Precisa de você (${conv.filter(filtros.voce).length})`],
+                ["aprovar", `✍️ Aprovar (${conv.filter(filtros.aprovar).length})`], ["sozinho", "🤖 Respondidas sozinho"], ["kb", "📚 Base de conhecimento"]];
   const corpo = aba === "kb" ? `<div class="card pad"><h2>Base de conhecimento</h2>
-      <p class="muted" style="font-size:12.5px">Perguntas-tipo com a resposta padrão da loja. Sempre que você responde algo que não estava aqui, vira um item novo.</p>
+      <p class="muted" style="font-size:12.5px">Perguntas-tipo com a resposta padrão da loja. Toda resposta sua a uma dúvida vira um item aqui.</p>
       <form id="kb-novo" class="at-form"><input id="kb-p" placeholder="Pergunta-tipo (ex.: Vendemos perfumes tester?)" class="larga">
         <textarea id="kb-r" placeholder="Resposta padrão"></textarea><input id="kb-loja" value="principal" placeholder="loja (ou todas)">
         <button class="btn small primary">+ Salvar item</button></form>
-      <div class="at-kb">${(kb.itens || []).map(kbItem).join("") || `<p class="muted">Base vazia. Comece pelas perguntas mais comuns: tester, troca/devolução, prazo de envio, horário.</p>`}</div></div>`
-    : `${aba === "fila" ? `<div class="card pad"><h2>Nova mensagem de cliente</h2>
-        <p class="muted" style="font-size:12.5px">Enquanto a TikTok Shop não está ligada ao nubi, cole aqui a mensagem do cliente. O nubi busca o dado real, monta o rascunho e espera você aprovar.</p>
-        <form id="at-nova" class="at-form"><input id="at-cli" placeholder="Nome do cliente"><input id="at-ped" placeholder="Nº do pedido (se tiver)">
-          <textarea id="at-txt" placeholder="Mensagem do cliente"></textarea><button class="btn small primary larga">Gerar rascunho</button></form></div>` : ""}
-      ${(grupos[aba] || []).map(aba === "fila" ? cartaoFila : aba === "info" ? cartaoInfo : cartaoFeita).join("")
-        || `<div class="card empty" style="margin-top:12px">${aba === "fila" ? "Nenhum rascunho esperando aprovação." : aba === "info" ? "Nada esperando resposta sua. 🎉" : "Nenhuma conversa respondida ainda."}</div>`}`;
+      <div class="at-kb">${(kb.itens || []).map(kbItem).join("") || `<p class="muted">Base vazia.</p>`}</div></div>`
+    : `<div class="atx ${aberta ? "com-conv" : ""}">
+        <div class="atx-lista"><div class="atx-busca"><select id="atx-loja"><option value="">Todas as lojas</option>${lojas.map(l => `<option ${l === loja ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+          <button class="btn small ghost" id="atx-colar" title="colar a mensagem de um cliente">+ Colar</button></div>
+          <form id="at-nova" class="atx-colar" ${S.atColar ? "" : "hidden"}><input id="at-cli" placeholder="Cliente"><input id="at-ped" placeholder="Nº do pedido (se tiver)">
+            <textarea id="at-txt" placeholder="Mensagem do cliente"></textarea><button class="btn small primary">Trazer para o atendimento</button></form>
+          ${lista.map(item).join("") || `<div class="muted" style="padding:14px">Nenhuma conversa aqui.</div>`}</div>
+        <div class="atx-chat">${chat(aberta)}</div>
+        <div class="atx-info">${info(aberta)}</div></div>`;
   main.innerHTML = esAbas("tiktok") + `<div class="es-cab"><h1>🎵 TikTok Shop · Atendimento</h1>
-      <span class="muted">respostas só com dado real</span>
       <div class="acoes"><button class="btn small ${f.atendente ? "" : "primary"}" id="at-ligar">${f.atendente ? "⏸ Desligar atendente" : "▶️ Ligar atendente"}</button>
-        <button class="btn small" id="at-agora" title="o Mac olha o chat agora">🔄 Olhar o chat agora</button></div></div>
-    <div class="es-aviso" style="margin:8px 0">${f.atendente ? (f.no_pc ? "🟢 <b>Atendente ligado no seu PC:</b> olha o chat da TikTok Shop a cada 2 min, traz as mensagens para cá e envia as respostas."
-        : "🟢 <b>Atendente ligado:</b> o Mac mini olha o chat da TikTok Shop a cada 5 min, traz as mensagens para cá e envia as respostas.")
-      : "⚪ <b>Atendente desligado.</b> Ligue para o Mac mini ficar de olho no chat da TikTok Shop (precisa estar logado no Seller Center no Chrome do coletor)."}
-      <label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="at-auto" ${f.auto ? "checked" : ""}>
-        Responder sozinho o que já aprendeu (pergunta coberta pela base; pedido, troca e reclamação sempre passam por você)</label></div>
-    <div class="at-num"><span>🤖 ${m.automaticas || 0} respondidas sozinho</span><span>🎯 acerto ${pct(t.acerto)} <span class="muted">(aprovado sem editar, ${m.dias} dias)</span></span>
-      <span>✍️ ${grupos.fila.length} para aprovar</span><span>🙋 ${grupos.info.length} precisam de você</span>
-      <span>✏️ ${t.editado || 0} editados · ❌ ${t.rejeitado || 0} rejeitados</span></div>
-    <div class="seg es-seg" style="margin-bottom:12px">${abas.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-at-aba="${k}">${n}</button>`).join("")}</div>${corpo}`;
+        <button class="btn small" id="at-agora" title="olhar o chat agora">🔄 Sincronizar</button></div></div>
+    <div class="at-num"><span>${f.atendente ? (f.no_pc ? "🟢 ligado no seu PC (a cada 2 min)" : "🟢 ligado no Mac mini (a cada 5 min)") : "⚪ atendente desligado"}</span>
+      <span>🤖 ${m.automaticas || 0} respondidas sozinho</span><span>🎯 acerto ${pct(t.acerto)}</span>
+      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="at-auto" ${f.auto ? "checked" : ""}> responder sozinho o que já aprendeu</label></div>
+    <div class="seg es-seg" style="margin-bottom:10px">${abas.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-at-aba="${k}">${n}</button>`).join("")}</div>${corpo}`;
   const post = (rota, corpo_) => api(rota, {}, {method: "POST", body: JSON.stringify(corpo_)});
   const agir = async (fn, ok) => { try { const x = await fn(); if (ok) toast(ok(x), 7000); telaAtendimento(); } catch (e) { toast(e.message, 7000); } };
+  if ($("#atx-msgs")) $("#atx-msgs").scrollTop = 1e6;
   main.querySelectorAll("[data-at-aba]").forEach(b => b.onclick = () => { S.atAba = b.dataset.atAba; telaAtendimento(); });
+  main.querySelectorAll("[data-atx-conv]").forEach(b => b.onclick = () => { S.atConv = +b.dataset.atxConv; telaAtendimento(); });
+  if ($("#atx-voltar")) $("#atx-voltar").onclick = () => { S.atConv = null; telaAtendimento(); };
+  if ($("#atx-loja")) $("#atx-loja").onchange = e => { S.atLoja = e.target.value; telaAtendimento(); };
+  if ($("#atx-colar")) $("#atx-colar").onclick = () => { S.atColar = !S.atColar; $("#at-nova").hidden = !S.atColar; };
   if ($("#at-nova")) $("#at-nova").onsubmit = e => { e.preventDefault(); const texto = $("#at-txt").value.trim(); if (!texto) return;
-    e.target.querySelector("button").disabled = true;
     agir(() => post("atendimento_receber", {canal: "tiktok_shop", texto, cliente: $("#at-cli").value.trim() || null, pedido: $("#at-ped").value.trim() || null}),
-      x => x.rascunho.status === "pendente" ? "Rascunho pronto: confira e aprove." : "Faltou dado real: a pergunta está em 🙋 Precisa de você."); };
-  main.querySelectorAll("[data-at-ok]").forEach(b => b.onclick = () => { const id = +b.dataset.atOk, txt = main.querySelector(`[data-at-txt="${id}"]`).value.trim();
-    const conv = grupos.fila.find(c => c.rascunho.id === id), mudou = txt !== (conv.rascunho.texto_gerado || "").trim();
-    agir(() => post("atendimento_decidir", {id, acao: mudou ? "editar" : "aprovar", texto: txt}), x => {
-      if (x.pelo_mac) return "Aprovado: o Mac envia no chat em até 5 min.";
-      if (x.aviso) { try { navigator.clipboard.writeText(x.texto); } catch { /* sem área de transferência */ } return "Aprovado e copiado: cole no chat."; }
-      return "Enviado ao cliente."; }); });
-  main.querySelectorAll("[data-at-rej]").forEach(b => b.onclick = () => { const motivo = prompt("Por que rejeitar? (ajuda a treinar)") ; if (motivo === null) return;
-    agir(() => post("atendimento_decidir", {id: +b.dataset.atRej, acao: "rejeitar", texto: motivo}), () => "Rejeitado."); });
-  main.querySelectorAll("[data-at-responder]").forEach(b => b.onclick = () => { const id = +b.dataset.atResponder;
-    const resposta = main.querySelector(`[data-at-resp="${id}"]`).value.trim(); if (!resposta) return toast("Escreva a resposta primeiro.");
-    b.disabled = true;
-    agir(() => post("atendimento_responder", {id, resposta, salvar_kb: main.querySelector(`[data-at-kb="${id}"]`).checked,
-      pergunta_tipo: main.querySelector(`[data-at-tipo="${id}"]`).value.trim()}),
-      x => (x.kb ? "Guardado na base. " : "") + (x.rascunho.automatico ? "Resposta montada: o Mac envia ao cliente em até 5 min."
-        : x.rascunho.status === "pendente" ? "Rascunho novo em ✍️ Para aprovar." : "Ainda falta dado: veja de novo em 🙋.")); });
+      x => { S.atConv = x.rascunho.conversa_id; S.atColar = false;
+        return x.rascunho.automatico ? "Já sabia: respondi sozinho." : x.rascunho.status === "pendente" ? "Rascunho pronto: confira e envie." : "Faltou dado: me responda embaixo."; }); };
+  if ($("#atx-env")) $("#atx-env").onclick = () => { const r = aberta.rascunho || {}, txt = $("#atx-txt").value.trim(); if (!txt) return toast("Escreva a mensagem.");
+    $("#atx-env").disabled = true;
+    if (r.status === "precisa_info")
+      return agir(() => post("atendimento_responder", {id: r.id, resposta: txt, salvar_kb: $("#atx-kb").checked,
+        pergunta_tipo: ((aberta.mensagens || []).filter(x => x.de === "cliente").slice(-1)[0] || {}).texto || ""}),
+        x => (x.kb ? "Guardado na base. " : "") + (x.rascunho.automatico ? "Mensagem montada e a caminho do cliente."
+          : x.rascunho.status === "pendente" ? "Rascunho pronto para aprovar." : "Ainda falta dado."));
+    if (r.status === "pendente")
+      return agir(() => post("atendimento_decidir", {id: r.id, acao: txt === (r.texto_gerado || "").trim() ? "aprovar" : "editar", texto: txt}),
+        x => x.pelo_mac ? "Aprovado: vai para o chat do cliente." : "Aprovado: copie e cole no chat.");
+    agir(() => post("atendimento_mensagem", {conversa_id: aberta.id, texto: txt}), x => x.pelo_mac ? "Mensagem a caminho do cliente." : "Pronta: copie e cole no chat."); };
+  if ($("#atx-rej")) $("#atx-rej").onclick = () => { const motivo = prompt("Por que rejeitar? (ajuda a treinar)"); if (motivo === null) return;
+    agir(() => post("atendimento_decidir", {id: aberta.rascunho.id, acao: "rejeitar", texto: motivo}), () => "Rejeitado."); };
   $("#at-ligar").onclick = () => agir(() => post("atendimento_ligar", {ligado: !f.atendente}),
-    x => x.atendente ? "Atendente ligado: o Mac abre o chat da TikTok em até 1 min." : "Atendente desligado.");
-  $("#at-agora").onclick = () => agir(() => post("atendimento_ligar", {ligado: f.atendente, agora: true}), () => "Pedido enviado: o Mac olha o chat em até 1 min.");
+    x => x.atendente ? "Atendente ligado." : "Atendente desligado.");
+  $("#at-agora").onclick = () => agir(() => post("atendimento_ligar", {ligado: f.atendente, agora: true}), () => "Pedido enviado: o chat é olhado em até 1 min.");
   $("#at-auto").onchange = e => agir(() => post("atendimento_auto", {ligado: e.target.checked}),
     x => x.auto ? "Ele responde sozinho o que já aprendeu." : "Tudo passa pela sua aprovação.");
-  main.querySelectorAll("[data-at-copiar]").forEach(b => b.onclick = () => { const c = grupos.feitas.find(x => x.rascunho.id === +b.dataset.atCopiar);
-    try { navigator.clipboard.writeText(c.rascunho.texto_final || ""); toast("Copiado."); } catch { toast("Não consegui copiar."); } });
   if ($("#kb-novo")) $("#kb-novo").onsubmit = e => { e.preventDefault();
     agir(() => post("atendimento_kb_salvar", {pergunta: $("#kb-p").value, resposta: $("#kb-r").value, loja: $("#kb-loja").value.trim() || "principal"}), () => "Item salvo na base."); };
   main.querySelectorAll("[data-kb-desativar]").forEach(b => b.onclick = () => { if (!confirm("Desativar este item? Ele fica guardado, só deixa de ser usado.")) return;
@@ -2736,6 +2783,8 @@ async function telaAtendimento() {
   main.querySelectorAll("[data-kb-editar]").forEach(b => b.onclick = () => { const k = kb.itens.find(x => x.id === +b.dataset.kbEditar);
     const nova = prompt("Nova resposta padrão (a antiga fica guardada como substituída):", k.resposta); if (!nova || nova.trim() === k.resposta) return;
     agir(() => post("atendimento_kb_salvar", {pergunta: k.pergunta, resposta: nova, loja: k.loja, substitui: k.id}), () => "Nova versão salva."); });
+  clearTimeout(S.atTimer);                   // atualiza sozinha a cada 30 s enquanto a tela está aberta (sem apagar o que você digita)
+  S.atTimer = setTimeout(() => { if (location.hash.startsWith("#/estoque/tiktok") && !($("#atx-txt") && $("#atx-txt").value.trim() && document.activeElement === $("#atx-txt"))) telaAtendimento(); }, 30000);
 }
 
 // ---------- Minhas Lojas → Posição do anúncio (card #78): posição e página de cada anúncio meu na busca do Mercado Livre ----------

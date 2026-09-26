@@ -211,6 +211,14 @@ def test_tiktok_aprendido_sai_sozinho_pelo_mac_e_duvida_vai_ao_bruno():
     assert w["status"] == "pendente" and not w.get("automatico")
 
 
+def test_mensagem_livre_do_bruno_sai_e_fica_fora_do_acerto():
+    r = Repo()
+    z = a.receber(r, "tiktok_shop", "tem o Asad?", cliente="bia", externo_id="bia", gerar=_ia(iter([])))
+    x = a.mensagem_manual(r, z["conversa_id"], "Oi Bia! Tem sim, pode comprar pelo link do anúncio 😊")
+    assert x["pelo_mac"] and a.para_enviar(r)[0]["texto"].startswith("Oi Bia")
+    assert a.metricas(r)["total"]["decididos"] == 0
+
+
 def test_atendente_do_mac_e_chamado_quando_ligado():
     r = Repo()
     assert a.atendente_proximo(r) is None                                # desligado

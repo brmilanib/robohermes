@@ -16,39 +16,38 @@ try:
     with sync_playwright() as p:
         exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
         b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()
-        casos = ((1440, 820, "pc", "Vocês vendem tester do Asad?", "Vendemos perfumes tester?", "Não vendemos tester, só perfumes lacrados."),
-                 (390, 760, "cel", "Vocês fazem embrulho para presente?", "Fazem embrulho para presente?", "Não fazemos embrulho, só a caixa lacrada."))
-        for w, h, nome, pergunta, tipo, resposta in casos:
+        casos = ((1440, 820, "pc", "Vocês vendem tester do Asad?", "Não vendemos tester, só perfumes lacrados."),
+                 (390, 760, "cel", "Vocês fazem embrulho para presente?", "Não fazemos embrulho, só a caixa lacrada."))
+        for w, h, nome, pergunta, resposta in casos:
             pg = b.new_page(viewport={"width": w, "height": h})
             erros = []; pg.on("pageerror", lambda e: erros.append(str(e)))
             pg.route("https://cdn.jsdelivr.net/**", lambda r: r.fulfill(content_type="application/javascript", body=STUB))
             pg.route("https://fonts.**", lambda r: r.abort())
-            pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/tiktok"); pg.wait_for_selector("#at-nova", timeout=15000)
-            if nome == "cel":
+            pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/tiktok"); pg.wait_for_selector(".atx", timeout=15000)
+            if nome == "cel":                                               # tudo passa pela aprovação
                 pg.uncheck("#at-auto"); pg.wait_for_timeout(1500)
-            pg.fill("#at-cli", "Ana"); pg.fill("#at-txt", pergunta)
-            pg.click("#at-nova button"); pg.wait_for_timeout(1500)
-            pg.click("[data-at-aba=info]"); pg.wait_for_selector(".at-conv.info", timeout=10000)
-            assert "não tenho essa informação" in pg.inner_text(".at-conv.info"), nome
-            pg.fill(".at-conv.info textarea", resposta)
-            pg.fill(".at-conv.info [data-at-tipo]", tipo)
-            pg.click("[data-at-responder]"); pg.wait_for_timeout(1500)
-            larg = pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
-            assert larg[0] <= larg[1] + 1, (nome, larg)                         # sem rolagem de lado no celular
-            if nome == "pc":        # responder sozinho ligado: a resposta do Bruno já vai para o Mac enviar
-                pg.click("[data-at-aba=feitas]"); pg.wait_for_timeout(1200)
-                assert "o Mac envia em até 5 min" in pg.inner_text("#main"), nome
+            pg.click("#atx-colar"); pg.fill("#at-cli", f"Ana {nome}"); pg.fill("#at-txt", pergunta)
+            pg.click("#at-nova button"); pg.wait_for_selector(".atx-alerta", timeout=10000)
+            assert "Preciso de você" in pg.inner_text(".atx-alerta"), nome          # abriu a conversa com a dúvida
+            pg.fill("#atx-txt", resposta); pg.click("#atx-env"); pg.wait_for_timeout(1800)
+            if nome == "pc":        # respondeu embaixo: a mensagem já vai para o cliente pelo atendente
+                assert "⏳ enviando" in pg.inner_text("#atx-msgs") and "🤖 automático" in pg.inner_text("#atx-msgs")
+                assert "Informação do pedido" in pg.inner_text(".atx-info")
                 pg.click("#at-ligar"); pg.wait_for_timeout(1500)
-                assert "Atendente ligado" in pg.inner_text("#main") and "Desligar atendente" in pg.inner_text("#at-ligar")
-            else:                   # desligado: fica na fila e o Bruno aprova
-                pg.click("[data-at-aba=fila]"); pg.wait_for_selector("[data-at-txt]", timeout=10000)
-                assert pg.input_value("[data-at-txt]").startswith("Oi!"), nome
-                assert "Dados usados" in pg.inner_text(".at-conv")             # o operador audita o que foi usado
-                pg.click("[data-at-ok]"); pg.wait_for_timeout(1500)
-                pg.click("[data-at-aba=feitas]"); pg.wait_for_timeout(1200)
-                assert "o Mac envia em até 5 min" in pg.inner_text("#main"), nome
+                assert "ligado no Mac" in pg.inner_text(".at-num")
+            else:                   # sem responder sozinho: vira rascunho no campo de baixo, o Bruno envia
+                assert pg.input_value("#atx-txt").startswith("Oi!") and "Rascunho para aprovar" in pg.inner_text(".atx-alerta")
+                larg = pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
+                assert larg[0] <= larg[1] + 1, (nome, larg)                     # sem rolagem de lado no celular
+                assert not pg.is_visible(".atx-lista")                          # no celular: só o chat aberto
+                pg.click("#atx-env"); pg.wait_for_timeout(1800)
+                assert "⏳ enviando" in pg.inner_text("#atx-msgs")
+                pg.fill("#atx-txt", "Qualquer dúvida estou aqui!"); pg.click("#atx-env"); pg.wait_for_timeout(1800)
+                assert "Qualquer dúvida estou aqui!" in pg.inner_text("#atx-msgs")      # mensagem livre do Bruno
+                pg.click("#atx-voltar"); pg.wait_for_timeout(1200)
+                assert pg.is_visible(".atx-lista") and f"Ana {nome}" in pg.inner_text(".atx-lista")
             pg.click("[data-at-aba=kb]"); pg.wait_for_selector(".at-kb-item", timeout=10000)
-            assert tipo in pg.inner_text(".at-kb"), nome
+            assert pergunta in pg.inner_text(".at-kb"), nome
             assert not erros, erros
         b.close()
 finally:

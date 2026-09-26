@@ -367,6 +367,21 @@ def processar(repo, conversa, mensagem, gerar=None, resposta_operador=None):
     return rasc
 
 
+def mensagem_manual(repo, conversa_id, texto, operador="Bruno"):
+    """O Bruno escreve direto ao cliente pela caixa do chat (como no UpSeller). Fica no log (intenção "manual", fora do
+    acerto) e sai pelo canal: pelo Mac/PC no TikTok, ou fica pronta para copiar nos canais sem integração."""
+    texto = str(texto or "").strip()
+    if not texto:
+        raise ValueError("mensagem vazia")
+    conversa = _um(repo, "atendimento_conversas", conversa_id)
+    if not conversa:
+        raise ValueError("conversa não encontrada")
+    rasc = _inserir(repo, "atendimento_rascunhos", {"conversa_id": conversa["id"], "intencao": "manual", "fontes": {},
+                                                   "texto_gerado": texto[:3000], "status": "pendente", "modelo": operador,
+                                                   "criado_em": _agora()})
+    return decidir(repo, rasc["id"], "aprovar", operador=operador)
+
+
 AUTO_CHAVE = "atendimento|auto"
 AUTO_INTENCOES = {"produto", "horario", "saudacao", "outro"}
 AUTO_NOTA = 0.75
@@ -509,7 +524,7 @@ def metricas(repo, dias=30):
     todas = repo._req("GET", "atendimento_rascunhos", {"select": "intencao,status,semelhanca,decidido_por", "criado_em": f"gte.{desde}",
                                                        "limit": 10000}) or []
     automaticas = sum(1 for x in todas if x.get("decidido_por") == "automático")
-    linhas = [x for x in todas if x.get("decidido_por") != "automático"]      # o acerto mede só o que o Bruno decidiu
+    linhas = [x for x in todas if x.get("decidido_por") != "automático" and x.get("intencao") != "manual"]   # só o que a IA escreveu e o Bruno decidiu
 
     def conta(ls):
         c = {s: sum(1 for x in ls if x.get("status") == s) for s in
@@ -541,7 +556,10 @@ def fila(repo, status=None, lim=50):
     msgs = repo._req("GET", "atendimento_mensagens", {"select": "*", "conversa_id": ids, "order": "id", "limit": 5000}) or []
     for c in conversas:
         c["rascunho"] = next((r for r in rascs if r["conversa_id"] == c["id"]), None)
-        c["mensagens"] = [m for m in msgs if m["conversa_id"] == c["id"]][-20:]
+        c["mensagens"] = [m for m in msgs if m["conversa_id"] == c["id"]][-40:]
+        # quem mandou cada resposta da loja (🤖 automático, Bruno) e se já saiu no chat, para os balões da tela
+        c["respostas"] = [{"texto": r.get("texto_final"), "por": r.get("decidido_por"), "enviado_em": r.get("enviado_em"),
+                           "pelo_mac": r.get("enviar_pelo_mac")} for r in rascs if r["conversa_id"] == c["id"] and r.get("texto_final")]
     return conversas
 
 
@@ -621,6 +639,8 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
                                                 "ia": "atendente", "criado_em": _agora()}],
                   prefer="resolution=merge-duplicates,return=minimal")
         return {"auto": bool(d.get("ligado"))}
+    if nome == "atendimento_mensagem" and metodo == "POST":
+        return mensagem_manual(repo, d["conversa_id"], d.get("texto"), operador)
     if nome == "atendimento_para_enviar":
         if q.get("computador"):          # o atendente está ligado num computador (PC do Bruno): o Mac fica quieto
             repo._req("POST", "ia_resumos", corpo=[{"chave": PC_CHAVE, "texto": str(q["computador"])[:20], "ia": "atendente",
