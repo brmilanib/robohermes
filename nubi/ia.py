@@ -13,6 +13,7 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.request
 
 
@@ -209,7 +210,7 @@ def _post_json(url, corpo, cab, timeout=90):
     return r
 
 
-def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sistema=None):
+def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sistema=None, imagens=None):
     """
     qual: 'chatgpt', 'claude', 'deepseek' ou 'codex' (ChatGPT com o modelo de código) — padrão: disponivel();
     modelo: troca o modelo só nesta pergunta ('pro' no DeepSeek = o modelo maior); sistema: instruções fixas do agente.
@@ -235,8 +236,12 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, siste
                          DEEPSEEK_PRO if modelo == "pro" else None).strip(), [], ia
     if ia == "claude":
         # o Claude sempre raciocina antes e isso conta no max_tokens: folga de 16 mil para sobrar a resposta
+        conteudo = pergunta
+        if imagens:                                     # fotos e quadros de vídeo da Sala (26/09)
+            conteudo = [{"type": "image", "source": {"type": "base64", "media_type": _tipo_img(u), "data": u.split(",", 1)[1]}}
+                        for u in imagens] + [{"type": "text", "text": pergunta}]
         corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO_CLAUDE", "claude-opus-5-5"),
-                 "max_tokens": max(max_tokens, 16000), "messages": [{"role": "user", "content": pergunta}]}
+                 "max_tokens": max(max_tokens, 16000), "messages": [{"role": "user", "content": conteudo}]}
         if sistema:
             # cache do briefing (26/09, aprovado pelo Bruno): o SISTEMA é igual em todas as chamadas; guardado no cache, as
             # seguintes (5 min) pagam ~1/10 da entrada. Texto curto (abaixo do mínimo do cache) vai sem marcação.
@@ -255,7 +260,11 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, siste
             raise SemIA(f"Claude sem resposta (fim: {r.get('stop_reason')})")
         links = [c.get("url") for b in r.get("content", []) for c in (b.get("citations") or []) if c.get("url")]
     else:
-        corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "input": pergunta, "max_output_tokens": max_tokens}
+        entrada = pergunta
+        if imagens:                                     # fotos e quadros de vídeo da Sala (26/09)
+            entrada = [{"role": "user", "content": [{"type": "input_text", "text": pergunta}]
+                        + [{"type": "input_image", "image_url": u} for u in imagens]}]
+        corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "input": entrada, "max_output_tokens": max_tokens}
         if sistema:
             corpo["instructions"] = sistema
         if web:
@@ -272,6 +281,35 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, siste
         except Exception:  # noqa: BLE001 — guardar nunca derruba a resposta
             pass
     return texto.strip(), links, ia
+
+
+def _tipo_img(url_dados):
+    m = re.match(r"data:(image/[a-z+]+);base64,", url_dados or "")
+    return m.group(1) if m else "image/jpeg"
+
+
+def transcrever(audio, nome="audio.wav"):
+    """Fala -> texto (OpenAI; português). audio: bytes de um arquivo de até 25 MB (wav, mp3, m4a, mp4, webm)."""
+    import uuid
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SemIA("transcrição precisa da OPENAI_API_KEY")
+    ultimo = None
+    for modelo in (os.environ.get("NUBI_IA_TRANSCRICAO", "gpt-4o-transcribe"), "whisper-1"):
+        b = uuid.uuid4().hex
+        partes = [f"--{b}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{modelo}\r\n".encode(),
+                  f"--{b}\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\npt\r\n".encode(),
+                  f"--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{nome}\"\r\n"
+                  f"Content-Type: application/octet-stream\r\n\r\n".encode() + audio + b"\r\n",
+                  f"--{b}--\r\n".encode()]
+        req = urllib.request.Request("https://api.openai.com/v1/audio/transcriptions", data=b"".join(partes), method="POST",
+                                     headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+                                              "Content-Type": f"multipart/form-data; boundary={b}"})
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                return (json.loads(r.read().decode()).get("text") or "").strip()
+        except urllib.error.HTTPError as e:
+            ultimo = f"{modelo}: {e.code} {e.read().decode(errors='replace')[:200]}"
+    raise SemIA(f"transcrição falhou ({ultimo})")
 
 
 def _primeiro_json(texto):

@@ -147,3 +147,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `NUBI_WEB_POR_AGENTE`=6 e `NUBI_WEB_POR_DIA`=40, contados no `saber` pela etiqueta `agente:x`; recusa senha/chave/dado
   pessoal) e `PESQUISA_PROFUNDA:` só para o coordenador. Ordem: busca grátis do Ollama (`ia.ollama_web`) resumida pelo
   gpt-oss grátis (DeepSeek de reserva); a busca paga do Claude só se o Ollama falhar. Hermes e Qwen (Mac) usam a rota `agente_pesquisar`.
+
+## Fotos e vídeos na conversa direta (26/09)
+
+- 📎 na conversa direta: o navegador envia o arquivo original para o Storage (bucket privado `anexos`, caminho
+  `sala/<agente>/…`), tira até 12 quadros do vídeo (JPEG 1280 px) e separa o áudio (WAV mono 16 kHz, até 12 min).
+- O servidor (`preparar_anexos`) baixa só quadros/prévias e áudio, transcreve (`ia.transcrever`, gpt-4o-transcribe →
+  whisper-1) e manda as imagens para quem enxerga (`agentes.ve_imagens`: ChatGPT, Astra, Claude). A transcrição fica no
+  texto da mensagem (entra na base de conhecimento) e em `meta.anexos`. A tela mostra foto/vídeo com link assinado de 1 h.

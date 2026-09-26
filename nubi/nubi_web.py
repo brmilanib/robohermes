@@ -927,9 +927,10 @@ def atender(metodo, rota, q, corpo, token):
             d = json.loads(corpo or b"{}")
             chave = str(d.get("agente") or "").strip().lower()
             texto = str(d.get("texto") or "").strip()
+            anexos = d.get("anexos") or []
             if chave not in CONVERSA_NOME:
                 raise ErroNuvem("Agente inválido.")
-            if not texto:
+            if not texto and not anexos:
                 raise ErroNuvem("Escreva a mensagem.")
             # confere ANTES de gravar qualquer coisa (como a reuniao_enviar antiga): sem isso, uma chave que falta na
             # Vercel deixava a mensagem do usuário órfã na conversa, sem resposta nem aviso (achado do revisor)
@@ -947,7 +948,10 @@ def atender(metodo, rota, q, corpo, token):
                     raise ErroNuvem(f"{CONVERSA_NOME[chave]} não configurado.")
             meta = {"conversa": "direta", "agente": chave}
             agora_ = lambda: datetime.now(timezone.utc).isoformat()  # noqa: E731
-            repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "voce", "texto": texto[:4000], "meta": meta,
+            extra, imagens, meta_anexos = preparar_anexos(repo, anexos) if anexos else ("", [], [])
+            texto_voce = (texto + ("\n\n" + extra if extra else "")).strip()
+            repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "voce", "texto": texto_voce[:24000],
+                      "meta": dict(meta, anexos=meta_anexos) if meta_anexos else meta,
                       "criado_em": agora_()}], prefer="return=minimal")
             if aviso_mac:
                 repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "sistema", "texto": aviso_mac, "meta": meta,
@@ -960,16 +964,22 @@ def atender(metodo, rota, q, corpo, token):
             contexto = ("CONVERSA DIRETA ATÉ AGORA (você e o Bruno):\n" + "\n".join(
                 f"[{_br(m['criado_em']):%d/%m %H:%M}] {'Bruno' if m['autor'] == 'voce' else m['autor']}: {str(m['texto'])[:700]}" for m in hist)
                 + "\n\n") if hist else ""
-            pedido = contexto + "NOVA MENSAGEM DO BRUNO: " + texto
+            pedido = contexto + "NOVA MENSAGEM DO BRUNO: " + texto_voce
+            if imagens and not agentes.ve_imagens(chave):
+                pedido += "\n\n(Você não enxerga imagens: responda pela transcrição e sugira mandar para o Astra ou o ChatGPT.)"
+            elif imagens:
+                pedido += "\n\n(As imagens anexadas vão junto com esta mensagem; analise o que aparece nelas.)"
             arq = agentes.arquivo_de(repo)
             try:
                 if chave == "claude":
                     resposta = agentes.com_arquivo(lambda t: ia.perguntar(agentes.voz("claude") + t, web=False, max_tokens=800, qual="claude",
-                                                                         sistema=agentes.SISTEMA)[0], pedido, arq, quem="claude")
+                                                                         sistema=agentes.SISTEMA, imagens=imagens or None)[0],
+                                                   pedido, arq, quem="claude")
                     nome = "Claude"
                 else:
                     nome = agentes.AGENTES[chave]["nome"]
-                    resposta = agentes.perguntar(chave, pedido, arquivo=arq)
+                    resposta = agentes.perguntar(chave, pedido, arquivo=arq, imagens=imagens or None,
+                                                 max_tokens=1500 if imagens else 800)
             except Exception:  # noqa: BLE001
                 resposta = ""
             resposta = (resposta or "").strip()
@@ -3976,6 +3986,58 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
                       prefer="return=minimal")
         return {"ok": True, "ja_havia": bool(pend)}
     raise ErroNuvem("Rota desconhecida.", 404)
+
+
+ANEXO_MAX_IMAGENS = 12
+
+
+def _baixar_anexo(repo, caminho, limite=26 * 1024 * 1024):
+    """Arquivo do bucket 'anexos' com o login de quem enviou (a política só deixa quem está autorizado)."""
+    caminho = str(caminho or "")
+    if not re.fullmatch(r"sala/[A-Za-z0-9_./-]{3,200}", caminho) or ".." in caminho:
+        raise ErroNuvem("Anexo inválido.")
+    req = urllib.request.Request(f"{SUPABASE_URL}/storage/v1/object/authenticated/anexos/{urllib.parse.quote(caminho)}",
+                                 headers={"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {repo.token}"})
+    with urllib.request.urlopen(req, timeout=90) as r:
+        dados = r.read(limite + 1)
+    if len(dados) > limite:
+        raise ErroNuvem("Anexo grande demais para a IA.")
+    return dados
+
+
+def preparar_anexos(repo, anexos):
+    """Fotos e vídeos enviados na conversa (26/09): o navegador já tirou os quadros do vídeo e o áudio; aqui o áudio
+    vira texto (transcrição) e as imagens vão para os agentes que enxergam. -> (texto_extra, imagens, meta)."""
+    import base64
+    textos, imagens, meta = [], [], []
+    for a in (anexos or [])[:6]:
+        tipo, nome = str(a.get("tipo") or "arquivo"), str(a.get("nome") or "arquivo")[:120]
+        item = {k: a.get(k) for k in ("tipo", "nome", "caminho", "tamanho", "duracao", "mime") if a.get(k) is not None}
+        if tipo == "imagem":
+            for c in [a.get("previa") or a.get("caminho")][:1]:
+                if len(imagens) < ANEXO_MAX_IMAGENS:
+                    imagens.append("data:image/jpeg;base64," + base64.b64encode(_baixar_anexo(repo, c, 8 * 1024 * 1024)).decode())
+            textos.append(f"📷 Foto anexada: {nome}.")
+        elif tipo == "video":
+            quadros = [q for q in (a.get("quadros") or []) if q][:ANEXO_MAX_IMAGENS]
+            for c in quadros:
+                if len(imagens) < ANEXO_MAX_IMAGENS:
+                    imagens.append("data:image/jpeg;base64," + base64.b64encode(_baixar_anexo(repo, c, 4 * 1024 * 1024)).decode())
+            fala = ""
+            if a.get("audio"):
+                try:
+                    fala = ia.transcrever(_baixar_anexo(repo, a["audio"]), "audio.wav")
+                except Exception as e:  # noqa: BLE001
+                    fala = f"(não consegui transcrever o áudio: {str(e)[:120]})"
+            dur = int(float(a.get("duracao") or 0))
+            item["transcricao"] = fala[:20000]
+            item["quadros"] = quadros
+            textos.append(f"🎥 Vídeo anexado: {nome} ({dur // 60}:{dur % 60:02d}); seguem {len(quadros)} quadros tirados ao longo "
+                          f"do vídeo, em ordem." + (f"\nTRANSCRIÇÃO DO ÁUDIO (fala do Bruno):\n{fala[:20000]}" if fala else ""))
+        else:
+            textos.append(f"📎 Arquivo anexado: {nome} (a IA ainda não lê esse tipo; guardado na Sala).")
+        meta.append(item)
+    return "\n\n".join(textos), imagens, meta
 
 
 def reuniao_nao_lidas(repo):

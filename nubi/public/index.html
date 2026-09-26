@@ -371,6 +371,17 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .wa-in button{width:42px;height:42px;border-radius:50%;border:0;background:#00a884;color:#fff;font-size:18px;cursor:pointer}
 .wa-in button:disabled{opacity:.5}
 .wa-dig{align-self:flex-start;font-size:12px;color:#667781;font-style:italic;padding:4px 8px}
+.wa-in button.wa-clip{background:transparent;color:#54656f;font-size:22px}
+:root[data-theme="dark"] .wa-in button.wa-clip{color:#aebac1}
+.wa-anexos{display:flex;gap:6px;flex-wrap:wrap;padding:6px 10px 0;background:#f0f2f5}
+:root[data-theme="dark"] .wa-anexos{background:#202c33}
+.wa-anexos:empty{display:none}
+.wa-chip{display:flex;align-items:center;gap:6px;background:#fff;border-radius:14px;padding:4px 10px;font-size:12.5px;color:#111b21;max-width:260px}
+.wa-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wa-chip button{border:0;background:none;cursor:pointer;color:#667781;font-size:15px;padding:0}
+.wa-anx{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 4px}
+.wa-anx img,.wa-anx video{max-width:min(320px,100%);max-height:260px;border-radius:8px;background:#0001;display:block}
+.wa-anx .arq{font-size:12.5px;padding:6px 10px;border-radius:8px;background:#0000000d}
 .inicio{display:grid;gap:14px;max-width:1280px}
 .in-topo{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .in-ola{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
@@ -3104,7 +3115,100 @@ function waBolha(m) {
   const eu = m.autor === "voce", cor = AG_COR[m.autor] || (m.autor.startsWith("Claude") ? "#d97757" : "#8e44ad");
   const ap = (S.reu && S.reu.apel || {})[m.autor];
   return `<div class="wa-b ${eu ? "eu" : ""} ${m.meta && m.meta.decisao ? "dec" : ""}" data-id="${m.id || ""}">${eu ? "" : `<div class="nm" style="color:${cor}">${esc(m.autor)}${ap ? ` “${esc(ap)}”` : ""}${m.meta && m.meta.decisao ? " · decisão" : ""}</div>`}
-    <div class="md">${mdSimples(m.texto)}</div><span class="hr">${hr}</span></div>`;
+    ${waAnexosHtml(m)}<div class="md">${mdSimples(m.texto)}</div><span class="hr">${hr}</span></div>`;
+}
+// Fotos e vídeos na conversa (26/09): ficam no Storage (bucket privado "anexos"); o link assinado vale 1 h.
+function waAnexosHtml(m) {
+  const xs = (m.meta && m.meta.anexos) || [];
+  if (!xs.length) return "";
+  return `<div class="wa-anx">${xs.map(a => a.tipo === "imagem" ? `<img alt="${esc(a.nome || "foto")}" data-caminho="${esc(a.caminho || "")}">`
+    : a.tipo === "video" ? `<video controls playsinline preload="metadata" data-caminho="${esc(a.caminho || "")}"></video>`
+    : `<div class="arq">📎 ${esc(a.nome || "arquivo")}</div>`).join("")}</div>`;
+}
+async function waCarregarAnexos(box) {
+  const els = [...(box || document).querySelectorAll(".wa-anx [data-caminho]:not([src])")].filter(e => e.dataset.caminho);
+  if (!els.length) return;
+  const caminhos = [...new Set(els.map(e => e.dataset.caminho))];
+  try {
+    const {data} = await sb.storage.from("anexos").createSignedUrls(caminhos, 3600);
+    const url = Object.fromEntries((data || []).filter(d => d.signedUrl).map(d => [d.path, d.signedUrl]));
+    els.forEach(e => { if (url[e.dataset.caminho]) e.src = url[e.dataset.caminho]; });
+  } catch { /* sem link: fica o espaço vazio */ }
+}
+async function anxSubir(caminho, blob, tipo) {
+  const {error} = await sb.storage.from("anexos").upload(caminho, blob, {contentType: tipo || blob.type || "application/octet-stream", upsert: false});
+  if (error) throw new Error("Não consegui enviar o anexo: " + error.message);
+  return caminho;
+}
+function anxCanvasJpeg(fonte, w, h, max) {
+  const k = Math.min(1, max / Math.max(w, h)), c = document.createElement("canvas");
+  c.width = Math.round(w * k); c.height = Math.round(h * k);
+  c.getContext("2d").drawImage(fonte, 0, 0, c.width, c.height);
+  return new Promise(ok => c.toBlob(ok, "image/jpeg", 0.82));
+}
+async function anxQuadros(file, n) {
+  const v = document.createElement("video");
+  v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = URL.createObjectURL(file);
+  await new Promise((ok, erro) => { v.onloadeddata = ok; v.onerror = () => erro(new Error("não consegui abrir o vídeo")); });
+  const dur = v.duration && isFinite(v.duration) ? v.duration : 0, qs = [];
+  const total = Math.max(1, Math.min(n, Math.ceil(dur / 4) || 1));
+  for (let i = 0; i < total; i++) {
+    v.currentTime = Math.min(Math.max(0, dur - 0.1), (dur * (i + 0.5)) / total);
+    await new Promise(ok => { v.onseeked = ok; setTimeout(ok, 3000); });
+    qs.push(await anxCanvasJpeg(v, v.videoWidth, v.videoHeight, 1280));
+  }
+  URL.revokeObjectURL(v.src);
+  return {quadros: qs.filter(Boolean), duracao: dur};
+}
+async function anxAudioWav(file, maxSeg) {
+  // áudio do vídeo -> WAV mono 16 kHz (até maxSeg), para a transcrição no servidor
+  if (file.size > 400 * 1024 * 1024) return null;
+  const Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return null;
+  const ctx = new Ctx();
+  let buf = null;
+  try {
+    const bytes = await file.arrayBuffer();
+    buf = await new Promise((ok, erro) => { const p = ctx.decodeAudioData(bytes, ok, erro); if (p && p.then) p.then(ok, erro); });
+  } catch { buf = null; }
+  if (ctx.close) ctx.close();
+  if (!buf) return null;
+  const seg = Math.min(buf.duration, maxSeg), taxa = 16000;
+  const off = new OfflineAudioContext(1, Math.ceil(seg * taxa), taxa);
+  const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start(0);
+  const pcm = (await off.startRendering()).getChannelData(0);
+  const dv = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+  const txt = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
+  txt(0, "RIFF"); dv.setUint32(4, 36 + pcm.length * 2, true); txt(8, "WAVE"); txt(12, "fmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, taxa, true);
+  dv.setUint32(28, taxa * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); txt(36, "data"); dv.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) dv.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 0x7fff, true);
+  return new Blob([dv], {type: "audio/wav"});
+}
+async function anxPreparar(file, conv, avisar) {
+  const base = `sala/${conv}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const nome = file.name || "arquivo", ext = (nome.match(/\.[A-Za-z0-9]{1,5}$/) || [""])[0].toLowerCase();
+  if (file.type.startsWith("image/")) {
+    avisar(`enviando a foto ${nome}…`);
+    const caminho = await anxSubir(base + ext, file, file.type);
+    let previa = null;
+    try { const bmp = await createImageBitmap(file); previa = await anxSubir(base + "-previa.jpg", await anxCanvasJpeg(bmp, bmp.width, bmp.height, 1600), "image/jpeg"); } catch { /* HEIC etc.: a IA usa o original */ }
+    return {tipo: "imagem", nome, caminho, previa: previa || caminho, tamanho: file.size, mime: file.type};
+  }
+  if (file.type.startsWith("video/")) {
+    avisar(`enviando o vídeo ${nome} (${(file.size / 1048576).toFixed(0)} MB)…`);
+    const caminho = await anxSubir(base + (ext || ".mp4"), file, file.type);
+    avisar("tirando os quadros do vídeo…");
+    let q = {quadros: [], duracao: 0};
+    try { q = await anxQuadros(file, 12); } catch { /* segue só com o áudio */ }
+    const quadros = [];
+    for (let i = 0; i < q.quadros.length; i++) quadros.push(await anxSubir(`${base}-q${String(i).padStart(2, "0")}.jpg`, q.quadros[i], "image/jpeg"));
+    avisar("separando o áudio para transcrever…");
+    let audio = null;
+    try { const wav = await anxAudioWav(file, 720); if (wav) audio = await anxSubir(base + "-audio.wav", wav, "audio/wav"); } catch { /* sem áudio */ }
+    return {tipo: "video", nome, caminho, quadros, audio, duracao: q.duracao, tamanho: file.size, mime: file.type};
+  }
+  avisar(`enviando ${nome}…`);
+  return {tipo: "arquivo", nome, caminho: await anxSubir(base + ext, file, file.type), tamanho: file.size, mime: file.type};
 }
 function waDesenhar(msgs, vazio) {
   let html = "", dia = "";
@@ -3139,7 +3243,8 @@ async function telaReuniao() {
           <b>${esc(info.nome)}</b><br>
           <small>${direta ? "Conversa direta" : `você, ChatGPT${on("chatgpt")}, DeepSeek${on("deepseek")}, gpt-oss${on("ollama")}, Hermes e Qwen (Mac), Astra (design), Claude${on("claude")} (coordena e decide) · @chatgpt, @deepseek, @gptoss ou @astra (design, sob demanda) chama só um`}</small></div></div>
         <div class="wa-msgs" id="wa-msgs">${waDesenhar(S.reu.msgs, vazio)}</div>
-        <div class="wa-in"><textarea id="wa-txt" rows="1" placeholder="${direta ? `Mensagem para ${esc(info.nome)} (Enter envia, Shift+Enter quebra linha)` : "Mensagem para os agentes (Enter envia, Shift+Enter quebra linha)"}"></textarea><button id="wa-env" title="Enviar">➤</button></div>
+        ${direta ? `<div class="wa-anexos" id="wa-anexos"></div>` : ""}
+        <div class="wa-in">${direta ? `<button class="wa-clip" id="wa-clip" title="Anexar fotos ou vídeos">📎</button><input type="file" id="wa-arq" accept="image/*,video/*" multiple hidden>` : ""}<textarea id="wa-txt" rows="1" placeholder="${direta ? `Mensagem para ${esc(info.nome)} (Enter envia, Shift+Enter quebra linha)` : "Mensagem para os agentes (Enter envia, Shift+Enter quebra linha)"}"></textarea><button id="wa-env" title="Enviar">➤</button></div>
       </div>
     </div>
     <p class="muted" id="wa-nota" style="font-size:12px;margin:6px 0 0">${direta ? `Conversa direta: só ${esc(info.nome)} responde aqui.` : "Todo dia às 11h eles se reúnem sozinhos para discutir a auditoria. O que eles propõem vai para 📋 Desenvolvimento, você aprova e o Claude (código) implementa."}</p>`;
@@ -3174,15 +3279,29 @@ async function telaReuniao() {
   if (S.reu.busca) $("#wa-q").oninput();
   const voltar = $("#wa-voltar"); if (voltar) voltar.onclick = () => $("#wa-wrap").classList.remove("aberta");
   const ta = $("#wa-txt");
+  waCarregarAnexos(box);
   ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; };
+  S.reu.arqs = [];
+  const chips = () => { const el = $("#wa-anexos"); if (!el) return;
+    el.innerHTML = S.reu.arqs.map((f, i) => `<div class="wa-chip">${f.type.startsWith("video/") ? "🎥" : f.type.startsWith("image/") ? "📷" : "📎"}<span>${esc(f.name)}</span><button data-tira="${i}" title="Tirar">✕</button></div>`).join("");
+    el.querySelectorAll("[data-tira]").forEach(b => b.onclick = () => { S.reu.arqs.splice(+b.dataset.tira, 1); chips(); }); };
+  if ($("#wa-clip")) {
+    $("#wa-clip").onclick = () => $("#wa-arq").click();
+    $("#wa-arq").onchange = e => { S.reu.arqs = S.reu.arqs.concat([...e.target.files]).slice(0, 6); e.target.value = ""; chips(); };
+  }
   const enviar = async () => {
-    const texto = ta.value.trim(); if (!texto) return;
-    ta.value = ""; ta.oninput(); $("#wa-env").disabled = true;
+    const texto = ta.value.trim(), arqs = direta ? S.reu.arqs.slice() : [];
+    if (!texto && !arqs.length) return;
+    ta.value = ""; ta.oninput(); $("#wa-env").disabled = true; S.reu.arqs = []; chips();
     const agora = new Date().toISOString();
-    box.insertAdjacentHTML("beforeend", waBolha({autor: "voce", texto, criado_em: agora}) + `<div class="wa-dig" id="wa-dig">${direta ? esc(info.nome) + " está digitando…" : "Os agentes estão digitando…"}</div>`);
+    box.insertAdjacentHTML("beforeend", waBolha({autor: "voce", texto: texto + (arqs.length ? `\n\n${arqs.map(f => (f.type.startsWith("video/") ? "🎥 " : "📷 ") + f.name).join("\n")}` : ""), criado_em: agora}) + `<div class="wa-dig" id="wa-dig">${direta ? esc(info.nome) + " está digitando…" : "Os agentes estão digitando…"}</div>`);
     box.scrollTop = box.scrollHeight;
     try {
-      if (direta) await api("reuniao_enviar_direto", {}, {method: "POST", body: JSON.stringify({agente: conv, texto})});
+      const anexos = [];
+      const avisar = t => { const d = $("#wa-dig"); if (d) d.textContent = t; };
+      for (const f of arqs) anexos.push(await anxPreparar(f, conv, avisar));
+      if (arqs.length) avisar(`${info.nome} está vendo${arqs.some(f => f.type.startsWith("video/")) ? " o vídeo" : ""}…`);
+      if (direta) await api("reuniao_enviar_direto", {}, {method: "POST", body: JSON.stringify({agente: conv, texto, anexos})});
       else await api("reuniao_enviar", {}, {method: "POST", body: JSON.stringify({texto})});
     } catch (e) { toast(e.message, 7000); }
     const d = $("#wa-dig"); if (d) d.remove();
@@ -3208,6 +3327,7 @@ async function atualizarReuniao(rolar) {
   const noFim = rolar || box.scrollHeight - box.scrollTop - box.clientHeight < 80;
   const dig = $("#wa-dig") ? $("#wa-dig").outerHTML : "";
   box.innerHTML = waDesenhar(S.reu.msgs, "") + dig;
+  waCarregarAnexos(box);
   if (noFim) box.scrollTop = box.scrollHeight;
   waMarcarLido();
 }
