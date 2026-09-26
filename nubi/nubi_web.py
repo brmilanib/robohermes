@@ -2081,11 +2081,12 @@ def inicio_decisoes(repo):
                                             for t in propostas[:10]],
         "fonte": "Central > Desenvolvimento", "referencia": hoje.isoformat()}
 
-    usos = seguro(lambda: repo._todos("agentes_uso", {"select": "inicio,custo_usd", "inicio": f"gte.{hoje.replace(day=1).isoformat()}"}))
+    usos = seguro(lambda: repo._todos("agentes_uso", {"select": "agente,origem,erro,inicio,custo_usd", "inicio": f"gte.{hoje.replace(day=1).isoformat()}"}))
     custo_hoje = None if usos is None else round(sum(float(u.get("custo_usd") or 0) for u in usos if _br(u["inicio"]).date() == hoje), 4)
-    # ainda não existe teto de custo registrado no banco (card #10 pendente): nunca deduzir "travada" pelo valor
-    # gasto sozinho (regra do plano técnico do card #24) — a lista fica vazia até o card #10 gravar o estado.
-    travadas_por_custo = {"total": 0, "itens": [], "custo_hoje": custo_hoje, "fonte": "agentes_uso (log #17)",
+    # travada = tarefa que o teto do card #10 pôs em espera hoje (linha agente='teto'), nunca deduzida pelo valor gasto
+    esperas = [{"titulo": f"{u.get('origem') or 'tarefa'} — {(u.get('erro') or '')[len('em espera: '):]}"}
+               for u in usos or [] if u.get("agente") == "teto" and _br(u["inicio"]).date() == hoje]
+    travadas_por_custo = {"total": len(esperas), "itens": esperas[:10], "custo_hoje": custo_hoje, "fonte": "agentes_uso (log #17)",
                           "referencia": hoje.isoformat()}
 
     return {"gerado_em": datetime.now(timezone.utc).isoformat(),
@@ -2616,6 +2617,7 @@ DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
 NO_SERVIDOR = ("rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "resumo_semana", "resumo_marcas", "nomes_marcas",
                "noticias", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
+ROTINAS_TEXTO = ("resumo_dia", "resumo_semana", "resumo_marcas", "nomes_marcas", "noticias")   # texto sem conferência de número
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
 
@@ -2767,6 +2769,7 @@ def rodar_rotinas(repo, so=None):
             continue
         inicio = datetime.now(timezone.utc).isoformat()
         ia.USO["origem"] = f"rotina {rid}"
+        ia.USO["nivel"] = "texto" if rid in ROTINAS_TEXTO else None    # teto estourado: só texto cai para o local (card #10)
         try:
             if rid == "reuniao":
                 au = (repo._req("GET", "auditorias", {"select": "*", "order": "data.desc", "limit": 1}) or [None])[0]
@@ -3076,9 +3079,9 @@ def ligar_registro_uso(repo, origem):
         if not d.get("id"):
             return None
         reg = {k: d[k] for k in ("ok", "erro", "modelo", "tokens_in", "tokens_out", "cache_read_tokens",
-                                  "cache_creation_tokens", "latencia_ms") if k in d}
+                                  "cache_creation_tokens", "latencia_ms", "custo_usd") if k in d}
         reg["fim"] = datetime.now(timezone.utc).isoformat()
-        if d.get("ok") and d.get("modelo"):
+        if d.get("ok") and d.get("modelo") and "custo_usd" not in d:     # modelo local (card #10) já vem com custo 0
             if "p" not in cache:
                 cache["p"] = _precos(repo)
             p = _preco_de(cache["p"], d["modelo"])
@@ -3100,7 +3103,65 @@ def ligar_registro_uso(repo, origem):
                                            "autor": ia.nome(qual), "fonte_tabela": "web", "fonte_id": chave, "links": links[:20],
                                            "tags": [str(origem or "")[:60]] + ([ia.USO["quem"]] if ia.USO.get("quem") else []),
                                            "criado_em": agora_}], prefer="return=minimal")
-    ia.USO.update({"gravar": gravar, "origem": origem, "web": gravar_web})
+    def espera(motivo):
+        # teto estourado (card #10): a tarefa fica registrada em espera (sem custo: "sem dados") e o dono é avisado na
+        # Sala uma vez por dia por provedor/tarefa
+        agora_ = datetime.now(timezone.utc).isoformat()
+        o = ia.USO.get("origem") or origem
+        repo._req("POST", "agentes_uso", corpo=[{"agente": "teto", "modelo": "", "origem": o, "inicio": agora_, "fim": agora_,
+                                                 "ok": False, "erro": f"em espera: {motivo}"[:300]}], prefer="return=minimal")
+        prov = motivo.split(" do ", 1)[-1].split(" atingido")[0]
+        dia0 = datetime.combine(_agora_br().date(), datetime.min.time(), timezone.utc) + timedelta(hours=3)
+        ja = repo._req("GET", "reuniao_mensagens", {"select": "meta", "meta->>tipo": "eq.teto_custo",
+                                                    "criado_em": f"gte.{dia0.isoformat()}"}) or []
+        if any((m.get("meta") or {}).get("chave") == f"{prov}|{o}" for m in ja):
+            return
+        repo._req("POST", "reuniao_mensagens", corpo=[{
+            "autor": "sistema", "texto": f"⏸ Bruno, tarefa em espera por custo: {o} — {motivo}. Ela não chamou o provedor; "
+                                         "aumente o teto (NUBI_TETO_*) ou espere o próximo dia/mês de Brasília.",
+            "meta": {"tipo": "teto_custo", "chave": f"{prov}|{o}"}}], prefer="return=minimal")
+    ia.USO.update({"gravar": gravar, "origem": origem, "web": gravar_web, "nivel": None, "local": False,
+                   "gasto": lambda prov: _gasto_provedor(repo, prov), "espera": espera})
+
+
+def _gasto_provedor(repo, prov):
+    """(US$ de hoje, US$ do mês) do provedor em agentes_uso, dia e mês de Brasília (card #10); cada linha (id) conta 1 vez.
+    Linha sem custo (sem preço ou em espera) soma nada; o modelo local nunca entra no provedor original."""
+    hoje = _agora_br().date()
+    inicio_mes = datetime(hoje.year, hoje.month, 1, 3, tzinfo=timezone.utc)      # 00h de Brasília do dia 1
+    usos = repo._todos("agentes_uso", {"select": "id,agente,modelo,inicio,custo_usd", "inicio": f"gte.{inicio_mes.isoformat()}"})
+    xs = [u for u in {u.get("id") or i: u for i, u in enumerate(usos)}.values() if ia.provedor(u.get("agente"), u.get("modelo")) == prov]
+    mes = sum(float(u.get("custo_usd") or 0) for u in xs)
+    return sum(float(u.get("custo_usd") or 0) for u in xs if _br(u["inicio"]).date() == hoje), mes
+
+
+def _custos_painel(repo):
+    """Aba Central > Custos (card #10): hoje/mês × teto por provedor, tarefas em espera hoje e o custo por tarefa/rotina
+    no mês. Custo sem preço cadastrado ou sem uso aparece como None ('sem dados'), nunca 0."""
+    hoje = _agora_br().date()
+    inicio_mes = datetime(hoje.year, hoje.month, 1, 3, tzinfo=timezone.utc)
+    usos = repo._todos("agentes_uso", {"select": "id,agente,modelo,origem,inicio,ok,erro,custo_usd",
+                                       "inicio": f"gte.{inicio_mes.isoformat()}", "order": "inicio"})
+    soma = lambda xs: round(sum(float(x["custo_usd"]) for x in xs), 4) if any(x.get("custo_usd") is not None for x in xs) else None
+    provs = []
+    for p, nome_ in ia.TETO_PROVEDORES.items():
+        xs = [u for u in usos if ia.provedor(u.get("agente"), u.get("modelo")) == p and u.get("ok")]
+        dia = [u for u in xs if _br(u["inicio"]).date() == hoje]
+        t_dia, t_mes = ia.teto(p)
+        g_dia, g_mes = soma(dia), soma(xs)
+        provs.append({"id": p, "nome": nome_, "hoje": g_dia, "mes": g_mes, "teto_dia": t_dia, "teto_mes": t_mes,
+                      "estourado": bool((t_dia is not None and (g_dia or 0) >= t_dia) or (t_mes is not None and (g_mes or 0) >= t_mes))})
+    espera = [{"origem": u.get("origem"), "motivo": (u.get("erro") or "")[len("em espera: "):], "quando": u["inicio"]}
+              for u in usos if u.get("agente") == "teto" and _br(u["inicio"]).date() == hoje]
+    grupos = {}
+    for u in usos:
+        if u.get("agente") == "teto" or not u.get("ok"):
+            continue
+        k = (u.get("origem") or "outros", ia.provedor(u.get("agente"), u.get("modelo")) or u.get("agente"))
+        grupos.setdefault(k, []).append(u)
+    log = sorted(({"origem": o, "provedor": p, "chamadas": len(xs), "custo": soma(xs)} for (o, p), xs in grupos.items()),
+                 key=lambda d: -(d["custo"] or 0))[:60]
+    return {"provedores": provs, "espera": espera[-20:], "log": log, "dia": hoje.isoformat()}
 
 
 def _resumo_uso(xs):
@@ -4491,6 +4552,8 @@ def rota_agentes(repo, metodo, rota, q, corpo):
     d = json.loads(corpo or b"{}") if metodo == "POST" else {}
     if rota == "agentes":
         return _agentes_painel(repo)
+    if rota == "agentes_custos":
+        return _custos_painel(repo)
     if rota == "agentes_testar" and metodo == "POST":
         aid = d.get("id") or ""
         if aid not in AGENTE_QUAL:
