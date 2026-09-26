@@ -68,6 +68,8 @@ h2{font-size:16px;margin:0 0 10px}
 .alerta{color:var(--bad);font-weight:600}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:10px;margin:14px 0}
 .kpi{padding:12px}
+.kpi-link{cursor:pointer;transition:transform .12s,box-shadow .12s}.kpi-link:hover,.kpi-link:focus-visible{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.08);outline:none}
+.kpi-link .l::after{content:" ›";color:var(--muted)}
 .kpi .v{font-size:17px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .kpi .l{font-size:12px;color:var(--muted)}
 .kpi .o{font-size:11.5px;color:var(--muted);margin-top:2px}
@@ -2409,6 +2411,16 @@ const ES_FILTROS = [["todos", "Todos"], ["com", "Com estoque"], ["zerados", "Zer
 const quandoES = t => t ? new Date(t).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
 const unES = v => v == null ? "—" : nf0.format(+v);
 const rsES = v => v == null || v === "" ? "—" : "R$ " + (+v).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+// 26/09 (pedido do Bruno): tocar num número abre a lista de itens já filtrada (ex.: "Abaixo do mínimo" → os 35 SKUs)
+const kpiES = (filtro, l, v, o) => kpi(l, v, o).replace('<div class="card kpi">',
+  `<div class="card kpi kpi-link" data-kpif="${filtro}" role="button" tabindex="0" title="Ver a lista">`);
+function esFiltrar(k) {
+  S.esFiltro = k; S.esBusca = ""; S.esMax = 60;
+  const bu = $("#es-busca"); if (bu) bu.value = "";
+  document.querySelectorAll("[data-esf]").forEach(x => x.classList.toggle("on", x.dataset.esf === k));
+  desenharTabEstoque();
+  const alvo = $("#es-itens"); if (alvo) alvo.scrollIntoView({behavior: "smooth", block: "start"});
+}
 const esAbas = ativa => `<div class="seg" style="margin-bottom:12px"><button class="${ativa === "estoque" ? "on" : ""}" onclick="location.hash='#/estoque'">📦 Estoque</button>
   <button class="${ativa === "gestor" ? "on" : ""}" onclick="location.hash='#/estoque/gestor'">🧾 Planilha do Gestor Seller</button></div>`;
 async function telaEstoque() {
@@ -2443,10 +2455,10 @@ async function telaEstoque() {
       ${acoes}</div>
     <div>${auto}</div>${falhou}
     ${r.historico[0].id !== a.id ? `<div class="es-aviso">Você está vendo uma atualização antiga. <a href="#/estoque">Ver a mais recente →</a></div>` : ""}
-    <div class="kpis">${kpi("SKUs", nf0.format(t.skus || 0), dif("skus"))}${kpi("Unidades", unES(t.unidades), dif("unidades"))}
-      ${kpi("Valor em estoque", `<span title="${rsES(t.valor)}">${abrev(t.valor)}</span>`, t.sem_custo ? `${nf0.format(t.sem_custo)} SKU(s) com estoque sem custo médio` : "custo médio × quantidade")}
-      ${kpi("Zerados", `<span class="${t.zerados ? "neg" : ""}">${nf0.format(t.zerados || 0)}</span>`, dif("zerados", unES, true))}
-      ${kpi("Abaixo do mínimo", `<span class="${t.baixo ? "neg" : ""}">${nf0.format(t.baixo || 0)}</span>`, "estoque ≤ mínimo do UpSeller")}</div>
+    <div class="kpis">${kpiES("todos", "SKUs", nf0.format(t.skus || 0), dif("skus"))}${kpiES("com", "Unidades", unES(t.unidades), dif("unidades"))}
+      ${kpiES(t.sem_custo ? "semcusto" : "com", "Valor em estoque", `<span title="${rsES(t.valor)}">${abrev(t.valor)}</span>`, t.sem_custo ? `${nf0.format(t.sem_custo)} SKU(s) com estoque sem custo médio` : "custo médio × quantidade")}
+      ${kpiES("zerados", "Zerados", `<span class="${t.zerados ? "neg" : ""}">${nf0.format(t.zerados || 0)}</span>`, dif("zerados", unES, true))}
+      ${kpiES("baixo", "Abaixo do mínimo", `<span class="${t.baixo ? "neg" : ""}">${nf0.format(t.baixo || 0)}</span>`, "estoque ≤ mínimo do UpSeller")}</div>
     <div class="es-grade">
       <div class="card pad"><h2>📋 Log da atualização</h2><ul class="es-log">${(a.resumo || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
         <p class="muted" style="font-size:12px;margin:8px 0 0">Arquivo: ${esc(a.arquivo || "—")}</p></div>
@@ -2458,7 +2470,7 @@ async function telaEstoque() {
     ${d.tem_anterior ? `<div class="es-mud">${lista("⬇️ Saíram", d.saidas, n.saidas, "neg")}${lista("⬆️ Entraram", d.entradas, n.entradas, "pos")}
       ${lista("🚫 Zeraram", d.zeraram, n.zeraram, "neg")}${lista("✅ Voltaram", d.voltaram, n.voltaram, "pos")}
       ${n.novos || n.removidos ? lista("🆕 SKUs novos", d.novos, n.novos, "pos") + lista("🗑️ Removidos do UpSeller", d.removidos, n.removidos, "") : ""}</div>` : ""}
-    <div class="card pad" style="margin-top:14px"><h2>Itens do estoque</h2>
+    <div class="card pad" id="es-itens" style="margin-top:14px;scroll-margin-top:calc(var(--header-h,54px) + 12px)"><h2>Itens do estoque</h2>
       <div class="es-filtros"><input type="search" id="es-busca" placeholder="Buscar SKU ou título…" value="${esc(S.esBusca)}">
         <div class="seg">${ES_FILTROS.map(([k, tx]) => `<button data-esf="${k}" class="${S.esFiltro === k ? "on" : ""}">${tx}</button>`).join("")}</div></div>
       <div id="es-tab"></div></div>
@@ -2561,6 +2573,10 @@ function ligarEstoque() {
   };
   const bu = $("#es-busca");
   if (bu) bu.oninput = e => { S.esBusca = e.target.value; S.esMax = 60; desenharTabEstoque(); };
+  document.querySelectorAll("[data-kpif]").forEach(el => {
+    el.onclick = () => esFiltrar(el.dataset.kpif);
+    el.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); esFiltrar(el.dataset.kpif); } };
+  });
   document.querySelectorAll("[data-esf]").forEach(b => b.onclick = () => {
     S.esFiltro = b.dataset.esf; S.esMax = 60;
     document.querySelectorAll("[data-esf]").forEach(x => x.classList.toggle("on", x === b)); desenharTabEstoque();
