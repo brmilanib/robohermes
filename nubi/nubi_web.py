@@ -822,8 +822,10 @@ def atender(metodo, rota, q, corpo, token):
             else:
                 p["meta->>conversa"] = "eq.direta"
                 p["meta->>agente"] = f"eq.{conversa}"
+            if q.get("perto") and not apos:                    # abrir uma mensagem antiga achada na pesquisa
+                p["id"] = f"gte.{max(0, int(q['perto']) - 60)}"
             msgs = repo._todos("reuniao_mensagens", p)
-            if not apos:
+            if not apos and not q.get("perto"):
                 msgs = msgs[-200:]
             try:
                 apel = {a["nome"]: a["apelido"] for a in repo._todos("agentes", {"select": "nome,apelido"}) if a.get("apelido")}
@@ -832,6 +834,9 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"mensagens": msgs, "agentes": {k: ia.tem(k) for k in ("chatgpt", "deepseek", "claude", "ollama")},
                           "apelidos": apel,
                           **({"sistema": agentes.SISTEMA} if q.get("sistema") else {})})
+        if rota == "reuniao_buscar":
+            # barra de pesquisa da Sala (pedido do Bruno, 26/09): mensagens (grupo e diretas) + caixa de conhecimento
+            return _json({"resultados": agentes.buscar_arquivo(repo, q.get("q"), int(q.get("n") or 40))})
         if rota == "reuniao_conversas":
             # última mensagem de cada conversa (Sala + uma por agente), para a lista estilo WhatsApp (card #64, fase 2)
             out, nao, lido = reuniao_nao_lidas(repo)
@@ -911,14 +916,23 @@ def atender(metodo, rota, q, corpo, token):
                 repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "sistema", "texto": aviso_mac, "meta": meta,
                           "criado_em": agora_()}], prefer="return=minimal")
                 return _json({"ok": True})
+            # a conversa direta agora vai com o histórico dela (antes o agente via só a última mensagem) e com o ARQUIVO
+            hist = repo._req("GET", "reuniao_mensagens", {"select": "autor,texto,criado_em", "meta->>conversa": "eq.direta",
+                                                          "meta->>agente": f"eq.{chave}", "order": "id.desc", "limit": 21}) or []
+            hist = list(reversed(hist))[:-1]                   # sem a mensagem que acabou de chegar
+            contexto = ("CONVERSA DIRETA ATÉ AGORA (você e o Bruno):\n" + "\n".join(
+                f"[{_br(m['criado_em']):%d/%m %H:%M}] {'Bruno' if m['autor'] == 'voce' else m['autor']}: {str(m['texto'])[:700]}" for m in hist)
+                + "\n\n") if hist else ""
+            pedido = contexto + "NOVA MENSAGEM DO BRUNO: " + texto
+            arq = agentes.arquivo_de(repo)
             try:
                 if chave == "claude":
-                    resposta, _, _ = ia.perguntar(agentes.voz("claude") + texto, web=False, max_tokens=800, qual="claude",
-                                                   sistema=agentes.SISTEMA)
+                    resposta = agentes.com_arquivo(lambda t: ia.perguntar(agentes.voz("claude") + t, web=False, max_tokens=800, qual="claude",
+                                                                         sistema=agentes.SISTEMA)[0], pedido, arq)
                     nome = "Claude"
                 else:
                     nome = agentes.AGENTES[chave]["nome"]
-                    resposta = agentes.perguntar(chave, texto)
+                    resposta = agentes.perguntar(chave, pedido, arquivo=arq)
             except Exception:  # noqa: BLE001
                 resposta = ""
             resposta = (resposta or "").strip()
@@ -3651,7 +3665,8 @@ def laboratorio_rankeamento(repo, forcar=False):
                                   "num anúncio específico do Bruno com o ID MLB, ou pergunta) e vote em até 4 itens da box (+1 concorda, -1 discorda, "
                                   "com motivo curto). Responda SÓ JSON: {\"contribuicoes\": [{\"tipo\": \"tecnica|hipotese|experimento|pergunta\", "
                                   "\"titulo\": \"...\", \"texto\": \"...\", \"anuncio_id\": \"MLB... ou vazio\", \"fonte\": \"link ou vazio\"}], "
-                                  "\"votos\": [{\"id\": 12, \"voto\": 1, \"motivo\": \"...\"}]}", max_tokens=1800)
+                                  "\"votos\": [{\"id\": 12, \"voto\": 1, \"motivo\": \"...\"}]}", max_tokens=1800,
+                                  arquivo=agentes.arquivo_de(repo))
             j = ia._primeiro_json(t)
             n = _rank_gravar(repo, j.get("contribuicoes"), nome, box)
             v = _rank_votar(repo, j.get("votos"), nome)

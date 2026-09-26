@@ -259,7 +259,7 @@ def test_37_duvida_chama_especialista_e_fecha_no_card():
     import reuniao
     reuniao.ia.tem = lambda q: True
     reuniao.ia.perguntar = lambda pedido, **kw: ("Decisão do coordenador: use o Preço Médio.", None, "claude")
-    reuniao.agentes.perguntar = lambda chave, texto, max_tokens=800: f"Resposta do {chave}"
+    reuniao.agentes.perguntar = lambda chave, texto, max_tokens=800, **k: f"Resposta do {chave}"
 
     r = RepoDuvida()
     decisao = reuniao.duvida(r, 5, "Qual a regra de cálculo do preço médio?", quem="claude_code")
@@ -292,7 +292,7 @@ def test_37b_especialista_por_assunto_e_hermes_assincrono():
     reuniao.ia.tem = lambda q: True
     reuniao.ia.perguntar = lambda pedido, **kw: ("Decisão sem o Hermes: segue o combinado antes.", None, "claude")
     chamou_especialista = []
-    reuniao.agentes.perguntar = lambda chave, texto, max_tokens=800: chamou_especialista.append(chave) or "nunca deveria chamar"
+    reuniao.agentes.perguntar = lambda chave, texto, max_tokens=800, **k: chamou_especialista.append(chave) or "nunca deveria chamar"
 
     r = RepoDuvida()
     decisao = reuniao.duvida(r, 7, "Qual foi o histórico dessa decisão?", quem="claude_code")
@@ -461,7 +461,7 @@ def test_38b_segunda_volta_reune_comentarios_antes_da_decisao():
     import reuniao
     reuniao.participantes = lambda texto: ["chatgpt", "deepseek"]
 
-    def fake_perguntar(chave, texto, max_tokens=800):
+    def fake_perguntar(chave, texto, max_tokens=800, **k):
         if "Você já deu sua opinião" in texto:
             return f"(comentário 2ª volta de {chave})"
         return f"(opinião 1ª rodada de {chave})"
@@ -484,7 +484,7 @@ def test_38c_sem_segunda_volta_nao_muda_o_fluxo_normal():
     import reuniao
     reuniao.participantes = lambda texto: ["chatgpt"]
     chamadas = []
-    reuniao.agentes.perguntar = lambda chave, texto, max_tokens=800: chamadas.append(texto) or "opinião única"
+    reuniao.agentes.perguntar = lambda chave, texto, max_tokens=800, **k: chamadas.append(texto) or "opinião única"
     reuniao._decidir = lambda hist, tt, opinioes, extra: (
         {"resposta": "Decisão.", "tarefas": [], "atualizar": []}, "claude")
 

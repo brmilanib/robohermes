@@ -325,6 +325,9 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .wa-li .tx{min-width:0;flex:1}
 .wa-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none;align-self:flex-start;padding-top:2px}
 .wa-hr{font-size:11px;color:var(--muted)}.wa-li.nova .wa-hr{color:#25d366;font-weight:600}.wa-li.nova .tx small{color:var(--ink)}
+.wa-busca{padding:8px 10px 0}.wa-busca input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:18px;padding:8px 14px;background:var(--soft);font:inherit;font-size:13.5px;color:var(--ink)}
+.wa-res .tx small mark{background:#fff3a3;color:inherit;border-radius:3px;padding:0 1px}.wa-res .tx small{-webkit-line-clamp:3}
+.wa-b.wa-achada{box-shadow:0 0 0 3px #ffd54f;animation:waPisca 1.6s ease-in-out 2}@keyframes waPisca{50%{box-shadow:0 0 0 6px #ffe082}}
 .wa-chips{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line)}
 .wa-chips button{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:5px 12px;font-size:12.5px;cursor:pointer;color:var(--ink)}
 .wa-chips button.on{background:#d9fdd3;border-color:#25d366;color:#0b6b3a;font-weight:600}.wa-chips b{color:#1a8f4e}.wa-pin{font-size:11px;opacity:.6}
@@ -3006,7 +3009,7 @@ function waListaHtml(conv, previas, naoLidas) {
   }).join("");
 }
 function waLigarLista() {
-  const lista = $("#wa-list"); if (!lista) return;
+  const lista = $("#wa-itens"); if (!lista) return;
   lista.querySelectorAll("[data-waf]").forEach(b => b.onclick = e => { e.stopPropagation(); S.reu.filtro = b.dataset.waf;
     lista.innerHTML = waListaHtml(S.reu.conv, S.reu.previas, S.reu.naoLidas); waLigarLista(); });
   lista.querySelectorAll(".wa-li").forEach(el => el.onclick = () => {
@@ -3015,6 +3018,42 @@ function waLigarLista() {
   });
 }
 // não lidas (pedido do Bruno, 26/09): abre na 1ª mensagem não lida e marca como lida quando a conversa está na tela
+// pesquisa (pedido do Bruno, 26/09): mensagens do grupo e das diretas + caixa de conhecimento, guardadas para sempre
+function waResultadosHtml(rs, q) {
+  if (!rs.length) return `<div class="muted" style="padding:14px;font-size:13px">Nada encontrado para “${esc(q)}”.</div>`;
+  const pals = q.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/\s+/).filter(w => w.length >= 2);
+  const marcar = t => { let h = esc(t);
+    for (const w of pals) h = h.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").split("").map(ch => `[${ch}${({a: "áàâã", e: "éê", i: "í", o: "óôõ", u: "úü", c: "ç"})[ch] || ""}]`).join("")})`, "gi"), "<mark>$1</mark>");
+    return h; };
+  const trecho = t => { const n = (t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); const i = Math.max(0, n.indexOf(pals[0] || "") - 60);
+    return (i ? "…" : "") + (t || "").slice(i, i + 220).replace(/\n+/g, " ") + ((t || "").length > i + 220 ? "…" : ""); };
+  return `<div class="muted" style="padding:8px 12px;font-size:12px">${rs.length} resultado(s)${rs.length >= 40 ? " (os 40 mais recentes)" : ""}</div>` + rs.map((r, i) => {
+    const c = r.origem === "conhecimento" ? {ic: "📚", nome: "Caixa de conhecimento"} : (CONVERSAS.find(x => x.k === r.conversa) || CONVERSAS[0]);
+    const quando = new Date(r.criado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit"});
+    return `<div class="wa-li wa-res" data-res="${i}"><div class="av">${c.ic}</div><div class="tx"><b>${esc(c.nome)}${r.titulo ? " · " + esc(r.titulo.slice(0, 60)) : ""}</b>
+      <small><span class="muted">${esc(r.autor === "voce" ? "Você" : r.autor || "")}:</span> ${marcar(trecho(r.texto))}</small></div>
+      <div class="wa-meta"><span class="wa-hr">${quando}</span></div></div>`; }).join("");
+}
+function waLigarBusca() {
+  const inp = $("#wa-q"); if (!inp) return;
+  inp.value = S.reu.busca || "";
+  inp.oninput = () => { clearTimeout(S.reu.buscaT); S.reu.buscaT = setTimeout(async () => {
+    const q = inp.value.trim(), lista = $("#wa-itens"); S.reu.busca = q.length >= 2 ? q : "";
+    if (!S.reu.busca) { lista.innerHTML = waListaHtml(S.reu.conv, S.reu.previas, S.reu.naoLidas); waLigarLista(); return; }
+    lista.innerHTML = `<div class="muted" style="padding:14px;font-size:13px"><span class="spin"></span> Procurando…</div>`;
+    let r; try { r = await api("reuniao_buscar", {q: S.reu.busca}); } catch (e) { lista.innerHTML = `<div class="muted" style="padding:14px">${esc(e.message)}</div>`; return; }
+    if (S.reu.busca !== q) return;
+    S.reu.res = r.resultados || []; lista.innerHTML = waResultadosHtml(S.reu.res, q);
+    lista.querySelectorAll("[data-res]").forEach(el => el.onclick = () => {
+      const x = S.reu.res[+el.dataset.res];
+      if (x.origem === "conhecimento") { modal(`<h2>📚 ${esc(x.titulo || "Conhecimento")}</h2><p class="muted" style="font-size:12px">${esc(x.autor || "")} · ${new Date(x.criado_em).toLocaleString("pt-BR")}</p>
+          <div class="md">${mdSimples(x.texto || "")}</div><div style="text-align:right;margin-top:10px"><button class="btn" data-fechar>Fechar</button></div>`); return; }
+      S.reu.irPara = x.id;
+      const alvo = x.conversa && x.conversa !== "sala" ? `#/reuniao/d/${x.conversa}` : "#/reuniao";
+      if (location.hash === alvo) telaReuniao(); else location.hash = alvo;
+    });
+  }, 350); };
+}
 function waVisivel() { const w = $("#wa-wrap"); return !!w && (w.classList.contains("aberta") || getComputedStyle($("#wa-list")).display === "none" || window.innerWidth > 900); }
 function waIrNaoLida() {
   const box = $("#wa-msgs"); if (!box || !S.reu) return;
@@ -3058,17 +3097,20 @@ async function telaReuniao() {
   const conv = conversaAtual(), direta = conv !== "sala";
   main.innerHTML = opsAbas("sala") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a sala de reunião</div></div>`;
   let r, rc;
-  try { [r, rc] = await Promise.all([api("reuniao", direta ? {conversa: conv} : {}), api("reuniao_conversas")]); }
+  const perto = S.reu && S.reu.irPara ? {perto: S.reu.irPara} : {}, irPara = S.reu && S.reu.irPara, buscaAnt = S.reu && S.reu.busca;
+  try { [r, rc] = await Promise.all([api("reuniao", direta ? {conversa: conv, ...perto} : perto), api("reuniao_conversas")]); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.reu = {msgs: r.mensagens, ult: r.mensagens.length ? r.mensagens[r.mensagens.length - 1].id : 0, apel: r.apelidos || {},
-           conv, previas: rc.conversas || {}, naoLidas: rc.nao_lidas || {}, lido: (rc.lido || {})[conv] || 0, lidoEnviado: 0};
+           conv, previas: rc.conversas || {}, naoLidas: rc.nao_lidas || {}, lido: (rc.lido || {})[conv] || 0, lidoEnviado: 0,
+           irPara, busca: buscaAnt || ""};
   const ag = r.agentes, on = k => ag[k] ? "" : " (sem chave)";
   const info = CONVERSAS.find(c => c.k === conv);
   const vazio = direta ? `Nenhuma mensagem ainda. Escreva para ${esc(info.nome)}.`
     : "A sala está vazia. Escreva uma pergunta ou uma ideia: o ChatGPT e o DeepSeek opinam e o Claude decide e registra as tarefas.";
   main.innerHTML = opsAbas("sala") + `
     <div class="wa-wrap ${direta ? "aberta" : ""}" id="wa-wrap">
-      <div class="wa-list" id="wa-list">${waListaHtml(conv, S.reu.previas, S.reu.naoLidas)}</div>
+      <div class="wa-list" id="wa-list"><div class="wa-busca"><input type="search" id="wa-q" placeholder="🔍 Pesquisar mensagens, decisões, dúvidas…" autocomplete="off"></div>
+        <div id="wa-itens">${waListaHtml(conv, S.reu.previas, S.reu.naoLidas)}</div></div>
       <div class="wa">
         <div class="wa-top"><button class="wa-voltar" id="wa-voltar" title="Conversas">←</button><div class="av">${info.ic}</div><div>
           <b>${esc(info.nome)}</b><br>
@@ -3098,9 +3140,15 @@ async function telaReuniao() {
   requestAnimationFrame(ajustarWa);          // depois do layout assentar (fonte, texto de wa-nota quebrando linha)
   const box = $("#wa-msgs");
   // a conversa pode estar escondida atrás da lista no celular: só posiciona e marca como lida quando aparece
-  const posicionar = () => requestAnimationFrame(() => { waIrNaoLida(); waMarcarLido(); });
+  const posicionar = () => requestAnimationFrame(() => {
+    const alvo = S.reu.irPara && box.querySelector(`.wa-b[data-id="${S.reu.irPara}"]`);
+    if (alvo) { box.scrollTop = Math.max(0, alvo.offsetTop - box.offsetTop - 60); alvo.classList.add("wa-achada"); S.reu.irPara = null; }
+    else waIrNaoLida();
+    waMarcarLido(); });
+  if (S.reu.irPara) $("#wa-wrap").classList.add("aberta");
   if (waVisivel()) posicionar();
-  waLigarLista();
+  waLigarLista(); waLigarBusca();
+  if (S.reu.busca) $("#wa-q").oninput();
   const voltar = $("#wa-voltar"); if (voltar) voltar.onclick = () => $("#wa-wrap").classList.remove("aberta");
   const ta = $("#wa-txt");
   ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; };
@@ -3129,7 +3177,7 @@ async function atualizarReuniao(rolar) {
   S.reu.voltas = (S.reu.voltas || 0) + 1;
   if (S.reu.voltas % 2 === 0) {                                  // a cada ~20 s: contadores das outras conversas
     try { const rc = await api("reuniao_conversas"); S.reu.previas = rc.conversas || {}; S.reu.naoLidas = Object.assign(rc.nao_lidas || {}, waVisivel() ? {[S.reu.conv]: 0} : {});
-      const lista = $("#wa-list"); if (lista) { lista.innerHTML = waListaHtml(S.reu.conv, S.reu.previas, S.reu.naoLidas); waLigarLista(); } } catch { /* segue */ }
+      const lista = $("#wa-itens"); if (lista && !S.reu.busca) { lista.innerHTML = waListaHtml(S.reu.conv, S.reu.previas, S.reu.naoLidas); waLigarLista(); } } catch { /* segue */ }
   }
   if (!r.mensagens.length) return;
   S.reu.msgs = S.reu.msgs.concat(r.mensagens); S.reu.ult = r.mensagens[r.mensagens.length - 1].id;

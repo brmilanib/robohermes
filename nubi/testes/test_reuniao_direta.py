@@ -92,13 +92,14 @@ def test_enviar_direto_chama_so_o_agente_escolhido():
     ia.tem = lambda q: True
     chamado = {}
 
-    def _perguntar(chave, texto, max_tokens=800):
+    def _perguntar(chave, texto, max_tokens=800, arquivo=None, **k):
         chamado[chave] = texto
+        chamado["arquivo"] = arquivo is not None                  # 26/09: o agente pode pesquisar o ARQUIVO
         return f"resposta de {chave}"
     agentes.perguntar = _perguntar
     status, ctype, body, _ = nubi_web.atender("POST", "reuniao_enviar_direto", {}, _corpo({"agente": "deepseek", "texto": "confere esse número"}), "t")
     assert json.loads(body) == {"ok": True}
-    assert chamado == {"deepseek": "confere esse número"}
+    assert chamado == {"deepseek": "NOVA MENSAGEM DO BRUNO: confere esse número", "arquivo": True}
     autores = [m["autor"] for m in r.t["reuniao_mensagens"]]
     assert autores == ["voce", "DeepSeek"], r.t["reuniao_mensagens"]
     assert r.t["reuniao_mensagens"][1]["texto"] == "resposta de deepseek"

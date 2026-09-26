@@ -36,13 +36,13 @@ def participantes(texto):
     return agentes.ativos([k for k in agentes.AGENTES if f"@{k}" in t])
 
 
-def _opinar(qual, historico, tarefas, extra):
+def _opinar(qual, historico, tarefas, extra, arquivo=None):
     return agentes.perguntar(
         qual,
         "Você está no grupo com o dono e os outros agentes; o Claude coordena e decide no final.\n"
         "Responda à última mensagem do grupo como numa conversa de WhatsApp: curto (até 6 linhas), direto, "
         "com a sua opinião e no máximo 2 sugestões concretas. Não repita o que outro agente já disse.\n"
-        f"{extra}\nTAREFAS EM ABERTO:\n{tarefas}\n\nCONVERSA:\n{historico}", max_tokens=900)
+        f"{extra}\nTAREFAS EM ABERTO:\n{tarefas}\n\nCONVERSA:\n{historico}", max_tokens=900, arquivo=arquivo)
 
 
 def _comentar(qual, extra, opinioes_texto):
@@ -213,7 +213,8 @@ def rodada(repo, texto_dono=None, extra="", autor_extra=None, segunda_volta=Fals
     quem = participantes(texto_dono or "")
     opinioes = {}
     with ThreadPoolExecutor(max_workers=4) as ex:
-        futs = {k: ex.submit(_opinar, k, hist, tt, extra) for k in quem}
+        arq = agentes.arquivo_de(repo)                  # os agentes podem pesquisar o arquivo (mensagens antigas + conhecimento)
+        futs = {k: ex.submit(_opinar, k, hist, tt, extra, arq) for k in quem}
         for k, f in futs.items():
             try:
                 opinioes[AGENTES[k]] = f.result(timeout=170)

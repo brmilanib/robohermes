@@ -7,6 +7,8 @@ Para pôr um agente novo (ex.: Hermes), basta acrescentar em AGENTES com a chave
 e o papel dele; a sala e a auditoria passam a chamá-lo sozinhas quando a chave dele existir.
 """
 
+import re
+
 import ia
 
 SISTEMA = """Você é um dos agentes de IA do nubi e trabalha para o dono (Bruno), junto com os outros agentes.
@@ -40,7 +42,7 @@ Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reuni�
 (Nomes de marcas, Nomes de vendedores, Produtos iguais). No celular há uma barra de atalhos embaixo.
 
 ## Rotinas (horário de Brasília)
-estoque 00:30 (Mac: exporta o estoque do UpSeller), coleta 01:00 (Mac, a madrugada toda), categorias_lote 04:00, nomes_marcas 05:00 (IA confere grafias da mesma marca e junta as certas), produtos_ia 05:30 (junta títulos sem GTIN do mesmo perfume; GTINs diferentes com o mesmo nome NUNCA junta sozinho: vão para o Bruno conferir em Produtos iguais, metodo gtin_conferir → manual ou gtin_nao), agente 06:00, resumo_dia, analise_foco 09:15 (DeepSeek: concorrentes × meu estoque, onde focar; vai para o Início), analise_semana (sábado 10:00: plano da semana do DeepSeek para começar a segunda, ia_resumos "foco_semana|data", vai para o Início), resumo_semana (segunda), rankeamento 08:30 (LABORATÓRIO DE RANKEAMENTO, tabela rank_box, tela Minhas Lojas → 🧪 Rankeamento: pesquisador com web + todos os agentes contribuem com técnicas/hipóteses/experimentos do algoritmo do Mercado Livre — tags, exposição, relevância — e votam; o coordenador marca testando/comprovada/descartada e escreve o plano de ação por anúncio; o objetivo nº 1 do Bruno é os anúncios dele subirem de posição), posicoes (todo dia 07:30, Mac: acha os anúncios das minhas lojas do Mercado Livre em ml_lojas → meus_anuncios e anota posição/página na busca do termo de cada um em anuncio_posicoes; tela Minhas Lojas → Posição do anúncio), noticias 07:00 (IA com busca na web: até 8 novidades de Mercado Livre/Shopee/Amazon/TikTok Shop em ia_resumos 'noticias|data'; o Início mostra também dólar do dia e datas de vendas),
+estoque 00:30 (Mac: exporta o estoque do UpSeller), coleta 01:00 (Mac, a madrugada toda), categorias_lote 04:00, nomes_marcas 05:00 (IA confere grafias da mesma marca e junta as certas), produtos_ia 05:30 (junta títulos sem GTIN do mesmo perfume; GTINs diferentes com o mesmo nome NUNCA junta sozinho: vão para o Bruno conferir em Produtos iguais, metodo gtin_conferir → manual ou gtin_nao), agente 06:00, resumo_dia, analise_foco 09:15 (DeepSeek: concorrentes × meu estoque, onde focar; vai para o Início), analise_semana (sábado 10:00: plano da semana do DeepSeek para começar a segunda, ia_resumos "foco_semana|data", vai para o Início), resumo_semana (segunda), ARQUIVO (26/09): todas as mensagens da Sala e das conversas diretas ficam guardadas para sempre em reuniao_mensagens e, com a caixa de conhecimento, são pesquisáveis (função buscar_arquivo, sem acento; na Sala o Bruno usa a barra de pesquisa; os agentes pedem com "BUSCAR: palavras" antes de responder, na reunião, na conversa direta e no Laboratório), rankeamento 08:30 (LABORATÓRIO DE RANKEAMENTO, tabela rank_box, tela Minhas Lojas → 🧪 Rankeamento: pesquisador com web + todos os agentes contribuem com técnicas/hipóteses/experimentos do algoritmo do Mercado Livre — tags, exposição, relevância — e votam; o coordenador marca testando/comprovada/descartada e escreve o plano de ação por anúncio; o objetivo nº 1 do Bruno é os anúncios dele subirem de posição), posicoes (todo dia 07:30, Mac: acha os anúncios das minhas lojas do Mercado Livre em ml_lojas → meus_anuncios e anota posição/página na busca do termo de cada um em anuncio_posicoes; tela Minhas Lojas → Posição do anúncio), noticias 07:00 (IA com busca na web: até 8 novidades de Mercado Livre/Shopee/Amazon/TikTok Shop em ia_resumos 'noticias|data'; o Início mostra também dólar do dia e datas de vendas),
 resumo_marcas (dia 3), auditoria 10:30 (conferências de dados + revisão de código), reunião diária 11:00 e, de hora em hora, o Astra
 especifica os cards de design (o programador automático, Claude Code, pega cards aprovados a cada 1 h e publica).
 
@@ -243,8 +245,65 @@ def ativos(citados=None):
     return [k for k in base if ia.tem(AGENTES[k]["qual"])]
 
 
-def perguntar(chave, texto, max_tokens=800, sistema_extra=""):
+# ---------- ARQUIVO: tudo o que foi dito na Sala, nas conversas diretas e na caixa de conhecimento (pedido do Bruno, 26/09) ----------
+# As mensagens ficam guardadas para sempre; qualquer agente pode pesquisar antes de responder (dados, dúvidas, decisões).
+INSTRUCAO_ARQUIVO = ("\n\nFERRAMENTA ARQUIVO: todas as mensagens da Sala, das conversas diretas e a caixa de conhecimento ficam guardadas "
+                     "para sempre. Se precisar de um dado, decisão, dúvida ou combinado antigo que NÃO está aqui, responda SOMENTE com "
+                     "uma linha `BUSCAR: palavras-chave` (2 a 5 palavras) e eu devolvo o que achar; depois responda normalmente. "
+                     "Ao usar algo do arquivo, cite a data. Não invente o que não achou.")
+
+
+def buscar_arquivo(repo, termo, lim=12):
+    """Pesquisa (sem acento, todas as palavras) nas mensagens da Sala/diretas e na caixa de conhecimento; mais recentes primeiro."""
+    termo = str(termo or "").strip()[:120]
+    if len(termo) < 2:
+        return []
+    return repo._req("POST", "rpc/buscar_arquivo", corpo={"q": termo, "lim": int(lim)}) or []
+
+
+def arquivo_texto(linhas):
+    if not linhas:
+        return "(nada encontrado no arquivo)"
+    out = []
+    for r in linhas:
+        onde = "conhecimento: " + (r.get("titulo") or "") if r["origem"] == "conhecimento" else f"conversa {r.get('conversa') or 'sala'}"
+        out.append(f"[{str(r.get('criado_em') or '')[:10]} · {onde} · {r.get('autor')}] {str(r.get('texto') or '')[:500]}")
+    return "\n".join(out)
+
+
+def arquivo_de(repo):
+    """Ferramenta para os agentes: termo -> texto com os achados (ou None se o banco não tiver a busca)."""
+    def buscar(termo):
+        try:
+            return arquivo_texto(buscar_arquivo(repo, termo, 10))
+        except Exception as e:  # noqa: BLE001
+            return f"(arquivo indisponível agora: {str(e)[:80]})"
+    return buscar
+
+
+def com_arquivo(perguntar_fn, texto, arquivo, max_buscas=2):
+    """Roda a pergunta; se o agente responder 'BUSCAR: …', pesquisa no arquivo e pergunta de novo com o resultado."""
+    if not arquivo:
+        return perguntar_fn(texto)
+    texto = texto + INSTRUCAO_ARQUIVO
+    for i in range(max_buscas + 1):
+        t = (perguntar_fn(texto) or "").strip()
+        m = re.match(r"^\s*`?BUSCAR:\s*([^\n`]+)", t, re.I)
+        if not m:
+            return t
+        if i == max_buscas:
+            texto += "\n\nChega de buscas: responda agora com o que você já tem."
+            continue
+        termo = m.group(1).strip()
+        texto += f"\n\nRESULTADO DO ARQUIVO para '{termo}':\n{arquivo(termo)}\n\nAgora responda (ou faça outra busca, se precisar)."
+    return (perguntar_fn(texto) or "").strip()
+
+
+def perguntar(chave, texto, max_tokens=800, sistema_extra="", arquivo=None):
     a = AGENTES[chave]
-    t, _, _ = ia.perguntar(a["papel"] + "\n\n" + voz(chave) + texto, web=False, max_tokens=max(max_tokens, a.get("max_tokens") or 0), qual=a["qual"],
-                           modelo=a["modelo"], sistema=SISTEMA + sistema_extra)
-    return t.strip()
+
+    def uma(txt):
+        t, _, _ = ia.perguntar(a["papel"] + "\n\n" + voz(chave) + txt, web=False, max_tokens=max(max_tokens, a.get("max_tokens") or 0),
+                               qual=a["qual"], modelo=a["modelo"], sistema=SISTEMA + sistema_extra)
+        return t.strip()
+    return com_arquivo(uma, texto, arquivo)
