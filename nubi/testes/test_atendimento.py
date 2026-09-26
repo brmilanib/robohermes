@@ -1,0 +1,184 @@
+"""Atendimento ao cliente (26/09): dado real antes de responder, base por loja, conferência, aprovação humana e log."""
+import itertools
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ.setdefault("OLLAMA_API_KEY", "x")
+import atendimento as a  # noqa: E402
+import ia  # noqa: E402
+
+
+class Repo:
+    """Supabase falso: guarda as linhas por tabela e entende os filtros eq./in./gte. usados pelo módulo."""
+
+    def __init__(self):
+        self.t, self.ids = {}, itertools.count(1)
+
+    def _casa(self, linha, q):
+        for k, v in (q or {}).items():
+            if k in ("select", "order", "limit"):
+                continue
+            op, _, val = str(v).partition(".")
+            atual = linha.get(k)
+            if op == "eq" and str(atual) != val:
+                return False
+            if op == "in" and str(atual) not in val.strip("()").split(","):
+                return False
+            if op == "gte" and str(atual or "") < val:
+                return False
+        return True
+
+    def _req(self, m, tabela, q=None, corpo=None, prefer=None):
+        linhas = self.t.setdefault(tabela, [])
+        if m == "GET":
+            achou = [dict(x) for x in linhas if self._casa(x, q)]
+            if "id.desc" in str((q or {}).get("order")):
+                achou.sort(key=lambda x: -x.get("id", 0))
+            return achou[: int((q or {}).get("limit") or 10**6)]
+        if m == "POST":
+            novos = [dict(x, id=x.get("id") or next(self.ids)) for x in corpo]
+            linhas += novos
+            return [dict(x) for x in novos]
+        if m == "PATCH":
+            for x in linhas:
+                if self._casa(x, q):
+                    x.update(corpo)
+            return []
+        return []
+
+
+def _ia(respostas):
+    feitas = []
+
+    def gerar(prompt, sistema):
+        feitas.append((prompt, sistema))
+        return next(respostas), "gpt-oss"
+    gerar.feitas = feitas
+    return gerar
+
+
+def test_pedido_com_dado_real_vira_rascunho_sem_dado_sensivel():
+    r = Repo()
+    r.t["store_orders"] = [{"source": "tiktok_shop", "id_externo": "578123456789012345", "status": "enviado",
+                            "dados": {"transportadora": "J&T Express", "rastreio": "JT123BR", "previsao_entrega": "2026-10-02",
+                                      "endereco": "Rua das Flores 10", "telefone": "11999998888", "valor": 199.9,
+                                      "itens": [{"name": "Lattafa Asad", "sku_name": "100 ml", "quantity": 1}]}}]
+    gerar = _ia(iter(["Oi, Ana! Entendo a preocupação. Seu pedido já foi enviado pela J&T Express (rastreio JT123BR) e a "
+                      "previsão de entrega é 02/10. Qualquer coisa, é só chamar!"]))
+    rasc = a.receber(r, "tiktok_shop", "Oi, cadê meu pedido 578123456789012345?", cliente="Ana", gerar=gerar)
+    assert rasc["status"] == "pendente" and rasc["intencao"] == "rastreio"
+    ped = rasc["fontes"]["pedido"]
+    assert ped["transportadora"] == "J&T Express" and ped["itens"] == [{"nome": "Lattafa Asad", "variacao": "100 ml", "quantidade": 1}]
+    enviado = json.dumps(gerar.feitas[0])
+    assert "Rua das Flores" not in enviado and "11999998888" not in enviado and "199.9" not in enviado   # nunca chega à IA
+    assert r.t["atendimento_conversas"][0]["status"] == "rascunho"
+
+
+def test_sem_dado_nao_responde_e_pergunta_ao_lojista():
+    r = Repo()
+    gerar = _ia(iter([]))
+    rasc = a.receber(r, "tiktok_shop", "Vocês vendem tester do Asad?", gerar=gerar)
+    assert rasc["status"] == "precisa_info" and "não tenho essa informação" in rasc["pergunta_operador"]
+    assert not gerar.feitas                                           # nem chamou a IA
+    assert r.t["atendimento_conversas"][0]["status"] == "precisa_info"
+    rasc2 = a.receber(r, "tiktok_shop", "meu pedido 578000000000000001 não chegou", gerar=gerar)
+    assert rasc2["status"] == "precisa_info" and "578000000000000001" in rasc2["pergunta_operador"]
+    rasc3 = a.receber(r, "tiktok_shop", "Chegou quebrado, que absurdo", gerar=gerar)
+    assert rasc3["status"] == "precisa_info" and "Reclamação" in rasc3["pergunta_operador"]
+
+
+def test_resposta_do_lojista_vira_base_e_proxima_vez_nao_pergunta():
+    r = Repo()
+    rasc = a.receber(r, "tiktok_shop", "Vocês vendem tester do Asad?", gerar=_ia(iter([])))
+    gerar = _ia(iter(["Oi! Não trabalhamos com tester, só perfumes lacrados. Qualquer coisa, é só chamar!"] * 2))
+    res = a.responder_operador(r, rasc["id"], "Não vendemos tester, só lacrado.", pergunta_tipo="Vendemos perfumes tester?",
+                               gerar=gerar)
+    assert res["rascunho"]["status"] == "pendente" and res["kb"]["confirmado_por"] == "Bruno" and res["kb"]["status"] == "ativa"
+    assert "resposta_do_lojista" in res["rascunho"]["fontes"]
+    novo = a.receber(r, "tiktok_shop", "vocês vendem perfume tester?", gerar=gerar)       # outro cliente, outras palavras
+    assert novo["status"] == "pendente" and novo["fontes"]["base_de_conhecimento"][0]["pergunta"] == "Vendemos perfumes tester?"
+
+
+def test_numero_inventado_e_barrado():
+    r = Repo()
+    a.salvar_item_kb(r, "principal", "Qual o prazo de envio?", "Enviamos em até 2 dias úteis após a confirmação.")
+    gerar = _ia(iter(["Oi! Enviamos em 1 dia. Qualquer coisa, é só chamar!", "Oi! Chega com certeza em 5 dias!"]))
+    rasc = a.receber(r, "tiktok_shop", "qual o prazo de envio?", gerar=gerar)
+    assert rasc["status"] == "precisa_info" and "número que não está nos dados" in rasc["motivo"]
+    assert len(gerar.feitas) == 2 and "barrada" in gerar.feitas[1][0]
+    ok = a.receber(r, "tiktok_shop", "qual o prazo de envio?", gerar=_ia(iter(["Oi! Enviamos em até 2 dias úteis após a confirmação."])))
+    assert ok["status"] == "pendente" and ok["texto_gerado"].endswith(a.ENCERRAMENTO)   # fechamento sempre presente
+
+
+def test_conferencia_de_promessa_e_dado_sensivel():
+    fatos = {"base_de_conhecimento": [{"resposta": "Trocas em até 7 dias."}]}
+    assert any("promessa" in p for p in a.conferir("Te dou um cupom de desconto!", fatos, "oi"))
+    assert any("telefone" in p for p in a.conferir("Me chama no (11) 98888-7777", fatos, "oi"))
+    assert a.conferir("Trocas em até 7 dias! Qualquer coisa, é só chamar!", fatos, "posso trocar?") == []
+    controle = {"base_de_conhecimento": [{"id": 3, "resposta": "Enviamos rápido.", "confirmado_em": "2026-09-26T10:00"}]}
+    assert a.conferir("Chega em 26 dias!", controle, "oi")          # data de confirmação não vale como prazo
+
+
+def test_ia_diz_que_falta_vira_pergunta():
+    r = Repo()
+    a.salvar_item_kb(r, "principal", "Qual o horário de atendimento?", "Seg a sex, 9h às 18h.")
+    rasc = a.receber(r, "tiktok_shop", "qual o horário de atendimento no sábado?",
+                     gerar=_ia(iter(["FALTA: não sei se atendemos sábado"])))
+    assert rasc["status"] == "precisa_info" and "sábado" in rasc["motivo"]
+
+
+def test_aprovar_editar_rejeitar_e_metricas():
+    r = Repo()
+    a.salvar_item_kb(r, "principal", "Vocês enviam para todo o Brasil?", "Sim, enviamos para todo o Brasil.")
+    texto = "Oi! Sim, enviamos para todo o Brasil. Qualquer coisa, é só chamar!"
+    ids = [a.receber(r, "tiktok_shop", "vocês enviam para todo o Brasil?", gerar=_ia(iter([texto])))["id"] for _ in range(3)]
+    x = a.decidir(r, ids[0], "aprovar")
+    assert x["status"] == "aprovado" and x["semelhanca"] == 1.0 and "copie" in x["aviso"]   # TikTok ainda sem integração
+    y = a.decidir(r, ids[1], "editar", texto.replace("Oi!", "Oi, tudo bem?"))
+    assert y["status"] == "editado" and y["semelhanca"] < 1
+    assert a.decidir(r, ids[2], "rejeitar")["status"] == "rejeitado"
+    try:
+        a.decidir(r, ids[0], "aprovar")
+        assert False, "não pode decidir duas vezes"
+    except ValueError:
+        pass
+    m = a.metricas(r)["total"]
+    assert m["decididos"] == 3 and m["acerto"] == round(1 / 3, 3)
+    assert [x["de"] for x in r.t["atendimento_mensagens"]].count("loja") == 2
+
+
+def test_canal_novo_pluga_sem_mudar_a_logica():
+    enviados = []
+
+    class Zap(a.Canal):
+        def enviar(self, conversa, texto):
+            enviados.append(texto)
+    a.registrar_canal(Zap("whatsapp_teste", "WhatsApp (teste)"))
+    r = Repo()
+    a.salvar_item_kb(r, "todas", "Vocês enviam para todo o Brasil?", "Sim, para todo o Brasil.")
+    rasc = a.receber(r, "whatsapp_teste", "enviam para todo o Brasil?", loja="haya",
+                     gerar=_ia(iter(["Oi! Sim, para todo o Brasil. Qualquer coisa, é só chamar!"])))
+    assert a.decidir(r, rasc["id"], "aprovar")["status"] == "enviado" and enviados
+
+
+def test_ia_de_verdade_usa_so_as_gratis():
+    chamadas = []
+    ia.tem = lambda q: q in ("ollama", "claude")
+    ia.perguntar = lambda p, **k: (chamadas.append(k["qual"]) or "Oi!", [], k["qual"])
+    assert a.gerar_ia("x", "y") == ("Oi!", "ollama") and chamadas == ["ollama"]
+    ia.tem = lambda q: q == "claude"
+    try:
+        a.gerar_ia("x", "y")
+        assert False, "não pode cair na IA paga"
+    except ia.SemIA:
+        pass
+
+
+if __name__ == "__main__":
+    for nome, f in list(globals().items()):
+        if nome.startswith("test_"):
+            f()
+            print("ok", nome)

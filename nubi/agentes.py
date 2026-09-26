@@ -38,7 +38,12 @@ cada atualização é uma foto completa do export Lista de Estoque do UpSeller, 
 ## Telas
 Início (resumo de tudo: vendas do último dia, contagens, próximas datas de vendas, resumo da IA, operação),
 Ranking de marcas, Explorador, Concorrentes (Visão geral, Comparar, Vendas diárias, Alertas, Vendedores),
-Minhas Lojas (Estoque: estoque do UpSeller, o que entrou/saiu/zerou e a análise do agente Estoquista),
+Minhas Lojas (Estoque: estoque do UpSeller, o que entrou/saiu/zerou e a análise do agente Estoquista;
+🎵 TikTok Shop → Atendimento (26/09, módulo atendimento.py, reusável para WhatsApp e Mercado Livre): cada mensagem de cliente
+vira rascunho SÓ com dado real (pedido em store_orders sem dado sensível, base de conhecimento da loja em atendimento_kb,
+estoque); sem dado, a conversa fica "precisa de você" com uma pergunta objetiva ao Bruno e a resposta dele vira item da
+base; tom cordial e humano com IA grátis, conferido por regras (número inventado, promessa, dado sensível barram); nada
+sai sem aprovação; log e taxa de acerto em atendimento_rascunhos),
 Central (Desenvolvimento, Rotinas, Execuções, Erros, Auditoria, Sala de reunião, Agentes, Coletor) e Ajustes
 (Nomes de marcas, Nomes de vendedores, Produtos iguais). No celular há uma barra de atalhos embaixo.
 

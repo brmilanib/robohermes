@@ -684,6 +684,25 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
   .vabas{overflow-x:auto;max-width:100%}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* Minhas Lojas → TikTok Shop → Atendimento (26/09) */
+.es-seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
+.es-seg button{white-space:nowrap;flex:0 0 auto}
+.at-num{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px}
+.at-num span{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12.5px;background:var(--card)}
+.at-conv{border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px;background:var(--card)}
+.at-conv.info{border-left:4px solid #d4a017}
+.at-msg{border-radius:10px;padding:8px 10px;margin:6px 0;font-size:13.5px;white-space:pre-wrap;max-width:92%}
+.at-msg.cliente{background:var(--bg)}
+.at-msg.loja{background:rgba(47,125,91,.12);margin-left:auto}
+.at-conv textarea{width:100%;min-height:96px;font:inherit;font-size:13.5px;border:1px solid var(--line);border-radius:10px;padding:8px;box-sizing:border-box;background:var(--card);color:inherit}
+.at-acoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.at-fontes{font-size:12px;margin-top:8px}
+.at-fontes pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);border-radius:8px;padding:8px;max-height:260px;overflow:auto}
+.at-kb{display:grid;gap:8px;margin-top:8px}
+.at-kb-item{border:1px solid var(--line);border-radius:10px;padding:10px;font-size:13px}
+.at-form{display:grid;gap:8px;grid-template-columns:1fr 1fr}
+.at-form textarea,.at-form .larga{grid-column:1/-1}
+@media (max-width:640px){.at-form{grid-template-columns:1fr}}
 /* Minhas Lojas → Estoque */
 .es-cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .es-cab .acoes{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
@@ -1162,7 +1181,8 @@ function desenharMenu() {
       cont((S.vendLista || []).length) + seta("vendedores", (S.vendLista || []).length > 0))}
     ${ab.vendedores ? `<div class="subnav" id="sub-vend"></div>` : ""}
     <div class="grupo">Minhas Lojas</div>
-    ${it("#/estoque", "📦", "Estoque", sec === "lojas")}
+    ${it("#/estoque", "📦", "Estoque", sec === "lojas" && !h.startsWith("#/estoque/tiktok"))}
+    ${it("#/estoque/tiktok", "🎵", "TikTok Shop", h.startsWith("#/estoque/tiktok"))}
     <div class="grupo">Central</div>
     ${it("#/central", "🛠️", "Central", OPS_ABAS.some(a => a.on(h)),
       S.opsRes && S.opsRes.erros_hoje ? `<span class="badge" title="erros hoje (aba Erros)">${S.opsRes.erros_hoje}</span>` : "")}
@@ -1221,7 +1241,7 @@ async function rotear() {
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   desenharBarraBaixo();
   if (sec === "inicio") return telaInicio();
-  if (sec === "lojas") return location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : telaEstoque();
+  if (sec === "lojas") return location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/tiktok") ? telaAtendimento() : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -2549,10 +2569,11 @@ function esFiltrar(k) {
   desenharTabEstoque();
   const alvo = $("#es-itens"); if (alvo) alvo.scrollIntoView({behavior: "smooth", block: "start"});
 }
-const esAbas = ativa => `<div class="seg" style="margin-bottom:12px"><button class="${ativa === "estoque" ? "on" : ""}" onclick="location.hash='#/estoque'">📦 Estoque</button>
+const esAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px"><button class="${ativa === "estoque" ? "on" : ""}" onclick="location.hash='#/estoque'">📦 Estoque</button>
   <button class="${ativa === "gestor" ? "on" : ""}" onclick="location.hash='#/estoque/gestor'">🧾 Planilha do Gestor Seller</button>
   <button class="${ativa === "posicoes" ? "on" : ""}" onclick="location.hash='#/estoque/posicoes'">📈 Posição do anúncio</button>
-  <button class="${ativa === "rank" ? "on" : ""}" onclick="location.hash='#/estoque/rankeamento'">🧪 Rankeamento</button></div>`;
+  <button class="${ativa === "rank" ? "on" : ""}" onclick="location.hash='#/estoque/rankeamento'">🧪 Rankeamento</button>
+  <button class="${ativa === "tiktok" ? "on" : ""}" onclick="location.hash='#/estoque/tiktok'">🎵 TikTok Shop</button></div>`;
 // ---------- Minhas Lojas → 🧪 Laboratório de Rankeamento: a box onde todos os agentes juntam técnicas do algoritmo do ML ----------
 const RK_TIPO = {tecnica: "🛠️ Técnica", hipotese: "💭 Hipótese", experimento: "🧪 Experimento", resultado: "📊 Resultado", pergunta: "❓ Pergunta"};
 const RK_ST = {nova: ["", "nova"], testando: ["warn", "testando"], comprovada: ["good", "✅ comprovada"], descartada: ["bad", "descartada"]};
@@ -2606,6 +2627,101 @@ async function telaRankeamento() {
     try { await api("rank_salvar", {}, {method: "POST", body: JSON.stringify({id: +sel.dataset.rkSt, status: sel.value})}); toast("Status atualizado."); } catch (er) { toast(er.message, 6000); } });
   desenharMenu();
 }
+// ---------- Minhas Lojas → 🎵 TikTok Shop → Atendimento (26/09): dado real → rascunho → você aprova; nada sai sozinho ----------
+const atQuando = t => t ? new Date(t).toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
+const AT_INTENCAO = {rastreio: "📦 rastreio", pedido: "🧾 pedido", produto: "🧴 produto", troca_devolucao: "🔁 troca/devolução",
+  reclamacao: "⚠️ reclamação", horario: "🕘 horário", saudacao: "👋 saudação", outro: "💬 outro"};
+async function telaAtendimento() {
+  const main = $("#main"), aba = S.atAba || "fila";
+  main.innerHTML = esAbas("tiktok") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o atendimento</div></div>`;
+  let f, m, kb;
+  try {
+    [f, m, kb] = await Promise.all([api("atendimento_fila"), api("atendimento_metricas"), aba === "kb" ? api("atendimento_kb") : Promise.resolve({itens: []})]);
+  } catch (e) { main.innerHTML = esAbas("tiktok") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/estoque/tiktok")) return;
+  const t = m.total || {}, conv = f.conversas || [];
+  const st = c => (c.rascunho || {}).status;
+  const grupos = {fila: conv.filter(c => st(c) === "pendente"), info: conv.filter(c => st(c) === "precisa_info"),
+                  feitas: conv.filter(c => ["aprovado", "editado", "enviado", "rejeitado"].includes(st(c)))};
+  const pct = v => v == null ? "—" : Math.round(v * 100) + "%";
+  const msgs = c => (c.mensagens || []).map(x => `<div class="at-msg ${x.de === "loja" ? "loja" : "cliente"}">${esc(x.texto)}
+      <div class="muted" style="font-size:11px">${x.de === "loja" ? "loja" : esc(c.cliente || "cliente")} · ${atQuando(x.criado_em)}</div></div>`).join("");
+  const fontes = r => `<details class="at-fontes"><summary>🔍 Dados usados para montar a resposta</summary><pre>${esc(JSON.stringify(r.fontes || {}, null, 1))}</pre></details>`;
+  const cab = c => `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b>${esc(c.cliente || "Cliente")}</b>
+      <span class="muted">${esc((f.canais.find(x => x.id === c.canal) || {}).nome || c.canal)} · ${esc(c.loja)}${c.pedido_ref ? " · pedido " + esc(c.pedido_ref) : ""}</span>
+      <span class="muted" style="margin-left:auto">${esc(AT_INTENCAO[(c.rascunho || {}).intencao] || "")}</span></div>`;
+  const cartaoFila = c => `<div class="at-conv">${cab(c)}${msgs(c)}
+      <div class="in-sub" style="margin-top:8px">✍️ Rascunho (${esc(c.rascunho.modelo || "IA grátis")}) — edite se quiser</div>
+      <textarea data-at-txt="${c.rascunho.id}">${esc(c.rascunho.texto_gerado || "")}</textarea>${fontes(c.rascunho)}
+      <div class="at-acoes"><button class="btn small primary" data-at-ok="${c.rascunho.id}">✅ Aprovar</button>
+        <button class="btn small ghost" data-at-rej="${c.rascunho.id}">❌ Rejeitar</button></div></div>`;
+  const cartaoInfo = c => `<div class="at-conv info">${cab(c)}${msgs(c)}
+      <div class="es-aviso" style="margin:8px 0">🙋 <b>Preciso de você:</b> ${esc(c.rascunho.pergunta_operador || "")}</div>
+      ${c.rascunho.motivo ? `<div class="muted" style="font-size:12px">motivo: ${esc(c.rascunho.motivo)}</div>` : ""}
+      <textarea data-at-resp="${c.rascunho.id}" placeholder="Sua resposta (o dado real). Ex.: Não vendemos tester, só perfumes lacrados."></textarea>
+      <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-top:6px"><input type="checkbox" data-at-kb="${c.rascunho.id}" checked>
+        Salvar na base de conhecimento desta loja (não pergunto de novo)</label>
+      <input data-at-tipo="${c.rascunho.id}" style="width:100%;margin-top:6px" value="${esc(((c.mensagens || []).filter(x => x.de === "cliente").slice(-1)[0] || {}).texto || "")}"
+        title="pergunta-tipo que vai para a base" placeholder="pergunta-tipo para a base">
+      ${fontes(c.rascunho)}
+      <div class="at-acoes"><button class="btn small primary" data-at-responder="${c.rascunho.id}">Responder e gerar rascunho</button></div></div>`;
+  const cartaoFeita = c => { const r = c.rascunho; return `<div class="at-conv">${cab(c)}${msgs(c)}
+      <div class="muted" style="font-size:12px">${{aprovado: "✅ aprovado como estava", editado: "✏️ aprovado com edição", enviado: "📤 enviado", rejeitado: "❌ rejeitado"}[r.status] || r.status}
+        ${r.semelhanca != null ? " · " + pct(r.semelhanca) + " igual ao rascunho" : ""} · ${esc(r.decidido_por || "")} ${atQuando(r.decidido_em)}</div>
+      ${["aprovado", "editado"].includes(r.status) ? `<div class="at-acoes"><button class="btn small" data-at-copiar="${r.id}">📋 Copiar resposta para colar no TikTok</button></div>` : ""}</div>`; };
+  const kbItem = k => `<div class="at-kb-item"><b>${esc(k.pergunta)}</b><div style="margin:4px 0;white-space:pre-wrap">${esc(k.resposta)}</div>
+      <div class="muted" style="font-size:11.5px">${esc(k.loja)} · confirmado por ${esc(k.confirmado_por || "—")} em ${atQuando(k.confirmado_em)}</div>
+      <div class="at-acoes"><button class="btn small ghost" data-kb-editar="${k.id}">✏️ Nova versão</button><button class="btn small ghost" data-kb-desativar="${k.id}">Desativar</button></div></div>`;
+  const abas = [["fila", `✍️ Para aprovar (${grupos.fila.length})`], ["info", `🙋 Precisa de você (${grupos.info.length})`], ["feitas", "📜 Respondidas"], ["kb", "📚 Base de conhecimento"]];
+  const corpo = aba === "kb" ? `<div class="card pad"><h2>Base de conhecimento</h2>
+      <p class="muted" style="font-size:12.5px">Perguntas-tipo com a resposta padrão da loja. Sempre que você responde algo que não estava aqui, vira um item novo.</p>
+      <form id="kb-novo" class="at-form"><input id="kb-p" placeholder="Pergunta-tipo (ex.: Vendemos perfumes tester?)" class="larga">
+        <textarea id="kb-r" placeholder="Resposta padrão"></textarea><input id="kb-loja" value="principal" placeholder="loja (ou todas)">
+        <button class="btn small primary">+ Salvar item</button></form>
+      <div class="at-kb">${(kb.itens || []).map(kbItem).join("") || `<p class="muted">Base vazia. Comece pelas perguntas mais comuns: tester, troca/devolução, prazo de envio, horário.</p>`}</div></div>`
+    : `${aba === "fila" ? `<div class="card pad"><h2>Nova mensagem de cliente</h2>
+        <p class="muted" style="font-size:12.5px">Enquanto a TikTok Shop não está ligada ao nubi, cole aqui a mensagem do cliente. O nubi busca o dado real, monta o rascunho e espera você aprovar.</p>
+        <form id="at-nova" class="at-form"><input id="at-cli" placeholder="Nome do cliente"><input id="at-ped" placeholder="Nº do pedido (se tiver)">
+          <textarea id="at-txt" placeholder="Mensagem do cliente"></textarea><button class="btn small primary larga">Gerar rascunho</button></form></div>` : ""}
+      ${(grupos[aba] || []).map(aba === "fila" ? cartaoFila : aba === "info" ? cartaoInfo : cartaoFeita).join("")
+        || `<div class="card empty" style="margin-top:12px">${aba === "fila" ? "Nenhum rascunho esperando aprovação." : aba === "info" ? "Nada esperando resposta sua. 🎉" : "Nenhuma conversa respondida ainda."}</div>`}`;
+  main.innerHTML = esAbas("tiktok") + `<div class="es-cab"><h1>🎵 TikTok Shop · Atendimento</h1>
+      <span class="muted">respostas só com dado real · nada sai sem a sua aprovação</span></div>
+    <div class="at-num"><span>🎯 acerto ${pct(t.acerto)} <span class="muted">(aprovado sem editar, ${m.dias} dias)</span></span>
+      <span>✍️ ${grupos.fila.length} para aprovar</span><span>🙋 ${grupos.info.length} precisam de você</span>
+      <span>✏️ ${t.editado || 0} editados · ❌ ${t.rejeitado || 0} rejeitados</span></div>
+    <div class="seg es-seg" style="margin-bottom:12px">${abas.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-at-aba="${k}">${n}</button>`).join("")}</div>${corpo}`;
+  const post = (rota, corpo_) => api(rota, {}, {method: "POST", body: JSON.stringify(corpo_)});
+  const agir = async (fn, ok) => { try { const x = await fn(); if (ok) toast(ok(x), 7000); telaAtendimento(); } catch (e) { toast(e.message, 7000); } };
+  main.querySelectorAll("[data-at-aba]").forEach(b => b.onclick = () => { S.atAba = b.dataset.atAba; telaAtendimento(); });
+  if ($("#at-nova")) $("#at-nova").onsubmit = e => { e.preventDefault(); const texto = $("#at-txt").value.trim(); if (!texto) return;
+    e.target.querySelector("button").disabled = true;
+    agir(() => post("atendimento_receber", {canal: "tiktok_shop", texto, cliente: $("#at-cli").value.trim() || null, pedido: $("#at-ped").value.trim() || null}),
+      x => x.rascunho.status === "pendente" ? "Rascunho pronto: confira e aprove." : "Faltou dado real: a pergunta está em 🙋 Precisa de você."); };
+  main.querySelectorAll("[data-at-ok]").forEach(b => b.onclick = () => { const id = +b.dataset.atOk, txt = main.querySelector(`[data-at-txt="${id}"]`).value.trim();
+    const conv = grupos.fila.find(c => c.rascunho.id === id), mudou = txt !== (conv.rascunho.texto_gerado || "").trim();
+    agir(() => post("atendimento_decidir", {id, acao: mudou ? "editar" : "aprovar", texto: txt}), x => {
+      if (x.aviso) { try { navigator.clipboard.writeText(x.texto); } catch { /* sem área de transferência */ } return "Aprovado e copiado: cole no chat do TikTok Shop."; }
+      return "Enviado ao cliente."; }); });
+  main.querySelectorAll("[data-at-rej]").forEach(b => b.onclick = () => { const motivo = prompt("Por que rejeitar? (ajuda a treinar)") ; if (motivo === null) return;
+    agir(() => post("atendimento_decidir", {id: +b.dataset.atRej, acao: "rejeitar", texto: motivo}), () => "Rejeitado."); });
+  main.querySelectorAll("[data-at-responder]").forEach(b => b.onclick = () => { const id = +b.dataset.atResponder;
+    const resposta = main.querySelector(`[data-at-resp="${id}"]`).value.trim(); if (!resposta) return toast("Escreva a resposta primeiro.");
+    b.disabled = true;
+    agir(() => post("atendimento_responder", {id, resposta, salvar_kb: main.querySelector(`[data-at-kb="${id}"]`).checked,
+      pergunta_tipo: main.querySelector(`[data-at-tipo="${id}"]`).value.trim()}),
+      x => (x.kb ? "Guardado na base. " : "") + (x.rascunho.status === "pendente" ? "Rascunho novo em ✍️ Para aprovar." : "Ainda falta dado: veja de novo em 🙋.")); });
+  main.querySelectorAll("[data-at-copiar]").forEach(b => b.onclick = () => { const c = grupos.feitas.find(x => x.rascunho.id === +b.dataset.atCopiar);
+    try { navigator.clipboard.writeText(c.rascunho.texto_final || ""); toast("Copiado."); } catch { toast("Não consegui copiar."); } });
+  if ($("#kb-novo")) $("#kb-novo").onsubmit = e => { e.preventDefault();
+    agir(() => post("atendimento_kb_salvar", {pergunta: $("#kb-p").value, resposta: $("#kb-r").value, loja: $("#kb-loja").value.trim() || "principal"}), () => "Item salvo na base."); };
+  main.querySelectorAll("[data-kb-desativar]").forEach(b => b.onclick = () => { if (!confirm("Desativar este item? Ele fica guardado, só deixa de ser usado.")) return;
+    agir(() => post("atendimento_kb_salvar", {desativar: +b.dataset.kbDesativar}), () => "Desativado."); });
+  main.querySelectorAll("[data-kb-editar]").forEach(b => b.onclick = () => { const k = kb.itens.find(x => x.id === +b.dataset.kbEditar);
+    const nova = prompt("Nova resposta padrão (a antiga fica guardada como substituída):", k.resposta); if (!nova || nova.trim() === k.resposta) return;
+    agir(() => post("atendimento_kb_salvar", {pergunta: k.pergunta, resposta: nova, loja: k.loja, substitui: k.id}), () => "Nova versão salva."); });
+}
+
 // ---------- Minhas Lojas → Posição do anúncio (card #78): posição e página de cada anúncio meu na busca do Mercado Livre ----------
 async function telaPosicoes() {
   const main = $("#main");

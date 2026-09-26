@@ -182,3 +182,18 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   do Bruno no card, nunca digita senha/cartão/documento/chave, só http(s), 30 passos e ~US$ 5/dia.
 - Servidor: fila própria (`ferreiro_proximo(quem="navegador")`), prints em `navegador_print`, pergunta vira `aguardando`.
 - Teste: `testes/test_navegador.py` (página local, Claude falso): http(s) só, bloqueios de clique e de senha, aprovação.
+
+## Atendimento ao cliente (26/09, pedido do Bruno) — `atendimento.py`, migração `supabase/atendimento.sql`
+
+- Módulo reusável por canal (`Canal`, `registrar_canal`): TikTok Shop primeiro; WhatsApp e Mercado Livre entram criando
+  um Canal com `buscar_pedido` (store_orders por `source`) e `enviar`. Sem integração, `enviar` avisa "copie e cole".
+- Fluxo: `receber` → `buscar_dados` (intenção por regras; pedido só com os campos de `pedido_seguro`, nunca endereço,
+  telefone, documento ou valores; base `atendimento_kb` da loja e de "todas"; estoque do UpSeller) → sem dado =
+  `precisa_info` + pergunta objetiva ao operador (nem chama a IA) → `escrever` (IA grátis `gerar_ia`: gpt-oss, DeepSeek de
+  reserva, nunca a paga) → `conferir` (número fora dos dados, promessa fora da base e dado sensível barram; 1 nova
+  tentativa) → rascunho `pendente`. Reclamação sem base/pedido sempre vai para o Bruno.
+- Nada sai sem aprovação (`decidir`: aprovar/editar/rejeitar, grava `semelhanca`). `responder_operador` guarda a resposta
+  do lojista na base (com quem confirmou e quando) e gera o rascunho de novo. Item novo de uma resposta antiga: `substitui`
+  (a antiga fica `inativa` com `substituido_por`, nunca apagada). `metricas`: acerto = aprovado sem editar / decididos.
+- Tela: Minhas Lojas → 🎵 TikTok Shop (`telaAtendimento`). Testes: `test_atendimento.py`, `test_atendimento_real.py`.
+- Auto-envio: desligado nesta versão; só avaliar para pré-venda 100% coberta pela base depois de medir o acerto.

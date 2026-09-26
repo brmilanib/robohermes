@@ -34,6 +34,7 @@ import pesquisa_marca
 import produtos_iguais
 import auditoria
 import agentes
+import atendimento
 import pesquisador
 import saber
 import estoque
@@ -778,6 +779,12 @@ def atender(metodo, rota, q, corpo, token):
             nome = f"import_gestor_seller_{_br(reg['criado_em']):%d-%m-%Y}.xlsx"
             return (200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", estoque.gerar_gestor(itens),
                     {"Content-Disposition": f'attachment; filename="{nome}"', "X-Nome-Arquivo": nome})
+        if rota.startswith("atendimento_"):
+            # atendimento ao cliente (26/09): dado real → rascunho → aprovação humana; nada sai sozinho
+            try:
+                return _json(atendimento.rota(repo, metodo, rota, q, corpo))
+            except (ValueError, KeyError) as e:
+                raise ErroNuvem(f"Atendimento: {e}", 400)
         if rota.startswith("estoque") or rota.startswith("gestor_") or rota == "coleta_pendente":
             return _json(rota_estoque(repo, metodo, rota, q, corpo))
         if rota == "conhecimento":
