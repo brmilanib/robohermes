@@ -173,7 +173,11 @@ def conferencias(repo, hoje=None):
     # 8b) categoria manual fora de CATEGORIAS (dado velho/corrompido): classificar()/relatorio() (card #72)
     # já tratam como "Sem categoria" sem derrubar o relatório; aqui é só o aviso pro Bruno corrigir a escolha.
     ach.extend(achados_categoria_manual_invalida(manuais))
-    snap_hoje = {chave: categorias.classificar(chave, manuais)[0] for chave, _, _ in categorias.conflitos()}
+    # card #87: guarda também as categorias em conflito (não só a vencedora), pra tela mostrar os dois lados
+    snap_hoje = {}
+    for chave, _, cats in categorias.conflitos():
+        cat_hoje = categorias.classificar(chave, manuais)[0]
+        snap_hoje[chave] = {"categoria": cat_hoje, "conflito": [c for c in cats if c != cat_hoje]}
     try:
         ontem_rows = repo._req("GET", "auditorias", {"select": "conferencias",
                                                       "data": f"eq.{(hoje - timedelta(days=1)).isoformat()}", "limit": 1}) or []
@@ -186,8 +190,10 @@ def conferencias(repo, hoje=None):
         snap_ontem = json.loads(achado_ontem.get("detalhe") or "{}") if achado_ontem else {}
     except (TypeError, ValueError):
         snap_ontem = {}
-    for chave, cat_hoje in sorted(snap_hoje.items()):
-        cat_ontem = snap_ontem.get(chave)
+    for chave, info_hoje in sorted(snap_hoje.items()):
+        cat_hoje = info_hoje["categoria"]
+        info_ontem = snap_ontem.get(chave)
+        cat_ontem = info_ontem.get("categoria") if isinstance(info_ontem, dict) else info_ontem   # snapshot antigo (só string)
         if cat_ontem and cat_ontem != cat_hoje:
             ach.append({"nivel": "alerta", "area": "categoria", "titulo": f"{chave}: categoria mudou de {cat_ontem} para {cat_hoje}",
                         "detalhe": "Marca citada em mais de uma categoria de SEMENTE (categorias.py); a categoria vencedora "

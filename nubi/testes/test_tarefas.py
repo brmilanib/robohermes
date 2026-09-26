@@ -123,14 +123,25 @@ def test_66_categoria_em_conflito_muda_vira_alerta():
     ach = auditoria.conferencias(r)
     alerta = next(a for a in ach if a["area"] == "categoria" and a["nivel"] == "alerta")
     assert alerta["titulo"] == "JEANNEARTHES: categoria mudou de Importados low ticket para Designer", alerta
-    # o instantâneo de hoje sempre é gravado, pra amanhã comparar
+    # o instantâneo de hoje sempre é gravado, pra amanhã comparar; agora com os dois lados do conflito (card #87)
     info = next(a for a in ach if a["area"] == "categoria" and a["nivel"] == "info")
-    assert json.loads(info["detalhe"])["JEANNEARTHES"] == "Designer", info
+    snap = json.loads(info["detalhe"])["JEANNEARTHES"]
+    assert snap["categoria"] == "Designer", info
+    assert "Importados low ticket" in snap["conflito"], info
+
+
+def test_66_categoria_em_conflito_aceita_instantaneo_antigo_so_com_string():
+    # snapshot gravado antes do card #87 (só {chave: "categoria"}, sem "conflito"): não pode quebrar a comparação.
+    s, g = _serie()
+    r = Repo({"serie": s, "grupo": g, **_instantaneo({"JEANNEARTHES": "Importados low ticket"})})
+    ach = auditoria.conferencias(r)
+    alerta = next(a for a in ach if a["area"] == "categoria" and a["nivel"] == "alerta")
+    assert alerta["titulo"] == "JEANNEARTHES: categoria mudou de Importados low ticket para Designer", alerta
 
 
 def test_66_categoria_sem_mudanca_nao_gera_alerta():
     s, g = _serie()
-    r = Repo({"serie": s, "grupo": g, **_instantaneo({"JEANNEARTHES": "Designer"})})
+    r = Repo({"serie": s, "grupo": g, **_instantaneo({"JEANNEARTHES": {"categoria": "Designer", "conflito": ["Importados low ticket"]}})})
     ach = auditoria.conferencias(r)
     assert not [a for a in ach if a["area"] == "categoria" and a["nivel"] == "alerta"], ach
 

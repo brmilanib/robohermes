@@ -3605,6 +3605,20 @@ function mdCodigo(t) {
   // markdown simples + blocos ``` de código
   return (t || "").split(/```[a-z]*\n?/).map((parte, i) => i % 2 ? `<pre>${esc(parte)}</pre>` : `<div class="md">${mdSimples(parte)}</div>`).join("");
 }
+// card #87: o achado "Instantâneo de categorias em conflito" guarda {marca: {categoria, conflito}} (json em detalhe);
+// mostra os dois lados (categoria atual x categorias em conflito) em vez do JSON cru.
+function detalheAchado(x) {
+  if (x.area !== "categoria" || x.titulo !== "Instantâneo de categorias em conflito") return esc(x.detalhe);
+  let snap;
+  try { snap = JSON.parse(x.detalhe || "{}"); } catch (e) { return esc(x.detalhe); }
+  const linhas = Object.entries(snap).map(([marca, v]) => {
+    const info = v && typeof v === "object" ? v : {categoria: v, conflito: []};
+    const conflito = info.conflito || [];
+    return `<div><b>${esc(marca)}</b>: ${esc(info.categoria || "")}` +
+      (conflito.length ? ` <span class="muted">· em conflito com ${conflito.map(esc).join(", ")}</span>` : "") + `</div>`;
+  });
+  return linhas.join("") || `<span class="muted">nenhuma marca em conflito</span>`;
+}
 async function telaAuditoria(data) {
   const main = $("#main");
   main.innerHTML = opsAbas("auditoria") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando a auditoria</div></div>`;
@@ -3629,7 +3643,7 @@ async function telaAuditoria(data) {
     <div class="card pad"><h2>Conferências dos dados · ${dm(a.data)}</h2>
       <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Nível</th><th>Área</th><th>O quê</th><th>Detalhe</th></tr></thead>
       <tbody>${conf.map(x => `<tr><td><span class="st ${NIV[x.nivel][0]}">${NIV[x.nivel][1]}</span></td><td>${esc(x.area)}</td>
-        <td class="first wrap">${esc(x.titulo)}</td><td class="wrap">${esc(x.detalhe)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nenhum achado. 👏</td></tr>`}</tbody></table></div></div>
+        <td class="first wrap">${esc(x.titulo)}</td><td class="wrap">${detalheAchado(x)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nenhum achado. 👏</td></tr>`}</tbody></table></div></div>
     <div class="card pad" style="margin-top:14px"><h2>Conversa dos agentes</h2><div class="sub">O ChatGPT (Codex) analisa, o DeepSeek confere contas e casos de borda e o Claude revisa os dois. Sugestões de correção só entram depois de conferidas e testadas.</div>
       ${(a.conversa || []).map(m => `<div class="au-msg ${m.autor.startsWith("ChatGPT") ? "gpt" : m.autor === "DeepSeek" ? "ds" : m.autor === "Claude" ? "claude" : "sis"}"><div class="quem">${esc(m.autor)}</div>${mdCodigo(m.texto)}</div>`).join("")}</div>`}`;
   if ($("#au-data")) $("#au-data").onchange = e => telaAuditoria(e.target.value);
