@@ -828,6 +828,11 @@ def atender(metodo, rota, q, corpo, token):
             if q.get("q"):
                 termo = re.sub(r"[,()*%]", " ", q["q"])[:80].strip()
                 p["or"] = f"(titulo.ilike.*{termo}*,texto.ilike.*{termo}*)"
+            if q.get("vetores"):       # card #29: a busca do Mac compara os vetores locais (sem a coluna: vem sem vetor)
+                try:
+                    return _json({"itens": repo._req("GET", "conhecimento", {**p, "select": p["select"] + ",vetor_local"}) or []})
+                except ErroNuvem:
+                    pass
             return _json({"itens": repo._req("GET", "conhecimento", p) or []})
         if rota == "conhecimento_pendente":
             # card #39: o que o Hermes (Mac mini) tem para memorizar desde a última rodada da rotina 'memoria'
@@ -3921,6 +3926,7 @@ COMANDOS_MAC = {
     "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
+VETOR_LOCAL_DESDE = "2026-09-27T00:00:00+00:00"   # card #29: só itens novos da caixa ganham vetor (os antigos ficam de fora)
 
 
 # ---------- Posição do anúncio no Mercado Livre (card #78, pedido do Bruno em 25/09) ----------
@@ -4571,6 +4577,19 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         atendimento.retomar_esquecidas(repo)    # a cada 3 min: "respondida" só pelo robô da plataforma volta a ter rascunho
         atendimento.aprender_aos_poucos(repo)
         atendimento.fichar_aos_poucos(repo)     # a cada 3 min: ficha (notas, inspiração) de um perfume do estoque, pela internet   # a cada 15 min: padrões das conversas novas viram propostas na base
+        # card #29: vetores do nomic-embed-text (Ollama do Mac) dos itens novos da caixa de conhecimento; sem a coluna
+        # vetor_local (migração ainda não aplicada) nada quebra, só não há vetores
+        vetorizar = []
+        try:
+            for v in d.get("vetores") or []:
+                repo._req("PATCH", "conhecimento", {"id": repo._eq(int(v["id"]))}, corpo={"vetor_local": v["vetor"]},
+                          prefer="return=minimal")
+            if (d.get("info") or {}).get("ollama"):
+                vetorizar = repo._req("GET", "conhecimento", {"select": "id,titulo,texto", "vetor_local": "is.null",
+                                                              "criado_em": f"gte.{VETOR_LOCAL_DESDE}", "order": "id",
+                                                              "limit": 10}) or []
+        except ErroNuvem:
+            vetorizar = []
         pend = []
         if d.get("info") is not None:
             pend = repo._req("GET", "mac_comandos", {"select": "id,comando,arg", "status": "eq.pendente", "order": "id", "limit": 3}) or []
@@ -4589,7 +4608,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
                 if not sala:
                     u = repo._req("GET", "reuniao_mensagens", {"select": "id", "order": "id.desc", "limit": 1}) or []
                     sala = [{"id": u[0]["id"], "texto": ""}] if u and u[0]["id"] > ult else []
-        return {"pendentes": pend, "sala": sala}
+        return {"pendentes": pend, "sala": sala, "vetorizar": vetorizar}
     raise ErroNuvem("Rota desconhecida.", 404)
 
 

@@ -575,6 +575,8 @@ create table if not exists public.conhecimento (
   autor text, fonte text, fixo boolean not null default false, tags text[]
 );
 create index if not exists conhecimento_data on public.conhecimento (fixo desc, atualizado_em desc);
+-- card #29 (aprovado pelo Bruno): vetor do nomic-embed-text gerado no Mac mini (Ollama local), lista de 768 números
+alter table public.conhecimento add column if not exists vetor_local jsonb;
 alter table public.conhecimento enable row level security;
 create policy "autorizado" on public.conhecimento for all to authenticated
   using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

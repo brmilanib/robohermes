@@ -2325,6 +2325,48 @@ def _info_mac():
     return info
 
 
+EMBED = "http://localhost:11434/api/embed"
+
+
+def vetor_local(texto, tipo="search_document"):
+    """Card #29: vetor do texto com o nomic-embed-text no Ollama deste Mac (nada sai da rede). Sem Ollama: None."""
+    corpo = {"model": "nomic-embed-text", "input": f"{tipo}: {str(texto or '')[:6000]}"}
+    req = urllib.request.Request(EMBED, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            v = (json.loads(r.read().decode()).get("embeddings") or [None])[0]
+        return [round(float(x), 6) for x in v] if v else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _cosseno(a, b):
+    na, nb = sum(x * x for x in a) ** 0.5, sum(x * x for x in b) ** 0.5
+    return sum(x * y for x, y in zip(a, b)) / (na * nb) if na and nb and len(a) == len(b) else 0.0
+
+
+def _palavras(t):
+    t = unicodedata.normalize("NFKD", str(t or "").lower())
+    return {p for p in re.findall(r"[a-z0-9]{4,}", "".join(c for c in t if not unicodedata.combining(c)))}
+
+
+def buscar_conhecimento(token, texto, n=5):
+    """Card #29: os n itens da caixa de conhecimento mais parecidos com a conversa ou tarefa. Primeiro pelo significado
+    (vetores locais); sem Ollama ou sem vetores suficientes, completa com a busca por palavras, sem repetir."""
+    itens = api(token, "conhecimento", {"vetores": "1"}, timeout=60).get("itens") or []
+    qv = vetor_local(texto, "search_query") if any(it.get("vetor_local") for it in itens) else None
+    achados = []
+    if qv:
+        com = sorted(((_cosseno(qv, it["vetor_local"]), it) for it in itens if it.get("vetor_local")), key=lambda x: -x[0])
+        achados = [it for _, it in com[:n]]
+    if len(achados) < n:
+        pq = _palavras(texto)
+        resto = sorted(((len(pq & _palavras(f"{it.get('titulo')} {it.get('texto')}")), it) for it in itens
+                        if it not in achados), key=lambda x: -x[0])
+        achados += [it for p, it in resto if p][:n - len(achados)]
+    return [{k: v for k, v in it.items() if k != "vetor_local"} for it in achados]
+
+
 def despachar(cfg):
     """Um ciclo do despachante (roda dentro do vigia, a cada minuto)."""
     est = _estado_desp()
@@ -2340,7 +2382,11 @@ def despachar(cfg):
         if fim:
             est["rodando"].pop(cid, None)
     token = token_nubi(cfg)
-    r = api(token, "mac_tick", corpo={"info": _info_mac(), "saidas": saidas, "sala_ult": est.get("sala_ult", 0)}, timeout=40)
+    r = api(token, "mac_tick", corpo={"info": _info_mac(), "saidas": saidas, "sala_ult": est.get("sala_ult", 0),
+                                      "vetores": est.get("vetores") or []}, timeout=40)
+    # card #29: itens novos da caixa de conhecimento ganham o vetor aqui; vai para o nubi no próximo sinal
+    est["vetores"] = [{"id": it["id"], "vetor": v} for it in r.get("vetorizar") or []
+                      if (v := vetor_local(f"{it.get('titulo') or ''}\n\n{it.get('texto') or ''}"))]
     for p in r.get("pendentes", []):
         argv = comando_mac(p.get("comando"), p.get("arg") or "")
         if not argv:
@@ -2659,8 +2705,14 @@ def cmd_hermes_card(args, cfg):
     t, evs = x["tarefa"], x.get("eventos") or []
     sala = api(token, "reuniao", {"sistema": "1"})
     conversa = "\n".join(f"[{e['autor']}] {e['texto'][:1200]}" for e in evs[-15:])
+    try:                                            # card #29: os 5 trechos da caixa mais parecidos com este card
+        caixa = "\n\n".join(f"### {c['titulo']}\n{str(c.get('texto') or '')[:1200]}"
+                            for c in buscar_conhecimento(token, f"{t['titulo']}\n{t.get('descricao') or ''}"))
+    except Exception:  # noqa: BLE001
+        caixa = ""
     pedido = (PAPEL_HERMES.split(" Responda à última")[0] + "\n\nVocê é o RESPONSÁVEL por este card e vai entregá-lo agora.\n"
               f"CARD #{t['id']}: {t['titulo']}\n{t.get('descricao') or ''}\n\nHISTÓRICO (corrija o que foi reprovado):\n{conversa}\n\n"
+              + (f"CAIXA DE CONHECIMENTO (trechos parecidos com este card):\n{caixa}\n\n" if caixa else "") +
               "Entregue o RESULTADO COMPLETO em markdown, em português do Brasil. Você não edita código nem roda comandos: se o card "
               "só puder ser concluído com código, entregue o plano e termine com uma linha exatamente assim: PRECISA_CODIGO. "
               "Não invente números nem fatos.")
