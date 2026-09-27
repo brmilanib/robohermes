@@ -128,6 +128,8 @@ def test_despedida_nao_repete():
     t = a._com_encerramento("Oi! Obrigado! 😊 Qualquer dúvida, é só chamar. Qualquer coisa, é só chamar!")
     assert t == "Oi! Obrigado! 😊 Qualquer dúvida, é só chamar."
     assert a._com_encerramento("Por nada!").endswith(a.ENCERRAMENTO)
+    assert a._com_encerramento("Seu pedido está **Em trânsito**. Qualquer coisa, é só chamar!") == \
+        "Seu pedido está Em trânsito. Qualquer coisa, é só chamar!"
 
 
 def test_ia_diz_que_falta_vira_pergunta():

@@ -305,8 +305,13 @@ def _sem_despedida_repetida(texto):
     return " ".join(saida)
 
 
+def _sem_markdown(texto):
+    """O chat das plataformas não mostra negrito: **Em trânsito** aparecia com os asteriscos para o cliente."""
+    return re.sub(r"(\*\*|__)(.+?)\1", r"\2", texto).replace("**", "")
+
+
 def _com_encerramento(texto):
-    texto = _sem_despedida_repetida(texto)
+    texto = _sem_despedida_repetida(_sem_markdown(texto))
     if re.search(r"e so chamar|estou por aqui|estamos por aqui|a disposicao|qualquer (coisa|duvida)|conte comigo|fico no aguardo", _norm(texto)):
         return texto.strip()
     return texto.strip() + "\n\n" + ENCERRAMENTO
