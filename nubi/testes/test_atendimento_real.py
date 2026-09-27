@@ -23,7 +23,8 @@ try:
             erros = []; pg.on("pageerror", lambda e: erros.append(str(e)))
             pg.route("https://cdn.jsdelivr.net/**", lambda r: r.fulfill(content_type="application/javascript", body=STUB))
             pg.route("https://fonts.**", lambda r: r.abort())
-            pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/tiktok"); pg.wait_for_selector(".atx", timeout=15000)
+            pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/tiktok"); pg.wait_for_selector(".atx", timeout=15000)   # endereço antigo leva ao SAC
+            assert "#/sac/tiktok" in pg.url
             if nome == "cel":                                               # tudo passa pela aprovação
                 pg.uncheck("#at-auto"); pg.wait_for_timeout(1500)
             pg.click("#atx-colar"); pg.fill("#at-cli", f"Ana {nome}"); pg.fill("#at-txt", pergunta)
@@ -48,17 +49,21 @@ try:
                 assert pg.is_visible(".atx-lista") and f"Ana {nome}" in pg.inner_text(".atx-lista")
             pg.click("[data-at-aba=kb]"); pg.wait_for_selector(".at-kb-item", timeout=10000)
             assert pergunta in pg.inner_text(".at-kb"), nome
+            assert "#/sac/base" in pg.url and "🎵 TikTok Shop" in pg.inner_text(".at-kb")      # base SAC com a origem (a dúvida veio do chat da TikTok)
             assert not erros, erros
             if nome == "pc":        # 🛍️ Shopee: mesma tela, conversas só da Shopee
-                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/shopee"); pg.wait_for_selector("[data-at-aba=tudo]", timeout=15000)
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/shopee"); pg.wait_for_selector("[data-at-aba=tudo]", timeout=15000)
                 pg.click("[data-at-aba=tudo]"); pg.wait_for_selector(".atx", timeout=15000)
                 assert "Shopee · Atendimento" in pg.inner_text("h1") and "Ana pc" not in pg.inner_text(".atx-lista")
                 pg.click("#atx-colar"); pg.fill("#at-cli", "joao shopee"); pg.fill("#at-txt", "vocês têm loja física?")
                 pg.click("#at-nova button"); pg.wait_for_selector(".atx-alerta", timeout=10000)
                 assert "joao shopee" in pg.inner_text(".atx-lista")
-                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/tiktok"); pg.wait_for_selector("h1", timeout=15000); pg.wait_for_timeout(1500)
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/tiktok"); pg.wait_for_selector("h1", timeout=15000); pg.wait_for_timeout(1500)
                 assert "TikTok Shop · Atendimento" in pg.inner_text("h1")
                 assert "joao shopee" not in pg.inner_text(".atx-lista")
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/ml"); pg.wait_for_selector("h1", timeout=15000); pg.wait_for_timeout(1200)
+                assert "Mercado Livre · Atendimento" in pg.inner_text("h1") and not pg.is_visible("#at-ligar")
+                assert "Base de conhecimento SAC" in pg.inner_text("#side")          # menu SAC com as lojas e a base
                 assert not erros, erros
         b.close()
 finally:

@@ -392,6 +392,23 @@ def test_importacao_do_sac_chama_o_mac_a_cada_10_min_ate_acabar():
     assert [x["texto"] for x in r.t["ia_resumos"] if x["chave"] == a.SAC_CHAVE][-1] == "feito"
 
 
+def test_produto_que_a_cliente_perguntou_e_origem_na_base():
+    # 27/09 (pedido do Bruno): o cartão do produto vem junto (para não indicar o mesmo) e a base mostra de onde veio
+    r = Repo()
+    x = a.receber(r, "shopee", "", cliente="fer", externo_id="fer", historico=[
+        {"de": "cliente", "texto": "Tem outro perfume feminino pra menina de 15 anos?"}],
+        pedido_dados={"produto_consultado": {"nome": "Gigi Lazuli Avatim 100ml"}}, gerar=_ia(iter([])))
+    assert x["status"] == "precisa_info" and "Gigi Lazuli Avatim 100ml" in x["pergunta_operador"]
+    assert x["fontes"]["produto_consultado"]["nome"] == "Gigi Lazuli Avatim 100ml" and "pedido" not in x["fontes"]
+    a.receber(r, "shopee", "", cliente="ana", externo_id="ana", respondido=True, fechado=True, historico=[
+        {"de": "cliente", "texto": "É original?"}, {"de": "loja", "texto": "Sim, 100% original e lacrado!"}])
+    a.aprender_padroes(r, gerar=_ia(iter([json.dumps({"padroes": [{"pergunta": "É original?", "resposta": "Sim, 100% original!"}]})] * 3)))
+    props = a.rota(r, "GET", "atendimento_kb", {"status": "proposta"}, None)["itens"]
+    assert props and props[0]["origem"] == "shopee" and "canal:shopee" in props[0]["tags"]
+    a.salvar_item_kb(r, "principal", "Tem loja física?", "Não, só online.")
+    assert a.rota(r, "GET", "atendimento_kb", {}, None)["itens"][0]["origem"] == "manual"
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

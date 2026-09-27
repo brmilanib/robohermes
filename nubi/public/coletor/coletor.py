@@ -3933,6 +3933,8 @@ ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abri
          "respondido": {"type": "boolean", "description": "true se a última mensagem é da loja (nada a responder)"},
          "fechado": {"type": "boolean", "description": "true se a conversa está na aba Fechados"},
          "mensagem": {"type": "string", "description": "(opcional) só a última mensagem do cliente, se não mandar o histórico"},
+         "produto": {"type": "object", "description": "o produto que o cliente está olhando/perguntando (cartão de produto no "
+                     "chat, ex.: 'O cliente está perguntando sobre esse produto'): {nome, variacao} como está escrito"},
          "pedido_id": {"type": "string"},
          "pedido": {"type": "object", "description": "só o que está escrito no painel do pedido: status, transportadora, rastreio, "
                     "previsao_entrega, ultima_atualizacao, itens [{nome, variacao, quantidade}]"}},
@@ -3962,7 +3964,9 @@ PAPEL_ATENDENTE = (
     "a linha aparecer nos ELEMENTOS). "
     "OBRIGATÓRIO: registre TODA conversa que ainda não está no nubi, MESMO já respondida (respondido=true) — o nubi guarda o "
     "histórico e aprende com ele; 'já foi respondida' NÃO é motivo para pular. Para cada uma: abra a conversa, use ler, "
-    "e só então registre o histórico completo (a prévia da lista não serve). Ignore avisos do sistema e do chatbot da "
+    "e só então registre o histórico completo (a prévia da lista não serve). Se o chat mostra o cartão de um produto (o "
+    "anúncio que o cliente está olhando, ex.: 'O cliente está perguntando sobre esse produto'), mande em produto {nome, "
+    "variacao}. Ignore avisos do sistema e do chatbot da "
     "plataforma ('[chatbot]', 'O bate-papo foi encerrado…', '[Compartilhou um pedido]', respostas automáticas). No histórico, "
     "de='cliente' só para o que o CLIENTE escreveu (balões do lado esquerdo) e de='loja' para as respostas da loja (lado "
     "direito, atendente ou robô); botões de perguntas sugeridas da plataforma NÃO são mensagens; uma mensagem por item, sem "
@@ -4064,6 +4068,15 @@ def _atendente_abrir_conversa(pg, cliente, estado):
         except Exception:  # noqa: BLE001
             continue
     return f"Não achei '{cliente}' na página: use ler e confira o nome (ou role a lista)."
+
+
+def _atendente_painel(ent):
+    """Painel do pedido + o cartão do produto que o cliente está olhando (27/09: para não indicar o mesmo produto)."""
+    pd = dict(ent.get("pedido"), id=ent.get("pedido_id")) if isinstance(ent.get("pedido"), dict) else {}
+    prod = ent.get("produto")
+    if isinstance(prod, dict) and prod.get("nome"):
+        pd["produto_consultado"] = {k: str(prod[k])[:200] for k in ("nome", "variacao") if prod.get(k)}
+    return pd or None
 
 
 def _atendente_pendentes(pg):
@@ -4183,7 +4196,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                         "historico": hist or None, "respondido": bool(ent.get("respondido")) or bool(ent.get("fechado")),
                         "fechado": bool(ent.get("fechado")),
                         "pedido": str(ent.get("pedido_id") or "") or None,
-                        "pedido_dados": dict(ent.get("pedido"), id=ent.get("pedido_id")) if isinstance(ent.get("pedido"), dict) else None},
+                        "pedido_dados": _atendente_painel(ent)},
                         metodo="POST", timeout=180)["rascunho"]
                     estado["registradas"] = estado.get("registradas", 0) + 1
                     if x.get("pelo_mac") and x.get("texto"):

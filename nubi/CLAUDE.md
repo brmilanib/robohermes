@@ -224,4 +224,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   usar `fechados_concluido`. `coletor importar-sac` (Chrome do coletor, logado no UpSeller) lê o SAC com `PAPEL_SAC`: SÓ lê e
   registra (plataforma mercado_livre/shopee/tiktok_shop, sempre respondido+fechado), nunca envia nem digita; `rolar` desce a
   lista. As conversas viram propostas na base pelo `aprender_aos_poucos` (4 a cada 15 min).
+- **Menu SAC (27/09, pedido do Bruno)**: o atendimento saiu de Minhas Lojas → menu **💬 SAC** (`#/sac/tiktok`, `#/sac/shopee`,
+  `#/sac/ml` só histórico, `#/sac/base` = `telaBaseSac`, uma base para todas as lojas com filtro e ícone de origem;
+  `#/estoque/tiktok|shopee` redireciona). Origem do item (`_com_origem`): etiqueta `canal:x` (propostas), conversa do
+  rascunho de origem ou "chat de X"; senão manual. O atendente manda o cartão do produto que o cliente está olhando
+  (`produto` → `pedido_dados.produto_consultado`): aparece no painel da conversa, na pergunta ao Bruno e nos FATOS (a IA não
+  indica o mesmo produto). Conversa aberta ainda sem `pedido_dados.lido_em` sai dos "conhecidos" para ser relida uma vez.
 
