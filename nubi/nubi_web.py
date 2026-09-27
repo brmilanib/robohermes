@@ -1748,6 +1748,33 @@ def _mapa_grupos(repo):
     return m
 
 
+def _embeddings_cache(repo, textos):
+    """
+    ia.embeddings com cache (card #107): o vetor de cada título fica em ia_lotes (tipo 'embedding', id = hash do
+    modelo + VERSAO_REGRAS + texto; ia_resumos não, porque entra no saber e nas análises do Início). Mudou o modelo
+    ou a versão das regras, o hash muda e o vetor é pedido de novo. Só chama a IA para o que faltar.
+    """
+    import array
+    import base64
+    modelo = os.environ.get("NUBI_IA_EMBED", "text-embedding-3-small")
+    ver = f"{modelo}|v{produtos_iguais.VERSAO_REGRAS}"
+    ids = ["emb|" + hashlib.md5(f"{ver}|{t}".encode("utf-8")).hexdigest() for t in textos]
+    achou, unicos = {}, list(dict.fromkeys(ids))
+    for i in range(0, len(unicos), 100):
+        for r in repo._req("GET", "ia_lotes", {"select": "id,detalhe", "tipo": "eq.embedding",
+                                               "id": f"in.({','.join(unicos[i:i + 100])})"}) or []:
+            achou[r["id"]] = array.array("f", base64.b64decode(r["detalhe"])).tolist()
+    faltam = {k: t for k, t in zip(ids, textos) if k not in achou}
+    if faltam:
+        novos = dict(zip(faltam, ia.embeddings(list(faltam.values()))))
+        achou.update(novos)
+        regs = [{"id": k, "tipo": "embedding", "status": ver, "itens": len(v),
+                 "detalhe": base64.b64encode(array.array("f", v).tobytes()).decode()} for k, v in novos.items()]
+        for i in range(0, len(regs), 200):
+            repo._req("POST", "ia_lotes", corpo=regs[i:i + 200], prefer="resolution=merge-duplicates,return=minimal")
+    return [achou[k] for k in ids]
+
+
 def conferir_gtins(repo, por):
     """GTINs diferentes com o mesmo nome de perfume: nunca junta sozinho; grava os pares 'gtin_conferir' para o Bruno
     decidir em Ajustes → Produtos iguais (Juntar = 'manual'; Não é o mesmo = 'gtin_nao', não pergunta de novo)."""
@@ -1756,7 +1783,7 @@ def conferir_gtins(repo, por):
     gt = sorted((x for x in por.values() if not x["chave"].startswith("T:") and x["marca"]), key=lambda x: -x["v"])[:1500]
     if len(gt) < 2:
         return 0
-    vet = ia.embeddings([produtos_iguais.texto_embedding(x) for x in gt])
+    vet = _embeddings_cache(repo, [produtos_iguais.texto_embedding(x) for x in gt])
     pares = [(a, b, sim) for a, b, sim in produtos_iguais.gtins_parecidos(gt, vet)
              if f"par:{a}|{b}" not in decididos and b not in decididos]
     nomes = {x["chave"]: x for x in gt}
@@ -1791,7 +1818,7 @@ def agrupar_produtos(repo):
     marcas_sem = {x["marca"].upper() for x in sem}
     itens = [x for x in itens if x["marca"].upper() in marcas_sem][:4000]
     bloqueados = {r["chave"] for r in repo._todos("produto_grupos", {"select": "chave", "metodo": "eq.separado"})}
-    vet = ia.embeddings([produtos_iguais.texto_embedding(x) for x in itens])
+    vet = _embeddings_cache(repo, [produtos_iguais.texto_embedding(x) for x in itens])
     res = produtos_iguais.agrupar(itens, vet, bloqueados)
     nomes = {x["chave"]: x for x in itens}
     repo._req("DELETE", "produto_grupos", {"metodo": "eq.ia"})

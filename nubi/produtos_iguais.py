@@ -17,6 +17,7 @@ import unicodedata
 import numpy as np
 
 LIMIAR = 0.82            # similaridade mínima (cosseno); as regras de nome, tamanho e concentração seguram o resto
+VERSAO_REGRAS = 1        # suba ao mudar volume/kit/concentração/gênero/nome: o cache de embeddings (card #107) é refeito
 CONCENTRACOES = [("elixir", r"elixir"), ("extrait", r"extrait|extrato"), ("parfum", r"(?<!de )\bparfum\b"),
                  ("edp", r"\bedp\b|eau de parfum"), ("edt", r"\bedt\b|eau de toilette"), ("edc", r"\bedc\b|eau de cologne|col[oô]nia"),
                  ("intense", r"intens[eo]"), ("body", r"body splash|hidratante|desodorante|lo[cç][aã]o")]
