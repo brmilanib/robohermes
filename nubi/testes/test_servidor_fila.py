@@ -63,10 +63,10 @@ class Repo:
             return None
 
 
-def _tick(r, maquina=None, pode=None):
+def _tick(r, maquina=None, pode=None, nome=None, prioridade=1):
     corpo = {"info": {"ollama": False}, "sala_ult": 1}
     if maquina:
-        corpo.update(maquina=maquina, pode=pode)
+        corpo.update(maquina=maquina, pode=pode, prioridade=prioridade, **({"nome": nome} if nome else {}))
     return w.rota_mac(r, "POST", "mac_tick", {}, json.dumps(corpo).encode(), "tok")
 
 
@@ -145,6 +145,26 @@ def test_opcao_so_sac():
     finally:
         c.salvar_config, c.subprocess.run, c.subprocess.Popen, c.time.sleep = guardado
     assert cfg["maquina"] == "servidor" and cfg["servidor_pode"][0] == "importar_sac" and "hermes" not in cfg["servidor_pode"]
+
+
+def test_gamdias_principal_e_dell_reserva():
+    _preparar()
+    r = Repo(["importar_sac", "hermes"])
+    dell = _tick(r, "servidor", list(c.SERVIDOR_PODE), "DESKTOP-IRQKD9R", 2)
+    assert [p["comando"] for p in dell["pendentes"]] == ["importar_sac", "hermes"], "sozinho, o Dell trabalha"
+    for x in r.t["mac_comandos"]:
+        x["status"] = "pendente"
+    gam = _tick(r, "servidor", list(c.SERVIDOR_PODE), "gamdias", 1)
+    assert [p["comando"] for p in gam["pendentes"]] == ["importar_sac", "hermes"], gam
+    for x in r.t["mac_comandos"]:
+        x["status"] = "pendente"
+    dell = _tick(r, "servidor", list(c.SERVIDOR_PODE), "DESKTOP-IRQKD9R", 2)
+    assert dell["pendentes"] == [] and dell["reserva"] is True, "com o gamdias vivo, o Dell não pega nada"
+    # o atendente do Dell também fica parado; o do gamdias atende
+    w.atendimento.canais_ligados = lambda repo: ["shopee"]
+    w.atendimento.para_enviar = lambda repo: []
+    q = lambda comp: w.atendimento.rota(r, "GET", "atendimento_para_enviar", {"computador": comp}, b"")
+    assert q("servidor:gamdias")["canais"] == ["shopee"] and q("servidor:DESKTOP-IRQKD9R")["canais"] == []
 
 
 if __name__ == "__main__":

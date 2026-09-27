@@ -4003,24 +4003,12 @@ def assumir_aprovados(repo, tid):
     return " · ".join(partes)
 
 # Terminal do Mac: lista FECHADA (o Mac confere de novo do lado dele); nada vira comando livre
-SERVIDOR_CHAVE = "fila|servidor"
-SERVIDOR_SINAL_MIN = 3
-
-
 def servidor_pode(repo):
-    """27/09: comandos que o servidor Dell sabe fazer, se ele deu sinal nos últimos minutos; senão None (o Mac faz tudo)."""
-    r = (repo._req("GET", "ia_resumos", {"select": "texto,criado_em", "chave": f"eq.{SERVIDOR_CHAVE}"}) or [{}])[0]
-    try:
-        quando = datetime.fromisoformat(str(r.get("criado_em")).replace("Z", "+00:00"))
-    except ValueError:
+    """27/09: comandos que o servidor principal com sinal sabe fazer (gamdias; Dell de reserva); sem nenhum, None."""
+    ativo = atendimento.servidor_ativo(repo)
+    if not ativo:
         return None
-    if datetime.now(timezone.utc) - quando > timedelta(minutes=SERVIDOR_SINAL_MIN):
-        return None
-    try:
-        pode = json.loads(r.get("texto") or "{}").get("pode") or []
-    except ValueError:
-        return None
-    return [p for p in pode if p in COMANDOS_MAC]
+    return [p for p in ativo.get("pode") or [] if p in COMANDOS_MAC]
 
 
 def _mac_vivo(repo, minutos=3):
@@ -4685,12 +4673,17 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         # 27/09: o servidor Dell (maquina=servidor) manda o mesmo sinal com o que sabe fazer (pode); enquanto ele dá sinal,
         # o Mac não pega esses comandos, nem a Sala (Hermes/Qwen) nem os vetores, e não repete as filas do atendimento.
         maq = "servidor" if d.get("maquina") == "servidor" else "mac"
+        nome = re.sub(r"[^\w.-]", "", str(d.get("nome") or "servidor"))[:40] or "servidor"
         if maq == "servidor" and d.get("info") is not None:
-            repo._req("POST", "ia_resumos", corpo=[{"chave": SERVIDOR_CHAVE, "ia": "servidor", "criado_em": agora_,
+            repo._req("POST", "ia_resumos", corpo=[{"chave": atendimento.SERVIDOR_PREFIXO + nome, "ia": "servidor", "criado_em": agora_,
                                                     "texto": json.dumps({"pode": [str(x) for x in d.get("pode") or []][:60],
+                                                                         "prioridade": int(d.get("prioridade") or 1),
                                                                          "info": d["info"]})}],
                       prefer="resolution=merge-duplicates,return=minimal")
         srv = servidor_pode(repo)
+        if maq == "servidor" and (atendimento.servidor_ativo(repo) or {}).get("nome") != nome:
+            # servidor de reserva (o principal está com sinal): só grava as saídas; não pega nada
+            return {"pendentes": [], "sala": [], "vetorizar": [], "reserva": True}
         reserva = maq == "mac" and srv is not None
         if maq == "mac":
             indexar_aos_poucos(repo)

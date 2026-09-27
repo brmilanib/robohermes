@@ -1239,6 +1239,31 @@ def marcar_enviado(repo, rascunho_id, ok=True, erro=None):
     return {"ok": True, "precisa_voce": segunda}
 
 
+SERVIDOR_PREFIXO = "fila|servidor|"
+SERVIDOR_SINAL_MIN = 3
+
+
+def servidores_vivos(repo):
+    """27/09: máquinas no modo servidor (gamdias = 1ª, Dell = 2ª) com sinal nos últimos minutos, a principal primeiro."""
+    vivos = []
+    for r in repo._req("GET", "ia_resumos", {"select": "chave,texto,criado_em", "chave": f"like.{SERVIDOR_PREFIXO}*"}) or []:
+        if not str(r.get("chave") or "").startswith(SERVIDOR_PREFIXO):
+            continue
+        try:
+            quando = datetime.fromisoformat(str(r.get("criado_em")).replace("Z", "+00:00"))
+            dados = json.loads(r.get("texto") or "{}")
+        except ValueError:
+            continue
+        if datetime.now(timezone.utc) - quando <= timedelta(minutes=SERVIDOR_SINAL_MIN):
+            vivos.append({**dados, "nome": r["chave"][len(SERVIDOR_PREFIXO):]})
+    return sorted(vivos, key=lambda v: (int(v.get("prioridade") or 1), v["nome"]))
+
+
+def servidor_ativo(repo):
+    v = servidores_vivos(repo)
+    return v[0] if v else None
+
+
 PC_CHAVE = "atendimento|computador"
 
 
@@ -1609,6 +1634,11 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
         sac_ok = [c["cliente"] for c in repo._req("GET", "atendimento_conversas", {"select": "cliente,pedido_dados", "limit": 10000}) or []
                   if c.get("cliente") and (c.get("pedido_dados") or {}).get("fonte") == "upseller_sac"]
         ligados = canais_ligados(repo)
+        comp = str(q.get("computador") or "")
+        if comp.startswith("servidor:"):        # servidor de reserva (ex.: o Dell com o gamdias vivo): não atende
+            ativo = servidor_ativo(repo)
+            if ativo and ativo["nome"] != comp.split(":", 1)[1]:
+                ligados = []
         sac = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{SAC_CHAVE}"}) or [{}])[0].get("texto")
         return {"itens": para_enviar(repo), "atendente": bool(ligados), "canais": ligados, "importar_fechados": fech,
                 "importar_sac": sac or "",

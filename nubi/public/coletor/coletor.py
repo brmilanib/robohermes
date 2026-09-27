@@ -2255,6 +2255,11 @@ def _eu():
     return [str(atalho)] if not WINDOWS and atalho.exists() else [sys.executable, str(Path(__file__).resolve())]
 
 
+def _nome_maquina():
+    import socket
+    return re.sub(r"[^\w.-]", "", socket.gethostname())[:40] or "servidor"
+
+
 def _eh_servidor(cfg=None):
     return (cfg if cfg is not None else ler_config()).get("maquina") == "servidor"
 
@@ -2468,6 +2473,8 @@ def despachar(cfg):
              "vetores": est.get("vetores") or [], "maquina": "servidor" if _eh_servidor(cfg) else "mac"}
     if _eh_servidor(cfg):
         corpo["pode"] = list(cfg.get("servidor_pode") or SERVIDOR_PODE)
+        corpo["nome"] = _nome_maquina()
+        corpo["prioridade"] = int(cfg.get("prioridade") or 1)
     if sys.platform == "darwin" and time.time() - est.get("metricas_em", 0) >= METRICAS_A_CADA:   # card #92: a cada 5 min
         try:
             corpo["metricas"] = _metricas_mac(corpo["info"])
@@ -2663,8 +2670,13 @@ def cmd_servidor(args, cfg):
         cfg["servidor_pode"] = [x for x in pedidos if x in SERVIDOR_PODE] + [x for x in SERVIDOR_PODE if x.startswith("servidor_")]
     elif getattr(args, "tudo", False):
         cfg.pop("servidor_pode", None)
+    if getattr(args, "reserva", False):
+        cfg["prioridade"] = 2              # ex.: o Dell do escritório, enquanto o gamdias é o principal
+    elif getattr(args, "principal", False):
+        cfg["prioridade"] = 1
     salvar_config(cfg)
-    print("Este computador assume: " + ", ".join(cfg.get("servidor_pode") or SERVIDOR_PODE), flush=True)
+    print(("RESERVA (só trabalha se o principal ficar sem sinal). " if int(cfg.get("prioridade") or 1) > 1 else "PRINCIPAL. ")
+          + "Este computador assume: " + ", ".join(cfg.get("servidor_pode") or SERVIDOR_PODE), flush=True)
     if getattr(args, "instalar", False):
         if not WINDOWS:
             print("O --instalar é para o Windows (Agendador de Tarefas).")
@@ -4933,7 +4945,7 @@ def cmd_atendente(args, cfg):
                 voltas += 1
                 try:
                     _batimento()
-                    x = api(token, "atendimento_para_enviar", {"computador": "servidor" if _eh_servidor(cfg) else "pc"}, timeout=60)
+                    x = api(token, "atendimento_para_enviar", {"computador": f"servidor:{_nome_maquina()}" if _eh_servidor(cfg) else "pc"}, timeout=60)
                     if _pc_comando(x.get("pc_comando"), pg, token) == "reiniciar":
                         novo = Path(__file__).read_bytes()          # o vigia abre de novo (código 3)
                         break
@@ -5454,6 +5466,8 @@ def main():
     sp_srv.add_argument("--sem-atendente", action="store_true", help="não liga o atendente da Shopee/TikTok aqui")
     sp_srv.add_argument("--so", help="só estes comandos (ex.: sac); o resto fica no Mac")
     sp_srv.add_argument("--tudo", action="store_true", help="volta a assumir tudo o que o servidor sabe fazer")
+    sp_srv.add_argument("--reserva", action="store_true", help="2º lugar: só trabalha se o principal ficar sem sinal")
+    sp_srv.add_argument("--principal", action="store_true", help="1º lugar (padrão)")
     sp_rl = sub.add_parser("rodar-logado", help=argparse.SUPPRESS)
     sp_rl.add_argument("log")
     sp_rl.add_argument("argv", nargs=argparse.REMAINDER)
