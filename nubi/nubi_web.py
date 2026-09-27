@@ -502,7 +502,7 @@ def _preparar(repo):
 # ---------------------------------------------------------------------------
 
 AGENTE_EMAIL = os.environ.get("NUBI_AGENTE_EMAIL", "")
-AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)", "Astra (design)", "Navegador", "Atendente TikTok", "Atendente Shopee")   # modelos grátis que rodam no Mac mini (Ollama)
+AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)", "Astra (design)", "Navegador", "Atendente TikTok", "Atendente Shopee", "Importador SAC")   # modelos grátis que rodam no Mac mini (Ollama)
 # Conversa direta na Sala (card #64, fase 2): nome de exibição de cada agente que aparece na lista de conversas.
 CONVERSA_NOME = {"claude": "Claude", "chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss",
                  "astra": "Astra (design)", "hermes": "Hermes", "qwen": "Qwen (revisor)",

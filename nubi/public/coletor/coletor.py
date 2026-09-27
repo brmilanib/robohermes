@@ -3983,8 +3983,11 @@ PAPEL_SAC = (
     "Você é o importador do SAC do UpSeller da loja do Bruno (perfumaria), no Chrome já logado no UpSeller. O SAC junta as "
     "conversas e as perguntas de anúncio de Mercado Livre, Shopee e TikTok Shop que a equipe (a esposa do Bruno) já respondeu. "
     "Seu trabalho é SÓ LER e trazer esse histórico para o nubi, que aprende com ele. Você NUNCA responde cliente.\n"
-    "1) Se não estiver no SAC, procure 'SAC' no menu (lateral ou do topo) e entre. Veja as abas/filtros (mensagens, "
-    "perguntas, pós-venda…) e use as que mostram conversas já respondidas.\n"
+    "1) Se não estiver no SAC, procure 'SAC' no menu (lateral ou do topo) e entre pelo MENU (clicando; abrir o endereço "
+    "direto costuma voltar para o Home). O SAC tem uma parte por marketplace (Mercado Livre, Shopee, TikTok) e dentro dela "
+    "'Mensagem Pós-Venda' e 'Perguntas'. Na lista, cada linha mostra o PRODUTO (ex.: 'Perfume Club De Nuit Ico…') e o "
+    "começo da última mensagem: para abrir, use abrir_conversa com o começo do texto da linha. O nome do comprador aparece "
+    "no topo da conversa aberta e no painel 'Informação do Pedido'.\n"
     "2) Para cada conversa ou pergunta que ainda não está no nubi: abra (abrir_conversa com o nome do cliente, ou clicar), "
     "use ler e registre com plataforma (mercado_livre, shopee ou tiktok_shop: veja o ícone ou o nome da loja), cliente, "
     "respondido=true, fechado=true e o historico COMPLETO na ordem (de='cliente' o que o comprador escreveu, de='loja' o que a "
@@ -4120,7 +4123,7 @@ def _atendente_pendentes(pg):
 def _ia_atendente(chave, mensagens, token, estado, papel=None):
     """Navegação do atendente: primeiro o gpt-oss grátis (pelo nubi), o Claude Haiku só de reserva — quando o grátis falha,
     a cota acabou ou ele se perde (3 respostas seguidas sem ferramenta útil)."""
-    if estado.get("gratis_falhas", 0) < 3:
+    if estado.get("gratis_falhas", 0) < 3 and not (estado.get("pago_primeiro") and chave):
         try:
             r = api(token, "atendimento_navegar_ia", corpo={"mensagens": mensagens, "sistema": papel or PAPEL_ATENDENTE,
                                                             "ferramentas": ATENDENTE_FERRAMENTAS}, metodo="POST", timeout=200)
@@ -4175,6 +4178,10 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                   "antigas). Quando não houver mais nenhuma nova nos Fechados, use fechados_concluido.") if fechados else "")
               + f"\n\nO chat da {nome} está em {pg.url}. {DICAS_PLATAFORMA.get(canal, '')} Comece com ler.")
     mensagens = [{"role": "user", "content": pedido}]
+    if sac:
+        # 27/09: o SAC do UpSeller é difícil de navegar para o gpt-oss grátis (rodadas com 0 importadas); aqui o Haiku vai
+        # na frente, dentro do teto do dia (NUBI_ATENDENTE_TETO), e a grátis assume quando o teto chega
+        estado["pago_primeiro"] = True
     for _ in range(ATENDENTE_PASSOS):
         r = _ia_atendente(chave, mensagens, token, estado, papel)
         u = r.get("usage") or {}
@@ -4273,7 +4280,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
             else:
                 break
     try:
-        if re.search(r"chat|im|message|bate", pg.url, re.I):
+        if re.search(r"/sac/|message-list" if sac else r"chat|im|message|bate", pg.url, re.I):
             cfg[k_url] = pg.url.split("?")[0]
         pg.goto(cfg.get(k_url) or url_ini, timeout=60000)
         pg.wait_for_timeout(4000)
