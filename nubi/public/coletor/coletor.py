@@ -2303,6 +2303,15 @@ def comando_mac(chave, arg=""):
         "espaco": ["/bin/df", "-h", str(Path.home())],
         # 27/09: quem está usando a CPU (só leitura); só as 25 primeiras linhas (o nubi guarda o fim da saída)
         "processos": ["/bin/sh", "-c", "/bin/ps -Ao pcpu,pmem,etime,comm -r | /usr/bin/head -25"],
+        # 27/09: minerador de criptomoeda (xmrig) achado no Mac às 19:42. Anota de onde roda e quem o abriu, mata, e mostra
+        # o que pode abri-lo de novo (LaunchAgents/Daemons, crontab). Só mexe em processos com "xmrig" no nome.
+        "matar_xmrig": ["/bin/sh", "-c",
+                        "echo '== processos xmrig =='; /bin/ps -Ao pid,ppid,user,lstart,command | /usr/bin/grep -i '[x]mrig'; "
+                        "for p in $(/usr/bin/pgrep -i xmrig); do echo \"== pasta do $p ==\"; /usr/sbin/lsof -a -p $p -d cwd,txt 2>/dev/null; "
+                        "pp=$(/bin/ps -o ppid= -p $p); echo \"== pai $pp ==\"; /bin/ps -o pid,ppid,user,command -p $pp; done; "
+                        "/usr/bin/pkill -9 -i xmrig; sleep 3; echo '== depois =='; /usr/bin/pgrep -il xmrig || echo 'xmrig parado'; "
+                        "echo '== LaunchAgents/Daemons =='; /bin/ls -la ~/Library/LaunchAgents /Library/LaunchAgents /Library/LaunchDaemons 2>&1; "
+                        "echo '== crontab =='; /usr/bin/crontab -l 2>&1"],
     }
     if WINDOWS:          # 27/09: servidor Dell (Windows) — mesmos comandos, com as ferramentas do Windows
         ps = ["powershell", "-NoProfile", "-Command"]
