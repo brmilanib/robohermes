@@ -4998,6 +4998,9 @@ def _registrar_achado_auditoria(repo, achado):
     repo._req("POST", "auditorias", corpo=[reg], prefer="resolution=merge-duplicates,return=minimal")
 
 
+_FAIXA_UNID = {2: (2, 4), 5: (5, 9), 10: (10, 14), 20: (15, 25)}
+
+
 def validar_reconciliacao_publicacao(repo, vendedor, dia, v, u, itens):
     """Gate de publicação do card #9: confere o lote de UM dia de UM vendedor antes de gravar em vend_vendas_dia.
     Devolve (True, None) se pode publicar, ou (False, motivo) se deve ficar pendente (não escreve; o coletor detecta
@@ -5028,7 +5031,16 @@ def validar_reconciliacao_publicacao(repo, vendedor, dia, v, u, itens):
         gu = grupo[0].get("u")
         if gu is not None:
             gu = float(gu)
-            if abs(gu - u) > max(5, 0.03 * max(gu, u)):
+            # o export arredonda as unidades de cada anúncio por faixa (2 = 2 a 4, 5 = 5 a 9, 10 = 10 a 14,
+            # 20 = 15 a 25, de 30 em diante ±5): a soma fica abaixo do grupo; compara com a faixa possível
+            u_min = u_max = 0
+            for it in itens or []:
+                for a in it.get("l") or [it]:
+                    au = a.get("u") or 0
+                    lo, hi = _FAIXA_UNID.get(au, (au - 5, au + 5) if au >= 30 else (au, au))
+                    u_min, u_max = u_min + lo, u_max + hi
+            u_min, u_max = min(u_min, u), max(u_max, u)
+            if gu < u_min - max(5, 0.03 * u_min) or gu > u_max + max(5, 0.03 * u_max):
                 return False, f"tabela do grupo {gu:.0f} unidade(s) x soma do export do dia {u} unidade(s)"
     return True, None
 
