@@ -145,6 +145,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   gpt-oss. Sem OpenAI ou sem pedaços, volta para `buscar_arquivo` (fase 1). `saber.indexar` roda no cron de hora em hora
   (itens novos/alterados pelo md5); `avaliar_saber` roda 1 vez por dia com 95% indexado (20 perguntas de `saber.AVALIACAO`)
   e posta o placar no card #83.
+- Busca local (card #29): o despachante do Mac gera o vetor (nomic-embed-text no Ollama local) de cada item novo de
+  `conhecimento` (desde `VETOR_LOCAL_DESDE`, coluna `vetor_local` jsonb) pelo `mac_tick` (`vetorizar` → `vetores`).
+  `buscar_conhecimento` (coletor.py) devolve os 5 mais parecidos; sem Ollama/vetores completa por palavras. Usada no `hermes-card`.
 
 ## Pesquisador nubi (26/09)
 
