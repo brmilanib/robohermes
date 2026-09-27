@@ -197,6 +197,44 @@ def test_reserva_haiku_para_no_teto_mesmo_sem_custo_gravado():
         at.ia.tem, at.ia._post_json = antes_tem, antes_post
 
 
+def test_atendente_usa_a_ia_local_do_computador_antes_de_tudo():
+    # 27/09 (Bruno): navegar no chat é simples; roda de graça no Ollama do gamdias (qwen3:8b), sem cota e sem Haiku
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    pedidos = []
+
+    class H(BaseHTTPRequestHandler):
+        def do_POST(self):
+            pedidos.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            corpo = json.dumps({"message": {"content": "", "tool_calls": [
+                {"function": {"name": "clicar", "arguments": {"texto": "Todos"}}}]}}).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()
+            self.wfile.write(corpo)
+
+        def log_message(self, *a):
+            pass
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    antes = (c.OLLAMA_CHAT, c._modelo_local, c.api)
+    c.OLLAMA_CHAT = f"http://127.0.0.1:{srv.server_port}/api/chat"
+    c._modelo_local = lambda: "qwen3:8b"
+    c.api = lambda *a, **k: (_ for _ in ()).throw(AssertionError("não devia chamar o nubi"))
+    try:
+        estado = {}
+        msgs = [{"role": "user", "content": "leia o chat"},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "a", "name": "ler", "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "a", "content": "x" * 50000}]}]
+        r = c._ia_atendente("chave-paga", msgs, "tok", estado)
+        assert r["content"][0]["type"] == "tool_use" and r["content"][0]["name"] == "clicar", r
+        assert estado.get("gratis") == 1 and not estado.get("pago")
+        p = pedidos[0]
+        assert p["model"] == "qwen3:8b" and p["think"] is False and p["tools"][0]["type"] == "function"
+        assert len(p["messages"][-1]["content"]) <= 12000                     # página encurtada para caber na placa
+    finally:
+        c.OLLAMA_CHAT, c._modelo_local, c.api = antes
+        srv.shutdown()
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

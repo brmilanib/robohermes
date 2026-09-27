@@ -4651,9 +4651,84 @@ def _atendente_pendentes(pg):
     return 1 if re.search(r"\batrasad[oa]\b|expira em breve", t, re.I) else 0      # Shopee: aviso nas conversas esperando
 
 
+ATENDENTE_LOCAL = os.environ.get("NUBI_ATENDENTE_LOCAL", "qwen3:8b")
+OLLAMA_CHAT = "http://localhost:11434/api/chat"
+
+
+def _modelo_local():
+    """27/09 (Bruno): a navegação do chat é simples; roda de graça no Ollama deste computador (placa de vídeo do gamdias)
+    se o modelo estiver instalado. -> nome do modelo ou None."""
+    try:
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=3) as r:
+            nomes = [m.get("name") or "" for m in json.loads(r.read().decode()).get("models", [])]
+    except Exception:  # noqa: BLE001
+        return None
+    base = ATENDENTE_LOCAL.split(":")[0]
+    return next((n for n in nomes if n == ATENDENTE_LOCAL or n.startswith(base + ":")), None)
+
+
+def _ollama_local_ferramentas(modelo, mensagens, sistema, ferramentas):
+    """Mesmo formato da Anthropic (blocos text/tool_use) com o Ollama local. Resultados antigos encurtados (só os 2 últimos
+    inteiros) para caber na memória da placa e ficar rápido."""
+    import uuid
+    tools = [{"type": "function", "function": {"name": f["name"], "description": f.get("description", ""),
+                                               "parameters": f.get("input_schema") or {"type": "object", "properties": {}}}}
+             for f in ferramentas]
+    msgs = [{"role": "system", "content": sistema}] if sistema else []
+    n_res = sum(1 for m in mensagens if m.get("role") == "user" and isinstance(m.get("content"), list))
+    visto = 0
+    for m in mensagens:
+        c = m.get("content")
+        if isinstance(c, str):
+            msgs.append({"role": m["role"], "content": c})
+            continue
+        if m["role"] == "assistant":
+            texto = " ".join(b.get("text", "") for b in c if b.get("type") == "text").strip()
+            calls = [{"function": {"name": b["name"], "arguments": b.get("input") or {}}} for b in c if b.get("type") == "tool_use"]
+            msgs.append({"role": "assistant", "content": texto, **({"tool_calls": calls} if calls else {})})
+        else:
+            visto += 1
+            for b in c:
+                if b.get("type") == "tool_result":
+                    conteudo = str(b.get("content") or "")
+                    msgs.append({"role": "tool", "content": conteudo[:12000] if visto > n_res - 2 else conteudo[:600]})
+    corpo = json.dumps({"model": modelo, "messages": msgs, "tools": tools, "stream": False, "think": False,
+                        "options": {"num_ctx": 16384, "num_predict": 1500, "temperature": 0.2}}).encode()
+    req = urllib.request.Request(OLLAMA_CHAT, data=corpo, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        r = json.loads(resp.read().decode())
+    msg = r.get("message") or {}
+    blocos = [{"type": "text", "text": msg["content"]}] if (msg.get("content") or "").strip() else []
+    for tc in msg.get("tool_calls") or []:
+        f = tc.get("function") or {}
+        args = f.get("arguments") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except ValueError:
+                args = {}
+        blocos.append({"type": "tool_use", "id": "l" + uuid.uuid4().hex[:12], "name": f.get("name"), "input": args})
+    return {"content": blocos, "modelo": modelo, "usage": {"input_tokens": 0, "output_tokens": 0}}
+
+
 def _ia_atendente(chave, mensagens, token, estado, papel=None):
-    """Navegação do atendente: primeiro o gpt-oss grátis (pelo nubi), o Claude Haiku só de reserva — quando o grátis falha,
-    a cota acabou ou ele se perde (3 respostas seguidas sem ferramenta útil)."""
+    """Navegação do atendente: 1º a IA deste computador (Ollama local, grátis e sem cota); 2º o gpt-oss grátis (pelo nubi);
+    o Claude Haiku só de reserva — quando os grátis falham ou se perdem (3 respostas seguidas sem ferramenta útil)."""
+    if "local" not in estado:
+        estado["local"] = _modelo_local()
+    if estado.get("local") and estado.get("local_falhas", 0) < 3 and not (estado.get("pago_primeiro") and chave):
+        try:
+            r = _ollama_local_ferramentas(estado["local"], mensagens, papel or PAPEL_ATENDENTE, ATENDENTE_FERRAMENTAS)
+            if any(b.get("type") == "tool_use" for b in r["content"]):
+                estado["local_falhas"] = 0
+                estado["gratis"] = estado.get("gratis", 0) + 1
+                return r
+            estado["local_falhas"] = estado.get("local_falhas", 0) + 1
+            if r["content"] and estado["local_falhas"] < 3:
+                estado["gratis"] = estado.get("gratis", 0) + 1
+                return r                                                    # texto sem ferramenta = terminou
+        except Exception:  # noqa: BLE001
+            estado["local_falhas"] = estado.get("local_falhas", 0) + 1
     if estado.get("gratis_falhas", 0) < 3 and not (estado.get("pago_primeiro") and chave):
         try:
             r = api(token, "atendimento_navegar_ia", corpo={"mensagens": mensagens, "sistema": papel or PAPEL_ATENDENTE,
