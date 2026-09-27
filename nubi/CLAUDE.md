@@ -272,4 +272,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   verde (✓ cinza = aprovada, enviando). SAC → 📊 Painel (`#/sac/painel`, `telaPainelSac`, rota `atendimento_painel` =
   `painel`): precisam de resposta agora, respondidas hoje (e sozinho), mensagens de clientes, tempo mediano, por canal, por
   loja, 7 dias e assuntos; "📺 Modo TV" = tela cheia escura, atualiza a cada 60 s.
+- **Tom de especialista e pergunta repetida (27/09, pedido do Bruno)**: `SISTEMA` regra 13: dado técnico (família, notas,
+  concentração, fixação, lote, validade, conservação) usado e explicado para leigo. Regra 14 + `_resposta_anterior`: cliente
+  que pergunta de novo algo já respondido (a mesma pergunta depois da NOSSA última resposta, no chat lido) recebe "Como te
+  respondemos logo acima, …" com a resposta de antes; `_sem_eco` só descarta bloco de 2+ mensagens antigas lido de novo.
+  Base: item "Qual a validade?" (loja todas, confirmado pelo Bruno): repostos toda semana, lote varia, após aberto ~2 anos.
 

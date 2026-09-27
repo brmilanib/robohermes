@@ -545,6 +545,17 @@ def test_mensagens_antigas_do_cliente_lidas_de_novo_nao_viram_pergunta():
             {"de": "cliente", "texto": "ainda tem??\nconsigo comprar?"}]
     assert [m["texto"] for m in a._sem_eco(msgs)] == ["Ainda tem??", "Consigo comprar?", "Tem sim."]
     assert a._sem_eco(msgs + [{"de": "cliente", "texto": "e o de 50ml?"}])[-1]["texto"] == "e o de 50ml?"
+    # uma pergunta repetida sozinha fica: a resposta repete a anterior com educação (pedido do Bruno, 27/09)
+    rep = msgs[:3] + [{"de": "cliente", "texto": "Consigo comprar?"}]
+    assert a._sem_eco(rep)[-1]["texto"] == "Consigo comprar?" and a._resposta_anterior(a._sem_eco(rep)) == "Tem sim."
+    r = Repo()
+    a.receber(r, "shopee", "", cliente="ju", externo_id="ju", respondido=True, historico=[
+        {"de": "cliente", "texto": "Qual a validade?"}, {"de": "loja", "texto": "Depois de aberto dura em média 2 anos."}])
+    x = a.receber(r, "shopee", "", cliente="ju", externo_id="ju", historico=[
+        {"de": "cliente", "texto": "Qual a validade?"}, {"de": "loja", "texto": "Depois de aberto dura em média 2 anos."},
+        {"de": "cliente", "texto": "Qual a validade?"}],
+        gerar=_ia(iter(["Oi! Como te respondemos logo acima, depois de aberto ele dura em média 2 anos 😊 Qualquer coisa, é só chamar!"])))
+    assert x["status"] != "precisa_info" and x["fontes"]["pergunta_repetida"]["resposta_anterior_da_loja"].startswith("Depois de aberto")
 
 
 if __name__ == "__main__":
