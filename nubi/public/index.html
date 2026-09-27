@@ -429,7 +429,8 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .in-ops{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
 .in-op{display:grid;gap:4px;padding:12px 14px;text-decoration:none;color:inherit;align-content:start}
 .in-op b{font-size:20px;font-variant-numeric:tabular-nums}
-@media (max-width:1000px){.in-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.in-ops{grid-template-columns:repeat(2,minmax(0,1fr))}.in-grade,.in-topo{grid-template-columns:1fr}}
+.in-ops.in-sv{grid-template-columns:repeat(4,minmax(0,1fr));margin:0}
+@media (max-width:1000px){.in-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.in-ops,.in-ops.in-sv{grid-template-columns:repeat(2,minmax(0,1fr))}.in-grade,.in-topo{grid-template-columns:1fr}}
 @media (max-width:480px){.in-duas{grid-template-columns:1fr}.in-kpi b{font-size:20px}}
 /* card #68: Início em widgets — vendas dos concorrentes em destaque no topo, faixa de 3 e agentes/dólar/datas/notícias embaixo */
 .in-vendas-hoje{display:grid;gap:4px;text-decoration:none;color:inherit}
@@ -1108,6 +1109,23 @@ async function telaInicio() {
   const colTxt = !col ? ["", "sem coleta registrada"] : col.em_andamento ? ["warn", "rodando agora"]
     : col.ok ? ["good", "ok · " + new Date(col.terminado_em || col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})]
     : ["bad", "falhou · " + new Date(col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})];
+  // Card #92: saúde do Mac mini servidor (última leitura; sem leitura = "sem dados", nunca zero)
+  const sv = r.servidor, horaBr = x => new Date(x).toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
+  const svVal = (v, un, lim) => v == null ? `<b class="muted" style="font-size:13px">sem dados</b>` : `<b class="${v >= lim ? "neg" : ""}">${nf1.format(v)}${un}</b>`;
+  const svAg = Object.entries(sv?.agentes || {});
+  const servidorHtml = `<section class="card pad"><div class="in-dev-cab"><h2>Servidor Mac mini</h2>
+      ${!sv ? "" : sv.atrasado ? `<span class="in-chip warn">⚠️ sem dados desde ${horaBr(sv.coletado_em)}</span>`
+        : `<span class="st ${sv.status === "ok" ? "good" : "bad"}">${sv.status === "ok" ? "ok" : "alerta"} · ${horaBr(sv.coletado_em)}</span>`}</div>
+    ${!sv ? `<p class="muted">sem dados: o coletor do Mac ainda não mandou nenhuma leitura</p>` : `
+      <div class="in-ops in-sv">
+        <div class="card in-op"><span class="l">CPU</span>${svVal(sv.cpu_pct, "%", 90)}</div>
+        <div class="card in-op"><span class="l">Memória</span>${svVal(sv.mem_pct, "%", 90)}</div>
+        <div class="card in-op"><span class="l">Disco</span>${svVal(sv.disco_pct, "%", 90)}</div>
+        <div class="card in-op"><span class="l">Temperatura</span>${svVal(sv.temp_c, "°C", 85)}</div>
+      </div>
+      <p style="font-size:12.5px;margin:10px 0 0">Agentes: ${svAg.length ? `${svAg.length - (sv.faltantes || []).length} de ${svAg.length} ativos · ${svAg.map(([n, ok]) => `<span class="sinal ${ok ? "good" : "bad"}">${ok ? "●" : "○"} ${esc(n)}</span>`).join("")}` : `<span class="muted">sem dados</span>`}</p>
+      ${(sv.alertas || []).length ? `<ul class="in-lista">${sv.alertas.map(a => `<li class="neg">🚨 ${esc(a)}</li>`).join("")}</ul>` : `<p class="muted" style="font-size:12px;margin:6px 0 0">✅ Nenhum alerta</p>`}`}
+    </section>`;
   const resumoLinhas = r.resumo ? r.resumo.texto.split("\n").filter(x => x.trim() && !/^#/.test(x.trim())).slice(0, 5).join("\n") : "";
   const semDado = "sem dados";
   // Fase 1 do card #26: Início orientada à decisão — título/data/status da coleta primeiro,
@@ -1177,6 +1195,7 @@ async function telaInicio() {
       <a class="card in-op" href="#/central/erros"><span class="l">Erros hoje</span><b class="${ops.erros_hoje ? "neg" : ""}">${nf0.format(ops.erros_hoje || 0)}</b></a>
       <a class="card in-op" href="#/central/agentes"><span class="l">IA hoje · mês</span><b>US$ ${(r.ia?.custo_hoje || 0).toFixed(2).replace(".", ",")}</b><span class="muted">· US$ ${(r.ia?.custo_mes || 0).toFixed(2).replace(".", ",")}</span></a>
     </section>
+    ${servidorHtml}
 
     <div class="card pad"><h2>Próximas datas de vendas</h2><ul class="in-datas">${datasVendas(agora).map(x => `<li><span class="in-dias ${x.dias <= 15 ? "perto" : ""}">${x.dias === 0 ? "hoje" : x.dias + (x.dias === 1 ? " dia" : " dias")}</span>
         <b>${esc(x.n)}</b><span class="muted">${x.dt.toLocaleDateString("pt-BR", {day: "2-digit", month: "short", weekday: "short"})}</span></li>`).join("")}</ul></div>
@@ -2655,7 +2674,7 @@ async function telaErros() {
   desenharMenu();
 }
 // ---------- Minhas Lojas → Estoque (UpSeller): foto de cada atualização, o que mudou e a análise do Estoquista ----------
-const ES_FILTROS = [["todos", "Todos"], ["com", "Com estoque"], ["zerados", "Zerados"], ["baixo", "Abaixo do mínimo"], ["semcusto", "Sem custo"]];
+const ES_FILTROS = [["todos", "Todos"], ["com", "Com estoque"], ["zerados", "Zerados"], ["baixo", "Abaixo do mínimo"], ["semcusto", "Sem custo"], ["transito", "Em trânsito"]];
 const quandoES = t => t ? new Date(t).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
 const unES = v => v == null ? "—" : nf0.format(+v);
 const rsES = v => v == null || v === "" ? "—" : "R$ " + (+v).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -3191,7 +3210,8 @@ async function telaEstoque() {
     <div class="kpis">${kpiES("todos", "SKUs", nf0.format(t.skus || 0), dif("skus"))}${kpiES("com", "Unidades", unES(t.unidades), dif("unidades"))}
       ${kpiES(t.sem_custo ? "semcusto" : "com", "Valor em estoque", `<span title="${rsES(t.valor)}">${abrev(t.valor)}</span>`, t.sem_custo ? `${nf0.format(t.sem_custo)} SKU(s) com estoque sem custo médio` : "custo médio × quantidade")}
       ${kpiES("zerados", "Zerados", `<span class="${t.zerados ? "neg" : ""}">${nf0.format(t.zerados || 0)}</span>`, dif("zerados", unES, true))}
-      ${kpiES("baixo", "Abaixo do mínimo", `<span class="${t.baixo ? "neg" : ""}">${nf0.format(t.baixo || 0)}</span>`, "estoque ≤ mínimo do UpSeller")}</div>
+      ${kpiES("baixo", "Abaixo do mínimo", `<span class="${t.baixo ? "neg" : ""}">${nf0.format(t.baixo || 0)}</span>`, "estoque ≤ mínimo do UpSeller")}
+      ${kpiES("transito", "Em trânsito (compra)", unES(r.itens.reduce((s, it) => s + (+it.transito_compra || 0), 0)), `${nf0.format(r.itens.filter(it => +it.transito_compra > 0).length)} SKU(s) comprados e chegando`)}</div>
     <div class="es-grade">
       <div class="card pad"><h2>📋 Log da atualização</h2><ul class="es-log">${(a.resumo || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
         <p class="muted" style="font-size:12px;margin:8px 0 0">Arquivo: ${esc(a.arquivo || "—")}</p></div>
@@ -3270,14 +3290,14 @@ function desenharTabEstoque() {
   const baixo = it => (+it.atual || 0) > 0 && +it.estoque_min > 0 && +it.atual <= +it.estoque_min;
   const xs = S.estoque.itens.filter(it => (!q || (it.sku + " " + (it.titulo || "")).toLowerCase().includes(q))
     && (f === "todos" || (f === "com" && +it.atual > 0) || (f === "zerados" && !(+it.atual > 0)) || (f === "baixo" && baixo(it))
-        || (f === "semcusto" && +it.atual > 0 && !(+it.custo_medio > 0))))
+        || (f === "semcusto" && +it.atual > 0 && !(+it.custo_medio > 0)) || (f === "transito" && +it.transito_compra > 0)))
     .sort((a, b) => (+b.atual || 0) - (+a.atual || 0) || a.sku.localeCompare(b.sku));
   box.innerHTML = `<div class="muted" style="font-size:12px;margin-bottom:6px">${nf0.format(xs.length)} SKU(s)</div>
     <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>SKU / título</th><th class="num">Disponível</th><th class="num">Atual</th>
-      <th class="num">Mínimo</th><th class="num">Custo médio</th><th class="num">Subtotal</th></tr></thead>
+      <th class="num" title="Em Trânsito (Compra) do UpSeller: já comprado, chegando">Em trânsito</th><th class="num">Mínimo</th><th class="num">Custo médio</th><th class="num">Subtotal</th></tr></thead>
     <tbody>${xs.slice(0, S.esMax).map(it => `<tr><td class="first"><div class="es-sku">${esc(it.sku)}</div><div class="es-tit" title="${esc(it.titulo || "")}">${esc(it.titulo || "")}</div></td>
       <td class="num">${unES(it.disponivel)}</td><td class="num ${+it.atual > 0 ? (baixo(it) ? "neg" : "") : "neg"}"><b>${unES(it.atual)}</b></td>
-      <td class="num">${+it.estoque_min ? unES(it.estoque_min) : "—"}</td><td class="num">${+it.custo_medio ? rsES(it.custo_medio) : "—"}</td>
+      <td class="num ${+it.transito_compra > 0 ? "pos" : ""}">${+it.transito_compra > 0 ? unES(it.transito_compra) : "—"}</td><td class="num">${+it.estoque_min ? unES(it.estoque_min) : "—"}</td><td class="num">${+it.custo_medio ? rsES(it.custo_medio) : "—"}</td>
       <td class="num">${+it.subtotal ? rsES(it.subtotal) : "—"}</td></tr>`).join("")}</tbody></table></div>
     ${xs.length > S.esMax ? `<button class="btn small ghost" id="es-mais" style="margin-top:8px">Mostrar mais (${nf0.format(xs.length - S.esMax)})</button>` : ""}`;
   if ($("#es-mais")) $("#es-mais").onclick = () => { S.esMax += 300; desenharTabEstoque(); };
