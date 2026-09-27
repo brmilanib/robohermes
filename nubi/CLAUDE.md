@@ -244,7 +244,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   são relidas uma vez). O valor e o comprador aparecem só na tela; `pedido_seguro` não passa isso para a IA.
 - **Sonnet na escrita e na interpretação (27/09, pedido do Bruno)**: `gerar_qualidade(repo)` usa o Sonnet (`NUBI_ATENDIMENTO_MODELO`,
   API da Anthropic) em `escrever`, `conversar_ia`, `sugerir_web`, `aprender_padroes` e `revisar_propostas`, até
-  `NUBI_ATENDIMENTO_SONNET_DIA`=300 chamadas por dia (`ia_resumos` `atendimento|sonnet|<data>`); passou, sem chave ou erro:
+  US$ 10 por dia (`NUBI_ATENDIMENTO_TETO_USD`, soma do `custo_usd` em `agentes_uso` com origem `atendimento_sonnet`, dia de
+  Brasília); passou, sem chave ou erro:
   gpt-oss grátis. Navegar no Chrome e fichas seguem no gpt-oss. O aprendiz novo descarta caso particular e resposta vazia e
   marca `produto:<chave>` quando a resposta depende do produto; `buscar_kb(produtos=…)` só usa item de produto quando a
   conversa é desse produto. `revisar_propostas` (tique do Mac, 5 a cada 2 min) revisa as propostas antigas (descartada =

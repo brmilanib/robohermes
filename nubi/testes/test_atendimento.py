@@ -1,6 +1,7 @@
 """Atendimento ao cliente (26/09): dado real antes de responder, base por loja, conferência, aprovação humana e log."""
 import itertools
 import json
+from datetime import datetime, timezone
 import os
 import sys
 from pathlib import Path
@@ -469,10 +470,9 @@ def test_sonnet_escreve_e_interpreta_com_limite_e_base_por_produto():
     ia.perguntar = lambda p, **k: (usados.append((k["qual"], k.get("modelo"))) or "Oi!", [], k["qual"])
     g = a.gerar_qualidade(r)
     assert g("x", "y") == ("Oi!", "sonnet") and usados[-1] == ("claude", a.SONNET)
-    antigo, a.SONNET_DIA = a.SONNET_DIA, 1
-    r.t["ia_resumos"] = [{"chave": f"atendimento|sonnet|{a._hoje_br()}", "texto": "1"}]
-    assert a.gerar_qualidade(r)("x", "y") == ("Oi!", "ollama")               # no limite do dia: grátis
-    a.SONNET_DIA = antigo
+    r.t["agentes_uso"] = [{"origem": a.SONNET_ORIGEM, "custo_usd": "6", "inicio": datetime.now(timezone.utc).isoformat()},
+                          {"origem": a.SONNET_ORIGEM, "custo_usd": "4.5", "inicio": datetime.now(timezone.utc).isoformat()}]
+    assert a.gasto_sonnet_hoje(r) == 10.5 and a.gerar_qualidade(r)("x", "y") == ("Oi!", "ollama")   # passou de US$ 10: grátis
     a.salvar_item_kb(r, "principal", "Como faço para usar?", "Borrife no pulso.", tags=["produto:body splash yara"])
     assert a.buscar_kb(r, "principal", "como faço para usar?", produtos=["Body Splash Yara Tous 250ml"])
     assert not a.buscar_kb(r, "principal", "como faço para usar?", produtos=["Home Spray Lavanda"])

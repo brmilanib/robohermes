@@ -361,30 +361,40 @@ def gerar_ia(prompt, sistema):
 
 
 SONNET = os.environ.get("NUBI_ATENDIMENTO_MODELO", "claude-sonnet-5")
-SONNET_DIA = int(os.environ.get("NUBI_ATENDIMENTO_SONNET_DIA", "300"))     # chamadas por dia; passou, volta para a grátis
+SONNET_TETO_USD = float(os.environ.get("NUBI_ATENDIMENTO_TETO_USD", "10"))   # US$ por dia (Brasília); passou, volta para a grátis
+SONNET_ORIGEM = "atendimento_sonnet"
 
 
 def _hoje_br():
     return (datetime.now(timezone.utc) - timedelta(hours=3)).date().isoformat()
 
 
+def gasto_sonnet_hoje(repo):
+    """Soma do custo do Sonnet no atendimento hoje (agentes_uso grava cada chamada com o custo real)."""
+    meia_noite = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(hours=3)
+    linhas = repo._req("GET", "agentes_uso", {"select": "custo_usd", "origem": f"eq.{SONNET_ORIGEM}",
+                                              "inicio": f"gte.{meia_noite.isoformat()}", "limit": 50000}) or []
+    return round(sum(float(x.get("custo_usd") or 0) for x in linhas), 4)
+
+
 def gerar_qualidade(repo):
-    """27/09 (pedido do Bruno): escrita e interpretação com o Sonnet (API da Anthropic), até SONNET_DIA chamadas por dia;
-    sem chave, no limite ou com erro, cai para a IA grátis (gpt-oss). O volume (navegar, fichas) continua na grátis."""
+    """27/09 (pedido do Bruno): escrita e interpretação com o Sonnet (API da Anthropic), até SONNET_TETO_USD (US$ 10) por dia;
+    sem chave, no teto ou com erro, cai para a IA grátis (gpt-oss). O volume (navegar, fichas) continua na grátis."""
     def gerar(prompt, sistema):
-        chave = f"atendimento|sonnet|{_hoje_br()}"
         try:
-            usadas = int((repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{chave}"}) or [{}])[0].get("texto") or 0)
-        except (TypeError, ValueError):
-            usadas = 0
-        if ia.tem("claude") and usadas < SONNET_DIA:
+            gasto = gasto_sonnet_hoje(repo)
+        except Exception:  # noqa: BLE001
+            gasto = 0.0
+        if ia.tem("claude") and gasto < SONNET_TETO_USD:
+            antes = ia.USO.get("origem")
+            ia.USO["origem"] = SONNET_ORIGEM                 # o custo de cada chamada fica marcado para o teto do dia
             try:
                 texto, _, _ = ia.perguntar(prompt, web=False, qual="claude", modelo=SONNET, sistema=sistema, max_tokens=1500)
-                repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": str(usadas + 1), "ia": "atendente",
-                                                        "criado_em": _agora()}], prefer="resolution=merge-duplicates,return=minimal")
                 return texto, "sonnet"
             except Exception:  # noqa: BLE001 — fora do ar ou no teto do provedor: a grátis responde
                 pass
+            finally:
+                ia.USO["origem"] = antes
         return gerar_ia(prompt, sistema)
     return gerar
 
