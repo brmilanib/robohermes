@@ -4027,6 +4027,7 @@ def _plat_cfg(canal):
 ATENDENTE_PASSOS = 90
 ATENDENTE_PAGOS_RODADA = int(os.environ.get("NUBI_ATENDENTE_PAGOS", "5"))   # card #108: passos com a IA paga por rodada
 ATENDENTE_FALHAS_ENVIO = 2          # card #108: a mesma resposta falhou 2 vezes no envio → volta para o Bruno
+ATENDENTE_RODADA_SEG = int(os.environ.get("NUBI_ATENDENTE_RODADA_SEG", "420"))   # no máx. 7 min por plataforma (SAC: 21 min)
 ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abrir", "ler", "clicar")] + [
     {"name": "registrar", "description": "Manda ao nubi uma conversa aberta: o histórico lido na tela (cliente e loja, na "
      "ordem, até as 15 últimas), se a loja já respondeu, e o pedido do painel lateral. Se a última mensagem é do cliente e "
@@ -4351,11 +4352,17 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                   "antigas). Quando não houver mais nenhuma nova nos Fechados, use fechados_concluido.") if fechados else "")
               + f"\n\nO chat da {nome} está em {pg.url}. {DICAS_PLATAFORMA.get(canal, '')} Comece com ler.")
     mensagens = [{"role": "user", "content": pedido}]
+    inicio_rodada = time.monotonic()
+    limite_rodada = ATENDENTE_RODADA_SEG * (3 if sac else 1)
     if sac:
         # 27/09: o SAC do UpSeller é difícil de navegar para o gpt-oss grátis (rodadas com 0 importadas); aqui o Haiku vai
         # na frente, dentro do teto do dia (NUBI_ATENDENTE_TETO), e a grátis assume quando o teto chega
         estado["pago_primeiro"] = True
     for _ in range(ATENDENTE_PASSOS):
+        if time.monotonic() - inicio_rodada > limite_rodada:
+            # 27/09: com a IA lenta, uma rodada chegou a travar o PC por mais de meia hora (sem sinal para o nubi)
+            fim = f"rodada encerrada no tempo ({limite_rodada // 60} min); continua na próxima."
+            break
         r = _ia_atendente(chave, mensagens, token, estado, papel)
         u = r.get("usage") or {}
         custo += (int(u.get("input_tokens") or 0) * ATENDENTE_PRECO[0] + int(u.get("output_tokens") or 0) * ATENDENTE_PRECO[1]) / 1e6

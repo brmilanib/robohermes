@@ -1242,7 +1242,7 @@ def marcar_enviado(repo, rascunho_id, ok=True, erro=None):
 PC_CHAVE = "atendimento|computador"
 
 
-def atendente_no_pc(repo, minutos=10):
+def atendente_no_pc(repo, minutos=20):   # uma rodada por plataforma leva até 7 min (27/09)
     r = (repo._req("GET", "ia_resumos", {"select": "criado_em", "chave": f"eq.{PC_CHAVE}"}) or [{}])[0]
     return bool(r.get("criado_em")) and datetime.now(timezone.utc) - datetime.fromisoformat(
         str(r["criado_em"]).replace("Z", "+00:00")) < timedelta(minutes=minutos)
