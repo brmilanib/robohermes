@@ -1270,6 +1270,35 @@ SAC_A_CADA_MIN = 2           # 27/09 (Bruno): importar o SAC rápido (a rodada j
 PC_COMANDO_CHAVE = "atendimento|pc_comando"
 
 
+NAVEGAR_MODELO = os.environ.get("NUBI_ATENDENTE_MODELO", "claude-haiku-4-5-20251001")
+NAVEGAR_TETO_USD = float(os.environ.get("NUBI_NAVEGAR_TETO_USD", "3"))
+NAVEGAR_ORIGEM = "atendente_navegar"
+
+
+def _navegar_reserva(repo, d):
+    if not ia.tem("claude"):
+        return None
+    meia_noite = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(hours=3)
+    gasto = sum(float(x.get("custo_usd") or 0) for x in repo._req("GET", "agentes_uso", {
+        "select": "custo_usd", "origem": f"eq.{NAVEGAR_ORIGEM}", "inicio": f"gte.{meia_noite.isoformat()}", "limit": 50000}) or [])
+    if gasto >= NAVEGAR_TETO_USD:
+        return None
+    corpo = {"model": NAVEGAR_MODELO, "max_tokens": 1024, "messages": d.get("mensagens") or [],
+             "tools": [{k: f[k] for k in ("name", "description", "input_schema") if k in f} for f in d.get("ferramentas") or []]}
+    if d.get("sistema"):
+        corpo["system"] = d["sistema"]
+    antes = ia.USO.get("origem")
+    ia.USO["origem"] = NAVEGAR_ORIGEM
+    try:
+        r = ia._post_json("https://api.anthropic.com/v1/messages", corpo,
+                          {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"}, timeout=120)
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        ia.USO["origem"] = antes
+    return {"content": r.get("content") or [], "modelo": NAVEGAR_MODELO, "reserva": True}
+
+
 def _pc_comando_pendente(repo, todos=False):
     try:
         c = json.loads((repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{PC_COMANDO_CHAVE}"}) or [{}])[0].get("texto") or "{}")
@@ -1547,7 +1576,9 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
         try:
             return ia.ollama_ferramentas(d.get("mensagens") or [], d.get("sistema") or "", d.get("ferramentas") or [])
         except ia.SemIA as e:
-            return {"erro_ia": str(e)}
+            # 27/09: a cota grátis acabou ("IA grátis indisponível") e o PC não tem chave: o servidor usa o Haiku de reserva
+            # (chave só na Vercel), até NAVEGAR_TETO_USD por dia; o custo real fica em agentes_uso (origem atendente_navegar)
+            return _navegar_reserva(repo, d) or {"erro_ia": str(e)}
     if nome == "atendimento_para_enviar":
         if q.get("computador"):          # o atendente está ligado num computador (PC do Bruno): o Mac fica quieto
             repo._req("POST", "ia_resumos", corpo=[{"chave": PC_CHAVE, "texto": str(q["computador"])[:20], "ia": "atendente",
