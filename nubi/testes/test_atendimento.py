@@ -540,6 +540,13 @@ def test_nossa_resposta_lida_como_do_cliente_nao_vira_pergunta_nova():
     assert conv["status"] == "respondida"
 
 
+def test_mensagens_antigas_do_cliente_lidas_de_novo_nao_viram_pergunta():
+    msgs = [{"de": "cliente", "texto": "Ainda tem??"}, {"de": "cliente", "texto": "Consigo comprar?"}, {"de": "loja", "texto": "Tem sim."},
+            {"de": "cliente", "texto": "ainda tem??\nconsigo comprar?"}]
+    assert [m["texto"] for m in a._sem_eco(msgs)] == ["Ainda tem??", "Consigo comprar?", "Tem sim."]
+    assert a._sem_eco(msgs + [{"de": "cliente", "texto": "e o de 50ml?"}])[-1]["texto"] == "e o de 50ml?"
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):
