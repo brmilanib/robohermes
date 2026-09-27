@@ -380,6 +380,18 @@ def test_conversa_ja_guardada_como_respondida_pelo_robo_e_retomada():
     assert a.retomar_esquecidas(r, a_cada_min=0) == []                     # não repete o rascunho
 
 
+def test_importacao_do_sac_chama_o_mac_a_cada_10_min_ate_acabar():
+    r = Repo()
+    assert a.sac_proximo(r) is None                                         # não pedida: nada
+    a.rota(r, "POST", "atendimento_sac", {}, json.dumps({"importar": True}).encode())
+    assert [x["comando"] for x in r.t["mac_comandos"]] == ["importar_sac"]
+    assert a.sac_proximo(r) is None                                         # já tem um pendente
+    r.t["mac_comandos"][0]["status"] = "ok"
+    assert a.sac_proximo(r) is None                                         # menos de 10 min
+    a.rota(r, "POST", "atendimento_sac", {}, json.dumps({"importar": False}).encode())
+    assert [x["texto"] for x in r.t["ia_resumos"] if x["chave"] == a.SAC_CHAVE][-1] == "feito"
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

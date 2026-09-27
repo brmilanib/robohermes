@@ -219,3 +219,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   ganha rascunho (só a aba Fechados fica como histórico). `retomar_esquecidas` (tique do Mac, a cada 3 min) faz o mesmo com
   as já gravadas como `respondida`. No coletor, `abrir_conversa` abre o chat pelo nome do cliente (a lista da Shopee não
   vira elemento clicável).
+- **SAC do UpSeller → base (27/09, pedido do Bruno)**: botão "📥 Trazer o SAC do UpSeller" (aba Base de conhecimento) grava
+  `atendimento|importar_sac`=pendente; `sac_proximo` (tique do Mac) põe `importar_sac` na fila a cada 10 min até o importador
+  usar `fechados_concluido`. `coletor importar-sac` (Chrome do coletor, logado no UpSeller) lê o SAC com `PAPEL_SAC`: SÓ lê e
+  registra (plataforma mercado_livre/shopee/tiktok_shop, sempre respondido+fechado), nunca envia nem digita; `rolar` desce a
+  lista. As conversas viram propostas na base pelo `aprender_aos_poucos` (4 a cada 15 min).
+

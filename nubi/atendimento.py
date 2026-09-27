@@ -747,6 +747,29 @@ def atendente_proximo(repo, mac_online=True):
 
 
 FECHADOS_CHAVE = "atendimento|importar_fechados"
+SAC_CHAVE = "atendimento|importar_sac"
+SAC_A_CADA_MIN = 10
+
+
+def sac_proximo(repo):
+    """No tique do Mac: com a importação do SAC do UpSeller pedida, chama uma rodada a cada 10 min até o importador avisar
+    que acabou (o histórico vira propostas na base pelo aprender_aos_poucos)."""
+    try:
+        if (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{SAC_CHAVE}"}) or [{}])[0].get("texto") != "pendente":
+            return None
+        if repo._req("GET", "mac_comandos", {"select": "id", "comando": "in.(importar_sac,atender_tiktok,navegar_card)",
+                                             "status": "in.(pendente,rodando)", "limit": 1}):
+            return None
+        ult = (repo._req("GET", "mac_comandos", {"select": "criado_em", "comando": "eq.importar_sac", "order": "id.desc",
+                                                 "limit": 1}) or [{}])[0].get("criado_em")
+        if ult and datetime.now(timezone.utc) - datetime.fromisoformat(str(ult).replace("Z", "+00:00")) < timedelta(
+                minutes=SAC_A_CADA_MIN):
+            return None
+        repo._req("POST", "mac_comandos", corpo=[{"comando": "importar_sac", "arg": "", "pedido_por": "importador SAC",
+                                                  "status": "pendente", "criado_em": _agora()}], prefer="return=minimal")
+        return "importador do SAC chamado"
+    except Exception:  # noqa: BLE001 — nunca derruba o tique do Mac
+        return None
 APRENDER_CHAVE = "atendimento|aprender_vez"
 PAPEL_APRENDIZ = """Você lê conversas reais do chat da loja de perfumes do Bruno (TikTok Shop, Shopee…) e tira PADRÕES para a base de
 conhecimento do atendimento: perguntas que outros clientes também fariam (política, troca, envio, prazo padrão, tester,
@@ -841,7 +864,7 @@ def aprender_aos_poucos(repo, a_cada_min=15):
             return None
         repo._req("POST", "ia_resumos", corpo=[{"chave": APRENDER_CHAVE, "texto": "", "ia": "atendente", "criado_em": _agora()}],
                   prefer="resolution=merge-duplicates,return=minimal")
-        return aprender_padroes(repo, lote=2)
+        return aprender_padroes(repo, lote=4)
     except Exception:  # noqa: BLE001
         return None
 
@@ -889,12 +912,20 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
             if c.get("cliente") and n.get(c["id"], 0) >= 2:
                 por_canal.setdefault(c.get("canal") or "tiktok_shop", []).append(c["cliente"])
         ligados = canais_ligados(repo)
+        sac = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{SAC_CHAVE}"}) or [{}])[0].get("texto")
         return {"itens": para_enviar(repo), "atendente": bool(ligados), "canais": ligados, "importar_fechados": fech,
+                "importar_sac": sac or "",
                 "conhecidos": por_canal.get("tiktok_shop", []), "conhecidos_por_canal": por_canal}
     if nome == "atendimento_fechados" and metodo == "POST":
         repo._req("POST", "ia_resumos", corpo=[{"chave": FECHADOS_CHAVE, "texto": "pendente" if d.get("importar") else "feito",
                                                 "ia": "atendente", "criado_em": _agora()}], prefer="resolution=merge-duplicates,return=minimal")
         return {"importar_fechados": bool(d.get("importar"))}
+    if nome == "atendimento_sac" and metodo == "POST":
+        repo._req("POST", "ia_resumos", corpo=[{"chave": SAC_CHAVE, "texto": "pendente" if d.get("importar") else "feito",
+                                                "ia": "atendente", "criado_em": _agora()}], prefer="resolution=merge-duplicates,return=minimal")
+        if d.get("importar"):
+            sac_proximo(repo)
+        return {"importar_sac": bool(d.get("importar"))}
     if nome == "atendimento_aprender" and metodo == "POST":
         return aprender_padroes(repo, lote=int(d.get("lote") or 8))
     if nome == "atendimento_enviado" and metodo == "POST":

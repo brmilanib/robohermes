@@ -3914,6 +3914,7 @@ COMANDOS_MAC = {
     "astra_status": "Astra programador: conferir se está pronto (Codex, chave da OpenAI e git no Mac)",
     "navegar_card": "Navegador fazer a tarefa de um card no Chrome do Mac (número do card)",
     "atender_tiktok": "Atendente da TikTok Shop: olhar o chat, trazer mensagens ao nubi e enviar as aprovadas",
+    "importar_sac": "Importar o histórico já respondido do SAC do UpSeller para a base de conhecimento do atendimento",
     "ferreiro_conversa": "Ferreiro responder a conversa direta com o Bruno",
     "navegador_status": "Navegador: conferir se está pronto (chave e gasto do dia)",
     "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
@@ -4566,6 +4567,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             ferreiro_proximo(repo, a_cada_min=0)
         ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
         atendimento.atendente_proximo(repo)     # atendente da TikTok Shop ligado: a cada 5 min ou na hora, se há resposta aprovada
+        atendimento.sac_proximo(repo)           # importação do SAC do UpSeller pedida: uma rodada a cada 10 min até acabar
         atendimento.retomar_esquecidas(repo)    # a cada 3 min: "respondida" só pelo robô da plataforma volta a ter rascunho
         atendimento.aprender_aos_poucos(repo)   # a cada 15 min: padrões das conversas novas viram propostas na base
         pend = []

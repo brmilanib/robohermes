@@ -214,6 +214,24 @@ def test_abre_a_conversa_pelo_nome_quando_a_lista_nao_vira_elemento():
     assert any(r == "atendimento_receber" for r, _ in ch["api"])
 
 
+def test_importa_o_sac_do_upseller_so_como_historico():
+    # 27/09 (pedido do Bruno): o SAC do UpSeller tem um ano de respostas da equipe; vira histórico (nunca resposta)
+    import shutil
+    shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
+    ch = _preparar([("ler", {}), ("rolar", {}),
+                    ("registrar", {"cliente": "comprador_ml", "plataforma": "mercado_livre", "respondido": False, "historico": [
+                        {"de": "cliente", "texto": "Sobre Sauvage 100ml: é original?"}, {"de": "loja", "texto": "Sim, 100% original!"}]}),
+                    ("enviar_aprovada", {"id": 1, "n_campo": 0, "n_botao": 1}),
+                    ("fechados_concluido", {}), ("terminar", {"resumo": "1 importada"})])
+    c.PLATAFORMAS["upseller_sac"] = ("UpSeller SAC", URL, "127.0.0.1", "Importador SAC")
+    assert c.cmd_importar_sac(None, c.ler_config()) == 0
+    corpo = next(cp for r, cp in ch["api"] if r == "atendimento_receber")
+    assert corpo["canal"] == "mercado_livre" and corpo["respondido"] and corpo["fechado"]
+    assert ("atendimento_sac", {"importar": False}) in ch["api"]
+    txt = json.dumps(ch["ultima"], ensure_ascii=False)
+    assert "Rolei" in txt and "nunca envia" in txt and not any(r == "atendimento_enviado" for r, _ in ch["api"])
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

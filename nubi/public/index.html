@@ -2747,6 +2747,7 @@ async function telaAtendimento(canal = "tiktok_shop") {
                 ["fechados", `🗂️ Fechados (${conv.filter(filtros.fechados).length})`], ["kb", "📚 Base de conhecimento"]];
   const corpo = aba === "kb" ? `<div class="card pad"><div class="es-cab"><h2>Base de conhecimento</h2>
         <div class="acoes">${canal === "tiktok_shop" ? `<button class="btn small" id="kb-fechados" title="o atendente abre a aba Fechados do TikTok e traz o histórico">📥 Trazer os chats fechados</button>` : ""}
+          <button class="btn small" id="kb-sac" title="o coletor do Mac lê o SAC do UpSeller (Mercado Livre, Shopee, TikTok) e traz as perguntas e respostas já feitas">📥 Trazer o SAC do UpSeller</button>
           <button class="btn small" id="kb-aprender" title="a IA grátis lê as conversas e propõe perguntas e respostas padrão">🧠 Aprender com os chats</button></div></div>
       <p class="muted" style="font-size:12.5px">Perguntas-tipo com a resposta padrão da loja. Toda resposta sua a uma dúvida vira um item aqui; os padrões tirados dos chats antigos chegam como propostas e só respondem sozinhos depois que você aprova.</p>
       ${(kb.propostas || []).length ? `<div class="es-cab" style="margin-top:10px"><h3 style="margin:0">🧠 Propostas dos chats (${kb.propostas.length})</h3>
@@ -2808,6 +2809,8 @@ async function telaAtendimento(canal = "tiktok_shop") {
     agir(() => post("atendimento_kb_salvar", {aprovar: kb.propostas.map(k => k.id)}), x => `${x.aprovados} aprovadas.`); };
   if ($("#kb-fechados")) $("#kb-fechados").onclick = () => agir(() => post("atendimento_fechados", {importar: true}),
     () => "Pedido feito: nas próximas rodadas o atendente traz os chats fechados (até 20 por vez).");
+  if ($("#kb-sac")) $("#kb-sac").onclick = () => agir(() => post("atendimento_sac", {importar: true}),
+    () => "Pedido feito: o Mac lê o SAC do UpSeller aos poucos (até 25 conversas a cada 10 min) e as respostas viram propostas aqui.");
   if ($("#kb-aprender")) $("#kb-aprender").onclick = () => { $("#kb-aprender").disabled = true;
     agir(() => post("atendimento_aprender", {lote: 6}), x => `Li ${x.lidas} conversa(s) e propus ${x.propostas} padrão(ões).`); };
   main.querySelectorAll("[data-kb-desativar]").forEach(b => b.onclick = () => { if (!confirm("Desativar este item? Ele fica guardado, só deixa de ser usado.")) return;
