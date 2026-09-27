@@ -27,6 +27,23 @@ def test_primeira_foto():
     assert not d["tem_anterior"] and "Primeira foto" in estoque.resumo_texto(d)[1]
 
 
+def test_transito_compra():
+    """Card #104: a coluna Em Trânsito(Compra) do export entra nos totais e no resumo (compras chegando)."""
+    import io
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["SKU", "Título", "Em Trânsito（Compra）", "Disponível", "Estoque Atual"])
+    ws.append(["A", "Perfume A", 12, 0, 0])
+    ws.append(["B", "Perfume B", None, 3, 3])
+    ws.append(["C", "Perfume C", "5", 1, 1])
+    buf = io.BytesIO()
+    wb.save(buf)
+    xs = estoque.ler_planilha(buf.getvalue())
+    assert [x.get("transito_compra") for x in xs] == [12, None, 5]
+    d = estoque.comparar([], xs)
+    assert d["totais"]["transito"] == 17 and d["totais"]["chegando"] == 2
+    assert "Em trânsito (compra): 17 un. em 2 SKU(s)" in " ".join(estoque.resumo_texto(d))
 
 
 def test_planilha_gestor():
@@ -44,5 +61,6 @@ def test_planilha_gestor():
 if __name__ == "__main__":
     test_comparar()
     test_primeira_foto()
+    test_transito_compra()
     test_planilha_gestor()
     print("ok")

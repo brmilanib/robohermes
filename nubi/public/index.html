@@ -2655,7 +2655,7 @@ async function telaErros() {
   desenharMenu();
 }
 // ---------- Minhas Lojas → Estoque (UpSeller): foto de cada atualização, o que mudou e a análise do Estoquista ----------
-const ES_FILTROS = [["todos", "Todos"], ["com", "Com estoque"], ["zerados", "Zerados"], ["baixo", "Abaixo do mínimo"], ["semcusto", "Sem custo"]];
+const ES_FILTROS = [["todos", "Todos"], ["com", "Com estoque"], ["zerados", "Zerados"], ["baixo", "Abaixo do mínimo"], ["semcusto", "Sem custo"], ["transito", "Em trânsito"]];
 const quandoES = t => t ? new Date(t).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
 const unES = v => v == null ? "—" : nf0.format(+v);
 const rsES = v => v == null || v === "" ? "—" : "R$ " + (+v).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -3191,7 +3191,8 @@ async function telaEstoque() {
     <div class="kpis">${kpiES("todos", "SKUs", nf0.format(t.skus || 0), dif("skus"))}${kpiES("com", "Unidades", unES(t.unidades), dif("unidades"))}
       ${kpiES(t.sem_custo ? "semcusto" : "com", "Valor em estoque", `<span title="${rsES(t.valor)}">${abrev(t.valor)}</span>`, t.sem_custo ? `${nf0.format(t.sem_custo)} SKU(s) com estoque sem custo médio` : "custo médio × quantidade")}
       ${kpiES("zerados", "Zerados", `<span class="${t.zerados ? "neg" : ""}">${nf0.format(t.zerados || 0)}</span>`, dif("zerados", unES, true))}
-      ${kpiES("baixo", "Abaixo do mínimo", `<span class="${t.baixo ? "neg" : ""}">${nf0.format(t.baixo || 0)}</span>`, "estoque ≤ mínimo do UpSeller")}</div>
+      ${kpiES("baixo", "Abaixo do mínimo", `<span class="${t.baixo ? "neg" : ""}">${nf0.format(t.baixo || 0)}</span>`, "estoque ≤ mínimo do UpSeller")}
+      ${kpiES("transito", "Em trânsito (compra)", unES(r.itens.reduce((s, it) => s + (+it.transito_compra || 0), 0)), `${nf0.format(r.itens.filter(it => +it.transito_compra > 0).length)} SKU(s) comprados e chegando`)}</div>
     <div class="es-grade">
       <div class="card pad"><h2>📋 Log da atualização</h2><ul class="es-log">${(a.resumo || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
         <p class="muted" style="font-size:12px;margin:8px 0 0">Arquivo: ${esc(a.arquivo || "—")}</p></div>
@@ -3270,14 +3271,14 @@ function desenharTabEstoque() {
   const baixo = it => (+it.atual || 0) > 0 && +it.estoque_min > 0 && +it.atual <= +it.estoque_min;
   const xs = S.estoque.itens.filter(it => (!q || (it.sku + " " + (it.titulo || "")).toLowerCase().includes(q))
     && (f === "todos" || (f === "com" && +it.atual > 0) || (f === "zerados" && !(+it.atual > 0)) || (f === "baixo" && baixo(it))
-        || (f === "semcusto" && +it.atual > 0 && !(+it.custo_medio > 0))))
+        || (f === "semcusto" && +it.atual > 0 && !(+it.custo_medio > 0)) || (f === "transito" && +it.transito_compra > 0)))
     .sort((a, b) => (+b.atual || 0) - (+a.atual || 0) || a.sku.localeCompare(b.sku));
   box.innerHTML = `<div class="muted" style="font-size:12px;margin-bottom:6px">${nf0.format(xs.length)} SKU(s)</div>
     <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>SKU / título</th><th class="num">Disponível</th><th class="num">Atual</th>
-      <th class="num">Mínimo</th><th class="num">Custo médio</th><th class="num">Subtotal</th></tr></thead>
+      <th class="num" title="Em Trânsito (Compra) do UpSeller: já comprado, chegando">Em trânsito</th><th class="num">Mínimo</th><th class="num">Custo médio</th><th class="num">Subtotal</th></tr></thead>
     <tbody>${xs.slice(0, S.esMax).map(it => `<tr><td class="first"><div class="es-sku">${esc(it.sku)}</div><div class="es-tit" title="${esc(it.titulo || "")}">${esc(it.titulo || "")}</div></td>
       <td class="num">${unES(it.disponivel)}</td><td class="num ${+it.atual > 0 ? (baixo(it) ? "neg" : "") : "neg"}"><b>${unES(it.atual)}</b></td>
-      <td class="num">${+it.estoque_min ? unES(it.estoque_min) : "—"}</td><td class="num">${+it.custo_medio ? rsES(it.custo_medio) : "—"}</td>
+      <td class="num ${+it.transito_compra > 0 ? "pos" : ""}">${+it.transito_compra > 0 ? unES(it.transito_compra) : "—"}</td><td class="num">${+it.estoque_min ? unES(it.estoque_min) : "—"}</td><td class="num">${+it.custo_medio ? rsES(it.custo_medio) : "—"}</td>
       <td class="num">${+it.subtotal ? rsES(it.subtotal) : "—"}</td></tr>`).join("")}</tbody></table></div>
     ${xs.length > S.esMax ? `<button class="btn small ghost" id="es-mais" style="margin-top:8px">Mostrar mais (${nf0.format(xs.length - S.esMax)})</button>` : ""}`;
   if ($("#es-mais")) $("#es-mais").onclick = () => { S.esMax += 300; desenharTabEstoque(); };

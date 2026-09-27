@@ -103,6 +103,8 @@ def totais(itens):
         "zerados": sum(1 for it in itens if q(it) <= 0),
         "baixo": sum(1 for it in itens if q(it) > 0 and it.get("estoque_min") and q(it) <= it["estoque_min"]),
         "sem_custo": sum(1 for it in itens if q(it) > 0 and not it.get("custo_medio")),
+        "transito": round(sum(it.get("transito_compra") or 0 for it in itens), 2),   # compras já feitas, chegando
+        "chegando": sum(1 for it in itens if (it.get("transito_compra") or 0) > 0),
     }
 
 
@@ -157,6 +159,8 @@ def resumo_texto(d):
     t, n = d["totais"], d["n"]
     out = [f"{_br(t['skus'])} SKUs · {_br(t['unidades'])} unidades · R$ {_br(t['valor'], 2)} em estoque "
            f"· {_br(t['zerados'])} zerados"]
+    if t["transito"]:
+        out.append(f"Em trânsito (compra): {_br(t['transito'])} un. em {t['chegando']} SKU(s) já comprados e chegando.")
     if not d["tem_anterior"]:
         out.append("Primeira foto do estoque: a comparação (o que entrou, saiu e zerou) começa na próxima atualização.")
         return out
