@@ -127,7 +127,7 @@ def test_mac_tick_grava_e_tabela_ausente_nao_trava():
     nubi_web.atendimento = Atd()
     try:
         corpo = b'{"metricas": {"coletado_em": "2026-01-01T00:00:00+00:00", "cpu_pct": 10}}'
-        assert nubi_web.rota_mac(RepoTick(), "POST", "mac_tick", {}, corpo, "t") == {"pendentes": [], "sala": []}
+        assert nubi_web.rota_mac(RepoTick(), "POST", "mac_tick", {}, corpo, "t") == {"pendentes": [], "sala": [], "vetorizar": []}
         assert ("POST", "servidor_metricas") in chamadas
     finally:
         nubi_web.indexar_aos_poucos, nubi_web.ferreiro_proximo, nubi_web.atendimento = velhos
