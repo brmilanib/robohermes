@@ -4568,7 +4568,8 @@ def _hermes_vigia(cfg):
             acao, diag = _hermes_escolhe(f)
         if tarefa not in MEDICO_TAREFAS and acao != "avisar":
             acao, diag = "avisar", diag + " (esta tarefa eu não rodo de novo sozinho)"
-        desistiu = acao != "avisar" and n >= MEDICO_MAX
+        # card #103: o login tem limite próprio (2 por site por dia); os consertos da madrugada não o bloqueiam
+        desistiu = acao not in ("avisar", "janela_login") and n >= MEDICO_MAX
         if desistiu:
             acao = "avisar"
         hora = f["quando"][11:16]

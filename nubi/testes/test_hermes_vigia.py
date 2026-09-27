@@ -78,6 +78,21 @@ def test_login_vencido_entra_sozinho_e_roda_de_novo():
     assert "entrei sozinho" in posts[0]["texto"]
 
 
+def test_login_vencido_depois_de_2_consertos_ainda_entra_sozinho():
+    # card #103: a madrugada gastou os 2 consertos do diario (download/rede); o login vencido das 09:47 virava card
+    # urgente sem tentar o entrar-auto. O login tem limite próprio (2 por site por dia).
+    soltos, posts, cards = _preparar()
+    c.salvar_config({"hermes_consertos": {c.date.today().isoformat(): {"diario": 2}}})
+    chamadas = []
+    c.subprocess.run = lambda cmd, **k: chamadas.append(cmd[-2:]) or _Rc(0)
+    c.anotar_falha("diario", "O Nubimetrics pediu login de novo. No Mac mini, rode: ~/.nubi-coletor/coletor entrar "
+                             "[parou em app.nubimetrics.com/account/login · título 'Alice diz…']")
+    c.cmd_hermes_vigia(None, c.ler_config())
+    assert chamadas == [["entrar-auto", "nubimetrics"]]
+    assert soltos == [("diario", None)] and not cards
+    assert "entrei sozinho" in posts[0]["texto"]
+
+
 def test_login_vencido_sem_senha_abre_a_janela_e_roda_de_novo():
     soltos, posts, cards = _preparar()
     chamadas = []
