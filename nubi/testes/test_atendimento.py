@@ -520,6 +520,26 @@ def test_interpreta_a_conversa_inteira_antes_de_responder():
     assert a.interpretar(r, conv, lambda p, s_: ("não sei", "sonnet")) is None           # resposta ruim: segue pelas regras
 
 
+def test_nossa_resposta_lida_como_do_cliente_nao_vira_pergunta_nova():
+    # 27/09 (print do Bruno): a resposta enviada voltou na leitura como se fosse da cliente e a IA sugeriu outra por cima
+    r = Repo()
+    resposta = "Oi! Se for o Sabah, temos as duas versões sim — é o mesmo perfume, só mudou o design da tampa."
+    x = a.receber(r, "tiktok_shop", "", cliente="manu", externo_id="manu", historico=[
+        {"de": "cliente", "texto": "eu comprei o da tampa preta pq esta aparecendo o da tampa transparente?"}], gerar=_ia(iter([resposta])))
+    if x["status"] == "pendente":
+        a.decidir(r, x["id"], "aprovar")
+    y = a.receber(r, "tiktok_shop", "", cliente="manu", externo_id="manu", historico=[
+        {"de": "cliente", "texto": "eu comprei o da tampa preta pq esta aparecendo o da tampa transparente?"},
+        {"de": "loja", "texto": resposta}, {"de": "cliente", "texto": resposta}], gerar=_ia(iter([])))
+    assert y["status"] == "historico" and len([m for m in r.t["atendimento_mensagens"] if m["de"] == "cliente"]) == 1
+    # rascunho antigo montado em cima do eco: a revisão marca como respondida
+    conv = r.t["atendimento_conversas"][0]
+    r._req("POST", "atendimento_mensagens", corpo=[{"conversa_id": conv["id"], "de": "cliente", "texto": resposta, "criado_em": a._agora()}])
+    r._req("POST", "atendimento_rascunhos", corpo=[{"conversa_id": conv["id"], "status": "pendente", "texto_gerado": "outra", "fontes": {}}])
+    assert ("ja_respondida" in [f[1] for f in a.reinterpretar_pendentes(r, a_cada_min=0)])
+    assert conv["status"] == "respondida"
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

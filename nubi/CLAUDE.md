@@ -254,4 +254,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   depois de resolvido = agradecimento; se a loja já se despediu, `responder=false` → rascunho `sem_resposta` e a conversa
   fica `respondida`). A intenção e a `pergunta_resumida` guiam `buscar_dados`; falhou, segue pelas regras.
   `reinterpretar_pendentes` (tique do Mac, 3 a cada 2 min) refaz as dúvidas e rascunhos antigos sem interpretação.
+- **Eco, ✓✓ e Painel do SAC (27/09, pedido do Bruno)**: `_sem_eco` tira mensagem de "cliente" igual a uma resposta da loja
+  (a leitura às vezes troca quem falou); `_ja_respondida` + `reinterpretar_pendentes` marcam como respondida a conversa cuja
+  última pergunta já tem resposta aprovada/enviada. Na lista, conversa que precisa de resposta pisca e a respondida tem ✓✓
+  verde (✓ cinza = aprovada, enviando). SAC → 📊 Painel (`#/sac/painel`, `telaPainelSac`, rota `atendimento_painel` =
+  `painel`): precisam de resposta agora, respondidas hoje (e sozinho), mensagens de clientes, tempo mediano, por canal, por
+  loja, 7 dias e assuntos; "📺 Modo TV" = tela cheia escura, atualiza a cada 60 s.
 

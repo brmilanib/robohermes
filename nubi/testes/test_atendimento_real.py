@@ -74,6 +74,13 @@ try:
                 pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/ml"); pg.wait_for_selector("h1", timeout=15000); pg.wait_for_timeout(1200)
                 assert "Mercado Livre · Atendimento" in pg.inner_text("h1") and not pg.is_visible("#at-ligar")
                 assert "Base de conhecimento SAC" in pg.inner_text("#side")          # menu SAC com as lojas e a base
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/painel"); pg.wait_for_selector(".sp-kpis", timeout=15000)
+                assert "precisam de resposta agora" in pg.inner_text(".sp-kpis") and "Últimos 7 dias" in pg.inner_text(".sp-root")
+                pg.click("#sp-tv"); pg.wait_for_selector(".sp-root.tv", timeout=5000)             # modo TV
+                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "painel_sac_tv.png"))
+                pg.click("#sp-tv"); pg.wait_for_selector(".sp-root:not(.tv)", timeout=5000)
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/tiktok"); pg.wait_for_selector(".atx-item", timeout=15000)
+                assert pg.locator(".atx-item .atx-ok").count() >= 1                              # respondida: ✓✓
                 assert not erros, erros
         b.close()
 finally:

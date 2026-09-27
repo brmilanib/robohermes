@@ -734,6 +734,47 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 .atx-ia-in{padding:0 14px 10px}
 .atx-ia-in textarea{width:100%;min-height:48px;font:inherit;font-size:13px;border:1px solid var(--line);border-radius:10px;padding:8px;box-sizing:border-box;background:var(--card);color:inherit}
 .btn.mic.on{background:#c0392b;color:#fff}
+/* 27/09: conversa que precisa de resposta pisca; respondida ganha ✓✓ verde (como no WhatsApp) */
+@keyframes atPisca{0%,100%{background:transparent}50%{background:rgba(250,178,25,.28)}}
+.atx-item.pisca{animation:atPisca 1.6s ease-in-out infinite;box-shadow:inset 4px 0 0 #fab219}
+@media (prefers-reduced-motion:reduce){.atx-item.pisca{animation:none;background:rgba(250,178,25,.18)}}
+.atx-ok{color:#0ca30c;font-weight:800;letter-spacing:-3px;font-size:13px;padding-right:3px}
+.atx-ok.cinza{color:var(--muted)}
+/* SAC → 📊 Painel (TV da equipe) */
+.sp-root{--sp-surface:var(--card);--sp-s1:#2a78d6;--sp-s2:#eb6834;--sp-txt:inherit;--sp-muted:var(--muted);--sp-grid:var(--line)}
+.sp-root.tv{position:fixed;inset:0;z-index:50;overflow:auto;padding:24px 28px;background:#1a1a19;color:#fff;--sp-surface:#232322;--sp-s1:#3987e5;--sp-s2:#d95926;--sp-muted:#c3c2b7;--sp-grid:#3a3a38}
+.sp-cab{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.sp-cab h1{margin:0}.sp-hora{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.sp-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+.sp-kpi{background:var(--sp-surface);border:1px solid var(--sp-grid);border-radius:14px;padding:14px 16px}
+.sp-kpi .n{font-size:40px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.sp-root.tv .sp-kpi .n{font-size:64px}
+.sp-kpi .r{color:var(--sp-muted);font-size:13px}
+.sp-kpi.alerta{border-color:#fab219;box-shadow:inset 0 0 0 2px rgba(250,178,25,.5)}
+.sp-kpi.alerta .n{color:#fab219}
+.sp-root.tv .btn{background:#2c2c2a;color:#fff;border-color:#4a4a47}
+.sp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.sp-card{background:var(--sp-surface);border:1px solid var(--sp-grid);border-radius:14px;padding:14px 16px;min-width:0}
+.sp-card h3{margin:0 0 10px;font-size:15px}
+.sp-canal{display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:14px}
+.sp-canal b{font-variant-numeric:tabular-nums;text-align:right}
+.sp-canal .t{grid-column:1/-1;font-weight:700;font-size:16px;margin-top:6px}
+.sp-barras{display:flex;align-items:flex-end;gap:10px;height:170px;border-bottom:1px solid var(--sp-grid);padding-top:18px}
+.sp-dia{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;height:100%;justify-content:flex-end}
+.sp-par{display:flex;align-items:flex-end;gap:2px;height:100%;width:100%;justify-content:center}
+.sp-b{width:min(18px,40%);border-radius:4px 4px 0 0;min-height:2px;position:relative}
+.sp-b.c{background:var(--sp-s1)}.sp-b.r{background:var(--sp-s2)}
+.sp-b span{position:absolute;top:-17px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--sp-muted);white-space:nowrap}
+.sp-rot{font-size:11px;color:var(--sp-muted)}
+.sp-leg{display:flex;gap:14px;font-size:12.5px;color:var(--sp-muted);margin:8px 0 0}
+.sp-leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.sp-hb{display:grid;grid-template-columns:130px 1fr auto;gap:6px 10px;align-items:center;font-size:13.5px}
+.sp-hb .trilho{height:10px;background:transparent}
+.sp-hb .trilho i{display:block;height:100%;border-radius:0 4px 4px 0;background:var(--sp-s1)}
+.sp-agora{display:grid;gap:6px;max-height:340px;overflow:auto}
+.sp-agora div{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:10px;font-size:14px;animation:atPisca 1.6s ease-in-out infinite;box-shadow:inset 4px 0 0 #fab219}
+@media (prefers-reduced-motion:reduce){.sp-agora div{animation:none}}
+.sp-tab{border-collapse:collapse;margin-top:6px}.sp-tab td,.sp-tab th{padding:3px 12px 3px 0;text-align:left;font-variant-numeric:tabular-nums}
 @media (max-width:1100px){.atx{grid-template-columns:280px minmax(0,1fr)} .atx-info{display:none}}
 @media (max-width:700px){.atx{grid-template-columns:1fr;height:calc(100vh - 250px)} .atx.com-conv .atx-lista{display:none} .atx:not(.com-conv) .atx-chat{display:none} .atx-voltar{display:inline-block}}
 .es-seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
@@ -1297,7 +1338,7 @@ async function rotear() {
   if (/^#\/estoque\/(tiktok|shopee)/.test(location.hash)) {       // endereço antigo: o atendimento mudou para o menu SAC
     history.replaceState(null, "", location.hash.replace("#/estoque/", "#/sac/")); return rotear(); }
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
-    return r === "base" ? telaBaseSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
+    return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
   if (sec === "lojas") return location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
@@ -2633,7 +2674,7 @@ const esAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px"><but
   <button class="${ativa === "posicoes" ? "on" : ""}" onclick="location.hash='#/estoque/posicoes'">📈 Posição do anúncio</button>
   <button class="${ativa === "rank" ? "on" : ""}" onclick="location.hash='#/estoque/rankeamento'">🧪 Rankeamento</button></div>`;
 // SAC (27/09, pedido do Bruno): menu próprio com as lojas e a base de conhecimento do SAC
-const SAC_MENU = [["tiktok", "🎵 TikTok Shop"], ["shopee", "🛍️ Shopee"], ["ml", "🤝 Mercado Livre"], ["base", "📚 Base de conhecimento SAC"]];
+const SAC_MENU = [["painel", "📊 Painel"], ["tiktok", "🎵 TikTok Shop"], ["shopee", "🛍️ Shopee"], ["ml", "🤝 Mercado Livre"], ["base", "📚 Base de conhecimento SAC"]];
 const sacAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px">${SAC_MENU.map(([r, n]) =>
   `<button class="${ativa === r ? "on" : ""}" onclick="location.hash='#/sac/${r}'">${n}</button>`).join("")}</div>`;
 // ---------- Minhas Lojas → 🧪 Laboratório de Rankeamento: a box onde todos os agentes juntam técnicas do algoritmo do ML ----------
@@ -2745,10 +2786,14 @@ async function telaAtendimento(canal = "tiktok_shop") {
   const sinal = c => st(c) === "precisa_info" ? `<span class="atx-pill amarelo">🙋 você</span>` : st(c) === "pendente" ? `<span class="atx-pill azul">✍️ aprovar</span>`
     : (c.rascunho || {}).decidido_por === "automático" ? `<span class="atx-pill verde">🤖</span>` : "";
   const nomeCanal = c => (f.canais.find(x => x.id === c.canal) || {}).nome || c.canal;
-  const item = c => `<div class="atx-item ${aberta && aberta.id === c.id ? "on" : ""}" data-atx-conv="${c.id}">
+  const precisa = c => ["precisa_info", "pendente"].includes(st(c));
+  const visto = c => { const r = c.rascunho || {}; if (precisa(c) || c.status === "fechada") return "";
+    const env = r.enviado_em || r.status === "enviado" || (c.status === "respondida" && !r.enviar_pelo_mac);
+    return env ? `<span class="atx-ok" title="respondida">✓✓</span>` : r.enviar_pelo_mac ? `<span class="atx-ok cinza" title="aprovada, enviando">✓</span>` : ""; };
+  const item = c => `<div class="atx-item ${aberta && aberta.id === c.id ? "on" : ""} ${precisa(c) ? "pisca" : ""}" data-atx-conv="${c.id}">
       <div class="atx-av">${atFoto(c) ? `<img src="${esc(atFoto(c))}" alt="" referrerpolicy="no-referrer" loading="lazy">` : esc((c.cliente || "?").slice(0, 1).toUpperCase())}</div>
       <div class="atx-it"><div class="atx-l1"><b>${esc(c.cliente || "Cliente")}</b><span class="muted">${atHora(ult(c).criado_em || c.atualizado_em)}</span></div>
-        <div class="atx-l2"><span>${esc(String(ult(c).texto || "").slice(0, 60))}</span>${sinal(c)}</div>
+        <div class="atx-l2"><span>${visto(c)}${esc(String(ult(c).texto || "").slice(0, 60))}</span>${sinal(c)}</div>
         <div class="muted" style="font-size:11px">${esc(nomeCanal(c))} · ${esc(c.loja)}</div></div></div>`;
   const quem = (c, x) => { if (x.de !== "loja") return esc(c.cliente || "cliente");
     const r = (c.respostas || []).find(y => (y.texto || "").trim() === (x.texto || "").trim()) || {};
@@ -2952,6 +2997,68 @@ async function telaBaseSac() {
     const nova = prompt("Nova resposta padrão (a antiga fica guardada como substituída):", k.resposta); if (!nova || nova.trim() === k.resposta) return;
     agir(() => post("atendimento_kb_salvar", {pergunta: k.pergunta, resposta: nova, loja: k.loja, substitui: k.id}), () => "Nova versão salva."); });
 }
+// ---------- SAC → 📊 Painel (27/09, pedido do Bruno): os números do atendimento para a TV da equipe. Modo TV: tela cheia,
+// fundo escuro, números grandes e atualiza sozinho a cada 60 s. ----------
+const SP_ASSUNTO = {rastreio: "📦 Rastreio", pedido: "🧾 Pedido", produto: "🧴 Produto", troca_devolucao: "🔁 Troca/devolução",
+  reclamacao: "⚠️ Reclamação", horario: "🕘 Horário", saudacao: "👋 Saudação", agradecimento: "🙏 Agradecimento", outro: "💬 Outro", manual: "✍️ Manual"};
+const spEspera = t => { if (!t) return ""; const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000));
+  return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d`; };
+async function telaPainelSac() {
+  const main = $("#main");
+  if (!S.spCarregou) main.innerHTML = sacAbas("painel") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando o painel</div></div>`;
+  let d; try { d = await api("atendimento_painel"); } catch (e) { main.innerHTML = sacAbas("painel") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/sac/painel")) { S.spTv = false; return; }
+  S.spCarregou = true;
+  const t = d.total || {}, nf = x => (x ?? 0).toLocaleString("pt-BR");
+  const kpi = (n, r, cls = "") => `<div class="sp-kpi ${cls}"><div class="n">${n}</div><div class="r">${r}</div></div>`;
+  const precisam = (t.precisa_voce || 0) + (t.aprovar || 0);
+  const canais = [["tiktok_shop", "🎵 TikTok Shop"], ["shopee", "🛍️ Shopee"], ["mercado_livre", "🤝 Mercado Livre"]];
+  const canal = ([k, n]) => { const c = (d.por_canal || {})[k] || {};
+    return `<div class="sp-card"><div class="sp-canal"><div class="t">${n}</div>
+      <span>⏳ Precisam de resposta</span><b>${nf((c.precisa_voce || 0) + (c.aprovar || 0))}</b>
+      <span>✅ Respondidas hoje</span><b>${nf(c.respondidas_hoje)}</b>
+      <span>🤖 Sozinho (IA) hoje</span><b>${nf(c.sozinho_hoje)}</b>
+      <span>💬 Mensagens de clientes hoje</span><b>${nf(c.clientes_hoje)}</b>
+      <span>🗂️ Conversas abertas</span><b>${nf(c.conversas)}</b></div></div>`; };
+  const serie = d.serie || [], max = Math.max(1, ...serie.flatMap(x => [x.clientes, x.respostas]));
+  const dia = x => { const dt = new Date(x.dia + "T12:00:00"); return dt.toLocaleDateString("pt-BR", {weekday: "short", day: "2-digit"}); };
+  const barras = serie.map(x => `<div class="sp-dia" title="${dia(x)}: ${x.clientes} mensagens de clientes, ${x.respostas} respostas da loja">
+      <div class="sp-par"><div class="sp-b c" style="height:${x.clientes / max * 100}%">${x.clientes ? `<span>${x.clientes}</span>` : ""}</div>
+        <div class="sp-b r" style="height:${x.respostas / max * 100}%">${x.respostas ? `<span>${x.respostas}</span>` : ""}</div></div>
+      <div class="sp-rot">${dia(x)}</div></div>`).join("");
+  const ass = Object.entries(d.assuntos || {}), amax = Math.max(1, ...ass.map(([, n]) => n));
+  const lojas = Object.entries(d.por_loja || {});
+  main.innerHTML = (S.spTv ? "" : sacAbas("painel")) + `<div class="sp-root ${S.spTv ? "tv" : ""}">
+    <div class="sp-cab"><h1>📊 Painel do SAC</h1><div style="display:flex;gap:12px;align-items:center">
+      <span class="sp-hora" id="sp-hora"></span><button class="btn small" id="sp-tv">${S.spTv ? "✖ Sair do modo TV" : "📺 Modo TV"}</button></div></div>
+    <div class="sp-kpis">${kpi(nf(precisam), "⏳ precisam de resposta agora", precisam ? "alerta" : "")}${kpi(nf(t.respondidas_hoje), "✅ respondidas hoje")}
+      ${kpi(nf(t.sozinho_hoje), "🤖 respondidas sozinho (IA) hoje")}${kpi(nf(t.clientes_hoje), "💬 mensagens de clientes hoje")}
+      ${kpi(d.tempo_mediano_min == null ? "—" : nf(d.tempo_mediano_min) + " min", "⏱️ tempo mediano de resposta hoje")}</div>
+    <div class="sp-grid">
+      <div class="sp-card"><h3>⏳ Precisam de resposta agora (${agoraN(d)})</h3><div class="sp-agora">${(d.agora || []).map(a => `<div>
+        <span>${a.canal === "shopee" ? "🛍️" : a.canal === "mercado_livre" ? "🤝" : "🎵"} <b>${esc(a.cliente || "cliente")}</b> · ${a.estado === "voce" ? "🙋 precisa de você" : "✍️ aprovar"}</span>
+        <span>há ${spEspera(a.desde)}</span></div>`).join("") || `<p style="color:var(--sp-muted)">Nenhuma. Tudo respondido ✓✓</p>`}</div></div>
+      ${canais.map(canal).join("")}
+      <div class="sp-card" style="grid-column:1/-1"><h3>📈 Últimos 7 dias</h3><div class="sp-barras">${barras}</div>
+        <div class="sp-leg"><span><i style="background:var(--sp-s1)"></i>Mensagens de clientes</span><span><i style="background:var(--sp-s2)"></i>Respostas da loja</span></div>
+        <details style="margin-top:6px;font-size:12.5px"><summary>ver em tabela</summary><table class="sp-tab"><tr><th>Dia</th><th>Clientes</th><th>Respostas</th></tr>
+          ${serie.map(x => `<tr><td>${dia(x)}</td><td>${x.clientes}</td><td>${x.respostas}</td></tr>`).join("")}</table></details></div>
+      <div class="sp-card"><h3>🏷️ Assuntos (7 dias)</h3><div class="sp-hb">${ass.map(([k, n]) => `<span>${SP_ASSUNTO[k] || esc(k)}</span>
+        <div class="trilho" title="${n}"><i style="width:${n / amax * 100}%"></i></div><b>${n}</b>`).join("") || `<span style="color:var(--sp-muted)">Sem dados ainda.</span>`}</div></div>
+      ${lojas.length ? `<div class="sp-card"><h3>🏪 Conversas por loja</h3><div class="sp-canal">${lojas.map(([l, n]) => `<span>${esc(l)}</span><b>${nf(n)}</b>`).join("")}</div></div>` : ""}
+      <div class="sp-card"><h3>📚 Base de conhecimento</h3><div class="sp-canal"><span>Respostas ativas</span><b>${nf(d.base?.ativos)}</b>
+        <span>Propostas para aprovar</span><b>${nf(d.base?.propostas)}</b></div></div>
+    </div></div>`;
+  const hora = () => { const h = $("#sp-hora"); if (h) h.textContent = new Date().toLocaleTimeString("pt-BR", {timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit"}); };
+  hora(); clearInterval(S.spRelogio); S.spRelogio = setInterval(hora, 15000);
+  $("#sp-tv").onclick = () => { S.spTv = !S.spTv;
+    try { if (S.spTv) document.documentElement.requestFullscreen?.(); else if (document.fullscreenElement) document.exitFullscreen(); } catch { /* sem tela cheia */ }
+    telaPainelSac(); };
+  document.onfullscreenchange = () => { if (!document.fullscreenElement && S.spTv) { S.spTv = false; telaPainelSac(); } };
+  clearTimeout(S.spTimer);
+  S.spTimer = setTimeout(() => { if (location.hash.startsWith("#/sac/painel")) telaPainelSac(); else S.spTv = false; }, 60000);
+}
+const agoraN = d => (d.agora || []).length;
 const kbVistas = v => `<div class="seg" style="margin-bottom:10px"><button class="${v === "base" ? "on" : ""}" data-kb-vista="base">📚 Perguntas e respostas</button>
   <button class="${v === "fichas" ? "on" : ""}" data-kb-vista="fichas">🧴 Fichas dos perfumes</button></div>`;
 const ligarKbVistas = () => document.querySelectorAll("[data-kb-vista]").forEach(b => b.onclick = () => { S.kbVista = b.dataset.kbVista; telaBaseSac(); });
