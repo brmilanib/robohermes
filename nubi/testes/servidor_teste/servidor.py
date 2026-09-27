@@ -44,6 +44,12 @@ if os.environ.get("IA_FALSA"):
         if "deepseek.com" in url:
             return {"model": corpo["model"], "usage": {"prompt_tokens": 1200, "completion_tokens": 300},
                     "choices": [{"message": {"content": "DeepSeek aqui: sugiro cache nas consultas do dia e índice em vend_vendas_dia(data)."}}]}
+        if "anthropic" in url and ("conversando com o LOJISTA" in txt or "atendente da loja" in txt or "LOJISTA de uma loja" in txt):
+            t = ("Do estoque, algo floral leve combina. <<RESPOSTA>>Oi! Temos opções florais leves 😊<</RESPOSTA>>" if "conversando com o LOJISTA" in txt
+                 else "Oi! Não trabalhamos com tester, só perfumes lacrados. Qualquer coisa, é só chamar!" if "atendente da loja" in txt
+                 else json.dumps({"sugestao": "Oi! Temos opções florais leves 😊", "explicacao": "estoque + [1]"}))
+            return {"model": corpo["model"], "usage": {"input_tokens": 900, "output_tokens": 60}, "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": t}]}
         if "anthropic" in url:
             if "agente responsável por esta tarefa" in txt:
                 return {"model": corpo["model"], "usage": {"input_tokens": 900, "output_tokens": 80}, "stop_reason": "end_turn",

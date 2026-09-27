@@ -262,7 +262,7 @@ def test_aprende_padroes_dos_chats_como_propostas():
     a.receber(r, "tiktok_shop", "", cliente="ana", externo_id="ana", respondido=True, historico=[
         {"de": "cliente", "texto": "Vocês trocam se eu não gostar do cheiro?"},
         {"de": "loja", "texto": "Trocamos em até 7 dias se o lacre estiver intacto."}])
-    a.receber(r, "tiktok_shop", "", cliente="bia", externo_id="bia", respondido=True, historico=[
+    a.receber(r, "tiktok_shop", "", cliente="bia", externo_id="bia", respondido=True, fechado=True, historico=[
         {"de": "cliente", "texto": "oi"}])                                  # sem resposta da loja: nada a aprender
     resp = json.dumps({"padroes": [{"pergunta": "Vocês trocam se eu não gostar do cheiro?", "resposta": "Trocamos em até 7 dias se o lacre estiver intacto.", "tags": ["troca"]},
                                    {"pergunta": "Qual meu telefone?", "resposta": "Ligue (11) 98888-7777"}]})
@@ -459,6 +459,40 @@ def test_sugestao_da_internet_e_conversa_com_a_ia_so_para_o_bruno():
     ult = h["historico"][-1]
     assert ult["de"] == "ia" and ult["resposta"].startswith("Oi! Para 15 anos") and "<<" not in ult["texto"] and ult["fontes"]
     assert a.rota(r, "GET", "atendimento_conversar", {"conversa_id": str(x["conversa_id"])}, None)["historico"][0]["texto"] == "o que você indicaria?"
+
+
+def test_sonnet_escreve_e_interpreta_com_limite_e_base_por_produto():
+    # 27/09 (pedido do Bruno): escrita e interpretação com o Sonnet (limite por dia; depois a grátis) e a base sabe o produto
+    r = Repo()
+    usados = []
+    ia.tem = lambda q: q in ("ollama", "claude")
+    ia.perguntar = lambda p, **k: (usados.append((k["qual"], k.get("modelo"))) or "Oi!", [], k["qual"])
+    g = a.gerar_qualidade(r)
+    assert g("x", "y") == ("Oi!", "sonnet") and usados[-1] == ("claude", a.SONNET)
+    antigo, a.SONNET_DIA = a.SONNET_DIA, 1
+    r.t["ia_resumos"] = [{"chave": f"atendimento|sonnet|{a._hoje_br()}", "texto": "1"}]
+    assert a.gerar_qualidade(r)("x", "y") == ("Oi!", "ollama")               # no limite do dia: grátis
+    a.SONNET_DIA = antigo
+    a.salvar_item_kb(r, "principal", "Como faço para usar?", "Borrife no pulso.", tags=["produto:body splash yara"])
+    assert a.buscar_kb(r, "principal", "como faço para usar?", produtos=["Body Splash Yara Tous 250ml"])
+    assert not a.buscar_kb(r, "principal", "como faço para usar?", produtos=["Home Spray Lavanda"])
+    assert not a.buscar_kb(r, "principal", "como faço para usar?")
+    # revisão das propostas antigas: descarta o que não responde nada e marca o produto
+    a.receber(r, "tiktok_shop", "", cliente="silvia", externo_id="silvia", respondido=True, fechado=True,
+              pedido_dados={"itens": [{"nome": "Body Splash Yara Tous 250ml"}]}, historico=[
+        {"de": "cliente", "texto": "Como faço para usar?"}, {"de": "loja", "texto": "Borrife no corpo depois do banho."}])
+    for perg, resp in (("Já paguei", "Agradecemos por entrar em contato. Como posso ajudar hoje?"), ("Como faço para usar?", "Borrife no corpo.")):
+        r._req("POST", "atendimento_kb", corpo=[{"loja": "principal", "pergunta": perg, "resposta": resp, "status": "proposta",
+                                                   "tags": ["canal:tiktok_shop"], "confirmado_por": "chat de silvia"}])
+    resp = iter([json.dumps({"acao": "descartar", "motivo": "não responde"}),
+                 json.dumps({"acao": "produto", "produto": "Body Splash Yara Tous", "pergunta": "Como usar o body splash Yara Tous?",
+                             "resposta": "Borrife no corpo depois do banho."})])
+    feitas = a.revisar_propostas(r, a_cada_min=0, gerar=lambda p, s: (next(resp), "sonnet"))
+    assert [x[1] for x in feitas] == ["descartar", "produto"]
+    kb = {k["pergunta"]: k for k in r.t["atendimento_kb"]}
+    assert kb["Já paguei"]["status"] == "inativa" and "descartada_ia" in kb["Já paguei"]["tags"]
+    assert "produto:body splash yara tous" in kb["Como usar o body splash Yara Tous?"]["tags"]
+    assert a.revisar_propostas(r, a_cada_min=0, gerar=lambda p, s: 1 / 0) == []          # nada mais para revisar
 
 
 if __name__ == "__main__":

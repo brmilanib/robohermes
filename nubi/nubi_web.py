@@ -4570,6 +4570,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         atendimento.sac_proximo(repo)           # importação do SAC do UpSeller pedida: uma rodada a cada 10 min até acabar
         atendimento.retomar_esquecidas(repo)    # a cada 3 min: "respondida" só pelo robô da plataforma volta a ter rascunho
         atendimento.aprender_aos_poucos(repo)
+        atendimento.revisar_propostas(repo)     # a cada 2 min: o Sonnet revisa 5 propostas antigas (descarta o particular, marca o produto)
         atendimento.fichar_aos_poucos(repo)     # a cada 3 min: ficha (notas, inspiração) de um perfume do estoque, pela internet   # a cada 15 min: padrões das conversas novas viram propostas na base
         pend = []
         if d.get("info") is not None:

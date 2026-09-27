@@ -2719,7 +2719,9 @@ const AT_CANAIS = {tiktok_shop: {slug: "tiktok", nome: "TikTok Shop", ic: "🎵"
   mercado_livre: {slug: "ml", nome: "Mercado Livre", ic: "🤝", so_historico: true}};
 const AT_ORIGEM = {tiktok_shop: ["🎵", "TikTok Shop"], shopee: ["🛍️", "Shopee"], mercado_livre: ["🤝", "Mercado Livre"],
   whatsapp: ["💚", "WhatsApp"], manual: ["✍️", "digitado no nubi"]};
-const atOrigem = k => { const [ic, n] = AT_ORIGEM[k.origem] || AT_ORIGEM.manual; return `<span class="atx-pill" title="veio do ${esc(n)}">${ic} ${esc(n)}</span>`; };
+const atOrigem = k => { const [ic, n] = AT_ORIGEM[k.origem] || AT_ORIGEM.manual; const t = k.tags || [];
+  const prod = (t.find(x => String(x).startsWith("produto:")) || "").slice(8);
+  return `<span class="atx-pill" title="veio do ${esc(n)}">${ic} ${esc(n)}</span>${prod ? ` <span class="atx-pill azul" title="só responde quando a conversa é deste produto">🧴 ${esc(prod)}</span>` : ""}${t.includes("revisada") ? ` <span class="atx-pill verde" title="interpretada pelo Sonnet">🧠 revisada</span>` : ""}`; };
 async function telaAtendimento(canal = "tiktok_shop") {
   const CN = AT_CANAIS[canal], rotaAqui = "#/sac/" + CN.slug;
   if (S.atCanalAtual !== canal) { S.atCanalAtual = canal; S.atConv = null; S.atCarregou = false; }
