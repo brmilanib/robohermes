@@ -495,6 +495,31 @@ def test_sonnet_escreve_e_interpreta_com_limite_e_base_por_produto():
     assert a.revisar_propostas(r, a_cada_min=0, gerar=lambda p, s: 1 / 0) == []          # nada mais para revisar
 
 
+def test_interpreta_a_conversa_inteira_antes_de_responder():
+    # 27/09 (print do Bruno): "disponha" depois de o problema ser resolvido não é pergunta; é só agradecer (ou nada)
+    r = Repo()
+    hist = [{"de": "cliente", "texto": "Meu pedido não chegou"}, {"de": "loja", "texto": "Consegui contato com o entregador."},
+            {"de": "cliente", "texto": "Eu mesma fui buscar no prédio. Estava na portaria"},
+            {"de": "loja", "texto": "entendi, geralmente acontece isso mesmo"}, {"de": "cliente", "texto": "Graças a Deus"}]
+    orig = a.interpretar
+    a.interpretar = lambda repo, conv, g=None: {"intencao": "agradecimento", "responder": True, "pergunta_resumida": "",
+                                                "produto": "", "motivo": "resolvido"}
+    x = a.receber(r, "shopee", "", cliente="artkel", externo_id="artkel", historico=hist,
+                  gerar=_ia(iter(["Nós que agradecemos! 😊 Qualquer dúvida, é só chamar!"])))
+    assert x["intencao"] == "agradecimento" and x.get("automatico") and x["status"] != "precisa_info"
+    a.interpretar = lambda repo, conv, g=None: {"intencao": "agradecimento", "responder": False, "pergunta_resumida": "",
+                                                "produto": "", "motivo": "a loja já se despediu"}
+    y = a.receber(r, "shopee", "", cliente="artkel", externo_id="artkel",
+                  historico=hist + [{"de": "loja", "texto": "Dispinha"}, {"de": "cliente", "texto": "disponha"}], gerar=_ia(iter([])))
+    assert y["status"] == "sem_resposta" and r.t["atendimento_conversas"][0]["status"] == "respondida"
+    a.interpretar = orig
+    # a interpretação de verdade: o Sonnet recebe a conversa inteira e devolve JSON
+    conv = r.t["atendimento_conversas"][0]
+    d = a.interpretar(r, conv, lambda p, s_: (json.dumps({"intencao": "agradecimento", "responder": False, "motivo": "ok"}), "sonnet"))
+    assert d["responder"] is False and d["intencao"] == "agradecimento"
+    assert a.interpretar(r, conv, lambda p, s_: ("não sei", "sonnet")) is None           # resposta ruim: segue pelas regras
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

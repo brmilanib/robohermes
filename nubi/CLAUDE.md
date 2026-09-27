@@ -249,4 +249,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   marca `produto:<chave>` quando a resposta depende do produto; `buscar_kb(produtos=…)` só usa item de produto quando a
   conversa é desse produto. `revisar_propostas` (tique do Mac, 5 a cada 2 min) revisa as propostas antigas (descartada =
   `inativa` + `descartada_ia`, nunca apagada).
+- **Interpretação da conversa inteira (27/09, pedido do Bruno)**: `processar` chama `interpretar` (Sonnet, `PAPEL_INTERPRETE`)
+  antes de tudo: lê até 20 mensagens e devolve intenção, se precisa responder e o que o cliente quer de verdade ("disponha"
+  depois de resolvido = agradecimento; se a loja já se despediu, `responder=false` → rascunho `sem_resposta` e a conversa
+  fica `respondida`). A intenção e a `pergunta_resumida` guiam `buscar_dados`; falhou, segue pelas regras.
+  `reinterpretar_pendentes` (tique do Mac, 3 a cada 2 min) refaz as dúvidas e rascunhos antigos sem interpretação.
 

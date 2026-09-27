@@ -4568,6 +4568,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
         atendimento.atendente_proximo(repo)     # atendente da TikTok Shop ligado: a cada 5 min ou na hora, se há resposta aprovada
         atendimento.sac_proximo(repo)           # importação do SAC do UpSeller pedida: uma rodada a cada 10 min até acabar
+        atendimento.reinterpretar_pendentes(repo)   # a cada 2 min: dúvidas antigas refeitas com a conversa inteira interpretada
         atendimento.retomar_esquecidas(repo)    # a cada 3 min: "respondida" só pelo robô da plataforma volta a ter rascunho
         atendimento.aprender_aos_poucos(repo)
         atendimento.revisar_propostas(repo)     # a cada 2 min: o Sonnet revisa 5 propostas antigas (descarta o particular, marca o produto)
