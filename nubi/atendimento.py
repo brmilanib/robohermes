@@ -1278,7 +1278,7 @@ def atendente_proximo(repo, mac_online=True):
 
 FECHADOS_CHAVE = "atendimento|importar_fechados"
 SAC_CHAVE = "atendimento|importar_sac"
-SAC_A_CADA_MIN = 2           # 27/09 (Bruno): importar o SAC rápido (a rodada já leva uns 10 min)
+SAC_A_CADA_MIN = 15          # 27/09: era 2 (rápido), mas a rodada leva ~10 min e o Mac ficou com a CPU em 100%
 PC_COMANDO_CHAVE = "atendimento|pc_comando"
 
 

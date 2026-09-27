@@ -287,7 +287,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   a cada minuto e travava a fila do SAC). SAC: `fechados_concluido` só vale depois de 2 rodadas sem nada novo (`sac_vazias`);
   `JS_FOTOS` também acha fotos em `background-image` e pelo tamanho na tela.
 - **SAC rápido e comandos para o PC (27/09, pedido do Bruno)**: importação do SAC com teto próprio `NUBI_SAC_TETO`=US$ 30/dia
-  (`sac_gasto` no config do Mac, separado dos US$ 3 do atendente) e rodadas a cada 2 min (`SAC_A_CADA_MIN`). Comandos do nubi
+  (`sac_gasto` no config do Mac, separado dos US$ 3 do atendente) e rodadas a cada 15 min (`SAC_A_CADA_MIN`; era 2, a CPU do Mac foi a 100%; comando `processos` mostra quem usa a CPU). Comandos do nubi
   para o atendente do PC (lista FECHADA `PC_COMANDOS`: status, limpar_marca, reiniciar, login <canal>): a sessão de código
   grava em `ia_resumos` `atendimento|pc_comando` (ou rota `atendimento_pc_comando`); o PC recebe junto com
   `atendimento_para_enviar` (`pc_comando`), executa (`_pc_comando`) e devolve em `atendimento_pc_resultado` (status feito + saída).

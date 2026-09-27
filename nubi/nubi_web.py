@@ -4008,7 +4008,7 @@ COMANDOS_MAC = {
     "atualizar": "Atualizar o coletor", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia",
     "log_vigia": "Últimas linhas do vigia", "log_coleta": "Últimas linhas da coleta",
     "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
-    "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco",
+    "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac",
     "baixar_modelo": "Baixar modelo do Ollama", "estoque": "Atualizar o estoque do UpSeller agora",
     "gestor": "Importar a planilha no Gestor Seller", "hermes_card": "Hermes fazer um card (no Mac)",
     "entrar": "Abrir o login do Nubimetrics no Mac (você clica em Entrar)",

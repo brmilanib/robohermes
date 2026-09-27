@@ -2274,6 +2274,7 @@ def comando_mac(chave, arg=""):
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
         "ollama_modelos": [ol, "list"], "ollama_rodando": [ol, "ps"],
         "espaco": ["/bin/df", "-h", str(Path.home())],
+        "processos": ["/bin/ps", "-Ao", "pcpu,pmem,etime,comm", "-r"],   # 27/09: quem está usando a CPU (só leitura)
     }
     if chave == "baixar_modelo":
         return [ol, "pull", arg] if arg in MODELOS_OK else None
