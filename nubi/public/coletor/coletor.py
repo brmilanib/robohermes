@@ -2306,7 +2306,7 @@ def comando_mac(chave, arg=""):
     if WINDOWS:          # 27/09: servidor Dell (Windows) — mesmos comandos, com as ferramentas do Windows
         ps = ["powershell", "-NoProfile", "-Command"]
         tabela.update({
-            "vigia_status": ["schtasks", "/query", "/tn", TAREFA_WIN],
+            "vigia_status": [*ps, "Get-ChildItem \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\" | Select Name,LastWriteTime"],
             "log_vigia": [*ps, f"Get-Content -Tail 80 '{PASTA / 'vigia.log'}'"],
             "log_coleta": [*ps, f"Get-Content -Tail 120 '{PASTA / 'coletor.log'}'"],
             "espaco": [*ps, "Get-PSDrive -PSProvider FileSystem | Format-Table -AutoSize Name,Used,Free"],
@@ -2681,13 +2681,18 @@ def cmd_servidor(args, cfg):
         if not WINDOWS:
             print("O --instalar é para o Windows (Agendador de Tarefas).")
             return 1
-        exe = Path(sys.executable)
-        pyw = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").exists() else exe
-        r = subprocess.run(["schtasks", "/create", "/f", "/tn", TAREFA_WIN, "/sc", "onlogon", "/rl", "limited",
-                            "/tr", f'"{pyw}" "{Path(__file__).resolve()}" servidor'], capture_output=True, text=True)
-        print((r.stdout or r.stderr).strip() or "feito")
-        print("Pronto: ao entrar no Windows, o servidor do nubi abre sozinho (tarefa 'nubi-servidor').")
-        return r.returncode
+        # 27/09: no gamdias o Agendador negou acesso (sem administrador); a pasta Inicializar do usuário não precisa
+        inicio = Path(os.environ.get("APPDATA") or Path.home()) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        try:
+            inicio.mkdir(parents=True, exist_ok=True)
+            atalho = inicio / "nubi-servidor.cmd"
+            atalho.write_text(f'@echo off\r\ncd /d "{PASTA}"\r\nstart "nubi servidor" "{sys.executable}" '
+                              f'"{Path(__file__).resolve()}" servidor\r\n', encoding="utf-8")
+        except OSError as e:
+            print(f"Não consegui criar o início automático: {e}")
+            return 1
+        print(f"Pronto: ao entrar no Windows, o servidor do nubi abre sozinho ({atalho}).")
+        return 0
     print("🖥️ Servidor do nubi ligado neste computador. Deixe ligado (Ctrl+C para parar).", flush=True)
     atendente = None
     log = open(PASTA / "vigia.log", "a", encoding="utf-8", errors="replace")

@@ -318,7 +318,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   reserva e o gamdias (PC de casa) é a 2ª reserva do atendente. Senhas nunca passam pelo chat: o Bruno roda `configurar` lá.
 - Ordem (27/09): gamdias = principal (`servidor`, prioridade 1), Dell = reserva (`servidor --reserva`, prioridade 2). Sinal por máquina em `ia_resumos` `fila|servidor|<nome>` (`atendimento.servidor_ativo`); o de reserva não pega fila nem atende (`computador=servidor:<nome>`) enquanto o principal dá sinal.
 - `--so sac` assume só o SAC (gamdias, 27/09, enquanto o Dell não está pronto; Sala e vetores ficam no Mac); `--tudo` volta ao padrão.
-- `py -3.12 coletor.py servidor` (`--instalar` cria a tarefa `nubi-servidor` no Agendador, ao entrar no Windows): a cada
+- `py -3.12 coletor.py servidor` (`--instalar` põe `nubi-servidor.cmd` na pasta Inicializar do usuário; o Agendador negou acesso sem administrador): a cada
   minuto roda `vigiar` num processo novo (despachante + versão nova a cada ~5 min, `_vigiar_servidor`; sem as coletas com
   horário) e mantém o atendente ligado. `cfg["maquina"]="servidor"`.
 - Fila: o servidor manda no `mac_tick` `maquina=servidor` e `pode` (`SERVIDOR_PODE`: importar_sac, hermes, qwen e os
