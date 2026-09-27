@@ -2282,6 +2282,32 @@ def _ollama_bin():
 MODELOS_OK = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 
 
+# Forense do malware achado em 27/09 (caminhos fixos; só lê: plutil, ls, shasum, file, codesign, otool, strings, mdls)
+_AG = "$HOME/Library/LaunchAgents/com.vsbgoqkgoyeuwbdw.plist"
+FORENSE_AGENTE = (
+    f'f="{_AG}"; echo "== arquivo =="; /bin/ls -la@O "$f"; /usr/bin/shasum -a 256 "$f"; '
+    'echo "== de onde veio =="; /usr/bin/mdls -name kMDItemWhereFroms -name kMDItemContentCreationDate "$f"; /usr/bin/xattr -l "$f"; '
+    'echo "== conteudo =="; /usr/bin/plutil -p "$f" 2>&1 | /usr/bin/head -c 7000; '
+    'echo; echo "== launchd =="; /bin/launchctl print gui/$(/usr/bin/id -u)/com.vsbgoqkgoyeuwbdw 2>&1 | /usr/bin/head -40')
+_CACHE = "/Library/Preferences/Logging/.plist-cache.gcmmZXpk"
+FORENSE_CACHE = (
+    f'f="{_CACHE}"; echo "== pasta =="; /bin/ls -la@O /Library/Preferences/Logging/; '
+    'echo "== arquivo =="; /usr/bin/file "$f"; /usr/bin/shasum -a 256 "$f"; /usr/bin/xattr -l "$f"; '
+    'echo "== assinatura =="; /usr/bin/codesign -dvv "$f" 2>&1 | /usr/bin/head -15; '
+    'echo "== bibliotecas =="; /usr/bin/otool -L "$f" 2>&1 | /usr/bin/head -20; '
+    'echo "== textos dentro (urls, caminhos, comandos) =="; /usr/bin/strings -n 6 "$f" 2>/dev/null | '
+    '/usr/bin/grep -Eia "http|https|\\.sh|/tmp|/usr|/Library|launch|curl|wget|pool|xmrig|wallet|python|osascript|password|keychain|chrome|cookie|base64" | '
+    '/usr/bin/sort -u | /usr/bin/head -120')
+FORENSE_TMP = (
+    'd=/private/tmp/rigupdater; echo "== arvore =="; /bin/ls -laR "$d" 2>&1 | /usr/bin/head -60; '
+    'echo "== hashes =="; /usr/bin/find "$d" -type f -maxdepth 3 -exec /usr/bin/shasum -a 256 {} \; 2>/dev/null | /usr/bin/head -20; '
+    'echo "== de onde veio =="; for x in $(/usr/bin/find "$d" -maxdepth 2 2>/dev/null | /usr/bin/head -15); do '
+    '/usr/bin/mdls -name kMDItemWhereFroms "$x" 2>/dev/null | /usr/bin/grep -v null; /usr/bin/xattr -p com.apple.quarantine "$x" 2>/dev/null; done; '
+    'echo "== config =="; for c in $(/usr/bin/find "$d" -name "*.json" -maxdepth 3 2>/dev/null); do echo "-- $c"; /usr/bin/head -c 2500 "$c"; echo; done; '
+    'echo "== scripts =="; for c in $(/usr/bin/find "$d" \\( -name "*.sh" -o -name "*.py" -o -name "*.command" \\) -maxdepth 3 2>/dev/null); do echo "-- $c"; /usr/bin/head -c 2500 "$c"; echo; done; '
+    'echo "== outras pastas em /tmp =="; /bin/ls -la /private/tmp | /usr/bin/head -40')
+
+
 def comando_mac(chave, arg=""):
     """Lista FECHADA: cada chave vira um comando fixo; nada vindo de fora vira comando livre."""
     c = _eu()
@@ -2303,6 +2329,10 @@ def comando_mac(chave, arg=""):
         "espaco": ["/bin/df", "-h", str(Path.home())],
         # 27/09: quem está usando a CPU (só leitura); só as 25 primeiras linhas (o nubi guarda o fim da saída)
         "processos": ["/bin/sh", "-c", "/bin/ps -Ao pcpu,pmem,etime,comm -r | /usr/bin/head -25"],
+        # 27/09 (Bruno quer entender o malware): SÓ LEITURA dos 3 pedaços achados pelo matar_xmrig. Nunca executa nada deles.
+        "forense_agente": ["/bin/sh", "-c", FORENSE_AGENTE],
+        "forense_cache": ["/bin/sh", "-c", FORENSE_CACHE],
+        "forense_tmp": ["/bin/sh", "-c", FORENSE_TMP],
         # 27/09: minerador de criptomoeda (xmrig) achado no Mac às 19:42. Anota de onde roda e quem o abriu, mata, e mostra
         # o que pode abri-lo de novo (LaunchAgents/Daemons, crontab). Só mexe em processos com "xmrig" no nome.
         "matar_xmrig": ["/bin/sh", "-c",
