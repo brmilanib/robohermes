@@ -1006,7 +1006,8 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
             destino = PASTA / "arquivos" / (f"dias/{ate}" if rota == "vend_dia" else
                                             mes + ("-comparativo" if rota == "vend_foto" else "-parcial" if ate else ""))
             destino.mkdir(parents=True, exist_ok=True)
-            for tentativa in (1, 2):
+            # 3 tentativas: o Chrome reaberto logo depois de fechar às vezes cai de novo no 1º download (só o 3º fica)
+            for tentativa in (1, 2, 3):
                 try:
                     arq = baixar_vendedor(pagina(), h, per["ini"], per["fim"], per["rng"], destino, nome)
                     arquivos += 1
@@ -1051,7 +1052,7 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
                     break
                 except Exception as e:  # noqa: BLE001
                     fechou = "has been closed" in str(e) or "Target closed" in str(e)
-                    if fechou and tentativa == 1:
+                    if fechou and tentativa < 3:
                         reabrir(str(e))
                         continue
                     erros += 1
