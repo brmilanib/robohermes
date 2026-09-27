@@ -30,6 +30,13 @@ try:
             pg.click("#atx-colar"); pg.fill("#at-cli", f"Ana {nome}"); pg.fill("#at-txt", pergunta)
             pg.click("#at-nova button"); pg.wait_for_selector(".atx-alerta", timeout=10000)
             assert "Preciso de você" in pg.inner_text(".atx-alerta"), nome          # abriu a conversa com a dúvida
+            if nome == "pc":        # 🌐 sugestão da internet (só para o Bruno) e 🤖 conversa com a IA antes de responder
+                pg.wait_for_selector("#atx-sug-usar", timeout=15000); pg.click("#atx-sug-usar")
+                assert pg.input_value("#atx-txt").strip()
+                pg.click("#atx-ia summary"); pg.fill("#atx-ia-txt", "o que você indicaria?"); pg.click("#atx-ia-env")
+                pg.wait_for_selector("[data-ia-usar]", timeout=15000); pg.click("[data-ia-usar]")
+                assert pg.input_value("#atx-txt").startswith("Oi! Temos opções florais") and "exemplo.com" in pg.inner_html("#atx-ia-msgs")
+                pg.fill("#atx-txt", resposta)
             pg.fill("#atx-txt", resposta); pg.click("#atx-env"); pg.wait_for_timeout(1800)
             if nome == "pc":        # respondeu embaixo: a mensagem já vai para o cliente pelo atendente
                 assert "⏳ enviando" in pg.inner_text("#atx-msgs") and "🤖 automático" in pg.inner_text("#atx-msgs")
@@ -50,6 +57,9 @@ try:
             pg.click("[data-at-aba=kb]"); pg.wait_for_selector(".at-kb-item", timeout=10000)
             assert pergunta in pg.inner_text(".at-kb"), nome
             assert "#/sac/base" in pg.url and "🎵 TikTok Shop" in pg.inner_text(".at-kb")      # base SAC com a origem (a dúvida veio do chat da TikTok)
+            pg.click("[data-kb-vista=fichas]"); pg.wait_for_selector("#fi-prox", timeout=10000)
+            assert "Fichas dos perfumes" in pg.inner_text("h1")
+            pg.click("[data-kb-vista=base]"); pg.wait_for_selector("#kb-sac", timeout=10000)
             assert not erros, erros
             if nome == "pc":        # 🛍️ Shopee: mesma tela, conversas só da Shopee
                 pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/shopee"); pg.wait_for_selector("[data-at-aba=tudo]", timeout=15000)

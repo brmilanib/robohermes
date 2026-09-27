@@ -89,3 +89,27 @@ create index if not exists atendimento_rascunhos_envio on public.atendimento_ras
 
 -- 26/09 (pedido do Bruno): aprender padrões com os chats antigos (fechados) → propostas na base
 alter table public.atendimento_conversas add column if not exists aprendido_em timestamptz;
+
+-- 27/09 (pedido do Bruno): ficha de cada perfume do estoque (notas, inspiração, curiosidades) pesquisada na internet pela
+-- IA grátis. Status 'internet' = ainda não conferida (a resposta que usa ela sempre passa pelo Bruno); 'confirmada' = o
+-- Bruno conferiu. Nunca guarda preço nem dado de cliente.
+create table if not exists public.perfume_fichas (
+  id bigint generated always as identity primary key,
+  chave text not null unique,                -- nome do produto normalizado (sem tamanho/tipo), para achar de novo
+  produto text not null,                     -- título do anúncio no estoque do UpSeller
+  perfume text,                              -- nome do perfume e marca como a IA entendeu
+  familia text,
+  notas_topo text, notas_coracao text, notas_fundo text,
+  inspirado_em text,                         -- "lembra"/"inspirado em" (só o que as fontes dizem)
+  curiosidades text,
+  ocasiao text,
+  fontes jsonb not null default '[]'::jsonb, -- [{titulo, url}]
+  status text not null default 'internet',   -- internet, confirmada, sem_dado
+  confirmado_por text,
+  criado_em timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+alter table public.perfume_fichas enable row level security;
+drop policy if exists autorizado on public.perfume_fichas;
+create policy autorizado on public.perfume_fichas for all to authenticated
+  using ((select privado.nubi_autorizado())) with check ((select privado.nubi_autorizado()));

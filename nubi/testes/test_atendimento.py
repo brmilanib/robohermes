@@ -409,6 +409,58 @@ def test_produto_que_a_cliente_perguntou_e_origem_na_base():
     assert a.rota(r, "GET", "atendimento_kb", {}, None)["itens"][0]["origem"] == "manual"
 
 
+def _estoque(r, titulos):
+    r._req("POST", "estoque_atualizacoes", corpo=[{"id": 1}])
+    r._req("POST", "estoque_itens", corpo=[{"atualizacao_id": 1, "titulo": t, "disponivel": 3} for t in titulos])
+
+
+def test_fichas_dos_perfumes_do_estoque_ajudam_mas_passam_pelo_bruno():
+    # 27/09 (pedido do Bruno): notas, inspiração e curiosidades de cada perfume do estoque, pesquisadas na internet
+    r = Repo()
+    _estoque(r, ["Perfume Club De Nuit Intense Man Armaf EDT 105ml"])
+    busca = lambda q, n=5: [{"titulo": "Club de Nuit Intense", "url": "https://fragrantica.com/x", "texto": "notas de limão e abacaxi; lembra o Aventus"}]
+    ficha = json.dumps({"perfume": "Club de Nuit Intense Man (Armaf)", "familia": "Amadeirado frutado", "notas_topo": "limão, abacaxi",
+                        "inspirado_em": "Creed Aventus", "curiosidades": "Um dos mais vendidos da Armaf."})
+    f = a.fichar_perfume(r, "Perfume Club De Nuit Intense Man Armaf EDT 105ml", gerar=_ia(iter([ficha])), buscar=busca)
+    assert f["status"] == "internet" and f["chave"] == "club de nuit intense man armaf" and f["fontes"][0]["url"]
+    assert a.fichar_aos_poucos(r, a_cada_min=0) is None                       # já tem ficha de tudo que está no estoque
+    x = a.receber(r, "shopee", "", cliente="bia", externo_id="bia", historico=[
+        {"de": "cliente", "texto": "O Club de Nuit Intense Man é inspirado em qual perfume?"}],
+        gerar=_ia(iter(["Oi! O Club de Nuit Intense Man lembra o Creed Aventus. Qualquer coisa, é só chamar!"])))
+    assert x["status"] == "pendente" and not x.get("automatico")               # ficha da internet: passa pelo Bruno
+    assert x["fontes"]["ficha_perfume"][0]["inspirado_em"] == "Creed Aventus"
+    a.rota(r, "POST", "atendimento_ficha_salvar", {}, json.dumps({"id": f["id"], "confirmar": True}).encode())
+    y = a.receber(r, "shopee", "", cliente="cai", externo_id="cai", historico=[
+        {"de": "cliente", "texto": "O Club de Nuit Intense Man é inspirado em qual perfume?"}],
+        gerar=_ia(iter(["Oi! Ele lembra o Creed Aventus. Qualquer coisa, é só chamar!"])))
+    assert y["fontes"]["ficha_perfume"][0]["status"] == "confirmada"
+
+
+def test_sugestao_da_internet_e_conversa_com_a_ia_so_para_o_bruno():
+    r = Repo()
+    _estoque(r, ["Perfume Yara Lattafa EDP 100ml"])
+    a.fichar_perfume(r, "Perfume Yara Lattafa EDP 100ml", gerar=_ia(iter([json.dumps({"perfume": "Yara (Lattafa)", "familia": "Floral frutado doce"})])),
+                     buscar=lambda q, n=5: [{"titulo": "Yara", "url": "https://x", "texto": "floral doce"}])
+    x = a.receber(r, "shopee", "", cliente="fer", externo_id="fer", historico=[
+        {"de": "cliente", "texto": "Tem outro perfume feminino pra menina de 15 anos?"}],
+        pedido_dados={"produto_consultado": {"nome": "Gigi Lazuli Avatim 100ml"}}, gerar=_ia(iter([])))
+    busca = lambda q, n=5: [{"titulo": "Perfumes para adolescentes", "url": "https://blog/x", "texto": "florais frutados leves"}]
+    feitos = []
+    def gerar(prompt, sistema):
+        feitos.append(prompt)
+        return json.dumps({"sugestao": "Oi! Para 15 anos indico o Yara, floral frutado e doce 😊", "explicacao": "estoque + [1]"}), "gpt-oss"
+    sug = a.sugerir_web(r, x["id"], gerar=gerar, buscar=busca)
+    assert "Yara" in sug["sugestao"] and sug["fontes"][0]["url"] == "https://blog/x"
+    assert "Yara (Lattafa)" in feitos[0] and "Gigi Lazuli Avatim 100ml" in feitos[0]          # estoque e o produto que ela vê
+    assert a.sugerir_web(r, x["id"], gerar=None) == sug                                     # guardada: não pesquisa de novo
+    assert not r.t.get("mac_comandos") and x["status"] == "precisa_info"                    # nada foi para a cliente
+    h = a.conversar_ia(r, x["conversa_id"], "o que você indicaria?", gerar=_ia(iter([
+        "Do estoque, o Yara combina (floral doce). <<RESPOSTA>>Oi! Para 15 anos o Yara é ótimo, floral e docinho 😊<</RESPOSTA>>"])), buscar=busca)
+    ult = h["historico"][-1]
+    assert ult["de"] == "ia" and ult["resposta"].startswith("Oi! Para 15 anos") and "<<" not in ult["texto"] and ult["fontes"]
+    assert a.rota(r, "GET", "atendimento_conversar", {"conversa_id": str(x["conversa_id"])}, None)["historico"][0]["texto"] == "o que você indicaria?"
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

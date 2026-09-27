@@ -31,6 +31,11 @@ if os.environ.get("IA_FALSA"):
             return {"data": [{"index": i, "embedding": vec(t)} for i, t in enumerate(corpo["input"])]}
         txt = json.dumps(corpo, ensure_ascii=False)
         open(os.path.join(os.environ.get("TMPDIR", "/tmp"), "nubi_ultimo_prompt.txt"), "w").write(corpo.get("input", ""))
+        if "web_search" in url:
+            return {"results": [{"title": "Perfumes para adolescentes", "url": "https://exemplo.com/guia", "content": "florais leves"}]}
+        if "ollama.com" in url and "conversando com o LOJISTA" in txt:
+            return {"model": corpo["model"], "message": {"content": "Do estoque, algo floral leve combina. <<RESPOSTA>>Oi! Temos opções florais leves 😊<</RESPOSTA>>"},
+                    "prompt_eval_count": 50, "eval_count": 12}
         if "ollama.com" in url and "atendente da loja" in txt:
             return {"model": corpo["model"], "message": {"content": "Oi! Não trabalhamos com tester, só perfumes lacrados. Qualquer coisa, é só chamar!"},
                     "prompt_eval_count": 50, "eval_count": 12}

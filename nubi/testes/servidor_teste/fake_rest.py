@@ -233,7 +233,7 @@ DB["agentes"] = [
 DB["agentes_uso"] = []
 DB["tarefa_eventos"] = []
 DB["mac_comandos"] = []
-for _t in ("atendimento_conversas", "atendimento_mensagens", "atendimento_kb", "atendimento_rascunhos", "store_orders"):   # atendimento (26/09)
+for _t in ("atendimento_conversas", "atendimento_mensagens", "atendimento_kb", "atendimento_rascunhos", "store_orders", "perfume_fichas"):   # atendimento (26/09)
     DB.setdefault(_t, [])
     SEQ[_t] = 0
 SEQ["mac_comandos"] = 0

@@ -220,13 +220,23 @@ def test_importa_o_sac_do_upseller_so_como_historico():
     shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
     ch = _preparar([("ler", {}), ("rolar", {}),
                     ("registrar", {"cliente": "comprador_ml", "plataforma": "mercado_livre", "respondido": False, "historico": [
-                        {"de": "cliente", "texto": "Sobre Sauvage 100ml: é original?"}, {"de": "loja", "texto": "Sim, 100% original!"}]}),
+                        {"de": "cliente", "texto": "Sobre Sauvage 100ml: é original?"}, {"de": "loja", "texto": "Sim, 100% original!"}],
+                        "pedido_id": "UP5377046774", "pedido": {"loja": "AURA SCENT", "numero_plataforma": "2000018852964378",
+                        "itens": [{"nome": "Perfume Club De Nuit Iconic 105ml", "quantidade": 1}]}}),
                     ("enviar_aprovada", {"id": 1, "n_campo": 0, "n_botao": 1}),
                     ("fechados_concluido", {}), ("terminar", {"resumo": "1 importada"})])
-    c.PLATAFORMAS["upseller_sac"] = ("UpSeller SAC", URL, "127.0.0.1", "Importador SAC")
+    import base64
+    PAGINA.with_name("foto.png").write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAIAAACRXR/mAAAAK0lEQVR42u3NMQEAAAgDoK1/aM3hIYJpzW1vQ0JCQkJCQkJCQkJCQkJCQkLiA0yHAWG2m/mQAAAAAElFTkSuQmCC"))
+    PAGINA.with_name("sac.html").write_text(PAGINA.read_text(encoding="utf-8").replace(
+        "</body>", '<div class="it"><img src="foto.png" width="50" height="50"><span>Perfume Club De Nuit Iconic 105ml</span></div></body>'),
+        encoding="utf-8")
+    c.PLATAFORMAS["upseller_sac"] = ("UpSeller SAC", URL.replace("chat.html", "sac.html"), "127.0.0.1", "Importador SAC")
     assert c.cmd_importar_sac(None, c.ler_config()) == 0
     corpo = next(cp for r, cp in ch["api"] if r == "atendimento_receber")
     assert corpo["canal"] == "mercado_livre" and corpo["respondido"] and corpo["fechado"]
+    pd = corpo["pedido_dados"]
+    assert pd["fonte"] == "upseller_sac" and pd["loja"] == "AURA SCENT" and pd["itens"][0]["foto"].endswith("/foto.png")
     assert ("atendimento_sac", {"importar": False}) in ch["api"]
     txt = json.dumps(ch["ultima"], ensure_ascii=False)
     assert "Rolei" in txt and "nunca envia" in txt and not any(r == "atendimento_enviado" for r, _ in ch["api"])

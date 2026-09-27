@@ -4569,7 +4569,8 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         atendimento.atendente_proximo(repo)     # atendente da TikTok Shop ligado: a cada 5 min ou na hora, se há resposta aprovada
         atendimento.sac_proximo(repo)           # importação do SAC do UpSeller pedida: uma rodada a cada 10 min até acabar
         atendimento.retomar_esquecidas(repo)    # a cada 3 min: "respondida" só pelo robô da plataforma volta a ter rascunho
-        atendimento.aprender_aos_poucos(repo)   # a cada 15 min: padrões das conversas novas viram propostas na base
+        atendimento.aprender_aos_poucos(repo)
+        atendimento.fichar_aos_poucos(repo)     # a cada 3 min: ficha (notas, inspiração) de um perfume do estoque, pela internet   # a cada 15 min: padrões das conversas novas viram propostas na base
         pend = []
         if d.get("info") is not None:
             pend = repo._req("GET", "mac_comandos", {"select": "id,comando,arg", "status": "eq.pendente", "order": "id", "limit": 3}) or []

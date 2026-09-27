@@ -230,4 +230,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   rascunho de origem ou "chat de X"; senão manual. O atendente manda o cartão do produto que o cliente está olhando
   (`produto` → `pedido_dados.produto_consultado`): aparece no painel da conversa, na pergunta ao Bruno e nos FATOS (a IA não
   indica o mesmo produto). Conversa aberta ainda sem `pedido_dados.lido_em` sai dos "conhecidos" para ser relida uma vez.
+- **Fichas, sugestão da internet e conversa com a IA (27/09, pedido do Bruno)**: `perfume_fichas` (migração em
+  `supabase/atendimento.sql`): `fichar_aos_poucos` (tique do Mac, 1 a cada 3 min) pesquisa cada perfume COM estoque
+  (`ia.ollama_web` + gpt-oss, `PAPEL_FICHA`) e grava notas/família/"inspirado em"/curiosidades com as fontes; status
+  `internet` entra nos FATOS (`ficha_perfume`) mas a resposta passa pelo Bruno (`pode_sozinho`), `confirmada` responde
+  sozinha. Tela: SAC → Base → 🧴 Fichas dos perfumes. Em "Precisa de você" a tela pede `atendimento_sugerir` (`sugerir_web`:
+  internet + fichas do estoque → sugestão SÓ para o Bruno, guardada em `fontes.sugestao_web`). Dentro da conversa,
+  "🤖 Conversar com a IA" (`conversar_ia`, `PAPEL_COPILOTO`, histórico em `ia_resumos` `atendimento|chat|<id>`) com ditado 🎤
+  (Web Speech do navegador) e 🔊 leitura; "Usar como resposta" só preenche o campo, quem envia é o Bruno.
+- **SAC completo (27/09)**: o importador manda o painel inteiro do UpSeller (nº do pedido e da plataforma, pagamento, loja,
+  valor, comprador, logística, rastreio, itens) e `produto`; o coletor pega a foto do produto na página (`JS_FOTOS`, só
+  foto de produto) e marca `pedido_dados.fonte=upseller_sac`. `conhecidos_sac` só conta as já importadas assim (as antigas
+  são relidas uma vez). O valor e o comprador aparecem só na tela; `pedido_seguro` não passa isso para a IA.
 

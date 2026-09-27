@@ -3936,8 +3936,10 @@ ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abri
          "produto": {"type": "object", "description": "o produto que o cliente está olhando/perguntando (cartão de produto no "
                      "chat, ex.: 'O cliente está perguntando sobre esse produto'): {nome, variacao} como está escrito"},
          "pedido_id": {"type": "string"},
-         "pedido": {"type": "object", "description": "só o que está escrito no painel do pedido: status, transportadora, rastreio, "
-                    "previsao_entrega, ultima_atualizacao, itens [{nome, variacao, quantidade}]"}},
+         "pedido": {"type": "object", "description": "só o que está escrito no painel do pedido: status, transportadora (Logística), "
+                    "rastreio, previsao_entrega, ultima_atualizacao, numero_plataforma (Nº de Pedido da Plataforma), pago_em (Hora do "
+                    "Pagamento), loja (nome da loja), valor_total, comprador (Nome de Comprador), criado_em, itens [{nome, variacao, "
+                    "quantidade}]"}},
          "required": ["cliente"]}},
     {"name": "enviar_aprovada", "description": "Envia no chat ABERTO a resposta aprovada no nubi (o coletor digita o texto "
      "aprovado; você só indica o campo de mensagem e o botão Enviar da última leitura). Abra antes a conversa do cliente certo.",
@@ -3987,7 +3989,10 @@ PAPEL_SAC = (
     "use ler e registre com plataforma (mercado_livre, shopee ou tiktok_shop: veja o ícone ou o nome da loja), cliente, "
     "respondido=true, fechado=true e o historico COMPLETO na ordem (de='cliente' o que o comprador escreveu, de='loja' o que a "
     "loja respondeu). Pergunta de anúncio: historico = pergunta do cliente (comece com 'Sobre <produto>: ' se o produto "
-    "aparecer) e a resposta da loja. Ignore avisos do sistema e respostas automáticas.\n"
+    "aparecer) e a resposta da loja. Ignore avisos do sistema e as 'Auto Resposta'. Mande TAMBÉM tudo do painel da direita "
+    "('Informação do Pedido'): pedido_id (Nº de Pedido), e em pedido: numero_plataforma, pago_em, loja, valor_total, "
+    "comprador, transportadora (Logística), rastreio, status, criado_em e itens [{nome, variacao, quantidade}]; e em produto "
+    "{nome} o produto da conversa (o título dela na lista). O coletor pega a foto do produto sozinho.\n"
     "3) Use rolar para ver as mais antigas (e a próxima página, se houver). Até 25 registros por rodada; depois terminar. "
     "Quando não houver mais NENHUMA nova em nenhuma aba, use fechados_concluido.\n"
     "REGRAS FIXAS: nunca digite nada; nunca clique em Enviar, Responder, Resolver, Marcar, Arquivar, Excluir, reembolso, "
@@ -4070,12 +4075,35 @@ def _atendente_abrir_conversa(pg, cliente, estado):
     return f"Não achei '{cliente}' na página: use ler e confira o nome (ou role a lista)."
 
 
-def _atendente_painel(ent):
-    """Painel do pedido + o cartão do produto que o cliente está olhando (27/09: para não indicar o mesmo produto)."""
+JS_FOTOS = r"""nomes => { const achar = n => { const k = n.toLowerCase().slice(0, 18);
+    for (const img of document.querySelectorAll('img')) {
+      if (!/^https?:/.test(img.currentSrc || img.src) || img.naturalWidth < 30 || img.naturalHeight < 30) continue;
+      let e = img, t = '';
+      for (let i = 0; i < 4 && e; i++, e = e.parentElement) { t = (e.innerText || '') + ' ' + (img.alt || '') + ' ' + (img.title || '');
+        if (t.length > 600) break; if (t.toLowerCase().includes(k)) return img.currentSrc || img.src; } }
+    return ''; };
+  const out = {}; for (const n of nomes) out[n] = achar(n); return out; }"""
+
+
+def _atendente_painel(ent, pg=None, fonte=None):
+    """Painel do pedido + o cartão do produto que o cliente está olhando (27/09: para não indicar o mesmo produto) e a foto
+    de cada produto (o coletor pega o endereço da imagem ao lado do nome na página; foto de produto, nunca de cliente)."""
     pd = dict(ent.get("pedido"), id=ent.get("pedido_id")) if isinstance(ent.get("pedido"), dict) else {}
     prod = ent.get("produto")
     if isinstance(prod, dict) and prod.get("nome"):
         pd["produto_consultado"] = {k: str(prod[k])[:200] for k in ("nome", "variacao") if prod.get(k)}
+    itens = [i for i in (pd.get("itens") or []) if isinstance(i, dict) and i.get("nome")]
+    nomes = [x["nome"] for x in ([pd["produto_consultado"]] if pd.get("produto_consultado") else []) + itens]
+    if pg is not None and nomes:
+        try:
+            fotos = pg.evaluate(JS_FOTOS, [str(n) for n in nomes[:6]])
+        except Exception:  # noqa: BLE001
+            fotos = {}
+        for x in ([pd["produto_consultado"]] if pd.get("produto_consultado") else []) + itens:
+            if fotos.get(str(x["nome"])):
+                x["foto"] = str(fotos[str(x["nome"])])[:600]
+    if fonte:
+        pd["fonte"] = fonte
     return pd or None
 
 
@@ -4123,7 +4151,8 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
     aprovadas = {} if sac else {i["id"]: i for i in (pend.get("itens") or []) if (i.get("canal") or "tiktok_shop") == canal}
     fechados = bool(pend.get("importar_fechados")) and canal == "tiktok_shop"
     if sac:
-        conhecidos = [n for v in (pend.get("conhecidos_por_canal") or {}).values() for n in v][-300:]
+        conhecidos = (pend.get("conhecidos_sac") if pend.get("conhecidos_sac") is not None else
+                      [n for v in (pend.get("conhecidos_por_canal") or {}).values() for n in v])[-300:]
     else:
         conhecidos = (pend.get("conhecidos_por_canal") or {}).get(canal) or (pend.get("conhecidos") if canal == "tiktok_shop" else []) or []
     try:
@@ -4196,7 +4225,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                         "historico": hist or None, "respondido": bool(ent.get("respondido")) or bool(ent.get("fechado")),
                         "fechado": bool(ent.get("fechado")),
                         "pedido": str(ent.get("pedido_id") or "") or None,
-                        "pedido_dados": _atendente_painel(ent)},
+                        "pedido_dados": _atendente_painel(ent, pg, "upseller_sac" if sac else None)},
                         metodo="POST", timeout=180)["rascunho"]
                     estado["registradas"] = estado.get("registradas", 0) + 1
                     if x.get("pelo_mac") and x.get("texto"):
