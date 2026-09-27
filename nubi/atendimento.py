@@ -589,8 +589,20 @@ def _eco(texto, da_loja):
 
 
 def _sem_eco(msgs, enviados=()):
+    """Tira os ecos da leitura: a resposta da loja lida como se fosse do cliente e o bloco de mensagens ANTIGAS do cliente
+    lido de novo no fim (27/09: "ainda tem?? consigo comprar?" repetido depois de já respondido e vendido)."""
     loja = [_norm(m["texto"]).strip() for m in msgs if m.get("de") == "loja"] + [_norm(x).strip() for x in enviados if x]
-    return [m for m in msgs if m.get("de") != "cliente" or not _eco(m.get("texto"), loja)]
+    saida, ja_ditas = [], set()
+    for m in msgs:
+        if m.get("de") == "cliente":
+            if _eco(m.get("texto"), loja):
+                continue
+            linhas = {_norm(x).strip() for x in str(m.get("texto") or "").split("\n") if _norm(x).strip()}
+            if linhas and linhas <= ja_ditas:
+                continue                                  # tudo isso o cliente já tinha dito antes
+            ja_ditas |= linhas | {_norm(m.get("texto")).strip()}
+        saida.append(m)
+    return saida
 
 
 def _separar_historico(historico, respondido):
