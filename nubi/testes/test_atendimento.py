@@ -201,6 +201,9 @@ def test_tiktok_aprendido_sai_sozinho_pelo_mac_e_duvida_vai_ao_bruno():
     # a mesma mensagem lida de novo pelo atendente não duplica nada
     a.receber(r, "tiktok_shop", "vocês vendem tester?", cliente="leidi", externo_id="leidi", gerar=_ia(iter([])))
     assert len(r.t["atendimento_rascunhos"]) == 1
+    y = a.receber(r, "shopee", "", cliente="samia", externo_id="samia", respondido=True, historico=[
+        {"de": "loja", "texto": "Oi! Tudo bem?"}, {"de": "cliente", "texto": "(nenhuma mensagem)"}], gerar=_ia(iter([])))
+    assert y["status"] == "historico"                                       # marcador do modelo não vira pergunta
     # pedido: nunca sai sozinho; o pedido lido no painel do chat vale como dado real
     tela = {"id": "586222884320019967", "status": "Em trânsito", "previsao_entrega": "entre 28/09 e 04/10", "transportadora": "J&T"}
     y = a.receber(r, "tiktok_shop", "cadê meu pedido?", cliente="ana", externo_id="ana", pedido_ref="586222884320019967",

@@ -443,9 +443,13 @@ ROBO_PLATAFORMA = re.compile(
     r"recomendo entrar em contato (direto |diretamente )?com a loja|atendidas pelo assistente", re.I | re.S)
 
 
+# o modelo às vezes registra um marcador no lugar da conversa vazia ("(nenhuma mensagem)"): não é pergunta de cliente
+SEM_MENSAGEM = re.compile(r"^\W*(nenhuma|sem)\s+mensage(m|ns)\W*$|^\W*(vazio|vazia|\.\.\.)\W*$", re.I)
+
+
 def _robo(texto):
     t = str(texto or "")
-    return bool(AVISO_SISTEMA.search(t) or ROBO_PLATAFORMA.search(t))
+    return bool(AVISO_SISTEMA.search(t) or ROBO_PLATAFORMA.search(t) or SEM_MENSAGEM.search(t.strip()))
 
 
 def _separar_historico(historico, respondido):
