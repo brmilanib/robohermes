@@ -26,7 +26,8 @@ def disponivel():
     return "chatgpt" if os.environ.get("OPENAI_API_KEY") else "claude" if os.environ.get("ANTHROPIC_API_KEY") else None
 
 
-CHAVES = {"claude": "ANTHROPIC_API_KEY", "chatgpt": "OPENAI_API_KEY", "deepseek": "DEEPSEEK_API_KEY", "ollama": "OLLAMA_API_KEY"}
+CHAVES = {"claude": "ANTHROPIC_API_KEY", "chatgpt": "OPENAI_API_KEY", "deepseek": "DEEPSEEK_API_KEY", "ollama": "OLLAMA_API_KEY",
+          "gemini": "GEMINI_API_KEY"}
 OLLAMA_MODELOS = ["gpt-oss:120b", "gpt-oss:20b"]   # Ollama Cloud: modelos da cota grátis da conta
 DEEPSEEK_MODELOS = ["deepseek-flash", "deepseek-v4-flash", "deepseek-chat"]   # nomes mudam; tenta na ordem
 
@@ -95,7 +96,8 @@ def _deepseek(pergunta, max_tokens, modelo=None, sistema=None, modelos=None):
 
 def nome(ia=None):
     ia = ia or disponivel()
-    return {"claude": "IA (Claude)", "chatgpt": "IA (ChatGPT)", "deepseek": "IA (DeepSeek)", "ollama": "IA (gpt-oss)"}.get(ia, "IA")
+    return {"claude": "IA (Claude)", "chatgpt": "IA (ChatGPT)", "deepseek": "IA (DeepSeek)", "ollama": "IA (gpt-oss)",
+            "gemini": "IA (Gemini)"}.get(ia, "IA")
 
 
 def _ollama(pergunta, max_tokens, modelo=None, sistema=None):
@@ -210,13 +212,14 @@ def ollama_web(pergunta, max_resultados=5):
 USO = {"gravar": None, "origem": "", "web": None, "quem": None,   # web: guarda cada pesquisa na internet na base de conhecimento (26/09)
        "nivel": None, "gasto": None, "espera": None, "local": False}   # teto por provedor (card #10)
 PROVEDOR = (("api.anthropic.com", "claude"), ("api.openai.com", "chatgpt"), ("api.deepseek.com", "deepseek"),
-            ("ollama.com", "gptoss"))
+            ("ollama.com", "gptoss"), ("generativelanguage.googleapis.com", "gemini"))
 
 # Teto de custo por provedor (card #10): NUBI_TETO_<PROVEDOR> = "dia/mês" em US$ (ex.: NUBI_TETO_DEEPSEEK="2/30"; um lado
 # vazio = sem teto nesse período), somado em agentes_uso com o dia e o mês de Brasília (USO["gasto"]). Estourou: tarefa de
 # texto/triagem (USO["nivel"]) cai para o modelo local (gpt-oss grátis, gravado como agente 'local', custo 0); conferência
 # de número, nível 3 e o que não disser o nível ficam em espera (EmEspera, sem chamar o provedor) e o dono é avisado.
-TETO_PROVEDORES = {"deepseek": "DeepSeek", "codex": "Codex", "sonnet": "Claude Sonnet", "claude_code": "Claude Code"}
+TETO_PROVEDORES = {"deepseek": "DeepSeek", "codex": "Codex", "sonnet": "Claude Sonnet", "claude_code": "Claude Code",
+                    "gemini": "Gemini"}
 NIVEL_DEGRADA = ("texto", "triagem")
 
 
@@ -235,6 +238,8 @@ def provedor(agente, modelo):
         return "sonnet"
     if agente == "claude_mac":                         # Ferreiro (Claude Code no Mac); o teto dele na hora é NUBI_FERREIRO_TETO
         return "claude_code"
+    if agente == "gemini":                             # conector de criativos (card #14); teto próprio NUBI_TETO_GEMINI
+        return "gemini"
     return None
 
 
@@ -274,6 +279,9 @@ def _tokens(r):
     u = r.get("usage") or {}
     ent = u.get("input_tokens", u.get("prompt_tokens", r.get("prompt_eval_count")))
     sai = u.get("output_tokens", u.get("completion_tokens", r.get("eval_count")))
+    if ent is None and sai is None:
+        um = r.get("usageMetadata") or {}               # Gemini (card #14): promptTokenCount/candidatesTokenCount
+        ent, sai = um.get("promptTokenCount"), um.get("candidatesTokenCount")
     if ent is None and sai is None:
         return None, None, None, None                   # provedor não mandou o uso: fica sem número (não zero)
     leitura = int(u.get("cache_read_input_tokens") or 0)
@@ -509,6 +517,36 @@ def perguntar_estruturado(pergunta, schema, nome="resposta", max_tokens=2500, qu
             return j, q
         ultimo = "; ".join(falhas[:3])
     raise SemIA(f"a IA não devolveu o JSON no formato pedido ({ultimo})")
+
+
+def gemini_gerar_imagem(prompt, modelo=None):
+    """Conector Gemini para as rotinas de criativo (imagem/post do Instagram, card #14): gera 1 imagem a partir de
+    `prompt`. Teto mensal próprio (NUBI_TETO_GEMINI, regra do card #10) e custo por ia_precos, iguais aos outros
+    provedores (_post_json cuida dos dois). Sem GEMINI_API_KEY: SemIA. Devolve (imagem_b64, texto, modelo).
+    A chave vai no cabeçalho (x-goog-api-key), nunca na URL, para não vazar em log de erro."""
+    if not tem("gemini"):
+        raise SemIA(f"falta a chave {CHAVES['gemini']}")
+    modelo = modelo or os.environ.get("NUBI_IA_MODELO_GEMINI", "gemini-2.5-flash-image")
+    corpo = {"model": modelo, "contents": [{"parts": [{"text": prompt}]}]}
+    cab = {"x-goog-api-key": os.environ["GEMINI_API_KEY"], "Content-Type": "application/json"}
+    try:
+        r = _post_json(f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent", corpo, cab,
+                       timeout=120)
+    except EmEspera as e:
+        # sem fallback local (card #10 só degrada texto/triagem): registra o aviso ao dono e sobe o erro
+        if USO.get("espera"):
+            try:
+                USO["espera"](str(e))
+            except Exception:  # noqa: BLE001 — o aviso nunca troca o erro
+                pass
+        raise
+    partes = [p for c in (r.get("candidates") or []) for p in (c.get("content", {}).get("parts") or [])]
+    imagem_b64 = next((p["inlineData"]["data"] for p in partes if (p.get("inlineData") or {}).get("data")), None)
+    texto = " ".join(p.get("text", "") for p in partes if p.get("text"))
+    if not imagem_b64:
+        motivo = ((r.get("candidates") or [{}])[0]).get("finishReason", "sem candidatos")
+        raise SemIA(f"Gemini não devolveu imagem (motivo: {motivo})")
+    return imagem_b64, texto.strip(), modelo
 
 
 _TIPOS_SCHEMA = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float)}

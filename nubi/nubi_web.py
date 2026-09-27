@@ -861,6 +861,9 @@ def atender(metodo, rota, q, corpo, token):
             return _json(rota_posicoes(repo, metodo, rota, q, corpo))
         if rota.startswith("agentes"):
             return _json(rota_agentes(repo, metodo, rota, q, corpo))
+        if rota == "criativo_gerar" and metodo == "POST":
+            import criativo                             # conector Gemini para criativos (card #14)
+            return _json(criativo.gerar(repo, json.loads(corpo or b"{}")))
         if rota.startswith("rotina") or rota.startswith("ops_"):
             return _json(rota_rotinas(repo, metodo, rota, q, corpo))
 
