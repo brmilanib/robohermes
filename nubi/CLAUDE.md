@@ -295,4 +295,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   mesma resposta (o `motivo` já começa com `ENVIO_FALHOU`) vira `precisa_info` com o motivo e sai da fila (`enviar_pelo_mac=false`);
   o coletor não tenta a 3ª. Até `ATENDENTE_PAGOS_RODADA`=5 passos com a IA paga por rodada (fora o SAC). Login encerra na hora
   e avisa a Sala uma vez só (`<canal>_login_avisado` no config, limpo quando a página abre sem login).
+- **Shopee sem depender da IA (27/09, relatório do PC)**: antes da IA, `_enviar_aprovadas_direto` envia cada resposta aprovada
+  da Shopee do jeito fixo (`_enviar_direto`): busca a cliente na caixa de busca, clica na LINHA certa (`JS_LINHA` marca o
+  ancestral clicável do menor elemento com o nome; clique de verdade pelo Playwright, em qualquer quadro), confere o nome,
+  acha o campo (`JS_CAMPO`: textarea/input/contenteditable mais baixo, sem ser busca) e o ícone de enviar, digita o texto
+  APROVADO, envia (Enter; senão o ícone) e confere que a mensagem apareceu fora do campo (`_ja_no_chat`, também evita envio
+  em dobro). `abrir_conversa` usa o mesmo clique. IA que pede licença ("posso prosseguir?") recebe "sim" e segue (até 3x).
+  Marca não é gravada com "Atrasado/Expira em breve" pendente; a URL da Shopee só é salva se for `webchat`. Teto da IA paga
+  conferido antes de cada passo. Vigia com relógio: o filho grava `atendente.vivo` a cada volta e passo; 15 min sem sinal →
+  o vigia mata o filho (e o Chrome, `taskkill /T` no Windows) e abre de novo. Comando do PC `diagnostico <canal>` devolve a
+  estrutura da página (campos, clicáveis, ícones) para ajustar seletores. No Windows o Python da Store aparece como
+  `python3.12.exe` (procurar com `Name like 'python%'`).
 

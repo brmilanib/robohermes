@@ -355,6 +355,69 @@ def test_busca_o_cliente_pela_caixa_de_busca():
     assert "achei naiaraandradeabreu" in txt
 
 
+SHOPEE_FALSA = """<html><head><meta charset="utf-8"></head><body style="margin:0">
+<div style="display:flex">
+ <div id="lista" style="width:300px">
+  <input placeholder="Buscar nome do usuário" oninput="filtrar(this.value)">
+  <div id="itens"></div>
+ </div>
+ <div id="chat" style="flex:1;min-height:500px">
+  <div id="cab"></div><div id="msgs"></div>
+  <div style="position:fixed;bottom:10px;left:320px;width:500px;display:flex">
+   <div id="campo" contenteditable="true" style="flex:1;min-height:30px;border:1px solid #999"></div>
+   <i class="icon-send-chat" style="display:inline-block;width:24px;height:24px;background:#ee4d2d;cursor:pointer" onclick="enviar()"></i>
+  </div>
+ </div>
+</div>
+<script>
+const clientes = ["fulano1","beltrano2","naiaraandradeabreu","outra_pessoa"];
+let aberta = null;
+function filtrar(q){ const it = document.getElementById("itens"); it.innerHTML = "";
+  clientes.filter(c => q ? c.includes(q) : c !== "naiaraandradeabreu").forEach(c => {   // naiara só aparece pela busca
+    const d = document.createElement("div"); d.style.cursor = "pointer"; d.style.padding = "8px";
+    d.innerHTML = "<div><span>" + c + "</span></div><div>Atrasado</div>";
+    d.addEventListener("click", () => { aberta = c; document.getElementById("cab").innerText = c; document.getElementById("msgs").innerHTML = "<p>Qual a validade?</p>"; });
+    it.appendChild(d); }); }
+function enviar(){ const t = document.getElementById("campo").innerText.trim(); if (!t || !aberta) return;
+  document.getElementById("msgs").insertAdjacentHTML("beforeend", "<p class=loja>" + t + "</p>"); document.getElementById("campo").innerText = "";
+  localStorage.enviado = aberta + "|" + t; }
+filtrar("");
+</script></body></html>"""
+
+
+def test_shopee_envia_a_aprovada_sem_ia_buscando_a_cliente():
+    # 27/09 (relatório do PC): lista de divs sem botão, cliente fora do topo, campo contenteditable e envio só por ícone
+    from playwright.sync_api import sync_playwright
+    PAGINA.with_name("shopee_chat.html").write_text(SHOPEE_FALSA, encoding="utf-8")
+    texto = "Oi! Tudo bem? Pode ficar tranquila! Depois de aberto, o perfume dura em média 2 anos."
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(URL.replace("chat.html", "shopee_chat.html"))
+        assert c._enviar_direto(pg, {"id": 34, "cliente": "naiaraandradeabreu", "texto": texto}) is None
+        assert pg.evaluate("localStorage.enviado") == "naiaraandradeabreu|" + texto
+        assert c._enviar_direto(pg, {"id": 34, "cliente": "naiaraandradeabreu", "texto": texto}) is None   # já está lá: não repete
+        assert pg.evaluate("document.querySelectorAll('p.loja').length") == 1
+        assert "não achei" in c._enviar_direto(pg, {"id": 9, "cliente": "ninguem_aqui", "texto": "x"})
+        ctx.close()
+
+
+def test_ia_que_pede_licenca_recebe_sim_e_segue():
+    import shutil
+    shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
+    ch = _preparar([("terminar", {"resumo": "ok"})])
+    gratis = iter([{"content": [{"type": "text", "text": "Preciso abrir a conversa de mavignierferro. Posso prosseguir com esse clique?"}]},
+                   {"content": [{"type": "tool_use", "id": "g2", "name": "terminar", "input": {"resumo": "feito"}}]}])
+    api_antes = c.api
+    def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
+        if rota == "atendimento_navegar_ia":
+            return next(gratis)
+        return api_antes(token, rota, params, corpo, metodo, timeout)
+    c.api = api
+    c.cmd_atender_tiktok(None, c.ler_config())
+    assert ch["claude"] == 0                                             # não caiu na paga: seguiu com o "sim"
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):
