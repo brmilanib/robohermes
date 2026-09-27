@@ -2301,7 +2301,8 @@ def comando_mac(chave, arg=""):
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
         "ollama_modelos": [ol, "list"], "ollama_rodando": [ol, "ps"],
         "espaco": ["/bin/df", "-h", str(Path.home())],
-        "processos": ["/bin/ps", "-Ao", "pcpu,pmem,etime,comm", "-r"],   # 27/09: quem está usando a CPU (só leitura)
+        # 27/09: quem está usando a CPU (só leitura); só as 25 primeiras linhas (o nubi guarda o fim da saída)
+        "processos": ["/bin/sh", "-c", "/bin/ps -Ao pcpu,pmem,etime,comm -r | /usr/bin/head -25"],
     }
     if WINDOWS:          # 27/09: servidor Dell (Windows) — mesmos comandos, com as ferramentas do Windows
         ps = ["powershell", "-NoProfile", "-Command"]
