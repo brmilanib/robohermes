@@ -2223,12 +2223,15 @@ def _parar_coleta_velha():
         comecou = (PASTA / "rodando.pid").stat().st_mtime
         if Path(__file__).stat().st_mtime <= comecou + 60:
             return False                                   # está rodando com o código atual: deixa terminar
-        try:
-            pg = os.getpgid(pid)
-            # o Chrome da coleta é filho dela: para o grupo todo (se não for o do próprio vigia)
-            os.killpg(pg, signal.SIGTERM) if pg != os.getpgid(0) else os.kill(pid, signal.SIGTERM)
-        except OSError:
-            os.kill(pid, signal.SIGTERM)
+        if WINDOWS:     # 27/09: no Windows não há grupos de processo; taskkill /T leva junto o Chrome da coleta
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        else:
+            try:
+                pg = os.getpgid(pid)
+                # o Chrome da coleta é filho dela: para o grupo todo (se não for o do próprio vigia)
+                os.killpg(pg, signal.SIGTERM) if pg != os.getpgid(0) else os.kill(pid, signal.SIGTERM)
+            except OSError:
+                os.kill(pid, signal.SIGTERM)
         for _ in range(30):
             time.sleep(2)
             if not _outra_rodando():
@@ -2268,7 +2271,12 @@ def _eh_servidor(cfg=None):
 # o que sabe fazer; enquanto dá sinal, o Mac não pega esses comandos (fica de reserva). Coleta do Nubimetrics, Gestor,
 # logins e Ferreiro continuam no Mac até os logins/ferramentas estarem no servidor.
 SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servidor_espaco", "servidor_log",
-                 "servidor_ollama", "servidor_atualizar")
+                 "servidor_ollama", "servidor_atualizar",
+                 # 27/09 (Mac com malware, reinstalação): coletas e logins também no servidor (gamdias)
+                 "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
+                 "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
+                 "ml_lojas", "ml_posicoes", "entrar_ml", "atender_tiktok")
+COLETAS = ("diario", "estoque", "gestor")
 
 
 def _ollama_bin():
@@ -2522,6 +2530,7 @@ def despachar(cfg):
         except Exception as e:  # noqa: BLE001
             print(f"{datetime.now():%d/%m %H:%M} métricas do Mac: {e}", flush=True)
     r = api(token, "mac_tick", corpo=corpo, timeout=40)
+    est["pausado"] = bool(r.get("pausado"))
     # card #29: itens novos da caixa de conhecimento ganham o vetor aqui; vai para o nubi no próximo sinal
     est["vetores"] = [{"id": it["id"], "vetor": v} for it in r.get("vetorizar") or []
                       if (v := vetor_local(f"{it.get('titulo') or ''}\n\n{it.get('texto') or ''}"))]
@@ -2613,8 +2622,13 @@ def cmd_vigiar():
             _soltar("hermes-vigia")
     except Exception as e:  # noqa: BLE001
         print(f"{datetime.now():%d/%m %H:%M} vigia de erros: {e}", flush=True)
-    if _eh_servidor(cfg0):
-        return _vigiar_servidor()
+    servidor = _eh_servidor(cfg0)
+    if servidor:
+        _vigiar_servidor()
+        if not any(x in (cfg0.get("servidor_pode") or SERVIDOR_PODE) for x in COLETAS):
+            return 0
+    elif _estado_desp().get("pausado"):
+        return 0                    # 27/09: Mac pausado pelo nubi: nem coletas com horário, nem Hermes
     marca = PASTA / "vigia.ultimo"
     try:
         if time.time() - marca.stat().st_mtime < 4 * 60:      # a cada ~5 min: versão nova, pedidos e horários das rotinas
@@ -2630,7 +2644,7 @@ def cmd_vigiar():
         return 0
     motivo = None
     try:
-        novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=20).read()
+        novo = b"" if servidor else urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=20).read()
         if novo and novo != Path(__file__).read_bytes():
             compile(novo, "coletor.py", "exec")
             motivo = "versão nova do coletor"
@@ -2680,7 +2694,7 @@ def cmd_vigiar():
 def _vigiar_servidor():
     """Servidor Dell: só o despachante (acima) e, a cada ~5 min, a versão nova do coletor. As coletas com horário
     (Nubimetrics, estoque, Gestor, Mercado Livre, memória) seguem no Mac até os logins estarem aqui."""
-    marca = PASTA / "vigia.ultimo"
+    marca = PASTA / "servidor.versao"
     try:
         if time.time() - marca.stat().st_mtime < 4 * 60:
             return 0
@@ -5607,10 +5621,13 @@ def main():
         if not pid:
             print("Nenhuma coleta rodando.")
             return 0
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-        except OSError:
-            os.kill(pid, signal.SIGTERM)
+        if WINDOWS:
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        else:
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+            except OSError:
+                os.kill(pid, signal.SIGTERM)
         print(f"Coleta {pid} parada. A próxima continua de onde parou.")
         return 0
     if args.cmd == "vigia-reativar":

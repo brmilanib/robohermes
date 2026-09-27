@@ -4011,6 +4011,15 @@ def servidor_pode(repo):
     return [p for p in ativo.get("pode") or [] if p in COMANDOS_MAC]
 
 
+MAC_PAUSA_CHAVE = "fila|mac_pausado"
+
+
+def mac_pausado(repo):
+    """27/09 (Bruno): com o Mac pausado (texto = motivo) ele não pega comando, Sala nem vetor; o servidor faz o que sabe."""
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{MAC_PAUSA_CHAVE}"}) or [{}])[0]
+    return bool((r.get("texto") or "").strip())
+
+
 def _mac_vivo(repo, minutos=3):
     est = (repo._req("GET", "mac_estado", {"select": "visto_em", "id": "eq.1"}) or [{}])[0]
     try:
@@ -4687,6 +4696,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             # servidor de reserva (o principal está com sinal): só grava as saídas; não pega nada
             return {"pendentes": [], "sala": [], "vetorizar": [], "reserva": True}
         reserva = maq == "mac" and srv is not None
+        pausado = mac_pausado(repo)
         if maq == "mac":
             indexar_aos_poucos(repo)
         if d.get("info") is not None and maq == "mac":
@@ -4714,10 +4724,14 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         # card #89: depois de gravar as saídas, quem acabou de terminar já pega o próximo card neste mesmo sinal
         # (sem espera entre vezes: a trava do PATCH condicional já impede dois pegarem o mesmo card)
         # as filas abaixo rodam no sinal do Mac; no do servidor só quando o Mac está sem sinal (uma vez por minuto basta)
-        if maq == "mac" or not _mac_vivo(repo):
-            if "pegou" not in (ferreiro_proximo(repo, a_cada_min=0, quem="astra") or ""):   # design primeiro (Astra); não pegou, o Ferreiro
-                ferreiro_proximo(repo, a_cada_min=0)
-            ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
+        if maq == "mac" and pausado:
+            # 27/09: Mac pausado (malware achado; reinstalação): grava estado e saídas, mas não recebe nada
+            return {"pendentes": [], "sala": [], "vetorizar": [], "reserva": True, "pausado": True}
+        if (maq == "mac" and not pausado) or (maq == "servidor" and (pausado or not _mac_vivo(repo))):
+            if not pausado:     # Ferreiro, Astra e Navegador rodam no Mac: parados junto com ele
+                if "pegou" not in (ferreiro_proximo(repo, a_cada_min=0, quem="astra") or ""):   # design primeiro (Astra); não pegou, o Ferreiro
+                    ferreiro_proximo(repo, a_cada_min=0)
+                ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
             atendimento.atendente_proximo(repo)     # atendente da TikTok Shop ligado: a cada 5 min ou na hora, se há resposta aprovada
             atendimento.sac_proximo(repo)           # importação do SAC do UpSeller pedida: uma rodada a cada 10 min até acabar
             atendimento.reinterpretar_pendentes(repo)   # a cada 2 min: dúvidas antigas refeitas com a conversa inteira interpretada

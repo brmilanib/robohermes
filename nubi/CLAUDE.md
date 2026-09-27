@@ -329,3 +329,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Despachante multiplataforma: `_rodar_solto` (Windows: `coletor rodar-logado <log> <argv>` grava saída e `.rc`), `_eu()`
   para chamar o coletor, comandos com PowerShell no Windows. No servidor o SAC usa o 2º perfil do Chrome (`perfil-sac`,
   trava `sac.pid`, cookies do `sessao.json` sem gravar por cima) porque o atendente deixa o perfil principal aberto.
+- **Mac pausado (27/09, malware achado no Mac mini: minerador xmrig + porta dos fundos em LaunchAgent)**: `ia_resumos`
+  `fila|mac_pausado` com o motivo → `mac_pausado`: o `mac_tick` do Mac só grava estado/saídas e devolve `pausado` (sem comando,
+  Sala ou vetor; o vigia do Mac pula as coletas com horário); Ferreiro/Astra/Navegador ficam parados; as filas do atendimento
+  rodam no tique do servidor. O servidor (gamdias) assume também `diario`, `estoque`, `gestor`, logins e Mercado Livre
+  (`SERVIDOR_PODE`, `COLETAS`; o vigia do servidor roda as coletas com horário). Tirar a pausa = apagar a linha, depois da
+  reinstalação do macOS e da troca de chaves.

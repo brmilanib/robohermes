@@ -80,13 +80,13 @@ def _preparar():
 
 def test_servidor_pega_o_que_sabe_e_o_mac_fica_com_o_resto():
     _preparar()
-    r = Repo(["importar_sac", "diario", "servidor_processos", "processos"])
+    r = Repo(["importar_sac", "programar_card", "servidor_processos", "processos"])
     srv = _tick(r, "servidor", list(c.SERVIDOR_PODE))
     assert [p["comando"] for p in srv["pendentes"]] == ["importar_sac", "servidor_processos"], srv
     assert srv["sala"], "o servidor (com o Hermes) responde na Sala"
     assert not r.t["mac_estado"], "o sinal do servidor não finge ser o Mac"
     mac = _tick(r)
-    assert [p["comando"] for p in mac["pendentes"]] == ["diario", "processos"] and mac["reserva"] is True, mac
+    assert [p["comando"] for p in mac["pendentes"]] == ["programar_card", "processos"] and mac["reserva"] is True, mac
     assert mac["sala"] == []
 
 
@@ -165,6 +165,16 @@ def test_gamdias_principal_e_dell_reserva():
     w.atendimento.para_enviar = lambda repo: []
     q = lambda comp: w.atendimento.rota(r, "GET", "atendimento_para_enviar", {"computador": comp}, b"")
     assert q("servidor:gamdias")["canais"] == ["shopee"] and q("servidor:DESKTOP-IRQKD9R")["canais"] == []
+
+
+def test_mac_pausado_nao_recebe_nada_e_o_servidor_assume():
+    _preparar()
+    r = Repo(["diario", "programar_card", "servidor_log"])
+    r.t["ia_resumos"].append({"chave": "fila|mac_pausado", "texto": "malware achado em 27/09"})
+    mac = _tick(r)
+    assert mac["pendentes"] == [] and mac.get("pausado") is True and mac["sala"] == []
+    srv = _tick(r, "servidor", list(c.SERVIDOR_PODE), "gamdias", 1)
+    assert [p["comando"] for p in srv["pendentes"]] == ["diario", "servidor_log"], srv    # Ferreiro não vai para o gamdias
 
 
 if __name__ == "__main__":
