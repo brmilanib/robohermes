@@ -429,7 +429,8 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .in-ops{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
 .in-op{display:grid;gap:4px;padding:12px 14px;text-decoration:none;color:inherit;align-content:start}
 .in-op b{font-size:20px;font-variant-numeric:tabular-nums}
-@media (max-width:1000px){.in-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.in-ops{grid-template-columns:repeat(2,minmax(0,1fr))}.in-grade,.in-topo{grid-template-columns:1fr}}
+.in-ops.in-sv{grid-template-columns:repeat(4,minmax(0,1fr));margin:0}
+@media (max-width:1000px){.in-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.in-ops,.in-ops.in-sv{grid-template-columns:repeat(2,minmax(0,1fr))}.in-grade,.in-topo{grid-template-columns:1fr}}
 @media (max-width:480px){.in-duas{grid-template-columns:1fr}.in-kpi b{font-size:20px}}
 /* card #68: Início em widgets — vendas dos concorrentes em destaque no topo, faixa de 3 e agentes/dólar/datas/notícias embaixo */
 .in-vendas-hoje{display:grid;gap:4px;text-decoration:none;color:inherit}
@@ -1108,6 +1109,23 @@ async function telaInicio() {
   const colTxt = !col ? ["", "sem coleta registrada"] : col.em_andamento ? ["warn", "rodando agora"]
     : col.ok ? ["good", "ok · " + new Date(col.terminado_em || col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})]
     : ["bad", "falhou · " + new Date(col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})];
+  // Card #92: saúde do Mac mini servidor (última leitura; sem leitura = "sem dados", nunca zero)
+  const sv = r.servidor, horaBr = x => new Date(x).toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
+  const svVal = (v, un, lim) => v == null ? `<b class="muted" style="font-size:13px">sem dados</b>` : `<b class="${v >= lim ? "neg" : ""}">${nf1.format(v)}${un}</b>`;
+  const svAg = Object.entries(sv?.agentes || {});
+  const servidorHtml = `<section class="card pad"><div class="in-dev-cab"><h2>Servidor Mac mini</h2>
+      ${!sv ? "" : sv.atrasado ? `<span class="in-chip warn">⚠️ sem dados desde ${horaBr(sv.coletado_em)}</span>`
+        : `<span class="st ${sv.status === "ok" ? "good" : "bad"}">${sv.status === "ok" ? "ok" : "alerta"} · ${horaBr(sv.coletado_em)}</span>`}</div>
+    ${!sv ? `<p class="muted">sem dados: o coletor do Mac ainda não mandou nenhuma leitura</p>` : `
+      <div class="in-ops in-sv">
+        <div class="card in-op"><span class="l">CPU</span>${svVal(sv.cpu_pct, "%", 90)}</div>
+        <div class="card in-op"><span class="l">Memória</span>${svVal(sv.mem_pct, "%", 90)}</div>
+        <div class="card in-op"><span class="l">Disco</span>${svVal(sv.disco_pct, "%", 90)}</div>
+        <div class="card in-op"><span class="l">Temperatura</span>${svVal(sv.temp_c, "°C", 85)}</div>
+      </div>
+      <p style="font-size:12.5px;margin:10px 0 0">Agentes: ${svAg.length ? `${svAg.length - (sv.faltantes || []).length} de ${svAg.length} ativos · ${svAg.map(([n, ok]) => `<span class="sinal ${ok ? "good" : "bad"}">${ok ? "●" : "○"} ${esc(n)}</span>`).join("")}` : `<span class="muted">sem dados</span>`}</p>
+      ${(sv.alertas || []).length ? `<ul class="in-lista">${sv.alertas.map(a => `<li class="neg">🚨 ${esc(a)}</li>`).join("")}</ul>` : `<p class="muted" style="font-size:12px;margin:6px 0 0">✅ Nenhum alerta</p>`}`}
+    </section>`;
   const resumoLinhas = r.resumo ? r.resumo.texto.split("\n").filter(x => x.trim() && !/^#/.test(x.trim())).slice(0, 5).join("\n") : "";
   const semDado = "sem dados";
   // Fase 1 do card #26: Início orientada à decisão — título/data/status da coleta primeiro,
@@ -1177,6 +1195,7 @@ async function telaInicio() {
       <a class="card in-op" href="#/central/erros"><span class="l">Erros hoje</span><b class="${ops.erros_hoje ? "neg" : ""}">${nf0.format(ops.erros_hoje || 0)}</b></a>
       <a class="card in-op" href="#/central/agentes"><span class="l">IA hoje · mês</span><b>US$ ${(r.ia?.custo_hoje || 0).toFixed(2).replace(".", ",")}</b><span class="muted">· US$ ${(r.ia?.custo_mes || 0).toFixed(2).replace(".", ",")}</span></a>
     </section>
+    ${servidorHtml}
 
     <div class="card pad"><h2>Próximas datas de vendas</h2><ul class="in-datas">${datasVendas(agora).map(x => `<li><span class="in-dias ${x.dias <= 15 ? "perto" : ""}">${x.dias === 0 ? "hoje" : x.dias + (x.dias === 1 ? " dia" : " dias")}</span>
         <b>${esc(x.n)}</b><span class="muted">${x.dt.toLocaleDateString("pt-BR", {day: "2-digit", month: "short", weekday: "short"})}</span></li>`).join("")}</ul></div>
