@@ -271,6 +271,20 @@ def test_comando_do_nubi_no_pc_so_da_lista():
     assert c._pc_comando({"id": 3, "comando": "reiniciar", "status": "pendente"}, Pg(), "T") == "reiniciar"
 
 
+def test_busca_o_cliente_pela_caixa_de_busca():
+    from playwright.sync_api import sync_playwright
+    PAGINA.with_name("busca.html").write_text('<html><body><input placeholder="Buscar cliente" '
+        'onkeydown="if(event.key==\'Enter\')document.body.insertAdjacentHTML(\'beforeend\',\'<div>achei \'+this.value+\'</div>\')">'
+        '</body></html>', encoding="utf-8")
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(URL.replace("chat.html", "busca.html"))
+        txt = c._atendente_buscar(pg, "naiaraandradeabreu", {})
+        ctx.close()
+    assert "achei naiaraandradeabreu" in txt
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

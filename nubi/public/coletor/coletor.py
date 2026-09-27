@@ -4055,6 +4055,9 @@ ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abri
      "(use quando o item da lista não aparece nos ELEMENTOS). Devolve a leitura da página com a conversa aberta.",
      "input_schema": {"type": "object", "properties": {"cliente": {"type": "string", "description": "nome do cliente como "
                       "aparece na lista"}}, "required": ["cliente"]}},
+    {"name": "buscar_conversa", "description": "Procura um cliente pelo nome na caixa de BUSCA da lista de conversas (para achar "
+     "conversas antigas que não aparecem no topo). Depois use abrir_conversa com o nome.",
+     "input_schema": {"type": "object", "properties": {"cliente": {"type": "string"}}, "required": ["cliente"]}},
     {"name": "rolar", "description": "Rola a lista de conversas (e a página) para baixo, para ver as mais antigas. Depois use ler.",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "fechados_concluido", "description": "Avisa que TODOS os chats da aba Fechados (ou do SAC) já foram registrados no nubi.",
@@ -4065,7 +4068,8 @@ ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abri
 PAPEL_ATENDENTE = (
     "Você é o atendente da loja do Bruno (perfumaria) no chat da {PLATAFORMA}, usando o Chrome já logado na central do "
     "vendedor. Você NÃO escreve respostas: quem escreve é o nubi, com dado real. Seu trabalho:\n"
-    "1) Enviar as respostas aprovadas da lista (abra a conversa do cliente certo, leia, use enviar_aprovada).\n"
+    "1) Enviar as respostas aprovadas da lista (abra a conversa do cliente certo, leia, use enviar_aprovada). Se o cliente não "
+    "aparece na lista, use buscar_conversa com o nome dele e depois abrir_conversa.\n"
     "2) Na caixa de entrada (Todos), abrir cada conversa da lista (primeiro as 'Não respondidas'), ler as mensagens e o "
     "painel do pedido (número, status, entrega estimada, logística, rastreio, itens) e usar registrar com o histórico. "
     "Para abrir uma conversa, use abrir_conversa com o nome do cliente (é o jeito mais seguro; clicar pelo número só se "
@@ -4162,6 +4166,27 @@ def _atendente_marca(pg):
     t = re.sub(r"\b(ontem|hoje|agora|domingo|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado)(-feira)?\b|\b(jan|fev|mar|abr|mai|jun|jul|"
                r"ago|set|out|nov|dez)\b|\bh[aá]\s+\w+", " ", t, flags=re.I)
     return hashlib.sha1(re.sub(r"\s+", " ", t)[:6000].encode()).hexdigest()
+
+
+def _atendente_buscar(pg, cliente, estado):
+    """27/09: as respostas aprovadas de clientes antigos não achavam a conversa (fora do topo da lista). Digita SÓ o nome do
+    cliente na caixa de busca do chat (nunca outro campo) e devolve a leitura."""
+    cliente = re.sub(r"[^\w .@-]", "", cliente).strip()[:60]
+    if len(cliente) < 3:
+        return "Informe o nome do cliente."
+    for sel in ("input[type=search]", "input[placeholder*='usca' i]", "input[placeholder*='esquis' i]",
+                "input[placeholder*='earch' i]", "input[placeholder*='procurar' i]"):
+        loc = pg.locator(sel)
+        if loc.count():
+            try:
+                campo = loc.first
+                campo.fill(cliente, timeout=10000)
+                campo.press("Enter")
+                pg.wait_for_timeout(2500)
+                return f"Busquei '{cliente}'.\n\n" + _nav_ler(pg, estado)
+            except Exception:  # noqa: BLE001
+                continue
+    return "Não achei a caixa de busca nesta página: role a lista (rolar) ou abra a aba de todas as conversas."
 
 
 def _atendente_abrir_conversa(pg, cliente, estado):
@@ -4355,6 +4380,8 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                                "pendente": "Registrado: a resposta espera a aprovação do Bruno. Siga para a próxima.",
                                "historico": "Histórico guardado (já respondida). Siga para a próxima."}.get(
                             x.get("status"), "Registrado (já estava no nubi). Siga para a próxima.")
+                elif b["name"] == "buscar_conversa":
+                    txt = _atendente_buscar(pg, str(ent.get("cliente") or ""), estado)
                 elif b["name"] == "rolar":
                     txt = _atendente_rolar(pg)
                 elif b["name"] == "enviar_aprovada" and sac:
