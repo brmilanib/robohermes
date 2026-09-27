@@ -4005,6 +4005,16 @@ def _atendente_marca(pg):
     return hashlib.sha1(re.sub(r"\s+", " ", t)[:6000].encode()).hexdigest()
 
 
+def _atendente_pendentes(pg):
+    """Quantas conversas a lista mostra como sem resposta ('Sem resposta (3)' na Shopee, 'Não respondidos 2' na TikTok)."""
+    try:
+        t = pg.inner_text("body", timeout=8000)
+    except Exception:  # noqa: BLE001
+        return 0
+    m = re.search(r"(?:sem resposta|n[ãa]o respondid[oa]s?)\s*\(?\s*(\d+)", t, re.I)
+    return int(m.group(1)) if m else 0
+
+
 def _ia_atendente(chave, mensagens, token, estado, papel=None):
     """Navegação do atendente: primeiro o gpt-oss grátis (pelo nubi), o Claude Haiku só de reserva — quando o grátis falha,
     a cota acabou ou ele se perde (3 respostas seguidas sem ferramenta útil)."""
@@ -4059,10 +4069,24 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
         r = _ia_atendente(chave, mensagens, token, estado, papel)
         u = r.get("usage") or {}
         custo += (int(u.get("input_tokens") or 0) * ATENDENTE_PRECO[0] + int(u.get("output_tokens") or 0) * ATENDENTE_PRECO[1]) / 1e6
-        blocos = r.get("content") or []
+        blocos = r.get("content") or [{"type": "text", "text": "(vazio)"}]
         mensagens.append({"role": "assistant", "content": blocos})
         usos = [b for b in blocos if b.get("type") == "tool_use"]
         if not usos:
+            if not estado.get("cutucado") and not estado.get("registradas") and not estado.get("enviadas") and (
+                    aprovadas or _atendente_pendentes(pg)):
+                # 27/09: na Shopee o gpt-oss grátis deu 17 passos e parou com "{}" sem registrar nada, com 3 conversas
+                # "Sem resposta" na lista; a página ficava marcada como vista e ninguém mais olhava. Agora ele é cutucado
+                # uma vez e, havendo a chave de reserva, a IA paga assume o resto da rodada.
+                estado["cutucado"] = True
+                if chave:
+                    estado["gratis_falhas"] = 3
+                mensagens.append({"role": "user", "content": (
+                    "Você parou sem registrar nenhuma conversa, mas a lista tem conversas sem resposta"
+                    + (" e há respostas aprovadas para enviar" if aprovadas else "") + ". Use ler, CLIQUE na primeira "
+                    "conversa da lista (o elemento com o nome do cliente), use ler de novo e registre o histórico. Depois a "
+                    "próxima. Só use terminar quando todas estiverem registradas.")})
+                continue
             fim = " ".join(b.get("text", "") for b in blocos if b.get("type") == "text").strip()
             break
         resultados = []
@@ -4122,7 +4146,10 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
             cfg[k_url] = pg.url.split("?")[0]
         pg.goto(cfg.get(k_url) or url_ini, timeout=60000)
         pg.wait_for_timeout(4000)
-        cfg[k_marca] = _atendente_marca(pg)
+        if estado.get("registradas") or estado.get("enviadas") or not _atendente_pendentes(pg):
+            cfg[k_marca] = _atendente_marca(pg)
+        else:
+            cfg.pop(k_marca, None)      # ficou conversa sem resposta sem registrar: a próxima rodada olha de novo
     except Exception:  # noqa: BLE001
         pass
     salvar_config(cfg)

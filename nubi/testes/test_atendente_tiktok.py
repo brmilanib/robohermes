@@ -169,6 +169,32 @@ def test_conversa_da_lista_feita_de_div_aparece_para_clicar():
     assert "leidianearaujo182" in texto.split("ELEMENTOS:")[1]
 
 
+def test_gratis_parou_sem_registrar_com_conversa_sem_resposta_a_paga_assume():
+    # 27/09 (Shopee): o gpt-oss grátis leu a lista com "Sem resposta (3)" e terminou com "{}" sem registrar nada
+    import shutil
+    shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
+    PAGINA.with_name("shopee.html").write_text(PAGINA.read_text(encoding="utf-8").replace(
+        "<div>Não respondidos</div>", "<div>Sem resposta (3)</div>"), encoding="utf-8")
+    ch = _preparar([("registrar", {"cliente": "leidianearaujo182", "historico": [
+                        {"de": "cliente", "texto": "oi"}, {"de": "cliente", "texto": "tem tester?"}]}),
+                    ("terminar", {"resumo": "1 registrada"})], canais=["shopee"])
+    url = URL.replace("chat.html", "shopee.html")
+    c.PLATAFORMAS["shopee"] = ("Shopee", url, "127.0.0.1", "Atendente Shopee")
+    gratis = iter([{"content": [{"type": "tool_use", "id": "g1", "name": "ler", "input": {}}]},
+                   {"content": [{"type": "text", "text": "{}"}]}])
+    api_antes = c.api
+
+    def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
+        if rota == "atendimento_navegar_ia":
+            return next(gratis)
+        return api_antes(token, rota, params, corpo, metodo, timeout)
+    c.api = api
+    c.cmd_atender_tiktok(None, c.ler_config())
+    assert ch["claude"] == 2                                                   # a reserva assumiu depois do "{}"
+    assert any(r == "atendimento_receber" for r, _ in ch["api"])
+    assert "Você parou sem registrar" in json.dumps(ch["ultima"], ensure_ascii=False)
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):
