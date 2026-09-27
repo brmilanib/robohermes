@@ -33,7 +33,8 @@ grupo do Nubimetrics: manda nos totais por vendedor), produto_grupos (títulos s
 juntados por embeddings + regras de volume/kit/concentração/gênero/nome), ia_resumos (resumos diário, semanal e
 mensal), rotinas, auditorias, reuniao_mensagens e reuniao_tarefas (esta sala e a fila de desenvolvimento),
 ranking_categorias, marca_sugestoes, coletor_pedidos, estoque_atualizacoes e estoque_itens (estoque das lojas do dono:
-cada atualização é uma foto completa do export Lista de Estoque do UpSeller, com a comparação com a anterior).
+cada atualização é uma foto completa do export Lista de Estoque do UpSeller, com a comparação com a anterior), ia_benchmark_casos e ia_benchmark_execucoes
+(mini-benchmark #15, nubi_benchmark.py: modelo novo só entra em produção depois de rodar os casos fixos e comparar acerto, latência e custo).
 
 ## Telas
 Início (resumo de tudo: vendas do último dia, contagens, próximas datas de vendas, resumo da IA, operação),
