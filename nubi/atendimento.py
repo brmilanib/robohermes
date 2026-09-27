@@ -283,6 +283,12 @@ Regras que você nunca quebra:
     esse mesmo produto.
 12. ficha_perfume (notas, família, "lembra/inspirado em", curiosidades) veio da internet: use só o que está nela, com
     "lembra"/"é inspirado em" como está escrito, sem exagerar.
+13. Tom de especialista (pedido do Bruno): quando os FATOS trazem dado técnico (família olfativa, notas de topo/coração/
+    fundo, concentração EDP/EDT, fixação, lote, validade, conservação), use e explique em palavras simples para quem não
+    entende de perfume. O cliente gosta de comprar de quem conhece o que vende. Sem inventar dado que não está nos FATOS.
+14. Se os FATOS têm pergunta_repetida, o cliente perguntou de novo algo que a loja já respondeu: comece com algo como
+    "Como te respondemos logo acima," e repita a resposta_anterior_da_loja com outras palavras, educada e simpática, sem
+    dar bronca.
 Responda só com o texto que vai para o cliente, em até 600 caracteres."""
 
 SENSIVEL = [(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b", "documento (CPF)"), (r"\(?\b\d{2}\)?\s?9?\d{4}-?\d{4}\b", "telefone"),
@@ -445,7 +451,8 @@ Regras:
   resolvido; intencao="agradecimento". Palavra solta não é pergunta.
 - Encerramento: responder=true (um agradecimento curto), MAS responder=false se a última mensagem da LOJA já foi um
   agradecimento/despedida e o cliente só reforçou (não fica num vai e volta de "obrigado").
-- Se a loja já respondeu tudo e não há nada novo, responder=false.
+- Se a loja já respondeu tudo e não há nada novo, responder=false. MAS se o cliente mandou de novo uma pergunta que já foi
+  respondida, responder=true (a loja repete a resposta com educação).
 - Avisos do sistema e do robô da plataforma não são a loja nem o cliente.
 - Mensagem marcada como CLIENTE igual a uma resposta da LOJA é erro de leitura (eco): ignore.
 - Se a loja já respondeu a pergunta do cliente e ele não perguntou nada depois, responder=false.
@@ -490,6 +497,15 @@ def processar(repo, conversa, mensagem, gerar=None, resposta_operador=None, inte
                   corpo={"status": "respondida", "atualizado_em": _agora()})
         return rasc
     fatos, falta = buscar_dados(repo, can, conversa, mensagem["texto"], resposta_operador, interp)
+    if not resposta_operador and conversa.get("id"):
+        try:
+            anterior = _resposta_anterior(_pergunta_do_cliente(repo, conversa["id"])[1])
+        except Exception:  # noqa: BLE001
+            anterior = None
+        if anterior:
+            fatos["pergunta_repetida"] = {"resposta_anterior_da_loja": anterior}
+            if falta and fatos["intencao"] not in ("reclamacao", "troca_devolucao"):
+                falta = None                          # a resposta já existe na conversa: repete com educação
     reg = {"conversa_id": conversa["id"], "mensagem_id": mensagem.get("id"), "intencao": fatos["intencao"], "fontes": fatos,
            "criado_em": _agora()}
     if falta:
@@ -598,8 +614,9 @@ def _sem_eco(msgs, enviados=()):
             if _eco(m.get("texto"), loja):
                 continue
             linhas = {_norm(x).strip() for x in str(m.get("texto") or "").split("\n") if _norm(x).strip()}
-            if linhas and linhas <= ja_ditas:
-                continue                                  # tudo isso o cliente já tinha dito antes
+            if len(linhas) >= 2 and linhas <= ja_ditas:
+                continue       # bloco de várias mensagens antigas lido de novo (eco). Uma pergunta repetida sozinha fica:
+                               # o cliente perguntou de novo e a resposta repete a anterior com educação (pedido do Bruno)
             ja_ditas |= linhas | {_norm(m.get("texto")).strip()}
         saida.append(m)
     return saida
@@ -682,7 +699,14 @@ def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, ext
             conversa.update(muda)
         ult = (repo._req("GET", "atendimento_mensagens", {"select": "id,de,texto", "conversa_id": f"eq.{conversa['id']}",
                                                           "de": "eq.cliente", "order": "id.desc", "limit": 1}) or [None])[0]
-        if texto and ult and ult["texto"].strip() in (texto[:5000].strip(), texto.strip().split("\n")[-1].strip()):
+        fim_conv = (repo._req("GET", "atendimento_mensagens", {"select": "id,de,texto", "conversa_id": f"eq.{conversa['id']}",
+                                                               "order": "id.desc", "limit": 1}) or [{}])[0]
+        # perguntou de novo DEPOIS da resposta: o chat lido na tela mostra loja e, em seguida, a mesma pergunta (sem o chat
+        # inteiro não dá para saber; aí vale a regra antiga de não duplicar)
+        repetiu = bool(ult and historico is not None and anteriores and anteriores[-1]["de"] == "loja"
+                       and fim_conv.get("de") == "loja" and fim_conv.get("id", 0) > ult["id"]
+                       and _norm(anteriores[-1]["texto"]).strip() == _norm(fim_conv.get("texto")).strip())   # depois da NOSSA última resposta
+        if texto and ult and not repetiu and ult["texto"].strip() in (texto[:5000].strip(), texto.strip().split("\n")[-1].strip()):
             # o atendente lê a mesma conversa de novo: não duplica a mensagem nem o rascunho
             rs = repo._req("GET", "atendimento_rascunhos", {"select": "*", "conversa_id": f"eq.{conversa['id']}",
                                                             "order": "id.desc", "limit": 1}) or []
@@ -875,6 +899,20 @@ def _fichas_do_estoque(repo, lim=60):
     return [{k: f[k] for k in ("perfume", "familia", "notas_topo", "notas_coracao", "notas_fundo", "inspirado_em", "ocasiao") if f.get(k)}
             | {"produto": f["produto"]} for f in repo._req("GET", "perfume_fichas", {"select": "*", "status": "in.(internet,confirmada)",
                                                                                     "limit": 5000}) or [] if f["chave"] in em][:lim]
+
+
+def _resposta_anterior(msgs):
+    """Cliente repetiu uma pergunta já respondida (27/09, pedido do Bruno): devolve o que a loja respondeu da outra vez."""
+    ult = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i]["de"] == "cliente"), None)
+    if ult is None:
+        return None
+    alvo = {_norm(x).strip() for x in str(msgs[ult]["texto"]).split("\n") if _norm(x).strip()}
+    for i in range(ult - 1, -1, -1):
+        m = msgs[i]
+        if m["de"] == "cliente" and alvo & {_norm(x).strip() for x in str(m["texto"]).split("\n") if _norm(x).strip()}:
+            resp = [x["texto"] for x in msgs[i + 1:ult] if x["de"] == "loja"][:2]
+            return "\n".join(resp)[:1500] or None
+    return None
 
 
 def _enviados(repo, conversa_id):
