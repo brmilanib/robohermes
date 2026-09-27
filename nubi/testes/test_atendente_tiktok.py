@@ -113,7 +113,7 @@ def test_cliente_errado_nao_envia():
                    aprovadas=[{"id": 3, "cliente": "outra_pessoa", "texto": "Oi!"}])
     c.cmd_atender_tiktok(None, c.ler_config())
     assert "não é do cliente outra_pessoa" in _ultimo_resultado(ch) and not ENVIADO.get("texto")
-    assert not any(r == "atendimento_enviado" for r, _ in ch["api"])
+    assert not any(r == "atendimento_enviado" and cp.get("ok") for r, cp in ch["api"])     # só avisa a falha
 
 
 def test_sem_novidade_nao_chama_a_ia():
@@ -254,6 +254,76 @@ def test_tela_de_login_nao_chama_a_ia():
     c.PLATAFORMAS["shopee"] = ("Shopee", base + "/seller/login/", "127.0.0.1", "Atendente Shopee")
     c.cmd_atender_tiktok(None, c.ler_config())
     assert ch["claude"] == 0 and not any(r == "atendimento_navegar_ia" for r, _ in ch["api"])
+
+
+def test_duas_falhas_no_envio_devolvem_a_resposta_ao_bruno_sem_3a_tentativa():
+    # card #108: a resposta 25 de fernandacristiane11 falhava no envio e o atendente tentava de novo a cada rodada
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import atendimento as at
+    from test_atendimento import Repo
+    import shutil
+    shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
+    r = Repo()
+    r.t["atendimento_conversas"] = [{"id": 1, "cliente": "fernandacristiane11", "canal": "shopee", "status": "respondida"}]
+    r.t["atendimento_rascunhos"] = [{"id": 25, "conversa_id": 1, "status": "aprovado", "texto_final": "Oi! Já foi enviado.",
+                                     "enviar_pelo_mac": True, "enviado_em": None}]
+    tentar = ("enviar_aprovada", {"id": 25, "n_campo": 0, "n_botao": 1})       # a conversa aberta é de outra cliente
+    ch = _preparar([("ler", {}), tentar, tentar, tentar, ("terminar", {"resumo": "x"})],
+                   aprovadas=at.para_enviar(r), canais=["shopee"])
+    c.PLATAFORMAS["shopee"] = ("Shopee", URL, "127.0.0.1", "Atendente Shopee")
+    api_antes = c.api
+
+    def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
+        if rota == "atendimento_enviado":
+            ch["api"].append((rota, corpo))
+            return at.marcar_enviado(r, corpo["id"], corpo.get("ok", True), corpo.get("erro"))
+        return api_antes(token, rota, params, corpo, metodo, timeout)
+    c.api = api
+    c.cmd_atender_tiktok(None, c.ler_config())
+    falhas = [cp for rt, cp in ch["api"] if rt == "atendimento_enviado"]
+    assert len(falhas) == 2 and not any(f["ok"] for f in falhas)              # a 3ª tentativa não acontece
+    rasc = r.t["atendimento_rascunhos"][0]
+    assert rasc["status"] == "precisa_info" and not rasc["enviar_pelo_mac"] and "2 vezes" in rasc["motivo"]
+    assert "não é do cliente fernandacristiane11" in rasc["motivo"] and rasc["pergunta_operador"]
+    assert r.t["atendimento_conversas"][0]["status"] == "precisa_info" and at.para_enviar(r) == []
+    assert "não está aprovada" in _ultimo_resultado(ch) and not ENVIADO.get("texto")
+
+
+def test_teto_de_passos_pagos_encerra_a_rodada():
+    import shutil
+    shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
+    ch = _preparar([("ler", {})] * 20 + [("terminar", {"resumo": "x"})])
+    api_antes = c.api
+
+    def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
+        if rota == "atendimento_navegar_ia":
+            raise RuntimeError("grátis fora do ar")                           # tudo vai para a IA paga
+        return api_antes(token, rota, params, corpo, metodo, timeout)
+    c.api = api
+    c.cmd_atender_tiktok(None, c.ler_config())
+    assert ch["claude"] == c.ATENDENTE_PAGOS_RODADA == 5
+
+
+def test_login_encerra_na_hora_e_avisa_a_sala_uma_vez():
+    import shutil
+    shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
+    ch = _preparar([], canais=["shopee"])
+    base = URL.rsplit("/", 1)[0]
+    os.makedirs(PAGINA.parent / "seller" / "login", exist_ok=True)
+    (PAGINA.parent / "seller" / "login" / "index.html").write_text("<html><body>Entrar</body></html>", encoding="utf-8")
+    c.PLATAFORMAS["shopee"] = ("Shopee", base + "/seller/login/", "127.0.0.1", "Atendente Shopee")
+    c.cmd_atender_tiktok(None, c.ler_config())
+    c.cmd_atender_tiktok(None, c.ler_config())                                 # 2ª rodada seguida, ainda no login
+    avisos = [cp for rt, cp in ch["api"] if rt == "reuniao_postar"]
+    assert len(avisos) == 1 and "login" in avisos[0]["texto"] and ch["claude"] == 0
+    c.PLATAFORMAS["shopee"] = ("Shopee", URL, "127.0.0.1", "Atendente Shopee")    # entrou: o próximo login avisa de novo
+    cfg = c.ler_config()
+    _preparar([("terminar", {"resumo": "ok"})], canais=["shopee"])
+    c.salvar_config(cfg)
+    assert cfg.get("shopee_login_avisado")
+    c.cmd_atender_tiktok(None, c.ler_config())
+    assert not c.ler_config().get("shopee_login_avisado")
 
 
 def test_comando_do_nubi_no_pc_so_da_lista():

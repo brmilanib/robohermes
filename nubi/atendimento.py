@@ -1221,10 +1221,22 @@ def para_enviar(repo):
              "canal": (conv.get(r["conversa_id"]) or {}).get("canal") or "tiktok_shop"} for r in rs]
 
 
+ENVIO_FALHOU = "envio pelo Mac falhou"
+
+
 def marcar_enviado(repo, rascunho_id, ok=True, erro=None):
-    corpo = {"enviado_em": _agora(), "status": "enviado"} if ok else {"motivo": f"envio pelo Mac falhou: {erro}"[:500]}
+    corpo = {"enviado_em": _agora(), "status": "enviado"} if ok else {"motivo": f"{ENVIO_FALHOU}: {erro}"[:500]}
+    r = {} if ok else _um(repo, "atendimento_rascunhos", rascunho_id) or {}
+    # card #108: a 2ª falha da mesma resposta tira ela da fila automática e devolve ao Bruno ('precisa de você') com o motivo
+    segunda = str(r.get("motivo") or "").startswith(ENVIO_FALHOU)
+    if segunda:
+        corpo.update(motivo=f"{ENVIO_FALHOU} 2 vezes: {erro}"[:500], status="precisa_info", enviar_pelo_mac=False,
+                     pergunta_operador=f"O atendente não conseguiu enviar esta resposta 2 vezes ({str(erro)[:200]}). "
+                                       "Envie você no chat ou me diga o que responder.")
+        repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{r['conversa_id']}"}, prefer="return=minimal",
+                  corpo={"status": "precisa_info", "atualizado_em": _agora()})
     repo._req("PATCH", "atendimento_rascunhos", {"id": f"eq.{int(rascunho_id)}"}, corpo=corpo, prefer="return=minimal")
-    return {"ok": True}
+    return {"ok": True, "precisa_voce": segunda}
 
 
 PC_CHAVE = "atendimento|computador"
