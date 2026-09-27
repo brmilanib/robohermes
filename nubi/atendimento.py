@@ -434,12 +434,26 @@ AVISO_SISTEMA = re.compile(r"^\s*(\[(chatbot|sauda|informa|compartilh|pedido|pro
                            r"(encerrado|atribu)|o cliente solicitou|para sua seguran[cç]a|pedido entregue\s*$|resposta autom[aá]tica)", re.I)
 
 
+# 27/09 (Shopee): o "Assistente AI" da própria plataforma responde "Recebemos sua mensagem… aguarde" ou "não consigo
+# responder, você será transferido". Isso NÃO é resposta da loja: fica fora do histórico e a cliente continua esperando.
+ROBO_PLATAFORMA = re.compile(
+    r"recebemos sua mensagem.{0,80}em breve|aguarde (o )?nosso retorno|n[ãa]o (posso|consigo) responder.{0,120}"
+    r"transferid|transferid[oa] para um agente|comprador precisa de assist[eê]ncia|assistente (ai|de ia|ia)\b.{0,40}"
+    r"finaliz|o cliente est[aá] perguntando sobre esse produto|conversa foi fechada automaticamente|"
+    r"recomendo entrar em contato (direto |diretamente )?com a loja|atendidas pelo assistente", re.I | re.S)
+
+
+def _robo(texto):
+    t = str(texto or "")
+    return bool(AVISO_SISTEMA.search(t) or ROBO_PLATAFORMA.search(t))
+
+
 def _separar_historico(historico, respondido):
     """[{de, texto}] do chat → (mensagens anteriores, texto do cliente ainda sem resposta). Avisos da plataforma e do
     chatbot da TikTok ficam de fora (não são conversa nem conhecimento da loja)."""
     hist = [{"de": "loja" if str(h.get("de") or "").lower() in ("loja", "vendedor", "atendente", "seller") else "cliente",
              "texto": str(h.get("texto") or "").strip()[:5000]} for h in historico or []
-            if str(h.get("texto") or "").strip() and not AVISO_SISTEMA.search(str(h.get("texto") or ""))]
+            if str(h.get("texto") or "").strip() and not _robo(h.get("texto"))]
     if respondido or not hist or hist[-1]["de"] != "cliente":
         return hist, ""
     fim = len(hist)
@@ -478,7 +492,9 @@ def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, ext
     historico = o chat inteiro lido na tela ([{de, texto}]): grava o que falta; respondido = a loja já respondeu (só guarda)."""
     anteriores = []
     if historico is not None:
-        anteriores, pendente = _separar_historico(historico, respondido)
+        # a última mensagem de verdade é da cliente = ainda sem resposta, mesmo que a tela mostre uma resposta do robô
+        # da plataforma depois (só os chats da aba Fechados ficam como histórico)
+        anteriores, pendente = _separar_historico(historico, fechado)
         texto = pendente or ("" if respondido else texto)
         respondido = respondido or not pendente
         if not anteriores and not texto:
@@ -507,10 +523,16 @@ def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, ext
             conversa.update(muda)
         ult = (repo._req("GET", "atendimento_mensagens", {"select": "id,de,texto", "conversa_id": f"eq.{conversa['id']}",
                                                           "de": "eq.cliente", "order": "id.desc", "limit": 1}) or [None])[0]
-        if texto and ult and ult["texto"].strip() == texto[:5000].strip():
+        if texto and ult and ult["texto"].strip() in (texto[:5000].strip(), texto.strip().split("\n")[-1].strip()):
             # o atendente lê a mesma conversa de novo: não duplica a mensagem nem o rascunho
-            r = (repo._req("GET", "atendimento_rascunhos", {"select": "*", "conversa_id": f"eq.{conversa['id']}",
-                                                            "order": "id.desc", "limit": 1}) or [{"status": "ja_recebida"}])[0]
+            rs = repo._req("GET", "atendimento_rascunhos", {"select": "*", "conversa_id": f"eq.{conversa['id']}",
+                                                            "order": "id.desc", "limit": 1}) or []
+            if not rs or (rs[0].get("mensagem_id") or 0) < ult["id"]:
+                # 27/09: a mensagem já estava guardada como "respondida" (resposta do robô da plataforma): responde agora
+                if anteriores:
+                    _gravar_historico(repo, conversa["id"], anteriores)
+                return processar(repo, conversa, dict(ult, texto=texto[:5000]), gerar)
+            r = rs[0]
             if r.get("status") == "precisa_info" and not r.get("resposta_operador"):
                 # a pergunta ainda espera o Bruno, mas agora pode haver dado (item novo na base, versão nova): tenta de novo
                 if not buscar_dados(repo, canal(canal_id), conversa, ult["texto"])[1]:
@@ -767,6 +789,43 @@ def aprender_padroes(repo, gerar=None, lote=8):
         lidas += 1
         repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{c['id']}"}, corpo={"aprendido_em": _agora()}, prefer="return=minimal")
     return {"lidas": lidas, "propostas": novos}
+
+
+RETOMAR_CHAVE = "atendimento|retomar"
+
+
+def retomar_esquecidas(repo, a_cada_min=3, dias=7):
+    """No tique do Mac: conversa marcada como respondida em que a última mensagem de verdade é da cliente (a 'resposta' foi
+    do robô da plataforma) volta a ter rascunho. Nunca derruba o tique."""
+    try:
+        r = (repo._req("GET", "ia_resumos", {"select": "criado_em", "chave": f"eq.{RETOMAR_CHAVE}"}) or [{}])[0]
+        if r.get("criado_em") and datetime.now(timezone.utc) - datetime.fromisoformat(
+                str(r["criado_em"]).replace("Z", "+00:00")) < timedelta(minutes=a_cada_min):
+            return None
+        repo._req("POST", "ia_resumos", corpo=[{"chave": RETOMAR_CHAVE, "texto": "", "ia": "atendente", "criado_em": _agora()}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        desde = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
+        feitas = []
+        for conv in repo._req("GET", "atendimento_conversas", {"select": "*", "status": "eq.respondida",
+                                                                "atualizado_em": f"gte.{desde}", "limit": 30}) or []:
+            msgs = [m for m in repo._req("GET", "atendimento_mensagens", {"select": "id,de,texto", "conversa_id": f"eq.{conv['id']}",
+                                                                          "order": "criado_em", "limit": 500}) or []
+                    if not _robo(m.get("texto"))]
+            if not msgs or msgs[-1]["de"] != "cliente":
+                continue
+            ult = msgs[-1]
+            rs = repo._req("GET", "atendimento_rascunhos", {"select": "id", "conversa_id": f"eq.{conv['id']}",
+                                                            "mensagem_id": f"gte.{ult['id']}", "limit": 1}) or []
+            if rs:
+                continue
+            fim = len(msgs)
+            while fim and msgs[fim - 1]["de"] == "cliente":
+                fim -= 1
+            texto = "\n".join(m["texto"] for m in msgs[fim:])[-3000:]
+            feitas.append(processar(repo, conv, dict(ult, texto=texto)).get("id"))
+        return feitas
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def aprender_aos_poucos(repo, a_cada_min=15):

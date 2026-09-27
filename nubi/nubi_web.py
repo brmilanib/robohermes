@@ -4566,6 +4566,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             ferreiro_proximo(repo, a_cada_min=0)
         ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
         atendimento.atendente_proximo(repo)     # atendente da TikTok Shop ligado: a cada 5 min ou na hora, se há resposta aprovada
+        atendimento.retomar_esquecidas(repo)    # a cada 3 min: "respondida" só pelo robô da plataforma volta a ter rascunho
         atendimento.aprender_aos_poucos(repo)   # a cada 15 min: padrões das conversas novas viram propostas na base
         pend = []
         if d.get("info") is not None:

@@ -349,6 +349,34 @@ def test_atendente_do_mac_e_chamado_quando_ligado():
     assert a.atendente_no_pc(r) and a.atendente_proximo(r) is None
 
 
+def test_resposta_do_robo_da_shopee_nao_conta_como_resposta():
+    # 27/09: o "Assistente AI" da Shopee respondeu "aguarde" / "não consigo responder"; a cliente continuava esperando
+    r = Repo()
+    x = a.receber(r, "shopee", "", cliente="fernanda", externo_id="fernanda", respondido=True, historico=[
+        {"de": "cliente", "texto": "Tem outro perfume feminino pra menina de 15 anos?"},
+        {"de": "loja", "texto": "Lamento, mas não posso responder a essa pergunta. Você será transferido para um agente do "
+                               "vendedor para receber melhor assistência. Agradeço sua paciência."},
+        {"de": "loja", "texto": "Olá! Recebemos sua mensagem 😊 Em breve nossa equipe irá analisar e responder sua "
+                               "solicitação. Pedimos, por gentileza, que aguarde nosso retorno."}], gerar=_ia(iter([])))
+    assert x["status"] != "historico" and r.t["atendimento_conversas"][0]["status"] != "respondida"
+    assert [m["texto"] for m in r.t["atendimento_mensagens"]] == ["Tem outro perfume feminino pra menina de 15 anos?"]
+    assert len(r.t["atendimento_rascunhos"]) == 1
+
+
+def test_conversa_ja_guardada_como_respondida_pelo_robo_e_retomada():
+    r = Repo()
+    a.receber(r, "shopee", "", cliente="naiara", externo_id="naiara", respondido=True, fechado=True, historico=[
+        {"de": "cliente", "texto": "Qual a validade ?"}, {"de": "loja", "texto": "Qual perfume?"}])
+    conv = r.t["atendimento_conversas"][0]
+    conv["status"] = "respondida"
+    for t in ("Qual o ano de validade ?", "Olá! Recebemos sua mensagem 😊 Em breve nossa equipe irá responder."):
+        r._req("POST", "atendimento_mensagens", corpo=[{"conversa_id": conv["id"], "de": "loja" if "Recebemos" in t else "cliente",
+                                                          "texto": t, "criado_em": a._agora()}])
+    feitas = a.retomar_esquecidas(r)
+    assert len(feitas) == 1 and r.t["atendimento_rascunhos"][0]["conversa_id"] == conv["id"]
+    assert a.retomar_esquecidas(r, a_cada_min=0) == []                     # não repete o rascunho
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

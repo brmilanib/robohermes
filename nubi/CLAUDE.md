@@ -214,3 +214,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Responder sozinho (`pode_sozinho`, ligado por padrão, `atendimento|auto`): sai sem aprovação quando a pergunta está coberta
   pela base (`cobre` ≥ 0,75) e não é pedido/troca/reclamação, na saudação, e logo depois que o Bruno responde uma dúvida
   embaixo. O resto espera aprovação. O acerto mede só o que o Bruno decidiu; as automáticas contam à parte.
+- **Robô da plataforma não é resposta (27/09)**: `ROBO_PLATAFORMA` tira do histórico o "Assistente AI" da Shopee ("Recebemos
+  sua mensagem… aguarde", "não consigo responder, será transferido"); se a última mensagem de verdade é da cliente, a conversa
+  ganha rascunho (só a aba Fechados fica como histórico). `retomar_esquecidas` (tique do Mac, a cada 3 min) faz o mesmo com
+  as já gravadas como `respondida`. No coletor, `abrir_conversa` abre o chat pelo nome do cliente (a lista da Shopee não
+  vira elemento clicável).
