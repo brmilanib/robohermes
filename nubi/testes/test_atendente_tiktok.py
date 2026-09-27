@@ -195,6 +195,25 @@ def test_gratis_parou_sem_registrar_com_conversa_sem_resposta_a_paga_assume():
     assert "Você parou sem registrar" in json.dumps(ch["ultima"], ensure_ascii=False)
 
 
+def test_abre_a_conversa_pelo_nome_quando_a_lista_nao_vira_elemento():
+    # 27/09 (Shopee): a linha da conversa não aparecia nos ELEMENTOS; abrir_conversa clica no nome
+    import shutil
+    shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
+    PAGINA.with_name("shopee2.html").write_text(
+        '<html><body><div>Sem resposta (1)</div><section onclick="document.title=\'aberta\'"><p>fernandacristiane11</p>'
+        '<p>Comprador precisa de assistência</p></section></body></html>', encoding="utf-8")
+    ch = _preparar([("terminar", {"resumo": "a lista não é clicável"}),       # cutucado: não pode terminar assim
+                    ("abrir_conversa", {"cliente": "fernandacristiane11"}),
+                    ("registrar", {"cliente": "fernandacristiane11", "historico": [
+                        {"de": "cliente", "texto": "oi"}, {"de": "cliente", "texto": "cadê meu pedido?"}]}),
+                    ("terminar", {"resumo": "1 registrada"})], canais=["shopee"])
+    c.PLATAFORMAS["shopee"] = ("Shopee", URL.replace("chat.html", "shopee2.html"), "127.0.0.1", "Atendente Shopee")
+    c.cmd_atender_tiktok(None, c.ler_config())
+    txt = json.dumps(ch["ultima"], ensure_ascii=False)
+    assert "AINDA NÃO" in txt and "Abri a conversa de fernandacristiane11" in txt and "TÍTULO: aberta" in txt
+    assert any(r == "atendimento_receber" for r, _ in ch["api"])
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

@@ -3669,7 +3669,8 @@ JS_ELEMENTOS = r"""() => {
     .filter(vis);
   // 26/09: a lista de conversas da TikTok/Shopee é feita de <div> clicáveis (cursor de mãozinha), sem botão nem link;
   // entram também os blocos clicáveis com texto curto que não estão dentro de um elemento já listado
-  const dentro = e => base.some(b => b !== e && (b.contains(e) || e.contains(b)));
+  // 27/09 (Shopee): a linha da conversa tem ícones/botões dentro; só fica de fora o que está DENTRO de um já listado
+  const dentro = e => base.some(b => b !== e && b.contains(e));
   const extra = [...document.querySelectorAll('div, li, span')].filter(e => {
     if (!vis(e) || getComputedStyle(e).cursor !== 'pointer') return false;
     const t = (e.innerText || '').trim(); if (t.length < 2 || t.length > 220) return false;
@@ -3934,6 +3935,10 @@ ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abri
      "aprovado; você só indica o campo de mensagem e o botão Enviar da última leitura). Abra antes a conversa do cliente certo.",
      "input_schema": {"type": "object", "properties": {"id": {"type": "integer"}, "n_campo": {"type": "integer"},
                                                        "n_botao": {"type": "integer"}}, "required": ["id", "n_campo", "n_botao"]}},
+    {"name": "abrir_conversa", "description": "Abre a conversa de um cliente clicando no NOME dele na lista de conversas "
+     "(use quando o item da lista não aparece nos ELEMENTOS). Devolve a leitura da página com a conversa aberta.",
+     "input_schema": {"type": "object", "properties": {"cliente": {"type": "string", "description": "nome do cliente como "
+                      "aparece na lista"}}, "required": ["cliente"]}},
     {"name": "fechados_concluido", "description": "Avisa que TODOS os chats da aba Fechados já foram registrados no nubi.",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "terminar", "description": "Encerra a rodada com um resumo curto (o que registrou, o que enviou, o que travou).",
@@ -3945,8 +3950,10 @@ PAPEL_ATENDENTE = (
     "1) Enviar as respostas aprovadas da lista (abra a conversa do cliente certo, leia, use enviar_aprovada).\n"
     "2) Na caixa de entrada (Todos), abrir cada conversa da lista (primeiro as 'Não respondidas'), ler as mensagens e o "
     "painel do pedido (número, status, entrega estimada, logística, rastreio, itens) e usar registrar com o histórico. "
+    "Para abrir uma conversa, use abrir_conversa com o nome do cliente (é o jeito mais seguro; clicar pelo número só se "
+    "a linha aparecer nos ELEMENTOS). "
     "OBRIGATÓRIO: registre TODA conversa que ainda não está no nubi, MESMO já respondida (respondido=true) — o nubi guarda o "
-    "histórico e aprende com ele; 'já foi respondida' NÃO é motivo para pular. Para cada uma: CLIQUE na conversa, use ler, "
+    "histórico e aprende com ele; 'já foi respondida' NÃO é motivo para pular. Para cada uma: abra a conversa, use ler, "
     "e só então registre o histórico completo (a prévia da lista não serve). Ignore avisos do sistema e do chatbot da "
     "plataforma ('[chatbot]', 'O bate-papo foi encerrado…', '[Compartilhou um pedido]', respostas automáticas). No histórico, "
     "de='cliente' só para o que o CLIENTE escreveu (balões do lado esquerdo) e de='loja' para as respostas da loja (lado "
@@ -4003,6 +4010,26 @@ def _atendente_marca(pg):
     t = re.sub(r"\b(ontem|hoje|agora|domingo|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado)(-feira)?\b|\b(jan|fev|mar|abr|mai|jun|jul|"
                r"ago|set|out|nov|dez)\b|\bh[aá]\s+\w+", " ", t, flags=re.I)
     return hashlib.sha1(re.sub(r"\s+", " ", t)[:6000].encode()).hexdigest()
+
+
+def _atendente_abrir_conversa(pg, cliente, estado):
+    """27/09 (Shopee): a lista de conversas não vira elemento numerado; clica no nome do cliente (em qualquer quadro da
+    página) e devolve a leitura já com a conversa aberta. Só clica em texto que é o nome, nunca em botão."""
+    cliente = cliente.strip()
+    if len(cliente) < 3:
+        return "Informe o nome do cliente como aparece na lista."
+    for fr in pg.frames:
+        try:
+            loc = fr.get_by_text(cliente, exact=True)
+            if not loc.count():
+                loc = fr.get_by_text(cliente)
+            if loc.count():
+                loc.first.click(timeout=15000)
+                pg.wait_for_timeout(2500)
+                return f"Abri a conversa de {cliente}.\n\n" + _nav_ler(pg, estado)
+        except Exception:  # noqa: BLE001
+            continue
+    return f"Não achei '{cliente}' na página: use ler e confira o nome (ou role a lista)."
 
 
 def _atendente_pendentes(pg):
@@ -4083,8 +4110,8 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                     estado["gratis_falhas"] = 3
                 mensagens.append({"role": "user", "content": (
                     "Você parou sem registrar nenhuma conversa, mas a lista tem conversas sem resposta"
-                    + (" e há respostas aprovadas para enviar" if aprovadas else "") + ". Use ler, CLIQUE na primeira "
-                    "conversa da lista (o elemento com o nome do cliente), use ler de novo e registre o histórico. Depois a "
+                    + (" e há respostas aprovadas para enviar" if aprovadas else "") + ". Use abrir_conversa com o "
+                    "nome do primeiro cliente da lista e registre o histórico. Depois a "
                     "próxima. Só use terminar quando todas estiverem registradas.")})
                 continue
             fim = " ".join(b.get("text", "") for b in blocos if b.get("type") == "text").strip()
@@ -4121,11 +4148,20 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                                "pendente": "Registrado: a resposta espera a aprovação do Bruno. Siga para a próxima.",
                                "historico": "Histórico guardado (já respondida). Siga para a próxima."}.get(
                             x.get("status"), "Registrado (já estava no nubi). Siga para a próxima.")
+                elif b["name"] == "abrir_conversa":
+                    txt = _atendente_abrir_conversa(pg, str(ent.get("cliente") or ""), estado)
                 elif b["name"] == "fechados_concluido":
                     api(token, "atendimento_fechados", corpo={"importar": False}, metodo="POST", timeout=60)
                     txt = "Ok: importação dos fechados concluída."
                 elif b["name"] == "enviar_aprovada":
                     txt = _atendente_enviar(pg, ent, estado, aprovadas, token)
+                elif b["name"] == "terminar" and not estado.get("cutucado") and not estado.get("registradas") \
+                        and _atendente_pendentes(pg):
+                    estado["cutucado"] = True           # 27/09: terminou sem registrar nada com conversa "Sem resposta"
+                    if chave:
+                        estado["gratis_falhas"] = 3
+                    txt = ("AINDA NÃO: a lista tem conversas sem resposta e nada foi registrado. Use abrir_conversa com o nome "
+                           "de cada cliente da lista e registre o histórico; depois terminar.")
                 elif b["name"] == "terminar":
                     txt, fim = "Fim.", str(ent.get("resumo") or "")[:2000]
                 elif b["name"] == "abrir" and dominio not in str(ent.get("url") or ""):
