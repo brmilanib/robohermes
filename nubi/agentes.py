@@ -36,7 +36,8 @@ ranking_categorias, marca_sugestoes, coletor_pedidos, estoque_atualizacoes e est
 cada atualização é uma foto completa do export Lista de Estoque do UpSeller, com a comparação com a anterior).
 
 ## Telas
-Início (resumo de tudo: vendas do último dia, contagens, próximas datas de vendas, resumo da IA, operação),
+Início (resumo de tudo: vendas do último dia, contagens, próximas datas de vendas, resumo da IA, operação, saúde do Mac
+mini servidor: CPU, memória, disco, temperatura, agentes e alertas, tabela servidor_metricas a cada 5 min),
 Ranking de marcas, Explorador, Concorrentes (Visão geral, Comparar, Vendas diárias, Alertas, Vendedores),
 Minhas Lojas (Estoque: estoque do UpSeller, o que entrou/saiu/zerou e a análise do agente Estoquista;
 🎵 TikTok Shop → Atendimento (26/09, módulo atendimento.py, reusável para WhatsApp e Mercado Livre): cada mensagem de cliente

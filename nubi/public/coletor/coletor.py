@@ -2325,6 +2325,54 @@ def _info_mac():
     return info
 
 
+def _cpu_top(txt):
+    """% de CPU em uso pela última amostra do `top -l 2` ("CPU usage: 12.5% user, 11.0% sys, 76.5% idle")."""
+    ms = re.findall(r"CPU usage:.*?([\d.]+)% idle", txt or "")
+    return round(100 - float(ms[-1]), 1) if ms else None
+
+
+def _mem_vm_stat(txt, total):
+    """% de memória em uso (como o psutil no macOS): total menos livre, inativa e especulativa."""
+    pag = re.search(r"page size of (\d+) bytes", txt or "")
+    if not pag or not total:
+        return None
+    n = {k: int(v) for k, v in re.findall(r"Pages (free|inactive|speculative):\s+(\d+)", txt)}
+    if "free" not in n:
+        return None
+    livre = (n.get("free", 0) + n.get("inactive", 0) + n.get("speculative", 0)) * int(pag.group(1))
+    return round(max(0.0, min(100.0, (total - livre) / total * 100)), 1)
+
+
+METRICAS_A_CADA = 5 * 60
+AGENTES_MAC = {"coletor": "com.nubi.coletor", "vigia": "com.nubi.coletor.vigia"}   # launchd; + ollama (Hermes/Qwen)
+
+
+def _metricas_mac(info=None):
+    """Card #92: saúde do Mac mini (CPU, memória, disco, temperatura e agentes esperados), só com comandos do macOS
+    (o psutil não vem no instalador). Sem leitura = None, nunca zero; temperatura pede sudo (powermetrics): fica None."""
+    def rodar(*cmd):
+        try:
+            return subprocess.run(list(cmd), capture_output=True, text=True, timeout=15).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    try:
+        total = int(rodar("/usr/sbin/sysctl", "-n", "hw.memsize").strip())
+    except ValueError:
+        total = None
+    try:
+        d = shutil.disk_usage(str(Path.home()))
+        disco = round((d.total - d.free) / d.total * 100, 1)
+    except OSError:
+        disco = None
+    agentes = {nome: subprocess.run(["/bin/launchctl", "list", rotulo], capture_output=True).returncode == 0
+               for nome, rotulo in AGENTES_MAC.items()}
+    agentes["ollama"] = bool((info or {}).get("ollama"))
+    return {"coletado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"), "origem": "mac_mini",
+            "cpu_pct": _cpu_top(rodar("/usr/bin/top", "-l", "2", "-n", "0", "-s", "1")),
+            "mem_pct": _mem_vm_stat(rodar("/usr/bin/vm_stat"), total), "disco_pct": disco, "temp_c": None,
+            "agentes": agentes}
+
+
 def despachar(cfg):
     """Um ciclo do despachante (roda dentro do vigia, a cada minuto)."""
     est = _estado_desp()
@@ -2340,7 +2388,14 @@ def despachar(cfg):
         if fim:
             est["rodando"].pop(cid, None)
     token = token_nubi(cfg)
-    r = api(token, "mac_tick", corpo={"info": _info_mac(), "saidas": saidas, "sala_ult": est.get("sala_ult", 0)}, timeout=40)
+    corpo = {"info": _info_mac(), "saidas": saidas, "sala_ult": est.get("sala_ult", 0)}
+    if sys.platform == "darwin" and time.time() - est.get("metricas_em", 0) >= METRICAS_A_CADA:   # card #92: a cada 5 min
+        try:
+            corpo["metricas"] = _metricas_mac(corpo["info"])
+            est["metricas_em"] = time.time()
+        except Exception as e:  # noqa: BLE001
+            print(f"{datetime.now():%d/%m %H:%M} métricas do Mac: {e}", flush=True)
+    r = api(token, "mac_tick", corpo=corpo, timeout=40)
     for p in r.get("pendentes", []):
         argv = comando_mac(p.get("comando"), p.get("arg") or "")
         if not argv:

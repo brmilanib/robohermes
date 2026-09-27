@@ -2069,6 +2069,7 @@ def tela_inicio(repo):
                                                                   "atualizacao_id": repo._eq(out["estoque"]["id"])}))
         out["estoque"]["baixo"] = (sum(1 for it in itens_est if (it.get("atual") or 0) > 0 and it.get("estoque_min")
                                         and it["atual"] <= it["estoque_min"]) if itens_est is not None else None)
+    out["servidor"] = seguro(lambda: servidor_status(repo))     # card #92: saúde do Mac mini servidor
     out["coleta"] = col[0] if col else None
     if out["coleta"]:
         out["coleta"]["mensagem"] = (out["coleta"].get("mensagem") or "")[:200]
@@ -2912,6 +2913,55 @@ def _mac_online(repo):
     est = (repo._req("GET", "mac_estado", {"select": "visto_em", "id": "eq.1"}) or [None])[0]
     return bool(est and est.get("visto_em") and (datetime.now(timezone.utc) - datetime.fromisoformat(
         str(est["visto_em"]).replace("Z", "+00:00"))).total_seconds() < 300)
+
+
+# Card #92: saúde do Mac mini servidor (tabela servidor_metricas, migração supabase/servidor_metricas.sql). O coletor manda a
+# leitura crua no mac_tick (a cada 5 min); aqui valida, calcula os alertas e grava em UTC. Leitura que falta fica None
+# (a tela mostra "sem dados", nunca zero).
+LIMITES_SERVIDOR = {"cpu_pct": ("CPU", 90, "%"), "mem_pct": ("memória", 90, "%"), "disco_pct": ("disco", 90, "%"),
+                    "temp_c": ("temperatura", 85, "°C")}
+SERVIDOR_SEM_ENVIO_MIN = 15
+
+
+def servidor_metricas_gravar(repo, m, agora=None):
+    """Grava uma leitura do Mac (upsert por coletado_em+origem). Horário mais de 5 min no futuro: descarta (None)."""
+    agora = agora or datetime.now(timezone.utc)
+    try:
+        quando = datetime.fromisoformat(str(m.get("coletado_em")).replace("Z", "+00:00")).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+    if quando > agora + timedelta(minutes=5):
+        return None
+
+    def num(k, lo, hi):
+        try:
+            v = float(m.get(k))
+        except (TypeError, ValueError):
+            return None
+        return round(v, 1) if lo <= v <= hi else None
+    reg = {"coletado_em": quando.isoformat(), "origem": str(m.get("origem") or "mac_mini")[:40],
+           "cpu_pct": num("cpu_pct", 0, 100), "mem_pct": num("mem_pct", 0, 100), "disco_pct": num("disco_pct", 0, 100),
+           "temp_c": num("temp_c", 1, 150), "recebido_em": agora.isoformat()}
+    ag = {str(k)[:40]: bool(v) for k, v in (m.get("agentes") or {}).items()} if isinstance(m.get("agentes"), dict) else {}
+    reg["agentes"] = ag
+    reg["faltantes"] = [k for k, v in ag.items() if not v]
+    reg["alertas"] = [f"{nome} {str(reg[k]).replace('.', ',')}{un} (limite {lim}{un})"
+                      for k, (nome, lim, un) in LIMITES_SERVIDOR.items() if reg[k] is not None and reg[k] >= lim]
+    reg["alertas"] += [f"agente ausente: {k}" for k in reg["faltantes"]]
+    reg["status"] = "alerta" if reg["alertas"] else "ok"
+    repo._req("POST", "servidor_metricas", {"on_conflict": "coletado_em,origem"}, corpo=[reg],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return reg
+
+
+def servidor_status(repo, agora=None):
+    """Última leitura do Mac (max coletado_em) para o Início; sem envio há 15 min, marca 'atrasado'. Sem leitura: None."""
+    agora = agora or datetime.now(timezone.utc)
+    ult = (repo._req("GET", "servidor_metricas", {"select": "*", "order": "coletado_em.desc", "limit": 1}) or [None])[0]
+    if not ult:
+        return None
+    visto = datetime.fromisoformat(str(ult["coletado_em"]).replace("Z", "+00:00"))
+    return {**ult, "atrasado": (agora - visto).total_seconds() > SERVIDOR_SEM_ENVIO_MIN * 60}
 
 
 def ferreiro_proximo(repo, a_cada_min=1, quem="ferreiro"):
@@ -4547,6 +4597,11 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         if d.get("info") is not None:
             repo._req("POST", "mac_estado", corpo=[{"id": 1, "visto_em": agora_, "info": d["info"]}],
                       prefer="resolution=merge-duplicates,return=minimal")
+        if d.get("metricas"):
+            try:
+                servidor_metricas_gravar(repo, d["metricas"])
+            except Exception:  # noqa: BLE001 — a saúde do Mac não trava o despachante (ex.: tabela ainda não criada)
+                pass
         for sd in d.get("saidas") or []:
             reg = {"saida": str(sd.get("saida") or "")[-12000:], "status": sd.get("status") or "rodando"}
             if reg["status"] in ("ok", "erro", "recusado"):
