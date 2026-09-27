@@ -1310,15 +1310,27 @@ PC_COMANDO_CHAVE = "atendimento|pc_comando"
 NAVEGAR_MODELO = os.environ.get("NUBI_ATENDENTE_MODELO", "claude-haiku-4-5-20251001")
 NAVEGAR_TETO_USD = float(os.environ.get("NUBI_NAVEGAR_TETO_USD", "3"))
 NAVEGAR_ORIGEM = "atendente_navegar"
+NAVEGAR_MAX_DIA = int(os.environ.get("NUBI_NAVEGAR_MAX_DIA", "150"))
+HAIKU_USD_MTOK = {"in": 1.0, "out": 5.0, "cache_read": 0.10, "cache_write": 1.25}   # US$ por milhão de tokens
+
+
+def _custo_haiku(x):
+    return (int(x.get("tokens_in") or 0) * HAIKU_USD_MTOK["in"] + int(x.get("tokens_out") or 0) * HAIKU_USD_MTOK["out"]
+            + int(x.get("cache_read_tokens") or 0) * HAIKU_USD_MTOK["cache_read"]
+            + int(x.get("cache_creation_tokens") or 0) * HAIKU_USD_MTOK["cache_write"]) / 1e6
 
 
 def _navegar_reserva(repo, d):
     if not ia.tem("claude"):
         return None
     meia_noite = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(hours=3)
-    gasto = sum(float(x.get("custo_usd") or 0) for x in repo._req("GET", "agentes_uso", {
-        "select": "custo_usd", "origem": f"eq.{NAVEGAR_ORIGEM}", "inicio": f"gte.{meia_noite.isoformat()}", "limit": 50000}) or [])
-    if gasto >= NAVEGAR_TETO_USD:
+    usos = repo._req("GET", "agentes_uso", {
+        "select": "custo_usd,tokens_in,tokens_out,cache_read_tokens,cache_creation_tokens", "origem": f"eq.{NAVEGAR_ORIGEM}",
+        "inicio": f"gte.{meia_noite.isoformat()}", "limit": 50000}) or []
+    # 27/09: o custo_usd vinha vazio (Haiku sem preço na tabela) e o teto nunca disparava: 2.440 chamadas, ~US$ 73 num dia.
+    # Agora o gasto é calculado pelos tokens (preço do Haiku 4.5) e há um limite de chamadas por dia.
+    gasto = sum(float(x["custo_usd"]) if x.get("custo_usd") is not None else _custo_haiku(x) for x in usos)
+    if gasto >= NAVEGAR_TETO_USD or len(usos) >= NAVEGAR_MAX_DIA:
         return None
     corpo = {"model": NAVEGAR_MODELO, "max_tokens": 1024, "messages": d.get("mensagens") or [],
              "tools": [{k: f[k] for k in ("name", "description", "input_schema") if k in f} for f in d.get("ferramentas") or []]}

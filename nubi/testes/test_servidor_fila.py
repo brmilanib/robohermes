@@ -177,6 +177,26 @@ def test_mac_pausado_nao_recebe_nada_e_o_servidor_assume():
     assert [p["comando"] for p in srv["pendentes"]] == ["diario", "servidor_log"], srv    # Ferreiro não vai para o gamdias
 
 
+def test_reserva_haiku_para_no_teto_mesmo_sem_custo_gravado():
+    # 27/09: 2.440 chamadas do Haiku com custo_usd vazio (~US$ 73): o teto agora conta pelos tokens e pelo nº de chamadas
+    import datetime as dt
+    at = w.atendimento
+    r = Repo([])
+    agora = dt.datetime.now(dt.timezone.utc).isoformat()
+    r.t["agentes_uso"] = [{"origem": at.NAVEGAR_ORIGEM, "inicio": agora, "custo_usd": None, "tokens_in": 46000, "tokens_out": 160}
+                          for _ in range(70)]                                         # ~US$ 3,3 pelos tokens
+    chamou = []
+    antes_tem, antes_post = at.ia.tem, at.ia._post_json
+    at.ia.tem = lambda q: True
+    at.ia._post_json = lambda *a, **k: chamou.append(1) or {"content": []}
+    try:
+        assert at._navegar_reserva(r, {"mensagens": []}) is None and not chamou
+        r.t["agentes_uso"] = [{"origem": at.NAVEGAR_ORIGEM, "inicio": agora, "custo_usd": 0, "tokens_in": 1}] * at.NAVEGAR_MAX_DIA
+        assert at._navegar_reserva(r, {"mensagens": []}) is None and not chamou     # limite de chamadas por dia
+    finally:
+        at.ia.tem, at.ia._post_json = antes_tem, antes_post
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):
