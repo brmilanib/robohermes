@@ -418,6 +418,44 @@ def test_ia_que_pede_licenca_recebe_sim_e_segue():
     assert ch["claude"] == 0                                             # não caiu na paga: seguiu com o "sim"
 
 
+def test_chat_ja_aberto_nao_recarrega():
+    # 27/09 (Bruno): recarregar o chat a cada rodada fazia a Shopee/TikTok pedir captcha; o chat se atualiza sozinho
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        abas = {}
+        pg = c._aba_do_canal(ctx, abas, "shopee")
+        assert c._no_chat(pg, URL) is True                                  # 1ª vez: abre
+        pg.evaluate("window.marca_nubi = 1")
+        assert c._no_chat(pg, URL) is False and pg.evaluate("window.marca_nubi") == 1     # já está no chat: não recarrega
+        assert c._aba_do_canal(ctx, abas, "shopee") is pg and c._aba_do_canal(ctx, abas, "tiktok_shop") is not pg
+        ctx.close()
+
+
+def test_shopee_conversa_fechada_recomeca_e_envia():
+    # 27/09 (print do Bruno): conversa fechada pela Shopee não tem campo; só o botão "Recomeçar Conversa" devolve o campo
+    from playwright.sync_api import sync_playwright
+    html = """<html><head><meta charset="utf-8"></head><body><div class="lista"><div class="linha"><span>naiaraandradeabreu</span></div></div>
+<div id="chat"><b>naiaraandradeabreu</b><p>Qual a validade ?</p><div id="rodape">A conversa foi fechada automaticamente
+<button id="rec">Recomeçar Conversa</button></div></div>
+<script>
+document.getElementById('rec').onclick = () => { document.getElementById('rodape').innerHTML =
+  '<textarea id="t" placeholder="Digite"></textarea>';
+  const t = document.getElementById('t');
+  t.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const p = document.createElement('p');
+    p.className = 'loja'; p.textContent = t.value; document.getElementById('chat').insertBefore(p, document.getElementById('rodape'));
+    t.value = ''; } }); };
+</script></body></html>"""
+    PAGINA.with_name("shopee_fechada.html").write_text(html, encoding="utf-8")
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(URL.replace("chat.html", "shopee_fechada.html"))
+        assert c._enviar_direto(pg, {"id": 1, "cliente": "naiaraandradeabreu", "texto": "Após aberto, dura cerca de 2 anos."}) is None
+        assert pg.evaluate("document.querySelectorAll('p.loja').length") == 1
+        ctx.close()
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

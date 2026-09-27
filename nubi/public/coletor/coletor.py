@@ -4298,6 +4298,32 @@ def _ja_no_chat(pg, trecho):
     return False
 
 
+def _campo_do_chat(pg):
+    for fr in pg.frames:
+        try:
+            info = fr.evaluate(JS_CAMPO)
+        except Exception:  # noqa: BLE001
+            info = None
+        if info:
+            return info, fr
+    return None, None
+
+
+def _recomecar_conversa(pg):
+    """27/09 (print do Bruno): a Shopee fecha a conversa sozinha ("A conversa foi fechada automaticamente") e some com o
+    campo de digitar; só o botão "Recomeçar Conversa" devolve o campo. Clica só nesse botão (nada de configuração)."""
+    for fr in pg.frames:
+        try:
+            b = fr.get_by_role("button", name=re.compile(r"^\s*recome[cç]ar\s+conversa\s*$", re.I)).first
+            if b.count() and b.is_visible():
+                b.click(timeout=8000)
+                pg.wait_for_timeout(2000)
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+    return False
+
+
 def _enviar_direto(pg, item):
     """Envia a resposta APROVADA sem IA (27/09, Shopee): busca e abre a conversa do cliente, confere o nome, digita o texto
     aprovado no campo do chat e envia (Enter ou o ícone de enviar), conferindo que a mensagem apareceu. -> None ou o erro."""
@@ -4312,14 +4338,9 @@ def _enviar_direto(pg, item):
         return f"a conversa aberta não é de {cli}"
     if trecho and _ja_no_chat(pg, trecho):
         return None                                    # já está no chat (enviada antes): não manda de novo
-    info = None
-    for fr in pg.frames:
-        try:
-            info = fr.evaluate(JS_CAMPO)
-        except Exception:  # noqa: BLE001
-            info = None
-        if info:
-            break
+    info, fr = _campo_do_chat(pg)
+    if not info and _recomecar_conversa(pg):
+        info, fr = _campo_do_chat(pg)
     if not info:
         return "não achei o campo de mensagem do chat"
     campo = fr.locator("[data-nubi-campo]").first
@@ -4343,12 +4364,38 @@ def _enviar_direto(pg, item):
     return "digitei, mas a mensagem não saiu (nem com Enter nem com o botão)"
 
 
+def _no_chat(pg, url):
+    """27/09 (pedido do Bruno): o chat da Shopee e o do TikTok se atualizam sozinhos quando chega mensagem; recarregar a
+    página a cada rodada fazia a plataforma pedir captcha. Só abre o endereço se a aba ainda não está no chat."""
+    from urllib.parse import urlparse
+    a, b = urlparse(pg.url or ""), urlparse(url)
+    alvo = "/".join([x for x in b.path.split("/") if x][:1])
+    if a.netloc == b.netloc and (not alvo or alvo in a.path or ("webchat" in b.path and "webchat" in a.path)):
+        return False
+    pg.goto(url, timeout=60000)
+    pg.wait_for_timeout(4000)
+    return True
+
+
+def _aba_do_canal(ctx, abas, canal):
+    """Uma aba fixa por plataforma (TikTok, Shopee): aberta uma vez e reaproveitada, sem recarregar."""
+    pg = abas.get(canal)
+    if pg is None or pg.is_closed():
+        livres = [x for x in ctx.pages if x not in abas.values() and not x.is_closed()]
+        pg = livres[0] if livres and (livres[0].url or "about:blank") == "about:blank" else ctx.new_page()
+        abas[canal] = pg
+    try:
+        pg.bring_to_front()
+    except Exception:  # noqa: BLE001
+        pass
+    return pg
+
+
 def _enviar_aprovadas_direto(pg, aprovadas, estado, token, url):
     """Antes da IA: tenta enviar cada resposta aprovada desta plataforma do jeito fixo (sem IA)."""
     for item in list(aprovadas.values()):
         try:
-            pg.goto(url, timeout=60000)
-            pg.wait_for_timeout(3500)
+            _no_chat(pg, url)
             erro = _enviar_direto(pg, item)
         except Exception as ex:  # noqa: BLE001
             erro = f"erro: {str(ex)[:200]}"
@@ -4450,8 +4497,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
     else:
         conhecidos = (pend.get("conhecidos_por_canal") or {}).get(canal) or (pend.get("conhecidos") if canal == "tiktok_shop" else []) or []
     try:
-        pg.goto(cfg.get(k_url) or url_ini, timeout=60000)
-        pg.wait_for_timeout(4000)
+        _no_chat(pg, cfg.get(k_url) or url_ini)
         marca = _atendente_marca(pg)
     except Exception:  # noqa: BLE001
         marca = None
@@ -4483,8 +4529,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
         _enviar_aprovadas_direto(pg, aprovadas, estado, token, cfg.get(k_url) or url_ini)
         pedido = pedido.replace("RESPOSTAS APROVADAS PARA ENVIAR", "RESPOSTAS APROVADAS QUE AINDA FALTAM ENVIAR", 1)
         try:
-            pg.goto(cfg.get(k_url) or url_ini, timeout=60000)
-            pg.wait_for_timeout(3000)
+            _no_chat(pg, cfg.get(k_url) or url_ini)
         except Exception:  # noqa: BLE001
             pass
     mensagens = [{"role": "user", "content": pedido}]
@@ -4623,8 +4668,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
         # 27/09: a Shopee gravava a página de métricas (portal/chat-management) como a do chat; só o webchat vale
         if re.search(r"/sac/|message-list" if sac else r"webchat" if canal == "shopee" else r"chat|im|message|bate", pg.url, re.I):
             cfg[k_url] = pg.url.split("?")[0]
-        pg.goto(cfg.get(k_url) or url_ini, timeout=60000)
-        pg.wait_for_timeout(4000)
+        _no_chat(pg, cfg.get(k_url) or url_ini)
         if estado.get("registradas") or estado.get("enviadas") or not _atendente_pendentes(pg):
             cfg[k_marca] = _atendente_marca(pg)
         else:
@@ -4743,6 +4787,7 @@ def cmd_atendente(args, cfg):
     with sync_playwright() as p:
         ctx = abrir_navegador(p, cfg, visivel=True)
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        abas = {}
         try:
             voltas = 0
             while True:
@@ -4769,6 +4814,7 @@ def cmd_atendente(args, cfg):
                     for canal in canais:
                         cfg = ler_config()
                         chave, _ = _atendente_pronto(cfg)
+                        pg = _aba_do_canal(ctx, abas, canal)
                         print(f"{agora} " + _rodada_atendente(pg, cfg, chave, token, _gasto_atendente(cfg), canal, x)[2], flush=True)
                         guardar_sessao(ctx)
                 except KeyboardInterrupt:
@@ -4778,6 +4824,7 @@ def cmd_atendente(args, cfg):
                     if "closed" in str(e).lower():            # o Bruno fechou a janela do Chrome: abre de novo
                         ctx = abrir_navegador(p, cfg, visivel=True)
                         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+                        abas = {}
                 time.sleep(ATENDENTE_PC_A_CADA)
         except KeyboardInterrupt:
             print("Atendente desligado neste computador.")

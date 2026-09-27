@@ -306,4 +306,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   o vigia mata o filho (e o Chrome, `taskkill /T` no Windows) e abre de novo. Comando do PC `diagnostico <canal>` devolve a
   estrutura da página (campos, clicáveis, ícones) para ajustar seletores. No Windows o Python da Store aparece como
   `python3.12.exe` (procurar com `Name like 'python%'`).
+- **Sem recarregar o chat (27/09, pedido do Bruno)**: recarregar a Shopee/TikTok a cada rodada fazia pedir captcha, e o
+  chat já se atualiza sozinho. No PC cada plataforma tem uma aba fixa (`_aba_do_canal`) e `_no_chat` só abre o endereço
+  se a aba ainda não está no chat. Conversa fechada pela Shopee ("fechada automaticamente", sem campo): `_enviar_direto`
+  clica em "Recomeçar Conversa" (`_recomecar_conversa`, só esse botão) e digita.
 
