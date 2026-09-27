@@ -4183,12 +4183,15 @@ def _atendente_abrir_conversa(pg, cliente, estado):
     return f"Não achei '{cliente}' na página: use ler e confira o nome (ou role a lista)."
 
 
-JS_FOTOS = r"""nomes => { const achar = n => { const k = n.toLowerCase().slice(0, 18);
-    for (const img of document.querySelectorAll('img')) {
-      if (!/^https?:/.test(img.currentSrc || img.src) || img.naturalWidth < 30 || img.naturalHeight < 30) continue;
-      let e = img, t = '';
-      for (let i = 0; i < 4 && e; i++, e = e.parentElement) { t = (e.innerText || '') + ' ' + (img.alt || '') + ' ' + (img.title || '');
-        if (t.length > 600) break; if (t.toLowerCase().includes(k)) return img.currentSrc || img.src; } }
+JS_FOTOS = r"""nomes => { const achar = n => { const k = n.toLowerCase().replace(/\s+/g, ' ').slice(0, 14);
+    const fonte = el => { if (el.tagName === 'IMG') return el.currentSrc || el.src || el.dataset.src || '';
+      const m = (getComputedStyle(el).backgroundImage || '').match(/url\(["']?(https?:[^"')]+)/); return m ? m[1] : ''; };
+    for (const el of document.querySelectorAll('img, [style*="background"], div, span')) {
+      const src = fonte(el); if (!/^https?:/.test(src)) continue;
+      const r = el.getBoundingClientRect(); if (r.width < 24 || r.height < 24 || r.width > 400) continue;
+      let e = el, t = '';
+      for (let i = 0; i < 6 && e; i++, e = e.parentElement) { t = ((e.innerText || '') + ' ' + (el.alt || '') + ' ' + (el.title || '')).toLowerCase().replace(/\s+/g, ' ');
+        if (t.length > 900) break; if (t.includes(k)) return src; } }
     return ''; };
   const out = {}; for (const n of nomes) out[n] = achar(n); return out; }"""
 
@@ -4269,6 +4272,9 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
         marca = _atendente_marca(pg)
     except Exception:  # noqa: BLE001
         marca = None
+    if re.search(r"/(login|signin|sign-in|entrar)\b|accounts\.", pg.url or "", re.I):
+        # 27/09: o Mac sem login na Shopee chamava a IA a cada minuto só para descobrir a tela de login
+        return 0.0, {"nada": True}, f"{nome}: precisa entrar (login) no Chrome deste computador; nada feito."
     if marca and marca == cfg.get(k_marca) and not aprovadas and not fechados and not sac:
         return 0.0, {"nada": True}, f"{nome}: nada novo no chat e nada para enviar."     # sem gasto
     pedido = (("IMPORTAR O SAC DO UPSELLER (pedido do Bruno): traga o histórico já respondido. CONVERSAS QUE JÁ ESTÃO NO "
@@ -4353,8 +4359,13 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                 elif b["name"] == "enviar_aprovada" and sac:
                     txt = "No SAC você só lê e registra; nunca envia."
                 elif b["name"] == "fechados_concluido" and sac:
-                    api(token, "atendimento_sac", corpo={"importar": False}, metodo="POST", timeout=60)
-                    txt = "Ok: importação do SAC concluída."
+                    if estado.get("registradas") or int(cfg.get("sac_vazias") or 0) < 2:
+                        # 27/09: o modelo dizia "concluído" depois de 6 conversas; só acaba depois de rodadas sem nada novo
+                        txt = ("Ainda não: role a lista (rolar) e veja as outras abas e marketplaces; registre o que ainda não "
+                               "está no nubi. Se nesta rodada não houver mais nada, use terminar.")
+                    else:
+                        api(token, "atendimento_sac", corpo={"importar": False}, metodo="POST", timeout=60)
+                        txt = "Ok: importação do SAC concluída."
                 elif b["name"] == "abrir_conversa":
                     txt = _atendente_abrir_conversa(pg, str(ent.get("cliente") or ""), estado)
                 elif b["name"] == "fechados_concluido":
@@ -4395,6 +4406,8 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
             cfg.pop(k_marca, None)      # ficou conversa sem resposta sem registrar: a próxima rodada olha de novo
     except Exception:  # noqa: BLE001
         pass
+    if sac:
+        cfg["sac_vazias"] = 0 if estado.get("registradas") else int(cfg.get("sac_vazias") or 0) + 1
     salvar_config(cfg)
     _gasto_atendente(cfg, custo)
     resumo = (f"{'🎵' if canal == 'tiktok_shop' else '📥' if sac else '🛍️'} {autor}: {estado.get('registradas', 0)} mensagem(ns) trazida(s) para o nubi, "
@@ -4546,8 +4559,31 @@ def cmd_atendente(args, cfg):
                 pass
     if novo:
         Path(__file__).write_bytes(novo)
+        if getattr(args, "filho", False):
+            return 3                            # o vigia (processo pai) abre a versão nova na mesma janela
         os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "atendente"])
     return 0
+
+
+def cmd_atendente_vigia(args, cfg):
+    """27/09: no PC o atendente parou ao se atualizar (os.execv no Windows solta a janela e o processo novo morreu às
+    11:13). Agora um vigia fica na janela e roda o atendente como processo filho: versão nova (código 3) ou queda →
+    abre de novo sozinho, na mesma janela. Ctrl+C para parar."""
+    import subprocess
+    while True:
+        try:
+            rc = subprocess.call([sys.executable, str(Path(__file__).resolve()), "atendente", "--filho"])
+        except KeyboardInterrupt:
+            return 0
+        if rc == 0:
+            return 0
+        agora = datetime.now().strftime("%H:%M")
+        print(f"{agora} 🔁 {'versão nova: abrindo de novo' if rc == 3 else f'o atendente caiu (código {rc}); abrindo de novo em 20 s'}…",
+              flush=True)
+        try:
+            time.sleep(1 if rc == 3 else 20)
+        except KeyboardInterrupt:
+            return 0
 
 
 def _processo_vivo(pid):
@@ -4915,7 +4951,8 @@ def main():
     sub.add_parser("ferreiro-conversa", help="o Ferreiro responde a conversa direta com o Bruno no nubi (só leitura do projeto)")
     nvg = sub.add_parser("navegar", help="o Navegador (Claude controlando o Chrome do coletor) faz a tarefa do card N")
     nvg.add_argument("id")
-    sub.add_parser("atendente", help="fica ligado neste computador atendendo o chat da TikTok Shop e da Shopee (Ctrl+C para parar)")
+    sp_at = sub.add_parser("atendente", help="fica ligado neste computador atendendo o chat da TikTok Shop e da Shopee (Ctrl+C para parar)")
+    sp_at.add_argument("--filho", action="store_true", help=argparse.SUPPRESS)
     sub.add_parser("importar-sac", help="traz para o nubi o histórico já respondido do SAC do UpSeller (base de conhecimento)")
     sub.add_parser("atender-tiktok", help="o atendente olha o chat da TikTok Shop, traz as mensagens ao nubi e envia as aprovadas")
     pga = sub.add_parser("programar-astra", help="o Astra (Codex no Mac, modelo do Astra) faz o card de design N e envia num branch")
@@ -4974,6 +5011,8 @@ def main():
         return cmd_importar_sac(args, cfg)
     if args.cmd == "atender-tiktok":
         return cmd_atender_tiktok(args, cfg)
+    if args.cmd == "atendente" and not getattr(args, "filho", False):
+        return cmd_atendente_vigia(args, cfg)
     if args.cmd == "atendente":
         return cmd_atendente(args, cfg)
     if args.cmd == "repetir-falhas":

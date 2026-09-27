@@ -349,6 +349,15 @@ def test_atendente_do_mac_e_chamado_quando_ligado():
     assert a.atendente_proximo(r) is None                                # menos de 5 min e nada para enviar
     assert a.atendente_proximo(r, mac_online=False) is None
     r.t["mac_comandos"] = []
+    # 27/09: aprovada que ficou para trás (o Mac não consegue enviar) não chama o atendente a cada minuto; aprovada nova chama
+    a.atendente_proximo(r)
+    r.t["mac_comandos"][0]["status"] = "ok"
+    r.t["atendimento_rascunhos"] = [{"id": 9, "conversa_id": 1, "enviar_pelo_mac": True, "enviado_em": None,
+                                     "decidido_em": "2000-01-01T00:00:00+00:00", "texto_final": "x"}]
+    assert a.atendente_proximo(r) is None
+    r.t["atendimento_rascunhos"][0]["decidido_em"] = "2999-01-01T00:00:00+00:00"
+    assert a.atendente_proximo(r) == "atendente chamado"
+    r.t["mac_comandos"] = []
     a.rota(r, "GET", "atendimento_para_enviar", {"computador": "pc"}, None)       # o PC do Bruno está atendendo
     assert a.atendente_no_pc(r) and a.atendente_proximo(r) is None
 

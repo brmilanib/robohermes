@@ -1249,8 +1249,14 @@ def atendente_proximo(repo, mac_online=True):
                                                  "limit": 1}) or [{}])[0].get("criado_em")
         velho = not ult or datetime.now(timezone.utc) - datetime.fromisoformat(str(ult).replace("Z", "+00:00")) >= timedelta(
             minutes=ATENDENTE_A_CADA_MIN)
-        if not velho and not para_enviar(repo):
-            return None
+        if not velho:
+            # 27/09: resposta aprovada chama o atendente na hora só se foi aprovada DEPOIS da última rodada (antes, uma
+            # aprovada que o Mac não conseguia enviar, sem login na Shopee, chamava o atendente a cada minuto)
+            novas = [r for r in repo._req("GET", "atendimento_rascunhos", {"select": "decidido_em", "enviar_pelo_mac": "eq.true",
+                                                                            "enviado_em": "is.null", "limit": 50}) or []
+                     if str(r.get("decidido_em") or "") > str(ult)]
+            if not novas:
+                return None
         repo._req("POST", "mac_comandos", corpo=[{"comando": "atender_tiktok", "arg": "", "pedido_por": "atendente TikTok",
                                                   "status": "pendente", "criado_em": _agora()}], prefer="return=minimal")
         return "atendente chamado"

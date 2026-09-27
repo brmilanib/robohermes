@@ -280,4 +280,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   que pergunta de novo algo já respondido (a mesma pergunta depois da NOSSA última resposta, no chat lido) recebe "Como te
   respondemos logo acima, …" com a resposta de antes; `_sem_eco` só descarta bloco de 2+ mensagens antigas lido de novo.
   Base: item "Qual a validade?" (loja todas, confirmado pelo Bruno): repostos toda semana, lote varia, após aberto ~2 anos.
+- **Atendente mais robusto (27/09)**: no PC, `coletor atendente` agora é um vigia (`cmd_atendente_vigia`) que roda o atendente
+  como filho (`--filho`) na mesma janela e o abre de novo na versão nova (código 3) ou se cair (o `os.execv` no Windows
+  soltava a janela e o processo novo morreu às 11:13). Tela de login (`/login`, `accounts.`) encerra a rodada sem chamar a IA.
+  `atendente_proximo` só chama na hora por resposta aprovada DEPOIS da última rodada (antes o Mac sem login na Shopee rodava
+  a cada minuto e travava a fila do SAC). SAC: `fechados_concluido` só vale depois de 2 rodadas sem nada novo (`sac_vazias`);
+  `JS_FOTOS` também acha fotos em `background-image` e pelo tamanho na tela.
 

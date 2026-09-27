@@ -237,9 +237,23 @@ def test_importa_o_sac_do_upseller_so_como_historico():
     assert corpo["canal"] == "mercado_livre" and corpo["respondido"] and corpo["fechado"]
     pd = corpo["pedido_dados"]
     assert pd["fonte"] == "upseller_sac" and pd["loja"] == "AURA SCENT" and pd["itens"][0]["foto"].endswith("/foto.png")
-    assert ("atendimento_sac", {"importar": False}) in ch["api"]
+    assert ("atendimento_sac", {"importar": False}) not in ch["api"]      # trouxe conversa nesta rodada: ainda não acabou
+    assert "Ainda não" in json.dumps(ch["ultima"], ensure_ascii=False) and c.ler_config().get("sac_vazias") == 0
     txt = json.dumps(ch["ultima"], ensure_ascii=False)
     assert "Rolei" in txt and "nunca envia" in txt and not any(r == "atendimento_enviado" for r, _ in ch["api"])
+
+
+def test_tela_de_login_nao_chama_a_ia():
+    import shutil
+    shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
+    ch = _preparar([], canais=["shopee"])
+    base = URL.rsplit("/", 1)[0]
+    import os as _os
+    _os.makedirs(PAGINA.parent / "seller" / "login", exist_ok=True)
+    (PAGINA.parent / "seller" / "login" / "index.html").write_text("<html><body>Entrar</body></html>", encoding="utf-8")
+    c.PLATAFORMAS["shopee"] = ("Shopee", base + "/seller/login/", "127.0.0.1", "Atendente Shopee")
+    c.cmd_atender_tiktok(None, c.ler_config())
+    assert ch["claude"] == 0 and not any(r == "atendimento_navegar_ia" for r, _ in ch["api"])
 
 
 if __name__ == "__main__":
