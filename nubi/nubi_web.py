@@ -1840,9 +1840,10 @@ def _painel_dia(repo, d=None):
             if r["vendedor"] not in hoje_v:
                 continue                                   # produtos de quem não tem o dia não entram nas quedas
             for it in r["itens"] or []:
-                pb = pbase.setdefault(it["k"], {"v": 0.0, "u": 0, "t": it.get("t"), "m": it.get("m")})
+                pb = pbase.setdefault(it["k"], {"v": 0.0, "u": 0, "t": it.get("t"), "m": it.get("m"), "vendedores": set()})
                 pb["v"] += float(it.get("v") or 0)
                 pb["u"] += int(it.get("u") or 0)
+                pb["vendedores"].add(r["vendedor"])
         else:
             hoje[r["vendedor"]] = r
             for it in r["itens"] or []:
@@ -1885,20 +1886,28 @@ def _painel_dia(repo, d=None):
         x["v_mes"] = vm.get(v) if vm else None
         x["var_mes"] = (x["v"] / vm[v] - 1) if vm.get(v) else None
         vs.append(x)
+    # média do produto pelos dias com coleta dos vendedores que o venderam no período (não o total global de datas):
+    # dia sem coleta desse vendedor não conta no denominador, dia sem venda conta como zero (card #106)
+    def _dias_produto(k):
+        return sum(base[v][2] for v in pbase.get(k, {}).get("vendedores", ()) if v in base)
     ps = []
     for k, p in prod.items():
-        med = pbase[k]["v"] / n if n and k in pbase else None
-        ps.append(dict(p, vendedores=len(set(p["vendedores"])), media=med,
+        dias = _dias_produto(k)
+        med = pbase[k]["v"] / dias if dias and k in pbase else None
+        ps.append(dict(p, vendedores=len(set(p["vendedores"])), media=med, dias_base=dias or None,
                        dif=(p["v"] - med) if med is not None else None, var=(p["v"] / med - 1) if med else None,
                        v_mes=pm.get(k) if pm else None, var_mes=(p["v"] / pm[k] - 1) if pm.get(k) else None))
     queda = []
     if n:
         for k, pb in pbase.items():
-            med = pb["v"] / n
+            dias = _dias_produto(k)
+            if not dias:
+                continue
+            med = pb["v"] / dias
             hj = prod.get(k, {}).get("v", 0.0)
             if med >= 300 and hj < med * 0.85:                # caiu pelo menos 15%
                 queda.append({"chave": k, "produto": pb["t"] or k, "marca": pb["m"] or "", "v": hj, "media": med,
-                              "dif": hj - med, "var": hj / med - 1})
+                              "dif": hj - med, "var": hj / med - 1, "dias_base": dias})
     tot = {"v": sum(x["v"] for x in vs), "u": sum(x["u"] for x in vs)}
     meds = [x["media"] for x in vs if x["media"] is not None]
     tot["media"] = sum(meds) if meds else None
@@ -1908,7 +1917,7 @@ def _painel_dia(repo, d=None):
     if vm:                                                 # mesmo dia do mês anterior só dos vendedores que têm o dia
         tot["v_mes"] = sum(vm.get(x["vendedor"], 0.0) for x in vs)
         tot["var_mes"] = (tot["v"] / tot["v_mes"] - 1) if tot["v_mes"] else None
-    return {"tem": True, "data": d, "data_mes": d_mes if vm else None, "base": "7 dias" if n else ("ritmo do mês" if ritmo else None), "dias_base": n,
+    return {"tem": True, "data": d, "data_mes": d_mes if vm else None, "base": f"{n} dias" if n else ("ritmo do mês" if ritmo else None), "dias_base": n,
             "sem_coleta": faltam,
             "total": tot, "vendedores": sorted(vs, key=lambda x: -x["v"]),
             "mais_venderam": sorted([x for x in vs if x["v"] > 0], key=lambda x: -x["v"])[:8],
