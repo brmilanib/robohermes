@@ -291,4 +291,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   para o atendente do PC (lista FECHADA `PC_COMANDOS`: status, limpar_marca, reiniciar, login <canal>): a sessão de código
   grava em `ia_resumos` `atendimento|pc_comando` (ou rota `atendimento_pc_comando`); o PC recebe junto com
   `atendimento_para_enviar` (`pc_comando`), executa (`_pc_comando`) e devolve em `atendimento_pc_resultado` (status feito + saída).
+- **Limites do atendente (card #108)**: cada falha de `enviar_aprovada` vai ao nubi (`marcar_enviado` ok=false); a 2ª falha da
+  mesma resposta (o `motivo` já começa com `ENVIO_FALHOU`) vira `precisa_info` com o motivo e sai da fila (`enviar_pelo_mac=false`);
+  o coletor não tenta a 3ª. Até `ATENDENTE_PAGOS_RODADA`=5 passos com a IA paga por rodada (fora o SAC). Login encerra na hora
+  e avisa a Sala uma vez só (`<canal>_login_avisado` no config, limpo quando a página abre sem login).
 

@@ -4025,6 +4025,8 @@ def _plat_cfg(canal):
     """Chaves no config por plataforma (a TikTok mantém os nomes antigos)."""
     return ("tiktok_chat_url", "tiktok_marca_v4") if canal == "tiktok_shop" else (f"{canal}_chat_url", f"{canal}_marca")
 ATENDENTE_PASSOS = 90
+ATENDENTE_PAGOS_RODADA = int(os.environ.get("NUBI_ATENDENTE_PAGOS", "5"))   # card #108: passos com a IA paga por rodada
+ATENDENTE_FALHAS_ENVIO = 2          # card #108: a mesma resposta falhou 2 vezes no envio → volta para o Bruno
 ATENDENTE_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abrir", "ler", "clicar")] + [
     {"name": "registrar", "description": "Manda ao nubi uma conversa aberta: o histórico lido na tela (cliente e loja, na "
      "ordem, até as 15 últimas), se a loja já respondeu, e o pedido do painel lateral. Se a última mensagem é do cliente e "
@@ -4133,10 +4135,35 @@ def _gasto_atendente(cfg, somar=0.0, chave="atendente_gasto"):
 
 
 def _atendente_enviar(pg, ent, estado, aprovadas, token):
-    """Digita o texto APROVADO (nunca o do modelo) e clica em Enviar, conferindo o cliente e o botão."""
+    """Digita o texto APROVADO (nunca o do modelo) e clica em Enviar, conferindo o cliente e o botão.
+    Card #108: a 2ª falha da mesma resposta tira ela da rodada e o nubi devolve ao Bruno ('precisa de você')."""
     item = aprovadas.get(int(ent.get("id") or 0))
     if not item:
         return "Essa resposta não está aprovada (ou já foi enviada)."
+    try:
+        erro = _atendente_digitar(pg, ent, estado, item)
+    except Exception as ex:  # noqa: BLE001
+        erro = f"Erro: {str(ex)[:300]}"
+    if not erro:
+        api(token, "atendimento_enviado", corpo={"id": item["id"], "ok": True}, metodo="POST", timeout=60)
+        aprovadas.pop(item["id"], None)
+        estado["enviadas"] = estado.get("enviadas", 0) + 1
+        return f"Enviada a resposta {item['id']} para {item['cliente']}."
+    falhas = estado.setdefault("falhas_envio", {})
+    falhas[item["id"]] = falhas.get(item["id"], 0) + 1
+    try:
+        r = api(token, "atendimento_enviado", corpo={"id": item["id"], "ok": False, "erro": erro[:300]}, metodo="POST", timeout=60)
+    except Exception:  # noqa: BLE001
+        r = {}
+    if falhas[item["id"]] >= ATENDENTE_FALHAS_ENVIO or (r or {}).get("precisa_voce"):
+        aprovadas.pop(item["id"], None)
+        return (f"{erro}\nA resposta {item['id']} falhou {ATENDENTE_FALHAS_ENVIO} vezes: saiu da fila e voltou para o Bruno. "
+                "NÃO tente de novo; siga para a próxima.")
+    return erro
+
+
+def _atendente_digitar(pg, ent, estado, item):
+    """Devolve o motivo da falha (ou None se digitou e clicou em Enviar)."""
     campo, botao = estado.get("els", {}).get(int(ent.get("n_campo", -1))), estado.get("els", {}).get(int(ent.get("n_botao", -1)))
     if not campo or campo["tag"] not in ("textarea", "input", "div") or (campo["tag"] == "input" and campo["tipo"] not in ("", "text")):
         return "Campo inválido: leia de novo e indique o campo de mensagem do chat."
@@ -4152,10 +4179,7 @@ def _atendente_enviar(pg, ent, estado, aprovadas, token):
     pg.wait_for_timeout(600)
     pg.locator(f"[data-nubi-n='{botao['n']}']").first.click(timeout=15000)
     pg.wait_for_timeout(2500)
-    api(token, "atendimento_enviado", corpo={"id": item["id"], "ok": True}, metodo="POST", timeout=60)
-    aprovadas.pop(item["id"], None)
-    estado["enviadas"] = estado.get("enviadas", 0) + 1
-    return f"Enviada a resposta {item['id']} para {item['cliente']}."
+    return None
 
 
 def _atendente_marca(pg):
@@ -4276,6 +4300,10 @@ def _ia_atendente(chave, mensagens, token, estado, papel=None):
     return _claude_ferramentas(chave, mensagens, papel or PAPEL_ATENDENTE, ATENDENTE_FERRAMENTAS, ATENDENTE_MODELO)
 
 
+def _na_tela_login(pg):
+    return bool(re.search(r"/(login|signin|sign-in|entrar)\b|accounts\.", pg.url or "", re.I))
+
+
 def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=None):
     """Uma olhada no chat de uma plataforma com a página já aberta: envia as aprovadas e traz as novas.
     Devolve (custo, estado, resumo)."""
@@ -4298,9 +4326,17 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
         marca = _atendente_marca(pg)
     except Exception:  # noqa: BLE001
         marca = None
-    if re.search(r"/(login|signin|sign-in|entrar)\b|accounts\.", pg.url or "", re.I):
+    k_login = f"{canal}_login_avisado"
+    if _na_tela_login(pg):
         # 27/09: o Mac sem login na Shopee chamava a IA a cada minuto só para descobrir a tela de login
-        return 0.0, {"nada": True}, f"{nome}: precisa entrar (login) no Chrome deste computador; nada feito."
+        msg = f"{nome}: precisa entrar (login) no Chrome deste computador; nada feito."
+        if not cfg.get(k_login):         # card #108: avisa na Sala uma vez só, até o login voltar a funcionar
+            cfg[k_login] = datetime.now().isoformat()
+            salvar_config(cfg)
+            _postar_hermes_como(token, autor, f"🔐 {msg} Entre na central do vendedor na janela do Chrome.")
+        return 0.0, {"nada": True, "login": True}, msg
+    if cfg.pop(k_login, None):
+        salvar_config(cfg)
     if marca and marca == cfg.get(k_marca) and not aprovadas and not fechados and not sac:
         return 0.0, {"nada": True}, f"{nome}: nada novo no chat e nada para enviar."     # sem gasto
     pedido = (("IMPORTAR O SAC DO UPSELLER (pedido do Bruno): traga o histórico já respondido. CONVERSAS QUE JÁ ESTÃO NO "
@@ -4418,6 +4454,11 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                 txt = f"Erro: {str(ex)[:300]}"
             resultados.append({"type": "tool_result", "tool_use_id": b["id"], "content": txt[:12000]})
         mensagens.append({"role": "user", "content": resultados})
+        if fim is None and not sac and _na_tela_login(pg):
+            fim = f"{nome}: a página caiu no login; rodada encerrada."          # card #108: não insiste no login
+            cfg[k_login] = datetime.now().isoformat()                          # o aviso sai no fim; a próxima rodada não repete
+        if fim is None and not sac and estado.get("pago", 0) >= ATENDENTE_PAGOS_RODADA:
+            fim = f"Teto de {ATENDENTE_PAGOS_RODADA} passos com a IA paga nesta rodada: encerrada (continua na próxima)."
         if fim is not None or (custo > 0 and custo + gasto >= (SAC_TETO_DIA if sac else ATENDENTE_TETO_DIA)):  # teto só da IA paga
             if fim is None:
                 chave = ""                                                               # daqui em diante só a grátis
