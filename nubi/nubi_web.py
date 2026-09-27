@@ -4737,7 +4737,9 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             for v in d.get("vetores") or []:
                 repo._req("PATCH", "conhecimento", {"id": repo._eq(int(v["id"]))}, corpo={"vetor_local": v["vetor"]},
                           prefer="return=minimal")
-            if (d.get("info") or {}).get("ollama") and not reserva:
+            # vetores ficam com quem roda os modelos locais (Hermes): o servidor, se ele assumiu o Hermes; senão o Mac
+            dono_vetor = "hermes" in (srv or []) if maq == "servidor" else not (reserva and "hermes" in srv)
+            if (d.get("info") or {}).get("ollama") and dono_vetor:
                 vetorizar = repo._req("GET", "conhecimento", {"select": "id,titulo,texto", "vetor_local": "is.null",
                                                               "criado_em": f"gte.{VETOR_LOCAL_DESDE}", "order": "id",
                                                               "limit": 10}) or []

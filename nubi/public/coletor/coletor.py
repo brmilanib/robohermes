@@ -2657,7 +2657,14 @@ def cmd_servidor(args, cfg):
     """27/09: o servidor do escritório (Windows) fica ligado com este comando: a cada minuto roda o vigia (despachante da
     fila do nubi, Hermes/Qwen, vetores) num processo novo (pega sempre a versão mais nova) e mantém o atendente ligado."""
     cfg["maquina"] = "servidor"
+    if getattr(args, "so", None):          # ex.: --so sac (gamdias, 27/09): só o SAC, sem Hermes/Qwen/vetores (sem Ollama)
+        apelidos = {"sac": "importar_sac"}
+        pedidos = [apelidos.get(x.strip(), x.strip()) for x in args.so.split(",") if x.strip()]
+        cfg["servidor_pode"] = [x for x in pedidos if x in SERVIDOR_PODE] + [x for x in SERVIDOR_PODE if x.startswith("servidor_")]
+    elif getattr(args, "tudo", False):
+        cfg.pop("servidor_pode", None)
     salvar_config(cfg)
+    print("Este computador assume: " + ", ".join(cfg.get("servidor_pode") or SERVIDOR_PODE), flush=True)
     if getattr(args, "instalar", False):
         if not WINDOWS:
             print("O --instalar é para o Windows (Agendador de Tarefas).")
@@ -5445,6 +5452,8 @@ def main():
     sp_srv = sub.add_parser("servidor", help="servidor do escritório (Windows): fila do nubi + atendente, sempre ligado")
     sp_srv.add_argument("--instalar", action="store_true", help="abre sozinho ao entrar no Windows (Agendador de Tarefas)")
     sp_srv.add_argument("--sem-atendente", action="store_true", help="não liga o atendente da Shopee/TikTok aqui")
+    sp_srv.add_argument("--so", help="só estes comandos (ex.: sac); o resto fica no Mac")
+    sp_srv.add_argument("--tudo", action="store_true", help="volta a assumir tudo o que o servidor sabe fazer")
     sp_rl = sub.add_parser("rodar-logado", help=argparse.SUPPRESS)
     sp_rl.add_argument("log")
     sp_rl.add_argument("argv", nargs=argparse.REMAINDER)

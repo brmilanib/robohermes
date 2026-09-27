@@ -316,6 +316,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 
 - Windows 11, Xeon 6 núcleos, 64 GB, Quadro P4000 8 GB, 3 internets e nobreak: vira a máquina principal; o Mac mini fica de
   reserva e o gamdias (PC de casa) é a 2ª reserva do atendente. Senhas nunca passam pelo chat: o Bruno roda `configurar` lá.
+- `--so sac` assume só o SAC (gamdias, 27/09, enquanto o Dell não está pronto; Sala e vetores ficam no Mac); `--tudo` volta ao padrão.
 - `py -3.12 coletor.py servidor` (`--instalar` cria a tarefa `nubi-servidor` no Agendador, ao entrar no Windows): a cada
   minuto roda `vigiar` num processo novo (despachante + versão nova a cada ~5 min, `_vigiar_servidor`; sem as coletas com
   horário) e mantém o atendente ligado. `cfg["maquina"]="servidor"`.

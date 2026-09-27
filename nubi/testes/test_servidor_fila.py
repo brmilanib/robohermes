@@ -120,6 +120,33 @@ def test_rodar_logado_grava_saida_e_codigo():
     assert "ola" in log.read_text() and Path(str(log) + ".rc").read_text() == "3"
 
 
+def test_gamdias_so_com_o_sac_deixa_sala_e_vetores_no_mac():
+    _preparar()
+    r = Repo(["importar_sac", "hermes"])
+    srv = _tick(r, "servidor", ["importar_sac", "servidor_processos"])
+    assert [p["comando"] for p in srv["pendentes"]] == ["importar_sac"] and srv["sala"] == [], srv
+    mac = _tick(r)
+    assert [p["comando"] for p in mac["pendentes"]] == ["hermes"] and mac["sala"], mac
+
+
+def test_opcao_so_sac():
+    import argparse
+    cfg = {}
+    guardado = (c.salvar_config, c.subprocess.run, c.subprocess.Popen, c.time.sleep)
+    c.salvar_config = lambda x: None
+    try:
+        c.time.sleep = lambda s: (_ for _ in ()).throw(KeyboardInterrupt())
+        c.subprocess.run = lambda *a, **k: None
+        c.subprocess.Popen = lambda *a, **k: type("P", (), {"poll": lambda self: None})()
+        try:
+            c.cmd_servidor(argparse.Namespace(so="sac", tudo=False, instalar=False, sem_atendente=False), cfg)
+        except KeyboardInterrupt:
+            pass
+    finally:
+        c.salvar_config, c.subprocess.run, c.subprocess.Popen, c.time.sleep = guardado
+    assert cfg["maquina"] == "servidor" and cfg["servidor_pode"][0] == "importar_sac" and "hermes" not in cfg["servidor_pode"]
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):
