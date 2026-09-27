@@ -254,8 +254,12 @@ def api(token, rota, params=None, corpo=None, metodo=None, timeout=300, _de_novo
 # Navegador
 # ---------------------------------------------------------------------------
 
-def abrir_navegador(p, cfg, visivel=None, perfil="perfil"):
+def abrir_navegador(p, cfg, visivel=None, perfil=None):
     """Chrome com perfil próprio e persistente: o login do Nubimetrics fica salvo nele."""
+    if perfil is None:
+        # 27/09: no servidor (gamdias) o atendente deixa o perfil principal sempre aberto; coletas e logins usam outro
+        # perfil persistente (os logins do Nubimetrics, UpSeller, Gestor e Mercado Livre ficam salvos nele)
+        perfil = "perfil-coleta" if _eh_servidor(cfg) and os.environ.get("NUBI_PAPEL") != "atendente" else "perfil"
     if visivel is None:
         visivel = bool(cfg.get("mostrar_navegador") or os.environ.get("NUBI_VER"))
     opcoes = dict(user_data_dir=str(PASTA / perfil), headless=not visivel, accept_downloads=True,
@@ -4976,6 +4980,7 @@ def cmd_atendente(args, cfg):
     """Fica ligado (no PC do Bruno ou em qualquer computador): uma janela do Chrome que passa pelo chat de cada plataforma
     ligada no nubi (TikTok Shop, Shopee), a cada 2 min. Enquanto roda, avisa o nubi e o Mac fica quieto. Ctrl+C para parar."""
     from playwright.sync_api import sync_playwright
+    os.environ["NUBI_PAPEL"] = "atendente"          # usa o perfil principal do Chrome (ver abrir_navegador)
     chave, _ = _atendente_pronto(cfg)
     token = token_nubi(cfg)
     print("🎵🛍️ Atendente ligado neste computador (TikTok Shop, Shopee). Deixe esta janela aberta (Ctrl+C para parar).")

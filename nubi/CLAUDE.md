@@ -334,4 +334,5 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Sala ou vetor; o vigia do Mac pula as coletas com horário); Ferreiro/Astra/Navegador ficam parados; as filas do atendimento
   rodam no tique do servidor. O servidor (gamdias) assume também `diario`, `estoque`, `gestor`, logins e Mercado Livre
   (`SERVIDOR_PODE`, `COLETAS`; o vigia do servidor roda as coletas com horário). Tirar a pausa = apagar a linha, depois da
-  reinstalação do macOS e da troca de chaves.
+  reinstalação do macOS e da troca de chaves. No servidor, coletas e logins usam o perfil `perfil-coleta` do Chrome (o atendente,
+  `NUBI_PAPEL=atendente`, fica com o `perfil` principal sempre aberto).
