@@ -1793,7 +1793,7 @@ function cardsDia(p) {
   if (!p || !p.tem) return "";
   const dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
   const chip = v => v == null ? `<span class="chip nt">novo</span>` : `<span class="chip ${v >= 0 ? "up" : "down"}">${v >= 0 ? "▲" : "▼"} ${nf0.format(Math.abs(v * 100))}%</span>`;
-  const base = p.dias_base ? `média dos ${p.dias_base} dias anteriores` : p.base === "ritmo do mês" ? "ritmo diário do mês" : "";
+  const base = p.dias_base ? `média dos ${p.base} anteriores` : p.base === "ritmo do mês" ? "ritmo diário do mês" : "";
   const vend = (x, i, cair) => `<div class="dia-ln"><span class="n">${i + 1}</span><a class="nm" href="#/vendedores/${encodeURIComponent(x.vendedor)}" title="${esc(x.vendedor)}">${esc(x.vendedor)}</a>
     <span class="vl">${cair ? `<span class="neg">${"−" + abrev(Math.abs(x.dif))}</span>` : abrev(x.v)}${chip(x.var)}</span>
     <span class="dt">${cair ? `${abrev(x.v)} no dia x ${abrev(x.media)} de média` : `${nf0.format(x.u)} un. · ${x.itens} produto(s)`}${mesAnt(x)}${x.top && x.top[0] ? ` · ${esc((x.top[0].produto || "").slice(0, 60))}` : !x.itens ? " · não vendeu nada no dia" : ""}</span></div>`;
