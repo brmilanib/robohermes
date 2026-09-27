@@ -102,6 +102,8 @@ def test_vendedor_sem_historico_conta_no_total_mas_nao_na_media():
     # a venda real de hoje (GRANDE + NOVATO) continua inteira no total, mesmo sem histórico de todo mundo
     assert resp["total"]["v"] == 1300, resp["total"]
     assert resp["total"]["media"] == 1000, resp["total"]      # só GRANDE tem histórico pra compor a média
+    # a variação (var) compara só quem tem os dois lados (GRANDE): NOVATO não pode inflar o % só por não ter baseline
+    assert resp["total"]["var"] == 0, resp["total"]
 
 
 def test_rotulo_base_mostra_o_numero_real_de_dias_nao_7_fixo():

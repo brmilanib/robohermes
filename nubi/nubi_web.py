@@ -1909,9 +1909,11 @@ def _painel_dia(repo, d=None):
                 queda.append({"chave": k, "produto": pb["t"] or k, "marca": pb["m"] or "", "v": hj, "media": med,
                               "dif": hj - med, "var": hj / med - 1, "dias_base": dias})
     tot = {"v": sum(x["v"] for x in vs), "u": sum(x["u"] for x in vs)}
-    meds = [x["media"] for x in vs if x["media"] is not None]
-    tot["media"] = sum(meds) if meds else None
-    tot["var"] = (tot["v"] / tot["media"] - 1) if tot["media"] else None
+    # tot['media'] e a variação (var) só entram vendedores com histórico (mesmo conjunto); tot['v'] continua a venda
+    # real do dia inteira (card #59: nunca some do total só porque falta baseline de comparação) — card #106
+    com_media = [x for x in vs if x["media"] is not None]
+    tot["media"] = sum(x["media"] for x in com_media) if com_media else None
+    tot["var"] = (sum(x["v"] for x in com_media) / tot["media"] - 1) if tot["media"] else None
     tot["v_mes"] = sum(vm.values()) if vm else None
     tot["var_mes"] = (tot["v"] / tot["v_mes"] - 1) if tot["v_mes"] else None
     if vm:                                                 # mesmo dia do mês anterior só dos vendedores que têm o dia
