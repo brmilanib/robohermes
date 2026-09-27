@@ -4003,12 +4003,42 @@ def assumir_aprovados(repo, tid):
     return " · ".join(partes)
 
 # Terminal do Mac: lista FECHADA (o Mac confere de novo do lado dele); nada vira comando livre
+SERVIDOR_CHAVE = "fila|servidor"
+SERVIDOR_SINAL_MIN = 3
+
+
+def servidor_pode(repo):
+    """27/09: comandos que o servidor Dell sabe fazer, se ele deu sinal nos últimos minutos; senão None (o Mac faz tudo)."""
+    r = (repo._req("GET", "ia_resumos", {"select": "texto,criado_em", "chave": f"eq.{SERVIDOR_CHAVE}"}) or [{}])[0]
+    try:
+        quando = datetime.fromisoformat(str(r.get("criado_em")).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if datetime.now(timezone.utc) - quando > timedelta(minutes=SERVIDOR_SINAL_MIN):
+        return None
+    try:
+        pode = json.loads(r.get("texto") or "{}").get("pode") or []
+    except ValueError:
+        return None
+    return [p for p in pode if p in COMANDOS_MAC]
+
+
+def _mac_vivo(repo, minutos=3):
+    est = (repo._req("GET", "mac_estado", {"select": "visto_em", "id": "eq.1"}) or [{}])[0]
+    try:
+        return datetime.now(timezone.utc) - datetime.fromisoformat(str(est.get("visto_em")).replace("Z", "+00:00")) < timedelta(minutes=minutos)
+    except ValueError:
+        return False
+
+
 COMANDOS_MAC = {
     "status": "Status das coletas", "diario": "Rodar a coleta agora", "parar_coleta": "Parar a coleta em andamento",
     "atualizar": "Atualizar o coletor", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia",
     "log_vigia": "Últimas linhas do vigia", "log_coleta": "Últimas linhas da coleta",
     "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
-    "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac",
+    "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac", "servidor_processos": "Servidor Dell: processos que mais usam CPU",
+    "servidor_espaco": "Servidor Dell: espaço em disco", "servidor_log": "Servidor Dell: últimas linhas do vigia",
+    "servidor_ollama": "Servidor Dell: modelos carregados agora", "servidor_atualizar": "Servidor Dell: atualizar o coletor",
     "baixar_modelo": "Baixar modelo do Ollama", "estoque": "Atualizar o estoque do UpSeller agora",
     "gestor": "Importar a planilha no Gestor Seller", "hermes_card": "Hermes fazer um card (no Mac)",
     "entrar": "Abrir o login do Nubimetrics no Mac (você clica em Entrar)",
@@ -4652,11 +4682,22 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         return (repo._req("GET", "mac_comandos", {"select": "*", "id": repo._eq(int(q.get("id") or 0))}) or [None])[0] or {}
     if rota == "mac_tick" and metodo == "POST":
         # o Mac: estado + saídas dos comandos em andamento; recebe os pendentes e as mensagens novas da Sala
-        indexar_aos_poucos(repo)
-        if d.get("info") is not None:
+        # 27/09: o servidor Dell (maquina=servidor) manda o mesmo sinal com o que sabe fazer (pode); enquanto ele dá sinal,
+        # o Mac não pega esses comandos, nem a Sala (Hermes/Qwen) nem os vetores, e não repete as filas do atendimento.
+        maq = "servidor" if d.get("maquina") == "servidor" else "mac"
+        if maq == "servidor" and d.get("info") is not None:
+            repo._req("POST", "ia_resumos", corpo=[{"chave": SERVIDOR_CHAVE, "ia": "servidor", "criado_em": agora_,
+                                                    "texto": json.dumps({"pode": [str(x) for x in d.get("pode") or []][:60],
+                                                                         "info": d["info"]})}],
+                      prefer="resolution=merge-duplicates,return=minimal")
+        srv = servidor_pode(repo)
+        reserva = maq == "mac" and srv is not None
+        if maq == "mac":
+            indexar_aos_poucos(repo)
+        if d.get("info") is not None and maq == "mac":
             repo._req("POST", "mac_estado", corpo=[{"id": 1, "visto_em": agora_, "info": d["info"]}],
                       prefer="resolution=merge-duplicates,return=minimal")
-        if d.get("metricas"):
+        if d.get("metricas") and maq == "mac":
             try:
                 servidor_metricas_gravar(repo, d["metricas"])
             except Exception:  # noqa: BLE001 — a saúde do Mac não trava o despachante (ex.: tabela ainda não criada)
@@ -4677,16 +4718,18 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
                               prefer="return=minimal")
         # card #89: depois de gravar as saídas, quem acabou de terminar já pega o próximo card neste mesmo sinal
         # (sem espera entre vezes: a trava do PATCH condicional já impede dois pegarem o mesmo card)
-        if "pegou" not in (ferreiro_proximo(repo, a_cada_min=0, quem="astra") or ""):   # design primeiro (Astra); não pegou, o Ferreiro
-            ferreiro_proximo(repo, a_cada_min=0)
-        ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
-        atendimento.atendente_proximo(repo)     # atendente da TikTok Shop ligado: a cada 5 min ou na hora, se há resposta aprovada
-        atendimento.sac_proximo(repo)           # importação do SAC do UpSeller pedida: uma rodada a cada 10 min até acabar
-        atendimento.reinterpretar_pendentes(repo)   # a cada 2 min: dúvidas antigas refeitas com a conversa inteira interpretada
-        atendimento.retomar_esquecidas(repo)    # a cada 3 min: "respondida" só pelo robô da plataforma volta a ter rascunho
-        atendimento.aprender_aos_poucos(repo)
-        atendimento.revisar_propostas(repo)     # a cada 2 min: o Sonnet revisa 5 propostas antigas (descarta o particular, marca o produto)
-        atendimento.fichar_aos_poucos(repo)     # a cada 3 min: ficha (notas, inspiração) de um perfume do estoque, pela internet   # a cada 15 min: padrões das conversas novas viram propostas na base
+        # as filas abaixo rodam no sinal do Mac; no do servidor só quando o Mac está sem sinal (uma vez por minuto basta)
+        if maq == "mac" or not _mac_vivo(repo):
+            if "pegou" not in (ferreiro_proximo(repo, a_cada_min=0, quem="astra") or ""):   # design primeiro (Astra); não pegou, o Ferreiro
+                ferreiro_proximo(repo, a_cada_min=0)
+            ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
+            atendimento.atendente_proximo(repo)     # atendente da TikTok Shop ligado: a cada 5 min ou na hora, se há resposta aprovada
+            atendimento.sac_proximo(repo)           # importação do SAC do UpSeller pedida: uma rodada a cada 10 min até acabar
+            atendimento.reinterpretar_pendentes(repo)   # a cada 2 min: dúvidas antigas refeitas com a conversa inteira interpretada
+            atendimento.retomar_esquecidas(repo)    # a cada 3 min: "respondida" só pelo robô da plataforma volta a ter rascunho
+            atendimento.aprender_aos_poucos(repo)
+            atendimento.revisar_propostas(repo)     # a cada 2 min: o Sonnet revisa 5 propostas antigas (descarta o particular, marca o produto)
+            atendimento.fichar_aos_poucos(repo)     # a cada 3 min: ficha (notas, inspiração) de um perfume do estoque, pela internet   # a cada 15 min: padrões das conversas novas viram propostas na base
         # card #29: vetores do nomic-embed-text (Ollama do Mac) dos itens novos da caixa de conhecimento; sem a coluna
         # vetor_local (migração ainda não aplicada) nada quebra, só não há vetores
         vetorizar = []
@@ -4694,7 +4737,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             for v in d.get("vetores") or []:
                 repo._req("PATCH", "conhecimento", {"id": repo._eq(int(v["id"]))}, corpo={"vetor_local": v["vetor"]},
                           prefer="return=minimal")
-            if (d.get("info") or {}).get("ollama"):
+            if (d.get("info") or {}).get("ollama") and not reserva:
                 vetorizar = repo._req("GET", "conhecimento", {"select": "id,titulo,texto", "vetor_local": "is.null",
                                                               "criado_em": f"gte.{VETOR_LOCAL_DESDE}", "order": "id",
                                                               "limit": 10}) or []
@@ -4702,13 +4745,20 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             vetorizar = []
         pend = []
         if d.get("info") is not None:
-            pend = repo._req("GET", "mac_comandos", {"select": "id,comando,arg", "status": "eq.pendente", "order": "id", "limit": 3}) or []
+            filtro = {"select": "id,comando,arg", "status": "eq.pendente", "order": "id", "limit": 20}
+            if maq == "servidor":
+                filtro["comando"] = f"in.({','.join(srv or ['nada'])})"
+            elif reserva and srv:
+                filtro["comando"] = f"not.in.({','.join(srv)})"
+            pend = [p for p in repo._req("GET", "mac_comandos", filtro) or []
+                    if maq == "servidor" or not str(p.get("comando")).startswith("servidor_")][:3]   # servidor_* só o servidor
             for p in pend:
                 repo._req("PATCH", "mac_comandos", {"id": repo._eq(p["id"])}, corpo={"status": "rodando", "iniciado_em": agora_},
                           prefer="return=minimal")
         ult = int(d.get("sala_ult") or 0)
         sala = []
-        if d.get("info") is not None:
+        dono_sala = "hermes" in (srv or []) if maq == "servidor" else not (reserva and "hermes" in srv)
+        if d.get("info") is not None and dono_sala:
             if not ult:          # primeira vez: começa do fim (não responde ao histórico)
                 u = repo._req("GET", "reuniao_mensagens", {"select": "id", "order": "id.desc", "limit": 1}) or []
                 sala = [{"id": u[0]["id"], "texto": ""}] if u else []
@@ -4718,7 +4768,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
                 if not sala:
                     u = repo._req("GET", "reuniao_mensagens", {"select": "id", "order": "id.desc", "limit": 1}) or []
                     sala = [{"id": u[0]["id"], "texto": ""}] if u and u[0]["id"] > ult else []
-        return {"pendentes": pend, "sala": sala, "vetorizar": vetorizar}
+        return {"pendentes": pend, "sala": sala, "vetorizar": vetorizar, "reserva": reserva}
     raise ErroNuvem("Rota desconhecida.", 404)
 
 

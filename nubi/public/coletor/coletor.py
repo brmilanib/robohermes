@@ -254,11 +254,11 @@ def api(token, rota, params=None, corpo=None, metodo=None, timeout=300, _de_novo
 # Navegador
 # ---------------------------------------------------------------------------
 
-def abrir_navegador(p, cfg, visivel=None):
+def abrir_navegador(p, cfg, visivel=None, perfil="perfil"):
     """Chrome com perfil próprio e persistente: o login do Nubimetrics fica salvo nele."""
     if visivel is None:
         visivel = bool(cfg.get("mostrar_navegador") or os.environ.get("NUBI_VER"))
-    opcoes = dict(user_data_dir=str(PASTA / "perfil"), headless=not visivel, accept_downloads=True,
+    opcoes = dict(user_data_dir=str(PASTA / perfil), headless=not visivel, accept_downloads=True,
                   viewport={"width": 1500, "height": 950}, locale="pt-BR", **({"user_agent": UA} if sys.platform == "darwin" else {}),
                   args=["--disable-blink-features=AutomationControlled"],
                   # extensões ligadas (26/09): o Hunter Spy que o Bruno instala no perfil do coletor mostra loja e cidade
@@ -2245,8 +2245,30 @@ def _parar_coleta_velha():
 # faz o Hermes/Qwen responderem na Sala quando chamados e informa o estado do Mac.
 # ---------------------------------------------------------------------------
 
+WINDOWS = sys.platform == "win32"
+TAREFA_WIN = "nubi-servidor"
+
+
+def _eu():
+    """Como chamar este coletor de novo: o atalho ~/.nubi-coletor/coletor no Mac; python + este arquivo no Windows."""
+    atalho = PASTA / "coletor"
+    return [str(atalho)] if not WINDOWS and atalho.exists() else [sys.executable, str(Path(__file__).resolve())]
+
+
+def _eh_servidor(cfg=None):
+    return (cfg if cfg is not None else ler_config()).get("maquina") == "servidor"
+
+
+# 27/09 (Bruno): o servidor Dell do escritório (Windows, 24 h, nobreak) assume a fila do Mac aos poucos. Ele avisa ao nubi
+# o que sabe fazer; enquanto dá sinal, o Mac não pega esses comandos (fica de reserva). Coleta do Nubimetrics, Gestor,
+# logins e Ferreiro continuam no Mac até os logins/ferramentas estarem no servidor.
+SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servidor_espaco", "servidor_log",
+                 "servidor_ollama", "servidor_atualizar")
+
+
 def _ollama_bin():
-    for c in ("/usr/local/bin/ollama", "/opt/homebrew/bin/ollama", "/Applications/Ollama.app/Contents/Resources/ollama"):
+    for c in ("/usr/local/bin/ollama", "/opt/homebrew/bin/ollama", "/Applications/Ollama.app/Contents/Resources/ollama",
+              str(Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "Programs" / "Ollama" / "ollama.exe")):
         if Path(c).exists():
             return c
     return "ollama"
@@ -2257,18 +2279,18 @@ MODELOS_OK = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 
 def comando_mac(chave, arg=""):
     """Lista FECHADA: cada chave vira um comando fixo; nada vindo de fora vira comando livre."""
-    c = str(PASTA / "coletor")
+    c = _eu()
     ol = _ollama_bin()
     tabela = {
-        "status": [c, "status"], "diario": [c, "diario"], "atualizar": [c, "atualizar"],
-        "parar_coleta": [c, "parar"], "vigia_reativar": [c, "vigia-reativar"],
-        "hermes": [c, "hermes"], "qwen": [c, "qwen"], "estoque": [c, "estoque"], "gestor": [c, "gestor"],
-        "entrar": [c, "entrar"], "entrar_upseller": [c, "entrar-upseller"], "entrar_gestor": [c, "entrar-gestor"],
-        "entrar_auto_nubimetrics": [c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [c, "entrar-auto", "upseller"],
-        "entrar_auto_gestor": [c, "entrar-auto", "gestor"],
-        "ferreiro_status": [c, "programar", "0"], "astra_status": [c, "programar-astra", "0"],
-        "navegador_status": [c, "navegar", "0"],
-        "ml_lojas": [c, "ml-lojas"], "ml_posicoes": [c, "ml-posicoes"], "entrar_ml": [c, "entrar-ml"],
+        "status": [*c, "status"], "diario": [*c, "diario"], "atualizar": [*c, "atualizar"],
+        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"],
+        "hermes": [*c, "hermes"], "qwen": [*c, "qwen"], "estoque": [*c, "estoque"], "gestor": [*c, "gestor"],
+        "entrar": [*c, "entrar"], "entrar_upseller": [*c, "entrar-upseller"], "entrar_gestor": [*c, "entrar-gestor"],
+        "entrar_auto_nubimetrics": [*c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [*c, "entrar-auto", "upseller"],
+        "entrar_auto_gestor": [*c, "entrar-auto", "gestor"],
+        "ferreiro_status": [*c, "programar", "0"], "astra_status": [*c, "programar-astra", "0"],
+        "navegador_status": [*c, "navegar", "0"],
+        "ml_lojas": [*c, "ml-lojas"], "ml_posicoes": [*c, "ml-posicoes"], "entrar_ml": [*c, "entrar-ml"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -2276,22 +2298,35 @@ def comando_mac(chave, arg=""):
         "espaco": ["/bin/df", "-h", str(Path.home())],
         "processos": ["/bin/ps", "-Ao", "pcpu,pmem,etime,comm", "-r"],   # 27/09: quem está usando a CPU (só leitura)
     }
+    if WINDOWS:          # 27/09: servidor Dell (Windows) — mesmos comandos, com as ferramentas do Windows
+        ps = ["powershell", "-NoProfile", "-Command"]
+        tabela.update({
+            "vigia_status": ["schtasks", "/query", "/tn", TAREFA_WIN],
+            "log_vigia": [*ps, f"Get-Content -Tail 80 '{PASTA / 'vigia.log'}'"],
+            "log_coleta": [*ps, f"Get-Content -Tail 120 '{PASTA / 'coletor.log'}'"],
+            "espaco": [*ps, "Get-PSDrive -PSProvider FileSystem | Format-Table -AutoSize Name,Used,Free"],
+            "processos": [*ps, "Get-Process | Sort-Object CPU -Descending | Select-Object -First 25 Name,Id,CPU,"
+                               "@{n='MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize"],
+        })
+    # comandos com o nome da máquina: só o servidor pega (os sem prefixo continuam sendo do Mac)
+    tabela.update({"servidor_processos": tabela["processos"], "servidor_espaco": tabela["espaco"],
+                   "servidor_log": tabela["log_vigia"], "servidor_ollama": [ol, "ps"], "servidor_atualizar": [*c, "atualizar"]})
     if chave == "baixar_modelo":
         return [ol, "pull", arg] if arg in MODELOS_OK else None
     if chave == "hermes_card":
-        return [c, "hermes-card", arg] if str(arg).isdigit() else None
+        return [*c, "hermes-card", arg] if str(arg).isdigit() else None
     if chave == "programar_card":
-        return [c, "programar", arg] if str(arg).isdigit() else None
+        return [*c, "programar", arg] if str(arg).isdigit() else None
     if chave == "ferreiro_conversa":
-        return [c, "ferreiro-conversa"]
+        return [*c, "ferreiro-conversa"]
     if chave == "navegar_card":
-        return [c, "navegar", arg] if str(arg).isdigit() else None
+        return [*c, "navegar", arg] if str(arg).isdigit() else None
     if chave == "atender_tiktok":
-        return [c, "atender-tiktok"]
+        return [*c, "atender-tiktok"]
     if chave == "importar_sac":
-        return [c, "importar-sac"]
+        return [*c, "importar-sac"]
     if chave == "programar_astra":
-        return [c, "programar-astra", arg] if str(arg).isdigit() else None
+        return [*c, "programar-astra", arg] if str(arg).isdigit() else None
     return tabela.get(chave)
 
 
@@ -2430,7 +2465,9 @@ def despachar(cfg):
             est["rodando"].pop(cid, None)
     token = token_nubi(cfg)
     corpo = {"info": _info_mac(), "saidas": saidas, "sala_ult": est.get("sala_ult", 0),
-             "vetores": est.get("vetores") or []}
+             "vetores": est.get("vetores") or [], "maquina": "servidor" if _eh_servidor(cfg) else "mac"}
+    if _eh_servidor(cfg):
+        corpo["pode"] = list(cfg.get("servidor_pode") or SERVIDOR_PODE)
     if sys.platform == "darwin" and time.time() - est.get("metricas_em", 0) >= METRICAS_A_CADA:   # card #92: a cada 5 min
         try:
             corpo["metricas"] = _metricas_mac(corpo["info"])
@@ -2449,10 +2486,7 @@ def despachar(cfg):
             continue
         logf = PASTA / "comandos" / f"{p['id']}.log"
         logf.parent.mkdir(parents=True, exist_ok=True)
-        import shlex
-        linha = " ".join(shlex.quote(a) for a in argv)
-        subprocess.Popen(["/bin/sh", "-c", f"{linha} > {shlex.quote(str(logf))} 2>&1; echo $? > {shlex.quote(str(logf))}.rc"],
-                         start_new_session=True)
+        _rodar_solto(argv, logf)
         est["rodando"][str(p["id"])] = {"log": str(logf), "inicio": time.time()}
     # Sala: o Hermes/Qwen respondem quando alguém chama (@hermes, @qwen) e na reunião diária. Rodam em SEGUNDO PLANO
     # (o modelo local leva minutos e travava o vigia, que ficava sem pegar pedidos); mensagem com mais de 30 min é ignorada.
@@ -2478,9 +2512,33 @@ def despachar(cfg):
             pass
         if info.get("ollama") and any(str(x).startswith(modelo.split(":")[0]) for x in (info.get("modelos") or [])):
             with open(PASTA / f"{chave}.log", "a") as saida:
-                pr = subprocess.Popen([str(PASTA / "coletor"), chave], stdout=saida, stderr=subprocess.STDOUT, start_new_session=True)
+                pr = subprocess.Popen([*_eu(), chave], stdout=saida, stderr=subprocess.STDOUT, start_new_session=True)
             est.setdefault("sala_pid", {})[chave] = pr.pid
     _salvar_desp(est)
+    return 0
+
+
+def _rodar_solto(argv, logf):
+    """Roda o comando separado do despachante, com a saída no log e o código de saída em <log>.rc (Mac e Windows)."""
+    if WINDOWS:
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "rodar-logado", str(logf), *argv],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return
+    import shlex
+    linha = " ".join(shlex.quote(a) for a in argv)
+    subprocess.Popen(["/bin/sh", "-c", f"{linha} > {shlex.quote(str(logf))} 2>&1; echo $? > {shlex.quote(str(logf))}.rc"],
+                     start_new_session=True)
+
+
+def cmd_rodar_logado(logf, argv):
+    with open(logf, "w", encoding="utf-8", errors="replace") as saida:
+        try:
+            rc = subprocess.run(argv, stdout=saida, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL).returncode
+        except OSError as e:
+            saida.write(f"não consegui rodar: {e}\n")
+            rc = 127
+    Path(str(logf) + ".rc").write_text(str(rc))
     return 0
 
 
@@ -2508,6 +2566,8 @@ def cmd_vigiar():
             _soltar("hermes-vigia")
     except Exception as e:  # noqa: BLE001
         print(f"{datetime.now():%d/%m %H:%M} vigia de erros: {e}", flush=True)
+    if _eh_servidor(cfg0):
+        return _vigiar_servidor()
     marca = PASTA / "vigia.ultimo"
     try:
         if time.time() - marca.stat().st_mtime < 4 * 60:      # a cada ~5 min: versão nova, pedidos e horários das rotinas
@@ -2568,6 +2628,63 @@ def cmd_vigiar():
         return 0
     print(f"{datetime.now():%d/%m %H:%M} vigia: {motivo} -> rodando a coleta", flush=True)
     return _soltar("diario")
+
+
+def _vigiar_servidor():
+    """Servidor Dell: só o despachante (acima) e, a cada ~5 min, a versão nova do coletor. As coletas com horário
+    (Nubimetrics, estoque, Gestor, Mercado Livre, memória) seguem no Mac até os logins estarem aqui."""
+    marca = PASTA / "vigia.ultimo"
+    try:
+        if time.time() - marca.stat().st_mtime < 4 * 60:
+            return 0
+    except OSError:
+        pass
+    try:
+        marca.touch()
+        novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=30).read()
+        if novo and b"def main" in novo and novo != Path(__file__).read_bytes():
+            compile(novo, "coletor.py", "exec")
+            tmp = Path(__file__).with_suffix(".novo")
+            tmp.write_bytes(novo)
+            os.replace(tmp, Path(__file__))
+            print(f"{datetime.now():%d/%m %H:%M} servidor: coletor atualizado", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"{datetime.now():%d/%m %H:%M} servidor: sem versão nova ({e})", flush=True)
+    return 0
+
+
+def cmd_servidor(args, cfg):
+    """27/09: o servidor do escritório (Windows) fica ligado com este comando: a cada minuto roda o vigia (despachante da
+    fila do nubi, Hermes/Qwen, vetores) num processo novo (pega sempre a versão mais nova) e mantém o atendente ligado."""
+    cfg["maquina"] = "servidor"
+    salvar_config(cfg)
+    if getattr(args, "instalar", False):
+        if not WINDOWS:
+            print("O --instalar é para o Windows (Agendador de Tarefas).")
+            return 1
+        exe = Path(sys.executable)
+        pyw = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").exists() else exe
+        r = subprocess.run(["schtasks", "/create", "/f", "/tn", TAREFA_WIN, "/sc", "onlogon", "/rl", "limited",
+                            "/tr", f'"{pyw}" "{Path(__file__).resolve()}" servidor'], capture_output=True, text=True)
+        print((r.stdout or r.stderr).strip() or "feito")
+        print("Pronto: ao entrar no Windows, o servidor do nubi abre sozinho (tarefa 'nubi-servidor').")
+        return r.returncode
+    print("🖥️ Servidor do nubi ligado neste computador. Deixe ligado (Ctrl+C para parar).", flush=True)
+    atendente = None
+    log = open(PASTA / "vigia.log", "a", encoding="utf-8", errors="replace")
+    while True:
+        try:
+            subprocess.run([sys.executable, str(Path(__file__).resolve()), "vigiar"], stdout=log, stderr=subprocess.STDOUT,
+                           stdin=subprocess.DEVNULL, timeout=300, cwd=str(PASTA))
+        except subprocess.TimeoutExpired:
+            print(f"{datetime.now():%d/%m %H:%M} servidor: vigia passou de 5 min", file=log, flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"{datetime.now():%d/%m %H:%M} servidor: {e}", file=log, flush=True)
+        if not getattr(args, "sem_atendente", False) and (atendente is None or atendente.poll() is not None):
+            if atendente is not None:
+                print(f"{datetime.now():%d/%m %H:%M} servidor: atendente parou, abrindo de novo", flush=True)
+            atendente = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "atendente"], cwd=str(PASTA))
+        time.sleep(60)
 
 
 def _sincronizar_agenda(horario):
@@ -4745,7 +4862,10 @@ def cmd_atender_tiktok(args, cfg):
 def cmd_importar_sac(args, cfg):
     """Uma rodada da importação do SAC do UpSeller (Mac: o servidor chama a cada 10 min até terminar)."""
     from playwright.sync_api import sync_playwright
-    trava = PASTA / "navegador.pid"
+    # 27/09: no servidor o atendente deixa o Chrome do coletor sempre aberto (perfil preso); o SAC usa um 2º perfil, com os
+    # cookies de login salvos (sessao.json), e não grava a sessão por cima (perderia os logins da Shopee/TikTok)
+    servidor = _eh_servidor(cfg)
+    trava = PASTA / ("sac.pid" if servidor else "navegador.pid")
     if _pid_vivo(trava):
         print("O Chrome do coletor está em uso; tento na próxima rodada.")
         return 0
@@ -4754,12 +4874,13 @@ def cmd_importar_sac(args, cfg):
     trava.write_text(str(os.getpid()))
     try:
         with sync_playwright() as p:
-            ctx = abrir_navegador(p, cfg, visivel=True)
+            ctx = abrir_navegador(p, cfg, visivel=True, **({"perfil": "perfil-sac"} if servidor else {}))
             try:
                 pg = ctx.pages[0] if ctx.pages else ctx.new_page()
                 pend = api(token, "atendimento_para_enviar", timeout=60)
                 print(_rodada_atendente(pg, cfg, chave or "", token, _gasto_atendente(cfg, chave="sac_gasto"), "upseller_sac", pend)[2])
-                guardar_sessao(ctx)
+                if not servidor:
+                    guardar_sessao(ctx)
             finally:
                 ctx.close()
         return 0
@@ -4805,7 +4926,7 @@ def cmd_atendente(args, cfg):
                 voltas += 1
                 try:
                     _batimento()
-                    x = api(token, "atendimento_para_enviar", {"computador": "pc"}, timeout=60)
+                    x = api(token, "atendimento_para_enviar", {"computador": "servidor" if _eh_servidor(cfg) else "pc"}, timeout=60)
                     if _pc_comando(x.get("pc_comando"), pg, token) == "reiniciar":
                         novo = Path(__file__).read_bytes()          # o vigia abre de novo (código 3)
                         break
@@ -5321,6 +5442,12 @@ def main():
     nvg.add_argument("id")
     sp_at = sub.add_parser("atendente", help="fica ligado neste computador atendendo o chat da TikTok Shop e da Shopee (Ctrl+C para parar)")
     sp_at.add_argument("--filho", action="store_true", help=argparse.SUPPRESS)
+    sp_srv = sub.add_parser("servidor", help="servidor do escritório (Windows): fila do nubi + atendente, sempre ligado")
+    sp_srv.add_argument("--instalar", action="store_true", help="abre sozinho ao entrar no Windows (Agendador de Tarefas)")
+    sp_srv.add_argument("--sem-atendente", action="store_true", help="não liga o atendente da Shopee/TikTok aqui")
+    sp_rl = sub.add_parser("rodar-logado", help=argparse.SUPPRESS)
+    sp_rl.add_argument("log")
+    sp_rl.add_argument("argv", nargs=argparse.REMAINDER)
     sub.add_parser("importar-sac", help="traz para o nubi o histórico já respondido do SAC do UpSeller (base de conhecimento)")
     sub.add_parser("atender-tiktok", help="o atendente olha o chat da TikTok Shop, traz as mensagens ao nubi e envia as aprovadas")
     pga = sub.add_parser("programar-astra", help="o Astra (Codex no Mac, modelo do Astra) faz o card de design N e envia num branch")
@@ -5379,6 +5506,10 @@ def main():
         return cmd_importar_sac(args, cfg)
     if args.cmd == "atender-tiktok":
         return cmd_atender_tiktok(args, cfg)
+    if args.cmd == "servidor":
+        return cmd_servidor(args, cfg)
+    if args.cmd == "rodar-logado":
+        return cmd_rodar_logado(args.log, args.argv)
     if args.cmd == "atendente" and not getattr(args, "filho", False):
         return cmd_atendente_vigia(args, cfg)
     if args.cmd == "atendente":
@@ -5440,7 +5571,7 @@ def main():
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro
         Path(__file__).write_bytes(novo)
         print("OK: coletor atualizado.")
-        if not os.environ.get("NUBI_VIGIA"):
+        if not os.environ.get("NUBI_VIGIA") and not WINDOWS:
             subprocess.run([str(PASTA / "coletor"), "vigia-reativar"], check=False)   # já com a versão nova
         return 0
     if args.cmd == "vendedores":

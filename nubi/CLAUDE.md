@@ -311,3 +311,19 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   se a aba ainda não está no chat. Conversa fechada pela Shopee ("fechada automaticamente", sem campo): `_enviar_direto`
   clica em "Recomeçar Conversa" (`_recomecar_conversa`, só esse botão) e digita.
 
+
+## Servidor Dell do escritório (27/09, pedido do Bruno) — `coletor servidor`
+
+- Windows 11, Xeon 6 núcleos, 64 GB, Quadro P4000 8 GB, 3 internets e nobreak: vira a máquina principal; o Mac mini fica de
+  reserva e o gamdias (PC de casa) é a 2ª reserva do atendente. Senhas nunca passam pelo chat: o Bruno roda `configurar` lá.
+- `py -3.12 coletor.py servidor` (`--instalar` cria a tarefa `nubi-servidor` no Agendador, ao entrar no Windows): a cada
+  minuto roda `vigiar` num processo novo (despachante + versão nova a cada ~5 min, `_vigiar_servidor`; sem as coletas com
+  horário) e mantém o atendente ligado. `cfg["maquina"]="servidor"`.
+- Fila: o servidor manda no `mac_tick` `maquina=servidor` e `pode` (`SERVIDOR_PODE`: importar_sac, hermes, qwen e os
+  `servidor_*` de diagnóstico); sinal em `ia_resumos` `fila|servidor` (`servidor_pode`, 3 min). Com sinal, o Mac não pega
+  esses comandos nem a Sala nem os vetores (`reserva`) e as filas do atendimento rodam só no tique do Mac (no do servidor só
+  se o Mac estiver sem sinal, `_mac_vivo`). `servidor_*` nunca vai para o Mac. Coleta do Nubimetrics, estoque, Gestor,
+  logins e Ferreiro/Astra seguem no Mac até estarem prontos no servidor (acrescentar em `SERVIDOR_PODE`).
+- Despachante multiplataforma: `_rodar_solto` (Windows: `coletor rodar-logado <log> <argv>` grava saída e `.rc`), `_eu()`
+  para chamar o coletor, comandos com PowerShell no Windows. No servidor o SAC usa o 2º perfil do Chrome (`perfil-sac`,
+  trava `sac.pid`, cookies do `sessao.json` sem gravar por cima) porque o atendente deixa o perfil principal aberto.
