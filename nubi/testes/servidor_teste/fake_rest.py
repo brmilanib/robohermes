@@ -202,7 +202,7 @@ def fake_req(self, metodo, caminho, params=None, corpo=None, prefer=None):
     if metodo == "POST":
         linhas = copy.deepcopy(corpo)
         json.dumps(linhas)  # tem que ser JSON puro
-        chave = {"marcas_config": "marca", "gtin_info": "gtin", "marca_apelidos": "apelido", "marca_categorias": "marca_chave", "ia_resumos": "chave", "rotinas": "id", "auditorias": "data", "ia_precos": "modelo", "mac_estado": "id", "produto_grupos": "chave", "ia_lotes": "id", "marca_sugestoes": "marca_chave"}.get(caminho)
+        chave = {"marcas_config": "marca", "gtin_info": "gtin", "marca_apelidos": "apelido", "marca_categorias": "marca_chave", "ia_resumos": "chave", "rotinas": "id", "auditorias": "data", "ia_precos": "modelo", "mac_estado": "id", "produto_grupos": "chave", "ia_lotes": "id", "marca_sugestoes": "marca_chave", "ia_benchmark_casos": "id"}.get(caminho)
         for l in linhas:
             if caminho in SEQ:
                 SEQ[caminho] += 1
@@ -237,6 +237,9 @@ for _t in ("atendimento_conversas", "atendimento_mensagens", "atendimento_kb", "
     DB.setdefault(_t, [])
     SEQ[_t] = 0
 SEQ["mac_comandos"] = 0
+DB["ia_benchmark_casos"] = []                  # mini-benchmark (card #15)
+DB["ia_benchmark_execucoes"] = []
+SEQ["ia_benchmark_execucoes"] = 0
 DB["mac_estado"] = []
 SEQ["tarefa_eventos"] = 0
 SEQ["agentes_uso"] = 0

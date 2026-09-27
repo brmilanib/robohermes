@@ -2384,8 +2384,18 @@ def gerar_resumo_dia(repo, forcar=False):
                                             "order": "chave.desc", "limit": 2}) or []
     ontem = next((x for x in ontem if x["chave"] != chave), None)
     try:
-        texto, dados_ia, qual = _escrever_resumo(
-            "Você é o analista de mercado do dono de uma loja de perfumes no Mercado Livre Brasil. Todo dia você acompanha "
+        texto, dados_ia, qual = _escrever_resumo(_pedido_resumo_dia(dados, _obs_rotina(repo, "resumo_dia"), ontem),
+                                                 SECOES_DIA, *_links_resumo(repo, pnl), max_tokens=2600)
+    except Exception as e:  # noqa: BLE001
+        raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
+    _guardar_resumo(repo, chave, texto, qual, dados_ia)
+    return {"atual": {"chave": chave, "texto": texto, "ia": ia.nome(qual),
+                      "criado_em": datetime.now(timezone.utc).isoformat()}, "novo": True}
+
+
+def _pedido_resumo_dia(dados, obs="", ontem=None):
+    """Pedido do resumo do dia (o mini-benchmark #15 usa o mesmo texto, sem obs nem resumo de ontem)."""
+    return ("Você é o analista de mercado do dono de uma loja de perfumes no Mercado Livre Brasil. Todo dia você acompanha "
             "os vendedores concorrentes que ele monitora (dados do Nubimetrics, liberados com 2 dias de atraso) e escreve o "
             "RESUMO DO DIA: curto, direto, em português simples e sempre com números.\n"
             "Como analisar:\n"
@@ -2404,14 +2414,8 @@ def gerar_resumo_dia(repo, forcar=False):
             "- Use só os dados fornecidos; não invente números; quando um dado for estimado, avise.\n"
             "- O site já mostra os cards 'quem mais vendeu' e 'quem mais caiu' com os números de cada vendedor: não repita "
             "a lista inteira, comente só o que importa. Em 'O que fazer hoje' dê 2 ou 3 ações.\n"
-            + _obs_rotina(repo, "resumo_dia") + "\n\nDADOS:\n"
-            + dados + (f"\n\nRESUMO DE ONTEM ({ontem['chave'].split('|')[1]}):\n{_sem_links(ontem['texto'])[:3000]}" if ontem else ""),
-            SECOES_DIA, *_links_resumo(repo, pnl), max_tokens=2600)
-    except Exception as e:  # noqa: BLE001
-        raise ErroNuvem(f"A IA não respondeu: {str(e)[:150]}")
-    _guardar_resumo(repo, chave, texto, qual, dados_ia)
-    return {"atual": {"chave": chave, "texto": texto, "ia": ia.nome(qual),
-                      "criado_em": datetime.now(timezone.utc).isoformat()}, "novo": True}
+            + obs + "\n\nDADOS:\n"
+            + dados + (f"\n\nRESUMO DE ONTEM ({ontem['chave'].split('|')[1]}):\n{_sem_links(ontem['texto'])[:3000]}" if ontem else ""))
 
 
 def _links_resumo(repo, pnl=None):
@@ -3157,6 +3161,19 @@ CACHE_LEITURA_FATOR = 0.1
 CACHE_CRIACAO_FATOR = 1.25
 
 
+def custo_usd(precos, d):
+    """US$ de uma chamada (tokens de ia._tokens × ia_precos); sem uso relatado ou sem preço cadastrado: None (nunca estimado)."""
+    p = _preco_de(precos, d.get("modelo") or "")
+    if not p or p.get("entrada") is None or p.get("saida") is None or d.get("tokens_in") is None:
+        return None
+    p_entrada = float(p["entrada"])
+    custo = ((d.get("tokens_in") or 0) * p_entrada
+            + (d.get("cache_read_tokens") or 0) * p_entrada * CACHE_LEITURA_FATOR
+            + (d.get("cache_creation_tokens") or 0) * p_entrada * CACHE_CRIACAO_FATOR
+            + (d.get("tokens_out") or 0) * float(p["saida"])) / 1e6
+    return round(custo, 6)
+
+
 def ligar_registro_uso(repo, origem):
     """Cada chamada de IA desta requisição vira uma linha em agentes_uso (aba Agentes)."""
     cache = {}
@@ -3174,14 +3191,9 @@ def ligar_registro_uso(repo, origem):
         if d.get("ok") and d.get("modelo") and "custo_usd" not in d:     # modelo local (card #10) já vem com custo 0
             if "p" not in cache:
                 cache["p"] = _precos(repo)
-            p = _preco_de(cache["p"], d["modelo"])
-            if p and p.get("entrada") is not None and p.get("saida") is not None and d.get("tokens_in") is not None:
-                p_entrada = float(p["entrada"])
-                custo = ((d.get("tokens_in") or 0) * p_entrada
-                        + (d.get("cache_read_tokens") or 0) * p_entrada * CACHE_LEITURA_FATOR
-                        + (d.get("cache_creation_tokens") or 0) * p_entrada * CACHE_CRIACAO_FATOR
-                        + (d.get("tokens_out") or 0) * float(p["saida"])) / 1e6
-                reg["custo_usd"] = round(custo, 6)
+            custo = custo_usd(cache["p"], d)
+            if custo is not None:
+                reg["custo_usd"] = custo
         repo._req("PATCH", "agentes_uso", {"id": f"eq.{d['id']}"}, corpo=reg, prefer="return=minimal")
         return None
     def gravar_web(pergunta, resposta, links, qual):
@@ -4701,6 +4713,12 @@ def rota_agentes(repo, metodo, rota, q, corpo):
                                                "obs": str(d.get("obs") or "")[:200]}],
                   prefer="resolution=merge-duplicates,return=minimal")
         return {"ok": True}
+    if rota in ("agentes_benchmark", "agentes_benchmark_rodar"):
+        import nubi_benchmark                          # mini-benchmark (card #15): nada aqui muda modelo de produção
+        if rota == "agentes_benchmark_rodar" and metodo == "POST":
+            return nubi_benchmark.rodar(repo, str(d.get("modelo") or ""), d.get("versao") or nubi_benchmark.VERSAO)
+        return nubi_benchmark.comparar(repo, q.get("versao") or nubi_benchmark.VERSAO,
+                                       [m for m in str(q.get("modelos") or "").split(",") if m.strip()])
     raise ErroNuvem("Rota desconhecida.", 404)
 
 

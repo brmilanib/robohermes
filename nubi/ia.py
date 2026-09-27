@@ -468,21 +468,22 @@ def _primeiro_json(texto):
     return {}
 
 
-def perguntar_json(pergunta, web=True, max_tokens=1500, qual=None, sistema=None):
-    texto, links, ia = perguntar(pergunta, web, max_tokens, qual=qual, sistema=sistema)
+def perguntar_json(pergunta, web=True, max_tokens=1500, qual=None, sistema=None, modelo=None):
+    texto, links, ia = perguntar(pergunta, web, max_tokens, qual=qual, modelo=modelo, sistema=sistema)
     return _primeiro_json(texto), links, ia
 
 
-def perguntar_estruturado(pergunta, schema, nome="resposta", max_tokens=2500):
+def perguntar_estruturado(pergunta, schema, nome="resposta", max_tokens=2500, qual=None, modelo=None):
     """
     Resposta em JSON que segue `schema` (JSON Schema) -> (dict, nome_da_ia).
     ChatGPT: structured outputs (o modelo é obrigado a seguir o formato). Claude: pede o JSON e confere.
+    qual/modelo fixos (mini-benchmark #15): só esse modelo responde, sem trocar de provedor.
     """
-    ia = disponivel()
+    ia = qual or disponivel()
     if not ia:
         raise SemIA("nenhuma chave de IA configurada")
     if ia == "chatgpt":
-        corpo = {"model": os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "input": pergunta, "max_output_tokens": max_tokens,
+        corpo = {"model": modelo or os.environ.get("NUBI_IA_MODELO", "gpt-4.1"), "input": pergunta, "max_output_tokens": max_tokens,
                  "text": {"format": {"type": "json_schema", "name": nome, "schema": schema, "strict": True}}}
         try:
             r = _post_json("https://api.openai.com/v1/responses", corpo,
@@ -495,14 +496,14 @@ def perguntar_estruturado(pergunta, schema, nome="resposta", max_tokens=2500):
         except Exception:  # noqa: BLE001 — ChatGPT fora do ar, JSON quebrado ou fora do formato: tenta o Claude
             pass
     # sem ChatGPT (ou ele falhou): o Claude responde e o JSON é conferido contra o schema
-    qual = "claude" if tem("claude") else ("chatgpt" if tem("chatgpt") else None)
+    qual = qual or ("claude" if tem("claude") else ("chatgpt" if tem("chatgpt") else None))
     if not qual:
         raise SemIA("nenhuma IA disponível para a resposta estruturada")
     pedido = (pergunta + "\n\nResponda SOMENTE com um JSON válido que siga exatamente este JSON Schema, sem texto antes "
               "ou depois:\n" + json.dumps(schema, ensure_ascii=False))
     ultimo = "resposta vazia"
     for _ in range(2):
-        j, _, q = perguntar_json(pedido, web=False, max_tokens=max_tokens, qual=qual)
+        j, _, q = perguntar_json(pedido, web=False, max_tokens=max_tokens, qual=qual, modelo=modelo)
         falhas = erros_schema(j, schema) if j else ["não veio JSON"]
         if not falhas:
             return j, q

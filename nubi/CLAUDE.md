@@ -50,6 +50,17 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 5. Versão para marcas e sellers.
 Modelos novos só entram depois do mini-benchmark interno (#15).
 
+## Mini-benchmark de modelos (#15, 27/09) — `nubi_benchmark.py`, migração `supabase/benchmark.sql`
+
+- **Nenhum modelo novo entra em produção sem passar por ele.** Casos fixos e versionados no código (`VERSAO`, `CASOS`:
+  resumo do dia, texto de alerta e junção de produtos), rodados com as funções de produção (`_pedido_resumo_dia`,
+  `_schema_secoes`, `produtos_iguais.agrupar`) e o modelo fixo (`ia.perguntar_estruturado(qual=, modelo=)`, sem trocar de
+  provedor). Rota POST `agentes_benchmark_rodar` {modelo: "claude:claude-sonnet-5" | "embed:text-embedding-3-large"}
+  grava 1 linha por caso em `ia_benchmark_execucoes`; GET `agentes_benchmark?modelos=a,b` mostra a comparação lado a
+  lado (última rodada de cada modelo). Custo = `nubi_web.custo_usd` (uso × `ia_precos`); sem uso ou sem preço = NULL.
+- Acerto: resumo = formato fixo com as 8 seções + termos do gabarito; alerta = cita os produtos do gabarito, não cita o
+  que está bem e nenhum número fora da entrada; junção = F1 dos pares ≥ 0,9. Detalhes no topo do módulo.
+
 ## Aprovação de tarefas (delegação do Bruno, 24/09)
 
 - O Claude coordenador (Sala) aprova sozinho as tarefas de risco baixo ou médio; risco alto fica como proposta com a
