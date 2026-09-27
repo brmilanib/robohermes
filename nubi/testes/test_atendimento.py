@@ -567,6 +567,17 @@ def test_mensagens_antigas_do_cliente_lidas_de_novo_nao_viram_pergunta():
     assert x["status"] != "precisa_info" and x["fontes"]["pergunta_repetida"]["resposta_anterior_da_loja"].startswith("Depois de aberto")
 
 
+def test_comando_do_nubi_para_o_pc():
+    r = Repo()
+    c = a.rota(r, "POST", "atendimento_pc_comando", {}, json.dumps({"comando": "status"}).encode())
+    x = a.rota(r, "GET", "atendimento_para_enviar", {"computador": "pc"}, None)
+    assert x["pc_comando"]["comando"] == "status" and a.rota(r, "GET", "atendimento_para_enviar", {}, None)["pc_comando"] is None
+    r.t["ia_resumos"] = [z for z in r.t["ia_resumos"] if z["chave"] == a.PC_COMANDO_CHAVE][-1:]
+    a.rota(r, "POST", "atendimento_pc_resultado", {}, json.dumps({"id": c["id"], "saida": "ok"}).encode())
+    feito = json.loads([z for z in r.t["ia_resumos"] if z["chave"] == a.PC_COMANDO_CHAVE][-1]["texto"])
+    assert feito["status"] == "feito" and feito["saida"] == "ok"
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

@@ -4003,6 +4003,7 @@ def cmd_navegar(args, cfg):
 # ---------------------------------------------------------------------------
 ATENDENTE_MODELO = os.environ.get("NUBI_ATENDENTE_MODELO", "claude-haiku-4-5-20251001")
 ATENDENTE_TETO_DIA = float(os.environ.get("NUBI_ATENDENTE_TETO", "3"))
+SAC_TETO_DIA = float(os.environ.get("NUBI_SAC_TETO", "30"))    # 27/09 (Bruno): importar o SAC rápido, teto próprio por dia
 ATENDENTE_PRECO = (1.0, 5.0)
 ATENDENTE_URL = os.environ.get("NUBI_TIKTOK_CHAT", "https://seller-br.tiktok.com/")
 # plataformas que o atendente atende pelo navegador: canal → (nome, endereço inicial do chat, domínio permitido, autor na Sala)
@@ -4117,12 +4118,12 @@ def _atendente_rolar(pg):
     return f"Rolei {n} lista(s) e a página. Use ler para ver as novas."
 
 
-def _gasto_atendente(cfg, somar=0.0):
+def _gasto_atendente(cfg, somar=0.0, chave="atendente_gasto"):
     hoje = date.today().isoformat()
-    g = {k: v for k, v in (cfg.get("atendente_gasto") or {}).items() if k == hoje}
+    g = {k: v for k, v in (cfg.get(chave) or {}).items() if k == hoje}
     if somar:
         g[hoje] = round(g.get(hoje, 0.0) + somar, 4)
-        cfg["atendente_gasto"] = g
+        cfg[chave] = g
         salvar_config(cfg)
     return g.get(hoje, 0.0)
 
@@ -4390,7 +4391,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                 txt = f"Erro: {str(ex)[:300]}"
             resultados.append({"type": "tool_result", "tool_use_id": b["id"], "content": txt[:12000]})
         mensagens.append({"role": "user", "content": resultados})
-        if fim is not None or (custo > 0 and custo + gasto >= ATENDENTE_TETO_DIA):     # o teto só vale para a IA paga
+        if fim is not None or (custo > 0 and custo + gasto >= (SAC_TETO_DIA if sac else ATENDENTE_TETO_DIA)):  # teto só da IA paga
             if fim is None:
                 chave = ""                                                               # daqui em diante só a grátis
             else:
@@ -4409,7 +4410,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
     if sac:
         cfg["sac_vazias"] = 0 if estado.get("registradas") else int(cfg.get("sac_vazias") or 0) + 1
     salvar_config(cfg)
-    _gasto_atendente(cfg, custo)
+    _gasto_atendente(cfg, custo, "sac_gasto" if sac else "atendente_gasto")
     resumo = (f"{'🎵' if canal == 'tiktok_shop' else '📥' if sac else '🛍️'} {autor}: {estado.get('registradas', 0)} mensagem(ns) trazida(s) para o nubi, "
               f"{estado.get('enviadas', 0)} resposta(s) enviada(s) (~US$ {custo:.2f}; {estado.get('gratis', 0)} passo(s) com a IA "
               f"grátis, {estado.get('pago', 0)} com a paga).")
@@ -4479,7 +4480,7 @@ def cmd_importar_sac(args, cfg):
     if _pid_vivo(trava):
         print("O Chrome do coletor está em uso; tento na próxima rodada.")
         return 0
-    chave, _ = _atendente_pronto(cfg)
+    chave = _credencial("anthropic", cfg)[1] if _gasto_atendente(cfg, chave="sac_gasto") < SAC_TETO_DIA else ""
     token = token_nubi(cfg)
     trava.write_text(str(os.getpid()))
     try:
@@ -4488,7 +4489,7 @@ def cmd_importar_sac(args, cfg):
             try:
                 pg = ctx.pages[0] if ctx.pages else ctx.new_page()
                 pend = api(token, "atendimento_para_enviar", timeout=60)
-                print(_rodada_atendente(pg, cfg, chave, token, _gasto_atendente(cfg), "upseller_sac", pend)[2])
+                print(_rodada_atendente(pg, cfg, chave or "", token, _gasto_atendente(cfg, chave="sac_gasto"), "upseller_sac", pend)[2])
                 guardar_sessao(ctx)
             finally:
                 ctx.close()
@@ -4534,6 +4535,9 @@ def cmd_atendente(args, cfg):
                 voltas += 1
                 try:
                     x = api(token, "atendimento_para_enviar", {"computador": "pc"}, timeout=60)
+                    if _pc_comando(x.get("pc_comando"), pg, token) == "reiniciar":
+                        novo = Path(__file__).read_bytes()          # o vigia abre de novo (código 3)
+                        break
                     canais = _canais_do_atendente(x)
                     if not canais:
                         print(f"{agora} ⏸ desligado no nubi (Minhas Lojas → TikTok Shop / Shopee → Ligar atendente).", flush=True)
@@ -4563,6 +4567,52 @@ def cmd_atendente(args, cfg):
             return 3                            # o vigia (processo pai) abre a versão nova na mesma janela
         os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "atendente"])
     return 0
+
+
+PC_COMANDOS = ("status", "limpar_marca", "reiniciar", "login")
+
+
+def _pc_comando(cmd, pg, token):
+    """27/09 (pedido do Bruno): o nubi (a sessão de código) manda comandos direto ao atendente do PC, de uma lista FECHADA:
+    status, limpar_marca (lê tudo de novo), reiniciar, login <canal> (abre a tela da plataforma para o Bruno entrar).
+    Nunca roda nada fora da lista, nunca digita senha."""
+    if not isinstance(cmd, dict) or cmd.get("status") != "pendente":
+        return None
+    cfg = ler_config()
+    if str(cmd.get("id")) == str(cfg.get("pc_comando_feito")):
+        return None
+    nome, arg = str(cmd.get("comando") or ""), str(cmd.get("arg") or "")
+    try:
+        if nome not in PC_COMANDOS:
+            saida = f"recusado: fora da lista ({', '.join(PC_COMANDOS)})"
+        elif nome == "status":
+            saida = (f"coletor {hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:10]} · {sys.platform} · página {pg.url[:120]} · "
+                     f"gasto IA paga hoje US$ {_gasto_atendente(cfg):.2f} · marcas: "
+                     + ", ".join(k for k in cfg if k.endswith("_marca") or k == "tiktok_marca_v4"))
+        elif nome == "limpar_marca":
+            for k in [k for k in cfg if k.endswith("_marca") or k == "tiktok_marca_v4"]:
+                cfg.pop(k, None)
+            saida = "marcas apagadas: a próxima rodada lê tudo de novo"
+        elif nome == "login":
+            url = PLATAFORMAS.get(arg, (None, None))[1]
+            if not url:
+                saida = f"canal desconhecido: {arg}"
+            else:
+                pg.goto(url, timeout=60000)
+                pg.bring_to_front()
+                saida = f"abri {url} na janela do atendente: é só o Bruno entrar"
+        else:
+            saida = "reiniciando o atendente"
+    except Exception as e:  # noqa: BLE001
+        saida = f"erro: {str(e)[:300]}"
+    cfg["pc_comando_feito"] = str(cmd.get("id"))
+    salvar_config(cfg)
+    print(f"{datetime.now().strftime('%H:%M')} 📡 comando do nubi: {nome} {arg} → {saida}", flush=True)
+    try:
+        api(token, "atendimento_pc_resultado", corpo={"id": cmd.get("id"), "saida": saida}, metodo="POST", timeout=60)
+    except Exception:  # noqa: BLE001
+        pass
+    return nome
 
 
 def cmd_atendente_vigia(args, cfg):

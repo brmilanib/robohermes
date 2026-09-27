@@ -256,6 +256,21 @@ def test_tela_de_login_nao_chama_a_ia():
     assert ch["claude"] == 0 and not any(r == "atendimento_navegar_ia" for r, _ in ch["api"])
 
 
+def test_comando_do_nubi_no_pc_so_da_lista():
+    ch = _preparar([])
+    class Pg:
+        url = "https://seller.shopee.com.br/webchat"
+        def goto(self, u, timeout=0): self.url = u
+        def bring_to_front(self): pass
+    c.salvar_config({"shopee_marca": "x"})
+    assert c._pc_comando({"id": 1, "comando": "limpar_marca", "status": "pendente"}, Pg(), "T") == "limpar_marca"
+    assert "shopee_marca" not in c.ler_config()
+    assert c._pc_comando({"id": 1, "comando": "limpar_marca", "status": "pendente"}, Pg(), "T") is None      # não repete
+    c._pc_comando({"id": 2, "comando": "rm -rf /", "status": "pendente"}, Pg(), "T")
+    assert "recusado" in [cp for r, cp in ch["api"] if r == "atendimento_pc_resultado"][-1]["saida"]
+    assert c._pc_comando({"id": 3, "comando": "reiniciar", "status": "pendente"}, Pg(), "T") == "reiniciar"
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

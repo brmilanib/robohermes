@@ -1266,7 +1266,16 @@ def atendente_proximo(repo, mac_online=True):
 
 FECHADOS_CHAVE = "atendimento|importar_fechados"
 SAC_CHAVE = "atendimento|importar_sac"
-SAC_A_CADA_MIN = 10
+SAC_A_CADA_MIN = 2           # 27/09 (Bruno): importar o SAC rápido (a rodada já leva uns 10 min)
+PC_COMANDO_CHAVE = "atendimento|pc_comando"
+
+
+def _pc_comando_pendente(repo, todos=False):
+    try:
+        c = json.loads((repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{PC_COMANDO_CHAVE}"}) or [{}])[0].get("texto") or "{}")
+    except ValueError:
+        return None
+    return c if c and (todos or c.get("status") == "pendente") else None
 
 
 def sac_proximo(repo):
@@ -1560,6 +1569,7 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
         sac = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{SAC_CHAVE}"}) or [{}])[0].get("texto")
         return {"itens": para_enviar(repo), "atendente": bool(ligados), "canais": ligados, "importar_fechados": fech,
                 "importar_sac": sac or "",
+                "pc_comando": _pc_comando_pendente(repo) if q.get("computador") else None,
                 "conhecidos": por_canal.get("tiktok_shop", []), "conhecidos_por_canal": por_canal, "conhecidos_sac": sac_ok}
     if nome == "atendimento_fechados" and metodo == "POST":
         repo._req("POST", "ia_resumos", corpo=[{"chave": FECHADOS_CHAVE, "texto": "pendente" if d.get("importar") else "feito",
@@ -1589,6 +1599,19 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
         return {"ok": True}
     if nome == "atendimento_fichar" and metodo == "POST":       # "pesquisar agora" um perfume (ou o próximo do estoque)
         return {"ficha": fichar_perfume(repo, d["produto"]) if d.get("produto") else fichar_aos_poucos(repo, a_cada_min=0)}
+    if nome == "atendimento_pc_resultado" and metodo == "POST":
+        c = _pc_comando_pendente(repo, todos=True) or {}
+        if str(c.get("id")) == str(d.get("id")):
+            c.update(status="feito", saida=str(d.get("saida") or "")[:3000], feito_em=_agora())
+            repo._req("POST", "ia_resumos", corpo=[{"chave": PC_COMANDO_CHAVE, "texto": json.dumps(c, ensure_ascii=False), "ia": "atendente",
+                                                    "criado_em": _agora()}], prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True}
+    if nome == "atendimento_pc_comando" and metodo == "POST":     # o nubi (sessão de código ou tela) manda um comando ao PC
+        c = {"id": int(datetime.now(timezone.utc).timestamp()), "comando": str(d.get("comando") or "")[:40],
+             "arg": str(d.get("arg") or "")[:80], "status": "pendente", "pedido_por": operador, "em": _agora()}
+        repo._req("POST", "ia_resumos", corpo=[{"chave": PC_COMANDO_CHAVE, "texto": json.dumps(c, ensure_ascii=False), "ia": "atendente",
+                                                "criado_em": _agora()}], prefer="resolution=merge-duplicates,return=minimal")
+        return c
     if nome == "atendimento_sac" and metodo == "POST":
         repo._req("POST", "ia_resumos", corpo=[{"chave": SAC_CHAVE, "texto": "pendente" if d.get("importar") else "feito",
                                                 "ia": "atendente", "criado_em": _agora()}], prefer="resolution=merge-duplicates,return=minimal")
