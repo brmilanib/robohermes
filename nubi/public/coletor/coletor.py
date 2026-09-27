@@ -4526,10 +4526,7 @@ def _aba_do_canal(ctx, abas, canal):
         livres = [x for x in ctx.pages if x not in abas.values() and not x.is_closed()]
         pg = livres[0] if livres and (livres[0].url or "about:blank") == "about:blank" else ctx.new_page()
         abas[canal] = pg
-    try:
-        pg.bring_to_front()
-    except Exception:  # noqa: BLE001
-        pass
+    # 27/09 (Bruno): sem trazer a aba para a frente a cada rodada (tirava o Bruno da aba em que ele estava, ex.: login)
     return pg
 
 
@@ -4930,6 +4927,7 @@ def cmd_atendente(args, cfg):
     print("🎵🛍️ Atendente ligado neste computador (TikTok Shop, Shopee). Deixe esta janela aberta (Ctrl+C para parar).")
     print("   Na primeira vez, entre na central do vendedor de cada plataforma na janela do Chrome que vai abrir.")
     novo = None
+    carregado = Path(__file__).read_bytes()      # 27/09: no servidor o vigia troca o arquivo em disco antes; compara com o que roda
     with sync_playwright() as p:
         ctx = abrir_navegador(p, cfg, visivel=True)
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -4941,7 +4939,7 @@ def cmd_atendente(args, cfg):
                 if voltas % 8 == 0 and not os.environ.get("NUBI_TOKEN"):     # ~15 min: versão nova do coletor? (o PC não tem vigia)
                     try:
                         baixado = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=30).read()
-                        if baixado and b"def main" in baixado and baixado != Path(__file__).read_bytes():
+                        if baixado and b"def main" in baixado and baixado != carregado:
                             novo = baixado
                             print(f"{agora} ⬇️ versão nova do atendente: atualizando e recomeçando…", flush=True)
                             break
@@ -5040,9 +5038,10 @@ def _pc_comando(cmd, pg, token):
             if not url:
                 saida = f"canal desconhecido: {arg}"
             else:
-                pg.goto(url, timeout=60000)
-                pg.bring_to_front()
-                saida = f"abri {url} na janela do atendente: é só o Bruno entrar"
+                nova = pg.context.new_page()        # aba própria: o atendente não mexe nela (nem recarrega)
+                nova.goto(url, timeout=60000)
+                nova.bring_to_front()
+                saida = f"abri {url} numa aba nova do Chrome do atendente: é só o Bruno entrar (o atendente não mexe nessa aba)"
         else:
             saida = "reiniciando o atendente"
     except Exception as e:  # noqa: BLE001
