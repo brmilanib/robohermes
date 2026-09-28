@@ -13,12 +13,12 @@ STUB = """window.supabase = { createClient: () => { const sess = {access_token: 
     onAuthStateChange: cb => setTimeout(() => cb("INITIAL_SESSION", sess), 0) }, storage: {from: () => ({createSignedUrls: async () => ({data: []})})} }; } };"""
 
 
-def _estoque_xlsx():
+def _estoque_xlsx(linhas=(("A-100", 10, 20, 50, 0), ("B-100", 100, 0, 50, 0), ("C-100", 0, 0, 50, 0), ("E-100", 0, 0, 50, 0))):
     import openpyxl
     wb = openpyxl.Workbook(); ws = wb.active
     ws.append(["SKU", "Título", "Armazém", "Estoque Baixo", "Em Trânsito(Compra)", "Disponível", "Estoque Atual", "Custo Médio", "Subtotal"])
-    for sku, disp, trans in (("A-100", 10, 20), ("B-100", 100, 0), ("C-100", 0, 0), ("E-100", 0, 0)):
-        ws.append([sku, "Perfume " + sku[0], "My Warehouse", 0, trans, disp, disp, 50, disp * 50])
+    for sku, disp, trans, custo, minimo in linhas:
+        ws.append([sku, "Perfume " + sku[0], "My Warehouse", minimo, trans, disp, disp, custo, disp * custo])
     b = io.BytesIO(); wb.save(b); return b.getvalue()
 
 
@@ -50,6 +50,17 @@ try:
             larg = pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
             assert larg[0] <= larg[1] + 1, (nome, larg)                                    # sem rolagem de lado
             pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"compras_{nome}.png"), full_page=True)
+            if nome == "pc":
+                # 28/09 (Bruno): nas listas do Estoque, custo médio com a variação e, nos zerados, trânsito e mínimo
+                pg.evaluate("""async e => { const buf = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
+                  await api('estoque_importar', {arquivo: 'Lista_de_Estoque_2.xlsx', origem: 'manual'}, {method: 'POST', body: buf(e)}); }""",
+                            base64.b64encode(_estoque_xlsx((("A-100", 40, 0, 55, 0), ("B-100", 0, 30, 50, 20), ("C-100", 0, 0, 50, 0),
+                                                            ("E-100", 0, 0, 50, 0)))).decode())
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque"); pg.wait_for_selector(".es-mud", timeout=15000)
+                mud = pg.inner_text(".es-mud")
+                assert "▲ 10%" in mud and "em trânsito 30" in mud and "mín. 20" in mud, mud
+                assert pg.locator(".es-mud .pos", has_text="em trânsito 30").count() == 2             # em Saíram e Zeraram; cobre o mínimo: verde
+                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "estoque_listas.png"), full_page=True)
             assert not erros, erros
         b.close()
 finally:

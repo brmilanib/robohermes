@@ -3294,9 +3294,17 @@ async function telaEstoque() {
   const d = a.diff || {}, t = d.totais || {}, ta = d.totais_antes, n = d.n || {};
   const dif = (k, fmt = unES, ruimSubir = false) => ta && t[k] != null && ta[k] != null && t[k] !== ta[k]
     ? `<span class="${(t[k] - ta[k] > 0) !== ruimSubir ? "pos" : "neg"}">${t[k] - ta[k] > 0 ? "▲" : "▼"} ${fmt(Math.abs(t[k] - ta[k]))}</span> vs anterior` : ta ? "igual à anterior" : "";
-  const lista = (tit, xs, qtd, cls) => `<div class="card pad"><h2>${tit} <span class="muted" style="font-weight:500">${nf0.format(qtd || 0)}</span></h2>
-    <ul>${(xs || []).slice(0, 10).map(x => `<li><span class="t" title="${esc(x.titulo)}"><span class="es-sku">${esc(x.sku)}</span> · ${esc(x.titulo)}</span>
-      <b class="${cls}">${unES(x.antes)} → ${unES(x.agora)}</b></li>`).join("") || `<li class="muted">nenhum</li>`}</ul>
+  // 28/09 (Bruno): custo médio com a variação em % e, nos zerados, o que está em trânsito e o mínimo (verde se o trânsito cobre)
+  const custoES = x => { if (x.custo == null) return "";
+    const p = x.custo_antes > 0 && x.custo !== x.custo_antes ? (x.custo - x.custo_antes) / x.custo_antes * 100 : null;
+    return `custo ${rsES(x.custo)}${p != null ? ` <span class="${p > 0 ? "neg" : "pos"}">${p > 0 ? "▲" : "▼"} ${Math.abs(p).toLocaleString("pt-BR", {maximumFractionDigits: 1})}%</span>` : ""}`; };
+  const transitoES = x => { if (x.transito == null) return "";
+    const ok = x.transito > 0 && x.transito >= (x.minimo || 0);
+    return `<span class="${ok ? "pos" : x.transito > 0 ? "" : "neg"}">${x.transito > 0 ? `🚚 em trânsito ${unES(x.transito)}` : "nada em trânsito"}${x.minimo ? ` · mín. ${unES(x.minimo)}` : ""}</span>`; };
+  const lista = (tit, xs, qtd, cls, tipo) => `<div class="card pad"><h2>${tit} <span class="muted" style="font-weight:500">${nf0.format(qtd || 0)}</span></h2>
+    <ul>${(xs || []).slice(0, 10).map(x => { const ex = [custoES(x), tipo === "zeraram" || tipo === "saidas" ? transitoES(x) : ""].filter(Boolean).join(" · ");
+      return `<li style="flex-wrap:wrap"><span class="t" title="${esc(x.titulo)}"><span class="es-sku">${esc(x.sku)}</span> · ${esc(x.titulo)}</span>
+      <b class="${cls}">${unES(x.antes)} → ${unES(x.agora)}</b>${ex ? `<div class="muted" style="flex-basis:100%;font-size:11.5px;margin-top:1px">${ex}</div>` : ""}</li>`; }).join("") || `<li class="muted">nenhum</li>`}</ul>
     ${(qtd || 0) > 10 ? `<div class="muted" style="font-size:12px;margin-top:6px">+ ${nf0.format(qtd - 10)} na lista abaixo</div>` : ""}</div>`;
   main.innerHTML = esAbas("estoque") + `<div class="es-cab"><h1>📦 Estoque</h1>
       <span class="muted">${esc(a.loja || "UpSeller")} · ${r.historico[0].id === a.id ? "atualizado" : "foto de"} ${esc(quandoES(a.criado_em))} (${a.origem === "manual" ? "importado à mão" : "coletor"})</span>
@@ -3316,8 +3324,8 @@ async function telaEstoque() {
           : `<p class="muted">Sem a leitura rápida desta atualização (ela usa só a IA grátis, que pode estar sem cota). A análise completa do dia, com o DeepSeek, fica em <a href="#/estoque/compras">🛒 Compras e vendas</a>.</p>`}
         <button class="btn small ghost" id="es-analisar" style="margin-top:8px">${a.analise ? "↻ Refazer a análise" : "Pedir a análise agora"}</button></div>
     </div>
-    ${d.tem_anterior ? `<div class="es-mud">${lista("⬇️ Saíram", d.saidas, n.saidas, "neg")}${lista("⬆️ Entraram", d.entradas, n.entradas, "pos")}
-      ${lista("🚫 Zeraram", d.zeraram, n.zeraram, "neg")}${lista("✅ Voltaram", d.voltaram, n.voltaram, "pos")}
+    ${d.tem_anterior ? `<div class="es-mud">${lista("⬇️ Saíram", d.saidas, n.saidas, "neg", "saidas")}${lista("⬆️ Entraram", d.entradas, n.entradas, "pos", "entradas")}
+      ${lista("🚫 Zeraram", d.zeraram, n.zeraram, "neg", "zeraram")}${lista("✅ Voltaram", d.voltaram, n.voltaram, "pos", "voltaram")}
       ${n.novos || n.removidos ? lista("🆕 SKUs novos", d.novos, n.novos, "pos") + lista("🗑️ Removidos do UpSeller", d.removidos, n.removidos, "") : ""}</div>` : ""}
     <div class="card pad" id="es-itens" style="margin-top:14px;scroll-margin-top:calc(var(--header-h,54px) + 12px)"><h2>Itens do estoque</h2>
       <div class="es-filtros"><input type="search" id="es-busca" placeholder="Buscar SKU ou título…" value="${esc(S.esBusca)}">

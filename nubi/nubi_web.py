@@ -3655,6 +3655,24 @@ def analise_estoque(repo):
     return f"análise do estoque gravada ({len(c['comprar'])} para comprar, {c['zerados_com_venda']} zerados com venda)"
 
 
+def _enriquecer_diff(repo, atual, itens):
+    """28/09 (Bruno): nas listas da atualização (entraram, saíram, zeraram…) o custo médio de agora e de antes (para a %),
+    o que está em trânsito (compra) e o mínimo do UpSeller."""
+    d = (atual or {}).get("diff") or {}
+    if not d.get("tem_anterior"):
+        return
+    ids = [x["id"] for x in repo._req("GET", "estoque_atualizacoes", {"select": "id", "order": "id.desc", "limit": 200}) or []]
+    ant = next(({"id": i} for i in sorted(ids, reverse=True) if int(i) < int(atual["id"])), None)
+    antes = {it["sku"]: it for it in (_estoque_itens(repo, ant["id"]) if ant else [])}
+    agora = {it["sku"]: it for it in itens}
+    f = lambda v: None if v in (None, "") else float(v)
+    for k in ("entradas", "saidas", "zeraram", "voltaram", "novos", "removidos"):
+        for x in d.get(k) or []:
+            a, b = agora.get(x.get("sku")) or {}, antes.get(x.get("sku")) or {}
+            x.update(custo=f(a.get("custo_medio")), custo_antes=f(b.get("custo_medio")),
+                     transito=f(a.get("transito_compra")), minimo=f(a.get("estoque_min")))
+
+
 def rota_estoque(repo, metodo, rota, q, corpo):
     if rota == "estoque_vendas_importar" and metodo == "POST":
         return vendas_importar(repo, corpo, (q.get("arquivo") or "Vendas_por_Produtos.xlsx")[:200],
@@ -3754,7 +3772,9 @@ def rota_estoque(repo, metodo, rota, q, corpo):
                                                         "order": "id.desc", "limit": 8}) or []
         rot_g = (repo._req("GET", "rotinas", {"select": "ativo,horario", "id": "eq.gestor"}) or [None])[0]
         pend_g = repo._req("GET", "coletor_pedidos", {"select": "id,pedido_em", "atendido_em": "is.null", "tarefa": "eq.gestor", "limit": 1}) or []
-        return {"atual": atual, "itens": _estoque_itens(repo, aid), "historico": hist, "rotina": rot, "ultima_execucao": falha,
+        itens = _estoque_itens(repo, aid)
+        _enriquecer_diff(repo, atual, itens)
+        return {"atual": atual, "itens": itens, "historico": hist, "rotina": rot, "ultima_execucao": falha,
                 "gestor": {"importacoes": gestor, "automatico": bool(rot_g and rot_g.get("ativo")), "horario": (rot_g or {}).get("horario"), "pedido": pend_g[0] if pend_g else None}}
     raise ErroNuvem("Rota desconhecida.", 404)
 
