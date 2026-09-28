@@ -36,7 +36,21 @@ DEEPSEEK_MODELOS = ["deepseek-v4-pro"] + DEEPSEEK_FLASH
 
 def tem(qual):
     qual = "chatgpt" if qual == "codex" else qual
+    if qual == "deepseek" and not USO.get("deepseek_ok"):
+        return False            # 28/09 (Bruno): o DeepSeek só existe nas 2 análises do dia (deepseek_liberado)
     return qual in CHAVES and bool(os.environ.get(CHAVES[qual]))
+
+
+class deepseek_liberado:
+    """28/09 (Bruno: "isso não existe essas IAs terem esse tanto de chamada"): o DeepSeek faz SÓ 2 análises por dia, a dos
+    dados coletados (Explorador, Concorrentes e Produtos: rotina analise_foco) e a do estoque (analise_estoque). Fora deste
+    bloco, ia.tem("deepseek") é False: Sala, cards, reservas e o que mais houver simplesmente não o usam."""
+    def __enter__(self):
+        USO["deepseek_ok"] = True
+        return self
+
+    def __exit__(self, *a):
+        USO["deepseek_ok"] = False
 
 
 DEEPSEEK_PRO = DEEPSEEK_MODELOS                                                  # tarefas pesadas (revisão de código)
@@ -378,6 +392,8 @@ def _perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sist
         except Exception:  # noqa: BLE001 — Codex fora do ar ou sem acesso: o modelo padrão responde
             pass
         return _perguntar(pergunta, web=False, max_tokens=max_tokens, qual="chatgpt", sistema=sistema)
+    if ia == "deepseek" and not USO.get("deepseek_ok"):
+        raise SemIA("o DeepSeek só faz as 2 análises do dia (dados coletados e estoque)")
     if not ia or not tem(ia):
         raise SemIA("nenhuma chave de IA configurada" if not ia else f"falta a chave da IA {nome(ia)}")
     if ia == "ollama":

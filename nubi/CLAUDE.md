@@ -52,12 +52,30 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 
 ## DeepSeek (28/09, pedido do Bruno)
 
+- **O DeepSeek faz SÓ 2 análises por dia** ("isso não existe essas IAs terem esse tanto de chamada"): `analise_foco` (dados
+  coletados: Explorador, Concorrentes e Produtos, 09:15) e `analise_estoque` (estoque × vendas por anúncio). Só dentro de
+  `with ia.deepseek_liberado():` o `ia.tem("deepseek")` é True; fora disso ele não existe (Sala, cards, reservas, Estoquista da
+  importação pulam). 1 por dia mesmo pedindo de novo. O plano da semana (`analise_semana`) foi desligado. Saiu da distribuição de cards.
+
 - As análises com o DeepSeek usam o **deepseek-v4-pro** (`ia.DEEPSEEK_MODELOS`); os flash (`DEEPSEEK_FLASH`) ficam de
   reserva se o pro recusar. Onde o DeepSeek é só reserva da IA grátis (textos do atendimento `gerar_ia`, resumo de pesquisa
   na internet) vai `modelo="flash"` (barato).
 - **Frase de contexto da base (`saber._contextos_ia`) é SÓ gpt-oss grátis**: sem cota (429), o pedaço vai só com o cabeçalho
   e não tenta de novo por 10 min. Em 28/09 o DeepSeek de reserva fazia ~40 chamadas/h das MESMAS frases, comia o tempo dos
   vetores ("tempo esgotado antes de terminar todos os lotes") e nada era salvo (588 itens parados).
+
+## Compras e vendas do estoque (28/09, pedido do Bruno) — Estoque → 🛒 Compras e vendas (`#/estoque/compras`)
+
+- Relatório do UpSeller **Análises → Vendas por Anúncio, últimos 30 dias** ("Vendas_por_Produtos_AAAAMMDD-AAAAMMDD_….xlsx":
+  Produtos, Loja, SKU Principal, ID do Anúncios, Pedidos Válidos, Unidades Vendidas, Valor de Vendas, Preço Médio). O coletor
+  baixa junto do estoque da madrugada (`baixar_vendas`, endereço achado guardado em `upseller_vendas_url`; falha nunca derruba o
+  estoque) e manda para `estoque_vendas_importar`; também dá para importar à mão na tela. Guardado em `ia_resumos`
+  `vendas_anuncio|atual` (linhas) + `vendas_anuncio|AAAA-MM-DD` (totais do dia).
+- `estoque.listas` (números em código, SKU casado sem maiúsculas): **zerados** (atual 0, os que venderam primeiro),
+  **mais vendidos** (soma dos anúncios/lojas do SKU), **preciso comprar** (venda/dia = unidades ÷ dias; dura = (disponível +
+  trânsito) ÷ venda/dia < `ALERTA_DIAS`=15, ou abaixo do mínimo; sugestão = `ALVO_DIAS`=30 dias de venda − disponível −
+  trânsito). Rota `estoque_compras`; a análise do dia (`analise_estoque`, DeepSeek v4-pro, `ia_resumos` `analise_estoque|data`)
+  aparece no topo da aba.
 
 ## Mini-benchmark de modelos (#15, 27/09) — `nubi_benchmark.py`, migração `supabase/benchmark.sql`
 

@@ -1540,12 +1540,80 @@ def _baixar_link(p, estado, candidatos, destino, nome):
     raise Falha("o Chrome fechou no download do estoque e o link do arquivo não devolveu a planilha")
 
 
+# ---------------------------------------------------------------------------
+# Vendas por anúncio do UpSeller (28/09, pedido do Bruno): Análises → Vendas por Anúncio → últimos 30 dias → Exportar,
+# 1 vez por dia, junto do estoque da madrugada. O endereço achado fica em upseller_vendas_url (depois vai direto).
+# ---------------------------------------------------------------------------
+UPSELLER_VENDAS = os.environ.get("NUBI_UPSELLER_VENDAS", "")
+JS_TEXTOS = r"""() => [...document.querySelectorAll('a,button,li,span,div')].filter(e => { const r = e.getBoundingClientRect();
+  return r.width > 8 && r.height > 8 && e.children.length <= 1 && (e.innerText || '').trim().length > 1 && (e.innerText || '').length < 40; })
+  .map(e => e.innerText.trim().replace(/\s+/g, ' ')).filter((t, i, a) => a.indexOf(t) === i).slice(0, 60).join(' | ')"""
+
+
+def _clicar_texto(pg, padroes, espera=2.5):
+    for padrao in padroes:
+        loc = pg.get_by_text(re.compile(padrao, re.I))
+        for i in range(min(loc.count(), 6)):
+            try:
+                if loc.nth(i).is_visible():
+                    loc.nth(i).click(timeout=8000)
+                    devagar(espera)
+                    return True
+            except Exception:  # noqa: BLE001
+                continue
+    return False
+
+
+def baixar_vendas(pg, cfg):
+    """Baixa 'Vendas por Anúncio' (últimos 30 dias) do UpSeller. -> arquivo .xlsx (nome do UpSeller, sem renomear)."""
+    url = cfg.get("upseller_vendas_url") or UPSELLER_VENDAS
+    if url:
+        pg.goto(url, wait_until="domcontentloaded", timeout=90000)
+        devagar(5)
+    if not pg.get_by_text(re.compile(r"Vendas por (An[úu]ncio|Produto)", re.I)).count():
+        if not url:
+            pg.goto(f"{UPSELLER}/pt/", wait_until="domcontentloaded", timeout=90000)
+            devagar(5)
+        _clicar_texto(pg, [r"^\s*An[áa]lises?\s*$", r"^\s*An[áa]lise de dados\s*$", r"^\s*Dados\s*$"])
+    if not _clicar_texto(pg, [r"^\s*Vendas por An[úu]ncios?\s*$", r"^\s*Vendas por Produtos?\s*$"], 5):
+        raise Falha("não achei 'Análises → Vendas por Anúncio' no UpSeller. Na tela: "
+                    + str(pg.evaluate(JS_TEXTOS))[:700] + " " + diagnostico(pg))
+    _clicar_texto(pg, [r"^\s*[ÚU]ltimos 30 dias\s*$", r"^\s*30 dias\s*$"], 4)
+    destino = PASTA / "vendas"
+    destino.mkdir(parents=True, exist_ok=True)
+    try:
+        with pg.expect_download(timeout=180000) as dl:
+            if not _clicar_texto(pg, [r"^\s*Exportar\s*$"], 3):
+                raise Falha("sem o botão Exportar na tela de vendas. Na tela: " + str(pg.evaluate(JS_TEXTOS))[:600])
+            # às vezes abre uma janelinha de confirmação/baixar antes do arquivo
+            janela = pg.locator(".ant-modal-content, [role=dialog]").last
+            if janela.count() and janela.is_visible():
+                janela.get_by_role("button", name=re.compile(r"^\s*(Exportar|Baixar|Confirmar|OK)\s*$", re.I)).last.click(timeout=15000)
+    except Falha:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise Falha(f"o relatório de vendas não baixou ({e.__class__.__name__}). Na tela: " + str(pg.evaluate(JS_TEXTOS))[:600])
+    d = dl.value
+    arq = destino / (d.suggested_filename or "Vendas_por_Produtos.xlsx")
+    _salvar_download(pg, d, arq)
+    if not cfg.get("upseller_vendas_url") and "/login" not in pg.url:
+        cfg["upseller_vendas_url"] = pg.url
+        salvar_config(cfg)
+    return arq
+
+
 def coletar_estoque(p, cfg, token, enviar=True):
     ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    vendas = None
     try:
         arq, esperado = baixar_estoque(pg, p)
         guardar_sessao(ctx)
+        try:                                   # 28/09: o relatório de vendas nunca derruba o estoque
+            vendas = baixar_vendas(pg, cfg)
+        except Exception as ev:  # noqa: BLE001
+            log(f"  vendas por anúncio: não baixou ({str(ev)[:400]})")
+            enviar_foto(pg, f"vendas por anúncio: {str(ev)[:150]}", resumo_tela(pg))
     except SessaoExpirada:
         enviar_foto(pg, "estoque: login do UpSeller vencido", resumo_tela(pg))
         raise
@@ -1561,6 +1629,12 @@ def coletar_estoque(p, cfg, token, enviar=True):
     for linha in r.get("log") or []:
         log("  " + linha)
     linhas = r.get("log") or ["estoque importado"]
+    if vendas:
+        try:
+            for linha in api(token, "estoque_vendas_importar", {"arquivo": vendas.name}, vendas.read_bytes()).get("log") or []:
+                log("  " + linha)
+        except Exception as ev:  # noqa: BLE001
+            log(f"  vendas por anúncio: não importou ({str(ev)[:200]})")
     return 1, 1, 0, (linhas[1] if len(linhas) > 1 else linhas[0])[:200]
 
 

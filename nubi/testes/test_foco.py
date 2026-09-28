@@ -98,11 +98,11 @@ def test_plano_semanal_separado():
     pedidos = []
     w.ia.perguntar = lambda pedido, **k: (pedidos.append(pedido) or "## 5 prioridades da semana\n1. Repor Asad", [], "deepseek")
     r = Repo()
-    assert "plano da semana gravado" in w.analise_foco(r, semanal=True)
-    assert "PLANO DA SEMANA" in pedidos[0]
-    assert r.gravados[0]["chave"].startswith("foco_semana|")
+    # 28/09 (Bruno): o DeepSeek faz só 2 análises por dia (dados e estoque); o plano da semana foi desligado
+    assert "desligado" in w.analise_foco(r, semanal=True)
+    assert not pedidos and not r.gravados
     assert "gravada" in w.analise_foco(r)               # a diária é outra, grava à parte
-    assert r.gravados[1]["chave"].startswith("foco|")
+    assert r.gravados[0]["chave"].startswith("foco|")
 
 
 if __name__ == "__main__":

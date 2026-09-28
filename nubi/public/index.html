@@ -1382,7 +1382,7 @@ async function rotear() {
     history.replaceState(null, "", location.hash.replace("#/estoque/", "#/sac/")); return rotear(); }
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
     return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
-  if (sec === "lojas") return location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : telaEstoque();
+  if (sec === "lojas") return location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -2727,6 +2727,7 @@ function esFiltrar(k) {
   const alvo = $("#es-itens"); if (alvo) alvo.scrollIntoView({behavior: "smooth", block: "start"});
 }
 const esAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px"><button class="${ativa === "estoque" ? "on" : ""}" onclick="location.hash='#/estoque'">📦 Estoque</button>
+  <button class="${ativa === "compras" ? "on" : ""}" onclick="location.hash='#/estoque/compras'">🛒 Compras e vendas</button>
   <button class="${ativa === "gestor" ? "on" : ""}" onclick="location.hash='#/estoque/gestor'">🧾 Planilha do Gestor Seller</button>
   <button class="${ativa === "posicoes" ? "on" : ""}" onclick="location.hash='#/estoque/posicoes'">📈 Posição do anúncio</button>
   <button class="${ativa === "rank" ? "on" : ""}" onclick="location.hash='#/estoque/rankeamento'">🧪 Rankeamento</button></div>`;
@@ -3326,6 +3327,52 @@ async function telaEstoque() {
       ${r.historico.map(h => `<a href="#/estoque?id=${h.id}" class="${h.id === a.id ? "on" : ""}"><span>${esc(quandoES(h.criado_em))} · ${h.origem === "manual" ? "à mão" : "coletor"}</span>
         <span class="muted">${nf0.format(h.skus || 0)} SKUs · ${unES(h.unidades)} un · ${rsES(h.valor)} · ${nf0.format(h.zerados || 0)} zerados</span></a>`).join("")}</div>`;
   desenharTabEstoque(); ligarEstoque(); desenharMenu();
+}
+// 28/09 (Bruno): zerados, mais vendidos e preciso comprar = estoque do UpSeller × vendas por anúncio (30 dias) + a análise
+// diária do DeepSeek. Os números são calculados no servidor (estoque.listas); a IA só interpreta.
+const CP_ABAS = [["comprar", "🛒 Preciso comprar"], ["vendidos", "🔥 Mais vendidos"], ["zerados", "🚫 Zerados"]];
+async function telaCompras() {
+  const main = $("#main");
+  main.innerHTML = esAbas("compras") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Cruzando estoque e vendas</div></div>`;
+  let r;
+  try { r = await api("estoque_compras"); } catch (e) { main.innerHTML = esAbas("compras") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/estoque/compras")) return;
+  const aba = S.cpAba || "comprar", v = r.vendas, an = r.analise, q = (S.cpBusca || "").trim().toLowerCase();
+  const dias = x => x == null ? "—" : x < 1 ? "acabou" : `${String(x).replace(".", ",")} d`;
+  const sel = {comprar: r.comprar, vendidos: r.mais_vendidos, zerados: r.zerados}[aba] || [];
+  const linhas = sel.filter(x => !q || (x.sku + " " + x.titulo).toLowerCase().includes(q));
+  const cab = aba === "comprar" ? "<th class='num'>Comprar</th><th>Motivo</th>" : "";
+  const tab = linhas.slice(0, S.cpMax || 80).map(x => `<tr><td class="first wrap"><span class="es-sku">${esc(x.sku)}</span>${x.no_estoque ? "" : ` <span class="neg" title="vendido, mas o SKU não está no estoque do UpSeller">fora do estoque</span>`}<br><span class="muted">${esc((x.titulo || "").slice(0, 90))}</span></td>
+      <td class="num">${nf0.format(x.vendidos)}</td><td class="num">${unES(x.disponivel)}</td><td class="num">${unES(x.transito)}</td>
+      <td class="num ${x.cobertura_dias != null && x.cobertura_dias < r.alerta_dias ? "neg" : ""}">${dias(x.cobertura_dias)}</td>
+      ${aba === "comprar" ? `<td class="num"><b>${nf0.format(x.sugerido)}</b></td><td class="muted">${esc(x.motivo)}</td>` : ""}</tr>`).join("");
+  main.innerHTML = esAbas("compras") + `<div class="es-cab"><h1>🛒 Compras e vendas</h1>
+      <span class="muted">${v ? `vendas de ${esc(v.inicio ? v.inicio.split("-").reverse().join("/") : "?")} a ${esc(v.fim ? v.fim.split("-").reverse().join("/") : "?")} (${v.dias} dias) · importado ${esc(quandoES(v.importado_em))}` : "ainda sem o relatório de vendas"} · estoque de ${esc(quandoES(r.estoque_em))}</span>
+      <div class="acoes"><label class="btn small" title="Importar à mão o relatório do UpSeller: Análises → Vendas por Anúncio → últimos 30 dias → Exportar">⬆ Importar vendas por anúncio<input type="file" id="cp-arq" accept=".xlsx" hidden></label></div></div>
+    <div class="kpis">${kpi("Preciso comprar", `<span class="${r.comprar.length ? "neg" : ""}">${nf0.format(r.comprar.length)}</span>`, `estoque + trânsito dura menos de ${r.alerta_dias} dias`)}
+      ${kpi("Zerados", nf0.format(r.zerados.length), `${nf0.format(r.zerados_com_venda)} deles venderam nos últimos ${r.dias} dias`)}
+      ${kpi("SKUs com venda", nf0.format(r.mais_vendidos.length), v ? `${nf0.format(v.unidades)} un · ${rsES(v.valor)}` : "")}
+      ${kpi("Vendidos fora do estoque", `<span class="${r.vendas_sem_estoque ? "neg" : ""}">${nf0.format(r.vendas_sem_estoque)}</span>`, "SKU vendido que não está no My Warehouse")}</div>
+    <div class="card pad" style="margin-bottom:14px"><h2>🧮 Análise do estoque (DeepSeek, 1 por dia)</h2>
+      ${an ? `<div class="md">${mdSimples(an.texto)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">${an.hoje ? "de hoje" : "de " + esc(an.dia.split("-").reverse().join("/"))} · ${esc(an.por || "")}</p>`
+        : `<p class="muted">Sai uma vez por dia, depois que o relatório de vendas e o estoque entram.</p>`}</div>
+    <div class="card pad"><div class="seg es-seg" style="margin-bottom:10px">${CP_ABAS.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-cp-aba="${k}">${n} (${nf0.format(({comprar: r.comprar, vendidos: r.mais_vendidos, zerados: r.zerados}[k] || []).length)})</button>`).join("")}</div>
+      <div class="es-filtros"><input type="search" id="cp-busca" placeholder="Buscar SKU ou título…" value="${esc(S.cpBusca || "")}"></div>
+      <p class="muted" style="font-size:12px;margin:6px 0">${aba === "comprar" ? `Venda por dia = unidades vendidas em ${r.dias} dias ÷ ${r.dias}. “Dura” = (disponível + em trânsito) ÷ venda por dia. Sugestão = ${r.alvo_dias} dias de venda − disponível − trânsito.`
+        : aba === "zerados" ? "SKUs com estoque atual zero, os que mais venderam primeiro." : `Somando todos os anúncios e lojas de cada SKU nos últimos ${r.dias} dias.`}</p>
+      <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>SKU / título</th><th class="num">Vendidos (${r.dias}d)</th><th class="num">Disponível</th><th class="num">Em trânsito</th><th class="num">Dura</th>${cab}</tr></thead>
+        <tbody>${tab || `<tr><td colspan="7" class="muted">${v ? "nada aqui" : "Importe o relatório de vendas por anúncio para ver esta lista."}</td></tr>`}</tbody></table></div>
+      ${linhas.length > (S.cpMax || 80) ? `<button class="btn small ghost" id="cp-mais" style="margin-top:8px">Mostrar mais (${nf0.format(linhas.length - (S.cpMax || 80))})</button>` : ""}</div>`;
+  main.querySelectorAll("[data-cp-aba]").forEach(b => b.onclick = () => { S.cpAba = b.dataset.cpAba; S.cpMax = 80; telaCompras(); });
+  const bb = $("#cp-busca"); if (bb) bb.onchange = () => { S.cpBusca = bb.value; telaCompras(); };
+  const bm = $("#cp-mais"); if (bm) bm.onclick = () => { S.cpMax = (S.cpMax || 80) + 200; telaCompras(); };
+  const fa = $("#cp-arq");
+  if (fa) fa.onchange = async () => { const f = fa.files[0]; if (!f) return;
+    toast("Importando " + f.name + "…", 20000);
+    try { const x = await api("estoque_vendas_importar", {arquivo: f.name, origem: "manual"}, {method: "POST", body: await f.arrayBuffer()});
+      toast((x.log || ["Importado."]).join(" "), 7000); telaCompras();
+    } catch (e) { toast(e.message, 7000); } };
+  desenharMenu();
 }
 // Planilha de importação do Gestor Seller (cadastro de produtos) feita do estoque do UpSeller
 const GESTOR_COLS = ["SKU Interno", "SKU externo (opcional)", "Link da Imagem (opcional)", "Título", "Preço de Custo", "Custo Extra (opcional)", "EAN (opcional)"];

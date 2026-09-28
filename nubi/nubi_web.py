@@ -2383,10 +2383,13 @@ def dados_foco(repo, limite=30):
 def analise_foco(repo, forcar=False, semanal=False):
     """Rotina diária 'analise_foco' (DeepSeek): onde o Bruno deve focar, com os números de dados_foco. Uma por dia.
     semanal=True (rotina 'analise_semana', sábado): o plano da semana seguinte, para começar a segunda a todo vapor."""
+    if semanal:
+        # 28/09 (Bruno): o DeepSeek faz só 2 análises por dia (dados coletados e estoque); o plano da semana saiu
+        return "desligado: o DeepSeek faz só a análise dos dados e a do estoque, 1 de cada por dia"
     hoje = _agora_br().date().isoformat()
     chave = f"{'foco_semana' if semanal else 'foco'}|{hoje}"
-    if not forcar and repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave), "limit": 1}):
-        return "já feita hoje"
+    if repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave), "limit": 1}):
+        return "já feita hoje"           # 28/09 (Bruno): 1 por dia, mesmo pedindo de novo
     d = dados_foco(repo, limite=40 if semanal else 30)
     if not d or not d["produtos"]:
         return "sem dados de concorrentes"
@@ -2410,7 +2413,8 @@ def analise_foco(repo, forcar=False, semanal=False):
         "## Repor ou comprar\no que vende bem e eu tenho zerado ou não tenho.\n"
         "## Atenção\n1 ou 2 riscos (produto com muitos vendedores e preço caindo, margem apertada)."))
     ia.USO["origem"] = f"rotina {'analise_semana' if semanal else 'analise_foco'}"
-    txt, _, qual = ia.perguntar(pedido, web=False, max_tokens=2500, qual="deepseek", modelo="pro", sistema=agentes.SISTEMA)
+    with ia.deepseek_liberado():
+        txt, _, qual = ia.perguntar(pedido, web=False, max_tokens=2500, qual="deepseek", modelo="pro", sistema=agentes.SISTEMA)
     if not (txt or "").strip():
         return "o DeepSeek não respondeu"
     repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": txt.strip(), "ia": ia.nome(qual), "dados": d}],
@@ -2746,7 +2750,7 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "resumo_semana", "resumo_marcas", "nomes_marcas",
+NO_SERVIDOR = ("rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "resumo_semana", "resumo_marcas", "nomes_marcas",
                "noticias", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 ROTINAS_TEXTO = ("resumo_dia", "resumo_semana", "resumo_marcas", "nomes_marcas", "noticias")   # texto sem conferência de número
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
@@ -2986,6 +2990,8 @@ def rodar_rotinas(repo, so=None):
                 res = analise_foco(repo, forcar=bool(so))
             elif rid == "analise_semana":
                 res = analise_foco(repo, forcar=bool(so), semanal=True)
+            elif rid == "analise_estoque":
+                res = analise_estoque(repo)
             elif rid == "nomes_marcas":
                 res = conferir_nomes_marcas(repo)
             elif rid == "resumo_marcas":
@@ -3548,7 +3554,93 @@ def estoque_analisar(repo, aid, d=None, itens=None):
     return f"(análise do Estoquista não saiu agora: {quem})"
 
 
+VENDAS_CHAVE = "vendas_anuncio|atual"
+
+
+def vendas_importar(repo, conteudo, arquivo, origem="coletor"):
+    """28/09 (Bruno): relatório 'Vendas por Anúncio' do UpSeller (últimos 30 dias), 1 vez por dia. Guarda a foto atual em
+    ia_resumos (VENDAS_CHAVE) e um resumo por dia (vendas_anuncio|AAAA-MM-DD) para o histórico."""
+    try:
+        linhas = estoque.ler_vendas(conteudo)
+    except estoque.ErroEstoque as e:
+        raise ErroNuvem(f"Relatório de vendas não importado: {e}.")
+    ini, fim, dias = estoque.periodo_vendas(arquivo)
+    h = ranking.hash_de(conteudo)
+    atual = _vendas_atuais(repo) or {}
+    if atual.get("hash") == h:
+        return {"ok": True, "repetido": True, "log": ["Esse relatório de vendas já foi importado."]}
+    agora = datetime.now(timezone.utc).isoformat()
+    unidades = round(sum(x["unidades"] for x in linhas))
+    valor = round(sum(x["valor"] for x in linhas), 2)
+    d = {"arquivo": arquivo, "origem": origem, "hash": h, "importado_em": agora, "inicio": ini, "fim": fim, "dias": dias,
+         "anuncios": len(linhas), "skus": len({estoque._chave(x["sku"]) for x in linhas}), "unidades": unidades, "valor": valor,
+         "linhas": linhas}
+    resumo = {k: v for k, v in d.items() if k != "linhas"}
+    repo._req("POST", "ia_resumos", corpo=[
+        {"chave": VENDAS_CHAVE, "ia": "upseller", "criado_em": agora, "texto": json.dumps(d, ensure_ascii=False)},
+        {"chave": f"vendas_anuncio|{_agora_br().date().isoformat()}", "ia": "upseller", "criado_em": agora,
+         "texto": json.dumps(resumo, ensure_ascii=False)}], prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True, "log": [f"OK: vendas por anúncio importadas ({arquivo}): {len(linhas)} anúncios, {resumo['skus']} SKUs, "
+                                f"{unidades} unidades em {dias} dias."]}
+
+
+def _vendas_atuais(repo):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(VENDAS_CHAVE)}) or [None])[0]
+    try:
+        return json.loads(r["texto"]) if r else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _num_itens(xs):
+    for it in xs:
+        for c in estoque.NUMEROS:
+            it[c] = None if it.get(c) is None else float(it[c])
+    return xs
+
+
+def estoque_compras(repo):
+    """Zerados, mais vendidos e preciso comprar: último estoque do UpSeller × vendas por anúncio (30 dias)."""
+    ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": 1}) or [None])[0]
+    itens = _num_itens(_estoque_itens(repo, ult["id"])) if ult else []
+    v = _vendas_atuais(repo)
+    ls = estoque.listas(itens, (v or {}).get("linhas") or [], dias=(v or {}).get("dias") or 30)
+    hoje = _agora_br().date().isoformat()
+    an = (repo._req("GET", "ia_resumos", {"select": "chave,texto,criado_em,ia", "chave": "like.analise_estoque|*",
+                                          "order": "chave.desc", "limit": 1}) or [None])[0]
+    return {"estoque_em": (ult or {}).get("criado_em"), "vendas": {k: x for k, x in (v or {}).items() if k != "linhas"} or None,
+            "analise": an and {"dia": an["chave"].split("|", 1)[1], "texto": an["texto"], "em": an["criado_em"], "por": an.get("ia"),
+                               "hoje": an["chave"].endswith(hoje)}, **ls}
+
+
+def analise_estoque(repo):
+    """28/09 (Bruno): 1 análise do estoque por dia, com o DeepSeek (v4-pro), em cima das listas calculadas em código."""
+    hoje = _agora_br().date().isoformat()
+    chave = f"analise_estoque|{hoje}"
+    if repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave), "limit": 1}):
+        return "já feita hoje"
+    c = estoque_compras(repo)
+    if not c.get("vendas"):
+        return "sem o relatório de vendas por anúncio do UpSeller"
+    if not c.get("estoque_em"):
+        return "sem estoque importado"
+    ia.USO["origem"] = "rotina analise_estoque"
+    with ia.deepseek_liberado():
+        txt, _, qual = ia.perguntar(estoque.pedido_analise(c), web=False, max_tokens=2500, qual="deepseek", modelo="pro",
+                                    sistema=agentes.SISTEMA)
+    if not (txt or "").strip():
+        return "o DeepSeek não respondeu"
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": txt.strip(), "ia": ia.nome(qual)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return f"análise do estoque gravada ({len(c['comprar'])} para comprar, {c['zerados_com_venda']} zerados com venda)"
+
+
 def rota_estoque(repo, metodo, rota, q, corpo):
+    if rota == "estoque_vendas_importar" and metodo == "POST":
+        return vendas_importar(repo, corpo, (q.get("arquivo") or "Vendas_por_Produtos.xlsx")[:200],
+                               "manual" if q.get("origem") == "manual" else "coletor")
+    if rota == "estoque_compras":
+        return estoque_compras(repo)
     if rota == "estoque_importar" and metodo == "POST":
         return estoque_importar(repo, corpo, (q.get("arquivo") or "Lista_de_Estoque.xlsx")[:200],
                                 "manual" if q.get("origem") == "manual" else "coletor",
@@ -3917,14 +4009,13 @@ def distribuir_cards(repo, limite=6):
         "- copilot: SÓ card de código pequeno e bem especificado, de risco baixo, que mexe apenas na tela (public/index.html: "
         "botão, texto, cor, layout), sem servidor, banco, coletor nem números (programa pelo GitHub; o chefe revisa e publica);\n"
         "- chatgpt: análise, documentação técnica, inventário, revisão de código por texto;\n"
-        "- deepseek: contas, números, custos, planos de dados;\n"
         "- astra: design e UX por escrito (sem programar);\n"
         "- hermes: memória, organização da caixa de conhecimento, documentação do histórico (roda de graça no Mac).\n"
         "Na dúvida se precisa de código, escolha claude_code.\n\nCARDS:\n" + lista +
         '\n\nResponda SOMENTE JSON: {"cards": [{"id": N, "responsavel": "...", "motivo": "<curto>"}]}',
         web=False, max_tokens=2000, qual="claude", sistema=agentes.SISTEMA)
     feitos = []
-    validos = {"claude_code", "copilot"} | AGENTES_TEXTO | AGENTES_MAC
+    validos = ({"claude_code", "copilot"} | AGENTES_TEXTO | AGENTES_MAC) - {"deepseek"}   # 28/09: DeepSeek só nas 2 análises do dia
     risco = {c["id"]: c.get("risco") or "medio" for c in cards}
     for x in (j.get("cards") or []):
         tid, resp = int(x.get("id") or 0), str(x.get("responsavel") or "")

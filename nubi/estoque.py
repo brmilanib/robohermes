@@ -203,9 +203,8 @@ def pedido_ia(d, baixos):
     return "\n\n".join(partes)
 
 
-# agente de estoque: primeiro o grátis (gpt-oss na cota do Ollama), depois os baratos
-ORDEM_IA = (("ollama", None, "Estoquista (gpt-oss)"), ("deepseek", None, "Estoquista (DeepSeek)"),
-            ("claude", None, "Estoquista (Claude)"))
+# agente de estoque na importação: SÓ o grátis (gpt-oss). 28/09 (Bruno): IA paga no estoque só na análise diária do DeepSeek
+ORDEM_IA = (("ollama", None, "Estoquista (gpt-oss)"),)
 
 
 def analisar_ia(d, itens, sistema=""):
@@ -224,6 +223,138 @@ def analisar_ia(d, itens, sistema=""):
         except Exception as e:  # noqa: BLE001
             ultimo = f"{quem}: {str(e)[:120]}"
     return "", ultimo
+
+
+# ---------------------------------------------------------------------------
+# Vendas por anúncio do UpSeller (28/09, pedido do Bruno): Análises → Vendas por Anúncio, últimos 30 dias, 1 vez por dia.
+# Arquivo "Vendas_por_Produtos_AAAAMMDD-AAAAMMDD_….xlsx": Produtos, Loja, SKU Principal, ID do Anúncios, Pedidos Válidos,
+# Unidades Vendidas, Valor de Vendas, Preço Médio (uma linha por anúncio; o mesmo SKU pode ter vários anúncios/lojas).
+# ---------------------------------------------------------------------------
+VENDAS_COLUNAS = {"Produtos": "produto", "Loja": "loja", "SKU Principal": "sku", "ID do Anúncios": "anuncio",
+                  "ID do Anúncio": "anuncio", "Pedidos Válidos": "pedidos", "Unidades Vendidas": "unidades",
+                  "Valor de Vendas": "valor", "Preço Médio": "preco_medio"}
+VENDAS_NUMEROS = ("pedidos", "unidades", "valor", "preco_medio")
+ALERTA_DIAS = 15        # estoque (disponível + em trânsito) que dura menos que isso = preciso comprar
+ALVO_DIAS = 30          # a sugestão de compra cobre 30 dias de venda
+
+
+def ler_vendas(conteudo):
+    """Bytes do .xlsx "Vendas por Produtos" do UpSeller -> lista de linhas (uma por anúncio)."""
+    import openpyxl
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(conteudo), data_only=True)
+        except Exception as e:  # noqa: BLE001
+            raise ErroEstoque(f"não é uma planilha .xlsx válida ({e.__class__.__name__})")
+    linhas = wb.worksheets[0].iter_rows(values_only=True)
+    try:
+        cab = [_cab(c) for c in next(linhas)]
+    except StopIteration:
+        raise ErroEstoque("planilha vazia")
+    colunas = {_cab(k): v for k, v in VENDAS_COLUNAS.items()}
+    mapa = {i: colunas[c] for i, c in enumerate(cab) if c in colunas}
+    if not {"sku", "unidades"} <= set(mapa.values()):
+        raise ErroEstoque("não parece o relatório 'Vendas por Anúncio' do UpSeller (faltam SKU Principal e Unidades Vendidas)")
+    out = []
+    for row in linhas:
+        it = {campo: row[i] if i < len(row) else None for i, campo in mapa.items()}
+        sku = str(it.get("sku") or "").strip()
+        if not sku:
+            continue
+        it["sku"] = sku
+        for c in VENDAS_NUMEROS:
+            it[c] = _num(it.get(c)) or 0.0
+        for c in ("produto", "loja", "anuncio"):
+            it[c] = str(it.get(c) or "").strip()[:300]
+        out.append(it)
+    wb.close()
+    if not out:
+        raise ErroEstoque("nenhuma venda na planilha")
+    return out
+
+
+def periodo_vendas(nome):
+    """'Vendas_por_Produtos_20260829-20260927_…' -> ('2026-08-29', '2026-09-27', 30 dias) ou (None, None, 30)."""
+    m = re.search(r"(20\d{6})\s*-\s*(20\d{6})", str(nome or ""))
+    if not m:
+        return None, None, 30
+    from datetime import date
+    a, b = (date(int(x[:4]), int(x[4:6]), int(x[6:])) for x in m.groups())
+    return a.isoformat(), b.isoformat(), max(1, (b - a).days + 1)
+
+
+def _chave(sku):
+    return str(sku or "").strip().upper()
+
+
+def listas(itens, vendas, dias=30, alerta=ALERTA_DIAS, alvo=ALVO_DIAS):
+    """Zerados, mais vendidos e preciso comprar, calculados em código (números exatos; a IA só interpreta).
+    Venda por dia = unidades vendidas no período / dias. Cobertura = (disponível + em trânsito da compra) / venda por dia."""
+    import math
+    por = {}
+    for v in vendas or []:
+        k = _chave(v["sku"])
+        x = por.setdefault(k, {"sku": v["sku"], "produto": v.get("produto") or "", "unidades": 0.0, "pedidos": 0.0,
+                               "valor": 0.0, "anuncios": 0, "lojas": set()})
+        x["unidades"] += v.get("unidades") or 0
+        x["pedidos"] += v.get("pedidos") or 0
+        x["valor"] += v.get("valor") or 0
+        x["anuncios"] += 1
+        if v.get("loja"):
+            x["lojas"].add(re.sub(r"\s*\[.*$", "", v["loja"]).strip().upper())
+    est = {_chave(it["sku"]): it for it in itens or []}
+
+    def linha(k):
+        it, x = est.get(k) or {}, por.get(k) or {}
+        vd = (x.get("unidades") or 0) / dias
+        disp, trans = it.get("disponivel") or 0, it.get("transito_compra") or 0
+        cob = round((disp + trans) / vd, 1) if vd else None
+        return {"sku": it.get("sku") or x.get("sku") or k, "titulo": it.get("titulo") or x.get("produto") or "",
+                "disponivel": disp, "atual": it.get("atual") or 0, "transito": trans, "minimo": it.get("estoque_min") or 0,
+                "custo": it.get("custo_medio"), "vendidos": round(x.get("unidades") or 0), "pedidos": round(x.get("pedidos") or 0),
+                "valor": round(x.get("valor") or 0, 2), "venda_dia": round(vd, 2), "cobertura_dias": cob,
+                "lojas": sorted(x.get("lojas") or []), "no_estoque": bool(it)}
+    zerados = sorted((linha(k) for k, it in est.items() if not ((it.get("atual") or 0) > 0)),
+                     key=lambda r: (-r["vendidos"], r["sku"]))
+    vendidos = sorted((linha(k) for k in por if por[k]["unidades"] > 0), key=lambda r: (-r["vendidos"], -r["valor"]))
+    comprar = []
+    for k in set(por) | set(est):
+        r = linha(k)
+        abaixo_min = r["minimo"] > 0 and r["disponivel"] + r["transito"] <= r["minimo"] and r["vendidos"] > 0
+        if r["venda_dia"] and (r["cobertura_dias"] is not None and r["cobertura_dias"] < alerta or abaixo_min):
+            r["sugerido"] = max(0, math.ceil(r["venda_dia"] * alvo - r["disponivel"] - r["transito"]))
+            r["motivo"] = (f"dura {r['cobertura_dias']:g} dia(s)" if r["cobertura_dias"] is not None and r["cobertura_dias"] < alerta
+                           else "abaixo do mínimo do UpSeller")
+            if r["sugerido"] > 0:
+                comprar.append(r)
+    comprar.sort(key=lambda r: (r["cobertura_dias"] if r["cobertura_dias"] is not None else 9e9, -r["vendidos"]))
+    return {"dias": dias, "alerta_dias": alerta, "alvo_dias": alvo, "zerados": zerados, "mais_vendidos": vendidos,
+            "comprar": comprar, "zerados_com_venda": sum(1 for r in zerados if r["vendidos"] > 0),
+            "vendas_sem_estoque": sum(1 for r in vendidos if not r["no_estoque"])}
+
+
+PAPEL_ANALISE = ("Você é o DeepSeek, analista de estoque do nubi. Abaixo, as listas do estoque do Bruno (UpSeller) cruzadas com "
+                 "as vendas por anúncio dos últimos {dias} dias, já calculadas pelo sistema: NÃO recalcule e NÃO invente nenhum "
+                 "número. Escreva em português do Brasil, direto, em markdown curto, com estas seções:\n"
+                 "## Comprar já\nos 5 a 8 mais urgentes (acabam primeiro e vendem bem), com a quantidade sugerida e o porquê.\n"
+                 "## Zerados que vendem\no que está parado vendendo zero por falta de estoque.\n"
+                 "## Campeões\nos que mais vendem e como está o estoque deles.\n"
+                 "## Atenção\n1 ou 2 riscos (estoque encalhado, SKU vendido que não está no estoque, custo faltando).")
+
+
+def pedido_analise(ls):
+    def tab(xs, n, extra=lambda r: ""):
+        return "\n".join(f"  {r['sku']} | {r['titulo'][:60]} | vendeu {r['vendidos']} | disp. {r['disponivel']:g} | trânsito "
+                         f"{r['transito']:g} | dura {r['cobertura_dias'] if r['cobertura_dias'] is not None else '—'} dias{extra(r)}"
+                         for r in xs[:n]) or "  (nenhum)"
+    return (PAPEL_ANALISE.replace("{dias}", str(ls["dias"]))
+            + f"\n\nPRECISO COMPRAR (dura menos de {ls['alerta_dias']} dias; sugestão cobre {ls['alvo_dias']} dias):\n"
+            + tab(ls["comprar"], 25, lambda r: f" | sugerido {r['sugerido']} | {r['motivo']}")
+            + f"\n\nZERADOS COM VENDA NO PERÍODO ({ls['zerados_com_venda']}):\n" + tab([r for r in ls["zerados"] if r["vendidos"]], 20)
+            + "\n\nMAIS VENDIDOS:\n" + tab(ls["mais_vendidos"], 20)
+            + f"\n\nSKUs vendidos que não estão no estoque do UpSeller: {ls['vendas_sem_estoque']}.")
 
 
 # ---------------------------------------------------------------------------

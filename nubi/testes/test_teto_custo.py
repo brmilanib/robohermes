@@ -72,6 +72,7 @@ def _cenario(usos_extra=()):
     repo = Repo(usos)
     ia._http_json = _provedor_falso
     nubi_web.ligar_registro_uso(repo, "teste")
+    ia.USO["deepseek_ok"] = True          # 28/09: aqui se testa o teto do DeepSeek (fora dos testes ele só roda nas 2 análises do dia)
     CHAMADAS.clear()
     return repo
 
