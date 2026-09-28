@@ -712,6 +712,20 @@ def test_resposta_que_nao_chegou_aparece_e_sai_de_novo_pelo_nubi():
         pass
 
 
+def test_chat_expirado_nao_volta_ao_bruno():
+    # 28/09 (joana): "Não é possível reiniciar a conversa após 7 dias" — não dá para responder; fecha sem pedir ao Bruno
+    r = Repo()
+    conv = a._inserir(r, "atendimento_conversas", {"canal": "shopee", "loja": "principal", "cliente": "joana", "status": "respondida"})
+    r._req("POST", "atendimento_rascunhos", corpo=[{"conversa_id": conv["id"], "status": "editado", "enviar_pelo_mac": True,
+                                                   "enviado_em": None, "texto_final": "Oi Joana!"}])
+    x = a.marcar_enviado(r, r.t["atendimento_rascunhos"][-1]["id"], ok=False,
+                         erro="envio direto: chat expirado na plataforma (não é possível reiniciar a conversa após 7 dias)")
+    assert x["expirado"] and not x["precisa_voce"]
+    assert r.t["atendimento_rascunhos"][-1]["status"] == "sem_resposta"
+    assert [x for x in r.t["atendimento_conversas"] if x["id"] == conv["id"]][-1]["status"] == "fechada"
+    assert a.para_enviar(r) == []
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

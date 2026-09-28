@@ -1353,9 +1353,20 @@ def para_enviar(repo):
 ENVIO_FALHOU = "envio pelo Mac falhou"
 
 
+CHAT_EXPIRADO = "chat expirado na plataforma"
+
+
 def marcar_enviado(repo, rascunho_id, ok=True, erro=None):
     corpo = {"enviado_em": _agora(), "status": "enviado"} if ok else {"motivo": f"{ENVIO_FALHOU}: {erro}"[:500]}
     r = {} if ok else _um(repo, "atendimento_rascunhos", rascunho_id) or {}
+    if not ok and CHAT_EXPIRADO in str(erro or "") and r:
+        # 28/09 (joana): a Shopee não deixa reabrir conversa com mais de 7 dias; não adianta tentar nem pedir ao Bruno
+        repo._req("PATCH", "atendimento_rascunhos", {"id": f"eq.{int(rascunho_id)}"}, prefer="return=minimal",
+                  corpo={"status": "sem_resposta", "enviar_pelo_mac": False,
+                         "motivo": "não enviada: a plataforma não deixa responder conversa com mais de 7 dias"})
+        repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{r['conversa_id']}"}, prefer="return=minimal",
+                  corpo={"status": "fechada", "atualizado_em": _agora()})
+        return {"ok": True, "precisa_voce": False, "expirado": True}
     # card #108: a 2ª falha da mesma resposta tira ela da fila automática e devolve ao Bruno ('precisa de você') com o motivo
     segunda = str(r.get("motivo") or "").startswith(ENVIO_FALHOU)
     if segunda:

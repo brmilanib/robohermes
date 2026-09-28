@@ -382,3 +382,5 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   novas). No coletor: "Recomeçar Conversa" confirma a janelinha e espera o campo (`_esperar_campo`, 10 s); a falha leva o
   rodapé da tela (`_rodape`/`JS_RODAPE`); o caminho da IA que não acha "o botão Enviar" (na Shopee é só ícone) usa
   `_enviar_direto`. Comando do PC `testar_envio <canal> <cliente>` abre a conversa e conta o que achou, sem digitar.
+  Chat expirado (Shopee: "Não é possível reiniciar a conversa após 7 dias", `CHAT_EXPIRADO` no coletor e no nubi): não é
+  falha para repetir nem para o Bruno; `marcar_enviado` põe o rascunho `sem_resposta` e a conversa `fechada` (caso joana, 28/09).

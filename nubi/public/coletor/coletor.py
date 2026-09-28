@@ -4513,6 +4513,7 @@ def _campo_do_chat(pg):
     return None, None
 
 
+CHAT_EXPIRADO = re.compile(r"n[ãa]o [ée] poss[íi]vel (reiniciar|recome[çc]ar|responder).{0,30}(\d+\s*dias|expir)", re.I)
 RECOMECAR = re.compile(r"^\s*recome[cç]ar(\s+(a\s+)?conversa)?\s*$", re.I)
 CONFIRMAR = re.compile(r"^\s*(confirmar|ok|sim|recome[cç]ar(\s+conversa)?)\s*$", re.I)
 
@@ -4608,8 +4609,11 @@ def _enviar_direto(pg, item):
         recomecei = True
         info, fr = _esperar_campo(pg, 10)
     if not info:
-        return (f"não achei o campo de mensagem do chat{' (cliquei em Recomeçar Conversa)' if recomecei else ''}; "
-                + _rodape(pg))
+        rodape = _rodape(pg)
+        if CHAT_EXPIRADO.search(rodape):
+            # 28/09 (joana): a Shopee não deixa a loja reabrir conversa com mais de 7 dias. Não é falha para tentar de novo.
+            return "chat expirado na plataforma (não é possível reiniciar a conversa após 7 dias)"
+        return (f"não achei o campo de mensagem do chat{' (cliquei em Recomeçar Conversa)' if recomecei else ''}; " + rodape)
     campo = fr.locator("[data-nubi-campo]").first
     campo.click(timeout=10000)
     if info["editavel"]:
