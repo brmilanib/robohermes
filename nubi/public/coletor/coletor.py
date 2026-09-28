@@ -1581,7 +1581,9 @@ def _baixar_link(p, estado, candidatos, destino, nome):
 # Vendas por anúncio do UpSeller (28/09, pedido do Bruno): Análises → Vendas por Anúncio → últimos 30 dias → Exportar,
 # 1 vez por dia, junto do estoque da madrugada. O endereço achado fica em upseller_vendas_url (depois vai direto).
 # ---------------------------------------------------------------------------
-UPSELLER_VENDAS = os.environ.get("NUBI_UPSELLER_VENDAS", "")
+# 28/09: endereço passado pelo Bruno (Análises → Vendas por Anúncio); sem o shopId = todas as lojas, como o arquivo modelo
+UPSELLER_VENDAS = os.environ.get("NUBI_UPSELLER_VENDAS", f"{UPSELLER}/pt/analytics/product-sales")
+UPSELLER_VENDAS_LOJA = f"{UPSELLER}/pt/analytics/product-sales?shopId=598667"
 JS_TEXTOS = r"""() => [...document.querySelectorAll('a,button,li,span,div')].filter(e => { const r = e.getBoundingClientRect();
   return r.width > 8 && r.height > 8 && e.children.length <= 1 && (e.innerText || '').trim().length > 1 && (e.innerText || '').length < 40; })
   .map(e => e.innerText.trim().replace(/\s+/g, ' ')).filter((t, i, a) => a.indexOf(t) === i).slice(0, 60).join(' | ')"""
@@ -1606,9 +1608,15 @@ def baixar_vendas(pg, cfg):
     url = cfg.get("upseller_vendas_url") or UPSELLER_VENDAS
     if url:
         pg.goto(url, wait_until="domcontentloaded", timeout=90000)
-        devagar(5)
+        devagar(6)
+        if "/analytics" not in pg.url and "/login" not in pg.url:     # a tela pede a loja: tenta com o shopId do Bruno
+            pg.goto(UPSELLER_VENDAS_LOJA, wait_until="domcontentloaded", timeout=90000)
+            devagar(6)
+        if "/login" in pg.url:
+            raise SessaoExpirada("o UpSeller pediu login de novo (relatório de vendas)")
     _fechar_popups(pg)
-    if not pg.get_by_text(re.compile(r"Vendas por (An[úu]ncio|Produto)", re.I)).count():
+    na_tela = "/analytics" in (pg.url or "")          # já na tela do relatório (endereço do Bruno): sem menu
+    if not na_tela and not pg.get_by_text(re.compile(r"Vendas por (An[úu]ncio|Produto)", re.I)).count():
         if not url:
             pg.goto(f"{UPSELLER}/pt/", wait_until="domcontentloaded", timeout=90000)
             devagar(5)
@@ -1633,7 +1641,8 @@ def baixar_vendas(pg, cfg):
                 except Exception:  # noqa: BLE001
                     continue
     _fechar_popups(pg)
-    if not _clicar_texto(pg, [r"^\s*Vendas por An[úu]ncios?\s*$", r"^\s*Vendas por Produtos?\s*$"], 5):
+    aba = _clicar_texto(pg, [r"^\s*Vendas por An[úu]ncios?\s*$", r"^\s*Vendas por Produtos?\s*$"], 5)
+    if not aba and not na_tela:
         links = pg.evaluate("""() => [...document.querySelectorAll('a[href]')].map(a => (a.innerText || '').trim().slice(0, 30) + ' -> '
           + a.getAttribute('href')).filter(t => /analy|analis|report|relat|statis|data|venda|sales/i.test(t)).slice(0, 25).join(' | ')""")
         raise Falha("não achei 'Análises → Vendas por Anúncio' no UpSeller. Links de análise na página: " + str(links)[:900]
