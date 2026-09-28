@@ -384,3 +384,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `_enviar_direto`. Comando do PC `testar_envio <canal> <cliente>` abre a conversa e conta o que achou, sem digitar.
   Chat expirado (Shopee: "Não é possível reiniciar a conversa após 7 dias", `CHAT_EXPIRADO` no coletor e no nubi): não é
   falha para repetir nem para o Bruno; `marcar_enviado` põe o rascunho `sem_resposta` e a conversa `fechada` (caso joana, 28/09).
+- **Conversas recentes, com data de verdade (28/09, Bruno: "os chats de hoje do TikTok não trouxe")**: proibir `rolar` fazia
+  perder conversa nova abaixo do topo e, depois da meia-noite, as da noite ("Ontem"). Agora `rolar` vale até
+  `ATENDENTE_ROLAR_MAX`=3 vezes por rodada (a lista volta ao topo no fim, `_rolar_topo`) e o pedido é "hoje e ontem".
+  `registrar` recebe `data_ultima` (a data que a tela mostra); `_data_antiga` recusa conversa com mais de `DIAS_RESPONDER`=7
+  dias (a joana era de 21/08, relida como nova porque o nubi grava a hora da LEITURA, não a da mensagem).

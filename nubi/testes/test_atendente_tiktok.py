@@ -515,6 +515,25 @@ def test_falha_de_envio_conta_o_que_havia_na_tela():
         ctx.close()
 
 
+def test_rola_ate_3_vezes_e_recusa_conversa_antiga():
+    # 28/09 (Bruno): sem rolar, chats novos do TikTok abaixo do topo não vinham; e o chat de agosto da joana veio como novo
+    ch = _preparar([("ler", {}), ("rolar", {}), ("rolar", {}), ("rolar", {}), ("rolar", {}),
+                    ("registrar", {"cliente": "joanaabranches", "data_ultima": "21/08", "historico": [
+                        {"de": "cliente", "texto": "Boa tarde! Acabei de comprar"}, {"de": "loja", "texto": "Olá"}]}),
+                    ("terminar", {"resumo": "nada"})])
+    assert c.cmd_atender_tiktok(None, c.ler_config()) == 0
+    txt = json.dumps(ch["ultima"], ensure_ascii=False)
+    assert txt.count("Rolei") == 3 and "Já rolou 3 vezes" in txt and "conversa antiga (21/08" in txt
+    assert not any(r == "atendimento_receber" for r, _ in ch["api"])
+
+
+def test_data_da_tela():
+    from datetime import date
+    h = date(2026, 9, 28)
+    assert [c._data_antiga(t, h) for t in ("14:05", "Ontem", "segunda", "27/09", "21/08", "21 de ago", "")] == \
+        [False, False, False, False, True, True, False]
+
+
 def test_so_registra_com_o_chat_da_propria_cliente_aberto():
     # 28/09 (print do Bruno): andrezaaasouza recebeu foto, produto, pedido e mensagens da amordemaelb
     from playwright.sync_api import sync_playwright
