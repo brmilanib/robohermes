@@ -686,6 +686,32 @@ def test_como_te_respondemos_so_com_resposta_que_chegou():
     assert a._resposta_anterior(msgs, {a._norm("Pode deixar que vamos conferir!").strip()}) is None
 
 
+def test_resposta_que_nao_chegou_aparece_e_sai_de_novo_pelo_nubi():
+    # 28/09 (Bruno: "tem que funcionar pelo nubi"): a resposta da joana falhou 2x e um rascunho novo descartado a escondia
+    r = Repo()
+    conv = a._inserir(r, "atendimento_conversas", {"canal": "shopee", "loja": "principal", "cliente": "joana", "status": "precisa_info"})
+    r._req("POST", "atendimento_rascunhos", corpo=[{"conversa_id": conv["id"], "status": "sem_resposta", "texto_gerado": "Como te respondemos"}])
+    r._req("POST", "atendimento_rascunhos", corpo=[{"conversa_id": conv["id"], "status": "precisa_info", "texto_final": "Pode deixar!",
+                                                   "enviar_pelo_mac": False, "enviado_em": None,
+                                                   "motivo": "envio pelo Mac falhou 2 vezes: Botão inválido"}])
+    falhou = r.t["atendimento_rascunhos"][-1]
+    c = [x for x in a.fila(r) if x["id"] == conv["id"]][0]
+    assert c["rascunho"]["id"] == falhou["id"] and c["rascunho"]["envio_falhou"] is True
+    assert c["respostas"][-1]["falhou"] is True
+    x = a.reenviar(r, falhou["id"], "Pode deixar! Vamos conferir a válvula.")
+    assert x["pelo_mac"] is True and x["status"] == "editado"
+    assert falhou["enviar_pelo_mac"] is True and falhou["texto_final"] == "Pode deixar! Vamos conferir a válvula."
+    assert not falhou["motivo"].startswith(a.ENVIO_FALHOU)                    # 2 tentativas novas
+    assert [y["texto"] for y in a.para_enviar(r)] == ["Pode deixar! Vamos conferir a válvula."]
+    a.marcar_enviado(r, falhou["id"], ok=False, erro="x")
+    assert falhou["status"] == "editado"                                     # 1ª falha nova ainda não volta ao Bruno
+    try:
+        a.reenviar(r, falhou["id"])
+        raise AssertionError("reenviou o que não falhou 2x")
+    except ValueError:
+        pass
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

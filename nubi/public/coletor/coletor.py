@@ -4345,6 +4345,10 @@ def _atendente_enviar(pg, ent, estado, aprovadas, token):
         return "Essa resposta não está aprovada (ou já foi enviada)."
     try:
         erro = _atendente_digitar(pg, ent, estado, item)
+        if erro and erro.startswith(("Botão inválido", "Campo inválido")):
+            # 28/09 (Joana): na Shopee o enviar é só um ícone, sem texto: a IA nunca achava "o botão Enviar". Usa o envio
+            # fixo (abre a conversa pelo nome, acha o campo, Enter/ícone e confere que a mensagem apareceu).
+            erro = _enviar_direto(pg, item)
     except Exception as ex:  # noqa: BLE001
         erro = f"Erro: {str(ex)[:300]}"
     if not erro:
@@ -4509,22 +4513,77 @@ def _campo_do_chat(pg):
     return None, None
 
 
-def _recomecar_conversa(pg):
-    """27/09 (print do Bruno): a Shopee fecha a conversa sozinha ("A conversa foi fechada automaticamente") e some com o
-    campo de digitar; só o botão "Recomeçar Conversa" devolve o campo. Clica só nesse botão (nada de configuração)."""
-    rotulo = re.compile(r"^\s*recome[cç]ar\s+conversa\s*$", re.I)
+RECOMECAR = re.compile(r"^\s*recome[cç]ar(\s+(a\s+)?conversa)?\s*$", re.I)
+CONFIRMAR = re.compile(r"^\s*(confirmar|ok|sim|recome[cç]ar(\s+conversa)?)\s*$", re.I)
+
+
+def _botao_visivel(pg, rotulo):
+    """Primeiro elemento visível com esse rótulo (papel de botão, depois só o texto), em qualquer quadro."""
     for fr in pg.frames:
-        # 28/09: na Shopee o "botão" é um elemento com texto (não <button>): procura pelo papel e depois pelo texto
         for achar in (lambda f: f.get_by_role("button", name=rotulo), lambda f: f.get_by_text(rotulo)):
             try:
-                b = achar(fr).first
-                if b.count() and b.is_visible():
-                    b.click(timeout=8000)
-                    pg.wait_for_timeout(2500)
-                    return True
+                loc = achar(fr)
+                for i in range(min(loc.count(), 4)):
+                    if loc.nth(i).is_visible():
+                        return loc.nth(i)
             except Exception:  # noqa: BLE001
                 continue
-    return False
+    return None
+
+
+def _esperar_campo(pg, seg=10):
+    fim = time.time() + seg
+    while True:
+        info, fr = _campo_do_chat(pg)
+        if info or time.time() >= fim:
+            return info, fr
+        pg.wait_for_timeout(1000)
+
+
+def _recomecar_conversa(pg):
+    """27/09 (print do Bruno): a Shopee fecha a conversa sozinha ("A conversa foi fechada automaticamente") e some com o
+    campo de digitar; só o botão "Recomeçar Conversa" devolve o campo. Clica só nesse botão (nada de configuração).
+    28/09 (Joana, falhou 2x): se abrir uma janelinha de confirmação, confirma nela; depois espera o campo aparecer."""
+    b = _botao_visivel(pg, RECOMECAR)
+    if not b:
+        return False
+    b.click(timeout=8000)
+    pg.wait_for_timeout(2000)
+    if not _campo_do_chat(pg)[0]:
+        for fr in pg.frames:
+            try:
+                janela = fr.locator("[role=dialog], [class*=modal i], [class*=dialog i], [class*=popover i]")
+                for i in range(min(janela.count(), 4)):
+                    if not janela.nth(i).is_visible():
+                        continue
+                    ok = janela.nth(i).get_by_text(CONFIRMAR)
+                    if ok.count() and ok.last.is_visible():
+                        ok.last.click(timeout=5000)
+                        pg.wait_for_timeout(1500)
+                        break
+            except Exception:  # noqa: BLE001
+                continue
+    return True
+
+
+JS_RODAPE = r"""() => { const h = innerHeight || 800, w = innerWidth || 1200, vis = e => { const r = e.getBoundingClientRect();
+    return r.width > 6 && r.height > 6 && r.top > h * 0.55 && r.left > w * 0.28 && r.bottom < h + 5; };
+  const t = [...document.querySelectorAll('button,[role=button],a,span,div,p')].filter(e => vis(e) && e.children.length <= 2)
+    .map(e => (e.innerText || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ')).filter(x => x && x.length < 60);
+  const c = [...document.querySelectorAll('textarea,[contenteditable],input')].filter(vis)
+    .map(e => e.tagName.toLowerCase() + '[' + (e.getAttribute('placeholder') || '') + (e.disabled ? ' desativado' : '') + ']');
+  return 'rodapé: ' + [...new Set(t)].slice(0, 12).join(' | ') + ' · campos: ' + (c.join(' ') || 'nenhum'); }"""
+
+
+def _rodape(pg):
+    """O que aparece embaixo do chat aberto (textos curtos e campos): vai junto com o erro para achar a causa."""
+    partes = []
+    for fr in pg.frames[:4]:
+        try:
+            partes.append(str(fr.evaluate(JS_RODAPE))[:400])
+        except Exception:  # noqa: BLE001
+            continue
+    return " / ".join(p for p in partes if p != "rodapé:  · campos: nenhum")[:600] or "rodapé vazio"
 
 
 def _enviar_direto(pg, item):
@@ -4544,10 +4603,13 @@ def _enviar_direto(pg, item):
     if trecho and _ja_no_chat(pg, trecho):
         return None                                    # já está no chat (enviada antes): não manda de novo
     info, fr = _campo_do_chat(pg)
+    recomecei = False
     if not info and _recomecar_conversa(pg):
-        info, fr = _campo_do_chat(pg)
+        recomecei = True
+        info, fr = _esperar_campo(pg, 10)
     if not info:
-        return "não achei o campo de mensagem do chat"
+        return (f"não achei o campo de mensagem do chat{' (cliquei em Recomeçar Conversa)' if recomecei else ''}; "
+                + _rodape(pg))
     campo = fr.locator("[data-nubi-campo]").first
     campo.click(timeout=10000)
     if info["editavel"]:
@@ -4566,7 +4628,7 @@ def _enviar_direto(pg, item):
         pg.wait_for_timeout(2500)
         if _ja_no_chat(pg, trecho):
             return None
-    return "digitei, mas a mensagem não saiu (nem com Enter nem com o botão)"
+    return "digitei, mas a mensagem não saiu (nem com Enter nem com o botão); " + _rodape(pg)
 
 
 def _no_chat(pg, url):
@@ -5274,7 +5336,13 @@ def cmd_atendente(args, cfg):
                 try:
                     _batimento()
                     x = api(token, "atendimento_para_enviar", {"computador": f"servidor:{_nome_maquina()}" if _eh_servidor(cfg) else "pc"}, timeout=60)
-                    if _pc_comando(x.get("pc_comando"), pg, token) == "reiniciar":
+                    cmd_pc = x.get("pc_comando") or {}
+                    if isinstance(cmd_pc, dict) and cmd_pc.get("comando") == "testar_envio":    # na aba do canal certo
+                        can_, _, cli_ = str(cmd_pc.get("arg") or "").partition(" ")
+                        if can_ in PLATAFORMAS:
+                            pg = _aba_do_canal(ctx, abas, can_)
+                            cmd_pc = dict(cmd_pc, arg=cli_)
+                    if _pc_comando(cmd_pc, pg, token) == "reiniciar":
                         novo = Path(__file__).read_bytes()          # o vigia abre de novo (código 3)
                         break
                     canais = _canais_do_atendente(x)
@@ -5316,7 +5384,7 @@ def cmd_atendente(args, cfg):
     return 0
 
 
-PC_COMANDOS = ("status", "limpar_marca", "reiniciar", "login", "diagnostico")
+PC_COMANDOS = ("status", "limpar_marca", "reiniciar", "login", "diagnostico", "testar_envio")
 BATIMENTO = PASTA / "atendente.vivo"
 VIGIA_SEM_BATIMENTO = int(os.environ.get("NUBI_VIGIA_SEM_BATIMENTO", "900"))     # 15 min sem sinal → reinicia o filho
 
@@ -5336,6 +5404,23 @@ JS_DIAGNOSTICO = r"""() => { const out = [];
   out.push('clicaveis: ' + [...document.querySelectorAll('div,li,a')].filter(e => vis(e) && getComputedStyle(e).cursor === 'pointer' && (e.innerText || '').length < 80 && (e.innerText || '').trim()).slice(0, 25).map(e => d(e) + '«' + e.innerText.trim().replace(/\s+/g, ' ').slice(0, 40) + '»').join(' | '));
   out.push('icones perto do fim: ' + [...document.querySelectorAll('button,[role=button],i,svg')].filter(vis).slice(-12).map(e => d(e) + '[' + (e.getAttribute('aria-label') || e.getAttribute('title') || '') + ']').join(' | '));
   return out.join('\n'); }"""
+
+
+def _testar_envio(pg, cliente):
+    """28/09: abre a conversa do cliente como o envio direto faz e conta o que achou (campo, Recomeçar, rodapé).
+    NÃO digita, NÃO envia e NÃO clica em Recomeçar."""
+    cliente = re.sub(r"[^\w .@-]", "", cliente or "").strip()[:60]
+    if len(cliente) < 3:
+        return "informe o cliente: testar_envio <nome>"
+    achou = _abrir_linha(pg, cliente)
+    if not achou:
+        _aba_todos_os_chats(pg)
+        achou = bool(_atendente_buscar(pg, cliente, {})) and _abrir_linha(pg, cliente)
+    info, _ = _campo_do_chat(pg)
+    saida = (f"conversa {'aberta' if achou else 'NÃO achada'} · cabeçalho {'confere' if _conversa_aberta_e_de(pg, cliente) else 'não confere'}"
+             f" · campo: {info or 'nenhum'} · Recomeçar visível: {'sim' if _botao_visivel(pg, RECOMECAR) else 'não'} · {_rodape(pg)}")
+    _voltar_atendendo_hoje(pg)
+    return saida
 
 
 def _pc_comando(cmd, pg, token):
@@ -5360,6 +5445,8 @@ def _pc_comando(cmd, pg, token):
                 pg.goto(PLATAFORMAS[arg][1], timeout=60000)
                 pg.wait_for_timeout(4000)
             saida = "\n".join(str(fr.evaluate(JS_DIAGNOSTICO))[:2500] for fr in pg.frames[:3])[:6000]
+        elif nome == "testar_envio":
+            saida = _testar_envio(pg, arg)
         elif nome == "limpar_marca":
             for k in [k for k in cfg if k.endswith("_marca") or k == "tiktok_marca_v4"]:
                 cfg.pop(k, None)

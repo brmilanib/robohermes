@@ -2841,18 +2841,21 @@ async function telaAtendimento(canal = "tiktok_shop") {
       : r.pelo_mac ? (r.enviado_em ? " · ✓ enviado" : " · ⏳ enviando") : ""); };
   const chat = c => { if (!c) return `<div class="atx-vazio">Escolha uma conversa à esquerda.</div>`;
     const r = c.rascunho || {};
-    const acao = r.status === "precisa_info" ? `<div class="atx-alerta">🙋 <b>Preciso de você:</b> ${esc(r.pergunta_operador || "")}
+    // 28/09 (Bruno): resposta aprovada que não chegou à cliente: manda de novo pelo nubi (pode editar o texto)
+    const acao = r.envio_falhou ? `<div class="atx-alerta">⚠️ <b>Esta resposta não chegou à cliente</b> (${esc(String(r.motivo || "").replace(/^envio pelo Mac falhou( 2 vezes)?:\s*/, "").slice(0, 160))}).
+        Confira o texto embaixo e aperte <b>🔁 Enviar de novo</b>: o atendente tenta mais 2 vezes.</div>`
+      : r.status === "precisa_info" ? `<div class="atx-alerta">🙋 <b>Preciso de você:</b> ${esc(r.pergunta_operador || "")}
         <label><input type="checkbox" id="atx-kb" checked> guardar a resposta na base (não pergunto de novo)</label></div>`
       : r.status === "pendente" ? `<div class="atx-alerta azul">✍️ <b>Rascunho para aprovar</b> (${esc(AT_INTENCAO[r.intencao] || "")}) — edite embaixo se quiser e envie.</div>` : "";
-    const inicial = r.status === "pendente" ? (r.texto_gerado || "") : "";
+    const inicial = r.status === "pendente" ? (r.texto_gerado || "") : r.envio_falhou ? (r.texto_final || "") : "";
     return `<div class="atx-cab"><div><b>${esc(c.cliente || "Cliente")}</b> <span class="muted">${esc(nomeCanal(c))} · ${esc(c.loja)}</span></div>
         <button class="btn small ghost atx-voltar" id="atx-voltar">← conversas</button></div>
       <div class="atx-msgs" id="atx-msgs">${(c.mensagens || []).map(x => `<div class="at-msg ${x.de === "loja" ? "loja" : "cliente"}">${esc(x.texto)}
           <div class="muted" style="font-size:11px">${quem(c, x)} · ${atQuando(x.criado_em)}</div></div>`).join("")}</div>
-      ${acao}${sugWeb(r)}<div id="atx-ia-box">${iaChat(c)}</div>
+      ${acao}${r.envio_falhou ? "" : sugWeb(r)}<div id="atx-ia-box">${iaChat(c)}</div>
       <div class="atx-in"><textarea id="atx-txt" placeholder="${r.status === "precisa_info" ? "Sua resposta (o dado real): eu monto a mensagem e envio ao cliente" : "Enviar mensagem ao comprador"}">${esc(inicial)}</textarea>
         <div class="at-acoes"><button class="btn small ghost mic" id="atx-mic" title="ditar por voz">🎤</button>${r.status === "pendente" ? `<button class="btn small ghost" id="atx-rej">❌ Rejeitar rascunho</button>` : ""}
-          <button class="btn small primary" id="atx-env" style="margin-left:auto">➤ Enviar</button></div></div>`; };
+          <button class="btn small primary" id="atx-env" style="margin-left:auto">${r.envio_falhou ? "🔁 Enviar de novo" : "➤ Enviar"}</button></div></div>`; };
   const fontesHtml = f => (f || []).length ? `<div class="muted" style="font-size:11px;margin-top:4px">🌐 ${f.map((x, i) => `<a href="${esc(x.url)}" target="_blank" rel="noopener">[${i + 1}] ${esc(x.titulo || x.url)}</a>`).join(" · ")}</div>` : "";
   const sugWeb = r => { if (r.status !== "precisa_info") return ""; const g = (r.fontes || {}).sugestao_web || (S.atSug || {})[r.id];
     if (!g) return `<div class="atx-sug muted">🌐 Pesquisando uma sugestão na internet e no seu estoque…</div>`;
@@ -2920,6 +2923,9 @@ async function telaAtendimento(canal = "tiktok_shop") {
   if ($("#atx-env")) $("#atx-env").onclick = () => { const r = aberta.rascunho || {}, txt = $("#atx-txt").value.trim(); if (!txt) return toast("Escreva a mensagem.");
     S.atDigitado = null;
     $("#atx-env").disabled = true;
+    if (r.envio_falhou)
+      return agir(() => post("atendimento_reenviar", {id: r.id, texto: txt}),
+        x => x.pelo_mac ? "Na fila de novo: o atendente envia no chat da cliente em até 2 min." : "Pronta: copie e cole no chat.");
     if (r.status === "precisa_info")
       return agir(() => post("atendimento_responder", {id: r.id, resposta: txt, salvar_kb: $("#atx-kb").checked,
         pergunta_tipo: ((aberta.mensagens || []).filter(x => x.de === "cliente").slice(-1)[0] || {}).texto || ""}),

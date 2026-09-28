@@ -376,3 +376,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Resposta que NÃO chegou (sem `enviado_em`, esperando envio ou com `ENVIO_FALHOU`) não conta como "já respondemos"
   (`_nao_entregues` → `_resposta_anterior`: nada de "Como te respondemos logo acima"); na tela ela aparece com
   "⚠️ não chegou à cliente (envio falhou)" (`falhou` nas `respostas` da `fila`).
+- **Reenviar pelo nubi (28/09, pedido do Bruno: "tem que funcionar pelo nubi")**: resposta que falhou 2x (`_envio_falhou`) fica
+  na tela mesmo com um rascunho novo descartado depois dela (`fila`, `rascunho.envio_falhou`); o campo vem com o texto e
+  "🔁 Enviar de novo" chama `atendimento_reenviar` (`reenviar`: volta para a fila do atendente, pode editar, 2 tentativas
+  novas). No coletor: "Recomeçar Conversa" confirma a janelinha e espera o campo (`_esperar_campo`, 10 s); a falha leva o
+  rodapé da tela (`_rodape`/`JS_RODAPE`); o caminho da IA que não acha "o botão Enviar" (na Shopee é só ícone) usa
+  `_enviar_direto`. Comando do PC `testar_envio <canal> <cliente>` abre a conversa e conta o que achou, sem digitar.

@@ -1164,12 +1164,19 @@ def fila(repo, status=None, lim=80, canal_id=None):
     for c in conversas:
         c["pedido_dados"] = _sem_foto_generica(c.get("pedido_dados"), genericas)
         c["rascunho"] = next((r for r in rascs if r["conversa_id"] == c["id"]), None)
+        # 28/09 (Joana): resposta aprovada que NÃO chegou (envio falhou 2x) fica à frente de um rascunho novo descartado,
+        # senão some da tela e o Bruno não consegue mandar de novo
+        if (c["rascunho"] or {}).get("status") in ("sem_resposta", "cancelado", "substituido"):
+            c["rascunho"] = next((r for r in rascs if r["conversa_id"] == c["id"] and _envio_falhou(r)), c["rascunho"])
+        if c["rascunho"]:
+            c["rascunho"]["envio_falhou"] = _envio_falhou(c["rascunho"])
         c["mensagens"] = _sem_eco([m for m in msgs if m["conversa_id"] == c["id"] and not _robo(m.get("texto"))],
                                   [r.get("texto_final") for r in rascs if r["conversa_id"] == c["id"]] + longas)[-40:]
         # quem mandou cada resposta da loja (🤖 automático, Bruno) e se já saiu no chat, para os balões da tela
         c["respostas"] = [{"texto": r.get("texto_final"), "por": r.get("decidido_por"), "enviado_em": r.get("enviado_em"),
                            "pelo_mac": r.get("enviar_pelo_mac"),
-                           "falhou": bool(not r.get("enviado_em") and ENVIO_FALHOU in str(r.get("motivo") or ""))}
+                           "falhou": bool(not r.get("enviado_em") and ENVIO_FALHOU in str(r.get("motivo") or "")
+                                          and not r.get("enviar_pelo_mac"))}
                           for r in rascs if r["conversa_id"] == c["id"] and r.get("texto_final")]
     return conversas
 
@@ -1359,6 +1366,43 @@ def marcar_enviado(repo, rascunho_id, ok=True, erro=None):
                   corpo={"status": "precisa_info", "atualizado_em": _agora()})
     repo._req("PATCH", "atendimento_rascunhos", {"id": f"eq.{int(rascunho_id)}"}, corpo=corpo, prefer="return=minimal")
     return {"ok": True, "precisa_voce": segunda}
+
+
+def _envio_falhou(r):
+    """Resposta aprovada que o atendente não conseguiu entregar 2 vezes e voltou ao Bruno."""
+    return bool(r and r.get("status") == "precisa_info" and not r.get("enviado_em") and r.get("texto_final")
+                and ENVIO_FALHOU in str(r.get("motivo") or ""))
+
+
+def reenviar(repo, rascunho_id, texto=None, operador="Bruno"):
+    """28/09 (pedido do Bruno: 'tem que funcionar pelo nubi'): a resposta que não chegou à cliente volta para a fila de
+    envio do atendente, com o texto dele (pode editar) e 2 tentativas novas (o motivo deixa de começar com ENVIO_FALHOU)."""
+    r = _um(repo, "atendimento_rascunhos", rascunho_id)
+    if not r:
+        raise ValueError("rascunho não encontrado")
+    if not _envio_falhou(r):
+        raise ValueError("só dá para reenviar uma resposta cujo envio falhou")
+    final = (texto or "").strip() or r["texto_final"]
+    conversa = _um(repo, "atendimento_conversas", r["conversa_id"]) or {}
+    aviso, enviado_em, pelo_mac = None, None, False
+    try:
+        canal(conversa.get("canal") or "tiktok_shop").enviar(conversa, final)
+        enviado_em = _agora()
+    except EnvioPeloMac as e:
+        aviso, pelo_mac = str(e), True
+    except CanalNaoConectado as e:
+        aviso = str(e)
+    status = "enviado" if enviado_em else ("aprovado" if final == r["texto_final"] else "editado")
+    repo._req("PATCH", "atendimento_rascunhos", {"id": f"eq.{r['id']}"}, prefer="return=minimal",
+              corpo={"status": status, "texto_final": final, "enviar_pelo_mac": pelo_mac, "enviado_em": enviado_em,
+                     "pergunta_operador": None, "decidido_por": operador, "decidido_em": _agora(),
+                     "motivo": f"reenvio pedido por {operador} em {_agora()[:16]} (antes: {str(r.get('motivo') or '')[:200]})"[:500]})
+    if final != r["texto_final"]:
+        repo._req("POST", "atendimento_mensagens", corpo=[{"conversa_id": r["conversa_id"], "de": "loja", "texto": final,
+                                                          "criado_em": _agora()}], prefer="return=minimal")
+    repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{r['conversa_id']}"}, prefer="return=minimal",
+              corpo={"status": "respondida", "atualizado_em": _agora()})
+    return {"status": status, "pelo_mac": pelo_mac, "aviso": aviso}
 
 
 SERVIDOR_PREFIXO = "fila|servidor|"
@@ -1901,6 +1945,8 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
         except Exception:  # noqa: BLE001
             pass
         return {"rascunho": x}
+    if nome == "atendimento_reenviar" and metodo == "POST":
+        return reenviar(repo, d["id"], d.get("texto"), operador)
     if nome == "atendimento_decidir" and metodo == "POST":
         return decidir(repo, d["id"], d.get("acao"), d.get("texto"), operador)
     if nome == "atendimento_responder" and metodo == "POST":

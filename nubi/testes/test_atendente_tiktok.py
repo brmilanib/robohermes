@@ -471,6 +471,50 @@ document.getElementById('rec').onclick = () => { document.getElementById('rodape
         ctx.close()
 
 
+def test_shopee_recomecar_com_confirmacao_e_campo_que_demora():
+    # 28/09 (joana, falhou 2x): depois do "Recomeçar Conversa" a Shopee pede confirmação e o campo demora a aparecer
+    from playwright.sync_api import sync_playwright
+    html = """<html><head><meta charset="utf-8"></head><body><div class="lista"><div class="linha"><span>joanaabranches</span></div></div>
+<div id="chat"><b>joanaabranches</b><p>Boa tarde! Acabei de comprar</p><div id="rodape">A conversa foi fechada automaticamente
+<div class="btn-rec" style="cursor:pointer">Recomeçar Conversa</div></div></div><div id="m"></div>
+<script>
+document.querySelector('.btn-rec').onclick = () => { document.getElementById('m').innerHTML =
+  '<div role="dialog">Deseja recomeçar a conversa? <span>Cancelar</span> <span id="ok">Confirmar</span></div>';
+  document.getElementById('ok').onclick = () => { document.getElementById('m').innerHTML = '';
+    setTimeout(() => { document.getElementById('rodape').innerHTML = '<div contenteditable="true" id="t" style="width:300px;height:30px"></div>';
+      const t = document.getElementById('t');
+      t.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const p = document.createElement('p');
+        p.className = 'loja'; p.textContent = t.innerText; document.getElementById('chat').insertBefore(p, document.getElementById('rodape'));
+        t.innerText = ''; } }); }, 2500); }; };
+</script></body></html>"""
+    PAGINA.with_name("shopee_confirma.html").write_text(html, encoding="utf-8")
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(URL.replace("chat.html", "shopee_confirma.html"))
+        assert "Recomeçar visível: sim" in c._testar_envio(pg, "joanaabranches")       # o teste não digita nem recomeça
+        assert pg.evaluate("document.querySelectorAll('p.loja').length") == 0 and not pg.evaluate("!!document.getElementById('t')")
+        assert c._enviar_direto(pg, {"id": 81, "cliente": "joanaabranches", "texto": "Pode deixar que vamos conferir a válvula!"}) is None
+        assert pg.evaluate("document.querySelectorAll('p.loja').length") == 1
+        ctx.close()
+
+
+def test_falha_de_envio_conta_o_que_havia_na_tela():
+    from playwright.sync_api import sync_playwright
+    html = """<html><head><meta charset="utf-8"></head><body style="margin:0;width:1200px;height:800px">
+<div style="position:absolute;left:0;top:0">joanaabranches</div>
+<div style="position:absolute;left:500px;top:700px"><span>Conversa encerrada pela plataforma</span></div></body></html>"""
+    PAGINA.with_name("shopee_sem_campo.html").write_text(html, encoding="utf-8")
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.set_viewport_size({"width": 1200, "height": 800})
+        pg.goto(URL.replace("chat.html", "shopee_sem_campo.html"))
+        erro = c._enviar_direto(pg, {"id": 1, "cliente": "joanaabranches", "texto": "Oi"})
+        assert erro.startswith("não achei o campo") and "Conversa encerrada pela plataforma" in erro, erro
+        ctx.close()
+
+
 def test_so_registra_com_o_chat_da_propria_cliente_aberto():
     # 28/09 (print do Bruno): andrezaaasouza recebeu foto, produto, pedido e mensagens da amordemaelb
     from playwright.sync_api import sync_playwright
