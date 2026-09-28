@@ -102,13 +102,43 @@ def palavras_nome(t, marca=""):
     return {w for w in re.findall(r"[a-z]{3,}", _norm(t)) if w not in fora}
 
 
+def _outras_regras_ok(a, b):
+    """
+    Regras que não têm a ver com a conferência do card #112 (kit, números/SKU, sufixo cortado incompatível, volume
+    e concentração quando os DOIS lados têm o dado mas é diferente, gênero) — se alguma falhar, o par é de produtos
+    diferentes por outro motivo qualquer e nem entra na fila de conferência (fica simplesmente sem grupo).
+    """
+    va, vb = volumes(a["titulo"]), volumes(b["titulo"])
+    if va and vb and not (va & vb):
+        return False
+    if quantidade(a["titulo"]) != quantidade(b["titulo"]):
+        return False                               # kit x unidade, kit de 3 x kit de 5
+    if not _numeros_batem(a["titulo"], b["titulo"]):
+        return False
+    # os dois títulos cortados numa letra diferente ('Vodka D…' x 'Vodka M…'): variantes diferentes
+    fa, fb = _final_cortado(a["titulo"]), _final_cortado(b["titulo"])
+    if fa and fb and len(fa) <= 2 and len(fb) <= 2 and not (fa.startswith(fb) or fb.startswith(fa)):
+        return False
+    ca, cb = concentracoes(a["titulo"]), concentracoes(b["titulo"])
+    if ca and cb and ca != cb:
+        return False
+    ga, gb = genero(a["titulo"]), genero(b["titulo"])
+    if ga and gb and ga != gb:
+        return False
+    return True
+
+
 def motivo_conferencia(a, b):
     """
     Card #112: por que um par de boa similaridade não pode juntar sozinho mas merece ir para conferência (em vez
     de simplesmente ficar sem grupo) — volume ou concentração conhecido de um lado e desconhecido (título cortado
     ou campo vazio) do outro, ou nome diferente (regra de nome ❌, caso "Tommy Tradicional"). None quando nenhum
-    dos dois motivos se aplica (o par pode ainda não ser compatível por outra regra, e aí nem vai à conferência).
+    dos dois motivos se aplica — inclusive quando o par já é incompatível por outra regra (kit, números, sufixo
+    cortado, gênero): aí são produtos diferentes por outro motivo, não uma dúvida de volume/nome, e nem vai à
+    conferência (achado da revisão: sem essa checagem, um kit x unidade caía na fila como se fosse só volume).
     """
+    if not _outras_regras_ok(a, b):
+        return None
     va, vb = volumes(a["titulo"]), volumes(b["titulo"])
     if bool(va) != bool(vb):
         return "volume desconhecido de um lado"
@@ -128,22 +158,7 @@ def compativeis(a, b):
     regra de volume/concentração assimétrico do card #112 (isso bloquearia até a sugestão de conferência); ver
     pode_juntar_sozinho, usada só na hora de decidir se um par sem GTIN entra em produto_grupos sozinho.
     """
-    va, vb = volumes(a["titulo"]), volumes(b["titulo"])
-    if va and vb and not (va & vb):
-        return False
-    if quantidade(a["titulo"]) != quantidade(b["titulo"]):
-        return False                               # kit x unidade, kit de 3 x kit de 5
-    if not _numeros_batem(a["titulo"], b["titulo"]):
-        return False
-    # os dois títulos cortados numa letra diferente ('Vodka D…' x 'Vodka M…'): variantes diferentes
-    fa, fb = _final_cortado(a["titulo"]), _final_cortado(b["titulo"])
-    if fa and fb and len(fa) <= 2 and len(fb) <= 2 and not (fa.startswith(fb) or fb.startswith(fa)):
-        return False
-    ca, cb = concentracoes(a["titulo"]), concentracoes(b["titulo"])
-    if ca and cb and ca != cb:
-        return False
-    ga, gb = genero(a["titulo"]), genero(b["titulo"])
-    if ga and gb and ga != gb:
+    if not _outras_regras_ok(a, b):
         return False
     # o nome tem de ser o mesmo: "Good Girl" x "Good Girl Blush" e "Asad" x "Asad Bourbon" são perfumes diferentes
     na, nb = palavras_nome(a["titulo"], a.get("marca")), palavras_nome(b["titulo"], b.get("marca"))

@@ -111,6 +111,17 @@ def test_nome_diferente_tommy_tradicional_vai_para_conferencia():
     assert not pi.compativeis({"titulo": LINHAS[3][1], "marca": "TOMMY"}, {"titulo": LINHAS[4][1], "marca": "TOMMY"})
 
 
+def test_kit_x_unidade_nao_vai_para_conferencia_mesmo_com_volume_diferente():
+    """Achado da revisão: um par incompatível por OUTRO motivo (kit x unidade) não pode entrar na fila de
+    conferência como se fosse só uma dúvida de volume — são produtos diferentes, ponto final."""
+    anchor = {"chave": "GTIN9", "titulo": "Perfume Teste Bomba 100ml", "marca": "BOMBA", "v": 10}
+    kit = {"chave": "T:kit teste bomba", "titulo": "Kit Com 3 Perfume Teste Bomba", "marca": "BOMBA", "v": 5}
+    assert not pi.compativeis(kit, anchor)                          # kit x unidade: incompatível mesmo
+    assert pi.motivo_conferencia(kit, anchor) is None                # e por isso NÃO é uma sugestão de conferência
+    saida, pendentes = pi.agrupar([anchor, kit], [[1, 0], [1, 0]])
+    assert saida == {} and pendentes == []
+
+
 def test_relatorio_idempotente_sem_duplicar():
     repo = Repo()
     res1 = _rodar(repo)
@@ -123,12 +134,16 @@ def test_relatorio_idempotente_sem_duplicar():
 
 def test_nao_sobrescreve_decisao_manual_do_bruno():
     """O Bruno já decidiu juntar 'T:fakhar cortado' manualmente (metodo 'manual'); a rodada seguinte não pode
-    voltar a marcar esse título como pendente de conferência."""
+    voltar a marcar esse título como pendente de conferência, nem trocar o grupo escolhido por ele (achado da
+    revisão: antes só tirava da fila de conferência, não do recálculo automático, e o algoritmo podia sozinho
+    virar 'ia' por cima da decisão dele com um grupo diferente)."""
     repo = Repo()
     _rodar(repo)
-    repo.t["produto_grupos"]["T:fakhar cortado"]["metodo"] = "manual"
+    repo.t["produto_grupos"]["T:fakhar cortado"] = {
+        "chave": "T:fakhar cortado", "grupo": "T:fakhar 100", "metodo": "manual",
+        "titulo": LINHAS[1][1], "grupo_titulo": LINHAS[2][1], "similaridade": 0.5}
     _rodar(repo)
-    assert _grupos(repo)["T:fakhar cortado"][1] == "manual"
+    assert _grupos(repo)["T:fakhar cortado"] == ("T:fakhar 100", "manual")
 
 
 def test_juntar_pela_tela_marca_manual_e_nao_e_o_mesmo_separa():

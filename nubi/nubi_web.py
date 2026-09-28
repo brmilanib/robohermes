@@ -1835,7 +1835,10 @@ def agrupar_produtos(repo, limite_seg=None):
         return "nenhum produto sem GTIN"
     marcas_sem = {x["marca"].upper() for x in sem}
     itens = [x for x in itens if x["marca"].upper() in marcas_sem][:4000]
-    bloqueados = {r["chave"] for r in repo._todos("produto_grupos", {"select": "chave", "metodo": "eq.separado"})}
+    # card #112: chave com decisão manual do Bruno ('manual', junta a um grupo específico) fica de fora do
+    # recálculo, igual a 'separado' — senão o algoritmo pode sozinho trocar o grupo ou virar 'ia' por cima da
+    # decisão dele (achado da revisão: antes só tirava da fila de conferência, não da junção automática).
+    bloqueados = {r["chave"] for r in repo._todos("produto_grupos", {"select": "chave", "metodo": "in.(separado,manual)"})}
     try:
         vet = _embeddings_cache(repo, [produtos_iguais.texto_embedding(x) for x in itens], limite_seg=limite_seg)
     except ia.LimiteProvedor as e:
@@ -1844,9 +1847,6 @@ def agrupar_produtos(repo, limite_seg=None):
         return f"pendente (limite do provedor): {e}; retoma no próximo ciclo a partir do que já foi calculado"
     res, pendentes = produtos_iguais.agrupar(itens, vet, bloqueados)
     nomes = {x["chave"]: x for x in itens}
-    # card #112: não sobrescreve uma junção que o Bruno já decidiu à mão com uma sugestão de conferência
-    decididos_manual = {r["chave"] for r in repo._todos("produto_grupos", {"select": "chave", "metodo": "eq.manual"})}
-    pendentes = [p for p in pendentes if p["chave"] not in decididos_manual]
     repo._req("DELETE", "produto_grupos", {"metodo": "in.(ia,volume_conferir,nome_conferir)"})
     agora_ia = datetime.now(timezone.utc).isoformat()
     regs = [{"chave": k, "grupo": g, "titulo": nomes[k]["titulo"][:200], "marca": nomes[k]["marca"],
