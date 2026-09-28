@@ -503,6 +503,7 @@ def _preparar(repo):
 
 AGENTE_EMAIL = os.environ.get("NUBI_AGENTE_EMAIL", "")
 AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)", "Astra (design)", "Navegador", "Atendente TikTok", "Atendente Shopee", "Importador SAC")   # modelos grátis que rodam no Mac mini (Ollama)
+ATENDENTES_AGRUPAVEIS = ("Atendente TikTok", "Atendente Shopee")   # card #111: rodadas normais juntam 1 resumo por hora
 # Conversa direta na Sala (card #64, fase 2): nome de exibição de cada agente que aparece na lista de conversas.
 CONVERSA_NOME = {"claude": "Claude", "chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss",
                  "astra": "Astra (design)", "hermes": "Hermes", "qwen": "Qwen (revisor)",
@@ -938,6 +939,9 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem(f"Autor não permitido: {autor or '?'}.")
             if not texto:
                 raise ErroNuvem("Mensagem vazia.")
+            agrupar = d.get("agrupar") or {}
+            if agrupar and autor in ATENDENTES_AGRUPAVEIS:
+                return _json({"ok": True, "id": _atendente_resumo_agrupado(repo, autor, agrupar)})
             aid = {"Hermes": "hermes", "Qwen (revisor)": "qwen", "Ferreiro (Claude no Mac)": "claude_mac", "Astra (design)": "astra", "Navegador": "navegador"}.get(autor)
             if aid:
                 agora_ = datetime.now(timezone.utc).isoformat()
@@ -2754,6 +2758,41 @@ def _agora_br():
 
 def _br(ts):
     return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).astimezone(timezone.utc) - timedelta(hours=3)
+
+
+def _texto_atendente_resumo(autor, canal, m):
+    """Card #111: resumo do Atendente na Sala montado só com os contadores (m), nunca com a frase livre da IA —
+    evita "enviei" aparecer com o contador de enviadas em 0."""
+    emoji = "🎵" if canal == "tiktok_shop" else "🛍️" if canal == "shopee" else "📥"
+    return (f"{emoji} {autor}: {int(m.get('registradas', 0) or 0)} mensagem(ns) trazida(s) para o nubi, "
+            f"{int(m.get('enviadas', 0) or 0)} resposta(s) enviada(s) em {int(m.get('rodadas', 0) or 0)} rodada(s) desta hora "
+            f"(~US$ {float(m.get('custo', 0.0) or 0):.2f}; {int(m.get('gratis', 0) or 0)} passo(s) com a IA grátis, "
+            f"{int(m.get('pago', 0) or 0)} com a paga).")
+
+
+def _atendente_resumo_agrupado(repo, autor, info):
+    """Junta as rodadas normais (sem falha nem aviso de login, que saem na hora) do mesmo Atendente numa única
+    mensagem por hora de Brasília: acha a mensagem já aberta desta hora (meta.tipo=atendente_resumo_hora) e soma
+    os contadores nela (PATCH) em vez de postar uma mensagem nova a cada rodada (card #111)."""
+    canal = str(info.get("canal") or "")
+    hora = _agora_br().strftime("%Y-%m-%dT%H")
+    existentes = repo._req("GET", "reuniao_mensagens", {"select": "id,meta", "autor": repo._eq(autor),
+                            "meta->>tipo": "eq.atendente_resumo_hora", "meta->>hora": f"eq.{hora}",
+                            "order": "id.desc", "limit": 1}) or []
+    m = dict(existentes[0].get("meta") or {}) if existentes else {}
+    m["tipo"], m["canal"], m["hora"] = "atendente_resumo_hora", canal, hora
+    for campo in ("registradas", "enviadas", "gratis", "pago"):
+        m[campo] = int(m.get(campo, 0) or 0) + int(info.get(campo) or 0)
+    m["custo"] = round(float(m.get("custo", 0.0) or 0) + float(info.get("custo") or 0), 4)
+    m["rodadas"] = int(m.get("rodadas", 0) or 0) + 1
+    texto = _texto_atendente_resumo(autor, canal, m)[:8000]
+    if existentes:
+        repo._req("PATCH", "reuniao_mensagens", {"id": repo._eq(int(existentes[0]["id"]))},
+                  corpo={"texto": texto, "meta": m}, prefer="return=minimal")
+        return existentes[0]["id"]
+    r = repo._req("POST", "reuniao_mensagens", corpo=[{"autor": autor, "texto": texto, "meta": m,
+                  "criado_em": datetime.now(timezone.utc).isoformat()}], prefer="return=representation")
+    return (r or [{}])[0].get("id")
 
 
 def rotina_no_dia(r, agora=None):

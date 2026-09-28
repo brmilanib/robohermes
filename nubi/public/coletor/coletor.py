@@ -3514,12 +3514,25 @@ def cmd_ferreiro_conversa(args, cfg):
             pass
 
 
-def _postar_hermes_como(token, autor, texto, custo=0.0):
+def _postar_hermes_como(token, autor, texto, custo=0.0, agrupar=None):
     try:
-        api(token, "reuniao_postar", corpo={"autor": autor, "texto": texto, "modelo": FERREIRO_MODELO, "tokens_in": 0,
-                                             "tokens_out": 0, "custo_usd": custo}, metodo="POST", timeout=60)
+        corpo = {"autor": autor, "texto": texto, "modelo": FERREIRO_MODELO, "tokens_in": 0,
+                 "tokens_out": 0, "custo_usd": custo}
+        if agrupar:
+            corpo["agrupar"] = agrupar     # card #111: rodada normal do Atendente, soma no resumo da hora no servidor
+        api(token, "reuniao_postar", corpo=corpo, metodo="POST", timeout=60)
     except Exception as e:  # noqa: BLE001
         print(f"não postei na Sala ({e})", flush=True)
+
+
+def _sem_envio_falso(texto, enviadas):
+    """Card #111: a frase livre da IA (ferramenta 'terminar') às vezes diz 'enviei'/'mandei' mesmo com o contador de
+    enviadas em 0; corta as frases que citam envio nesse caso, para o resumo nunca afirmar um envio que não houve."""
+    if not texto or enviadas:
+        return texto
+    frases = re.split(r"(?<=[.!?])\s+", texto.strip())
+    frases = [f for f in frases if not re.search(r"envi(ei|ada|ado|amos|ar|ando|adas|ados)|mandei|mandad[oa]", f, re.I)]
+    return " ".join(frases).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -5357,11 +5370,23 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
     aviso_login = bool(fim and re.search(r"login|captcha|verifica|credenc", fim, re.I))
     k_aviso = f"{canal}_aviso_login"
     ja_avisou = aviso_login and str(cfg.get(k_aviso) or "") > (datetime.now() - timedelta(hours=3)).isoformat()
-    if estado.get("registradas") or estado.get("enviadas") or (aviso_login and not ja_avisou):
+    falhou = bool(estado.get("recusadas_outra") or estado.get("erros_envio"))
+    fim_seguro = _sem_envio_falso(fim, estado.get("enviadas", 0)) if fim else fim
+    if falhou or (aviso_login and not ja_avisou):
+        # falha ou login: sai na hora, fora do agrupamento por hora (card #111)
         if aviso_login and not estado.get("registradas"):
             cfg[k_aviso] = datetime.now().isoformat()          # avisa do login no máximo a cada 3 h (não enche a Sala)
             salvar_config(cfg)
-        _postar_hermes_como(token, autor, resumo + (f"\n{fim[:600]}" if fim else ""), custo)
+        _postar_hermes_como(token, autor, resumo + (f"\n{fim_seguro[:600]}" if fim_seguro else ""), custo)
+    elif estado.get("registradas") or estado.get("enviadas"):
+        if sac:
+            _postar_hermes_como(token, autor, resumo + (f"\n{fim_seguro[:600]}" if fim_seguro else ""), custo)
+        else:
+            # 28/09 (pedido do Bruno): rodadas normais do Atendente juntam num resumo só por hora de Brasília,
+            # montado no servidor só com os contadores (nunca com a frase livre da IA)
+            _postar_hermes_como(token, autor, resumo, custo, agrupar={
+                "canal": canal, "registradas": estado.get("registradas", 0), "enviadas": estado.get("enviadas", 0),
+                "gratis": estado.get("gratis", 0), "pago": estado.get("pago", 0), "custo": custo})
     if canal == "shopee":
         try:
             _voltar_atendendo_hoje(pg)          # deixa a tela como o Bruno quer: "Atendendo Hoje", busca limpa
