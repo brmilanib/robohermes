@@ -4215,9 +4215,9 @@ PLATAFORMAS = {
 PLATAFORMAS["upseller_sac"] = ("UpSeller SAC", os.environ.get("NUBI_UPSELLER_SAC", UPSELLER), "upseller", "Importador SAC")
 DICAS_PLATAFORMA = {   # onde fica o chat em cada central do vendedor (visto nos prints do Bruno, 26/09)
     "tiktok_shop": "O chat é o 'Bate-papo da loja' (Caixa de entrada: Todos, Não respondidos; aba Fechados).",
-    "shopee": "O chat é a página 'Shopee Chat' (abas 'Atendendo Hoje' e 'Todos os Chats'; lista 'Todos os compradores' com "
-              "avisos 'Expira em breve'/'Atrasado'). Use a aba 'Todos os Chats'. Se cair na central do vendedor, clique no "
-              "ÍCONE DE BALÃO no canto direito ou em 'Responder agora'. Não mexa no 'Assistente AI' nem em Configuração.",
+    "shopee": "O chat é a página 'Shopee Chat' (abas 'Atendendo Hoje' e 'Todos os Chats'). Fique SEMPRE na aba 'Atendendo "
+              "Hoje' (pedido do Bruno, 27/09): não troque de aba, não abra outras páginas; o chat se atualiza sozinho quando "
+              "chega mensagem. Não mexa no 'Assistente AI', em 'Data' nem em Configuração.",
 }
 
 
@@ -4602,6 +4602,30 @@ def _enviar_aprovadas_direto(pg, aprovadas, estado, token, url):
             estado["enviadas"] = estado.get("enviadas", 0) + 1
         else:
             estado.setdefault("erros_envio", []).append(f"{item.get('cliente')}: {erro}")
+    if estado.get("enviadas") or estado.get("erros_envio"):
+        _voltar_atendendo_hoje(pg)
+
+
+def _voltar_atendendo_hoje(pg):
+    """27/09 (Bruno): depois de buscar a cliente para enviar, limpa a busca e volta para a aba 'Atendendo Hoje' da Shopee
+    (a lista fica fixa ali). Só mexe na caixa de busca e na aba; nunca recarrega a página."""
+    for sel in ("input[type=search]", "input[placeholder*='usca' i]", "input[placeholder*='esquis' i]",
+                "input[placeholder*='earch' i]", "input[placeholder*='procurar' i]"):
+        try:
+            loc = pg.locator(sel)
+            if loc.count() and loc.first.input_value(timeout=3000):
+                loc.first.fill("", timeout=5000)
+                loc.first.press("Enter")
+                break
+        except Exception:  # noqa: BLE001
+            continue
+    try:
+        aba = pg.get_by_text("Atendendo Hoje", exact=True).first
+        if aba.count() and aba.is_visible():
+            aba.click(timeout=5000)
+            pg.wait_for_timeout(1500)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 JS_FOTOS = r"""nomes => { const achar = n => { const k = n.toLowerCase().replace(/\s+/g, ' ').slice(0, 14);
@@ -5015,6 +5039,9 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                     txt, fim = "Fim.", str(ent.get("resumo") or "")[:2000]
                 elif b["name"] == "abrir" and dominio not in str(ent.get("url") or ""):
                     txt = f"Só a central do vendedor da {nome}."
+                elif b["name"] == "abrir" and not sac:
+                    # 27/09 (Bruno): trocar de página no chat recarrega e a plataforma pede captcha; o chat já está aberto
+                    txt = "Não abra outras páginas: o chat já está aberto e se atualiza sozinho. Use ler, clicar e abrir_conversa."
                 else:
                     txt = _nav_executar(pg, b["name"], ent, estado, False, token, 0)[0]
             except Exception as ex:  # noqa: BLE001
@@ -5165,7 +5192,8 @@ def cmd_atendente(args, cfg):
             voltas = 0
             while True:
                 agora = datetime.now().strftime("%H:%M")
-                if voltas % 8 == 0 and not os.environ.get("NUBI_TOKEN"):     # ~15 min: versão nova do coletor? (o PC não tem vigia)
+                # versão nova: a cada ~1 h (era 15 min). Trocar de versão reabre o Chrome e recarrega o chat (captcha, 27/09)
+                if voltas % 30 == 0 and not os.environ.get("NUBI_TOKEN"):
                     try:
                         baixado = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=30).read()
                         if baixado and b"def main" in baixado and baixado != carregado:

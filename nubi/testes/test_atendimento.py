@@ -614,6 +614,23 @@ def test_taxa_de_resposta_oficial_e_do_nubi_no_painel():
     assert "loja_canal" in p and "assunto_canal" in p
 
 
+def test_botoes_do_tiktok_e_aviso_de_encerrado_nao_deixam_conversa_esperando():
+    # 27/09 (print do Bruno): "Você tem esse produto em estoque?", "Já paguei"… são botões do TikTok; "O bate-papo foi
+    # encerrado" é aviso. Depois da nossa resposta, isso não pode deixar a conversa piscando
+    assert a._robo("Você tem esse produto em estoque?") and a._robo("Já paguei") and a._robo("Pure Perfumaria")
+    assert a._robo("Você tem esse produto em estoque?\nEstou tentando comprar\nJá paguei")
+    assert not a._robo("vocês têm o 212 vip em estoque?") and not a._robo("Já paguei o pedido 123, quando chega?")
+    r = Repo()
+    conv = a._inserir(r, "atendimento_conversas", {"canal": "tiktok_shop", "loja": "principal", "cliente": "moises", "status": "precisa_info"})
+    for de, t in [("cliente", "é original?"), ("loja", "Sim, 100% original!"), ("cliente", "Você tem esse produto em estoque?"),
+                  ("cliente", "O bate-papo foi encerrado devido à inatividade do cliente")]:
+        r._req("POST", "atendimento_mensagens", corpo=[{"conversa_id": conv["id"], "de": de, "texto": t, "criado_em": a._agora()}])
+    r._req("POST", "atendimento_rascunhos", corpo=[{"conversa_id": conv["id"], "status": "precisa_info", "texto_gerado": ""}])
+    assert conv["id"] in a.liberar_so_aviso(r)
+    assert r.t["atendimento_conversas"][-1]["status"] == "respondida"
+    assert r.t["atendimento_rascunhos"][-1]["status"] == "sem_resposta"
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

@@ -576,6 +576,11 @@ def pode_sozinho(repo, fatos):
 
 AVISO_SISTEMA = re.compile(r"^\s*(\[(chatbot|sauda|informa|compartilh|pedido|produto|cupom|imagem|v[ií]deo)[^\]]*\]|o bate-papo foi "
                            r"(encerrado|atribu)|o cliente solicitou|para sua seguran[cç]a|pedido entregue\s*$|resposta autom[aá]tica)", re.I)
+# 27/09 (print do Bruno): o TikTok mostra ao comprador botões de pergunta rápida ("Você tem esse produto em estoque?", "Já
+# paguei"…) e o nome da loja no topo; a leitura da tela gravava isso como se a cliente tivesse escrito, em TODAS as conversas.
+BOTOES_TIKTOK = re.compile(r"^\s*(voc[eê] tem esse produto em estoque\?|estou tentando comprar|j[aá] paguei|qual [eé] o melhor tamanho"
+                           r"( para mim\?)?|como fa[cç]o para usar\?|o que est[aá] inclu[ií]do no produto\?|pure perfumaria|purehome(\.shop)?|"
+                           r"aura scent)\s*$", re.I)
 
 
 # 27/09 (Shopee): o "Assistente AI" da própria plataforma responde "Recebemos sua mensagem… aguarde" ou "não consigo
@@ -593,6 +598,8 @@ SEM_MENSAGEM = re.compile(r"^\W*(nenhuma|sem)\s+mensage(m|ns)\W*$|^\W*(vazio|vaz
 
 def _robo(texto):
     t = str(texto or "")
+    if t.strip() and all(BOTOES_TIKTOK.match(x) for x in t.strip().splitlines() if x.strip()):
+        return True                                   # só botões de pergunta rápida / nome da loja (um ou vários juntos)
     return bool(AVISO_SISTEMA.search(t) or ROBO_PLATAFORMA.search(t) or SEM_MENSAGEM.search(t.strip()))
 
 
@@ -1603,6 +1610,27 @@ def reinterpretar_pendentes(repo, lote=3, a_cada_min=2):
 RETOMAR_CHAVE = "atendimento|retomar"
 
 
+def liberar_so_aviso(repo, limite=40):
+    """27/09 (print do Bruno): conversa esperando resposta (precisa de você / aprovar) em que, tirando os avisos e botões da
+    plataforma, a última mensagem de verdade é da LOJA: não há o que responder. O rascunho vira sem_resposta (nunca apagado)
+    e a conversa fica respondida. -> ids liberados."""
+    feitas = []
+    for conv in repo._req("GET", "atendimento_conversas", {"select": "id", "status": "in.(precisa_info,rascunho)", "limit": limite}) or []:
+        msgs = [m for m in repo._req("GET", "atendimento_mensagens", {"select": "id,de,texto", "conversa_id": f"eq.{conv['id']}",
+                                                                      "order": "criado_em,id", "limit": 500}) or []
+                if not _robo(m.get("texto"))]
+        msgs = _sem_eco(msgs, _enviados(repo, conv["id"]))
+        if msgs and msgs[-1]["de"] == "cliente":
+            continue
+        repo._req("PATCH", "atendimento_rascunhos", {"conversa_id": f"eq.{conv['id']}", "status": "in.(precisa_info,pendente)"},
+                  corpo={"status": "sem_resposta", "motivo": "só aviso/botão da plataforma depois da nossa resposta (27/09)"},
+                  prefer="return=minimal")
+        repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{conv['id']}"}, corpo={"status": "respondida", "atualizado_em": _agora()},
+                  prefer="return=minimal")
+        feitas.append(conv["id"])
+    return feitas
+
+
 def retomar_esquecidas(repo, a_cada_min=3, dias=7):
     """No tique do Mac: conversa marcada como respondida em que a última mensagem de verdade é da cliente (a 'resposta' foi
     do robô da plataforma) volta a ter rascunho. Nunca derruba o tique."""
@@ -1614,6 +1642,7 @@ def retomar_esquecidas(repo, a_cada_min=3, dias=7):
         repo._req("POST", "ia_resumos", corpo=[{"chave": RETOMAR_CHAVE, "texto": "", "ia": "atendente", "criado_em": _agora()}],
                   prefer="resolution=merge-duplicates,return=minimal")
         desde = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
+        liberar_so_aviso(repo)
         feitas = []
         for conv in repo._req("GET", "atendimento_conversas", {"select": "*", "status": "eq.respondida",
                                                                 "atualizado_em": f"gte.{desde}", "limit": 30}) or []:

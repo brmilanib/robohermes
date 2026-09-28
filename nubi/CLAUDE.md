@@ -352,3 +352,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   grátis, `TAXA_FERRAMENTAS`/`PAPEL_TAXA`, só lê) → rota `atendimento_taxa` → `ia_resumos` `atendimento|taxa|<canal>` com
   histórico; "📈 Respondidas pelo nubi (7 dias)" = `taxa_nubi` calculada no `painel`. Shopee: lida SEM IA na aba Data → Chat
   (`TAXA_PAGINA`, `_taxa_do_texto`: respondidos, não respondidos, tempo médio, CSAT e "Perguntas para Respostas"); IA só se a página mudar.
+- **Botões do TikTok e Shopee fixa (27/09, prints do Bruno)**: `BOTOES_TIKTOK` (perguntas rápidas "Você tem esse produto em
+  estoque?", "Já paguei"… e o nome da loja) entram em `_robo`; `liberar_so_aviso` (no `retomar_esquecidas`) tira de "precisa de
+  você" a conversa cuja última mensagem de verdade é da loja (rascunho `sem_resposta`, nunca apagado). Shopee: atendente fica na
+  aba "Atendendo Hoje" (`DICAS_PLATAFORMA`), a ferramenta `abrir` é recusada fora do SAC, depois do envio direto limpa a busca
+  e volta para "Atendendo Hoje" (`_voltar_atendendo_hoje`); versão nova do atendente só a cada ~1 h (reabrir o Chrome recarrega).
