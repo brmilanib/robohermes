@@ -2312,7 +2312,7 @@ FORENSE_CACHE = (
     '/usr/bin/sort -u | /usr/bin/head -120')
 FORENSE_TMP = (
     'd=/private/tmp/rigupdater; echo "== arvore =="; /bin/ls -laR "$d" 2>&1 | /usr/bin/head -60; '
-    'echo "== hashes =="; /usr/bin/find "$d" -type f -maxdepth 3 -exec /usr/bin/shasum -a 256 {} \; 2>/dev/null | /usr/bin/head -20; '
+    'echo "== hashes =="; /usr/bin/find "$d" -type f -maxdepth 3 -exec /usr/bin/shasum -a 256 {} \\; 2>/dev/null | /usr/bin/head -20; '
     'echo "== de onde veio =="; for x in $(/usr/bin/find "$d" -maxdepth 2 2>/dev/null | /usr/bin/head -15); do '
     '/usr/bin/mdls -name kMDItemWhereFroms "$x" 2>/dev/null | /usr/bin/grep -v null; /usr/bin/xattr -p com.apple.quarantine "$x" 2>/dev/null; done; '
     'echo "== config =="; for c in $(/usr/bin/find "$d" -name "*.json" -maxdepth 3 2>/dev/null); do echo "-- $c"; /usr/bin/head -c 2500 "$c"; echo; done; '
