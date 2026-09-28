@@ -363,3 +363,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   diferentes é imagem fixa da tela, não do produto (`_fotos_genericas`, `_sem_foto_generica` no `receber` e na `fila`). Botões
   da tela ("Recomeçar Conversa", "Enviar pedido", "Nenhum registro"…) entram em `BOTOES_TIKTOK`; resposta nossa longa lida no
   chat de outra cliente é eco (`_enviados` inclui as respostas longas dos últimos 3 dias; a `fila` também).
+- **Atendimento só de hoje e sem furos (28/09, prints do Bruno)**: fora do SAC a ferramenta `rolar` é recusada (a IA ia atrás de
+  chats de agosto) e o pedido diz "só as conversas de hoje"; a Shopee volta para "Atendendo Hoje" com a busca limpa no começo e
+  no fim de toda rodada. Resumo de cada rodada vai para `ia_resumos` `atendimento|rodada|<canal>` (rota `atendimento_rodada`,
+  com as gravações recusadas pela trava do cabeçalho). `liberar_so_aviso` também tira o rascunho criado por RELEITURA (mensagem
+  igual a uma anterior da cliente com a nossa resposta aprovada ainda esperando envio) e roda na hora no `atendimento_receber`.
+  Base: "Tem bastante no estoque?" → "sempre temos bastante em estoque" (confirmado pelo Bruno).

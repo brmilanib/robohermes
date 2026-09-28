@@ -1656,20 +1656,38 @@ def reinterpretar_pendentes(repo, lote=3, a_cada_min=2):
 RETOMAR_CHAVE = "atendimento|retomar"
 
 
-def liberar_so_aviso(repo, limite=40):
+def liberar_so_aviso(repo, limite=40, conversa_id=None):
     """27/09 (print do Bruno): conversa esperando resposta (precisa de você / aprovar) em que, tirando os avisos e botões da
     plataforma, a última mensagem de verdade é da LOJA: não há o que responder. O rascunho vira sem_resposta (nunca apagado)
     e a conversa fica respondida. -> ids liberados."""
     feitas = []
-    for conv in repo._req("GET", "atendimento_conversas", {"select": "id", "status": "in.(precisa_info,rascunho)", "limit": limite}) or []:
+    filtro = {"select": "id", "status": "in.(precisa_info,rascunho)", "limit": limite}
+    if conversa_id:
+        filtro["id"] = f"eq.{int(conversa_id)}"
+    for conv in repo._req("GET", "atendimento_conversas", filtro) or []:
         msgs = [m for m in repo._req("GET", "atendimento_mensagens", {"select": "id,de,texto", "conversa_id": f"eq.{conv['id']}",
                                                                       "order": "criado_em,id", "limit": 500}) or []
                 if not _robo(m.get("texto"))]
         msgs = _sem_eco(msgs, _enviados(repo, conv["id"]))
+        motivo = "só aviso/botão da plataforma depois da nossa resposta (27/09)"
         if msgs and msgs[-1]["de"] == "cliente":
+            # 28/09 (print do Bruno, joanaabranches): a leitura regravou a 1ª mensagem da cliente e virou rascunho novo, com a
+            # nossa resposta aprovada ainda esperando envio. Mensagem igual a uma anterior, sem a nossa resposta ter chegado
+            # a ela, é releitura: não é pergunta nova (a pergunta repetida de verdade é a que vem DEPOIS de responder).
+            ult = _norm(msgs[-1]["texto"]).strip()
+            antes = [m for m in msgs[:-1] if m["de"] == "cliente" and _norm(m["texto"]).strip() == ult]
+            esperando = repo._req("GET", "atendimento_rascunhos", {"select": "id", "conversa_id": f"eq.{conv['id']}",
+                                                                   "status": "in.(aprovado,editado)", "enviar_pelo_mac": "eq.true",
+                                                                   "enviado_em": "is.null", "limit": 1}) or []
+            if not (antes and esperando):
+                continue
+            motivo = "releitura de mensagem antiga; a resposta aprovada ainda está sendo enviada (28/09)"
+            repo._req("PATCH", "atendimento_rascunhos", {"conversa_id": f"eq.{conv['id']}", "status": "in.(precisa_info,pendente)"},
+                      corpo={"status": "sem_resposta", "motivo": motivo}, prefer="return=minimal")
+            feitas.append(conv["id"])
             continue
         repo._req("PATCH", "atendimento_rascunhos", {"conversa_id": f"eq.{conv['id']}", "status": "in.(precisa_info,pendente)"},
-                  corpo={"status": "sem_resposta", "motivo": "só aviso/botão da plataforma depois da nossa resposta (27/09)"},
+                  corpo={"status": "sem_resposta", "motivo": motivo},
                   prefer="return=minimal")
         repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{conv['id']}"}, corpo={"status": "respondida", "atualizado_em": _agora()},
                   prefer="return=minimal")
@@ -1757,6 +1775,13 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
         except ia.SemIA as e:
             # 27/09 (Bruno): navegar o chat é só com IA grátis. O Haiku de reserva custou ~US$ 73 num dia; saiu daqui.
             return {"erro_ia": str(e)}
+    if nome == "atendimento_rodada" and metodo == "POST":
+        canal = str(d.get("canal") or "")[:20]
+        repo._req("POST", "ia_resumos", corpo=[{"chave": f"atendimento|rodada|{canal}", "ia": "atendente", "criado_em": _agora(),
+                                                "texto": json.dumps({"resumo": str(d.get("resumo") or "")[:600],
+                                                                     "fim": str(d.get("fim") or "")[:600]})}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True}
     if nome == "atendimento_taxa" and metodo == "POST":
         return gravar_taxa(repo, d)
     if nome == "atendimento_para_enviar":
@@ -1839,11 +1864,18 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
     if nome == "atendimento_enviado" and metodo == "POST":
         return marcar_enviado(repo, d["id"], d.get("ok", True), d.get("erro"))
     if nome == "atendimento_receber" and metodo == "POST":
-        return {"rascunho": receber(repo, d.get("canal") or "tiktok_shop", d.get("texto"), d.get("loja"), d.get("cliente"),
-                                    d.get("pedido") or None, d.get("externo_id") or None,
-                                    pedido_dados=d.get("pedido_dados") if isinstance(d.get("pedido_dados"), dict) else None,
-                                    historico=d.get("historico") if isinstance(d.get("historico"), list) else None,
-                                    respondido=bool(d.get("respondido")), fechado=bool(d.get("fechado")))}
+        x = receber(repo, d.get("canal") or "tiktok_shop", d.get("texto"), d.get("loja"), d.get("cliente"),
+                    d.get("pedido") or None, d.get("externo_id") or None,
+                    pedido_dados=d.get("pedido_dados") if isinstance(d.get("pedido_dados"), dict) else None,
+                    historico=d.get("historico") if isinstance(d.get("historico"), list) else None,
+                    respondido=bool(d.get("respondido")), fechado=bool(d.get("fechado")))
+        try:        # 28/09: releitura/aviso da plataforma não fica piscando (confere na hora, não só no tique)
+            if x and x.get("conversa_id") and x.get("status") in ("precisa_info", "pendente") \
+                    and liberar_so_aviso(repo, conversa_id=x["conversa_id"]):
+                x = dict(x, status="sem_resposta")
+        except Exception:  # noqa: BLE001
+            pass
+        return {"rascunho": x}
     if nome == "atendimento_decidir" and metodo == "POST":
         return decidir(repo, d["id"], d.get("acao"), d.get("texto"), operador)
     if nome == "atendimento_responder" and metodo == "POST":

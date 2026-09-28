@@ -646,6 +646,21 @@ def test_foto_repetida_em_varios_clientes_nao_e_do_cliente():
     assert a._sem_foto_generica({"foto": "https://img/y.png"}, g) == {"foto": "https://img/y.png"}
 
 
+def test_releitura_com_resposta_ainda_sendo_enviada_nao_vira_rascunho_novo():
+    # 28/09 (print do Bruno, joanaabranches): a 1ª mensagem relida no fim virou pergunta nova e a conversa voltou a piscar
+    r = Repo()
+    conv = a._inserir(r, "atendimento_conversas", {"canal": "shopee", "loja": "principal", "cliente": "joana", "status": "rascunho"})
+    pedido_ = "Acabei de comprar um body splash Marina, confiram a válvula por favor"
+    for de, t in [("cliente", pedido_), ("loja", "Olá"), ("cliente", pedido_)]:
+        r._req("POST", "atendimento_mensagens", corpo=[{"conversa_id": conv["id"], "de": de, "texto": t, "criado_em": a._agora()}])
+    r._req("POST", "atendimento_rascunhos", corpo=[{"conversa_id": conv["id"], "status": "aprovado", "enviar_pelo_mac": True,
+                                                   "enviado_em": None, "texto_final": "Pode deixar que vamos conferir a válvula!"}])
+    r._req("POST", "atendimento_rascunhos", corpo=[{"conversa_id": conv["id"], "status": "pendente", "texto_gerado": "x"}])
+    assert conv["id"] in a.liberar_so_aviso(r, conversa_id=conv["id"])
+    assert r.t["atendimento_rascunhos"][-1]["status"] == "sem_resposta"
+    assert r.t["atendimento_rascunhos"][-2]["status"] == "aprovado"          # a resposta aprovada continua na fila de envio
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

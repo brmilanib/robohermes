@@ -4908,6 +4908,8 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
         conhecidos = (pend.get("conhecidos_por_canal") or {}).get(canal) or (pend.get("conhecidos") if canal == "tiktok_shop" else []) or []
     try:
         _no_chat(pg, cfg.get(k_url) or url_ini)
+        if canal == "shopee":
+            _voltar_atendendo_hoje(pg)      # 28/09 (Bruno): lista fixa em "Atendendo Hoje", sem busca sobrando
         marca = _atendente_marca(pg)
     except Exception:  # noqa: BLE001
         marca = None
@@ -4930,7 +4932,10 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
               "RESPOSTAS APROVADAS PARA ENVIAR (id · cliente · texto):\n"
               + ("\n".join(f"{i['id']} · {i['cliente']} · {i['texto'][:300]}" for i in aprovadas.values()) or "(nenhuma)")
               + "\n\nCONVERSAS QUE JÁ ESTÃO NO NUBI (não precisa registrar de novo, a não ser que tenha mensagem nova): "
-              + (", ".join(conhecidos[:300]) or "(nenhuma — registre todas)")
+              + (", ".join(conhecidos[:300]) or "(nenhuma)")
+              + ("\n\nSÓ AS CONVERSAS DE HOJE (pedido do Bruno, 28/09): trabalhe apenas nas conversas que aparecem no topo da "
+                 "lista (na Shopee, a aba 'Atendendo Hoje'). NÃO role a lista atrás de conversas antigas e ignore conversa com "
+                 "data antiga (ex.: 08/09): isso não é trabalho seu.")
               + (("\n\nIMPORTAR FECHADOS (pedido do Bruno): depois dos passos 1 e 2, abra a aba 'Fechados' e registre com "
                   "respondido=true e fechado=true o histórico de até 20 conversas que ainda NÃO estão no nubi (role a lista para ver as mais "
                   "antigas). Quando não houver mais nenhuma nova nos Fechados, use fechados_concluido.") if fechados else "")
@@ -5036,6 +5041,9 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                             x.get("status"), "Registrado (já estava no nubi). Siga para a próxima.")
                 elif b["name"] == "buscar_conversa":
                     txt = _atendente_buscar(pg, str(ent.get("cliente") or ""), estado)
+                elif b["name"] == "rolar" and not sac and not fechados:
+                    # 28/09 (print do Bruno): rolando a lista, a IA ia atrás de conversas de agosto; o atendimento é só o de hoje
+                    txt = "Não role a lista: trabalhe só nas conversas de hoje que já estão no topo. Terminou? Use terminar."
                 elif b["name"] == "rolar":
                     txt = _atendente_rolar(pg)
                 elif b["name"] == "enviar_aprovada" and sac:
@@ -5102,7 +5110,14 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
     _gasto_atendente(cfg, custo, "sac_gasto" if sac else "atendente_gasto")
     resumo = (f"{'🎵' if canal == 'tiktok_shop' else '📥' if sac else '🛍️'} {autor}: {estado.get('registradas', 0)} mensagem(ns) trazida(s) para o nubi, "
               f"{estado.get('enviadas', 0)} resposta(s) enviada(s) (~US$ {custo:.2f}; {estado.get('gratis', 0)} passo(s) com a IA "
-              f"grátis, {estado.get('pago', 0)} com a paga).")
+              f"grátis, {estado.get('pago', 0)} com a paga)."
+              + (f" ⚠️ {estado['recusadas_outra']} gravação(ões) recusada(s): chat aberto de outra cliente."
+                 if estado.get("recusadas_outra") else ""))
+    try:        # 28/09: último resumo de cada plataforma no nubi (para conferir de longe se as conversas estão chegando)
+        api(token, "atendimento_rodada", corpo={"canal": canal, "resumo": resumo[:600], "fim": str(fim or "")[:600]},
+            metodo="POST", timeout=30)
+    except Exception:  # noqa: BLE001
+        pass
     aviso_login = bool(fim and re.search(r"login|captcha|verifica|credenc", fim, re.I))
     k_aviso = f"{canal}_aviso_login"
     ja_avisou = aviso_login and str(cfg.get(k_aviso) or "") > (datetime.now() - timedelta(hours=3)).isoformat()
@@ -5111,6 +5126,11 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
             cfg[k_aviso] = datetime.now().isoformat()          # avisa do login no máximo a cada 3 h (não enche a Sala)
             salvar_config(cfg)
         _postar_hermes_como(token, autor, resumo + (f"\n{fim[:600]}" if fim else ""), custo)
+    if canal == "shopee":
+        try:
+            _voltar_atendendo_hoje(pg)          # deixa a tela como o Bruno quer: "Atendendo Hoje", busca limpa
+        except Exception:  # noqa: BLE001
+            pass
     return custo, estado, resumo + (f"\n{fim}" if fim else "")
 
 
