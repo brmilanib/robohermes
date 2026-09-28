@@ -77,6 +77,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   trânsito). Rota `estoque_compras`; a análise do dia (`analise_estoque`, DeepSeek v4-pro, `ia_resumos` `analise_estoque|data`)
   aparece no topo da aba.
 
+## Perseguir anúncios pelo Apify (28/09, pedido do Bruno) — Estoque → 🎯 Perseguir anúncios (`#/estoque/perseguir`), `perseguir.py`
+
+- O Bruno cadastra anúncio (MLB… ou link) + palavra de busca (+ CEP e apelido opcionais), até `MAX_ANUNCIOS`=40. O robô do
+  Apify `maximedupre/mercado-libre-product-rank-checker` (US$ 0,0025 por página; `PAGINAS`=5) confere a posição orgânica toda
+  segunda (rotina `perseguir`, 1 disparo por semana) e quando ele pede (🔎). Assíncrono: `iniciar` guarda o run em
+  `ia_resumos` `perseguir|execucao`; `conferir` (tela + cron de hora em hora) grava em `perseguir|historico` (60 por anúncio).
+  Lista em `perseguir|lista`. Chave `APIFY_TOKEN` só na Vercel (o Bruno coloca). Rotas `estoque_perseguir*`.
+- Listas do Estoque (entraram/saíram/zeraram/voltaram) trazem custo médio com a variação em % e, em saíram/zeraram, o que
+  está em trânsito e o mínimo (verde se o trânsito cobre o mínimo): `_enriquecer_diff` na rota `estoque`.
+
 ## Mini-benchmark de modelos (#15, 27/09) — `nubi_benchmark.py`, migração `supabase/benchmark.sql`
 
 - **Nenhum modelo novo entra em produção sem passar por ele.** Casos fixos e versionados no código (`VERSAO`, `CASOS`:

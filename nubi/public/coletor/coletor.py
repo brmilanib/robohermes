@@ -1665,15 +1665,13 @@ def baixar_vendas(pg, cfg):
 def coletar_estoque(p, cfg, token, enviar=True):
     ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-    vendas = None
+    vendas, nota_vendas = None, ""
     try:
         arq, esperado = baixar_estoque(pg, p)
-        guardar_sessao(ctx)
-        try:                                   # 28/09: o relatório de vendas nunca derruba o estoque
-            vendas = baixar_vendas(pg, cfg)
-        except Exception as ev:  # noqa: BLE001
-            log(f"  vendas por anúncio: não baixou ({str(ev)[:400]})")
-            enviar_foto(pg, f"vendas por anúncio: {str(ev)[:150]}", str(ev)[:3000])
+        try:
+            guardar_sessao(ctx)
+        except Exception:  # noqa: BLE001 — o Chrome costuma fechar no download do estoque (25/09)
+            pass
     except SessaoExpirada:
         enviar_foto(pg, "estoque: login do UpSeller vencido", resumo_tela(pg))
         raise
@@ -1681,7 +1679,29 @@ def coletar_estoque(p, cfg, token, enviar=True):
         enviar_foto(pg, f"estoque: {str(e)[:150]}", resumo_tela(pg))
         raise
     finally:
-        ctx.close()
+        try:
+            ctx.close()
+        except Exception:  # noqa: BLE001
+            pass
+    # 28/09: o relatório de vendas abre um Chrome NOVO (o do estoque fecha sozinho no download) e nunca derruba o estoque
+    ctx2 = None
+    try:
+        ctx2 = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
+        pg2 = ctx2.pages[0] if ctx2.pages else ctx2.new_page()
+        try:
+            vendas = baixar_vendas(pg2, cfg)
+        except Exception as ev:  # noqa: BLE001
+            enviar_foto(pg2, f"vendas por anúncio: {str(ev)[:150]}", str(ev)[:3000])
+            raise
+    except Exception as ev:  # noqa: BLE001
+        nota_vendas = f"vendas por anúncio: não baixou ({ev.__class__.__name__}: {str(ev)[:700]})"
+        log("  " + nota_vendas)
+    finally:
+        if ctx2 is not None:
+            try:
+                ctx2.close()
+            except Exception:  # noqa: BLE001
+                pass
     log(f"  baixado: {arq.name} ({arq.stat().st_size // 1024} KB)")
     if not enviar:
         return 1, 0, 0, f"estoque baixado em {arq} (sem enviar)"
@@ -1693,8 +1713,13 @@ def coletar_estoque(p, cfg, token, enviar=True):
         try:
             for linha in api(token, "estoque_vendas_importar", {"arquivo": vendas.name}, vendas.read_bytes()).get("log") or []:
                 log("  " + linha)
+                nota_vendas = linha[:300]
         except Exception as ev:  # noqa: BLE001
-            log(f"  vendas por anúncio: não importou ({str(ev)[:200]})")
+            nota_vendas = f"vendas por anúncio: não importou ({str(ev)[:300]})"
+            log("  " + nota_vendas)
+    if nota_vendas:                        # 28/09: o resultado das vendas aparece na execução (dá para ver de fora do Mac)
+        linhas = linhas + [nota_vendas]
+        return 1, 1, 0, ((linhas[1] if len(linhas) > 2 else linhas[0])[:200] + " · " + nota_vendas)[:1500]
     return 1, 1, 0, (linhas[1] if len(linhas) > 1 else linhas[0])[:200]
 
 

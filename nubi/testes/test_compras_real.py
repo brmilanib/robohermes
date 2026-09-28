@@ -50,18 +50,30 @@ try:
             larg = pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
             assert larg[0] <= larg[1] + 1, (nome, larg)                                    # sem rolagem de lado
             pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"compras_{nome}.png"), full_page=True)
-            if nome == "pc":
-                # 28/09 (Bruno): nas listas do Estoque, custo médio com a variação e, nos zerados, trânsito e mínimo
-                pg.evaluate("""async e => { const buf = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
-                  await api('estoque_importar', {arquivo: 'Lista_de_Estoque_2.xlsx', origem: 'manual'}, {method: 'POST', body: buf(e)}); }""",
-                            base64.b64encode(_estoque_xlsx((("A-100", 40, 0, 55, 0), ("B-100", 0, 30, 50, 20), ("C-100", 0, 0, 50, 0),
-                                                            ("E-100", 0, 0, 50, 0)))).decode())
-                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque"); pg.wait_for_selector(".es-mud", timeout=15000)
-                mud = pg.inner_text(".es-mud")
-                assert "▲ 10%" in mud and "em trânsito 30" in mud and "mín. 20" in mud, mud
-                assert pg.locator(".es-mud .pos", has_text="em trânsito 30").count() == 2             # em Saíram e Zeraram; cobre o mínimo: verde
-                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "estoque_listas.png"), full_page=True)
             assert not erros, erros
+        pg = b.new_page(viewport={"width": 1440, "height": 900})
+        erros = []; pg.on("pageerror", lambda e: erros.append(str(e)))
+        pg.route("https://cdn.jsdelivr.net/**", lambda r: r.fulfill(content_type="application/javascript", body=STUB))
+        pg.route("https://fonts.**", lambda r: r.abort())
+        pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque"); pg.wait_for_selector(".es-cab", timeout=15000)
+        # 28/09 (Bruno): nas listas do Estoque, custo médio com a variação e, nos zerados, trânsito e mínimo
+        pg.evaluate("""async e => { const buf = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
+          await api('estoque_importar', {arquivo: 'Lista_de_Estoque_2.xlsx', origem: 'manual'}, {method: 'POST', body: buf(e)}); }""",
+                    base64.b64encode(_estoque_xlsx((("A-100", 40, 0, 55, 0), ("B-100", 0, 30, 50, 20), ("C-100", 0, 0, 50, 0),
+                                                    ("E-100", 0, 0, 50, 0)))).decode())
+        pg.evaluate("telaEstoque()"); pg.wait_for_selector(".es-mud", timeout=15000)
+        mud = pg.inner_text(".es-mud")
+        assert "▲ 10%" in mud and "em trânsito 30" in mud and "mín. 20" in mud, mud
+        assert pg.locator(".es-mud .pos", has_text="em trânsito 30").count() == 2             # em Saíram e Zeraram; cobre o mínimo: verde
+        pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "estoque_listas.png"), full_page=True)
+        # 28/09 (Bruno): perseguir anúncios (sem a chave do Apify aqui: cadastra e avisa da chave)
+        pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/perseguir"); pg.wait_for_selector("#pg-form", timeout=15000)
+        assert "APIFY_TOKEN" in pg.inner_text("#main")
+        pg.fill("#pg-anuncio", "MLB4577439527"); pg.fill("#pg-termo", "ferrari black"); pg.fill("#pg-apelido", "Ferrari Black 125")
+        pg.click("#pg-form button"); pg.wait_for_selector("text=Ferrari Black 125", timeout=10000)
+        assert "“ferrari black”" in pg.inner_text("tbody") and "ainda não conferido" in pg.inner_text("tbody")
+        pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "perseguir.png"), full_page=True)
+        assert not erros, erros
         b.close()
 finally:
     srv.terminate()

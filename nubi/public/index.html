@@ -1382,7 +1382,7 @@ async function rotear() {
     history.replaceState(null, "", location.hash.replace("#/estoque/", "#/sac/")); return rotear(); }
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
     return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
-  if (sec === "lojas") return location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : telaEstoque();
+  if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -2730,6 +2730,7 @@ const esAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px"><but
   <button class="${ativa === "compras" ? "on" : ""}" onclick="location.hash='#/estoque/compras'">🛒 Compras e vendas</button>
   <button class="${ativa === "gestor" ? "on" : ""}" onclick="location.hash='#/estoque/gestor'">🧾 Planilha do Gestor Seller</button>
   <button class="${ativa === "posicoes" ? "on" : ""}" onclick="location.hash='#/estoque/posicoes'">📈 Posição do anúncio</button>
+  <button class="${ativa === "perseguir" ? "on" : ""}" onclick="location.hash='#/estoque/perseguir'">🎯 Perseguir anúncios</button>
   <button class="${ativa === "rank" ? "on" : ""}" onclick="location.hash='#/estoque/rankeamento'">🧪 Rankeamento</button></div>`;
 // SAC (27/09, pedido do Bruno): menu próprio com as lojas e a base de conhecimento do SAC
 const SAC_MENU = [["painel", "📊 Painel"], ["tiktok", "🎵 TikTok Shop"], ["shopee", "🛍️ Shopee"], ["ml", "🤝 Mercado Livre"], ["base", "📚 Base de conhecimento SAC"]];
@@ -3380,6 +3381,56 @@ async function telaCompras() {
     try { const x = await api("estoque_vendas_importar", {arquivo: f.name, origem: "manual"}, {method: "POST", body: await f.arrayBuffer()});
       toast((x.log || ["Importado."]).join(" "), 7000); telaCompras();
     } catch (e) { toast(e.message, 7000); } };
+  desenharMenu();
+}
+// 28/09 (Bruno): anúncios do Mercado Livre perseguidos pelo Apify (1 vez por semana e quando ele pede), com o histórico
+async function telaPerseguir() {
+  const main = $("#main");
+  main.innerHTML = esAbas("perseguir") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando</div></div>`;
+  let r;
+  try { r = await api("estoque_perseguir"); } catch (e) { main.innerHTML = esAbas("perseguir") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/estoque/perseguir")) return;
+  const ex = r.execucao || {}, rodando = ex.status === "rodando";
+  const pos = p => !p ? "—" : p.posicao ? `<b>${p.posicao}º</b>${p.pagina ? ` <span class="muted">(pág. ${esc(String(p.pagina))})</span>` : ""}` : `<span class="neg">fora das ${esc(String(p.paginas || r.paginas))} pág.</span>`;
+  const varia = v => v == null ? "" : v > 0 ? `<span class="pos">▲ ${v}</span>` : v < 0 ? `<span class="neg">▼ ${-v}</span>` : `<span class="muted">=</span>`;
+  const linhas = r.lista.map(x => `<tr><td class="first wrap"><a href="https://produto.mercadolivre.com.br/${esc(x.anuncio.replace(/^MLB/, "MLB-"))}" target="_blank" rel="noopener"><b>${esc(x.apelido || x.anuncio)}</b></a>
+        ${x.apelido ? `<br><span class="muted">${esc(x.anuncio)}</span>` : ""}</td><td class="wrap">“${esc(x.termo)}”${x.cep ? `<br><span class="muted">CEP ${esc(x.cep)}</span>` : ""}</td>
+      <td class="num">${pos(x.atual)} ${varia(x.variacao)}</td>
+      <td class="muted" style="font-size:12px">${(x.historico || []).map(h => h.posicao ? h.posicao + "º" : "—").join(" → ") || "ainda não conferido"}</td>
+      <td class="muted" style="font-size:12px">${x.atual ? esc(quandoES(x.atual.em)) : "—"}</td>
+      <td style="white-space:nowrap"><button class="btn small ghost" data-pg-ver="${esc(x.id)}" ${rodando || !r.chave ? "disabled" : ""} title="conferir agora (US$ ${(r.paginas * r.preco_pagina).toFixed(4)} no máximo)">🔎</button>
+        <button class="btn small ghost" data-pg-tirar="${esc(x.id)}" title="parar de perseguir">🗑️</button></td></tr>`).join("");
+  main.innerHTML = esAbas("perseguir") + `<div class="es-cab"><h1>🎯 Perseguir anúncios</h1>
+      <span class="muted">posição orgânica na busca do Mercado Livre, conferida pelo Apify toda segunda e quando você pedir</span>
+      <div class="acoes"><button class="btn small" id="pg-todos" ${rodando || !r.chave || !r.lista.length ? "disabled" : ""}>🔎 Conferir todos agora</button></div></div>
+    ${!r.chave ? `<div class="es-aviso bad">⚠️ Falta a chave do Apify na Vercel: crie em apify.com → Settings → API &amp; Integrations e coloque como <b>APIFY_TOKEN</b> nas variáveis do projeto.</div>` : ""}
+    ${r.erro ? `<div class="es-aviso bad">⚠️ ${esc(r.erro)}</div>` : ""}
+    ${rodando ? `<div class="es-aviso">⏳ O Apify está conferindo ${ex.ids ? ex.ids.length : ""} anúncio(s) desde ${esc(quandoES(ex.em))}. O resultado aparece aqui em alguns minutos.</div>`
+      : ex.status === "ok" ? `<div class="muted" style="margin-bottom:10px">Última conferência: ${esc(quandoES(ex.fim))} · ${ex.resultados || 0} resultado(s)${ex.custo_usd != null ? ` · US$ ${(+ex.custo_usd).toFixed(3)}` : ""}</div>`
+      : ex.status === "erro" ? `<div class="es-aviso bad">⚠️ A última conferência falhou: ${esc(ex.erro || "")}</div>` : ""}
+    <div class="card pad" style="margin-bottom:14px"><h2>➕ Perseguir um anúncio</h2>
+      <form id="pg-form" class="es-filtros" style="flex-wrap:wrap;gap:8px">
+        <input id="pg-anuncio" placeholder="Anúncio: MLB4577439527 ou o link" style="flex:2 1 220px">
+        <input id="pg-termo" placeholder="Palavra de busca (como o cliente procura)" style="flex:2 1 220px">
+        <input id="pg-cep" placeholder="CEP (opcional)" style="flex:1 1 110px">
+        <input id="pg-apelido" placeholder="Apelido (opcional)" style="flex:1 1 140px">
+        <button class="btn small primary">Adicionar</button></form>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Até ${r.max} anúncios · confere até ${r.paginas} páginas por anúncio · US$ ${r.preco_pagina} por página (no máximo US$ ${(r.paginas * r.preco_pagina).toFixed(4)} por anúncio por conferência).</p></div>
+    <div class="card pad"><div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Anúncio</th><th>Busca</th><th class="num">Posição</th><th>Histórico</th><th>Conferido</th><th></th></tr></thead>
+      <tbody>${linhas || `<tr><td colspan="6" class="muted">Nenhum anúncio ainda. Adicione acima.</td></tr>`}</tbody></table></div></div>`;
+  const post = (rota, corpo) => api(rota, {}, {method: "POST", body: JSON.stringify(corpo)});
+  $("#pg-form").onsubmit = async e => { e.preventDefault();
+    try { await post("estoque_perseguir_salvar", {acao: "adicionar", anuncio: $("#pg-anuncio").value, termo: $("#pg-termo").value,
+      cep: $("#pg-cep").value, apelido: $("#pg-apelido").value}); toast("Adicionado. Use 🔎 para conferir agora ou espere a segunda-feira.", 6000); telaPerseguir();
+    } catch (er) { toast(er.message, 7000); } };
+  main.querySelectorAll("[data-pg-tirar]").forEach(b => b.onclick = async () => { if (!confirm("Parar de perseguir este anúncio? (o histórico fica guardado)")) return;
+    try { await post("estoque_perseguir_salvar", {acao: "remover", id: b.dataset.pgTirar}); telaPerseguir(); } catch (er) { toast(er.message, 7000); } });
+  main.querySelectorAll("[data-pg-ver]").forEach(b => b.onclick = async () => {
+    try { await post("estoque_perseguir_consultar", {id: b.dataset.pgVer}); toast("Conferindo no Apify: o resultado aparece aqui em alguns minutos.", 6000); telaPerseguir();
+    } catch (er) { toast(er.message, 7000); } });
+  const bt = $("#pg-todos"); if (bt) bt.onclick = async () => {
+    try { const x = await post("estoque_perseguir_consultar", {}); toast(`Conferindo ${x.ids.length} anúncio(s) (até US$ ${x.custo_max.toFixed(2)}).`, 6000); telaPerseguir();
+    } catch (er) { toast(er.message, 7000); } };
   desenharMenu();
 }
 // Planilha de importação do Gestor Seller (cadastro de produtos) feita do estoque do UpSeller

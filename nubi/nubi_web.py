@@ -38,6 +38,7 @@ import atendimento
 import pesquisador
 import saber
 import estoque
+import perseguir
 import reuniao
 import vend_bi
 import vendedores
@@ -2770,7 +2771,7 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "resumo_semana", "resumo_marcas", "nomes_marcas",
+NO_SERVIDOR = ("rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "perseguir", "resumo_semana", "resumo_marcas", "nomes_marcas",
                "noticias", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 ROTINAS_TEXTO = ("resumo_dia", "resumo_semana", "resumo_marcas", "nomes_marcas", "noticias")   # texto sem conferência de número
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
@@ -2934,6 +2935,10 @@ def rodar_rotinas(repo, so=None):
     rot = {r["id"]: r for r in repo._todos("rotinas", {"select": "*", "order": "ordem,id"})}
     out = {}
     if not so:
+        try:                                            # 28/09: resultado do Apify (anúncios perseguidos) quando a conferência acabou
+            out["perseguir"] = (perseguir.conferir(repo) or {}).get("status")
+        except Exception as e:  # noqa: BLE001
+            out["perseguir"] = f"erro: {str(e)[:120]}"
         try:                                            # base de conhecimento: junta o que mudou na última hora (fase 1, 26/09)
             out["saber"] = agentes.sincronizar_saber(repo, forcar=True)
         except Exception as e:  # noqa: BLE001
@@ -3012,6 +3017,8 @@ def rodar_rotinas(repo, so=None):
                 res = analise_foco(repo, forcar=bool(so), semanal=True)
             elif rid == "analise_estoque":
                 res = analise_estoque(repo)
+            elif rid == "perseguir":
+                res = perseguir.semanal(repo)
             elif rid == "nomes_marcas":
                 res = conferir_nomes_marcas(repo)
             elif rid == "resumo_marcas":
@@ -3679,6 +3686,17 @@ def rota_estoque(repo, metodo, rota, q, corpo):
                                "manual" if q.get("origem") == "manual" else "coletor")
     if rota == "estoque_compras":
         return estoque_compras(repo)
+    if rota.startswith("estoque_perseguir"):
+        # 28/09 (Bruno): anúncios perseguidos no Mercado Livre pelo Apify (1 vez por semana e quando ele pede)
+        try:
+            if rota == "estoque_perseguir_salvar" and metodo == "POST":
+                return perseguir.salvar(repo, json.loads(corpo or b"{}"))
+            if rota == "estoque_perseguir_consultar" and metodo == "POST":
+                d = json.loads(corpo or b"{}")
+                return perseguir.iniciar(repo, [d["id"]] if d.get("id") else None, motivo="pedido")
+            return perseguir.painel(repo)
+        except perseguir.ErroPerseguir as e:
+            raise ErroNuvem(str(e))
     if rota == "estoque_importar" and metodo == "POST":
         return estoque_importar(repo, corpo, (q.get("arquivo") or "Lista_de_Estoque.xlsx")[:200],
                                 "manual" if q.get("origem") == "manual" else "coletor",
