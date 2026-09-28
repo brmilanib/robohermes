@@ -631,6 +631,21 @@ def test_botoes_do_tiktok_e_aviso_de_encerrado_nao_deixam_conversa_esperando():
     assert r.t["atendimento_rascunhos"][-1]["status"] == "sem_resposta"
 
 
+def test_foto_repetida_em_varios_clientes_nao_e_do_cliente():
+    # 28/09 (print do Bruno): a mesma imagem da tela aparecia como foto de 8 clientes diferentes
+    r = Repo()
+    for n in ("ana", "bia", "carla"):
+        a._inserir(r, "atendimento_conversas", {"canal": "shopee", "loja": "principal", "cliente": n, "status": "respondida",
+                                               "pedido_dados": {"produto_consultado": {"nome": "X", "foto": "https://img/loja.png"}}})
+    a._inserir(r, "atendimento_conversas", {"canal": "shopee", "loja": "principal", "cliente": "duda", "status": "respondida",
+                                           "pedido_dados": {"produto_consultado": {"nome": "Y", "foto": "https://img/y.png"}}})
+    g = a._fotos_genericas(r)
+    assert g == {"https://img/loja.png"}
+    pd = a._sem_foto_generica({"produto_consultado": {"nome": "X", "foto": "https://img/loja.png"}, "itens": [{"foto": "https://img/loja.png"}]}, g)
+    assert "foto" not in pd["produto_consultado"] and "foto" not in pd["itens"][0]
+    assert a._sem_foto_generica({"foto": "https://img/y.png"}, g) == {"foto": "https://img/y.png"}
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

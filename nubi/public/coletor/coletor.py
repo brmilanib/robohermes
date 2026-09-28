@@ -4606,6 +4606,25 @@ def _enviar_aprovadas_direto(pg, aprovadas, estado, token, url):
         _voltar_atendendo_hoje(pg)
 
 
+# Nome do cliente no cabeçalho do chat aberto: elemento visível cujo texto é o nome, na parte direita da tela (a lista de
+# conversas fica à esquerda na Shopee, no TikTok e no UpSeller). Procura em todos os quadros.
+JS_CABECALHO = r"""nome => { const alvo = nome.toLowerCase().trim(); const w = innerWidth || 1200;
+  return [...document.querySelectorAll('div,span,b,strong,h1,h2,h3,h4,a,p')].some(e => {
+    const t = (e.innerText || '').toLowerCase().trim(); if (t !== alvo) return false;
+    const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.left > w * 0.28 && r.top < 260; }); }"""
+
+
+def _conversa_aberta_e_de(pg, cliente):
+    """True se o chat aberto na tela é do cliente (nome no cabeçalho, à direita da lista)."""
+    for fr in pg.frames:
+        try:
+            if fr.evaluate(JS_CABECALHO, cliente):
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
 def _voltar_atendendo_hoje(pg):
     """27/09 (Bruno): depois de buscar a cliente para enviar, limpa a busca e volta para a aba 'Atendendo Hoje' da Shopee
     (a lista fica fixa ali). Só mexe na caixa de busca e na aba; nunca recarrega a página."""
@@ -4984,6 +5003,14 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                                            "RECUSADO: isso é só a prévia da lista. Clique na conversa de " + cli + ", use ler e "
                                            "registre o histórico COMPLETO (mensagens do cliente e da loja, na ordem) e o painel "
                                            "do pedido. Se a conversa só tem mesmo uma mensagem, registre de novo."})
+                        continue
+                    if not sac and cli and not _conversa_aberta_e_de(pg, cli):
+                        # 28/09 (print do Bruno): a IA registrava a cliente X com o chat da cliente Y aberto e o nubi
+                        # gravava foto, produto, pedido e mensagens da Y na conversa da X. Só grava com o nome no cabeçalho.
+                        estado["recusadas_outra"] = estado.get("recusadas_outra", 0) + 1
+                        resultados.append({"type": "tool_result", "tool_use_id": b["id"], "content":
+                                           f"RECUSADO: a conversa aberta na tela NÃO é de {cli} (o nome não está no cabeçalho do "
+                                           f"chat). Use abrir_conversa com '{cli}', leia e registre de novo."})
                         continue
                     destino = canal
                     if sac:

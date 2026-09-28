@@ -580,7 +580,10 @@ AVISO_SISTEMA = re.compile(r"^\s*(\[(chatbot|sauda|informa|compartilh|pedido|pro
 # paguei"…) e o nome da loja no topo; a leitura da tela gravava isso como se a cliente tivesse escrito, em TODAS as conversas.
 BOTOES_TIKTOK = re.compile(r"^\s*(voc[eê] tem esse produto em estoque\?|estou tentando comprar|j[aá] paguei|qual [eé] o melhor tamanho"
                            r"( para mim\?)?|como fa[cç]o para usar\?|o que est[aá] inclu[ií]do no produto\?|pure perfumaria|purehome(\.shop)?|"
-                           r"aura scent)\s*$", re.I)
+                           r"aura scent|"
+                           # 27/09: botões e rótulos da tela lidos como mensagem (Shopee e TikTok)
+                           r"recome[cç]ar conversa|enviar pedido|nenhum registro|enviado pelo assistente de ia|recarregar origem da "
+                           r"mensagem|convite de compra|fechar chat|visualizar na (loja|central de vendas)|conversar com vendedor)\s*$", re.I)
 
 
 # 27/09 (Shopee): o "Assistente AI" da própria plataforma responde "Recebemos sua mensagem… aguarde" ou "não consigo
@@ -674,6 +677,8 @@ def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, ext
     """Mensagem nova de cliente (do conector do canal ou colada pelo operador): grava e gera o rascunho.
     historico = o chat inteiro lido na tela ([{de, texto}]): grava o que falta; respondido = a loja já respondeu (só guarda)."""
     anteriores = []
+    if pedido_dados:                   # 28/09: imagem fixa da tela (a mesma em vários clientes) não é foto do produto
+        pedido_dados = _sem_foto_generica(pedido_dados, _fotos_genericas(repo))
     if historico is not None:          # o atendente leu a conversa inteira na tela (a lista de conhecidos usa esta marca)
         pedido_dados = dict(pedido_dados or {}, lido_em=_agora())
         # a última mensagem de verdade é da cliente = ainda sem resposta, mesmo que a tela mostre uma resposta do robô
@@ -924,8 +929,15 @@ def _resposta_anterior(msgs):
 
 
 def _enviados(repo, conversa_id):
-    return [r.get("texto_final") for r in repo._req("GET", "atendimento_rascunhos", {"select": "texto_final", "conversa_id": f"eq.{conversa_id}",
-                                                                                      "limit": 200}) or [] if r.get("texto_final")]
+    """Textos que a loja mandou nesta conversa + (27/09) as respostas longas mandadas em QUALQUER conversa nos últimos 3 dias:
+    a leitura às vezes põe no chat de uma cliente a nossa resposta de outra (ex.: "Vi que você está de olho no Sabah Al Ward")."""
+    daqui = [r.get("texto_final") for r in repo._req("GET", "atendimento_rascunhos", {"select": "texto_final", "conversa_id": f"eq.{conversa_id}",
+                                                                                       "limit": 200}) or [] if r.get("texto_final")]
+    desde = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+    outras = [r.get("texto_final") for r in repo._req("GET", "atendimento_rascunhos", {
+        "select": "texto_final", "texto_final": "not.is.null", "criado_em": f"gte.{desde}", "order": "id.desc", "limit": 300}) or []
+        if len(str(r.get("texto_final") or "")) >= 40]
+    return daqui + outras
 
 
 def _ja_respondida(repo, conversa_id, msg_id):
@@ -1093,6 +1105,36 @@ def metricas(repo, dias=30):
             "por_intencao": {k: conta(v) for k, v in sorted(por.items())}}
 
 
+def _fotos_de(pd):
+    pd = pd or {}
+    return [x for x in [pd.get("foto"), (pd.get("produto_consultado") or {}).get("foto")]
+            + [i.get("foto") for i in pd.get("itens") or [] if isinstance(i, dict)] if x]
+
+
+def _fotos_genericas(repo, minimo=3):
+    """28/09 (print do Bruno): a mesma imagem aparecia em clientes diferentes (8 na Shopee): era uma imagem fixa da tela
+    (da loja), pega como se fosse do produto. Foto que aparece em `minimo` ou mais clientes diferentes não é do cliente."""
+    quem = {}
+    for c in repo._req("GET", "atendimento_conversas", {"select": "cliente,pedido_dados", "limit": 20000}) or []:
+        for f in set(_fotos_de(c.get("pedido_dados"))):
+            quem.setdefault(f, set()).add(c.get("cliente"))
+    return {f for f, cs in quem.items() if len(cs) >= minimo}
+
+
+def _sem_foto_generica(pd, genericas):
+    if not pd or not genericas:
+        return pd
+    pd = json.loads(json.dumps(pd))
+    if pd.get("foto") in genericas:
+        pd.pop("foto", None)
+    if isinstance(pd.get("produto_consultado"), dict) and pd["produto_consultado"].get("foto") in genericas:
+        pd["produto_consultado"].pop("foto", None)
+    for i in pd.get("itens") or []:
+        if isinstance(i, dict) and i.get("foto") in genericas:
+            i.pop("foto", None)
+    return pd
+
+
 def fila(repo, status=None, lim=80, canal_id=None):
     """Conversas com o último rascunho e as mensagens, para a tela de aprovação (de um canal ou de todos)."""
     p = {"select": "*", "order": "atualizado_em.desc", "limit": lim}
@@ -1106,10 +1148,14 @@ def fila(repo, status=None, lim=80, canal_id=None):
     ids = "in.(" + ",".join(str(c["id"]) for c in conversas) + ")"
     rascs = repo._req("GET", "atendimento_rascunhos", {"select": "*", "conversa_id": ids, "order": "id.desc", "limit": 1000}) or []
     msgs = repo._req("GET", "atendimento_mensagens", {"select": "*", "conversa_id": ids, "order": "criado_em,id", "limit": 5000}) or []
+    genericas = _fotos_genericas(repo)
+    # 28/09: nossa resposta longa lida no chat de outra cliente como se fosse dela (eco entre conversas)
+    longas = [r.get("texto_final") for r in rascs if len(str(r.get("texto_final") or "")) >= 40]
     for c in conversas:
+        c["pedido_dados"] = _sem_foto_generica(c.get("pedido_dados"), genericas)
         c["rascunho"] = next((r for r in rascs if r["conversa_id"] == c["id"]), None)
-        c["mensagens"] = _sem_eco([m for m in msgs if m["conversa_id"] == c["id"]],
-                                  [r.get("texto_final") for r in rascs if r["conversa_id"] == c["id"]])[-40:]
+        c["mensagens"] = _sem_eco([m for m in msgs if m["conversa_id"] == c["id"] and not _robo(m.get("texto"))],
+                                  [r.get("texto_final") for r in rascs if r["conversa_id"] == c["id"]] + longas)[-40:]
         # quem mandou cada resposta da loja (🤖 automático, Bruno) e se já saiu no chat, para os balões da tela
         c["respostas"] = [{"texto": r.get("texto_final"), "por": r.get("decidido_por"), "enviado_em": r.get("enviado_em"),
                            "pelo_mac": r.get("enviar_pelo_mac")} for r in rascs if r["conversa_id"] == c["id"] and r.get("texto_final")]

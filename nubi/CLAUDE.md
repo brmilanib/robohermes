@@ -357,3 +357,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   você" a conversa cuja última mensagem de verdade é da loja (rascunho `sem_resposta`, nunca apagado). Shopee: atendente fica na
   aba "Atendendo Hoje" (`DICAS_PLATAFORMA`), a ferramenta `abrir` é recusada fora do SAC, depois do envio direto limpa a busca
   e volta para "Atendendo Hoje" (`_voltar_atendendo_hoje`); versão nova do atendente só a cada ~1 h (reabrir o Chrome recarrega).
+- **Conversa certa, foto certa (28/09, prints do Bruno)**: o atendente só grava `registrar` com o nome do cliente no CABEÇALHO do
+  chat aberto (`_conversa_aberta_e_de`/`JS_CABECALHO`: texto igual ao nome, à direita da lista e no topo); senão recusa e manda
+  usar `abrir_conversa` (antes gravava foto/produto/pedido de uma cliente na conversa de outra). Foto que aparece em 3+ clientes
+  diferentes é imagem fixa da tela, não do produto (`_fotos_genericas`, `_sem_foto_generica` no `receber` e na `fila`). Botões
+  da tela ("Recomeçar Conversa", "Enviar pedido", "Nenhum registro"…) entram em `BOTOES_TIKTOK`; resposta nossa longa lida no
+  chat de outra cliente é eco (`_enviados` inclui as respostas longas dos últimos 3 dias; a `fila` também).

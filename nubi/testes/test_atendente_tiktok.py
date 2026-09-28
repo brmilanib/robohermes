@@ -9,6 +9,7 @@ from pathlib import Path
 os.environ["NUBI_COLETOR_DIR"] = tempfile.mkdtemp()
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "public" / "coletor"))
 import coletor as c  # noqa: E402
+_CABECALHO_ORIGINAL = c._conversa_aberta_e_de
 
 CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
 PAGINA = Path(tempfile.mkdtemp()) / "chat.html"
@@ -83,6 +84,7 @@ def _preparar(roteiro, aprovadas=(), receber=None, canais=("tiktok_shop",)):
         raise AssertionError("a navegação não pode usar IA paga")
     c._claude_ferramentas = pago
     c._modelos_locais = lambda: []            # sem Ollama local no teste
+    c._conversa_aberta_e_de = lambda pg, cli: True   # a página falsa não tem cabeçalho; a trava tem teste próprio
     return chamadas
 
 
@@ -466,6 +468,24 @@ document.getElementById('rec').onclick = () => { document.getElementById('rodape
         pg.goto(URL.replace("chat.html", "shopee_fechada.html"))
         assert c._enviar_direto(pg, {"id": 1, "cliente": "naiaraandradeabreu", "texto": "Após aberto, dura cerca de 2 anos."}) is None
         assert pg.evaluate("document.querySelectorAll('p.loja').length") == 1
+        ctx.close()
+
+
+def test_so_registra_com_o_chat_da_propria_cliente_aberto():
+    # 28/09 (print do Bruno): andrezaaasouza recebeu foto, produto, pedido e mensagens da amordemaelb
+    from playwright.sync_api import sync_playwright
+    html = """<html><head><meta charset="utf-8"></head><body style="margin:0;width:1400px">
+<div style="position:absolute;left:0;top:0;width:330px"><div>andrezaaasouza</div><div>amordemaelb</div></div>
+<div style="position:absolute;left:420px;top:60px"><b>amordemaelb</b></div>
+<div style="position:absolute;left:420px;top:300px">Bom dia! Vi que você está de olho no Sabah Al Ward</div></body></html>"""
+    PAGINA.with_name("cabecalho.html").write_text(html, encoding="utf-8")
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.set_viewport_size({"width": 1400, "height": 900})
+        pg.goto(URL.replace("chat.html", "cabecalho.html"))
+        assert _CABECALHO_ORIGINAL(pg, "amordemaelb") is True
+        assert _CABECALHO_ORIGINAL(pg, "andrezaaasouza") is False      # só na lista, não no cabeçalho
         ctx.close()
 
 
