@@ -44,7 +44,7 @@ class Repo:
 
 
 def test_indexar_com_contexto_e_vetor():
-    ia.embeddings = lambda textos, modelo=None: [[0.1] * 4 for _ in textos]
+    ia.embeddings = lambda textos, modelo=None, limite_seg=None: [[0.1] * 4 for _ in textos]
     ia.tem = lambda q: q == "ollama"
     ia.perguntar = lambda p, **k: ('["Trecho sobre a primeira parte.", "Trecho sobre a segunda."]', [], "ollama")
     longo = "Parágrafo A sobre o erro do coletor. " * 80

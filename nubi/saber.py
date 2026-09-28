@@ -111,7 +111,9 @@ def indexar(repo, segundos=150, lote=60):
         reais = [r for r in registros if "saber_id" in r]
         if not reais:
             break
-        vetores = ia.embeddings([f"{r['contexto']}\n\n{r['texto']}"[:8000] for r in reais])
+        # card #110: nunca deixa a espera de um 429 sustentado estourar o orçamento de tempo desta chamada
+        vetores = ia.embeddings([f"{r['contexto']}\n\n{r['texto']}"[:8000] for r in reais],
+                                limite_seg=max(0.0, segundos - (time.monotonic() - t0)))
         for r, v in zip(reais, vetores):
             r["embedding"] = "[" + ",".join(f"{x:.6f}" for x in v) + "]"
         repo._req("POST", "saber_trechos", {"on_conflict": "saber_id,ordem"}, corpo=reais,

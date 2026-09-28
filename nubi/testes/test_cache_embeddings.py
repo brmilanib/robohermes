@@ -2,6 +2,8 @@
 """Card #107: produtos_ia guarda o embedding de cada título (hash do modelo + versão das regras + texto, em ia_lotes
 tipo 'embedding') e a 2ª rodada seguida não chama a IA de novo; mudou a versão das regras ou o modelo, recalcula.
 Os pares abaixo do corte continuam fora de produto_grupos e os GTINs com o mesmo nome continuam em gtin_conferir.
+Card #110: HTTP 429 esgotado (ia.LimiteProvedor) faz agrupar_produtos devolver "pendente" (nunca "erro"), sem
+tocar em produto_grupos, e o que já foi salvo antes do 429 não é recalculado na rodada seguinte.
 Banco e OpenAI falsos. Rodar: python3 testes/test_cache_embeddings.py, na pasta nubi."""
 import os
 import sys
@@ -60,9 +62,12 @@ class Repo:
 CHAMADAS = []
 
 
-def _emb_falso(textos, modelo=None):
+def _emb_falso(textos, modelo=None, progresso=None, limite_seg=None):
     CHAMADAS.append(len(textos))
-    return [VET[t.split(" | ", 1)[1]] for t in textos]
+    vet = [VET[t.split(" | ", 1)[1]] for t in textos]
+    if progresso:
+        progresso(0, vet)
+    return vet
 
 
 def _rodar(repo):
@@ -113,6 +118,55 @@ def test_vetor_do_cache_e_o_mesmo():
     a = w._embeddings_cache(repo, textos)
     b = w._embeddings_cache(repo, textos)
     assert [[round(x, 6) for x in v] for v in a] == [[round(x, 6) for x in v] for v in b]
+
+
+def test_429_esgotado_fica_pendente_sem_tocar_produto_grupos():
+    """Card #110: o 1º texto já foi calculado e salvo (progresso) antes do provedor esgotar as tentativas no 2º —
+    a rotina não pode virar "erro" nem mexer em produto_grupos (nada foi juntado ainda nesta rodada)."""
+    ia.embeddings, repo = _emb_falso, Repo()
+    n1, _ = _rodar(repo)
+    g_antes = _grupos(repo)
+
+    def _falha_depois_do_primeiro(textos, modelo=None, progresso=None, limite_seg=None):
+        CHAMADAS.append(len(textos))
+        if progresso:
+            progresso(0, [VET[textos[0].split(" | ", 1)[1]]])
+        raise ia.LimiteProvedor("HTTP 429 (limite do provedor) mesmo após 3 tentativas")
+
+    pi.VERSAO_REGRAS += 1   # força recalcular (o cache da 1ª rodada não vale mais)
+    try:
+        ia.embeddings = _falha_depois_do_primeiro
+        res = w.agrupar_produtos(repo)
+        assert res.startswith("pendente"), res
+        assert not res.startswith("erro")
+        assert _grupos(repo) == g_antes                        # nada mudou: sem duplicar nem apagar grupo
+
+        # rodada seguinte com o provedor normal: o texto salvo antes do 429 não é pedido de novo
+        ia.embeddings = _emb_falso
+        n2, res2 = _rodar(repo)
+        assert not res2.startswith("erro"), res2
+        assert 0 < n2 < n1, (n1, n2)
+    finally:
+        pi.VERSAO_REGRAS -= 1
+
+
+def test_conferir_gtins_com_429_fica_pendente_sem_virar_erro():
+    """Card #110: 429 esgotado durante a conferência de GTINs (depois do agrupamento principal já ter salvo) não
+    pode aparecer como "erro" na rotina, e o agrupamento principal segue valendo."""
+    ia.embeddings, repo = _emb_falso, Repo()
+    conferir_antigo = w.conferir_gtins
+
+    def _conferir_falha(repo_, por_, limite_seg=None):
+        raise ia.LimiteProvedor("HTTP 429 (limite do provedor) mesmo após 3 tentativas")
+
+    w.conferir_gtins = _conferir_falha
+    try:
+        res = w.agrupar_produtos(repo)
+    finally:
+        w.conferir_gtins = conferir_antigo
+    assert not res.startswith("erro"), res
+    assert "pendente (limite do provedor) na conferência de GTINs" in res
+    assert _grupos(repo)["T:asad edp"][1] == "ia"                  # o agrupamento principal gravou normalmente
 
 
 if __name__ == "__main__":

@@ -588,16 +588,60 @@ def erros_schema(v, sc, caminho="$"):
     return out
 
 
-def embeddings(textos, modelo=None):
-    """Vetores de significado dos textos (OpenAI), na mesma ordem; lotes de 500."""
+class LimiteProvedor(SemIA):
+    """HTTP 429 do provedor esgotou as 3 tentativas (card #110): quem chama trata como pendente, não como erro."""
+    pass
+
+
+def _espera_429(erro, tentativa):
+    """Segundos para esperar antes de tentar de novo: Retry-After do provedor, senão 30s/60s/120s (card #110)."""
+    try:
+        return float(erro.headers.get("Retry-After"))
+    except (TypeError, ValueError, AttributeError):
+        return (30, 60, 120)[tentativa]
+
+
+def embeddings(textos, modelo=None, progresso=None, limite_seg=None):
+    """
+    Vetores de significado dos textos (OpenAI), na mesma ordem; lotes de 500.
+    HTTP 429: espera (Retry-After do provedor, senão 30s/60s/120s) e tenta de novo, até 3 vezes por lote; esgotou,
+    levanta LimiteProvedor em vez de deixar subir como erro genérico (card #110).
+    progresso(inicio, vetores_do_lote), se dado, roda a cada lote pronto — quem chama pode gravar na hora e retomar
+    do lote que parou se as tentativas se esgotarem, sem recalcular o que já foi feito.
+    limite_seg, se dado, é o orçamento total de tempo desta chamada: um provedor com rate limit sustentado pode
+    somar bem mais que 30+60+120s em textos com muitos lotes, e isso estouraria o tempo da função da Vercel (a
+    plataforma mata o processo sem levantar exceção — nem a rotina fica "pendente" nem as rotinas seguintes da
+    mesma passada rodam). Em vez de deixar isso acontecer, levanta LimiteProvedor assim que o tempo já gasto (mais
+    a próxima espera) ultrapassaria o limite, sem dormir além da conta.
+    """
     if not os.environ.get("OPENAI_API_KEY"):
         raise SemIA("embeddings precisam da OPENAI_API_KEY")
+    t0 = time.monotonic()
     saida = []
     for i in range(0, len(textos), 500):
-        r = _post_json("https://api.openai.com/v1/embeddings",
-                       {"model": modelo or os.environ.get("NUBI_IA_EMBED", "text-embedding-3-small"), "input": textos[i:i + 500]},
-                       {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}, timeout=120)
-        saida.extend(d["embedding"] for d in sorted(r["data"], key=lambda d: d["index"]))
+        lote = textos[i:i + 500]
+        r = None
+        for tentativa in range(3):
+            if limite_seg is not None and time.monotonic() - t0 >= limite_seg:
+                raise LimiteProvedor("tempo esgotado (limite_seg) antes de terminar todos os lotes")
+            try:
+                r = _post_json("https://api.openai.com/v1/embeddings",
+                               {"model": modelo or os.environ.get("NUBI_IA_EMBED", "text-embedding-3-small"), "input": lote},
+                               {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}, timeout=120)
+                break
+            except urllib.error.HTTPError as e:
+                if e.code != 429:
+                    raise
+                if tentativa == 2:
+                    raise LimiteProvedor("HTTP 429 (limite do provedor) mesmo após 3 tentativas") from e
+                espera = _espera_429(e, tentativa)
+                if limite_seg is not None and time.monotonic() - t0 + espera >= limite_seg:
+                    raise LimiteProvedor("tempo esgotado (limite_seg) esperando o provedor responder") from e
+                time.sleep(espera)
+        vet = [d["embedding"] for d in sorted(r["data"], key=lambda d: d["index"])]
+        saida.extend(vet)
+        if progresso:
+            progresso(i, vet)
     return saida
 
 
