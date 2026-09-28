@@ -1415,7 +1415,44 @@ def _upseller_lista(pg):
                                  + diagnostico(pg))
         raise Falha("a Lista de Estoque do UpSeller não carregou (sem o botão 'Importar & Exportar') " + diagnostico(pg))
     devagar(3)
+    _fechar_popups(pg)
     return botao
+
+
+def _fechar_popups(pg, vezes=3):
+    """28/09 (Mac): uma janelinha do UpSeller (aviso/novidade, .ant-modal) ficou na frente e o clique em 'My Warehouse'
+    esperou 30 s e falhou 2x. Fecha só avisos: o X da janela ou botões Fechar/OK/Entendi/Pular/Depois (nunca Confirmar,
+    Excluir ou Salvar)."""
+    fechou = 0
+    for _ in range(vezes):
+        janelas = pg.locator(".ant-modal-wrap:visible, .ant-modal:visible, [role=dialog]:visible")
+        if not janelas.count():
+            break
+        feito = False
+        for sel in (".ant-modal-close:visible", "[aria-label=Close]:visible", "[aria-label=close]:visible"):
+            try:
+                if pg.locator(sel).count():
+                    pg.locator(sel).last.click(timeout=4000)
+                    feito = True
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+        if not feito:
+            botao = janelas.last.get_by_role("button", name=re.compile(
+                r"^\s*(Fechar|OK|Ok|Entendi|Entendido|Pular|Depois|Mais tarde|Agora n[ãa]o|N[ãa]o mostrar( novamente)?|Close|Got it|Skip)\s*$", re.I))
+            try:
+                if botao.count():
+                    botao.last.click(timeout=4000)
+                    feito = True
+            except Exception:  # noqa: BLE001
+                pass
+        if not feito:
+            pg.keyboard.press("Escape")
+        fechou += 1
+        devagar(1.5)
+    if fechou:
+        log(f"  (fechei {fechou} janelinha(s) do UpSeller que estavam na frente)")
+    return fechou
 
 
 def _numero(txt, rotulo):
@@ -1570,11 +1607,13 @@ def baixar_vendas(pg, cfg):
     if url:
         pg.goto(url, wait_until="domcontentloaded", timeout=90000)
         devagar(5)
+    _fechar_popups(pg)
     if not pg.get_by_text(re.compile(r"Vendas por (An[úu]ncio|Produto)", re.I)).count():
         if not url:
             pg.goto(f"{UPSELLER}/pt/", wait_until="domcontentloaded", timeout=90000)
             devagar(5)
         _clicar_texto(pg, [r"^\s*An[áa]lises?\s*$", r"^\s*An[áa]lise de dados\s*$", r"^\s*Dados\s*$"])
+    _fechar_popups(pg)
     if not _clicar_texto(pg, [r"^\s*Vendas por An[úu]ncios?\s*$", r"^\s*Vendas por Produtos?\s*$"], 5):
         raise Falha("não achei 'Análises → Vendas por Anúncio' no UpSeller. Na tela: "
                     + str(pg.evaluate(JS_TEXTOS))[:700] + " " + diagnostico(pg))

@@ -589,6 +589,24 @@ Receita pós-atendimento\n$ 493\nPedidos pós-atendimento\n2\nConversão de vend
     assert c._taxa_tiktok_do_texto("Bate-papo da loja") == {}
 
 
+def test_fecha_a_janelinha_do_upseller_que_tampa_o_clique():
+    # 28/09 (Mac): um aviso do UpSeller (.ant-modal) na frente fez o clique em 'My Warehouse' falhar 2x
+    from playwright.sync_api import sync_playwright
+    html = """<html><head><meta charset="utf-8"></head><body><span id="mw" onclick="document.body.dataset.ok=1">My Warehouse</span>
+<div class="ant-modal-wrap" style="position:fixed;inset:0;background:rgba(0,0,0,.4)"><div class="ant-modal" role="dialog">
+<div class="ant-modal-body">Novidades do UpSeller!</div><button class="ant-modal-close" aria-label="Close"
+onclick="document.querySelector('.ant-modal-wrap').remove()">x</button></div></div></body></html>"""
+    PAGINA.with_name("upseller_aviso.html").write_text(html, encoding="utf-8")
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(URL.replace("chat.html", "upseller_aviso.html"))
+        assert c._fechar_popups(pg) == 1
+        pg.click("#mw", timeout=3000)
+        assert pg.evaluate("document.body.dataset.ok") == "1"
+        ctx.close()
+
+
 def test_so_registra_com_o_chat_da_propria_cliente_aberto():
     # 28/09 (print do Bruno): andrezaaasouza recebeu foto, produto, pedido e mensagens da amordemaelb
     from playwright.sync_api import sync_playwright
