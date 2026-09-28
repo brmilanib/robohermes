@@ -364,7 +364,8 @@ def gerar_ia(prompt, sistema):
     """IA grátis (gpt-oss do plano Ollama); o DeepSeek (barato) só de reserva."""
     for qual in ("ollama", "deepseek"):
         if ia.tem(qual):
-            texto, _, usou = ia.perguntar(prompt, web=False, qual=qual, sistema=sistema, max_tokens=700)
+            texto, _, usou = ia.perguntar(prompt, web=False, qual=qual, sistema=sistema, max_tokens=700,
+                                          modelo="flash" if qual == "deepseek" else None)
             return texto, usou
     raise ia.SemIA("nenhuma IA grátis disponível")
 

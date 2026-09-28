@@ -64,14 +64,16 @@ def cabecalho(item):
 
 
 def _contextos_ia(item, partes):
-    """Uma frase de contexto por pedaço, escrita pelo gpt-oss grátis (DeepSeek de reserva) lendo o item inteiro."""
+    """Uma frase de contexto por pedaço, escrita SÓ pelo gpt-oss grátis lendo o item inteiro. 28/09: sem cota do gpt-oss o
+    DeepSeek de reserva escrevia as mesmas frases o dia todo (322 chamadas pagas) e ainda comia o tempo dos vetores, então
+    nada era salvo e o mesmo lote voltava. Sem a grátis, o pedaço vai só com o cabeçalho (a busca funciona igual)."""
     doc = (item.get("texto") or "")[:14000]
     lista = "\n\n".join(f"<pedaco n={i + 1}>\n{p[:1800]}\n</pedaco>" for i, p in enumerate(partes[:12]))
     pedido = (f"{GLOSSARIO}\n\n<documento>\n{doc}\n</documento>\n\nPara cada pedaço abaixo, escreva UMA frase curta (até 30 "
               "palavras, em português) que situe o pedaço dentro do documento, para melhorar a busca. Responda SOMENTE um JSON "
               "com a lista de frases na mesma ordem, ex.: [\"...\", \"...\"].\n\n" + lista)
-    for qual in ("ollama", "deepseek"):
-        if not ia.tem(qual):
+    for qual in ("ollama",):
+        if not ia.tem(qual) or time.monotonic() < _SEM_GRATIS_ATE[0]:
             continue
         try:
             t = ia.perguntar(pedido, web=False, max_tokens=900, qual=qual)[0]
@@ -79,9 +81,16 @@ def _contextos_ia(item, partes):
             frases = json.loads(m.group(0)) if m else []
             if isinstance(frases, list) and frases:
                 return [str(f)[:300] for f in frases], qual
+        except ia.SemIA as e:
+            if "cota" in str(e):             # cota grátis acabou: não tenta de novo nos outros itens desta vez
+                _SEM_GRATIS_ATE[0] = time.monotonic() + 600
+            continue
         except Exception:  # noqa: BLE001
             continue
     return [], ""
+
+
+_SEM_GRATIS_ATE = [0.0]
 
 
 def indexar(repo, segundos=150, lote=60):

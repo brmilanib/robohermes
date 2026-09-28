@@ -441,7 +441,8 @@ def _web_gratis(pergunta, quem):
         if not ia.tem(qual):
             continue
         try:
-            texto = (ia.perguntar(pedido, web=False, max_tokens=900, qual=qual)[0] or "").strip()
+            texto = (ia.perguntar(pedido, web=False, max_tokens=900, qual=qual,
+                                  modelo="flash" if qual == "deepseek" else None)[0] or "").strip()
         except Exception:  # noqa: BLE001
             texto = ""
         if texto:

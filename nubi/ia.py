@@ -383,8 +383,9 @@ def _perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sist
     if ia == "ollama":
         return _ollama(pergunta, max_tokens, modelo, sistema), [], ia
     if ia == "deepseek":
-        return _deepseek(pergunta, max_tokens, None if modelo == "pro" else modelo, sistema,
-                         DEEPSEEK_PRO if modelo == "pro" else None).strip(), [], ia
+        # modelo="flash": reserva barata da IA grátis (textos do atendimento, resumo de pesquisa); o resto usa o v4-pro
+        lista = DEEPSEEK_FLASH if modelo == "flash" else DEEPSEEK_PRO if modelo == "pro" else None
+        return _deepseek(pergunta, max_tokens, None if modelo in ("pro", "flash") else modelo, sistema, lista).strip(), [], ia
     if ia == "claude":
         # o Claude sempre raciocina antes e isso conta no max_tokens: folga de 16 mil para sobrar a resposta
         conteudo = pergunta

@@ -100,6 +100,27 @@ def test_avaliacao_conta_acertos():
     assert res["total"] == 20 and res["antiga"] == 0 and res["hibrida"] == 1 and res["reordenada"] == 1
 
 
+def test_frase_de_contexto_so_com_a_ia_gratis():
+    # 28/09: sem cota do gpt-oss, o DeepSeek escrevia as mesmas frases o dia todo (322 chamadas) e nada era salvo
+    import ia
+    import saber
+    chamadas = []
+    def perguntar(pedido, web=False, max_tokens=0, qual=None, **k):
+        chamadas.append(qual)
+        raise ia.SemIA("cota grátis do Ollama esgotada por agora (429)")
+    velho_p, velho_t = ia.perguntar, ia.tem
+    ia.perguntar, ia.tem = perguntar, (lambda q: True)
+    saber._SEM_GRATIS_ATE[0] = 0.0
+    try:
+        item = {"texto": "x " * 3000, "titulo": "t"}
+        assert saber._contextos_ia(item, ["a", "b"]) == ([], "")
+        assert saber._contextos_ia(item, ["a", "b"]) == ([], "")      # sem cota: nem tenta de novo por 10 min
+        assert chamadas == ["ollama"]
+    finally:
+        ia.perguntar, ia.tem = velho_p, velho_t
+        saber._SEM_GRATIS_ATE[0] = 0.0
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

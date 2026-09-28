@@ -52,8 +52,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 
 ## DeepSeek (28/09, pedido do Bruno)
 
-- Toda chamada ao DeepSeek usa o **deepseek-v4-pro** (`ia.DEEPSEEK_MODELOS`); os flash (`DEEPSEEK_FLASH`) ficam só de
-  reserva se o pro recusar. Antes o padrão era o flash e só a Sala/cards usavam o pro.
+- As análises com o DeepSeek usam o **deepseek-v4-pro** (`ia.DEEPSEEK_MODELOS`); os flash (`DEEPSEEK_FLASH`) ficam de
+  reserva se o pro recusar. Onde o DeepSeek é só reserva da IA grátis (textos do atendimento `gerar_ia`, resumo de pesquisa
+  na internet) vai `modelo="flash"` (barato).
+- **Frase de contexto da base (`saber._contextos_ia`) é SÓ gpt-oss grátis**: sem cota (429), o pedaço vai só com o cabeçalho
+  e não tenta de novo por 10 min. Em 28/09 o DeepSeek de reserva fazia ~40 chamadas/h das MESMAS frases, comia o tempo dos
+  vetores ("tempo esgotado antes de terminar todos os lotes") e nada era salvo (588 itens parados).
 
 ## Mini-benchmark de modelos (#15, 27/09) — `nubi_benchmark.py`, migração `supabase/benchmark.sql`
 
