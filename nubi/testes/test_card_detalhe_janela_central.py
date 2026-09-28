@@ -42,11 +42,25 @@ def _navegador(p):
     return p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch(channel="chrome")
 
 
+def _rolar_com_o_dedo(pg, x, y_ini, y_fim, passos=10):
+    """Gesto de toque de verdade (Input.dispatchTouchEvent via CDP), não só um dispatchEvent de JS que não
+    move a rolagem sozinho: achado da revisão do card #95 (só havia prova por roda do mouse, o critério de
+    aceite pede também toque)."""
+    cdp = pg.context.new_cdp_session(pg)
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y_ini}]})
+    for i in range(1, passos + 1):
+        y = y_ini + (y_fim - y_ini) * i / passos
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x, "y": y}]})
+        pg.wait_for_timeout(15)
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    cdp.detach()
+
+
 try:
     with sync_playwright() as p:
         b = _navegador(p)
         for w, h, nome, celular in ((1440, 900, "pc", False), (390, 844, "celular", True)):
-            pg = b.new_page(viewport={"width": w, "height": h})
+            pg = b.new_page(viewport={"width": w, "height": h}, has_touch=celular)
             erros = []
             pg.on("pageerror", lambda e: erros.append(str(e)))
             pg.route("https://cdn.jsdelivr.net/**", lambda r: r.fulfill(content_type="application/javascript", body=STUB))
@@ -88,20 +102,35 @@ try:
                 assert 700 <= box["width"] <= 760, (nome, box)
             pg.screenshot(path=f"{os.environ.get('TMPDIR', '/tmp')}/nubi-card95-{nome}-topo.png", full_page=False)   # cabeçalho + resumo, no topo
 
-            # uma única área de rolagem: chega até o fim (última mensagem e botões finais alcançáveis)
+            # .tf-lin (histórico) não tem rolagem própria: existe UMA área de rolagem só (a janela inteira)
+            lin_overflow = pg.evaluate("getComputedStyle(document.getElementById('tf-lin')).overflowY")
+            assert lin_overflow not in ("auto", "scroll"), (nome, lin_overflow)
+
+            def _fim():
+                return pg.evaluate("""() => { const s = document.getElementById('tf-status'), tf = document.querySelector('.modal-bg.tarefa .modal');
+                  const b = s.getBoundingClientRect();
+                  return {statusBottom: Math.round(b.bottom), inner: innerHeight, tfTop: tf.scrollTop, max: tf.scrollHeight - tf.clientHeight}; }""")
+
+            # chega até o fim (última mensagem e botões finais alcançáveis) com a roda do mouse/trackpad
             pg.mouse.move(w // 2, h // 2)
             for _ in range(40):
                 pg.mouse.wheel(0, 800)
                 pg.wait_for_timeout(20)
             pg.wait_for_timeout(300)
-            fim = pg.evaluate("""() => { const s = document.getElementById('tf-status'), tf = document.querySelector('.modal-bg.tarefa .modal');
-              const b = s.getBoundingClientRect();
-              return {statusBottom: Math.round(b.bottom), inner: innerHeight, tfTop: tf.scrollTop, max: tf.scrollHeight - tf.clientHeight,
-                      linScroll: getComputedStyle(document.getElementById('tf-lin')).overflowY}; }""")
-            assert fim["tfTop"] >= fim["max"] - 2, (nome, fim)              # rolou até o fim
-            assert fim["statusBottom"] <= fim["inner"] + 1, (nome, fim)     # botão/seletor final aparece inteiro
-            assert fim["linScroll"] in ("visible", "auto") or True         # .tf-lin não tem rolagem própria (uma única área)
+            fim = _fim()
+            assert fim["tfTop"] >= fim["max"] - 2, (nome, "roda do mouse", fim)
+            assert fim["statusBottom"] <= fim["inner"] + 1, (nome, "roda do mouse", fim)
             pg.screenshot(path=f"{os.environ.get('TMPDIR', '/tmp')}/nubi-card95-{nome}-fim.png", full_page=False)   # rolado até o fim
+
+            if celular:
+                # também com toque de verdade (gesto real via CDP, não só roda do mouse): volta ao topo e sobe com o dedo
+                pg.evaluate("document.querySelector('.modal-bg.tarefa .modal').scrollTop = 0")
+                for _ in range(6):
+                    _rolar_com_o_dedo(pg, w // 2, h - 120, 120)
+                    pg.wait_for_timeout(150)
+                fim_toque = _fim()
+                assert fim_toque["tfTop"] >= fim_toque["max"] - 2, (nome, "toque", fim_toque)
+                assert fim_toque["statusBottom"] <= fim_toque["inner"] + 1, (nome, "toque", fim_toque)
 
             # ao fechar, o quadro volta exatamente na mesma posição de rolagem
             pg.click(".tf-cab button[data-fechar]")
