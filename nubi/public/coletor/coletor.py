@@ -1423,9 +1423,35 @@ def _numero(txt, rotulo):
     return int(m.group(1).replace(".", "")) if m else None
 
 
+def _fechar_avisos(pg):
+    """Card #114: o UpSeller às vezes abre um aviso (modal) por cima da Lista de Estoque e o clique na aba My Warehouse
+    esperava 30 s ("ant-modal-body intercepts pointer events"). Fecha pelo X, Esc ou botão; se não fechar, esconde."""
+    for _ in range(3):
+        abertos = pg.locator(".ant-modal-wrap:visible")
+        if not abertos.count():
+            return
+        log(f"  UpSeller: aviso aberto por cima da tela ({abertos.last.inner_text()[:80]!r}); fechando")
+        try:
+            x = pg.locator(".ant-modal-wrap:visible .ant-modal-close").last
+            if x.count():
+                x.click(timeout=5000)
+            else:
+                pg.keyboard.press("Escape")
+                devagar(1)
+                if abertos.count():
+                    abertos.last.get_by_role("button", name=re.compile(
+                        r"^\s*(Fechar|OK|Entendi|Confirmar|Cancelar|Close|Got it)\s*$", re.I)).last.click(timeout=3000)
+        except Exception:  # noqa: BLE001
+            pass
+        devagar(1)
+    pg.evaluate("() => document.querySelectorAll('.ant-modal-root, .ant-modal-wrap, .ant-modal-mask')"
+                ".forEach(e => e.style.display = 'none')")
+
+
 def baixar_estoque(pg, p=None):
     """Faz o export na tela e devolve (arquivo baixado, SKUs esperados)."""
     botao = _upseller_lista(pg)
+    _fechar_avisos(pg)
     aba = pg.get_by_text(re.compile(r"^\s*My Warehouse\s*\d*\s*$")).first
     esperado = None
     if aba.count():
