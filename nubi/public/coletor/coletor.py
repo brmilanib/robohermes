@@ -4421,11 +4421,18 @@ def _atendente_digitar(pg, ent, estado, item):
         corpo_pg = ""
     if item.get("cliente") and item["cliente"].lower() not in corpo_pg.lower():
         return f"A conversa aberta não é do cliente {item['cliente']}: abra a conversa certa antes."
+    trecho = _norm_txt(item["texto"])[:50]
+    if trecho and _ja_no_chat(pg, trecho):
+        return None                                    # já estava no chat: não manda em dobro
     pg.locator(f"[data-nubi-n='{campo['n']}']").first.fill(item["texto"], timeout=15000)
     pg.wait_for_timeout(600)
     pg.locator(f"[data-nubi-n='{botao['n']}']").first.click(timeout=15000)
-    pg.wait_for_timeout(2500)
-    return None
+    # 28/09 (Bruno): "✓ enviado" só quando a mensagem aparece de verdade no chat (antes bastava clicar em Enviar)
+    for _ in range(6):
+        pg.wait_for_timeout(1000)
+        if _ja_no_chat(pg, trecho):
+            return None
+    return "cliquei em Enviar, mas a mensagem não apareceu no chat"
 
 
 def _atendente_marca(pg):
@@ -4785,6 +4792,27 @@ JS_FOTOS = r"""nomes => { const achar = n => { const k = n.toLowerCase().replace
   const out = {}; for (const n of nomes) out[n] = achar(n); return out; }"""
 
 
+# 28/09 (Márcia, TikTok): as fotos do produto quebrado que a cliente mandou no chat não chegavam ao nubi. Imagens grandes
+# dentro das mensagens do chat aberto (meio da tela, fora da lista à esquerda e do painel do pedido à direita).
+JS_FOTOS_CLIENTE = r"""() => { const w = innerWidth || 1200, out = [];
+  for (const el of document.querySelectorAll('img')) { const r = el.getBoundingClientRect(), src = el.currentSrc || el.src || '';
+    if (!/^https?:/.test(src) || r.width < 90 || r.height < 90) continue;
+    const meio = r.left > w * 0.25 && r.right < w * 0.78;
+    let e = el, nota = ''; for (let i = 0; i < 5 && e; i++, e = e.parentElement) nota += ' ' + (e.className || '');
+    if (meio && !/avatar|logo|emoji|sticker|product|goods|card/i.test(nota) && !out.includes(src)) out.push(src); }
+  return out.slice(-6); }"""
+
+
+def _fotos_da_cliente(pg):
+    fotos = []
+    for fr in (pg.frames if pg else [])[:4]:
+        try:
+            fotos += [f for f in fr.evaluate(JS_FOTOS_CLIENTE) if f not in fotos]
+        except Exception:  # noqa: BLE001
+            continue
+    return fotos[-6:]
+
+
 def _atendente_painel(ent, pg=None, fonte=None):
     """Painel do pedido + o cartão do produto que o cliente está olhando (27/09: para não indicar o mesmo produto) e a foto
     de cada produto (o coletor pega o endereço da imagem ao lado do nome na página; foto de produto, nunca de cliente)."""
@@ -4802,6 +4830,11 @@ def _atendente_painel(ent, pg=None, fonte=None):
         for x in ([pd["produto_consultado"]] if pd.get("produto_consultado") else []) + itens:
             if fotos.get(str(x["nome"])):
                 x["foto"] = str(fotos[str(x["nome"])])[:600]
+    if pg is not None and not fonte:
+        ja = {str(x.get("foto")) for x in ([pd.get("produto_consultado") or {}] + list(pd.get("itens") or [])) if isinstance(x, dict)}
+        fc = [f[:600] for f in _fotos_da_cliente(pg) if f not in ja]
+        if fc:
+            pd["fotos_cliente"] = fc
     if fonte:
         pd["fonte"] = fonte
     return pd or None
@@ -5464,7 +5497,8 @@ JS_DIAGNOSTICO = r"""() => { const out = [];
 
 def _testar_envio(pg, cliente):
     """28/09: abre a conversa do cliente como o envio direto faz e conta o que achou (campo, Recomeçar, rodapé).
-    NÃO digita, NÃO envia e NÃO clica em Recomeçar."""
+    NÃO digita, NÃO envia e NÃO clica em Recomeçar. 'cliente|trecho' também diz se o trecho já está no chat."""
+    cliente, _, trecho = str(cliente or "").partition("|")
     cliente = re.sub(r"[^\w .@-]", "", cliente or "").strip()[:60]
     if len(cliente) < 3:
         return "informe o cliente: testar_envio <nome>"
@@ -5473,7 +5507,8 @@ def _testar_envio(pg, cliente):
         _aba_todos_os_chats(pg)
         achou = bool(_atendente_buscar(pg, cliente, {})) and _abrir_linha(pg, cliente)
     info, _ = _campo_do_chat(pg)
-    saida = (f"conversa {'aberta' if achou else 'NÃO achada'} · cabeçalho {'confere' if _conversa_aberta_e_de(pg, cliente) else 'não confere'}"
+    no_chat = f" · trecho no chat: {'SIM' if _ja_no_chat(pg, _norm_txt(trecho)[:50]) else 'NÃO'}" if trecho.strip() else ""
+    saida = (f"conversa {'aberta' if achou else 'NÃO achada'}{no_chat} · cabeçalho {'confere' if _conversa_aberta_e_de(pg, cliente) else 'não confere'}"
              f" · campo: {info or 'nenhum'} · Recomeçar visível: {'sim' if _botao_visivel(pg, RECOMECAR) else 'não'} · {_rodape(pg)}")
     _voltar_atendendo_hoje(pg)
     return saida

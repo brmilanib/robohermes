@@ -2838,7 +2838,7 @@ async function telaAtendimento(canal = "tiktok_shop") {
     const r = (c.respostas || []).find(y => (y.texto || "").trim() === (x.texto || "").trim()) || {};
     // 28/09 (print do Bruno): resposta aprovada que o envio não conseguiu entregar não pode parecer enviada
     return (r.por === "automático" ? "🤖 automático" : esc(r.por || "loja")) + (r.falhou ? ` · <b style="color:#b45309">⚠️ não chegou à cliente (envio falhou)</b>`
-      : r.pelo_mac ? (r.enviado_em ? " · ✓ enviado" : " · ⏳ enviando") : ""); };
+      : r.pelo_mac ? (r.enviado_em ? ` · <b style="color:#15803d">✓✓ chegou no chat</b>` : " · ⏳ enviando") : ""); };
   const chat = c => { if (!c) return `<div class="atx-vazio">Escolha uma conversa à esquerda.</div>`;
     const r = c.rascunho || {};
     // 28/09 (Bruno): resposta aprovada que não chegou à cliente: manda de novo pelo nubi (pode editar o texto)
@@ -2879,6 +2879,8 @@ async function telaAtendimento(canal = "tiktok_shop") {
     const pc = (c.pedido_dados || {}).produto_consultado;
     return `${pc ? `<h3>🧴 Produto que ${esc(c.cliente || "o cliente")} perguntou</h3><div class="atx-prod">${pc.foto ? `<img src="${esc(pc.foto)}" alt="" referrerpolicy="no-referrer">` : ""}<span style="flex:1">${esc(pc.nome || "")}</span><b>${esc(pc.variacao || "")}</b></div>
       <p class="muted" style="font-size:11.5px;margin:4px 0 12px">Para indicar outra opção, não repita este.</p>` : ""}
+      ${(c.pedido_dados || {}).fotos_cliente && c.pedido_dados.fotos_cliente.length ? `<h3>📷 Fotos que ${esc(c.cliente || "o cliente")} mandou</h3>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${c.pedido_dados.fotos_cliente.map(f => `<a href="${esc(f)}" target="_blank" rel="noopener noreferrer"><img src="${esc(f)}" alt="foto da cliente" referrerpolicy="no-referrer" loading="lazy" style="width:92px;height:92px;object-fit:cover;border-radius:8px"></a>`).join("")}</div>` : ""}
       <h3>Informação do pedido</h3>${linhas || itens ? linhas + itens : `<p class="muted">Sem pedido ligado a esta conversa.</p>`}
       <h3 style="margin-top:14px">Atendimento</h3>
       <div class="atx-kv"><span>Assunto</span><b>${esc(AT_INTENCAO[r.intencao] || "—")}</b></div>

@@ -726,6 +726,22 @@ def test_chat_expirado_nao_volta_ao_bruno():
     assert a.para_enviar(r) == []
 
 
+def test_releitura_com_linhas_juntas_nao_vira_mensagem_nova():
+    # 28/09 (Márcia, TikTok): "Quero meu dinheiro de volta" + 3 linhas relidas juntas viraram mensagem nova depois da resposta
+    r = Repo()
+    conv = a._inserir(r, "atendimento_conversas", {"canal": "tiktok_shop", "loja": "principal", "cliente": "mrcia",
+                                                   "externo_id": "mrcia", "status": "respondida"})
+    for de, t in [("cliente", "Quero meu dinheiro de volta"), ("cliente", "Inadmissível a forma como recebi o produto"),
+                  ("cliente", "Todo quebrado, válvula solta"), ("loja", "Oi, Márcia! Sentimos muito pelo ocorrido.")]:
+        r._req("POST", "atendimento_mensagens", corpo=[{"conversa_id": conv["id"], "de": de, "texto": t, "criado_em": a._agora()}])
+    antes = len(r.t["atendimento_mensagens"])
+    a.receber(r, "tiktok_shop", "Quero meu dinheiro de volta Inadmissível a forma como recebi o produto Todo quebrado, válvula solta",
+              cliente="mrcia", externo_id="mrcia", gerar=lambda *x, **k: "x")
+    assert len(r.t["atendimento_mensagens"]) == antes and not r.t.get("atendimento_rascunhos")
+    assert a._ja_recebida(r, conv["id"], "Quero meu dinheiro de volta\nTodo quebrado, válvula solta")
+    assert not a._ja_recebida(r, conv["id"], "Quero meu dinheiro de volta\nE o rastreio?")
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

@@ -389,3 +389,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `ATENDENTE_ROLAR_MAX`=3 vezes por rodada (a lista volta ao topo no fim, `_rolar_topo`) e o pedido é "hoje e ontem".
   `registrar` recebe `data_ultima` (a data que a tela mostra); `_data_antiga` recusa conversa com mais de `DIAS_RESPONDER`=7
   dias (a joana era de 21/08, relida como nova porque o nubi grava a hora da LEITURA, não a da mensagem).
+- **Chegou de verdade, releitura e fotos (28/09, Márcia no TikTok)**: `_atendente_digitar` só dá como enviada quando o texto
+  aparece no chat (`_ja_no_chat`, até 6 s; senão erro, que conta nas 2 tentativas); a tela mostra "✓✓ chegou no chat".
+  `receber` não grava de novo mensagem cujas linhas já estão nas da cliente (`_ja_recebida`, ≥ 15 letras: releitura com as
+  linhas juntas ou separadas). O atendente manda as fotos que a cliente pôs no chat (`JS_FOTOS_CLIENTE`/`_fotos_da_cliente`
+  → `pedido_dados.fotos_cliente`, até 6; imagem fixa da tela sai por `_fotos_genericas`); a tela mostra "📷 Fotos que … mandou"
+  e os FATOS dizem `cliente_mandou_fotos` (não pedir de novo). `testar_envio <canal> <cliente>|<trecho>` diz se o trecho está no chat.

@@ -222,6 +222,9 @@ def buscar_dados(repo, can, conversa, texto, resposta_operador=None, interp=None
     if prod and prod.get("nome"):
         # 27/09 (pedido do Bruno): o cartão do produto que o cliente está olhando no chat (para não indicar o mesmo)
         fatos["produto_consultado"] = {k: str(prod[k])[:200] for k in ("nome", "variacao") if prod.get(k)}
+    if tela.get("fotos_cliente"):
+        # 28/09 (Márcia): ela já mandou as fotos do produto quebrado no chat; a resposta não deve pedir fotos de novo
+        fatos["cliente_mandou_fotos"] = f"a cliente já mandou {len(tela['fotos_cliente'])} foto(s) no chat (não peça de novo)"
     if intento in PRECISA_PEDIDO and sobre_o_pedido:
         if pid:
             linha = can.buscar_pedido(repo, pid)
@@ -672,6 +675,18 @@ def _gravar_historico(repo, conversa_id, hist):
     return len(novas)
 
 
+def _ja_recebida(repo, conversa_id, texto):
+    """Toda linha do texto já está nas mensagens da cliente guardadas (releitura, mesmo com as linhas juntas ou separadas)?
+    Mensagem curta ('oi', 'ok') pode repetir de verdade: só vale a partir de 15 letras."""
+    n = lambda t: re.sub(r"\s+", " ", _norm(t)).strip()
+    if len(n(texto)) < 15:
+        return False
+    ja = " ".join(n(m["texto"]) for m in repo._req("GET", "atendimento_mensagens", {
+        "select": "texto", "conversa_id": f"eq.{conversa_id}", "de": "eq.cliente", "order": "id", "limit": 500}) or [] if m.get("texto"))
+    linhas = [n(x) for x in re.split(r"\n+", str(texto)) if n(x)]
+    return bool(linhas) and all(x in ja for x in linhas)
+
+
 def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, externo_id=None, gerar=None, pedido_dados=None,
             historico=None, respondido=False, fechado=False):
     """Mensagem nova de cliente (do conector do canal ou colada pelo operador): grava e gera o rascunho.
@@ -736,6 +751,14 @@ def receber(repo, canal_id, texto, loja=None, cliente=None, pedido_ref=None, ext
                               corpo={"status": "substituido", "motivo": "resolvido com dado novo"})
                     return processar(repo, conversa, ult, gerar)
             return r
+        if texto and not repetiu and _ja_recebida(repo, conversa["id"], texto):
+            # 28/09 (Márcia, TikTok): a mesma reclamação relida 3x, cada vez com as linhas juntas de outro jeito, virou
+            # mensagem nova DEPOIS da nossa resposta e gerou rascunho à toa. Linhas que já estão no nubi = releitura.
+            if anteriores:
+                _gravar_historico(repo, conversa["id"], anteriores)
+            rs = repo._req("GET", "atendimento_rascunhos", {"select": "*", "conversa_id": f"eq.{conversa['id']}",
+                                                            "order": "id.desc", "limit": 1}) or []
+            return rs[0] if rs else {"status": "historico", "conversa_id": conversa["id"]}
     if anteriores:
         _gravar_historico(repo, conversa["id"], anteriores)
     if not texto:                     # conversa já respondida (ou da aba Fechados): só o histórico, sem rascunho
@@ -1118,7 +1141,7 @@ def metricas(repo, dias=30):
 def _fotos_de(pd):
     pd = pd or {}
     return [x for x in [pd.get("foto"), (pd.get("produto_consultado") or {}).get("foto")]
-            + [i.get("foto") for i in pd.get("itens") or [] if isinstance(i, dict)] if x]
+            + [i.get("foto") for i in pd.get("itens") or [] if isinstance(i, dict)] + list(pd.get("fotos_cliente") or []) if x]
 
 
 def _fotos_genericas(repo, minimo=3):
@@ -1137,6 +1160,8 @@ def _sem_foto_generica(pd, genericas):
     pd = json.loads(json.dumps(pd))
     if pd.get("foto") in genericas:
         pd.pop("foto", None)
+    if pd.get("fotos_cliente"):
+        pd["fotos_cliente"] = [f for f in pd["fotos_cliente"] if f not in genericas]
     if isinstance(pd.get("produto_consultado"), dict) and pd["produto_consultado"].get("foto") in genericas:
         pd["produto_consultado"].pop("foto", None)
     for i in pd.get("itens") or []:

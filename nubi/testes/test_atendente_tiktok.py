@@ -16,7 +16,7 @@ PAGINA = Path(tempfile.mkdtemp()) / "chat.html"
 PAGINA.write_text("""<html><head><meta charset="utf-8"><title>Bate-papo da loja</title></head><body>
 <div>Não respondidos</div><div class="item" style="cursor:pointer" onclick="document.body.dataset.aberta=1"><b>leidianearaujo182</b> · Vocês vendem perfumes tester?</div>
 <textarea placeholder="Insira / para respostas salvas"></textarea>
-<button onclick="localStorage.enviado=document.querySelector('textarea').value">Enviar</button>
+<button onclick="const t=document.querySelector('textarea'); localStorage.enviado=t.value; const p=document.createElement('p'); p.textContent=t.value; document.body.appendChild(p); t.value=''">Enviar</button>
 <button>Reembolsar</button></body></html>""", encoding="utf-8")
 
 
@@ -108,7 +108,7 @@ def test_traz_a_mensagem_e_envia_so_o_texto_aprovado():
     assert ("atendimento_receber", ) == tuple(r for r in rotas if r == "atendimento_receber")
     corpo = next(cp for r, cp in ch["api"] if r == "atendimento_receber")
     assert corpo["cliente"] == "leidianearaujo182" and corpo["canal"] == "tiktok_shop" and len(corpo["historico"]) == 2
-    assert ENVIADO["texto"] == aprovado                                    # o texto aprovado, digitado pelo coletor
+    assert ENVIADO["texto"].strip() == aprovado                            # o texto aprovado, digitado pelo coletor
     assert ("atendimento_enviado", {"id": 9, "ok": True}) in ch["api"]
     assert any("Atendente TikTok" in json.dumps(cp, ensure_ascii=False) for r, cp in ch["api"] if r == "reuniao_postar")
 
@@ -532,6 +532,46 @@ def test_data_da_tela():
     h = date(2026, 9, 28)
     assert [c._data_antiga(t, h) for t in ("14:05", "Ontem", "segunda", "27/09", "21/08", "21 de ago", "")] == \
         [False, False, False, False, True, True, False]
+
+
+def test_so_marca_enviado_quando_aparece_no_chat():
+    # 28/09 (Bruno): "✓ enviado" só quando a mensagem chegou de verdade no chat
+    from playwright.sync_api import sync_playwright
+    html = """<html><head><meta charset="utf-8"></head><body><b>mrcia.amorim24</b><textarea data-nubi-n="0"></textarea>
+<button data-nubi-n="1">Enviar</button></body></html>"""
+    PAGINA.with_name("nao_envia.html").write_text(html, encoding="utf-8")
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(URL.replace("chat.html", "nao_envia.html"))
+        estado = {"els": {0: {"n": 0, "tag": "textarea", "tipo": "", "texto": "", "nome": ""},
+                          1: {"n": 1, "tag": "button", "tipo": "", "texto": "Enviar", "nome": ""}}}
+        erro = c._atendente_digitar(pg, {"n_campo": 0, "n_botao": 1}, estado, {"id": 1, "cliente": "mrcia.amorim24",
+                                                                                "texto": "Oi, Márcia! Sentimos muito pelo ocorrido."})
+        assert erro and "não apareceu no chat" in erro
+        ctx.close()
+
+
+def test_traz_as_fotos_que_a_cliente_mandou():
+    # 28/09 (Márcia): as fotos do perfume quebrado mandadas no chat do TikTok não chegavam ao nubi
+    import base64
+    from playwright.sync_api import sync_playwright
+    PAGINA.with_name("foto.png").write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAIAAACRXR/mAAAAK0lEQVR42u3NMQEAAAgDoK1/aM3hIYJpzW1vQ0JCQkJCQkJCQkJCQkJCQkLiA0yHAWG2m/mQAAAAAElFTkSuQmCC"))
+    html = """<html><head><meta charset="utf-8"></head><body style="margin:0;width:1400px">
+<div style="position:absolute;left:0;top:0;width:330px"><img class="avatar" src="foto.png?a" width="120" height="120"></div>
+<div style="position:absolute;left:500px;top:200px"><div class="msg"><img src="foto.png?quebrado" width="200" height="200"></div></div>
+<div style="position:absolute;left:1150px;top:100px"><img src="foto.png?painel" width="120" height="120"></div></body></html>"""
+    PAGINA.with_name("fotos.html").write_text(html, encoding="utf-8")
+    with sync_playwright() as p:
+        ctx = _abrir(p, {})
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.set_viewport_size({"width": 1400, "height": 900})
+        pg.goto(URL.replace("chat.html", "fotos.html"))
+        fotos = c._fotos_da_cliente(pg)
+        assert len(fotos) == 1 and fotos[0].endswith("foto.png?quebrado"), fotos
+        assert c._atendente_painel({"cliente": "x"}, pg)["fotos_cliente"] == fotos
+        ctx.close()
 
 
 def test_so_registra_com_o_chat_da_propria_cliente_aberto():
