@@ -5693,7 +5693,7 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
         separados = [r for r in rs if r["metodo"] == "separado"]
         conferir = sorted((r for r in rs if r["metodo"] == "gtin_conferir"), key=lambda r: -(r.get("similaridade") or 0))
         # card #112: par de boa similaridade que não juntou sozinho por volume/concentração assimétrico ou nome diferente
-        motivos = {"volume_conferir": "volume ou concentração desconhecido de um lado", "nome_conferir": "nome diferente"}
+        motivos = {"volume_conferir": "volume desconhecido de um lado", "nome_conferir": "nome diferente"}
         conferir_regra = sorted(({**r, "motivo": motivos[r["metodo"]]} for r in rs if r["metodo"] in motivos),
                                 key=lambda r: -(r.get("similaridade") or 0))
         return {"grupos": sorted(grupos.values(), key=lambda g: (g["marca"], g["titulo"] or "")), "separados": separados,

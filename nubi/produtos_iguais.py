@@ -131,20 +131,20 @@ def _outras_regras_ok(a, b):
 def motivo_conferencia(a, b):
     """
     Card #112: por que um par de boa similaridade não pode juntar sozinho mas merece ir para conferência (em vez
-    de simplesmente ficar sem grupo) — volume ou concentração conhecido de um lado e desconhecido (título cortado
-    ou campo vazio) do outro, ou nome diferente (regra de nome ❌, caso "Tommy Tradicional"). None quando nenhum
-    dos dois motivos se aplica — inclusive quando o par já é incompatível por outra regra (kit, números, sufixo
-    cortado, gênero): aí são produtos diferentes por outro motivo, não uma dúvida de volume/nome, e nem vai à
-    conferência (achado da revisão: sem essa checagem, um kit x unidade caía na fila como se fosse só volume).
+    de simplesmente ficar sem grupo) — volume conhecido de um lado e desconhecido (título cortado ou campo vazio)
+    do outro, ou nome diferente (regra de nome ❌, caso "Tommy Tradicional"). None quando nenhum dos dois motivos
+    se aplica — inclusive quando o par já é incompatível por outra regra (kit, números, sufixo cortado, gênero):
+    aí são produtos diferentes por outro motivo, não uma dúvida de volume/nome, e nem vai à conferência (achado da
+    revisão: sem essa checagem, um kit x unidade caía na fila como se fosse só volume).
+    Concentração (EDT/EDP) não entra aqui: ao contrário do volume, é comum um anúncio legítimo não citar a
+    concentração sem estar cortado (achado do benchmark #15: "Perfume Arabe Asad 100ml Lattafa Masculino" não diz
+    a concentração e é o mesmo Asad 100ml de sempre) — exigir isso também quebraria junções válidas de verdade.
     """
     if not _outras_regras_ok(a, b):
         return None
     va, vb = volumes(a["titulo"]), volumes(b["titulo"])
     if bool(va) != bool(vb):
         return "volume desconhecido de um lado"
-    ca, cb = concentracoes(a["titulo"]), concentracoes(b["titulo"])
-    if bool(ca) != bool(cb):
-        return "concentração desconhecida de um lado"
     na, nb = palavras_nome(a["titulo"], a.get("marca")), palavras_nome(b["titulo"], b.get("marca"))
     if na and nb and na != nb:
         return "nome diferente"

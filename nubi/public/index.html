@@ -2399,7 +2399,7 @@ async function telaProdutosIguais() {
         <div class="pi-par-b"><button class="btn small primary" data-gtin-par="${esc(x.chave)}" data-juntar="1">Juntar</button>
           <button class="btn small" data-gtin-par="${esc(x.chave)}">Não é o mesmo</button></div></div>`; }).join("")}</div></div>` : ""}
     ${(r.conferir_regra || []).length ? `<div class="card pad pi-conf" style="margin-top:14px"><h2>🔎 Confira: parecidos, mas com dado incerto (${r.conferir_regra.length})</h2>
-      <div class="sub">A IA achou parecença, mas um dos dois não diz o volume/concentração (título cortado) ou o nome não bate exatamente.
+      <div class="sub">A IA achou parecença, mas um dos dois não diz o volume (título cortado) ou o nome não bate exatamente.
         Não junta sozinho: se for o mesmo, toque em <b>Juntar</b>.</div>
       <div class="pi-pares">${r.conferir_regra.map(x => `<div class="pi-par"><div class="pi-par-t"><div>${esc(x.grupo_titulo || "")}</div>
           <div>${esc(x.titulo || "")}</div>
