@@ -675,7 +675,22 @@ def coletar_grupo(p, cfg, token, dias, prazo=None):
             destino = PASTA / "arquivos" / "grupo" / dia
             destino.mkdir(parents=True, exist_ok=True)
             try:
-                arq = baixar_grupo(pg, cfg, dia, destino)
+                # o Chrome reaberto logo depois de fechar às vezes cai no 1º download (card #101): reabre e tenta de novo
+                for tentativa in (1, 2, 3):
+                    try:
+                        arq = baixar_grupo(pg, cfg, dia, destino)
+                        break
+                    except Exception as ex:  # noqa: BLE001
+                        if tentativa == 3 or not ("has been closed" in str(ex) or "Target closed" in str(ex)):
+                            raise
+                        log(f"    (o navegador fechou: {str(ex)[:80]}; abrindo de novo)")
+                        try:
+                            ctx.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        time.sleep(10)
+                        ctx = abrir_navegador(p, cfg)
+                        pg = ctx.new_page()
                 a += 1
                 r = api(token, "vend_grupo", {"arquivo": arq.name, "ate": dia}, arq.read_bytes())
                 i += 1
