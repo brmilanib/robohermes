@@ -182,7 +182,7 @@ PERFIS = {
         "nao_pode": ["Mexer direto no código ou no banco", "Publicar"]},
     "deepseek": {
         "funcao": "Matemático e revisor: contas, totais, casos de borda, desempenho e custo; escreve o Plano técnico dos cards de dados.",
-        "modelo": "deepseek-v4-pro (e flash nas tarefas simples) pela API da DeepSeek",
+        "modelo": "deepseek-v4-pro em tudo (flash só de reserva se o pro falhar) pela API da DeepSeek",
         "como": "De hora em hora escreve o Plano técnico dos cards de dados; opina na Sala; revisa números.",
         "pode": ["Escrever planos e testes em texto", "Apontar riscos nos números"],
         "nao_pode": ["Mexer no código ou no banco", "Publicar"]},

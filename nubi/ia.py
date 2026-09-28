@@ -29,7 +29,9 @@ def disponivel():
 CHAVES = {"claude": "ANTHROPIC_API_KEY", "chatgpt": "OPENAI_API_KEY", "deepseek": "DEEPSEEK_API_KEY", "ollama": "OLLAMA_API_KEY",
           "gemini": "GEMINI_API_KEY"}
 OLLAMA_MODELOS = ["gpt-oss:120b", "gpt-oss:20b"]   # Ollama Cloud: modelos da cota grátis da conta
-DEEPSEEK_MODELOS = ["deepseek-flash", "deepseek-v4-flash", "deepseek-chat"]   # nomes mudam; tenta na ordem
+# 28/09 (Bruno): as análises com o DeepSeek usam o v4-pro (o melhor dele); os flash ficam só de reserva se o pro falhar
+DEEPSEEK_FLASH = ["deepseek-flash", "deepseek-v4-flash", "deepseek-chat"]   # nomes mudam; tenta na ordem
+DEEPSEEK_MODELOS = ["deepseek-v4-pro"] + DEEPSEEK_FLASH
 
 
 def tem(qual):
@@ -37,7 +39,7 @@ def tem(qual):
     return qual in CHAVES and bool(os.environ.get(CHAVES[qual]))
 
 
-DEEPSEEK_PRO = ["deepseek-v4-pro"] + DEEPSEEK_MODELOS                           # tarefas pesadas (revisão de código)
+DEEPSEEK_PRO = DEEPSEEK_MODELOS                                                  # tarefas pesadas (revisão de código)
 _CODEX = {}
 
 

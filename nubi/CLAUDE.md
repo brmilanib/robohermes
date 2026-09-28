@@ -50,6 +50,11 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 5. Versão para marcas e sellers.
 Modelos novos só entram depois do mini-benchmark interno (#15).
 
+## DeepSeek (28/09, pedido do Bruno)
+
+- Toda chamada ao DeepSeek usa o **deepseek-v4-pro** (`ia.DEEPSEEK_MODELOS`); os flash (`DEEPSEEK_FLASH`) ficam só de
+  reserva se o pro recusar. Antes o padrão era o flash e só a Sala/cards usavam o pro.
+
 ## Mini-benchmark de modelos (#15, 27/09) — `nubi_benchmark.py`, migração `supabase/benchmark.sql`
 
 - **Nenhum modelo novo entra em produção sem passar por ele.** Casos fixos e versionados no código (`VERSAO`, `CASOS`:
