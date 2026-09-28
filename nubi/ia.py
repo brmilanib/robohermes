@@ -311,7 +311,9 @@ def _post_json(url, corpo, cab, timeout=90):
     rid = None
     if gravar:
         try:
-            rid = gravar("inicio", {"agente": agente, "modelo": str(corpo.get("model") or ""), "origem": USO["origem"]})
+            # 27/09: agente com nome próprio (ex.: Banguela, o atendimento no Sonnet) aparece com cartão e custo dele
+            rid = gravar("inicio", {"agente": USO.get("apelido_agente") or agente, "modelo": str(corpo.get("model") or ""),
+                                    "origem": USO["origem"]})
         except Exception:  # noqa: BLE001 — o registro nunca derruba a chamada
             rid = None
     t0 = time.monotonic()

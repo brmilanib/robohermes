@@ -342,3 +342,6 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - **IA local na navegação (27/09, pedido do Bruno)**: `_ia_atendente` tenta 1º o Ollama do próprio computador
   (`ATENDENTE_LOCAL`=qwen3:8b, `NUBI_ATENDENTE_LOCAL`; `_modelo_local` vê se está instalado; `think:false`, `num_ctx` 16k,
   páginas antigas encurtadas), depois o gpt-oss grátis do nubi e, por último, o Haiku (com teto). 3 falhas seguidas pulam a local.
+- **Banguela (27/09, nome dado pelo Bruno)**: o agente pago do atendimento = `gerar_qualidade` (Sonnet 5, teto US$ 10/dia,
+  cache do briefing). Cartão em `agentes` (id `banguela`), perfil e jeito em `agentes.py`; o custo vai em `agentes_uso` com
+  agente `banguela` (`ia.USO["apelido_agente"]`). Buscar/ler chats (Shopee, TikTok, UpSeller) fica com a IA grátis local.

@@ -392,15 +392,16 @@ def gerar_qualidade(repo):
         except Exception:  # noqa: BLE001
             gasto = 0.0
         if ia.tem("claude") and gasto < SONNET_TETO_USD:
-            antes = ia.USO.get("origem")
+            antes = ia.USO.get("origem"), ia.USO.get("apelido_agente")
             ia.USO["origem"] = SONNET_ORIGEM                 # o custo de cada chamada fica marcado para o teto do dia
+            ia.USO["apelido_agente"] = "banguela"             # 27/09: o Bruno batizou o agente do atendimento de Banguela
             try:
                 texto, _, _ = ia.perguntar(prompt, web=False, qual="claude", modelo=SONNET, sistema=sistema, max_tokens=1500)
                 return texto, "sonnet"
             except Exception:  # noqa: BLE001 — fora do ar ou no teto do provedor: a grátis responde
                 pass
             finally:
-                ia.USO["origem"] = antes
+                ia.USO["origem"], ia.USO["apelido_agente"] = antes
         return gerar_ia(prompt, sistema)
     return gerar
 
