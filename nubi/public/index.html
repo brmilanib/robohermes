@@ -3313,7 +3313,7 @@ async function telaEstoque() {
         <p class="muted" style="font-size:12px;margin:8px 0 0">Arquivo: ${esc(a.arquivo || "—")}</p></div>
       <div class="card pad"><h2>📦 Análise do Estoquista</h2>
         ${a.analise ? `<div class="md">${mdSimples(a.analise)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">${esc(a.analise_por || "")}</p>`
-          : `<p class="muted">A análise ainda não saiu para esta atualização.</p>`}
+          : `<p class="muted">Sem a leitura rápida desta atualização (ela usa só a IA grátis, que pode estar sem cota). A análise completa do dia, com o DeepSeek, fica em <a href="#/estoque/compras">🛒 Compras e vendas</a>.</p>`}
         <button class="btn small ghost" id="es-analisar" style="margin-top:8px">${a.analise ? "↻ Refazer a análise" : "Pedir a análise agora"}</button></div>
     </div>
     ${d.tem_anterior ? `<div class="es-mud">${lista("⬇️ Saíram", d.saidas, n.saidas, "neg")}${lista("⬆️ Entraram", d.entradas, n.entradas, "pos")}

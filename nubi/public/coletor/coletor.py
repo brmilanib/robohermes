@@ -1612,11 +1612,32 @@ def baixar_vendas(pg, cfg):
         if not url:
             pg.goto(f"{UPSELLER}/pt/", wait_until="domcontentloaded", timeout=90000)
             devagar(5)
-        _clicar_texto(pg, [r"^\s*An[áa]lises?\s*$", r"^\s*An[áa]lise de dados\s*$", r"^\s*Dados\s*$"])
+        # 28/09 (Mac): o menu "Análises" do UpSeller abre ao passar o mouse; clicar só não mostrava o submenu
+        menu = pg.get_by_text(re.compile(r"^\s*An[áa]lises?\s*$", re.I))
+        for i in range(min(menu.count(), 4)):
+            try:
+                if menu.nth(i).is_visible():
+                    menu.nth(i).hover(timeout=5000)
+                    devagar(2)
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+        if not pg.get_by_text(re.compile(r"Vendas por (An[úu]ncio|Produto)", re.I)).count():
+            _clicar_texto(pg, [r"^\s*An[áa]lises?\s*$", r"^\s*An[áa]lise de dados\s*$"])
+            for i in range(min(menu.count(), 4)):
+                try:
+                    if menu.nth(i).is_visible():
+                        menu.nth(i).hover(timeout=5000)
+                        devagar(2)
+                        break
+                except Exception:  # noqa: BLE001
+                    continue
     _fechar_popups(pg)
     if not _clicar_texto(pg, [r"^\s*Vendas por An[úu]ncios?\s*$", r"^\s*Vendas por Produtos?\s*$"], 5):
-        raise Falha("não achei 'Análises → Vendas por Anúncio' no UpSeller. Na tela: "
-                    + str(pg.evaluate(JS_TEXTOS))[:700] + " " + diagnostico(pg))
+        links = pg.evaluate("""() => [...document.querySelectorAll('a[href]')].map(a => (a.innerText || '').trim().slice(0, 30) + ' -> '
+          + a.getAttribute('href')).filter(t => /analy|analis|report|relat|statis|data|venda|sales/i.test(t)).slice(0, 25).join(' | ')""")
+        raise Falha("não achei 'Análises → Vendas por Anúncio' no UpSeller. Links de análise na página: " + str(links)[:900]
+                    + " · Na tela: " + str(pg.evaluate(JS_TEXTOS))[:500] + " " + diagnostico(pg))
     _clicar_texto(pg, [r"^\s*[ÚU]ltimos 30 dias\s*$", r"^\s*30 dias\s*$"], 4)
     destino = PASTA / "vendas"
     destino.mkdir(parents=True, exist_ok=True)
@@ -1652,7 +1673,7 @@ def coletar_estoque(p, cfg, token, enviar=True):
             vendas = baixar_vendas(pg, cfg)
         except Exception as ev:  # noqa: BLE001
             log(f"  vendas por anúncio: não baixou ({str(ev)[:400]})")
-            enviar_foto(pg, f"vendas por anúncio: {str(ev)[:150]}", resumo_tela(pg))
+            enviar_foto(pg, f"vendas por anúncio: {str(ev)[:150]}", str(ev)[:3000])
     except SessaoExpirada:
         enviar_foto(pg, "estoque: login do UpSeller vencido", resumo_tela(pg))
         raise
