@@ -177,6 +177,55 @@ def test_mac_pausado_nao_recebe_nada_e_o_servidor_assume():
     assert [p["comando"] for p in srv["pendentes"]] == ["diario", "servidor_log"], srv    # Ferreiro não vai para o gamdias
 
 
+def test_estoque_liberado_no_mac_pausado():
+    # 28/09 (Bruno, assumindo o risco): o Mac pausado ainda faz o estoque do UpSeller; o gamdias não pega o estoque
+    _preparar()
+    r = Repo(["diario"])
+    r.t["ia_resumos"] += [{"chave": "fila|mac_pausado", "texto": "malware"}, {"chave": "fila|mac_libera", "texto": "estoque"}]
+    mac = _tick(r)
+    assert mac["pausado"] is True and mac["libera"] == ["estoque"] and mac["pendentes"] == []
+    assert w._so_no_mac(r, "estoque") and not w._so_no_mac(r, "diario")
+    r.t["rotinas"] = [{"id": "estoque", "ativo": True, "horario": "00:00", "dias_semana": ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]}]
+    r.t["estoque_atualizacoes"] = []
+    assert w.rota_estoque(r, "GET", "estoque_pendente", {"maquina": "servidor"}, b"") == {"rodar": False, "no_mac": True}
+    assert w.rota_estoque(r, "GET", "estoque_pendente", {}, b"")["rodar"] is True          # o Mac pergunta sem 'maquina'
+
+
+def test_vigia_de_seguranca_derruba_o_malware_e_avisa():
+    # 28/09 (Bruno): de hora em hora, CPU e os arquivos do malware de 27/09
+    import shutil
+    base = Path(tempfile.mkdtemp())
+    ag = base / "LaunchAgents"
+    ag.mkdir()
+    (ag / "com.google.keystone.agent.plist").write_text("x")
+    pasta = base / "rigupdater"
+    antes = (c.sys.platform, c.AGENTES_DIRS, c.MALWARE_PASTAS, c.token_nubi, c.api, c._postar_hermes_como, c.aviso_mac, c.Path.home)
+    enviados, sala = [], []
+    c.sys.platform, c.AGENTES_DIRS, c.MALWARE_PASTAS = "darwin", (str(ag),), (str(pasta),)
+    c.token_nubi = lambda cfg: "T"
+    c.api = lambda token, rota, params=None, corpo=None, metodo=None, timeout=300: enviados.append((rota, corpo)) or {}
+    c._postar_hermes_como = lambda token, autor, texto, *a, **k: sala.append(texto)
+    c.aviso_mac = lambda *a: None
+    c.Path.home = staticmethod(lambda: base)
+    try:
+        cfg = {}
+        assert c.seguranca_mac(cfg, forcar=True)["ok"] is True and cfg["seguranca_agentes"]     # 1ª vez: guarda o que existe
+        assert not sala
+        (ag / "com.vsbgoqkgoyeuwbdw.plist").write_text("malware")
+        pasta.mkdir()
+        (ag / "com.desconhecido.plist").write_text("?")
+        rel = c.seguranca_mac(cfg, forcar=True)
+        assert not rel["ok"] and not pasta.exists() and not (ag / "com.vsbgoqkgoyeuwbdw.plist").exists()
+        assert list((base / "quarentena").iterdir())                                          # movido, não apagado
+        assert (ag / "com.desconhecido.plist").exists()                                       # desconhecido: só avisa
+        assert "LaunchAgent do malware voltou" in sala[0] and "com.desconhecido.plist" in sala[0]
+        assert enviados[-1][0] == "mac_seguranca" and enviados[-1][1]["achados"]
+        assert c.seguranca_mac(cfg)  is None                                                  # de hora em hora
+    finally:
+        (c.sys.platform, c.AGENTES_DIRS, c.MALWARE_PASTAS, c.token_nubi, c.api, c._postar_hermes_como, c.aviso_mac, c.Path.home) = antes
+        shutil.rmtree(base, ignore_errors=True)
+
+
 def test_reserva_haiku_para_no_teto_mesmo_sem_custo_gravado():
     # 27/09: 2.440 chamadas do Haiku com custo_usd vazio (~US$ 73): o teto agora conta pelos tokens e pelo nº de chamadas
     import datetime as dt

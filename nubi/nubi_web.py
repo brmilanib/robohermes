@@ -747,9 +747,29 @@ def atender(metodo, rota, q, corpo, token):
         if rota == "coletor_pedido":
             # o vigia do Mac pergunta se há pedido de coleta (dos últimos 2 dias)
             desde = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
-            p = repo._req("GET", "coletor_pedidos", {"select": "id,motivo,tarefa,pedido_em", "atendido_em": "is.null",
-                                                     "pedido_em": f"gte.{desde}", "order": "id", "limit": 1}) or []
+            filtro = {"select": "id,motivo,tarefa,pedido_em", "atendido_em": "is.null", "pedido_em": f"gte.{desde}", "order": "id", "limit": 1}
+            if q.get("tarefa"):
+                filtro["tarefa"] = repo._eq(str(q["tarefa"]))           # 28/09: o Mac pausado só pega o estoque
+            elif q.get("maquina") == "servidor":
+                fora = [t for t in mac_libera(repo) if _so_no_mac(repo, t)]
+                if fora:
+                    filtro["tarefa"] = f"not.in.({','.join(fora)})"      # o estoque liberado fica para o Mac
+            p = repo._req("GET", "coletor_pedidos", filtro) or []
             return _json({"pedido": p[0] if p else None})
+        if rota == "mac_seguranca" and metodo == "POST":
+            # 28/09 (Bruno): vigia de segurança do Mac (de hora em hora): CPU, o processo e os arquivos do malware de 27/09
+            d = json.loads(corpo or b"{}")
+            ant = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": "eq.mac|seguranca"}) or [{}])[0]
+            try:
+                hist = (json.loads(ant.get("texto") or "{}").get("historico") or [])
+            except ValueError:
+                hist = []
+            atual = {k: d.get(k) for k in ("em", "ok", "achados", "feito", "top", "agentes")}
+            hist = (hist + [{"em": atual["em"], "ok": atual["ok"], "achados": atual["achados"]}])[-72:]
+            repo._req("POST", "ia_resumos", corpo=[{"chave": "mac|seguranca", "ia": "mac", "criado_em": datetime.now(timezone.utc).isoformat(),
+                                                    "texto": json.dumps({**atual, "historico": hist}, ensure_ascii=False)}],
+                      prefer="resolution=merge-duplicates,return=minimal")
+            return _json({"ok": True})
         if rota == "coletor_pedido_ok" and metodo == "POST":
             d = json.loads(corpo or b"{}")
             filtro = {"atendido_em": "is.null", "id": f"lte.{int(d.get('id') or 0)}"}
@@ -3709,6 +3729,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         return {"rodar": na_hora and not hoje_ok, "horario": (rot or {}).get("horario") or "07:00"}
     if rota == "estoque_pendente":
         # o vigia do Mac pergunta se está na hora da atualização da madrugada (rotina 'estoque', 1 vez por dia)
+        if q.get("maquina") == "servidor" and _so_no_mac(repo, "estoque"):
+            return {"rodar": False, "no_mac": True}          # 28/09: estoque liberado no Mac pausado (Bruno assumiu o risco)
         rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.estoque"}) or [None])[0]
         agora = _agora_br()
         ult = (repo._req("GET", "estoque_atualizacoes", {"select": "criado_em", "origem": "eq.coletor", "order": "id.desc", "limit": 1})
@@ -4179,6 +4201,20 @@ def servidor_pode(repo):
 
 
 MAC_PAUSA_CHAVE = "fila|mac_pausado"
+
+
+MAC_LIBERA_CHAVE = "fila|mac_libera"
+
+
+def mac_libera(repo):
+    """28/09 (Bruno, assumindo o risco): tarefas que o Mac pausado ainda faz (texto = 'estoque'). Com o Mac pausado e com
+    sinal, o servidor não pega essas tarefas."""
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{MAC_LIBERA_CHAVE}"}) or [{}])[0]
+    return [x.strip() for x in str(r.get("texto") or "").split(",") if x.strip()]
+
+
+def _so_no_mac(repo, tarefa):
+    return tarefa in mac_libera(repo) and mac_pausado(repo) and _mac_vivo(repo, 10)
 
 
 def mac_pausado(repo):
@@ -4893,7 +4929,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         # as filas abaixo rodam no sinal do Mac; no do servidor só quando o Mac está sem sinal (uma vez por minuto basta)
         if maq == "mac" and pausado:
             # 27/09: Mac pausado (malware achado; reinstalação): grava estado e saídas, mas não recebe nada
-            return {"pendentes": [], "sala": [], "vetorizar": [], "reserva": True, "pausado": True}
+            return {"pendentes": [], "sala": [], "vetorizar": [], "reserva": True, "pausado": True, "libera": mac_libera(repo)}
         if (maq == "mac" and not pausado) or (maq == "servidor" and (pausado or not _mac_vivo(repo))):
             if not pausado:     # Ferreiro, Astra e Navegador rodam no Mac: parados junto com ele
                 if "pegou" not in (ferreiro_proximo(repo, a_cada_min=0, quem="astra") or ""):   # design primeiro (Astra); não pegou, o Ferreiro

@@ -2624,6 +2624,7 @@ def despachar(cfg):
             print(f"{datetime.now():%d/%m %H:%M} métricas do Mac: {e}", flush=True)
     r = api(token, "mac_tick", corpo=corpo, timeout=40)
     est["pausado"] = bool(r.get("pausado"))
+    est["libera"] = [str(x) for x in r.get("libera") or []]      # 28/09: tarefas liberadas com o Mac pausado (estoque)
     # card #29: itens novos da caixa de conhecimento ganham o vetor aqui; vai para o nubi no próximo sinal
     est["vetores"] = [{"id": it["id"], "vetor": v} for it in r.get("vetorizar") or []
                       if (v := vetor_local(f"{it.get('titulo') or ''}\n\n{it.get('texto') or ''}"))]
@@ -2720,8 +2721,15 @@ def cmd_vigiar():
         _vigiar_servidor()
         if not any(x in (cfg0.get("servidor_pode") or SERVIDOR_PODE) for x in COLETAS):
             return 0
-    elif _estado_desp().get("pausado"):
-        return 0                    # 27/09: Mac pausado pelo nubi: nem coletas com horário, nem Hermes
+    else:
+        try:
+            seguranca_mac(cfg0)     # 28/09 (Bruno): de hora em hora, CPU e os arquivos do malware (mesmo pausado)
+        except Exception as e:  # noqa: BLE001
+            print(f"{datetime.now():%d/%m %H:%M} vigia de segurança: {e}", flush=True)
+    if not servidor and _estado_desp().get("pausado"):
+        # 27/09: Mac pausado pelo nubi: nem coletas com horário, nem Hermes. 28/09 (Bruno, assumindo o risco): o estoque do
+        # UpSeller (com as vendas por anúncio) pode ser liberado; e o coletor continua se atualizando (sem rodar coleta por isso)
+        return _vigiar_pausado(cfg0, set(_estado_desp().get("libera") or []))
     marca = PASTA / "vigia.ultimo"
     try:
         if time.time() - marca.stat().st_mtime < 4 * 60:      # a cada ~5 min: versão nova, pedidos e horários das rotinas
@@ -2748,7 +2756,7 @@ def cmd_vigiar():
     pedido = None
     try:
         token = token_nubi(cfg)
-        pedido = api(token, "coletor_pedido", timeout=30).get("pedido")
+        pedido = api(token, "coletor_pedido", {"maquina": "servidor"} if servidor else None, timeout=30).get("pedido")
         if pedido and pedido.get("tarefa") == "gestor":
             api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": "gestor", "resultado": "importação iniciada"}, timeout=30)
             print(f"{datetime.now():%d/%m %H:%M} vigia: pedido no site -> importando a planilha no Gestor Seller", flush=True)
@@ -2905,10 +2913,144 @@ def _fora_da_janela_coleta():
     return not ("00:30" <= hhmm < "06:40")
 
 
+def _vigiar_pausado(cfg, libera):
+    """Mac pausado: a cada ~5 min só atualiza o coletor e, se o estoque foi liberado, faz o estoque (pedido ou horário)."""
+    marca = PASTA / "vigia.ultimo"
+    try:
+        if time.time() - marca.stat().st_mtime < 4 * 60:
+            return 0
+    except OSError:
+        pass
+    try:
+        marca.touch()
+    except OSError:
+        pass
+    try:
+        novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=20).read()
+        if novo and b"def main" in novo and novo != Path(__file__).read_bytes():
+            compile(novo, "coletor.py", "exec")
+            Path(__file__).write_bytes(novo)
+            print(f"{datetime.now():%d/%m %H:%M} vigia (pausado): coletor atualizado para a versão nova", flush=True)
+            return 0
+    except Exception:  # noqa: BLE001
+        pass
+    if "estoque" not in libera or _outra_rodando():
+        return 0
+    try:
+        token = token_nubi(cfg)
+        pedido = api(token, "coletor_pedido", {"tarefa": "estoque"}, timeout=30).get("pedido")
+        if pedido and pedido.get("tarefa") == "estoque":
+            api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": "estoque", "resultado": "estoque iniciado (Mac)"}, timeout=30)
+            print(f"{datetime.now():%d/%m %H:%M} vigia (pausado, estoque liberado): pedido no site -> estoque do UpSeller", flush=True)
+            return _soltar("estoque")
+        if _estoque_na_hora(cfg, token):
+            print(f"{datetime.now():%d/%m %H:%M} vigia (pausado, estoque liberado): hora do estoque do UpSeller", flush=True)
+            return _soltar("estoque")
+    except Exception as e:  # noqa: BLE001
+        print(f"{datetime.now():%d/%m %H:%M} vigia (pausado): {e}", flush=True)
+    return 0
+
+
+# 28/09 (Bruno: "mande o coletor olhar a cada 1 hora meu processamento e se não volta aquele arquivo"): o malware de 27/09 era
+# um LaunchAgent (com.vsbgoqkgoyeuwbdw) que buscava ordens num contrato da Polygon e instalou o minerador xmrig em
+# /private/tmp/rigupdater. De hora em hora: CPU (os que mais usam), o processo, a pasta e o LaunchAgent; o que é do malware
+# conhecido é derrubado na hora; arquivo de inicialização NOVO e desconhecido só é avisado (pode ser programa legítimo).
+MALWARE_LABEL = "com.vsbgoqkgoyeuwbdw"
+MALWARE_PASTAS = ("/private/tmp/rigupdater", "/tmp/rigupdater")
+SEGURANCA_A_CADA = 3600
+AGENTES_DIRS = ("~/Library/LaunchAgents", "/Library/LaunchAgents", "/Library/LaunchDaemons")
+
+
+def _processos_top(n=8):
+    out = subprocess.run(["ps", "-Ao", "pid,pcpu,comm", "-r"], capture_output=True, text=True, timeout=20).stdout.splitlines()[1:n + 1]
+    lin = []
+    for l in out:
+        partes = l.split(None, 2)
+        if len(partes) == 3:
+            try:
+                lin.append({"pid": int(partes[0]), "cpu": float(partes[1].replace(",", ".")), "nome": partes[2][-80:]})
+            except ValueError:
+                continue
+    return lin
+
+
+def seguranca_mac(cfg, forcar=False):
+    if sys.platform != "darwin":
+        return None
+    marca = PASTA / "seguranca.ultimo"
+    try:
+        if not forcar and time.time() - marca.stat().st_mtime < SEGURANCA_A_CADA:
+            return None
+    except OSError:
+        pass
+    marca.touch()
+    achados, feito = [], []
+    top = _processos_top()
+    suspeitos = [p for p in top if re.search(r"xmrig|rigupdater|hashvault|minerd|cpuminer", p["nome"], re.I)]
+    if suspeitos or subprocess.run(["pgrep", "-if", "xmrig|rigupdater"], capture_output=True).returncode == 0:
+        subprocess.run(["pkill", "-9", "-if", "xmrig|rigupdater"], capture_output=True)
+        achados.append("minerador (xmrig) rodando")
+        feito.append("processo do minerador encerrado")
+    for pasta in MALWARE_PASTAS:
+        if os.path.exists(pasta):
+            shutil.rmtree(pasta, ignore_errors=True)
+            achados.append(f"pasta do minerador voltou ({pasta})")
+            feito.append(f"{pasta} apagada")
+    quarentena = Path.home() / "quarentena"
+    agentes = []
+    for d in AGENTES_DIRS:
+        pasta = Path(os.path.expanduser(d))
+        try:
+            agentes += [str(pasta / f) for f in os.listdir(pasta) if f.endswith(".plist")]
+        except OSError:
+            continue
+    for arq in agentes:
+        if MALWARE_LABEL in arq:
+            try:
+                subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", arq], capture_output=True, timeout=20)
+            except (OSError, subprocess.SubprocessError):
+                pass
+            quarentena.mkdir(exist_ok=True)
+            try:
+                shutil.move(arq, str(quarentena / (Path(arq).name + f".{int(time.time())}")))
+                feito.append(f"LaunchAgent do malware desligado e movido para ~/quarentena")
+            except OSError as e:
+                feito.append(f"LaunchAgent do malware desligado (não consegui mover: {e})")
+            achados.append(f"LaunchAgent do malware voltou ({Path(arq).name})")
+    base = set(cfg.get("seguranca_agentes") or [])
+    novos = sorted(a for a in agentes if a not in base and MALWARE_LABEL not in a and not re.search(r"/com\.nubi\.", a))
+    if not base:
+        cfg["seguranca_agentes"] = sorted(agentes)          # 1ª vez: o que existe hoje vira a lista conhecida
+        salvar_config(cfg)
+        novos = []
+    elif novos:
+        achados.append("arquivo de inicialização NOVO (confira se é seu): " + ", ".join(Path(a).name for a in novos[:6]))
+        cfg["seguranca_agentes"] = sorted(base | set(novos))
+        salvar_config(cfg)
+    alto = [p for p in top if p["cpu"] >= 150 and not re.search(r"chrom|python|ollama|kernel_task|WindowServer|mds|Safari|claude", p["nome"], re.I)]
+    if alto:
+        achados.append("CPU alta: " + ", ".join(f"{Path(p['nome']).name} {p['cpu']:.0f}%" for p in alto[:3]))
+    rel = {"em": datetime.now().isoformat(timespec="minutes"), "ok": not achados, "achados": achados, "feito": feito,
+           "top": [{**p, "nome": Path(p["nome"]).name} for p in top[:6]], "agentes": len(agentes)}
+    try:
+        token = token_nubi(cfg)
+        api(token, "mac_seguranca", corpo=rel, metodo="POST", timeout=30)
+        if achados:
+            _postar_hermes_como(token, "Vigia de segurança (Mac)", "🚨 " + "; ".join(achados)
+                                + (f"\nO que eu fiz: {'; '.join(feito)}." if feito else "") + "\nTop CPU agora: "
+                                + ", ".join(f"{x['nome']} {x['cpu']:.0f}%" for x in rel["top"][:4]))
+    except Exception as e:  # noqa: BLE001
+        print(f"{datetime.now():%d/%m %H:%M} vigia de segurança: não avisei o nubi ({e})", flush=True)
+    if achados:
+        aviso_mac("nubi: alerta de segurança", "; ".join(achados)[:200])
+    print(f"{datetime.now():%d/%m %H:%M} vigia de segurança: {'OK' if not achados else '; '.join(achados)}", flush=True)
+    return rel
+
+
 def _na_hora(cfg, token, rota, chave):
     """Rotina do Mac com horário no nubi (estoque, gestor): está na hora e ainda não deu certo hoje? Máx. 3 tentativas/dia."""
     try:
-        r = api(token, rota, timeout=30)
+        r = api(token, rota, {"maquina": "servidor"} if _eh_servidor(cfg) else None, timeout=30)
     except Exception:  # noqa: BLE001
         return False
     if not r.get("rodar"):

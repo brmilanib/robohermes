@@ -363,6 +363,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (`SERVIDOR_PODE`, `COLETAS`; o vigia do servidor roda as coletas com horário). Tirar a pausa = apagar a linha, depois da
   reinstalação do macOS e da troca de chaves. No servidor, coletas e logins usam o perfil `perfil-coleta` do Chrome (o atendente,
   `NUBI_PAPEL=atendente`, fica com o `perfil` principal sempre aberto).
+- **Estoque liberado no Mac pausado + vigia de segurança (28/09, Bruno assumiu o risco)**: `ia_resumos` `fila|mac_libera`
+  (texto `estoque`) → o `mac_tick` do Mac pausado devolve `libera`; o vigia do Mac pausado (`_vigiar_pausado`) só atualiza o
+  coletor (sem rodar coleta por isso) e faz o estoque do UpSeller (pedido `coletor_pedido?tarefa=estoque` ou horário). Com o
+  Mac pausado e com sinal (`_so_no_mac`), o servidor não recebe o pedido de estoque nem `estoque_pendente` (manda `maquina=servidor`).
+  `seguranca_mac` (de hora em hora, mesmo pausado): CPU (top), processo xmrig/rigupdater (mata), `/private/tmp/rigupdater`
+  (apaga), LaunchAgent `com.vsbgoqkgoyeuwbdw` (bootout + ~/quarentena); arquivo de inicialização NOVO desconhecido só avisa
+  (lista conhecida em `seguranca_agentes` no config). Relatório na rota `mac_seguranca` → `ia_resumos` `mac|seguranca`;
+  achado vai para a Sala ("Vigia de segurança (Mac)") e notificação no Mac.
 - **Teto do Haiku de reserva (27/09, ~US$ 73 num dia)**: `_navegar_reserva` somava só `custo_usd`, que vinha vazio (Haiku
   sem linha em `ia_precos`): 2.440 chamadas sem parar. Agora o gasto é calculado pelos tokens (`_custo_haiku`) e há
   `NAVEGAR_MAX_DIA`=150 chamadas por dia; o Haiku entrou em `ia_precos`. Modelo novo usado em qualquer teto: cadastrar o preço.
