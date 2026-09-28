@@ -4651,20 +4651,25 @@ def _atendente_pendentes(pg):
     return 1 if re.search(r"\batrasad[oa]\b|expira em breve", t, re.I) else 0      # Shopee: aviso nas conversas esperando
 
 
-ATENDENTE_LOCAL = os.environ.get("NUBI_ATENDENTE_LOCAL", "qwen3:8b")
+# 27/09 (Bruno): navegar no chat (ler e trazer dados) é só com IA GRÁTIS: as locais deste computador, na ordem, e depois o
+# gpt-oss grátis do nubi. Nada pago aqui; se todas falharem, a rodada para e tenta de novo na próxima.
+ATENDENTE_LOCAIS = tuple(x.strip() for x in os.environ.get("NUBI_ATENDENTE_LOCAL", "qwen3:8b,hermes3:8b").split(",") if x.strip())
 OLLAMA_CHAT = "http://localhost:11434/api/chat"
 
 
-def _modelo_local():
-    """27/09 (Bruno): a navegação do chat é simples; roda de graça no Ollama deste computador (placa de vídeo do gamdias)
-    se o modelo estiver instalado. -> nome do modelo ou None."""
+def _modelos_locais():
+    """Modelos da lista ATENDENTE_LOCAIS instalados no Ollama deste computador (na ordem da lista)."""
     try:
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=3) as r:
             nomes = [m.get("name") or "" for m in json.loads(r.read().decode()).get("models", [])]
     except Exception:  # noqa: BLE001
-        return None
-    base = ATENDENTE_LOCAL.split(":")[0]
-    return next((n for n in nomes if n == ATENDENTE_LOCAL or n.startswith(base + ":")), None)
+        return []
+    out = []
+    for alvo in ATENDENTE_LOCAIS:
+        achou = next((n for n in nomes if n == alvo or n.startswith(alvo.split(":")[0] + ":")), None)
+        if achou and achou not in out:
+            out.append(achou)
+    return out
 
 
 def _ollama_local_ferramentas(modelo, mensagens, sistema, ferramentas):
@@ -4712,40 +4717,41 @@ def _ollama_local_ferramentas(modelo, mensagens, sistema, ferramentas):
 
 
 def _ia_atendente(chave, mensagens, token, estado, papel=None):
-    """Navegação do atendente: 1º a IA deste computador (Ollama local, grátis e sem cota); 2º o gpt-oss grátis (pelo nubi);
-    o Claude Haiku só de reserva — quando os grátis falham ou se perdem (3 respostas seguidas sem ferramenta útil)."""
-    if "local" not in estado:
-        estado["local"] = _modelo_local()
-    if estado.get("local") and estado.get("local_falhas", 0) < 3 and not (estado.get("pago_primeiro") and chave):
+    """Navegação do atendente, SÓ GRÁTIS (27/09, pedido do Bruno): as IAs locais deste computador em ordem (qwen3, hermes3)
+    e o gpt-oss grátis do nubi. Cada uma sai da vez depois de 3 respostas seguidas sem ferramenta útil ou erro. Todas fora:
+    devolve um texto que encerra a rodada (tenta de novo na próxima); nunca chama IA paga. `chave` fica só por compatibilidade."""
+    if "locais" not in estado:
+        estado["locais"] = _modelos_locais()
+    falhas = estado.setdefault("falhas_ia", {})
+    sistema = papel or PAPEL_ATENDENTE
+
+    def tentar(nome, chamar):
         try:
-            r = _ollama_local_ferramentas(estado["local"], mensagens, papel or PAPEL_ATENDENTE, ATENDENTE_FERRAMENTAS)
-            if any(b.get("type") == "tool_use" for b in r["content"]):
-                estado["local_falhas"] = 0
-                estado["gratis"] = estado.get("gratis", 0) + 1
+            r = chamar()
+        except Exception:  # noqa: BLE001
+            falhas[nome] = falhas.get(nome, 0) + 1
+            return None
+        if any(b.get("type") == "tool_use" for b in r.get("content") or []):
+            falhas[nome] = 0
+            estado["gratis"] = estado.get("gratis", 0) + 1
+            return dict(r, usage={"input_tokens": 0, "output_tokens": 0})
+        falhas[nome] = falhas.get(nome, 0) + 1
+        if r.get("content") and falhas[nome] < 3:
+            estado["gratis"] = estado.get("gratis", 0) + 1
+            return dict(r, usage={"input_tokens": 0, "output_tokens": 0})          # texto sem ferramenta = terminou
+        return None
+
+    for modelo in estado["locais"]:
+        if falhas.get(modelo, 0) < 3:
+            r = tentar(modelo, lambda m=modelo: _ollama_local_ferramentas(m, mensagens, sistema, ATENDENTE_FERRAMENTAS))
+            if r:
                 return r
-            estado["local_falhas"] = estado.get("local_falhas", 0) + 1
-            if r["content"] and estado["local_falhas"] < 3:
-                estado["gratis"] = estado.get("gratis", 0) + 1
-                return r                                                    # texto sem ferramenta = terminou
-        except Exception:  # noqa: BLE001
-            estado["local_falhas"] = estado.get("local_falhas", 0) + 1
-    if estado.get("gratis_falhas", 0) < 3 and not (estado.get("pago_primeiro") and chave):
-        try:
-            r = api(token, "atendimento_navegar_ia", corpo={"mensagens": mensagens, "sistema": papel or PAPEL_ATENDENTE,
-                                                            "ferramentas": ATENDENTE_FERRAMENTAS}, metodo="POST", timeout=200)
-            if r.get("content") and any(b.get("type") == "tool_use" for b in r["content"]):
-                estado["gratis_falhas"] = 0
-                estado["gratis"] = estado.get("gratis", 0) + 1
-                return dict(r, usage={"input_tokens": 0, "output_tokens": 0})     # grátis: custo zero
-            estado["gratis_falhas"] = estado.get("gratis_falhas", 0) + 1
-            if r.get("content") and estado["gratis_falhas"] < 3:
-                return dict(r, usage={"input_tokens": 0, "output_tokens": 0})     # texto sem ferramenta = terminou
-        except Exception:  # noqa: BLE001
-            estado["gratis_falhas"] = estado.get("gratis_falhas", 0) + 1
-    if not chave:
-        return {"content": [{"type": "text", "text": "IA grátis indisponível e sem a chave de reserva."}]}
-    estado["pago"] = estado.get("pago", 0) + 1
-    return _claude_ferramentas(chave, mensagens, papel or PAPEL_ATENDENTE, ATENDENTE_FERRAMENTAS, ATENDENTE_MODELO)
+    if falhas.get("nuvem", 0) < 3:
+        r = tentar("nuvem", lambda: api(token, "atendimento_navegar_ia", corpo={
+            "mensagens": mensagens, "sistema": sistema, "ferramentas": ATENDENTE_FERRAMENTAS}, metodo="POST", timeout=200))
+        if r:
+            return r
+    return {"content": [{"type": "text", "text": "As IAs grátis não responderam agora; tento de novo na próxima rodada."}]}
 
 
 def _na_tela_login(pg):

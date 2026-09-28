@@ -1626,9 +1626,8 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
         try:
             return ia.ollama_ferramentas(d.get("mensagens") or [], d.get("sistema") or "", d.get("ferramentas") or [])
         except ia.SemIA as e:
-            # 27/09: a cota grátis acabou ("IA grátis indisponível") e o PC não tem chave: o servidor usa o Haiku de reserva
-            # (chave só na Vercel), até NAVEGAR_TETO_USD por dia; o custo real fica em agentes_uso (origem atendente_navegar)
-            return _navegar_reserva(repo, d) or {"erro_ia": str(e)}
+            # 27/09 (Bruno): navegar o chat é só com IA grátis. O Haiku de reserva custou ~US$ 73 num dia; saiu daqui.
+            return {"erro_ia": str(e)}
     if nome == "atendimento_para_enviar":
         if q.get("computador"):          # o atendente está ligado num computador (PC do Bruno): o Mac fica quieto
             repo._req("POST", "ia_resumos", corpo=[{"chave": PC_CHAVE, "texto": str(q["computador"])[:20], "ia": "atendente",

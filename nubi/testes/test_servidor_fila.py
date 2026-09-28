@@ -206,6 +206,8 @@ def test_atendente_usa_a_ia_local_do_computador_antes_de_tudo():
     class H(BaseHTTPRequestHandler):
         def do_POST(self):
             pedidos.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            if pedidos[-1]["model"] == "qwen3:8b":                       # a 1ª local falha: entra a 2ª (hermes3), também grátis
+                self.send_response(500); self.end_headers(); return
             corpo = json.dumps({"message": {"content": "", "tool_calls": [
                 {"function": {"name": "clicar", "arguments": {"texto": "Todos"}}}]}}).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()
@@ -215,9 +217,9 @@ def test_atendente_usa_a_ia_local_do_computador_antes_de_tudo():
             pass
     srv = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    antes = (c.OLLAMA_CHAT, c._modelo_local, c.api)
+    antes = (c.OLLAMA_CHAT, c._modelos_locais, c.api)
     c.OLLAMA_CHAT = f"http://127.0.0.1:{srv.server_port}/api/chat"
-    c._modelo_local = lambda: "qwen3:8b"
+    c._modelos_locais = lambda: ["qwen3:8b", "hermes3:8b"]
     c.api = lambda *a, **k: (_ for _ in ()).throw(AssertionError("não devia chamar o nubi"))
     try:
         estado = {}
@@ -227,11 +229,12 @@ def test_atendente_usa_a_ia_local_do_computador_antes_de_tudo():
         r = c._ia_atendente("chave-paga", msgs, "tok", estado)
         assert r["content"][0]["type"] == "tool_use" and r["content"][0]["name"] == "clicar", r
         assert estado.get("gratis") == 1 and not estado.get("pago")
-        p = pedidos[0]
-        assert p["model"] == "qwen3:8b" and p["think"] is False and p["tools"][0]["type"] == "function"
+        p = pedidos[1]
+        assert [x["model"] for x in pedidos] == ["qwen3:8b", "hermes3:8b"]
+        assert p["think"] is False and p["tools"][0]["type"] == "function"
         assert len(p["messages"][-1]["content"]) <= 12000                     # página encurtada para caber na placa
     finally:
-        c.OLLAMA_CHAT, c._modelo_local, c.api = antes
+        c.OLLAMA_CHAT, c._modelos_locais, c.api = antes
         srv.shutdown()
 
 

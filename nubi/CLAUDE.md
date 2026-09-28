@@ -339,9 +339,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - **Teto do Haiku de reserva (27/09, ~US$ 73 num dia)**: `_navegar_reserva` somava só `custo_usd`, que vinha vazio (Haiku
   sem linha em `ia_precos`): 2.440 chamadas sem parar. Agora o gasto é calculado pelos tokens (`_custo_haiku`) e há
   `NAVEGAR_MAX_DIA`=150 chamadas por dia; o Haiku entrou em `ia_precos`. Modelo novo usado em qualquer teto: cadastrar o preço.
-- **IA local na navegação (27/09, pedido do Bruno)**: `_ia_atendente` tenta 1º o Ollama do próprio computador
-  (`ATENDENTE_LOCAL`=qwen3:8b, `NUBI_ATENDENTE_LOCAL`; `_modelo_local` vê se está instalado; `think:false`, `num_ctx` 16k,
-  páginas antigas encurtadas), depois o gpt-oss grátis do nubi e, por último, o Haiku (com teto). 3 falhas seguidas pulam a local.
+- **Navegação só com IA grátis (27/09, pedido do Bruno)**: `_ia_atendente` usa as IAs locais do computador em ordem
+  (`ATENDENTE_LOCAIS` = qwen3:8b, hermes3:8b; `NUBI_ATENDENTE_LOCAL`; `_modelos_locais`), depois o gpt-oss grátis do nubi.
+  NUNCA IA paga: o servidor não chama mais o Haiku de reserva (`atendimento_navegar_ia` só devolve `erro_ia`). Todas fora =
+  a rodada para e tenta na próxima. Interpretar/escrever/aprender continua com o Banguela (Sonnet).
 - **Banguela (27/09, nome dado pelo Bruno)**: o agente pago do atendimento = `gerar_qualidade` (Sonnet 5, teto US$ 10/dia,
   cache do briefing). Cartão em `agentes` (id `banguela`), perfil e jeito em `agentes.py`; o custo vai em `agentes_uso` com
   agente `banguela` (`ia.USO["apelido_agente"]`). Buscar/ler chats (Shopee, TikTok, UpSeller) fica com a IA grátis local.

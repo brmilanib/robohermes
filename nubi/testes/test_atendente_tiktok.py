@@ -62,6 +62,8 @@ def _preparar(roteiro, aprovadas=(), receber=None, canais=("tiktok_shop",)):
 
     def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
         chamadas["api"].append((rota, corpo))
+        if rota == "atendimento_navegar_ia":   # 27/09: navegação só com IA grátis; o roteiro vem pelo gpt-oss do nubi
+            return claude(None, corpo["mensagens"], corpo.get("sistema"))
         if rota == "atendimento_para_enviar":
             return {"itens": list(aprovadas), "canais": list(canais)}
         if rota == "atendimento_receber":
@@ -76,7 +78,11 @@ def _preparar(roteiro, aprovadas=(), receber=None, canais=("tiktok_shop",)):
         nome, ent = next(it)
         return {"content": [{"type": "tool_use", "id": f"t{chamadas['claude']}", "name": nome, "input": ent}],
                 "usage": {"input_tokens": 3000, "output_tokens": 200}}
-    c._claude_ferramentas = claude
+    def pago(*a, **k):
+        chamadas["pago"] = chamadas.get("pago", 0) + 1
+        raise AssertionError("a navegação não pode usar IA paga")
+    c._claude_ferramentas = pago
+    c._modelos_locais = lambda: []            # sem Ollama local no teste
     return chamadas
 
 
@@ -169,30 +175,34 @@ def test_conversa_da_lista_feita_de_div_aparece_para_clicar():
     assert "leidianearaujo182" in texto.split("ELEMENTOS:")[1]
 
 
-def test_gratis_parou_sem_registrar_com_conversa_sem_resposta_a_paga_assume():
-    # 27/09 (Shopee): o gpt-oss grátis leu a lista com "Sem resposta (3)" e terminou com "{}" sem registrar nada
+def test_gratis_parou_sem_registrar_recebe_o_empurrao_e_continua_gratis():
+    # 27/09 (Shopee): o gpt-oss grátis leu a lista com "Sem resposta (3)" e terminou com "{}" sem registrar nada; agora ele
+    # recebe o empurrão ("Você parou sem registrar") e continua — sem IA paga
     import shutil
     shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
     PAGINA.with_name("shopee.html").write_text(PAGINA.read_text(encoding="utf-8").replace(
         "<div>Não respondidos</div>", "<div>Sem resposta (3)</div>"), encoding="utf-8")
-    ch = _preparar([("registrar", {"cliente": "leidianearaujo182", "historico": [
-                        {"de": "cliente", "texto": "oi"}, {"de": "cliente", "texto": "tem tester?"}]}),
-                    ("terminar", {"resumo": "1 registrada"})], canais=["shopee"])
+    ch = _preparar([], canais=["shopee"])
     url = URL.replace("chat.html", "shopee.html")
     c.PLATAFORMAS["shopee"] = ("Shopee", url, "127.0.0.1", "Atendente Shopee")
     gratis = iter([{"content": [{"type": "tool_use", "id": "g1", "name": "ler", "input": {}}]},
-                   {"content": [{"type": "text", "text": "{}"}]}])
+                   {"content": [{"type": "text", "text": "{}"}]},
+                   {"content": [{"type": "tool_use", "id": "g2", "name": "registrar", "input": {"cliente": "leidianearaujo182",
+                     "historico": [{"de": "cliente", "texto": "oi"}, {"de": "cliente", "texto": "tem tester?"}]}}]},
+                   {"content": [{"type": "tool_use", "id": "g3", "name": "terminar", "input": {"resumo": "1 registrada"}}]}])
+    vistas = []
     api_antes = c.api
 
     def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
         if rota == "atendimento_navegar_ia":
+            vistas.append(corpo["mensagens"])
             return next(gratis)
         return api_antes(token, rota, params, corpo, metodo, timeout)
     c.api = api
     c.cmd_atender_tiktok(None, c.ler_config())
-    assert ch["claude"] == 2                                                   # a reserva assumiu depois do "{}"
+    assert not ch.get("pago")
     assert any(r == "atendimento_receber" for r, _ in ch["api"])
-    assert "Você parou sem registrar" in json.dumps(ch["ultima"], ensure_ascii=False)
+    assert "Você parou sem registrar" in json.dumps(vistas[-1], ensure_ascii=False)
 
 
 def test_abre_a_conversa_pelo_nome_quando_a_lista_nao_vira_elemento():
@@ -290,19 +300,22 @@ def test_duas_falhas_no_envio_devolvem_a_resposta_ao_bruno_sem_3a_tentativa():
     assert "não está aprovada" in _ultimo_resultado(ch) and not ENVIADO.get("texto")
 
 
-def test_teto_de_passos_pagos_encerra_a_rodada():
+def test_ias_gratis_fora_do_ar_encerra_sem_pagar():
+    # 27/09 (Bruno): navegação nunca usa IA paga; com as grátis fora do ar, a rodada para e tenta de novo na próxima
     import shutil
     shutil.rmtree(c.PASTA / "perfil", ignore_errors=True)
-    ch = _preparar([("ler", {})] * 20 + [("terminar", {"resumo": "x"})])
+    ch = _preparar([])
     api_antes = c.api
+    tentativas = []
 
     def api(token, rota, params=None, corpo=None, metodo=None, timeout=300):
         if rota == "atendimento_navegar_ia":
-            raise RuntimeError("grátis fora do ar")                           # tudo vai para a IA paga
+            tentativas.append(1)
+            raise RuntimeError("grátis fora do ar")
         return api_antes(token, rota, params, corpo, metodo, timeout)
     c.api = api
     c.cmd_atender_tiktok(None, c.ler_config())
-    assert ch["claude"] == c.ATENDENTE_PAGOS_RODADA == 5
+    assert not ch.get("pago") and len(tentativas) >= 1 and c._gasto_atendente(c.ler_config()) == 0
 
 
 def test_login_encerra_na_hora_e_avisa_a_sala_uma_vez():
