@@ -4602,6 +4602,11 @@ def _enviar_aprovadas_direto(pg, aprovadas, estado, token, url):
             estado["enviadas"] = estado.get("enviadas", 0) + 1
         else:
             estado.setdefault("erros_envio", []).append(f"{item.get('cliente')}: {erro}")
+            try:        # 28/09: a falha vai ao nubi (conta para o limite de 2 tentativas e aparece para o Bruno)
+                api(token, "atendimento_enviado", corpo={"id": item["id"], "ok": False, "erro": f"envio direto: {erro}"[:300]},
+                    metodo="POST", timeout=60)
+            except Exception:  # noqa: BLE001
+                pass
     if estado.get("enviadas") or estado.get("erros_envio"):
         _voltar_atendendo_hoje(pg)
 
@@ -5112,7 +5117,8 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
               f"{estado.get('enviadas', 0)} resposta(s) enviada(s) (~US$ {custo:.2f}; {estado.get('gratis', 0)} passo(s) com a IA "
               f"grátis, {estado.get('pago', 0)} com a paga)."
               + (f" ⚠️ {estado['recusadas_outra']} gravação(ões) recusada(s): chat aberto de outra cliente."
-                 if estado.get("recusadas_outra") else ""))
+                 if estado.get("recusadas_outra") else "")
+              + (" ⚠️ não enviei: " + " | ".join(estado["erros_envio"][:4]) if estado.get("erros_envio") else ""))
     try:        # 28/09: último resumo de cada plataforma no nubi (para conferir de longe se as conversas estão chegando)
         api(token, "atendimento_rodada", corpo={"canal": canal, "resumo": resumo[:600], "fim": str(fim or "")[:600]},
             metodo="POST", timeout=30)
