@@ -1333,6 +1333,11 @@ def gravar_taxa(repo, d):
              "respondidos": d.get("respondidos") if isinstance(d.get("respondidos"), int) else None,
              "nao_respondidos": d.get("nao_respondidos") if isinstance(d.get("nao_respondidos"), int) else None,
              "em": _agora()}
+    extras = d.get("extras") if isinstance(d.get("extras"), dict) else {}
+    # 28/09 (print do Bruno): o TikTok mostra mais números na Análise de serviço (volume, IA x equipe, conversão, risco)
+    atual["extras"] = {k: (v if isinstance(v, (int, float)) else str(v)[:20]) for k, v in extras.items()
+                       if k in ("total_chats", "chats_ia", "chats_equipe", "chats_ia_para_equipe", "receita_pos", "pedidos_pos",
+                                "conversao", "taxa_risco", "sessoes_hoje") and v is not None} or None
     if atual["taxa"] is None and not atual["tempo"]:
         return {"ok": False, "motivo": "sem número"}
     velho = taxa_oficial(repo, canal) or {}

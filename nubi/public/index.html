@@ -785,6 +785,15 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 .sp-linha{grid-column:1/-1;display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:1px 6px;margin:0 -6px}
 .sp-linha3{grid-column:1/-1;display:grid;grid-template-columns:130px 1fr auto;gap:6px 10px;align-items:center;padding:1px 6px;margin:0 -6px}
 .sp-canal .sp-link.t{grid-column:1/-1}
+.sp-canal .sp-linha span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-plat{margin-top:12px;padding-top:10px;border-top:1px dashed var(--sp-grid)}
+.sp-plat-cab{font-size:12.5px;font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.sp-plat-cab span{font-weight:400;color:var(--sp-muted);font-size:11.5px}
+.sp-chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px}
+.sp-chip{border:1px solid var(--sp-grid);border-radius:10px;padding:6px 8px;min-width:0}
+.sp-chip b{display:block;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-chip span{display:block;font-size:11px;color:var(--sp-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-muted{color:var(--sp-muted);font-size:12px}
 .sp-hb .trilho{height:10px;background:transparent}
 .sp-hb .trilho i{display:block;height:100%;border-radius:0 4px 4px 0;background:var(--sp-s1)}
 .sp-agora{display:grid;gap:6px;max-height:340px;overflow:auto}
@@ -3070,8 +3079,24 @@ async function telaPainelSac() {
   const ir = (o, conteudo, tag = "div", cls = "") => `<${tag} class="sp-link ${cls}" data-sp-ir='${esc(JSON.stringify(o))}' tabindex="0" role="link">${conteudo}</${tag}>`;
   const maior = campo => (canais.map(([k]) => [k, ((d.por_canal || {})[k] || {})[campo] || 0]).sort((a, b) => b[1] - a[1])[0] || ["tiktok_shop"])[0];
   const pct = v => v == null ? "—" : `${String(v).replace(".", ",")}%`;
-  const taxaOf = o => !o ? `<span style="color:var(--sp-muted)">lendo…</span>` : `<span title="${esc([o.periodo, o.respondidos != null ? `${o.respondidos} respondidos, ${o.nao_respondidos} sem resposta` : "", o.tempo ? `tempo médio ${o.tempo}` : "", o.csat != null ? `CSAT ${o.csat}%` : ""].filter(Boolean).join(" · "))}">${o.taxa == null ? "—" : pct(o.taxa)}${o.tempo ? ` · ⏱️ ${esc(o.tempo)}` : ""}${o.csat != null ? ` · ⭐ ${pct(o.csat)}` : ""}</span>
-      <span style="color:var(--sp-muted);font-weight:400;font-size:11px"> há ${spEspera(o.em)}</span>`;
+  // 28/09 (Bruno: "design mais clean e sem quebrar"): números da plataforma num bloco próprio, em quadradinhos
+  const chip = (val, rot, tip = "") => `<div class="sp-chip" title="${esc(tip || rot)}"><b>${val}</b><span>${rot}</span></div>`;
+  const plataforma = o => { if (!o) return `<div class="sp-plat"><div class="sp-plat-cab">📶 Na plataforma <span>lendo…</span></div></div>`;
+    const x = o.extras || {}, chips = [
+      o.taxa != null ? chip(pct(o.taxa), "resposta", `taxa de resposta · ${o.periodo || ""}`) : "",
+      o.tempo ? chip(esc(o.tempo), "tempo médio") : "",
+      o.csat != null ? chip(pct(o.csat), "satisfação") : "",
+      o.respondidos != null ? chip(nf(o.respondidos), "respondidos") : "",
+      o.nao_respondidos != null ? chip(nf(o.nao_respondidos), "sem resposta") : "",
+      x.total_chats != null ? chip(nf(x.total_chats), "chats") : "",
+      x.chats_ia != null ? chip(nf(x.chats_ia), "só IA") : "",
+      x.chats_equipe != null ? chip(nf(x.chats_equipe), "só equipe") : "",
+      x.chats_ia_para_equipe != null ? chip(nf(x.chats_ia_para_equipe), "IA → equipe") : "",
+      x.conversao != null ? chip(pct(x.conversao), "conversão") : "",
+      x.receita_pos ? chip(esc(String(x.receita_pos)), "receita", x.pedidos_pos != null ? `${x.pedidos_pos} pedidos` : "") : "",
+      x.taxa_risco != null ? chip(pct(x.taxa_risco), "risco") : ""].filter(Boolean).join("");
+    return `<div class="sp-plat"><div class="sp-plat-cab">📶 Na plataforma <span>${esc(o.periodo || "")}${o.periodo ? " · " : ""}há ${spEspera(o.em)}</span></div>
+      <div class="sp-chips">${chips || `<span class="sp-muted">sem números</span>`}</div></div>`; };
   const canal = ([k, n]) => { const c = (d.por_canal || {})[k] || {}, l = (aba, txt, val) => ir({canal: k, aba}, `<span>${txt}</span><b>${val}</b>`, "div", "sp-linha");
     return `<div class="sp-card"><div class="sp-canal">${ir({canal: k}, n, "div", "t")}
       ${l("precisa", "⏳ Precisam de resposta", nf((c.precisa_voce || 0) + (c.aprovar || 0)))}
@@ -3079,8 +3104,8 @@ async function telaPainelSac() {
       ${l("sozinho", "🤖 Sozinho (IA) hoje", nf(c.sozinho_hoje))}
       ${l("tudo", "💬 Mensagens de clientes hoje", nf(c.clientes_hoje))}
       ${l("tudo", "🗂️ Conversas abertas", nf(c.conversas))}
-      ${k === "mercado_livre" ? "" : `<span title="lida na central do vendedor a cada 2 h">📶 Taxa de resposta (plataforma)</span><b>${taxaOf(c.taxa_oficial)}</b>`}
-      <span title="das conversas com mensagem de cliente nos últimos 7 dias, quantas o nubi respondeu">📈 Respondidas pelo nubi (7 dias)</span><b>${pct(c.taxa_nubi)}</b></div></div>`; };
+      <div class="sp-linha" title="das conversas com mensagem de cliente nos últimos 7 dias, quantas o nubi respondeu"><span>📈 Respondidas pelo nubi (7 dias)</span><b>${pct(c.taxa_nubi)}</b></div></div>
+      ${k === "mercado_livre" ? "" : plataforma(c.taxa_oficial)}</div>`; };
   const serie = d.serie || [], max = Math.max(1, ...serie.flatMap(x => [x.clientes, x.respostas]));
   const dia = x => { const dt = new Date(x.dia + "T12:00:00"); return dt.toLocaleDateString("pt-BR", {weekday: "short", day: "2-digit"}); };
   const barras = serie.map(x => `<div class="sp-dia" title="${dia(x)}: ${x.clientes} mensagens de clientes, ${x.respostas} respostas da loja">

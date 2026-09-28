@@ -4997,6 +4997,41 @@ def _taxa_do_texto(txt):
     elif out["respondidos"] is not None and out["nao_respondidos"] is not None and (out["respondidos"] + out["nao_respondidos"]):
         out["taxa_resposta"] = round(100 * out["respondidos"] / (out["respondidos"] + out["nao_respondidos"]), 2)
     return out if out.get("taxa_resposta") is not None else {}
+
+
+def _taxa_tiktok_do_texto(txt):
+    """28/09 (print do Bruno): TikTok → chat do vendedor → Análise de serviço → Visão geral. Lê os números do texto da
+    página, sem IA. -> dict (vazio se não é essa tela)."""
+    t = re.sub(r"[ \t\u00a0]+", " ", txt or "")
+    if not re.search(r"Taxa de resposta em 24 horas", t, re.I):
+        return {}
+    def pega(rotulo, padrao=r"([\d.,]+)"):
+        m = re.search(rotulo + r"\s*\??\s*\n?\s*" + padrao, t, re.I)
+        return m.group(1) if m else None
+    def num(x):
+        try:
+            return float(str(x).replace(",", ".")) if x is not None else None
+        except ValueError:
+            return None
+    inteiro = lambda x: int(num(x)) if num(x) is not None else None
+    out = {"taxa_resposta": num(pega(r"Taxa de resposta em 24 horas", r"([\d.,]+)\s*%")),
+           "csat": num(pega(r"Taxa de satisfa[çc][ãa]o", r"([\d.,]+)\s*%")),
+           "tempo_resposta": (lambda v: f"{v} min" if v else None)(pega(r"Tempo m[ée]dio de resposta", r"([\d.,]+)\s*min")),
+           "periodo": (re.search(r"[ÚU]ltimos \d+ dias", t, re.I) or [None])[0],
+           "extras": {"total_chats": inteiro(pega(r"Total de chats")),
+                      "chats_ia": inteiro(pega(r"Chats apenas de IA")),
+                      "chats_equipe": inteiro(pega(r"Chats apenas de agentes")),
+                      "chats_ia_para_equipe": inteiro(pega(r"Chats de IA para agente")),
+                      "receita_pos": pega(r"Receita p[óo]s-atendimento", r"([^\d\n]{0,4}\s?[\d.,]+)"),
+                      "pedidos_pos": inteiro(pega(r"Pedidos p[óo]s-atendimento")),
+                      "conversao": num(pega(r"Convers[ãa]o de vendas", r"([\d.,]+)\s*%")),
+                      "taxa_risco": num(pega(r"Taxa de risco", r"([\d.,]+)\s*%")),
+                      "sessoes_hoje": inteiro(pega(r"Sess[õo]es de hoje"))}}
+    out["extras"] = {k: v for k, v in out["extras"].items() if v is not None}
+    return out if out["taxa_resposta"] is not None else {}
+
+
+TAXA_LEITOR = {"shopee": _taxa_do_texto, "tiktok_shop": _taxa_tiktok_do_texto}
 TAXA_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abrir", "ler", "clicar")] + [
     {"name": "registrar_taxa", "description": "Manda ao nubi a taxa de resposta do chat da loja que aparece na tela.",
      "input_schema": {"type": "object", "properties": {
@@ -5008,7 +5043,8 @@ TAXA_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abrir", "
      "input_schema": {"type": "object", "properties": {"resumo": {"type": "string"}}, "required": ["resumo"]}}]
 PAPEL_TAXA = ("Você só LÊ um número na central do vendedor da {PLATAFORMA}: a TAXA DE RESPOSTA DO CHAT da loja (e o tempo "
               "médio de resposta, se aparecer). Procure em Dados/Data, Desempenho/Performance, Saúde da conta ou Atendimento ao "
-              "cliente. Quando achar, chame registrar_taxa. NUNCA mude configuração, nunca clique em salvar/ativar/desativar, nunca "
+              "cliente. No TikTok: no chat do vendedor, o ícone de gráfico 'Análise de serviço' → 'Visão geral' (Taxa de "
+              "resposta em 24 horas). Quando achar, chame registrar_taxa. NUNCA mude configuração, nunca clique em salvar/ativar/desativar, nunca "
               "abra conversas de clientes. Não achou em até 10 passos: terminar.")
 
 
@@ -5017,13 +5053,22 @@ def _ler_taxa(ctx, canal, token):
     nome = PLATAFORMAS[canal][0]
     pg = ctx.new_page()
     estado, papel = {}, PAPEL_TAXA.replace("{PLATAFORMA}", nome)
+    leitor = TAXA_LEITOR.get(canal)
+    k_url = f"{canal}_taxa_url"                         # 28/09: o TikTok guarda o endereço achado pela IA na 1ª vez
+    url_fixa = TAXA_PAGINA.get(canal) or ler_config().get(k_url)
+
+    def ler_fixo():
+        try:
+            return leitor("\n".join(fr.inner_text("body", timeout=15000) for fr in pg.frames[:4] if fr)) if leitor else {}
+        except Exception:  # noqa: BLE001
+            return {}
     try:
-        if canal in TAXA_PAGINA:                       # leitura fixa, sem IA
-            pg.goto(TAXA_PAGINA[canal], timeout=60000)
+        if url_fixa:                                    # leitura fixa, sem IA
+            pg.goto(url_fixa, timeout=60000)
             pg.wait_for_timeout(8000)
             if _na_tela_login(pg):
                 return f"{nome}: taxa não lida (precisa de login)"
-            dados = _taxa_do_texto(pg.inner_text("body", timeout=15000))
+            dados = ler_fixo()
             if dados:
                 x = api(token, "atendimento_taxa", corpo={"canal": canal, **dados}, metodo="POST", timeout=60)
                 return f"{nome}: taxa de resposta {x.get('taxa')}% ({dados.get('periodo') or 'período não informado'}; sem IA)"
@@ -5042,6 +5087,12 @@ def _ler_taxa(ctx, canal, token):
             for b in usos:
                 ent = b.get("input") or {}
                 if b["name"] == "registrar_taxa":
+                    dados = ler_fixo()
+                    if dados:                           # a tela certa: lê todos os números do texto, não os da IA
+                        cfg = ler_config()
+                        cfg[k_url] = pg.url
+                        salvar_config(cfg)
+                        ent = dados
                     x = api(token, "atendimento_taxa", corpo={"canal": canal, **ent}, metodo="POST", timeout=60)
                     return f"{nome}: taxa de resposta {x.get('taxa')}% ({x.get('periodo') or 'período não informado'})"
                 if b["name"] == "terminar":

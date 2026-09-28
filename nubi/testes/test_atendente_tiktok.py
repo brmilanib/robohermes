@@ -574,6 +574,21 @@ def test_traz_as_fotos_que_a_cliente_mandou():
         ctx.close()
 
 
+def test_le_a_analise_de_servico_do_tiktok_sem_ia():
+    # 28/09 (print do Bruno): TikTok → Análise de serviço → Visão geral
+    txt = """Visão geral dos chats\nAtividades ao vivo\nSessões de hoje\n3 sessão(ões)\nAgentes online\n1 Agentes
+Relatório de operações\nÚltimos 28 dias: 2026-08-31—2026-09-27\nVolume de chats\nDesempenho do serviço\nConversão de vendas\nRiscos do chat
+Total de chats\n65\n66.67%\nChats apenas de IA\n31\nChats apenas de agentes\n13\nChats de IA para agente\n21
+Taxa de satisfação\n85.7%\n71.43%\nTop 30% (75.9%)\nTaxa de resposta em 24 horas\n89.23%\n16%\nTempo médio de resposta\n844.1 min\n-50.98%
+Receita pós-atendimento\n$ 493\nPedidos pós-atendimento\n2\nConversão de vendas\n11.76%\nRiscos do chat\n1 sessão(ões)\nTaxa de risco\n2.94%"""
+    d = c._taxa_tiktok_do_texto(txt)
+    assert d["taxa_resposta"] == 89.23 and d["csat"] == 85.7 and d["tempo_resposta"] == "844.1 min"
+    assert d["periodo"] == "Últimos 28 dias"
+    assert d["extras"] == {"total_chats": 65, "chats_ia": 31, "chats_equipe": 13, "chats_ia_para_equipe": 21, "receita_pos": "$ 493",
+                           "pedidos_pos": 2, "conversao": 11.76, "taxa_risco": 2.94, "sessoes_hoje": 3}, d["extras"]
+    assert c._taxa_tiktok_do_texto("Bate-papo da loja") == {}
+
+
 def test_so_registra_com_o_chat_da_propria_cliente_aberto():
     # 28/09 (print do Bruno): andrezaaasouza recebeu foto, produto, pedido e mensagens da amordemaelb
     from playwright.sync_api import sync_playwright

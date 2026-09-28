@@ -74,13 +74,21 @@ try:
                 pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/ml"); pg.wait_for_selector("h1", timeout=15000); pg.wait_for_timeout(1200)
                 assert "Mercado Livre · Atendimento" in pg.inner_text("h1") and not pg.is_visible("#at-ligar")
                 assert "Base de conhecimento SAC" in pg.inner_text("#side")          # menu SAC com as lojas e a base
+                pg.evaluate("""async () => { const p = (c) => api('atendimento_taxa', {}, {method: 'POST', body: JSON.stringify(c)});
+                  await p({canal: 'shopee', taxa_resposta: 55.56, tempo_resposta: '03:14:11', csat: 50, respondidos: 5, nao_respondidos: 4, periodo: 'Últimos 7 Dias'});
+                  await p({canal: 'tiktok_shop', taxa_resposta: 89.23, tempo_resposta: '844.1 min', csat: 85.7, periodo: 'Últimos 28 dias',
+                           extras: {total_chats: 65, chats_ia: 31, chats_equipe: 13, chats_ia_para_equipe: 21, conversao: 11.76, receita_pos: '$ 493', pedidos_pos: 2, taxa_risco: 2.94}}); }""")
                 pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/painel"); pg.wait_for_selector(".sp-kpis", timeout=15000)
+                pg.wait_for_selector(".sp-chip", timeout=15000)
+                pg.set_viewport_size({"width": 1760, "height": 1250})
+                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "painel_sac.png"), full_page=True)
+                assert "IA → equipe" in pg.inner_text(".sp-root") and "89,23%" in pg.inner_text(".sp-root")
                 assert "precisam de resposta agora" in pg.inner_text(".sp-kpis") and "Últimos 7 dias" in pg.inner_text(".sp-root")
                 pg.click("#sp-tv"); pg.wait_for_selector(".sp-root.tv", timeout=5000)             # modo TV
                 pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "painel_sac_tv.png"))
                 pg.click("#sp-tv"); pg.wait_for_selector(".sp-root:not(.tv)", timeout=5000)
                 # 27/09 (Bruno): o que pisca no painel é clicável e abre o chat; as linhas abrem a lista filtrada
-                assert "Taxa de resposta (plataforma)" in pg.inner_text(".sp-root") and "Respondidas pelo nubi" in pg.inner_text(".sp-root")
+                assert "Na plataforma" in pg.inner_text(".sp-root") and "Respondidas pelo nubi" in pg.inner_text(".sp-root")
                 pg.locator(".sp-agora .sp-link", has_text="joao shopee").first.click()
                 pg.wait_for_selector(".atx-cab", timeout=15000)
                 assert "#/sac/shopee" in pg.url and "joao shopee" in pg.inner_text(".atx-cab")

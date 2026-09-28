@@ -395,3 +395,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   linhas juntas ou separadas). O atendente manda as fotos que a cliente pôs no chat (`JS_FOTOS_CLIENTE`/`_fotos_da_cliente`
   → `pedido_dados.fotos_cliente`, até 6; imagem fixa da tela sai por `_fotos_genericas`); a tela mostra "📷 Fotos que … mandou"
   e os FATOS dizem `cliente_mandou_fotos` (não pedir de novo). `testar_envio <canal> <cliente>|<trecho>` diz se o trecho está no chat.
+- **Análise de serviço do TikTok e painel limpo (28/09, prints do Bruno)**: `_taxa_tiktok_do_texto` lê, sem IA, a tela
+  TikTok → Análise de serviço → Visão geral (taxa de resposta em 24 h, satisfação, tempo médio e `extras`: chats, só IA, só
+  equipe, IA→equipe, conversão, receita/pedidos pós-atendimento, risco, sessões de hoje). Na 1ª vez a IA grátis navega até
+  lá e o endereço fica em `tiktok_shop_taxa_url` (config); depois é leitura fixa (`TAXA_LEITOR`). `gravar_taxa` guarda
+  `extras`. No Painel do SAC os números da plataforma ficam num bloco "📶 Na plataforma" com quadradinhos (`sp-chip`),
+  sem quebrar as linhas do cartão.
