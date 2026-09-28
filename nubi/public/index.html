@@ -2836,7 +2836,9 @@ async function telaAtendimento(canal = "tiktok_shop") {
         <div class="muted" style="font-size:11px">${esc(nomeCanal(c))} · ${esc(c.loja)}</div></div></div>`;
   const quem = (c, x) => { if (x.de !== "loja") return esc(c.cliente || "cliente");
     const r = (c.respostas || []).find(y => (y.texto || "").trim() === (x.texto || "").trim()) || {};
-    return (r.por === "automático" ? "🤖 automático" : esc(r.por || "loja")) + (r.pelo_mac ? (r.enviado_em ? " · ✓ enviado" : " · ⏳ enviando") : ""); };
+    // 28/09 (print do Bruno): resposta aprovada que o envio não conseguiu entregar não pode parecer enviada
+    return (r.por === "automático" ? "🤖 automático" : esc(r.por || "loja")) + (r.falhou ? ` · <b style="color:#b45309">⚠️ não chegou à cliente (envio falhou)</b>`
+      : r.pelo_mac ? (r.enviado_em ? " · ✓ enviado" : " · ⏳ enviando") : ""); };
   const chat = c => { if (!c) return `<div class="atx-vazio">Escolha uma conversa à esquerda.</div>`;
     const r = c.rascunho || {};
     const acao = r.status === "precisa_info" ? `<div class="atx-alerta">🙋 <b>Preciso de você:</b> ${esc(r.pergunta_operador || "")}

@@ -500,7 +500,7 @@ def processar(repo, conversa, mensagem, gerar=None, resposta_operador=None, inte
     fatos, falta = buscar_dados(repo, can, conversa, mensagem["texto"], resposta_operador, interp)
     if not resposta_operador and conversa.get("id"):
         try:
-            anterior = _resposta_anterior(_pergunta_do_cliente(repo, conversa["id"])[1])
+            anterior = _resposta_anterior(_pergunta_do_cliente(repo, conversa["id"])[1], _nao_entregues(repo, conversa["id"]))
         except Exception:  # noqa: BLE001
             anterior = None
         if anterior:
@@ -914,8 +914,18 @@ def _fichas_do_estoque(repo, lim=60):
                                                                                     "limit": 5000}) or [] if f["chave"] in em][:lim]
 
 
-def _resposta_anterior(msgs):
-    """Cliente repetiu uma pergunta já respondida (27/09, pedido do Bruno): devolve o que a loja respondeu da outra vez."""
+def _nao_entregues(repo, conversa_id):
+    """28/09 (print do Bruno, joanaabranches): respostas aprovadas que NÃO chegaram à cliente (envio falhou ou ainda na fila).
+    A tela as mostra como aviso e o Banguela não pode dizer "como te respondemos logo acima" com base nelas."""
+    return {_norm(r["texto_final"]).strip() for r in repo._req("GET", "atendimento_rascunhos", {
+        "select": "texto_final,enviado_em,enviar_pelo_mac,motivo,status", "conversa_id": f"eq.{conversa_id}", "limit": 200}) or []
+        if r.get("texto_final") and not r.get("enviado_em") and (r.get("enviar_pelo_mac") or ENVIO_FALHOU in str(r.get("motivo") or ""))}
+
+
+def _resposta_anterior(msgs, nao_entregues=()):
+    """Cliente repetiu uma pergunta já respondida (27/09, pedido do Bruno): devolve o que a loja respondeu da outra vez.
+    Resposta que não chegou à cliente (28/09) não conta."""
+    msgs = [m for m in msgs if not (m["de"] == "loja" and _norm(m["texto"]).strip() in set(nao_entregues))]
     ult = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i]["de"] == "cliente"), None)
     if ult is None:
         return None
@@ -1158,7 +1168,9 @@ def fila(repo, status=None, lim=80, canal_id=None):
                                   [r.get("texto_final") for r in rascs if r["conversa_id"] == c["id"]] + longas)[-40:]
         # quem mandou cada resposta da loja (🤖 automático, Bruno) e se já saiu no chat, para os balões da tela
         c["respostas"] = [{"texto": r.get("texto_final"), "por": r.get("decidido_por"), "enviado_em": r.get("enviado_em"),
-                           "pelo_mac": r.get("enviar_pelo_mac")} for r in rascs if r["conversa_id"] == c["id"] and r.get("texto_final")]
+                           "pelo_mac": r.get("enviar_pelo_mac"),
+                           "falhou": bool(not r.get("enviado_em") and ENVIO_FALHOU in str(r.get("motivo") or ""))}
+                          for r in rascs if r["conversa_id"] == c["id"] and r.get("texto_final")]
     return conversas
 
 

@@ -678,6 +678,14 @@ def test_envio_que_falhou_nao_some_e_substituido_nao_e_enviado():
     assert [x["texto"] for x in a.para_enviar(r)] == ["novo"]
 
 
+def test_como_te_respondemos_so_com_resposta_que_chegou():
+    # 28/09 (print do Bruno): a resposta da joana nunca chegou e o Banguela disse "Como te respondemos logo acima"
+    msgs = [{"de": "cliente", "texto": "confiram a válvula"}, {"de": "loja", "texto": "Pode deixar que vamos conferir!"},
+            {"de": "cliente", "texto": "confiram a válvula"}]
+    assert a._resposta_anterior(msgs) == "Pode deixar que vamos conferir!"
+    assert a._resposta_anterior(msgs, {a._norm("Pode deixar que vamos conferir!").strip()}) is None
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

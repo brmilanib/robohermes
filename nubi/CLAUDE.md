@@ -373,3 +373,6 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   do envio direto vai ao nubi (`atendimento_enviado` ok=false, conta para as 2 tentativas) e aparece no resumo da rodada.
   `_cancelar_pendentes` (usado pelo `liberar_so_aviso`) NUNCA cancela rascunho que voltou ao Bruno por falha de envio. Envio
   direto: cliente antiga → aba "Todos os Chats" antes da busca (`_aba_todos_os_chats`); "Recomeçar Conversa" achado também pelo texto.
+  Resposta que NÃO chegou (sem `enviado_em`, esperando envio ou com `ENVIO_FALHOU`) não conta como "já respondemos"
+  (`_nao_entregues` → `_resposta_anterior`: nada de "Como te respondemos logo acima"); na tela ela aparece com
+  "⚠️ não chegou à cliente (envio falhou)" (`falhou` nas `respostas` da `fila`).
