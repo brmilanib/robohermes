@@ -578,23 +578,22 @@ def test_comando_do_nubi_para_o_pc():
     assert feito["status"] == "feito" and feito["saida"] == "ok"
 
 
-def test_navegacao_usa_o_haiku_do_servidor_quando_a_gratis_acaba():
+def test_navegacao_sem_cota_gratis_nao_usa_ia_paga():
+    # 27/09 (Bruno): o Haiku de reserva custou ~US$ 73 num dia; navegar o chat agora é só com IA grátis
     r = Repo()
     ia.tem = lambda q: q in ("ollama", "claude")
     orig_ol, orig_post = ia.ollama_ferramentas, ia._post_json
     def sem_cota(*a_, **k):
         raise ia.SemIA("cota grátis acabou")
+    pagos = []
     ia.ollama_ferramentas = sem_cota
-    os.environ.setdefault("ANTHROPIC_API_KEY", "x")
-    ia._post_json = lambda url, corpo, cab, timeout=90: {"content": [{"type": "tool_use", "id": "t1", "name": "ler", "input": {}}]}
-    x = a.rota(r, "POST", "atendimento_navegar_ia", {}, json.dumps({"mensagens": [{"role": "user", "content": "comece"}],
-                                                                     "sistema": "s", "ferramentas": [{"name": "ler", "input_schema": {"type": "object"}}]}).encode())
-    assert x["content"][0]["name"] == "ler" and x["reserva"]
-    r.t["agentes_uso"] = [{"origem": a.NAVEGAR_ORIGEM, "custo_usd": "3.1", "inicio": datetime.now(timezone.utc).isoformat()}]
-    y = a.rota(r, "POST", "atendimento_navegar_ia", {}, json.dumps({"mensagens": [], "ferramentas": []}).encode())
-    assert "erro_ia" in y                                                    # no teto do dia: não usa mais a paga
-    ia.ollama_ferramentas, ia._post_json = orig_ol, orig_post
-
+    ia._post_json = lambda *a_, **k: pagos.append(1) or {"content": []}
+    try:
+        x = a.rota(r, "POST", "atendimento_navegar_ia", {}, json.dumps({"mensagens": [{"role": "user", "content": "comece"}],
+                                                                         "sistema": "s", "ferramentas": []}).encode())
+        assert "erro_ia" in x and not pagos
+    finally:
+        ia.ollama_ferramentas, ia._post_json = orig_ol, orig_post
 
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
