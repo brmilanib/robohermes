@@ -595,6 +595,25 @@ def test_navegacao_sem_cota_gratis_nao_usa_ia_paga():
     finally:
         ia.ollama_ferramentas, ia._post_json = orig_ol, orig_post
 
+def test_taxa_de_resposta_oficial_e_do_nubi_no_painel():
+    # 27/09 (Bruno): o atendente lê a taxa oficial a cada 2 h; o painel mostra essa e a medida pelo nubi (7 dias)
+    r = Repo()
+    x = a.gravar_taxa(r, {"canal": "shopee", "taxa_resposta": "97,5%", "tempo_resposta": "< 1 h", "periodo": "últimos 30 dias"})
+    assert x["ok"] and x["taxa"] == 97.5
+    a.gravar_taxa(r, {"canal": "shopee", "taxa_resposta": 98})
+    t = json.loads(r.t["ia_resumos"][-1]["texto"])          # o Repo falso não junta nem ordena: a última gravação
+    assert t["taxa"] == 98 and [h["taxa"] for h in t["historico"]] == [97.5, 98]
+    assert not a.gravar_taxa(r, {"canal": "shopee", "taxa_resposta": "abc"})["ok"]
+    try:
+        a.gravar_taxa(r, {"canal": "x", "taxa_resposta": 1})
+        assert False
+    except ValueError:
+        pass
+    p = a.painel(r)
+    assert p["por_canal"]["shopee"]["taxa_oficial"]["taxa"] in (97.5, 98) and "taxa_nubi" in p["por_canal"]["tiktok_shop"]
+    assert "loja_canal" in p and "assunto_canal" in p
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

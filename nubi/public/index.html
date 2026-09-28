@@ -770,6 +770,11 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 .sp-leg{display:flex;gap:14px;font-size:12.5px;color:var(--sp-muted);margin:8px 0 0}
 .sp-leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .sp-hb{display:grid;grid-template-columns:130px 1fr auto;gap:6px 10px;align-items:center;font-size:13.5px}
+.sp-link{cursor:pointer;border-radius:10px;transition:background .15s}
+.sp-link:hover,.sp-link:focus-visible{background:color-mix(in srgb,var(--sp-s1) 12%,transparent);outline:none}
+.sp-linha{grid-column:1/-1;display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:1px 6px;margin:0 -6px}
+.sp-linha3{grid-column:1/-1;display:grid;grid-template-columns:130px 1fr auto;gap:6px 10px;align-items:center;padding:1px 6px;margin:0 -6px}
+.sp-canal .sp-link.t{grid-column:1/-1}
 .sp-hb .trilho{height:10px;background:transparent}
 .sp-hb .trilho i{display:block;height:100%;border-radius:0 4px 4px 0;background:var(--sp-s1)}
 .sp-agora{display:grid;gap:6px;max-height:340px;overflow:auto}
@@ -2798,8 +2803,13 @@ async function telaAtendimento(canal = "tiktok_shop") {
   const st = c => (c.rascunho || {}).status;
   const lojas = [...new Set(conv.map(c => c.loja))].sort(), loja = S.atLoja || "";
   const filtros = {tudo: c => c.status !== "fechada", voce: c => st(c) === "precisa_info", aprovar: c => st(c) === "pendente",
+                   precisa: c => ["precisa_info", "pendente"].includes(st(c)),
+                   respondidas: c => c.status === "respondida" || ["enviado", "aprovado", "editado"].includes(st(c)),
                    sozinho: c => (c.rascunho || {}).decidido_por === "automático", fechados: c => c.status === "fechada"};
-  const lista = conv.filter(c => (!loja || c.loja === loja) && (filtros[aba] || filtros.tudo)(c));
+  // 27/09 (Bruno): o Painel do SAC abre esta lista já filtrada (loja do pedido, assunto)
+  const assunto = S.atAssunto || "";
+  const lista = conv.filter(c => (!loja || c.loja === loja || (c.pedido_dados || {}).loja === loja)
+    && (!assunto || (c.rascunho || {}).intencao === assunto) && (filtros[aba] || filtros.tudo)(c));
   const aberta = conv.find(c => c.id === S.atConv) || null;
   const ult = c => (c.mensagens || []).slice(-1)[0] || {};
   const sinal = c => st(c) === "precisa_info" ? `<span class="atx-pill amarelo">🙋 você</span>` : st(c) === "pendente" ? `<span class="atx-pill azul">✍️ aprovar</span>`
@@ -2860,7 +2870,8 @@ async function telaAtendimento(canal = "tiktok_shop") {
       <div class="atx-kv"><span>Criado</span><b>${atQuando(c.criado_em)}</b></div>
       <div class="atx-kv"><span>Atualizado</span><b>${atQuando(c.atualizado_em)}</b></div>
       <details class="at-fontes"><summary>🔍 Dados usados na resposta</summary><pre>${esc(JSON.stringify(r.fontes || {}, null, 1))}</pre></details>`; };
-  const abas = [["tudo", `Caixa de entrada (${conv.filter(filtros.tudo).length})`], ["voce", `🙋 Precisa de você (${conv.filter(filtros.voce).length})`],
+  const abas = [["tudo", `Caixa de entrada (${conv.filter(filtros.tudo).length})`], ["precisa", `⏳ Precisam de resposta (${conv.filter(filtros.precisa).length})`],
+                ["voce", `🙋 Precisa de você (${conv.filter(filtros.voce).length})`], ["respondidas", "✅ Respondidas"],
                 ["aprovar", `✍️ Aprovar (${conv.filter(filtros.aprovar).length})`], ["sozinho", "🤖 Respondidas sozinho"],
                 ["fechados", `🗂️ Fechados (${conv.filter(filtros.fechados).length})`], ["kb", "📚 Base de conhecimento SAC ↗"]];
   const corpo = `<div class="atx ${aberta ? "com-conv" : ""}">
@@ -2878,7 +2889,9 @@ async function telaAtendimento(canal = "tiktok_shop") {
     <div class="at-num"><span>${f.atendente ? (f.no_pc ? "🟢 ligado no seu PC (a cada 2 min)" : "🟢 ligado no Mac mini (a cada 5 min)") : "⚪ atendente desligado"}</span>
       <span>🤖 ${m.automaticas || 0} respondidas sozinho</span><span>🎯 acerto ${pct(t.acerto)}</span>
       <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="at-auto" ${f.auto ? "checked" : ""}> responder sozinho o que já aprendeu</label></div>
-    <div class="seg es-seg" style="margin-bottom:10px">${abas.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-at-aba="${k}">${n}</button>`).join("")}</div>${corpo}`;
+    <div class="seg es-seg" style="margin-bottom:10px">${abas.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-at-aba="${k}">${n}</button>`).join("")}</div>
+    ${assunto || (loja && !lojas.includes(loja)) ? `<div class="at-num" style="margin:-4px 0 8px">${assunto ? `<span class="atx-pill azul">🏷️ ${SP_ASSUNTO[assunto] || esc(assunto)}</span>` : ""}
+      ${loja && !lojas.includes(loja) ? `<span class="atx-pill azul">🏪 ${esc(loja)}</span>` : ""}<button class="btn small ghost" id="atx-limpar">✕ limpar filtro</button></div>` : ""}${corpo}`;
   const post = (rota, corpo_) => api(rota, {}, {method: "POST", body: JSON.stringify(corpo_)});
   const agir = async (fn, ok) => { try { const x = await fn(); if (ok) toast(ok(x), 7000); telaAtendimento(canal); } catch (e) { toast(e.message, 7000); } };
   if ($("#atx-msgs")) $("#atx-msgs").scrollTop = 1e6;
@@ -2886,6 +2899,7 @@ async function telaAtendimento(canal = "tiktok_shop") {
   main.querySelectorAll("[data-atx-conv]").forEach(b => b.onclick = () => { S.atConv = +b.dataset.atxConv; telaAtendimento(canal); });
   if ($("#atx-voltar")) $("#atx-voltar").onclick = () => { S.atConv = null; telaAtendimento(canal); };
   if ($("#atx-loja")) $("#atx-loja").onchange = e => { S.atLoja = e.target.value; telaAtendimento(canal); };
+  if ($("#atx-limpar")) $("#atx-limpar").onclick = () => { S.atAssunto = ""; S.atLoja = ""; telaAtendimento(canal); };
   if ($("#atx-colar")) $("#atx-colar").onclick = () => { S.atColar = !S.atColar; $("#at-nova").hidden = !S.atColar; };
   if ($("#at-nova")) $("#at-nova").onsubmit = e => { e.preventDefault(); const texto = $("#at-txt").value.trim(); if (!texto) return;
     agir(() => post("atendimento_receber", {canal, texto, cliente: $("#at-cli").value.trim() || null, pedido: $("#at-ped").value.trim() || null}),
@@ -3032,13 +3046,21 @@ async function telaPainelSac() {
   const kpi = (n, r, cls = "") => `<div class="sp-kpi ${cls}"><div class="n">${n}</div><div class="r">${r}</div></div>`;
   const precisam = (t.precisa_voce || 0) + (t.aprovar || 0);
   const canais = [["tiktok_shop", "🎵 TikTok Shop"], ["shopee", "🛍️ Shopee"], ["mercado_livre", "🤝 Mercado Livre"]];
-  const canal = ([k, n]) => { const c = (d.por_canal || {})[k] || {};
-    return `<div class="sp-card"><div class="sp-canal"><div class="t">${n}</div>
-      <span>⏳ Precisam de resposta</span><b>${nf((c.precisa_voce || 0) + (c.aprovar || 0))}</b>
-      <span>✅ Respondidas hoje</span><b>${nf(c.respondidas_hoje)}</b>
-      <span>🤖 Sozinho (IA) hoje</span><b>${nf(c.sozinho_hoje)}</b>
-      <span>💬 Mensagens de clientes hoje</span><b>${nf(c.clientes_hoje)}</b>
-      <span>🗂️ Conversas abertas</span><b>${nf(c.conversas)}</b></div></div>`; };
+  // 27/09 (Bruno): tudo no painel é clicável e abre a lista (ou o chat) certa
+  const ir = (o, conteudo, tag = "div", cls = "") => `<${tag} class="sp-link ${cls}" data-sp-ir='${esc(JSON.stringify(o))}' tabindex="0" role="link">${conteudo}</${tag}>`;
+  const maior = campo => (canais.map(([k]) => [k, ((d.por_canal || {})[k] || {})[campo] || 0]).sort((a, b) => b[1] - a[1])[0] || ["tiktok_shop"])[0];
+  const pct = v => v == null ? "—" : `${String(v).replace(".", ",")}%`;
+  const taxaOf = o => !o ? `<span style="color:var(--sp-muted)">lendo…</span>` : `${o.taxa == null ? "—" : pct(o.taxa)}${o.tempo ? ` · ${esc(o.tempo)}` : ""}
+      <span style="color:var(--sp-muted);font-weight:400;font-size:11px"> há ${spEspera(o.em)}</span>`;
+  const canal = ([k, n]) => { const c = (d.por_canal || {})[k] || {}, l = (aba, txt, val) => ir({canal: k, aba}, `<span>${txt}</span><b>${val}</b>`, "div", "sp-linha");
+    return `<div class="sp-card"><div class="sp-canal">${ir({canal: k}, n, "div", "t")}
+      ${l("precisa", "⏳ Precisam de resposta", nf((c.precisa_voce || 0) + (c.aprovar || 0)))}
+      ${l("respondidas", "✅ Respondidas hoje", nf(c.respondidas_hoje))}
+      ${l("sozinho", "🤖 Sozinho (IA) hoje", nf(c.sozinho_hoje))}
+      ${l("tudo", "💬 Mensagens de clientes hoje", nf(c.clientes_hoje))}
+      ${l("tudo", "🗂️ Conversas abertas", nf(c.conversas))}
+      ${k === "mercado_livre" ? "" : `<span title="lida na central do vendedor a cada 2 h">📶 Taxa de resposta (plataforma)</span><b>${taxaOf(c.taxa_oficial)}</b>`}
+      <span title="das conversas com mensagem de cliente nos últimos 7 dias, quantas o nubi respondeu">📈 Respondidas pelo nubi (7 dias)</span><b>${pct(c.taxa_nubi)}</b></div></div>`; };
   const serie = d.serie || [], max = Math.max(1, ...serie.flatMap(x => [x.clientes, x.respostas]));
   const dia = x => { const dt = new Date(x.dia + "T12:00:00"); return dt.toLocaleDateString("pt-BR", {weekday: "short", day: "2-digit"}); };
   const barras = serie.map(x => `<div class="sp-dia" title="${dia(x)}: ${x.clientes} mensagens de clientes, ${x.respostas} respostas da loja">
@@ -3050,24 +3072,28 @@ async function telaPainelSac() {
   main.innerHTML = (S.spTv ? "" : sacAbas("painel")) + `<div class="sp-root ${S.spTv ? "tv" : ""}">
     <div class="sp-cab"><h1>📊 Painel do SAC</h1><div style="display:flex;gap:12px;align-items:center">
       <span class="sp-hora" id="sp-hora"></span><button class="btn small" id="sp-tv">${S.spTv ? "✖ Sair do modo TV" : "📺 Modo TV"}</button></div></div>
-    <div class="sp-kpis">${kpi(nf(precisam), "⏳ precisam de resposta agora", precisam ? "alerta" : "")}${kpi(nf(t.respondidas_hoje), "✅ respondidas hoje")}
-      ${kpi(nf(t.sozinho_hoje), "🤖 respondidas sozinho (IA) hoje")}${kpi(nf(t.clientes_hoje), "💬 mensagens de clientes hoje")}
+    <div class="sp-kpis">${ir({canal: (d.agora || [])[0]?.canal || maior("precisa_voce"), aba: "precisa"}, kpi(nf(precisam), "⏳ precisam de resposta agora", precisam ? "alerta" : ""))}
+      ${ir({canal: maior("respondidas_hoje"), aba: "respondidas"}, kpi(nf(t.respondidas_hoje), "✅ respondidas hoje"))}
+      ${ir({canal: maior("sozinho_hoje"), aba: "sozinho"}, kpi(nf(t.sozinho_hoje), "🤖 respondidas sozinho (IA) hoje"))}
+      ${ir({canal: maior("clientes_hoje"), aba: "tudo"}, kpi(nf(t.clientes_hoje), "💬 mensagens de clientes hoje"))}
       ${kpi(d.tempo_mediano_min == null ? "—" : nf(d.tempo_mediano_min) + " min", "⏱️ tempo mediano de resposta hoje")}</div>
     <div class="sp-grid">
-      <div class="sp-card"><h3>⏳ Precisam de resposta agora (${agoraN(d)})</h3><div class="sp-agora">${(d.agora || []).map(a => `<div>
+      <div class="sp-card"><h3>⏳ Precisam de resposta agora (${agoraN(d)})</h3><div class="sp-agora">${(d.agora || []).map(a => ir({canal: a.canal, aba: "precisa", conv: a.id}, `
         <span>${a.canal === "shopee" ? "🛍️" : a.canal === "mercado_livre" ? "🤝" : "🎵"} <b>${esc(a.cliente || "cliente")}</b> · ${a.estado === "voce" ? "🙋 precisa de você" : "✍️ aprovar"}</span>
-        <span>há ${spEspera(a.desde)}</span></div>`).join("") || `<p style="color:var(--sp-muted)">Nenhuma. Tudo respondido ✓✓</p>`}</div></div>
+        <span>há ${spEspera(a.desde)} ›</span>`)).join("") || `<p style="color:var(--sp-muted)">Nenhuma. Tudo respondido ✓✓</p>`}</div></div>
       ${canais.map(canal).join("")}
       <div class="sp-card" style="grid-column:1/-1"><h3>📈 Últimos 7 dias</h3><div class="sp-barras">${barras}</div>
         <div class="sp-leg"><span><i style="background:var(--sp-s1)"></i>Mensagens de clientes</span><span><i style="background:var(--sp-s2)"></i>Respostas da loja</span></div>
         <details style="margin-top:6px;font-size:12.5px"><summary>ver em tabela</summary><table class="sp-tab"><tr><th>Dia</th><th>Clientes</th><th>Respostas</th></tr>
           ${serie.map(x => `<tr><td>${dia(x)}</td><td>${x.clientes}</td><td>${x.respostas}</td></tr>`).join("")}</table></details></div>
-      <div class="sp-card"><h3>🏷️ Assuntos (7 dias)</h3><div class="sp-hb">${ass.map(([k, n]) => `<span>${SP_ASSUNTO[k] || esc(k)}</span>
-        <div class="trilho" title="${n}"><i style="width:${n / amax * 100}%"></i></div><b>${n}</b>`).join("") || `<span style="color:var(--sp-muted)">Sem dados ainda.</span>`}</div></div>
-      ${lojas.length ? `<div class="sp-card"><h3>🏪 Conversas por loja</h3><div class="sp-canal">${lojas.map(([l, n]) => `<span>${esc(l)}</span><b>${nf(n)}</b>`).join("")}</div></div>` : ""}
-      <div class="sp-card"><h3>📚 Base de conhecimento</h3><div class="sp-canal"><span>Respostas ativas</span><b>${nf(d.base?.ativos)}</b>
-        <span>Propostas para aprovar</span><b>${nf(d.base?.propostas)}</b></div></div>
+      <div class="sp-card"><h3>🏷️ Assuntos (7 dias)</h3><div class="sp-hb">${ass.map(([k, n]) => ir({canal: (d.assunto_canal || {})[k] || "tiktok_shop", assunto: k, aba: "tudo"}, `<span>${SP_ASSUNTO[k] || esc(k)}</span>
+        <div class="trilho" title="${n}"><i style="width:${n / amax * 100}%"></i></div><b>${n}</b>`, "div", "sp-linha3")).join("") || `<span style="color:var(--sp-muted)">Sem dados ainda.</span>`}</div></div>
+      ${lojas.length ? `<div class="sp-card"><h3>🏪 Conversas por loja</h3><div class="sp-canal">${lojas.map(([l, n]) => ir({canal: (d.loja_canal || {})[l] || "tiktok_shop", loja: l, aba: "tudo"}, `<span>${esc(l)}</span><b>${nf(n)}</b>`, "div", "sp-linha")).join("")}</div></div>` : ""}
+      <div class="sp-card"><h3>📚 Base de conhecimento</h3><div class="sp-canal">${ir({base: true}, `<span>Respostas ativas</span><b>${nf(d.base?.ativos)}</b>`, "div", "sp-linha")}
+        ${ir({base: true, propostas: true}, `<span>Propostas para aprovar</span><b>${nf(d.base?.propostas)}</b>`, "div", "sp-linha")}</div></div>
     </div></div>`;
+  main.querySelectorAll("[data-sp-ir]").forEach(el => { const vai = () => spIr(JSON.parse(el.dataset.spIr));
+    el.onclick = vai; el.onkeydown = e => { if (e.key === "Enter") vai(); }; });
   const hora = () => { const h = $("#sp-hora"); if (h) h.textContent = new Date().toLocaleTimeString("pt-BR", {timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit"}); };
   hora(); clearInterval(S.spRelogio); S.spRelogio = setInterval(hora, 15000);
   $("#sp-tv").onclick = () => { S.spTv = !S.spTv;
@@ -3078,6 +3104,16 @@ async function telaPainelSac() {
   S.spTimer = setTimeout(() => { if (location.hash.startsWith("#/sac/painel")) telaPainelSac(); else S.spTv = false; }, 60000);
 }
 const agoraN = d => (d.agora || []).length;
+// Painel do SAC → lista/chat (27/09, pedido do Bruno)
+function spIr(o) {
+  S.spTv = false;
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch { /* sem tela cheia */ }
+  if (o.base) { S.kbVista = "base"; location.hash = "#/sac/base"; return; }   // as propostas ficam no topo da Base
+  const canal = AT_CANAIS[o.canal] ? o.canal : "tiktok_shop";
+  S.atCanalAtual = canal; S.atCarregou = false;
+  S.atAba = o.aba || "tudo"; S.atConv = o.conv || null; S.atLoja = o.loja || ""; S.atAssunto = o.assunto || "";
+  location.hash = "#/sac/" + AT_CANAIS[canal].slug;
+}
 const kbVistas = v => `<div class="seg" style="margin-bottom:10px"><button class="${v === "base" ? "on" : ""}" data-kb-vista="base">📚 Perguntas e respostas</button>
   <button class="${v === "fichas" ? "on" : ""}" data-kb-vista="fichas">🧴 Fichas dos perfumes</button></div>`;
 const ligarKbVistas = () => document.querySelectorAll("[data-kb-vista]").forEach(b => b.onclick = () => { S.kbVista = b.dataset.kbVista; telaBaseSac(); });

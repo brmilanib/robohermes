@@ -346,3 +346,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - **Banguela (27/09, nome dado pelo Bruno)**: o agente pago do atendimento = `gerar_qualidade` (Sonnet 5, teto US$ 10/dia,
   cache do briefing). Cartão em `agentes` (id `banguela`), perfil e jeito em `agentes.py`; o custo vai em `agentes_uso` com
   agente `banguela` (`ia.USO["apelido_agente"]`). Buscar/ler chats (Shopee, TikTok, UpSeller) fica com a IA grátis local.
+- **Painel do SAC clicável e taxas de resposta (27/09, pedido do Bruno)**: tudo no painel abre a lista certa (`spIr`: canal,
+  aba `precisa`/`respondidas`/`sozinho`/`tudo`, conversa, loja do pedido, assunto `S.atAssunto`); a conversa que pisca abre o
+  chat. Por canal: "📶 Taxa de resposta (plataforma)" = lida pelo atendente a cada 2 h (`_ler_taxa`, aba própria, só IA
+  grátis, `TAXA_FERRAMENTAS`/`PAPEL_TAXA`, só lê) → rota `atendimento_taxa` → `ia_resumos` `atendimento|taxa|<canal>` com
+  histórico; "📈 Respondidas pelo nubi (7 dias)" = `taxa_nubi` calculada no `painel`.

@@ -1135,7 +1135,7 @@ def painel(repo, dias=7):
     def zero():
         return {"conversas": 0, "precisa_voce": 0, "aprovar": 0, "respondidas_hoje": 0, "sozinho_hoje": 0, "clientes_hoje": 0}
     por_canal = {c: zero() for c in CAN}
-    por_loja = {}
+    por_loja, loja_canal = {}, {}
     agora = []
     for c in convs:
         k = canal_de[c["id"]]
@@ -1154,6 +1154,8 @@ def painel(repo, dias=7):
         loja = (c.get("pedido_dados") or {}).get("loja")
         if loja:
             por_loja[loja] = por_loja.get(loja, 0) + 1
+            loja_canal.setdefault(loja, {}).setdefault(k, 0)
+            loja_canal[loja][k] += 1
     tempos = []
     for r in rascs:
         quando = r.get("enviado_em") or r.get("decidido_em")
@@ -1177,19 +1179,68 @@ def painel(repo, dias=7):
             serie[d]["clientes" if m["de"] == "cliente" else "respostas"] += 1
         if d == hoje and m["de"] == "cliente":
             por_canal.setdefault(canal_de.get(m["conversa_id"], "tiktok_shop"), zero())["clientes_hoje"] += 1
-    assuntos = {}
+    assuntos, assunto_canal = {}, {}
     for r in rascs:
         if r.get("criado_em") and str(r["criado_em"]) >= desde and r.get("intencao"):
             assuntos[r["intencao"]] = assuntos.get(r["intencao"], 0) + 1
+            ac = assunto_canal.setdefault(r["intencao"], {})
+            ac[canal_de.get(r["conversa_id"], "tiktok_shop")] = ac.get(canal_de.get(r["conversa_id"], "tiktok_shop"), 0) + 1
+    # 27/09 (Bruno): taxa de resposta medida pelo nubi (7 dias): das conversas com mensagem de cliente, quantas foram respondidas
+    com_cliente = {m["conversa_id"] for m in msgs if m.get("de") == "cliente"}
+    status_de = {c["id"]: c.get("status") for c in convs}
+    respondida = lambda cid: (status_de.get(cid) in ("respondida", "fechada")
+                              or (ult.get(cid) or {}).get("status") in ("enviado", "aprovado", "editado", "sem_resposta"))
+    for k in por_canal:
+        ids = [cid for cid in com_cliente if canal_de.get(cid) == k]
+        por_canal[k]["taxa_nubi"] = round(100 * sum(1 for cid in ids if respondida(cid)) / len(ids), 1) if ids else None
+        por_canal[k]["taxa_oficial"] = taxa_oficial(repo, k)
     tot = {k: sum(v[k] for v in por_canal.values()) for k in zero()}
     tempos.sort()
     kb = repo._req("GET", "atendimento_kb", {"select": "status", "limit": 20000}) or []
     agora.sort(key=lambda x: str(x.get("desde") or ""))
+    mais = lambda d: max(d.items(), key=lambda x: x[1])[0] if d else None
     return {"hoje": hoje, "total": tot, "por_canal": por_canal, "por_loja": dict(sorted(por_loja.items(), key=lambda x: -x[1])[:8]),
+            "loja_canal": {l: mais(v) for l, v in loja_canal.items()}, "assunto_canal": {a_: mais(v) for a_, v in assunto_canal.items()},
             "agora": agora[:30], "serie": list(serie.values()), "assuntos": dict(sorted(assuntos.items(), key=lambda x: -x[1])),
             "tempo_mediano_min": round(tempos[len(tempos) // 2], 1) if tempos else None,
             "base": {"ativos": sum(1 for k in kb if k["status"] == "ativa"), "propostas": sum(1 for k in kb if k["status"] == "proposta")},
             "atualizado": _agora()}
+
+
+TAXA_CHAVE = "atendimento|taxa|"
+
+
+def taxa_oficial(repo, canal):
+    """Última taxa de resposta lida na central do vendedor (o atendente lê a cada 2 h) + histórico curto."""
+    r = (repo._req("GET", "ia_resumos", {"select": "texto,criado_em", "chave": f"eq.{TAXA_CHAVE}{canal}",
+                                         "order": "criado_em.desc", "limit": 1}) or [{}])[0]
+    try:
+        return json.loads(r.get("texto") or "null")
+    except ValueError:
+        return None
+
+
+def gravar_taxa(repo, d):
+    """27/09 (Bruno): taxa de resposta oficial da plataforma, lida pelo atendente (IA grátis) a cada 2 h."""
+    canal = str(d.get("canal") or "")
+    if canal not in ("tiktok_shop", "shopee", "mercado_livre"):
+        raise ValueError("canal inválido")
+    def num(x):
+        try:
+            v = float(str(x).replace("%", "").replace(",", ".").strip())
+            return v if 0 <= v <= 100 else None
+        except ValueError:
+            return None
+    atual = {"taxa": num(d.get("taxa_resposta")), "tempo": str(d.get("tempo_resposta") or "")[:40] or None,
+             "periodo": str(d.get("periodo") or "")[:60] or None, "em": _agora()}
+    if atual["taxa"] is None and not atual["tempo"]:
+        return {"ok": False, "motivo": "sem número"}
+    velho = taxa_oficial(repo, canal) or {}
+    hist = ((velho.get("historico") or []) + [{"em": atual["em"], "taxa": atual["taxa"]}])[-84:]      # 7 dias a cada 2 h
+    repo._req("POST", "ia_resumos", corpo=[{"chave": TAXA_CHAVE + canal, "ia": "atendente", "criado_em": atual["em"],
+                                            "texto": json.dumps({**atual, "historico": hist})}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True, **atual}
 
 
 ATENDENTE_CHAVE = "atendimento|tiktok_atendente"
@@ -1628,6 +1679,8 @@ def rota(repo, metodo, nome, q, corpo, operador="Bruno"):
         except ia.SemIA as e:
             # 27/09 (Bruno): navegar o chat é só com IA grátis. O Haiku de reserva custou ~US$ 73 num dia; saiu daqui.
             return {"erro_ia": str(e)}
+    if nome == "atendimento_taxa" and metodo == "POST":
+        return gravar_taxa(repo, d)
     if nome == "atendimento_para_enviar":
         if q.get("computador"):          # o atendente está ligado num computador (PC do Bruno): o Mac fica quieto
             repo._req("POST", "ia_resumos", corpo=[{"chave": PC_CHAVE, "texto": str(q["computador"])[:20], "ia": "atendente",

@@ -79,6 +79,16 @@ try:
                 pg.click("#sp-tv"); pg.wait_for_selector(".sp-root.tv", timeout=5000)             # modo TV
                 pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "painel_sac_tv.png"))
                 pg.click("#sp-tv"); pg.wait_for_selector(".sp-root:not(.tv)", timeout=5000)
+                # 27/09 (Bruno): o que pisca no painel é clicável e abre o chat; as linhas abrem a lista filtrada
+                assert "Taxa de resposta (plataforma)" in pg.inner_text(".sp-root") and "Respondidas pelo nubi" in pg.inner_text(".sp-root")
+                pg.locator(".sp-agora .sp-link", has_text="joao shopee").first.click()
+                pg.wait_for_selector(".atx-cab", timeout=15000)
+                assert "#/sac/shopee" in pg.url and "joao shopee" in pg.inner_text(".atx-cab")
+                assert "on" in (pg.get_attribute("[data-at-aba=precisa]", "class") or "")
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/painel"); pg.wait_for_selector(".sp-kpis", timeout=15000)
+                pg.locator(".sp-card .sp-linha", has_text="Respondidas hoje").first.click()
+                pg.wait_for_selector(".atx", timeout=15000)
+                assert "on" in (pg.get_attribute("[data-at-aba=respondidas]", "class") or "")
                 pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/tiktok"); pg.wait_for_selector(".atx-item", timeout=15000)
                 assert pg.locator(".atx-item .atx-ok").count() >= 1                              # respondida: ✓✓
                 assert not erros, erros

@@ -4716,7 +4716,7 @@ def _ollama_local_ferramentas(modelo, mensagens, sistema, ferramentas):
     return {"content": blocos, "modelo": modelo, "usage": {"input_tokens": 0, "output_tokens": 0}}
 
 
-def _ia_atendente(chave, mensagens, token, estado, papel=None):
+def _ia_atendente(chave, mensagens, token, estado, papel=None, ferramentas=None):
     """Navegação do atendente, SÓ GRÁTIS (27/09, pedido do Bruno): as IAs locais deste computador em ordem (qwen3, hermes3)
     e o gpt-oss grátis do nubi. Cada uma sai da vez depois de 3 respostas seguidas sem ferramenta útil ou erro. Todas fora:
     devolve um texto que encerra a rodada (tenta de novo na próxima); nunca chama IA paga. `chave` fica só por compatibilidade."""
@@ -4724,6 +4724,7 @@ def _ia_atendente(chave, mensagens, token, estado, papel=None):
         estado["locais"] = _modelos_locais()
     falhas = estado.setdefault("falhas_ia", {})
     sistema = papel or PAPEL_ATENDENTE
+    ferramentas = ferramentas or ATENDENTE_FERRAMENTAS
 
     def tentar(nome, chamar):
         try:
@@ -4743,15 +4744,72 @@ def _ia_atendente(chave, mensagens, token, estado, papel=None):
 
     for modelo in estado["locais"]:
         if falhas.get(modelo, 0) < 3:
-            r = tentar(modelo, lambda m=modelo: _ollama_local_ferramentas(m, mensagens, sistema, ATENDENTE_FERRAMENTAS))
+            r = tentar(modelo, lambda m=modelo: _ollama_local_ferramentas(m, mensagens, sistema, ferramentas))
             if r:
                 return r
     if falhas.get("nuvem", 0) < 3:
         r = tentar("nuvem", lambda: api(token, "atendimento_navegar_ia", corpo={
-            "mensagens": mensagens, "sistema": sistema, "ferramentas": ATENDENTE_FERRAMENTAS}, metodo="POST", timeout=200))
+            "mensagens": mensagens, "sistema": sistema, "ferramentas": ferramentas}, metodo="POST", timeout=200))
         if r:
             return r
     return {"content": [{"type": "text", "text": "As IAs grátis não responderam agora; tento de novo na próxima rodada."}]}
+
+
+# 27/09 (Bruno): taxa de resposta oficial de cada plataforma no Painel do SAC, lida a cada 2 h numa aba própria (o chat não
+# é recarregado), só com IA grátis. Só lê: nunca muda configuração, nunca responde cliente.
+TAXA_A_CADA_SEG = int(os.environ.get("NUBI_TAXA_SEG", str(2 * 3600)))
+TAXA_INICIO = {"shopee": "https://seller.shopee.com.br/", "tiktok_shop": "https://seller-br.tiktok.com/"}
+TAXA_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abrir", "ler", "clicar")] + [
+    {"name": "registrar_taxa", "description": "Manda ao nubi a taxa de resposta do chat da loja que aparece na tela.",
+     "input_schema": {"type": "object", "properties": {
+         "taxa_resposta": {"type": "number", "description": "taxa de resposta do chat em % (ex.: 98.5)"},
+         "tempo_resposta": {"type": "string", "description": "tempo médio de resposta, como aparece (ex.: '< 1 h')"},
+         "periodo": {"type": "string", "description": "período do número, como aparece (ex.: 'últimos 30 dias')"}},
+         "required": ["taxa_resposta"]}},
+    {"name": "terminar", "description": "Encerra quando não achar a taxa (explique onde procurou).",
+     "input_schema": {"type": "object", "properties": {"resumo": {"type": "string"}}, "required": ["resumo"]}}]
+PAPEL_TAXA = ("Você só LÊ um número na central do vendedor da {PLATAFORMA}: a TAXA DE RESPOSTA DO CHAT da loja (e o tempo "
+              "médio de resposta, se aparecer). Procure em Dados/Data, Desempenho/Performance, Saúde da conta ou Atendimento ao "
+              "cliente. Quando achar, chame registrar_taxa. NUNCA mude configuração, nunca clique em salvar/ativar/desativar, nunca "
+              "abra conversas de clientes. Não achou em até 10 passos: terminar.")
+
+
+def _ler_taxa(ctx, canal, token):
+    """Uma leitura da taxa de resposta oficial (aba nova, fechada no fim). -> texto para o log."""
+    nome = PLATAFORMAS[canal][0]
+    pg = ctx.new_page()
+    estado, papel = {}, PAPEL_TAXA.replace("{PLATAFORMA}", nome)
+    try:
+        pg.goto(TAXA_INICIO.get(canal, PLATAFORMAS[canal][1]), timeout=60000)
+        pg.wait_for_timeout(4000)
+        if _na_tela_login(pg):
+            return f"{nome}: taxa não lida (precisa de login)"
+        msgs = [{"role": "user", "content": f"Leia a taxa de resposta do chat da loja na {nome}. Comece com ler."}]
+        for _ in range(12):
+            r = _ia_atendente(None, msgs, token, estado, papel, TAXA_FERRAMENTAS)
+            usos = [b for b in r.get("content") or [] if b.get("type") == "tool_use"]
+            if not usos:
+                return f"{nome}: taxa não lida ({' '.join(b.get('text', '') for b in r.get('content') or [])[:120]})"
+            msgs.append({"role": "assistant", "content": r["content"]})
+            res = []
+            for b in usos:
+                ent = b.get("input") or {}
+                if b["name"] == "registrar_taxa":
+                    x = api(token, "atendimento_taxa", corpo={"canal": canal, **ent}, metodo="POST", timeout=60)
+                    return f"{nome}: taxa de resposta {x.get('taxa')}% ({x.get('periodo') or 'período não informado'})"
+                if b["name"] == "terminar":
+                    return f"{nome}: taxa não achada ({str(ent.get('resumo'))[:120]})"
+                txt = _nav_executar(pg, b["name"], ent, estado, False, token, 0)[0]
+                res.append({"type": "tool_result", "tool_use_id": b["id"], "content": str(txt)[:12000]})
+            msgs.append({"role": "user", "content": res})
+        return f"{nome}: taxa não achada em 12 passos"
+    except Exception as e:  # noqa: BLE001
+        return f"{nome}: taxa não lida ({str(e)[:120]})"
+    finally:
+        try:
+            pg.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _na_tela_login(pg):
@@ -5101,6 +5159,12 @@ def cmd_atendente(args, cfg):
                         pg = _aba_do_canal(ctx, abas, canal)
                         print(f"{agora} " + _rodada_atendente(pg, cfg, chave, token, _gasto_atendente(cfg), canal, x)[2], flush=True)
                         guardar_sessao(ctx)
+                    for canal in [c_ for c_ in canais if c_ in TAXA_INICIO]:        # taxa de resposta oficial a cada 2 h
+                        cfg = ler_config()
+                        if time.time() - float(cfg.get(f"{canal}_taxa_em") or 0) >= TAXA_A_CADA_SEG:
+                            cfg[f"{canal}_taxa_em"] = time.time()
+                            salvar_config(cfg)
+                            print(f"{agora} 📶 " + _ler_taxa(ctx, canal, token), flush=True)
                 except KeyboardInterrupt:
                     raise
                 except Exception as e:  # noqa: BLE001
