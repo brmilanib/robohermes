@@ -661,6 +661,23 @@ def test_releitura_com_resposta_ainda_sendo_enviada_nao_vira_rascunho_novo():
     assert r.t["atendimento_rascunhos"][-2]["status"] == "aprovado"          # a resposta aprovada continua na fila de envio
 
 
+def test_envio_que_falhou_nao_some_e_substituido_nao_e_enviado():
+    # 28/09: a aprovada da joana falhou 2x, voltou ao Bruno e a limpeza cancelou; e a fila de envio pegava rascunho substituído
+    r = Repo()
+    conv = a._inserir(r, "atendimento_conversas", {"canal": "shopee", "loja": "principal", "cliente": "joana", "status": "precisa_info"})
+    for de, t in [("cliente", "confiram a válvula por favor"), ("loja", "Olá")]:
+        r._req("POST", "atendimento_mensagens", corpo=[{"conversa_id": conv["id"], "de": de, "texto": t, "criado_em": a._agora()}])
+    r._req("POST", "atendimento_rascunhos", corpo=[{"conversa_id": conv["id"], "status": "precisa_info", "texto_final": "Pode deixar!",
+                                                   "motivo": "envio pelo Mac falhou: envio direto: não achei o campo"}])
+    a.liberar_so_aviso(r, conversa_id=conv["id"])
+    assert r.t["atendimento_rascunhos"][-1]["status"] == "precisa_info"          # continua com o Bruno
+    r._req("POST", "atendimento_rascunhos", corpo=[{"conversa_id": conv["id"], "status": "substituido", "enviar_pelo_mac": True,
+                                                   "enviado_em": None, "texto_final": "velho"},
+                                                  {"conversa_id": conv["id"], "status": "aprovado", "enviar_pelo_mac": True,
+                                                   "enviado_em": None, "texto_final": "novo"}])
+    assert [x["texto"] for x in a.para_enviar(r)] == ["novo"]
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

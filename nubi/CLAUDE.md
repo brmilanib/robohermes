@@ -369,3 +369,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   com as gravações recusadas pela trava do cabeçalho). `liberar_so_aviso` também tira o rascunho criado por RELEITURA (mensagem
   igual a uma anterior da cliente com a nossa resposta aprovada ainda esperando envio) e roda na hora no `atendimento_receber`.
   Base: "Tem bastante no estoque?" → "sempre temos bastante em estoque" (confirmado pelo Bruno).
+- **Envio seguro (28/09)**: `para_enviar` só pega rascunho `aprovado`/`editado` (antes mandava até substituído/cancelado). Falha
+  do envio direto vai ao nubi (`atendimento_enviado` ok=false, conta para as 2 tentativas) e aparece no resumo da rodada.
+  `_cancelar_pendentes` (usado pelo `liberar_so_aviso`) NUNCA cancela rascunho que voltou ao Bruno por falha de envio. Envio
+  direto: cliente antiga → aba "Todos os Chats" antes da busca (`_aba_todos_os_chats`); "Recomeçar Conversa" achado também pelo texto.

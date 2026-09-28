@@ -1319,8 +1319,10 @@ def canais_ligados(repo):
 
 def para_enviar(repo):
     """Respostas aprovadas que o atendente (PC/Mac) ainda precisa digitar no chat, com o canal de cada uma."""
+    # 28/09: só o que está APROVADO/EDITADO pelo Bruno (ou aprovado sozinho). Antes pegava também substituído/cancelado.
     rs = repo._req("GET", "atendimento_rascunhos", {"select": "id,conversa_id,texto_final", "enviar_pelo_mac": "eq.true",
-                                                    "enviado_em": "is.null", "order": "id", "limit": 20}) or []
+                                                    "enviado_em": "is.null", "status": "in.(aprovado,editado)",
+                                                    "order": "id", "limit": 20}) or []
     if not rs:
         return []
     ids = "in.(" + ",".join(str(r["conversa_id"]) for r in rs) + ")"
@@ -1656,6 +1658,19 @@ def reinterpretar_pendentes(repo, lote=3, a_cada_min=2):
 RETOMAR_CHAVE = "atendimento|retomar"
 
 
+def _cancelar_pendentes(repo, conversa_id, motivo):
+    """Marca sem_resposta os rascunhos pendentes da conversa, MENOS os que voltaram ao Bruno porque o envio falhou (28/09:
+    a resposta aprovada da joanaabranches falhou 2 vezes, voltou para "precisa de você" e a limpeza a cancelou sem ele ver).
+    -> quantos cancelou."""
+    rs = [r for r in repo._req("GET", "atendimento_rascunhos", {"select": "id,motivo,pergunta_operador", "conversa_id": f"eq.{conversa_id}",
+                                                                 "status": "in.(precisa_info,pendente)", "limit": 50}) or []
+          if not re.search(r"envio pelo mac falhou|n[ãa]o conseguiu enviar|envio direto", f"{r.get('motivo') or ''} {r.get('pergunta_operador') or ''}", re.I)]
+    for r in rs:
+        repo._req("PATCH", "atendimento_rascunhos", {"id": f"eq.{r['id']}"}, corpo={"status": "sem_resposta", "motivo": motivo},
+                  prefer="return=minimal")
+    return len(rs)
+
+
 def liberar_so_aviso(repo, limite=40, conversa_id=None):
     """27/09 (print do Bruno): conversa esperando resposta (precisa de você / aprovar) em que, tirando os avisos e botões da
     plataforma, a última mensagem de verdade é da LOJA: não há o que responder. O rascunho vira sem_resposta (nunca apagado)
@@ -1682,13 +1697,11 @@ def liberar_so_aviso(repo, limite=40, conversa_id=None):
             if not (antes and esperando):
                 continue
             motivo = "releitura de mensagem antiga; a resposta aprovada ainda está sendo enviada (28/09)"
-            repo._req("PATCH", "atendimento_rascunhos", {"conversa_id": f"eq.{conv['id']}", "status": "in.(precisa_info,pendente)"},
-                      corpo={"status": "sem_resposta", "motivo": motivo}, prefer="return=minimal")
-            feitas.append(conv["id"])
+            if _cancelar_pendentes(repo, conv["id"], motivo):
+                feitas.append(conv["id"])
             continue
-        repo._req("PATCH", "atendimento_rascunhos", {"conversa_id": f"eq.{conv['id']}", "status": "in.(precisa_info,pendente)"},
-                  corpo={"status": "sem_resposta", "motivo": motivo},
-                  prefer="return=minimal")
+        if not _cancelar_pendentes(repo, conv["id"], motivo):
+            continue
         repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{conv['id']}"}, corpo={"status": "respondida", "atualizado_em": _agora()},
                   prefer="return=minimal")
         feitas.append(conv["id"])

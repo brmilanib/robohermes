@@ -4512,15 +4512,18 @@ def _campo_do_chat(pg):
 def _recomecar_conversa(pg):
     """27/09 (print do Bruno): a Shopee fecha a conversa sozinha ("A conversa foi fechada automaticamente") e some com o
     campo de digitar; só o botão "Recomeçar Conversa" devolve o campo. Clica só nesse botão (nada de configuração)."""
+    rotulo = re.compile(r"^\s*recome[cç]ar\s+conversa\s*$", re.I)
     for fr in pg.frames:
-        try:
-            b = fr.get_by_role("button", name=re.compile(r"^\s*recome[cç]ar\s+conversa\s*$", re.I)).first
-            if b.count() and b.is_visible():
-                b.click(timeout=8000)
-                pg.wait_for_timeout(2000)
-                return True
-        except Exception:  # noqa: BLE001
-            pass
+        # 28/09: na Shopee o "botão" é um elemento com texto (não <button>): procura pelo papel e depois pelo texto
+        for achar in (lambda f: f.get_by_role("button", name=rotulo), lambda f: f.get_by_text(rotulo)):
+            try:
+                b = achar(fr).first
+                if b.count() and b.is_visible():
+                    b.click(timeout=8000)
+                    pg.wait_for_timeout(2500)
+                    return True
+            except Exception:  # noqa: BLE001
+                continue
     return False
 
 
@@ -4531,8 +4534,10 @@ def _enviar_direto(pg, item):
     trecho = _norm_txt(texto)[:50]
     if not cli or not texto:
         return "sem cliente ou texto"
-    if not (_abrir_linha(pg, cli) or (_atendente_buscar(pg, cli, {}) and _abrir_linha(pg, cli))):
-        return f"não achei a conversa de {cli} na lista nem pela busca"
+    if not _abrir_linha(pg, cli):
+        _aba_todos_os_chats(pg)          # 28/09: a busca da Shopee só procura na aba aberta; cliente antiga fica em "Todos os Chats"
+        if not (_atendente_buscar(pg, cli, {}) and _abrir_linha(pg, cli)):
+            return f"não achei a conversa de {cli} na lista nem pela busca"
     corpo = _norm_txt(pg.inner_text("body", timeout=8000))
     if cli.lower() not in corpo:
         return f"a conversa aberta não é de {cli}"
@@ -4628,6 +4633,16 @@ def _conversa_aberta_e_de(pg, cliente):
         except Exception:  # noqa: BLE001
             continue
     return False
+
+
+def _aba_todos_os_chats(pg):
+    try:
+        aba = pg.get_by_text("Todos os Chats", exact=True).first
+        if aba.count() and aba.is_visible():
+            aba.click(timeout=5000)
+            pg.wait_for_timeout(1500)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _voltar_atendendo_hoje(pg):
