@@ -138,7 +138,7 @@ def _executar(caso, prov, modelo):
     """Saída do modelo para o caso, pelas funções de produção."""
     if caso["tipo"] == "juncao":
         itens = caso["entrada"]["itens"]
-        res = produtos_iguais.agrupar(itens, ia.embeddings([produtos_iguais.texto_embedding(x) for x in itens], modelo))
+        res, _ = produtos_iguais.agrupar(itens, ia.embeddings([produtos_iguais.texto_embedding(x) for x in itens], modelo))
         grupos = {}
         for k, (g, _) in res.items():
             grupos.setdefault(g, {g}).add(k)

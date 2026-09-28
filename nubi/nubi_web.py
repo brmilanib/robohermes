@@ -1751,11 +1751,15 @@ def _mapa_grupos(repo):
     return m
 
 
-def _embeddings_cache(repo, textos):
+def _embeddings_cache(repo, textos, limite_seg=None):
     """
     ia.embeddings com cache (card #107): o vetor de cada título fica em ia_lotes (tipo 'embedding', id = hash do
     modelo + VERSAO_REGRAS + texto; ia_resumos não, porque entra no saber e nas análises do Início). Mudou o modelo
     ou a versão das regras, o hash muda e o vetor é pedido de novo. Só chama a IA para o que faltar.
+    Card #110: cada lote pronto é salvo em ia_lotes na hora (não só no fim); se o provedor voltar 429 e as
+    tentativas se esgotarem (ia.LimiteProvedor, propagada para quem chamou), o que já foi calculado fica salvo e a
+    próxima rodada retoma só do que ainda falta, sem pagar de novo pelo que já foi feito. limite_seg: orçamento de
+    tempo repassado a ia.embeddings, para nunca estourar o tempo da função da Vercel esperando o 429 passar.
     """
     import array
     import base64
@@ -1769,16 +1773,22 @@ def _embeddings_cache(repo, textos):
             achou[r["id"]] = array.array("f", base64.b64decode(r["detalhe"])).tolist()
     faltam = {k: t for k, t in zip(ids, textos) if k not in achou}
     if faltam:
-        novos = dict(zip(faltam, ia.embeddings(list(faltam.values()))))
-        achou.update(novos)
-        regs = [{"id": k, "tipo": "embedding", "status": ver, "itens": len(v),
-                 "detalhe": base64.b64encode(array.array("f", v).tobytes()).decode()} for k, v in novos.items()]
-        for i in range(0, len(regs), 200):
-            repo._req("POST", "ia_lotes", corpo=regs[i:i + 200], prefer="resolution=merge-duplicates,return=minimal")
+        chaves_falt = list(faltam)
+
+        def _gravar_lote(inicio, vet):
+            regs = [{"id": k, "tipo": "embedding", "status": ver, "itens": len(v),
+                     "detalhe": base64.b64encode(array.array("f", v).tobytes()).decode()}
+                    for k, v in zip(chaves_falt[inicio:inicio + len(vet)], vet)]
+            for r in regs:
+                achou[r["id"]] = array.array("f", base64.b64decode(r["detalhe"])).tolist()
+            for i in range(0, len(regs), 200):
+                repo._req("POST", "ia_lotes", corpo=regs[i:i + 200], prefer="resolution=merge-duplicates,return=minimal")
+
+        ia.embeddings(list(faltam.values()), progresso=_gravar_lote, limite_seg=limite_seg)
     return [achou[k] for k in ids]
 
 
-def conferir_gtins(repo, por):
+def conferir_gtins(repo, por, limite_seg=None):
     """GTINs diferentes com o mesmo nome de perfume: nunca junta sozinho; grava os pares 'gtin_conferir' para o Bruno
     decidir em Ajustes → Produtos iguais (Juntar = 'manual'; Não é o mesmo = 'gtin_nao', não pergunta de novo)."""
     rs = repo._todos("produto_grupos", {"select": "chave,metodo"})
@@ -1786,7 +1796,7 @@ def conferir_gtins(repo, por):
     gt = sorted((x for x in por.values() if not x["chave"].startswith("T:") and x["marca"]), key=lambda x: -x["v"])[:1500]
     if len(gt) < 2:
         return 0
-    vet = _embeddings_cache(repo, [produtos_iguais.texto_embedding(x) for x in gt])
+    vet = _embeddings_cache(repo, [produtos_iguais.texto_embedding(x) for x in gt], limite_seg=limite_seg)
     pares = [(a, b, sim) for a, b, sim in produtos_iguais.gtins_parecidos(gt, vet)
              if f"par:{a}|{b}" not in decididos and b not in decididos]
     nomes = {x["chave"]: x for x in gt}
@@ -1800,8 +1810,13 @@ def conferir_gtins(repo, por):
     return len(regs)
 
 
-def agrupar_produtos(repo):
-    """Tarefa de rotina: junta os títulos sem GTIN que são o mesmo perfume (embeddings + regras) em produto_grupos."""
+def agrupar_produtos(repo, limite_seg=None):
+    """
+    Tarefa de rotina: junta os títulos sem GTIN que são o mesmo perfume (embeddings + regras) em produto_grupos.
+    limite_seg (card #110): orçamento de tempo desta rodada (a função da Vercel tem um teto); repassado para as
+    duas chamadas de embeddings, sobrando o que a 1ª não usou para a 2ª (conferir_gtins).
+    """
+    t0 = time.monotonic()
     rels = _vend_rels(repo)
     if not rels:
         return "nenhum vendedor importado"
@@ -1821,22 +1836,43 @@ def agrupar_produtos(repo):
     marcas_sem = {x["marca"].upper() for x in sem}
     itens = [x for x in itens if x["marca"].upper() in marcas_sem][:4000]
     bloqueados = {r["chave"] for r in repo._todos("produto_grupos", {"select": "chave", "metodo": "eq.separado"})}
-    vet = _embeddings_cache(repo, [produtos_iguais.texto_embedding(x) for x in itens])
-    res = produtos_iguais.agrupar(itens, vet, bloqueados)
+    try:
+        vet = _embeddings_cache(repo, [produtos_iguais.texto_embedding(x) for x in itens], limite_seg=limite_seg)
+    except ia.LimiteProvedor as e:
+        # card #110: nada em produto_grupos foi tocado ainda, então fica exatamente como estava; o que já foi
+        # calculado ficou salvo em ia_lotes e a próxima rodada retoma só do que faltar.
+        return f"pendente (limite do provedor): {e}; retoma no próximo ciclo a partir do que já foi calculado"
+    res, pendentes = produtos_iguais.agrupar(itens, vet, bloqueados)
     nomes = {x["chave"]: x for x in itens}
-    repo._req("DELETE", "produto_grupos", {"metodo": "eq.ia"})
+    # card #112: não sobrescreve uma junção que o Bruno já decidiu à mão com uma sugestão de conferência
+    decididos_manual = {r["chave"] for r in repo._todos("produto_grupos", {"select": "chave", "metodo": "eq.manual"})}
+    pendentes = [p for p in pendentes if p["chave"] not in decididos_manual]
+    repo._req("DELETE", "produto_grupos", {"metodo": "in.(ia,volume_conferir,nome_conferir)"})
+    agora_ia = datetime.now(timezone.utc).isoformat()
     regs = [{"chave": k, "grupo": g, "titulo": nomes[k]["titulo"][:200], "marca": nomes[k]["marca"],
              "grupo_titulo": nomes[g]["titulo"][:200], "similaridade": round(sim, 4), "metodo": "ia",
-             "atualizado_em": datetime.now(timezone.utc).isoformat()} for k, (g, sim) in res.items()]
+             "atualizado_em": agora_ia} for k, (g, sim) in res.items()]
+    regs += [{"chave": p["chave"], "grupo": p["grupo"], "titulo": nomes[p["chave"]]["titulo"][:200],
+              "marca": nomes[p["chave"]]["marca"], "grupo_titulo": nomes[p["grupo"]]["titulo"][:200],
+              "similaridade": round(p["similaridade"], 4),
+              "metodo": "nome_conferir" if p["motivo"] == "nome diferente" else "volume_conferir",
+              "atualizado_em": agora_ia} for p in pendentes]
     for i in range(0, len(regs), 500):
         repo._req("POST", "produto_grupos", corpo=regs[i:i + 500], prefer="resolution=merge-duplicates,return=minimal")
     try:
-        n_gtin = conferir_gtins(repo, por)
+        sobra = None if limite_seg is None else max(0.0, limite_seg - (time.monotonic() - t0))
+        if sobra is not None and sobra <= 0:
+            raise ia.LimiteProvedor("sem tempo restante nesta rodada para conferir os GTINs")
+        n_gtin = conferir_gtins(repo, por, limite_seg=sobra)
+    except ia.LimiteProvedor as e:
+        n_gtin = f"pendente (limite do provedor) na conferência de GTINs: {e}"
     except Exception as e:  # noqa: BLE001
         n_gtin = f"erro na conferência de GTINs: {str(e)[:120]}"
     extra = (f"; {n_gtin} par(es) de GTINs diferentes com o mesmo nome para o Bruno conferir" if isinstance(n_gtin, int)
              else f"; {n_gtin}") if n_gtin else ""
-    return f"{len(regs)} título(s) juntado(s) a outro do mesmo produto ({len(sem)} produtos sem GTIN conferidos){extra}"
+    extra_pend = f"; {len(pendentes)} para conferência (volume/nome)" if pendentes else ""
+    return (f"{len(res)} título(s) juntado(s) a outro do mesmo produto ({len(sem)} produtos sem GTIN conferidos)"
+            f"{extra_pend}{extra}")
 
 
 def _painel_dia(repo, d=None):
@@ -2894,7 +2930,8 @@ def rodar_rotinas(repo, so=None):
             elif rid == "categorias_lote":
                 res = categorias_lote(repo)
             elif rid == "produtos_ia":
-                res = agrupar_produtos(repo)
+                # card #110: orçamento de tempo desta rodada, para nunca estourar o tempo da função esperando 429
+                res = agrupar_produtos(repo, limite_seg=min(TEMPO_MAX, 280 - (time.monotonic() - t0)))
             elif rid == "resumo_dia":
                 x = gerar_resumo_dia(repo, forcar=bool(so))
                 res = f"dados até {_ddmm(x['atual']['chave'].split('|')[1])}: " + ("gerado" if x["novo"] else "já existia")
@@ -5655,8 +5692,12 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
                                  "metodo": r["metodo"]})
         separados = [r for r in rs if r["metodo"] == "separado"]
         conferir = sorted((r for r in rs if r["metodo"] == "gtin_conferir"), key=lambda r: -(r.get("similaridade") or 0))
+        # card #112: par de boa similaridade que não juntou sozinho por volume/concentração assimétrico ou nome diferente
+        motivos = {"volume_conferir": "volume ou concentração desconhecido de um lado", "nome_conferir": "nome diferente"}
+        conferir_regra = sorted(({**r, "motivo": motivos[r["metodo"]]} for r in rs if r["metodo"] in motivos),
+                                key=lambda r: -(r.get("similaridade") or 0))
         return {"grupos": sorted(grupos.values(), key=lambda g: (g["marca"], g["titulo"] or "")), "separados": separados,
-                "conferir_gtins": conferir}
+                "conferir_gtins": conferir, "conferir_regra": conferir_regra}
 
     if rota == "vend_gtin_decidir" and metodo == "POST":
         # conferência de GTINs diferentes com o mesmo nome (26/09): o Bruno junta ou diz que não é o mesmo
@@ -5675,6 +5716,21 @@ def rota_vendedores(repo, metodo, rota, q, corpo):
             repo._req("DELETE", "produto_grupos", {"chave": repo._eq(par)})
         else:
             repo._req("PATCH", "produto_grupos", {"chave": repo._eq(par)}, corpo={"metodo": "gtin_nao", "atualizado_em": agora_})
+        return {"ok": True}
+
+    if rota == "vend_regra_decidir" and metodo == "POST":
+        # card #112: par que a IA não juntou sozinho (volume/concentração assimétrico ou nome diferente); o Bruno decide
+        d = json.loads(corpo or b"{}")
+        chave = str(d.get("chave") or "")
+        r = (repo._req("GET", "produto_grupos", {"select": "*", "chave": repo._eq(chave)}) or [None])[0]
+        if not r or r["metodo"] not in ("volume_conferir", "nome_conferir"):
+            raise ErroNuvem("Item não encontrado (a lista pode ter sido refeita; recarregue).")
+        agora_ = datetime.now(timezone.utc).isoformat()
+        if d.get("juntar"):
+            repo._req("PATCH", "produto_grupos", {"chave": repo._eq(chave)}, corpo={"metodo": "manual", "atualizado_em": agora_})
+        else:
+            repo._req("PATCH", "produto_grupos", {"chave": repo._eq(chave)},
+                      corpo={"metodo": "separado", "grupo": chave, "atualizado_em": agora_})
         return {"ok": True}
 
     if rota == "vend_produto_separar" and metodo == "POST":

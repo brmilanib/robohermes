@@ -17,7 +17,7 @@ import unicodedata
 import numpy as np
 
 LIMIAR = 0.82            # similaridade mínima (cosseno); as regras de nome, tamanho e concentração seguram o resto
-VERSAO_REGRAS = 1        # suba ao mudar volume/kit/concentração/gênero/nome: o cache de embeddings (card #107) é refeito
+VERSAO_REGRAS = 2        # suba ao mudar volume/kit/concentração/gênero/nome: o cache de embeddings (card #107) é refeito
 CONCENTRACOES = [("elixir", r"elixir"), ("extrait", r"extrait|extrato"), ("parfum", r"(?<!de )\bparfum\b"),
                  ("edp", r"\bedp\b|eau de parfum"), ("edt", r"\bedt\b|eau de toilette"), ("edc", r"\bedc\b|eau de cologne|col[oô]nia"),
                  ("intense", r"intens[eo]"), ("body", r"body splash|hidratante|desodorante|lo[cç][aã]o")]
@@ -102,8 +102,32 @@ def palavras_nome(t, marca=""):
     return {w for w in re.findall(r"[a-z]{3,}", _norm(t)) if w not in fora}
 
 
+def motivo_conferencia(a, b):
+    """
+    Card #112: por que um par de boa similaridade não pode juntar sozinho mas merece ir para conferência (em vez
+    de simplesmente ficar sem grupo) — volume ou concentração conhecido de um lado e desconhecido (título cortado
+    ou campo vazio) do outro, ou nome diferente (regra de nome ❌, caso "Tommy Tradicional"). None quando nenhum
+    dos dois motivos se aplica (o par pode ainda não ser compatível por outra regra, e aí nem vai à conferência).
+    """
+    va, vb = volumes(a["titulo"]), volumes(b["titulo"])
+    if bool(va) != bool(vb):
+        return "volume desconhecido de um lado"
+    ca, cb = concentracoes(a["titulo"]), concentracoes(b["titulo"])
+    if bool(ca) != bool(cb):
+        return "concentração desconhecida de um lado"
+    na, nb = palavras_nome(a["titulo"], a.get("marca")), palavras_nome(b["titulo"], b.get("marca"))
+    if na and nb and na != nb:
+        return "nome diferente"
+    return None
+
+
 def compativeis(a, b):
-    """Regras que a IA não pode passar por cima."""
+    """
+    Regras que a IA não pode passar por cima. Usada tanto para juntar sem GTIN (agrupar) quanto para sugerir
+    GTINs parecidos (gtins_parecidos, que nunca junta sozinho de qualquer jeito) — por isso não é aqui que entra a
+    regra de volume/concentração assimétrico do card #112 (isso bloquearia até a sugestão de conferência); ver
+    pode_juntar_sozinho, usada só na hora de decidir se um par sem GTIN entra em produto_grupos sozinho.
+    """
     va, vb = volumes(a["titulo"]), volumes(b["titulo"])
     if va and vb and not (va & vb):
         return False
@@ -126,6 +150,12 @@ def compativeis(a, b):
     return bool(na) and na == nb
 
 
+def pode_juntar_sozinho(a, b):
+    """Card #112: além de compativeis, um par sem GTIN só junta sozinho em produto_grupos se não tiver motivo de
+    conferência (volume/concentração assimétrico ou nome diferente) — senão vai para Ajustes → Produtos iguais."""
+    return compativeis(a, b) and not motivo_conferencia(a, b)
+
+
 def texto_embedding(it):
     return f"{it.get('marca') or ''} | {it.get('titulo') or ''}"[:300]
 
@@ -134,9 +164,14 @@ def agrupar(itens, vetores, bloqueados=(), limiar=LIMIAR):
     """
     Junta os títulos sem GTIN ao produto (GTIN) mais parecido da mesma marca; os que não acharem GTIN se juntam
     entre si (o de maior venda dá o nome ao grupo). bloqueados: chaves que a pessoa separou à mão (ficam sozinhas).
+
+    Devolve (grupos, conferencia). grupos: {chave: (grupo, similaridade)}. conferencia (card #112): pares de boa
+    similaridade que só não juntaram por volume/concentração assimétrico ou nome diferente (motivo_conferencia) —
+    em vez de ficar sem grupo e sem explicação, vão para "Ajustes → Produtos iguais" o Bruno decidir; no máximo 1
+    sugestão por título (a de maior similaridade), como no par aceito.
     """
     if not itens:
-        return {}
+        return {}, []
     MARCAS_PALAVRAS.clear()
     MARCAS_PALAVRAS.update(w for it in itens for w in re.findall(r"[a-z]{3,}", _norm(it.get("marca"))))
     V = np.asarray(vetores, dtype=np.float32)
@@ -144,7 +179,13 @@ def agrupar(itens, vetores, bloqueados=(), limiar=LIMIAR):
     por_marca = {}
     for i, it in enumerate(itens):
         por_marca.setdefault((it.get("marca") or "").strip().upper(), []).append(i)
-    saida = {}
+    saida, pendentes = {}, {}
+
+    def _sugerir(chave, grupo, sim, motivo):
+        atual = pendentes.get(chave)
+        if atual is None or sim > atual["similaridade"]:
+            pendentes[chave] = {"chave": chave, "grupo": grupo, "similaridade": float(sim), "motivo": motivo}
+
     for marca, idx in por_marca.items():
         if not marca or len(idx) < 2:
             continue
@@ -160,16 +201,29 @@ def agrupar(itens, vetores, bloqueados=(), limiar=LIMIAR):
             return j
         melhor_ancora = {}
         for j in sem:
-            cand = sorted(((S[j, a], a) for a in ancoras if S[j, a] >= limiar
-                           and compativeis(itens[idx[j]], itens[idx[a]])), reverse=True)
+            candidatos = [(S[j, a], a) for a in ancoras if S[j, a] >= limiar]
+            cand = sorted((c for c in candidatos if pode_juntar_sozinho(itens[idx[j]], itens[idx[c[1]]])), reverse=True)
             if cand:
                 melhor_ancora[j] = cand[0]
+                continue
+            for sim, a in candidatos:
+                motivo = motivo_conferencia(itens[idx[j]], itens[idx[a]])
+                if motivo:
+                    _sugerir(itens[idx[j]]["chave"], itens[idx[a]]["chave"], sim, motivo)
         livres = [j for j in sem if j not in melhor_ancora]
         for x in range(len(livres)):
             for y in range(x + 1, len(livres)):
                 a, b = livres[x], livres[y]
-                if S[a, b] >= limiar + 0.02 and compativeis(itens[idx[a]], itens[idx[b]]):
+                if S[a, b] < limiar + 0.02:
+                    continue
+                if pode_juntar_sozinho(itens[idx[a]], itens[idx[b]]):
                     pai[raiz(a)] = raiz(b)
+                else:
+                    motivo = motivo_conferencia(itens[idx[a]], itens[idx[b]])
+                    if motivo:
+                        # 1 sugestão por par (o de menor venda aponta para o de maior, como o "lider" do grupo aceito)
+                        maior, menor = (a, b) if (itens[idx[a]].get("v") or 0) >= (itens[idx[b]].get("v") or 0) else (b, a)
+                        _sugerir(itens[idx[menor]]["chave"], itens[idx[maior]]["chave"], S[a, b], motivo)
         for j, (sim, a) in melhor_ancora.items():
             saida[itens[idx[j]]["chave"]] = (itens[idx[a]]["chave"], float(sim))
         grupos = {}
@@ -182,7 +236,8 @@ def agrupar(itens, vetores, bloqueados=(), limiar=LIMIAR):
             for j in membros:
                 if j != lider:
                     saida[itens[idx[j]]["chave"]] = (itens[idx[lider]]["chave"], float(S[j, lider]))
-    return saida
+    # um título só entra na fila de conferência se não achou grupo nenhum (juntar vence conferir)
+    return saida, [p for k, p in pendentes.items() if k not in saida]
 
 
 def gtins_parecidos(itens, vetores, limiar=0.88, maximo=40):

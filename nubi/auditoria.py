@@ -158,6 +158,12 @@ def conferencias(repo, hoje=None):
     except Exception:  # noqa: BLE001
         fracos = []
     ach.extend(achados_parecenca_baixa(fracos))
+    # 6b) junções antigas que hoje cairiam na regra de conferência (card #112): só lista, nunca desfaz
+    try:
+        antigas = repo._todos("produto_grupos", {"select": "titulo,grupo_titulo,marca,metodo", "metodo": "in.(ia,manual)"})
+    except Exception:  # noqa: BLE001
+        antigas = []
+    ach.extend(achados_juncao_suspeita(antigas))
     # 7) rotinas com erro
     for r in repo._todos("rotinas", {"select": "id,nome,ultimo_resultado"}):
         if str(r.get("ultimo_resultado") or "").startswith("erro"):
@@ -269,6 +275,26 @@ def achados_parecenca_baixa(fracos):
                                 f"concentração {lb['concentracao']} · gênero {lb['genero']}) "
                                 f"(parecença {(g.get('similaridade') or 0):.2f}). "
                                 f"Regras: {regras_juncao(g.get('titulo'), g.get('grupo_titulo'))}"})
+    return out
+
+
+def achados_juncao_suspeita(grupos):
+    """Card #112: grupos já juntados ('ia' ou 'manual') que hoje cairiam na regra de conferência — volume ou
+    concentração conhecido de um lado e desconhecido do outro, ou nome diferente (❌, caso "Tommy Tradicional").
+    Só relatório: nunca desfaz a junção, o Bruno decide na tela se quiser separar."""
+    import produtos_iguais as pi
+    out = []
+    for g in grupos:
+        a = {"titulo": g.get("titulo") or "", "marca": g.get("marca") or ""}
+        b = {"titulo": g.get("grupo_titulo") or "", "marca": g.get("marca") or ""}
+        motivo = pi.motivo_conferencia(a, b)
+        if not motivo:
+            continue
+        out.append({"nivel": "info", "area": "produtos iguais", "titulo": "Junção antiga suspeita: conferir",
+                     "detalhe": f"“{a['titulo']}” junto de “{b['titulo']}” ({motivo}, metodo {g.get('metodo')}). "
+                                f"Regras: {regras_juncao(a['titulo'], b['titulo'])}"})
+        if len(out) >= 10:
+            break
     return out
 
 

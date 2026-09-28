@@ -2398,6 +2398,14 @@ async function telaProdutosIguais() {
             <a href="https://www.google.com/search?q=${encodeURIComponent(gb)}" target="_blank" rel="noopener">pesquisar ${esc(gb)}</a></div></div>
         <div class="pi-par-b"><button class="btn small primary" data-gtin-par="${esc(x.chave)}" data-juntar="1">Juntar</button>
           <button class="btn small" data-gtin-par="${esc(x.chave)}">Não é o mesmo</button></div></div>`; }).join("")}</div></div>` : ""}
+    ${(r.conferir_regra || []).length ? `<div class="card pad pi-conf" style="margin-top:14px"><h2>🔎 Confira: parecidos, mas com dado incerto (${r.conferir_regra.length})</h2>
+      <div class="sub">A IA achou parecença, mas um dos dois não diz o volume/concentração (título cortado) ou o nome não bate exatamente.
+        Não junta sozinho: se for o mesmo, toque em <b>Juntar</b>.</div>
+      <div class="pi-pares">${r.conferir_regra.map(x => `<div class="pi-par"><div class="pi-par-t"><div>${esc(x.grupo_titulo || "")}</div>
+          <div>${esc(x.titulo || "")}</div>
+          <div class="muted" style="font-size:11.5px">${esc(x.marca || "")} · ${esc(x.motivo)} · parecença ${nf2.format(x.similaridade || 0)}</div></div>
+        <div class="pi-par-b"><button class="btn small primary" data-regra="${esc(x.chave)}" data-juntar="1">Juntar</button>
+          <button class="btn small" data-regra="${esc(x.chave)}">Não é o mesmo</button></div></div>`).join("")}</div></div>` : ""}
     ${!r.grupos.length ? `<div class="card empty" style="margin-top:14px"><h2>Nada juntado ainda</h2><p>A tarefa "Juntar produtos iguais (IA)" roda de madrugada. Para rodar agora: Central → 🗓️ Rotinas → ▶ Rodar agora.</p></div>` : ""}
     <div class="bi-grid">${gs.slice(0, 200).map(g => `<div class="card pad bi-card"><h2 style="font-size:14px">${vprodLink(g.grupo, g.titulo, "")}</h2>
       <div class="sub">${esc(g.marca)} · ${g.grupo.startsWith("T:") ? "sem GTIN (o título que mais vende dá o nome)" : "GTIN " + esc(g.grupo)}</div>
@@ -2417,6 +2425,12 @@ async function telaProdutosIguais() {
     x.disabled = true;
     try { await api("vend_gtin_decidir", {}, {method: "POST", body: JSON.stringify({par: x.dataset.gtinPar, juntar: !!x.dataset.juntar})});
       toast(x.dataset.juntar ? "Juntado: as vendas dos dois GTINs contam como um produto só." : "Ok, ficam separados (não pergunto de novo).", 5000); telaProdutosIguais(); }
+    catch (e) { x.disabled = false; toast(e.message, 6000); }
+  });
+  main.querySelectorAll("[data-regra]").forEach(x => x.onclick = async () => {
+    x.disabled = true;
+    try { await api("vend_regra_decidir", {}, {method: "POST", body: JSON.stringify({chave: x.dataset.regra, juntar: !!x.dataset.juntar})});
+      toast(x.dataset.juntar ? "Juntado: as vendas contam como um produto só." : "Ok, a IA não junta mais este título.", 5000); telaProdutosIguais(); }
     catch (e) { x.disabled = false; toast(e.message, 6000); }
   });
   main.querySelectorAll("[data-desf]").forEach(x => x.onclick = async () => {
