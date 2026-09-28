@@ -3050,7 +3050,7 @@ async function telaPainelSac() {
   const ir = (o, conteudo, tag = "div", cls = "") => `<${tag} class="sp-link ${cls}" data-sp-ir='${esc(JSON.stringify(o))}' tabindex="0" role="link">${conteudo}</${tag}>`;
   const maior = campo => (canais.map(([k]) => [k, ((d.por_canal || {})[k] || {})[campo] || 0]).sort((a, b) => b[1] - a[1])[0] || ["tiktok_shop"])[0];
   const pct = v => v == null ? "—" : `${String(v).replace(".", ",")}%`;
-  const taxaOf = o => !o ? `<span style="color:var(--sp-muted)">lendo…</span>` : `${o.taxa == null ? "—" : pct(o.taxa)}${o.tempo ? ` · ${esc(o.tempo)}` : ""}
+  const taxaOf = o => !o ? `<span style="color:var(--sp-muted)">lendo…</span>` : `<span title="${esc([o.periodo, o.respondidos != null ? `${o.respondidos} respondidos, ${o.nao_respondidos} sem resposta` : "", o.tempo ? `tempo médio ${o.tempo}` : "", o.csat != null ? `CSAT ${o.csat}%` : ""].filter(Boolean).join(" · "))}">${o.taxa == null ? "—" : pct(o.taxa)}${o.tempo ? ` · ⏱️ ${esc(o.tempo)}` : ""}${o.csat != null ? ` · ⭐ ${pct(o.csat)}` : ""}</span>
       <span style="color:var(--sp-muted);font-weight:400;font-size:11px"> há ${spEspera(o.em)}</span>`;
   const canal = ([k, n]) => { const c = (d.por_canal || {})[k] || {}, l = (aba, txt, val) => ir({canal: k, aba}, `<span>${txt}</span><b>${val}</b>`, "div", "sp-linha");
     return `<div class="sp-card"><div class="sp-canal">${ir({canal: k}, n, "div", "t")}

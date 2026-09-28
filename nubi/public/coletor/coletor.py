@@ -4759,6 +4759,28 @@ def _ia_atendente(chave, mensagens, token, estado, papel=None, ferramentas=None)
 # é recarregado), só com IA grátis. Só lê: nunca muda configuração, nunca responde cliente.
 TAXA_A_CADA_SEG = int(os.environ.get("NUBI_TAXA_SEG", str(2 * 3600)))
 TAXA_INICIO = {"shopee": "https://seller.shopee.com.br/", "tiktok_shop": "https://seller-br.tiktok.com/"}
+# 27/09 (print do Bruno): na Shopee os números ficam no próprio chat, aba Data → Chat; lidos direto da página, sem IA
+TAXA_PAGINA = {"shopee": os.environ.get("NUBI_SHOPEE_DATA", "https://seller.shopee.com.br/new-webchat/services/agent")}
+
+
+def _taxa_do_texto(txt):
+    """Números da aba Data → Chat da Shopee no texto da página. -> dict (vazio se a página mudou)."""
+    t = re.sub(r"[ \t\u00a0]+", " ", txt or "")
+    def pega(rotulo, padrao=r"([\d.]+)"):
+        m = re.search(rotulo + r"\s*\??\s*\n?\s*" + padrao, t, re.I)
+        return m.group(1) if m else None
+    num = lambda x: float(x.replace(".", "").replace(",", ".")) if x else None
+    resp, nao = pega(r"Chats Respondidos"), pega(r"Chats N[ãa]o-?\s?Respondidos")
+    taxa = pega(r"Perguntas\s+para\s+Respostas\)", r"([\d.,]+)\s*%")
+    out = {"respondidos": int(num(resp)) if resp else None, "nao_respondidos": int(num(nao)) if nao else None,
+           "tempo_resposta": pega(r"Tempo m[ée]dio de resposta", r"(\d{1,3}:\d{2}:\d{2})"),
+           "csat": num(pega(r"CSAT\s*%", r"([\d.,]+)\s*%")),
+           "periodo": (re.search(r"[ÚU]ltimos \d+ Dias", t) or [None])[0]}
+    if taxa:
+        out["taxa_resposta"] = num(taxa)
+    elif out["respondidos"] is not None and out["nao_respondidos"] is not None and (out["respondidos"] + out["nao_respondidos"]):
+        out["taxa_resposta"] = round(100 * out["respondidos"] / (out["respondidos"] + out["nao_respondidos"]), 2)
+    return out if out.get("taxa_resposta") is not None else {}
 TAXA_FERRAMENTAS = [f for f in NAVEGADOR_FERRAMENTAS if f["name"] in ("abrir", "ler", "clicar")] + [
     {"name": "registrar_taxa", "description": "Manda ao nubi a taxa de resposta do chat da loja que aparece na tela.",
      "input_schema": {"type": "object", "properties": {
@@ -4780,6 +4802,15 @@ def _ler_taxa(ctx, canal, token):
     pg = ctx.new_page()
     estado, papel = {}, PAPEL_TAXA.replace("{PLATAFORMA}", nome)
     try:
+        if canal in TAXA_PAGINA:                       # leitura fixa, sem IA
+            pg.goto(TAXA_PAGINA[canal], timeout=60000)
+            pg.wait_for_timeout(8000)
+            if _na_tela_login(pg):
+                return f"{nome}: taxa não lida (precisa de login)"
+            dados = _taxa_do_texto(pg.inner_text("body", timeout=15000))
+            if dados:
+                x = api(token, "atendimento_taxa", corpo={"canal": canal, **dados}, metodo="POST", timeout=60)
+                return f"{nome}: taxa de resposta {x.get('taxa')}% ({dados.get('periodo') or 'período não informado'}; sem IA)"
         pg.goto(TAXA_INICIO.get(canal, PLATAFORMAS[canal][1]), timeout=60000)
         pg.wait_for_timeout(4000)
         if _na_tela_login(pg):

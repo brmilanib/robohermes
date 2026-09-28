@@ -238,6 +238,18 @@ def test_atendente_usa_a_ia_local_do_computador_antes_de_tudo():
         srv.shutdown()
 
 
+def test_le_a_taxa_da_shopee_na_aba_data_sem_ia():
+    # 27/09 (print do Bruno): Shopee Chat → Data → Chat
+    txt = ("Chats Respondidos\n5\nvs 30 Dias Anteriores\nChats Não-Respondidos\n3 Detalhes\nTempo médio de resposta\n03:14:11\n"
+           "CSAT %\n50,00% Detalhes\nTaxa de conversão\n(Perguntas para\nRespostas)\n62,50%\nPeríodo dos Dados Últimos 30 Dias")
+    d = c._taxa_do_texto(txt)
+    assert d == {"respondidos": 5, "nao_respondidos": 3, "tempo_resposta": "03:14:11", "csat": 50.0,
+                 "periodo": "Últimos 30 Dias", "taxa_resposta": 62.5}, d
+    sem_rotulo = c._taxa_do_texto("Chats Respondidos\n9\nChats Não-Respondidos\n1")
+    assert sem_rotulo["taxa_resposta"] == 90.0
+    assert c._taxa_do_texto("página mudou") == {}
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

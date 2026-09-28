@@ -350,4 +350,5 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   aba `precisa`/`respondidas`/`sozinho`/`tudo`, conversa, loja do pedido, assunto `S.atAssunto`); a conversa que pisca abre o
   chat. Por canal: "📶 Taxa de resposta (plataforma)" = lida pelo atendente a cada 2 h (`_ler_taxa`, aba própria, só IA
   grátis, `TAXA_FERRAMENTAS`/`PAPEL_TAXA`, só lê) → rota `atendimento_taxa` → `ia_resumos` `atendimento|taxa|<canal>` com
-  histórico; "📈 Respondidas pelo nubi (7 dias)" = `taxa_nubi` calculada no `painel`.
+  histórico; "📈 Respondidas pelo nubi (7 dias)" = `taxa_nubi` calculada no `painel`. Shopee: lida SEM IA na aba Data → Chat
+  (`TAXA_PAGINA`, `_taxa_do_texto`: respondidos, não respondidos, tempo médio, CSAT e "Perguntas para Respostas"); IA só se a página mudar.

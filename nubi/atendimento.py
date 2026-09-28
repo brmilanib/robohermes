@@ -1232,7 +1232,10 @@ def gravar_taxa(repo, d):
         except ValueError:
             return None
     atual = {"taxa": num(d.get("taxa_resposta")), "tempo": str(d.get("tempo_resposta") or "")[:40] or None,
-             "periodo": str(d.get("periodo") or "")[:60] or None, "em": _agora()}
+             "periodo": str(d.get("periodo") or "")[:60] or None, "csat": num(d.get("csat")) if d.get("csat") is not None else None,
+             "respondidos": d.get("respondidos") if isinstance(d.get("respondidos"), int) else None,
+             "nao_respondidos": d.get("nao_respondidos") if isinstance(d.get("nao_respondidos"), int) else None,
+             "em": _agora()}
     if atual["taxa"] is None and not atual["tempo"]:
         return {"ok": False, "motivo": "sem número"}
     velho = taxa_oficial(repo, canal) or {}
