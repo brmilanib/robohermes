@@ -35,7 +35,7 @@ try:
                       cssModal: getComputedStyle(m).height + ' / ' + getComputedStyle(m).maxHeight + ' / pad ' + getComputedStyle(bg).padding,
                       tfOverflow: getComputedStyle(tf).overflowY}; }""")
             assert not erros, erros
-            pg.mouse.move(w - 200, h // 2)
+            pg.mouse.move(w // 2, h // 2)   # 28/09 #95: a janela é centralizada (era colada na borda direita)
             for _ in range(40): pg.mouse.wheel(0, 800); pg.wait_for_timeout(30)
             pg.wait_for_timeout(500)
             fim = pg.evaluate("""() => { const s = document.getElementById('tf-status'), tf = document.querySelector('.modal-bg.tarefa .modal'); const b = s.getBoundingClientRect();

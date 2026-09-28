@@ -576,15 +576,26 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 @media (max-width:1024px){.dev-col{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:600px){.dev-col{grid-template-columns:1fr}}
 @media (max-width:390px){.dev-col{grid-template-columns:1fr}.dev-prog{gap:8px}.dev-prog-it{flex-basis:100%}}
-.modal-bg.tarefa{align-items:stretch;justify-content:flex-end;padding:0}
-/* 26/09: quem rola é a própria janela do card (bloco com altura fixa da tela); antes o painel interno usava height:100%
-   dentro de flex, que o Safari calcula maior que a tela, e o fim do card ficava cortado sem rolagem */
-.modal-bg.tarefa .modal{max-width:min(760px,100vw);border-radius:0;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;
+.modal-bg.tarefa{align-items:center;justify-content:center}
+/* 28/09 #95 (reabre #94/#91): janela centralizada com margem nas 4 bordas, não mais painel colado na borda direita.
+   Quem rola é a própria janela do card (uma única área de rolagem); a altura segue a mesma conta de margem do .modal
+   genérico (linha 129) para sobrar espaço em cima/embaixo também. No celular (abaixo) volta a ocupar a tela quase toda. */
+.modal-bg.tarefa .modal{max-width:min(760px,100%);width:100%;
+  height:calc(100vh - (clamp(24px,6vh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
+  height:calc(100dvh - (clamp(24px,6dvh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
   display:block;padding:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .tf{display:flex;flex-direction:column;min-height:100%}
 .tf pre{white-space:pre-wrap;overflow-wrap:anywhere}
-html:has(.modal-bg.tarefa){overflow:hidden}   /* quadro atrás não rola com o card aberto; libera sozinho ao fechar */
+html:has(.modal-bg.tarefa){overflow:hidden}   /* quadro atrás não rola com o card aberto; libera sozinho ao fechar, na mesma posição */
+@media (max-width:600px){.modal-bg.tarefa{padding:0}
+  /* o .modal genérico (linha 129) tem max-height com a mesma conta de margem; sem isso o card ficava com a
+     margem do desktop mesmo aqui, sem ocupar a tela toda (achado do teste automatizado, card #95) */
+  .modal-bg.tarefa .modal{max-width:none;width:100vw;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;border-radius:0}}
 .tf-cab{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+.tf-cab-l1{display:flex;align-items:baseline;gap:6px;min-width:0}
+.tf-cab-l1 b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:15.5px}
+.tf-cab-l2{font-size:12px;margin-top:2px}
+.tf-resumo{padding:8px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
 .tf-desc{padding:8px 16px;border-bottom:1px solid var(--line);font-size:13px}.tf-desc summary{cursor:pointer;color:var(--muted)}
 .tf-desc textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;color:var(--ink);background:var(--card);resize:vertical;margin-top:6px}
 .tf-lin{flex:1 0 auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px;background:var(--soft);min-height:min(240px,45dvh)}   /* 26/09 #91: uma rolagem só (a do painel) */
@@ -601,7 +612,6 @@ html:has(.modal-bg.tarefa){overflow:hidden}   /* quadro atrás não rola com o c
 .tf-in{display:flex;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);position:sticky;bottom:0;background:var(--card);z-index:2}
 .tf-in textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:18px;padding:9px 14px;font:inherit;min-height:40px;max-height:120px;background:var(--card);color:var(--ink)}
 .tf-st{padding:0 16px 12px}
-@media (max-width:600px){.modal-bg.tarefa .modal{max-width:none}}
 @media (max-width:420px){.tf-bts{gap:6px}.tf-bts .btn{font-size:12px;padding:6px 8px;white-space:nowrap}}
 .au-msg{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:10px;background:var(--card)}
 .au-msg .quem{font-weight:700;font-size:13px;margin-bottom:4px}
@@ -4162,12 +4172,19 @@ async function abrirTarefa(id) {
         ${mdCodigo(e.texto)}<span class="tf-hr">${new Date(e.criado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</span></div>`;
     };
     const exec = execInfo(t), sit = situacaoInfo(t);
-    $("#tf", bg).innerHTML = `<div class="tf-cab"><span class="dc-av" style="--c:${exec.cor}">${exec.icone}</span><div style="min-width:0"><div class="muted" style="font-size:12px">#${t.id} · ${esc(DEV_ST[t.status][0])}</div>
-        <h2 style="margin:0;font-size:17px">${esc(t.titulo)}</h2>
-        <div class="dc-exec"><b>${esc(exec.nome)}</b></div>
+    // 28/09 #95 (reabre #94/#91): cabeçalho fino em 2 linhas ("#nº · título · fechar" e "status · executor");
+    // situação, pedido/aprovado e o aviso "precisa de você" (próxima ação) saem do cabeçalho e viram um resumo
+    // logo abaixo, antes do histórico de passos — antes ficavam espalhados no cabeçalho e depois do histórico.
+    $("#tf", bg).innerHTML = `<div class="tf-cab"><span class="dc-av" style="--c:${exec.cor}">${exec.icone}</span><div style="min-width:0;flex:1">
+        <div class="tf-cab-l1"><span class="muted">#${t.id}</span> <b>${esc(t.titulo)}</b></div>
+        <div class="tf-cab-l2 muted">${esc(DEV_ST[t.status][0])} · ${esc(exec.nome)}</div>
+        </div><button class="btn small" data-fechar>✕</button></div>
+      <div class="tf-resumo">
         ${sit ? `<div class="dc-sit"><span class="st ${sit.classe}">${esc(sit.texto)}</span>${sit.motivo ? `<span class="dc-sit-mot">${esc(sit.motivo)}</span>` : ""}</div>` : ""}
         <div class="muted" style="font-size:11px">Pedido por ${esc(quem(t.proposto_por))} · Aprovado por ${esc(quem(t.decidido_por))}</div>
-        </div><div style="flex:1"></div><button class="btn small" data-fechar>✕</button></div>
+        ${(t.aguardando || t.status === "proposta") ? `<div class="tf-pede">${t.aguardando ? `<b>⏳ ${esc(ag[1])} precisa de você:</b> ${esc(t.aguardando)}` : "Esta tarefa é uma proposta. Aprovar manda para a fila de desenvolvimento."}
+          <div class="tf-bts"><button class="btn primary small" data-dec="aprovar">✅ Aprovar</button><button class="btn small" data-dec="recusar">❌ Não aprovar</button></div></div>` : ""}
+        </div>
       <details class="tf-desc" ${x.eventos.length && t.descricao ? "" : "open"}><summary>O que é para fazer${cardFaltando(t.descricao).length ? ` <span class="st warn">card incompleto</span>` : ""}</summary>
         <textarea id="tf-desc-ta" rows="6" placeholder="Escopo: [o que mudar e os limites da alteração]&#10;Arquivo/função: [onde implementar]&#10;Teste: [como verificar a mudança]&#10;Critério de aceite: [resultado verificável para considerar pronto]">${esc(t.descricao || "")}</textarea>
         <p class="muted" style="font-size:12px;margin:4px 0">Para executar, preencha os quatro itens do modelo.</p>
@@ -4178,8 +4195,6 @@ async function abrirTarefa(id) {
       <div class="tf-lin" id="tf-lin">${x.eventos.map(bolha).join("") || `<div class="tf-sis">Ainda sem passos registrados.</div>`}
         ${vivo ? `<div class="tf-b trab"><span class="dc-dig"><i></i><i></i><i></i></span> ${esc(ag[1])} ${t.status === "em_teste" ? "está testando" : "está trabalhando"}…</div>` : ""}
         ${parado ? `<div class="tf-sis">⏸ Sem atividade há mais de ${DEV_ATIVO_MIN} min. ${(t.responsavel || "claude_code") === "claude_code" ? "O programador automático retoma na próxima rodada (a cada 1 h); " : ""}escreva aqui que o agente responde na hora.</div>` : ""}</div>
-      ${(t.aguardando || t.status === "proposta") ? `<div class="tf-pede">${t.aguardando ? `<b>⏳ ${esc(ag[1])} precisa de você:</b> ${esc(t.aguardando)}` : "Esta tarefa é uma proposta. Aprovar manda para a fila de desenvolvimento."}
-        <div class="tf-bts"><button class="btn primary small" data-dec="aprovar">✅ Aprovar</button><button class="btn small" data-dec="recusar">❌ Não aprovar</button></div></div>` : ""}
       <div class="tf-in"><textarea id="tf-txt" rows="1" placeholder="Escreva para o agente desta tarefa…"></textarea><button class="btn primary" id="tf-env" title="Enviar">➤</button></div>
       <div class="tf-st"><label class="muted" style="font-size:12px">Status <select id="tf-status" class="mes">${Object.keys(DEV_ST).map(k => `<option value="${k}" ${k === t.status ? "selected" : ""}>${DEV_ST[k][0]}</option>`).join("")}</select></label></div>`;
     if (abertos.desc !== null && $(".tf-desc", bg)) $(".tf-desc", bg).open = abertos.desc;
