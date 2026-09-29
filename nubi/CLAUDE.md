@@ -32,6 +32,9 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 - Conta do Mercado Livre (29/09, autorizado pelo Bruno: "vamos logar uma conta minha que não uso, a mesma que criou a API"):
   o login é na página do ML (OAuth); o refresh_token fica CIFRADO em `ia_resumos` `meli|conta` (chave derivada do
   ML_CLIENT_SECRET, que só existe na Vercel) e o access_token só na memória. Única exceção à regra "nada de token no banco".
+- Conta de VENDEDOR do ML (29/09 à tarde, Bruno: "vamos conectar sem problemas uma conta vendedor, a AURASCENT"): a conta
+  conectada por OAuth passa a ser a AURASCENT (no lugar da BRUNOMILANI, que é conta sem loja e recebe 403 em /items e na
+  busca). Mesmas regras: só LEITURA (o nubi nunca altera anúncio, preço ou pedido), refresh_token cifrado em `meli|conta`.
 - Branch de trabalho: `claude/wizardly-ritchie-5fig5i`; sem PR se não pedirem; não mexer no "Branch Tracking" da Vercel.
 - Testar no servidor falso (fake_rest + servidor.py) e no mock do Nubimetrics antes de publicar.
 
