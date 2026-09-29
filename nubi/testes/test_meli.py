@@ -132,14 +132,15 @@ class DubleML:
             u2 = USUARIOS.get(int(m[2]))
             return self._json(u2) if u2 else self._erro(url, 404)
         if len(m) == 5 and m[1] == "items" and m[3] == "visits" and m[4] == "time_window":
-            dias = int(q["last"])
-            if dias > 150:                                     # o ML limita a janela: a maior dá erro
+            passo = {"day": 1, "week": 7, "month": 30}[q["unit"]]
+            n = int(q["last"])
+            if q["unit"] == "day" and n > 150:                  # produção: a janela por dia vai até 150
                 self._erro(url, 400, b'{"message":"last must be lower than 150"}')
-            ini = HOJE.date() - timedelta(days=dias - 1)
-            entrou = {"MLB2000200": HOJE.date() - timedelta(days=100)}.get(m[2])
-            return self._json({"item_id": m[2], "results": [{"date": f"{ini + timedelta(days=k)}T00:00:00Z",
-                                                             "total": (30 if entrou and ini + timedelta(days=k) >= entrou else 0) if entrou else 5}
-                                                            for k in range(dias)]})
+            ini = HOJE.date() - timedelta(days=passo * (n - 1))
+            entrou = {"MLB2000200": HOJE.date() - timedelta(days=100), "MLB4000400": HOJE.date() - timedelta(days=300)}.get(m[2])
+            return self._json({"item_id": m[2], "results": [{"date": f"{ini + timedelta(days=passo * k)}T00:00:00Z",
+                                                             "total": (30 if ini + timedelta(days=passo * (k + 1)) > entrou else 0) if entrou else 5}
+                                                            for k in range(n)]})
         if p == "/items/visits":
             return self._json([{"item_id": i, "total_visits": VISITAS.get(i, 0)} for i in q["ids"].split(",")])
         if p == "/sites/MLB/search":
@@ -762,10 +763,12 @@ def test_extensao_do_chrome_dado_publico_do_ml():
     assert x["total_concorrentes"] == 2 and [c["loja"] for c in x["concorrentes"]] == ["FINKE", "ESSENCEPRIMEBR"]
     assert [c["eu"] for c in x["concorrentes"]] == [False, True] and x["concorrentes"][0]["preco"] == 265.28
     # a 1ª visita (histórico de visitas do ML) é a data de entrada; com ela não precisa estimar pelo nº
-    assert x["historico"]["primeira_visita"] == str(HOJE.date() - timedelta(days=100)) and x["historico"]["dias_lidos"] == 150, x["historico"]
+    assert x["historico"]["primeira_visita"] == str(HOJE.date() - timedelta(days=100)) and x["historico"]["precisao"] == "dia", x["historico"]
+    h3 = meli.historico_visitas("MLB4000400")                       # entrou há 300 dias: a janela por dia não alcança, a semanal sim
+    assert h3["precisao"] == "semana" and abs((date.fromisoformat(h3["primeira_visita"]) - (HOJE.date() - timedelta(days=300))).days) <= 7, h3
     assert x["historico"]["total"] == 3000 and x["criado_estimado"] is None
     h2 = meli.historico_visitas("MLB1000100")                       # visita desde o 1º dia da janela: mais velho que ela
-    assert "primeira_visita" not in h2 and h2["mais_velho_que"] == str(HOJE.date() - timedelta(days=149)), h2
+    assert "primeira_visita" not in h2 and h2["mais_velho_que"] == str(HOJE.date() - timedelta(days=30 * 35)), h2
     assert meli.painel_extensao(dict(p, mlb="MLB4000400"), calib=calib)["criado_estimado"] is None     # fora da calibração
     n = len(d.pedidos)
     assert meli.painel_extensao(p, calib=calib) == x and len(d.pedidos) == n                  # 30 min na memória

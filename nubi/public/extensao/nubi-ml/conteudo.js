@@ -102,7 +102,7 @@
     const recebido = comissao != null && a.preco ? a.preco - comissao - (frete || 0) : null;
     const h = (n && n.historico) || {}, est = n && n.criado_estimado;
     // data de entrada: a da página; senão o 1º dia com visita (API de visitas); senão o nº do MLB (estimativa)
-    const [criado, fonte] = a.criado ? [a.criado, ""] : h.primeira_visita ? [h.primeira_visita, "1ª visita"] :
+    const [criado, fonte] = a.criado ? [a.criado, ""] : h.primeira_visita ? [h.primeira_visita, h.precisao && h.precisao !== "dia" ? `1ª visita (pela ${h.precisao === "mês" ? "janela do mês" : "semana"})` : "1ª visita"] :
       est ? [est.data, `estimado pelo nº ${a.item || ""}, pode errar`] : [null, ""];
     const dias = diasDesde(criado);
     const maisDe = !criado && h.mais_velho_que ? diasDesde(h.mais_velho_que) : null;
@@ -142,7 +142,7 @@
           <span><i class="${nt.rotulo}">${nt.rotulo}</i> <b>${nt.v}</b><small>/100</small></span></div>
         <div class="nubi-spy-barra"><i style="width:${nt.v}%"></i></div><small>${esc(nt.txt)}</small></div>` : ""}
       <div class="nubi-spy-2">
-        <div><small>${ic("relogio", 12)} Tempo ativo</small><b class="${dias != null && dias > 180 ? "velho" : ""}">${dias != null ? `${est && fonte.startsWith("estimado") ? "≈" : ""}${nf(dias)} dias` :
+        <div><small>${ic("relogio", 12)} Tempo ativo</small><b class="${dias != null && dias > 180 ? "velho" : ""}">${dias != null ? `${(est && fonte.startsWith("estimado")) || (h.precisao && h.precisao !== "dia" && !a.criado) ? "≈" : ""}${nf(dias)} dias` :
           maisDe != null ? `+${nf(maisDe)} dias` : ld || "—"}</b>
           <small>${criado ? `desde ${esc(dia(criado))}${fonte ? ` · ${esc(fonte)}` : ""}` : maisDe != null ? "mais velho que o histórico de visitas" : a.item ? esc(a.item) : ""}</small></div>
         ${conc.length ? `<div><small>${ic("etiqueta", 12)} Menor preço</small><b>${brl(menor)}</b><small>${pos ? `você está em ${pos}º de ${conc.length}` : `${conc.length} ofertas`}</small></div>` :

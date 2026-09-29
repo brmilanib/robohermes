@@ -1280,39 +1280,50 @@ def painel_extensao(p, calib=None, max_concorrentes=200):
 def historico_visitas(mlb):
     """29/09 (print do Hunter: "Tempo ativo 252 dias, desde 19/01/2026", "19.651 visitas no total"): o ML não dá ao app a
     data de criação de anúncio de outra loja (/items 403), mas dá as visitas. O 1º dia com visita ≈ o dia em que o anúncio
-    entrou no ar; o total desde então = visitas na vida. {primeira_visita, total, dias_lidos} ou {}."""
+    entrou no ar; o total desde então = visitas na vida. Produção 29/09: a janela por dia vai até 150 dias; anúncio mais
+    velho tenta a janela por semana. {primeira_visita, precisao, total, dias_lidos} ou {"mais_velho_que": data}."""
+    def janela(unid, n):
+        try:
+            r = _get(f"/items/{mlb}/visits/time_window", {"last": n, "unit": unid}) or {}
+        except ErroLogin:
+            raise
+        except ErroMeli:
+            return None
+        xs = sorted((str(x.get("date") or "")[:10], int(x.get("total") or 0)) for x in r.get("results") or [])
+        return xs or None
+
     def ler():
         hoje = datetime.now(timezone.utc).date()
-        for dias in (365, 180, 150, 90):             # o ML limita a janela; tenta da maior para a menor
-            try:
-                r = _get(f"/items/{mlb}/visits/time_window", {"last": dias, "unit": "day"}) or {}
-            except ErroLogin:
-                raise
-            except ErroMeli:
+        out = {}
+        for unid, n in (("day", 150), ("day", 90), ("week", 104), ("week", 52), ("month", 36), ("month", 24)):
+            if out.get("primeira_visita") or (unid == "day" and out.get("dias_lidos")):
                 continue
-            xs = sorted((str(x.get("date") or "")[:10], int(x.get("total") or 0)) for x in r.get("results") or [])
-            com = [d for d, n in xs if n > 0]
+            xs = janela(unid, n)
             if not xs:
                 continue
-            out = {"dias_lidos": dias, "total_janela": sum(n for _, n in xs)}
-            # a 1ª visita só vale como data de entrada se não for o 1º dia da janela (senão o anúncio é mais velho que ela)
+            com = [d for d, q in xs if q > 0]
+            if unid == "day":
+                out.update(dias_lidos=n, total_janela=sum(q for _, q in xs))
             if com and com[0] > xs[0][0]:
-                out["primeira_visita"] = com[0]
-            else:
+                out.update(primeira_visita=com[0], precisao={"day": "dia", "week": "semana", "month": "mês"}[unid])
+                out.pop("mais_velho_que", None)
+            elif not out.get("mais_velho_que") or xs[0][0] < out["mais_velho_que"]:
                 out["mais_velho_que"] = xs[0][0]
-            try:                                     # visitas na vida: da data de entrada (ou 3 anos) até hoje
-                de = out.get("primeira_visita") or (hoje - timedelta(days=3 * 365)).isoformat()
+        # visitas na vida: da entrada (ou do mais antigo possível) até hoje; o ML pode limitar o período
+        de0 = out.get("primeira_visita")
+        for de in ([de0] if de0 else []) + [(hoje - timedelta(days=d)).isoformat() for d in (3 * 365, 730, 365)]:
+            try:
                 t = _get("/items/visits", {"ids": mlb, "date_from": f"{de}T00:00:00.000-00:00",
                                             "date_to": f"{hoje.isoformat()}T23:59:59.000-00:00"})
-                t = t[0] if isinstance(t, list) and t else t
-                if isinstance(t, dict) and t.get("total_visits") is not None:
-                    out["total"] = int(t["total_visits"])
             except ErroLogin:
                 raise
             except ErroMeli:
-                pass
-            return out
-        return {}
+                continue
+            t = t[0] if isinstance(t, list) and t else t
+            if isinstance(t, dict) and t.get("total_visits") is not None:
+                out.update(total=int(t["total_visits"]), total_desde=de)
+                break
+        return out
     return _mem("ext|hist|" + mlb, 6 * 3600, ler)
 
 
