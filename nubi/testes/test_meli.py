@@ -107,7 +107,17 @@ class DubleML:
         if p == "/oauth/token":
             self.logins += 1
             corpo = urllib.parse.parse_qs(req.data.decode())
-            assert corpo["grant_type"] == ["client_credentials"]
+            g = corpo["grant_type"][0]
+            if g == "authorization_code":                    # conta do usuário: o código da volta do login
+                assert corpo["code"] == ["CODIGO-OK"] and corpo["redirect_uri"][0].endswith("meli_retorno")
+                self.refresh = "R1"
+                return self._json({"access_token": "TOKEN-U1", "refresh_token": "R1", "expires_in": 21600, "user_id": 777})
+            if g == "refresh_token":                         # o ML troca o refresh a cada uso
+                assert corpo["refresh_token"] == [self.refresh], (corpo, self.refresh)
+                n = int(self.refresh[1:]) + 1
+                self.refresh = f"R{n}"
+                return self._json({"access_token": f"TOKEN-U{n}", "refresh_token": self.refresh, "expires_in": 21600})
+            assert g == "client_credentials"
             if self.token_recusado:
                 self._erro(url, 400, b'{"error":"invalid_client"}')
             return self._json({"access_token": f"TOKEN{self.logins}", "expires_in": 21600})
@@ -116,14 +126,17 @@ class DubleML:
         if self.falhar_401:
             self.falhar_401 -= 1
             self._erro(url, 401)
+        self.usuario = req.headers.get("Authorization", "").startswith("Bearer TOKEN-U")
         if p == "/items":
-            if self.bloq_varios:
+            if self.bloq_varios and not self.usuario:
                 self._erro(url, 403, b'{"message":"forbidden","error":"forbidden"}')
             return self._json([{"code": 200, "body": ITENS[i]} if i in ITENS else {"code": 404, "body": {"id": i}}
                                for i in q["ids"].split(",")])
         m = p.split("/")
+        if p == "/users/me":
+            return self._json({"id": 777, "nickname": "TESTE_BRUNO"})
         if len(m) == 3 and m[1] == "items" and m[2].startswith("MLB"):
-            if self.bloq_um:
+            if self.bloq_um and not self.usuario:           # com a conta do usuário o ML libera
                 self._erro(url, 403, b'{"message":"forbidden"}')
             return self._json(ITENS[m[2]]) if m[2] in ITENS else self._erro(url, 404)
         if p.startswith("/users/") and p.endswith("/shipping_options/free"):
@@ -469,7 +482,7 @@ def test_rotas_do_servidor_ligam_o_vendedor_do_nubimetrics_a_loja():
     # o botão 🔌 confere, nas lojas confirmadas à mão, se o nº da loja oficial do Explorador é o do ML
     t = w.rota_meli(r, "GET", "meli_teste", {}, b"")
     p = [x for x in t["passos"] if x["passo"].startswith("nº da loja oficial")][0]
-    assert not p["ok"] and "FINKE: Explorador 555 x ML sem nº (1 oferta(s))" in p["detalhe"] and "NÃO é o do ML" in p["detalhe"], p
+    assert p["ok"] and "1 aprendida" in p["detalhe"] and "FINKE: Explorador 555 x ML sem nº (1 oferta(s))" in p["detalhe"] and "NÃO é o do ML" in p["detalhe"], p
     guardado = r.resumos[meli.HASH_LOJAS]                                       # (o manual não se troca: troca direto)
     r.resumos[meli.HASH_LOJAS] = json.dumps({**json.loads(guardado), "b" * 64: {"id": "222222222", "nome": "ESSENCEPRIMEBR",
                                                                                 "confianca": "manual"}})
@@ -805,6 +818,125 @@ def test_extensao_do_chrome_dado_publico_do_ml():
     except meli.ErroMeli as e:
         assert "muitos pedidos" in str(e)
     meli._EXT_CONTA.update(n=0)
+
+
+
+def test_conta_do_ml_conectada_por_oauth():
+    """29/09 (autorizado pelo Bruno: conta de teste, a mesma do app): login na página do ML, volta com código + state,
+    refresh CIFRADO no banco (nunca em texto), renova sozinho (o ML troca o refresh a cada uso) e /items passa a funcionar."""
+    d = _preparar()
+    d.bloq_um = d.bloq_varios = True                      # produção 29/09: /items e /items?ids= dão 403 ao app
+    os.environ.setdefault("OLLAMA_API_KEY", "x")
+    os.environ.setdefault("ANTHROPIC_API_KEY", "x")
+    import nubi_web as w
+    # cifra: volta igual, muda a cada vez, e um byte trocado é recusado
+    c1, c2 = meli.cifrar("R-SEGREDO"), meli.cifrar("R-SEGREDO")
+    assert c1 != c2 and meli.decifrar(c1) == "R-SEGREDO" and "SEGREDO" not in c1
+    ruim = c1[:-2] + ("A" if c1[-2] != "A" else "B") + c1[-1]
+    try:
+        meli.decifrar(ruim)
+        assert False, "devia recusar"
+    except ValueError:
+        pass
+    r = Repo()
+    velho = (w._repo_agente, meli.USUARIO_REPO)
+    w._repo_agente = lambda: r
+    meli.USUARIO_REPO = lambda: r
+    meli._USUARIO.update(valor=None, ate=0.0, erro=None, nick=None, falhou_em=0.0)
+    try:
+        # sem conta: /items do anúncio de outra loja continua 403 (token do app)
+        assert meli.itens(["MLB1000100"])["MLB1000100"].get("bloqueado")
+        meli._CACHE.clear()
+        # botão Conectar: grava o state; a volta com state errado não conecta
+        u = w.rota_meli(r, "POST", "meli_conectar", {}, b"{}")
+        estado = json.loads(r.resumos["meli|estado"])["estado"]
+        assert "auth.mercadolivre.com.br/authorization" in u["url"] and f"state={estado}" in u["url"] and "client_id=123" in u["url"]
+        st, tipo, corpo, _ = w.atender("GET", "meli_retorno", {"code": "CODIGO-OK", "state": "outro"}, b"", "")
+        assert st == 200 and "não conectada" in corpo.decode() and not meli.ler_conta(r)
+        st, tipo, corpo, _ = w.atender("GET", "meli_retorno", {"code": "CODIGO-OK", "state": estado}, b"", "")
+        assert "text/html" in tipo and "TESTE_BRUNO" in corpo.decode() and "conectada" in corpo.decode()
+        conta = meli.ler_conta(r)
+        assert conta["nick"] == "TESTE_BRUNO" and meli.decifrar(conta["refresh"]) == "R1"
+        assert "R1" not in r.resumos["meli|conta"] and "TOKEN" not in r.resumos["meli|conta"]      # nada em texto puro
+        # o state é de uso único
+        st, _, corpo, _ = w.atender("GET", "meli_retorno", {"code": "CODIGO-OK", "state": estado}, b"", "")
+        assert "não conectada" in corpo.decode()
+        # com a conta, /items do anúncio de outra loja vem
+        x = meli.itens(["MLB1000100"])["MLB1000100"]
+        assert not x.get("bloqueado") and x.get("vendedor_id") == 111111111, x
+        # vence o acesso: renova pelo refresh e grava o NOVO refresh (cifrado)
+        meli._USUARIO.update(valor=None, ate=0.0)
+        meli._CACHE.clear()
+        assert not meli.itens(["MLB2000200"])["MLB2000200"].get("bloqueado")
+        assert meli.decifrar(meli.ler_conta(r)["refresh"]) == "R2" and d.refresh == "R2"
+        st = w.rota_meli(r, "GET", "meli_conta", {}, b"")
+        assert st["conectada"] and st["funcionando"] and st["nick"] == "TESTE_BRUNO" and "refresh" not in st
+        # desconectar: volta para o token do app
+        w.rota_meli(r, "POST", "meli_desconectar", {}, b"{}")
+        meli._CACHE.clear()
+        assert not meli.ler_conta(r) and meli.itens(["MLB1000100"])["MLB1000100"].get("bloqueado")
+    finally:
+        w._repo_agente, meli.USUARIO_REPO = velho
+        meli._USUARIO.update(valor=None, ate=0.0, erro=None, nick=None, falhou_em=0.0)
+
+
+
+def test_comparar_vendas_nubimetrics_com_o_ml():
+    """29/09 (Bruno: "comparar as vendas do mesmo período do Nubimetrics com as da API do ML; tem que bater"): uma foto por
+    dia dos anúncios da loja; a diferença dos 'vendidos' = vendas do dia pelo ML, ao lado do vend_vendas_dia."""
+    d = _preparar()
+    os.environ.setdefault("OLLAMA_API_KEY", "x")
+    os.environ.setdefault("ANTHROPIC_API_KEY", "x")
+    import nubi_web as w
+    # foto de hoje pela busca da loja (dublê: a loja 222222222 tem 3 anúncios)
+    f = meli.foto_da_loja("222222222")
+    assert f["total"] == 3 and set(f["itens"]) == {"MLB2000200", "MLB3000300", "MLB4000400"}
+    assert f["itens"]["MLB2000200"] == {"v": 500, "d": 50, "p": 279.0, "g": "6290362346548", "t": "Perfume Asad Elixir Lattafa 100ml",
+                                        "s": "active", "f": True}, f["itens"]["MLB2000200"]
+    assert meli.vendidos_em_faixa(f["itens"]) == 1.0                    # 500 e 1000: números de faixa -> avisar
+    d.bloq_busca = True
+    try:
+        meli.foto_da_loja("222222222")
+        assert False, "devia pedir a conta"
+    except meli.ErroMeli as e:
+        assert "conecte a conta" in str(e)
+    d.bloq_busca = False
+    # 3 fotos (27, 28 e hoje) e o Nubimetrics dos mesmos dias
+    hoje = w._hoje_br()
+    d1, d2 = hoje - timedelta(days=2), hoje - timedelta(days=1)
+    foto = lambda vs: {"total": 3, "itens": {i: {"v": v, "g": g, "t": t} for i, (v, g, t) in vs.items()}}
+    fotos = {d1: foto({"MLB2000200": (480, "6290362346548", "Asad"), "MLB4000400": (990, "8002135111", "Ferrari")}),
+             d2: foto({"MLB2000200": (490, "6290362346548", "Asad"), "MLB4000400": (995, "8002135111", "Ferrari")}),
+             hoje: foto({"MLB2000200": (500, "6290362346548", "Asad"), "MLB4000400": (994, "8002135111", "Ferrari"),
+                         "MLB3000300": (0, "", "Caneca")})}
+
+    class RepoC(Repo):
+        def _todos(self, tabela, q=None):
+            if tabela == "ia_resumos":
+                pre = q["chave"][5:].rstrip("*")
+                return [{"chave": k, "texto": v} for k, v in sorted(self.resumos.items()) if k.startswith(pre)]
+            if tabela == "vend_vendas_dia":
+                assert q["vendedor"] == "eq.ESSENCE" and q["data"] == f"gte.{d1.isoformat()}"
+                return [{"data": d1.isoformat(), "u": 10, "itens": [{"k": "6290362346548", "u": 10}]},
+                        {"data": d2.isoformat(), "u": 12, "itens": [{"k": "6290362346548", "u": 9}, {"k": "8002135111", "u": 3}]}]
+            return []
+    r = RepoC()
+    for dia, fx in fotos.items():
+        r.resumos[f"meli|foto|222222222|{dia.isoformat()}"] = json.dumps(fx)
+    c = w.comparar_loja(r, "222222222", "ESSENCE")
+    assert json.loads(r.resumos["meli|comparar"])["222222222"]["vendedor"] == "ESSENCE"
+    assert c["fotos"] == [d1.isoformat(), d2.isoformat(), hoje.isoformat()]
+    assert [(x["ml"], x["nubi"]) for x in c["dias"]] == [(15, 10), (10, 12)], c["dias"]     # d1→d2: 10 + 5; d2→hoje: 10
+    assert c["dias"][1]["desceu"] == 1 and c["dias"][1]["novos"] == 1                   # Ferrari 995→994; caneca nova
+    assert c["total"] == {"ml": 25, "nubi": 22}
+    p = {x["chave"]: x for x in c["produtos"]}
+    assert p["6290362346548"]["ml"] == 20 and p["6290362346548"]["nubi"] == 19 and p["8002135111"] == {
+        "chave": "8002135111", "titulo": "Ferrari", "ml": 5, "nubi": 3}
+    # sem loja: a lista de opções vem dos seguidos com a loja real achada
+    r.resumos["meli|seguidos"] = json.dumps({"ESSENCE": {"id": 222222222, "nome": "ESSENCEPRIMEBR", "confianca": "manual"},
+                                             "DUVIDA": {"id": 1, "nome": "X", "confianca": "dúvida"}})
+    o = w.rota_meli(r, "GET", "meli_comparar", {}, b"")
+    assert [x["vendedor"] for x in o["opcoes"]] == ["ESSENCE"] and "222222222" in o["lojas"]
 
 
 if __name__ == "__main__":

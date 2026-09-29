@@ -221,6 +221,13 @@
     }
     const n = await pedir({tipo: "nubi", rota: "ext_ml", params: {mlb: A.item, pid: A.produto, vendedor: A.vendedor, categoria: A.categoria,
       tipo: A.tipo, preco: A.preco}});
+    const ni = n && n.item;                   // anúncio pela conta do ML conectada no nubi: data e números de verdade
+    if (ni) {
+      if (ni.criado_em) A.criado = ni.criado_em;
+      if (ni.vendidos != null && ni.vendidos !== A.vendidos) { A.vendidos = ni.vendidos; A.vendidosExato = true; }
+      if (ni.disponivel != null) A.estoque = ni.disponivel;
+      A.itemApi = 200;
+    }
     desenharQuadro(q, A, n);
   }
 

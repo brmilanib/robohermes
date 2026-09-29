@@ -29,6 +29,9 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   automático do Chrome) ou no Chaveiro do Mac, digitadas pelo Bruno (`coletor guardar-senha <site>`); nunca no nubi, no
   banco, no GitHub, no chat ou no log (autorizado pelo Bruno em 25/09 para o login automático). Nunca copiar tokens,
   cookies ou chaves; nunca renomear os .xlsx.
+- Conta do Mercado Livre (29/09, autorizado pelo Bruno: "vamos logar uma conta minha que não uso, a mesma que criou a API"):
+  o login é na página do ML (OAuth); o refresh_token fica CIFRADO em `ia_resumos` `meli|conta` (chave derivada do
+  ML_CLIENT_SECRET, que só existe na Vercel) e o access_token só na memória. Única exceção à regra "nada de token no banco".
 - Branch de trabalho: `claude/wizardly-ritchie-5fig5i`; sem PR se não pedirem; não mexer no "Branch Tracking" da Vercel.
 - Testar no servidor falso (fake_rest + servidor.py) e no mock do Nubimetrics antes de publicar.
 
@@ -222,6 +225,21 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     `Access-Control-Allow-Origin: *` (e `api/app.py` responde OPTIONS) para a extensão não depender da permissão de site do
     Chrome; o servidor já devolvia certo (frete 24,45, comissão 30,84 = Hunter). `/items` público do navegador = 403: a
     data exata e o total de visitas na vida só com token de USUÁRIO do ML (OAuth da conta do Bruno) — decisão dele.
+  - CONTA DO ML CONECTADA (29/09, autorizado): `#/ml` → 🔐 Conectar conta do ML (`meli_conectar` grava o `state` de uso
+    único e manda para `auth.mercadolivre.com.br/authorization`); a volta `meli_retorno` é PÚBLICA (antes do login em
+    `atender`, confere o state em 15 min, troca o código, `meli.conectar_conta`) e mostra uma página simples. Redirect URI
+    cadastrado no DevCenter = `ML_RETORNO` (`https://nubi-explorador.vercel.app/api/app?r=meli_retorno`, ou env
+    `NUBI_ML_RETORNO`). `meli._get` usa o token da conta quando há (`_token_usuario`: renova pelo refresh, o ML troca o
+    refresh a cada uso e o novo é gravado cifrado; falhou, volta para o token do app e espera 10 min). `meli.cifrar/decifrar`:
+    HMAC-SHA256 em contador + etiqueta (só biblioteca padrão). `meli_conta`/`meli_desconectar`; o 🔌 diz qual token vale.
+    A extensão (`ext_ml`) passa a trazer `item` (data de criação, vendidos e estoque de /items) quando a conta funciona.
+  - COMPARAR Nubimetrics x API do ML (29/09, pedido do Bruno: "tem que bater antes de trocar a fonte"): `#/ml/comparar`
+    (`meli_comparar`, `comparar_loja`): uma loja já achada (seguido manual/certa/provável); `meli.foto_da_loja` (busca por
+    loja + /items, precisa da conta) tira 1 foto por dia (`meli|foto|<loja>|<data>`, no 1º cron depois da meia-noite de
+    Brasília, `fotos_comparar`; lojas em `meli|comparar`); `meli.vendas_entre_fotos` = quanto o "vendidos" de cada anúncio
+    subiu entre duas fotos = vendas do dia pelo ML, ao lado de `vend_vendas_dia` (Nubimetrics) nos mesmos dias, e por GTIN.
+    Avisa quando o vendido vem em FAIXAS (`vendidos_em_faixa`: números redondos 25/50/100/500…), porque aí a diferença não
+    mede venda. Só trocar a fonte depois de dias batendo (✅ até 5%).
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

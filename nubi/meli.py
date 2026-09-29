@@ -97,11 +97,144 @@ def _token(forcar=False):
     return _TOKEN["valor"]
 
 
+# ---------------------------------------------------------------------------
+# Conta do ML conectada (29/09, autorizado pelo Bruno: "vamos logar uma conta minha que não uso, a mesma que criou a API").
+# O token do APP (client_credentials) leva 403 em /items e /sites/MLB/search; com o token de um USUÁRIO o ML libera.
+# O login é na página do próprio ML (a senha nunca passa pelo nubi). O refresh_token fica CIFRADO em ia_resumos
+# (meli|conta), com chave derivada do ML_CLIENT_SECRET (que só existe na Vercel); o access_token só na memória.
+# Nada de token em log, erro ou tela. Qualquer falha volta para o token do app.
+# ---------------------------------------------------------------------------
+CONTA = "meli|conta"
+AUTH = os.environ.get("NUBI_ML_AUTH", "https://auth.mercadolivre.com.br")
+_USUARIO = {"valor": None, "ate": 0.0, "erro": None, "nick": None, "falhou_em": 0.0}
+USUARIO_REPO = None                       # nubi_web liga aqui uma função que devolve o repositório (login do agente)
+
+
+def _chave_cifra():
+    import hashlib, hmac
+    return hmac.new((os.environ.get("ML_CLIENT_SECRET") or "").encode(), b"nubi|meli|conta|v1", hashlib.sha256).digest()
+
+
+def cifrar(texto):
+    """Cifra autenticada só com a biblioteca padrão: fluxo HMAC-SHA256 em contador + etiqueta HMAC (encrypt-then-MAC)."""
+    import base64, hashlib, hmac, secrets
+    k = _chave_cifra()
+    dado, nonce = texto.encode(), secrets.token_bytes(16)
+    fluxo = b"".join(hmac.new(k, nonce + i.to_bytes(4, "big"), hashlib.sha256).digest() for i in range(len(dado) // 32 + 1))
+    ct = bytes(a ^ b for a, b in zip(dado, fluxo))
+    tag = hmac.new(k, b"tag" + nonce + ct, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(nonce + tag + ct).decode()
+
+
+def decifrar(tok):
+    import base64, hashlib, hmac
+    k = _chave_cifra()
+    raw = base64.urlsafe_b64decode(tok.encode())
+    nonce, tag, ct = raw[:16], raw[16:48], raw[48:]
+    if not hmac.compare_digest(tag, hmac.new(k, b"tag" + nonce + ct, hashlib.sha256).digest()):
+        raise ValueError("conta do ML: dado cifrado não confere (chave trocada?)")
+    fluxo = b"".join(hmac.new(k, nonce + i.to_bytes(4, "big"), hashlib.sha256).digest() for i in range(len(ct) // 32 + 1))
+    return bytes(a ^ b for a, b in zip(ct, fluxo)).decode()
+
+
+def url_conectar(redirect, estado):
+    return f"{AUTH}/authorization?" + urllib.parse.urlencode({"response_type": "code", "client_id": os.environ.get("ML_CLIENT_ID", ""),
+                                                              "redirect_uri": redirect, "state": estado})
+
+
+def _oauth(dados):
+    corpo = urllib.parse.urlencode({"client_id": os.environ["ML_CLIENT_ID"], "client_secret": os.environ["ML_CLIENT_SECRET"], **dados}).encode()
+    req = urllib.request.Request(f"{API}/oauth/token", data=corpo, method="POST",
+                                 headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+    try:
+        with _abrir(req, 20) as r:
+            return json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            motivo = str(json.loads(e.read() or b"{}").get("error") or "")[:60]
+        except Exception:  # noqa: BLE001
+            motivo = ""
+        raise ErroLogin(f"o Mercado Livre recusou a conta ({e.code}{': ' + motivo if motivo else ''})")
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise ErroLogin("sem resposta do Mercado Livre (login da conta)")
+
+
+def ler_conta(repo):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(CONTA)}) or [None])[0]
+    try:
+        d = json.loads(r["texto"]) if r else {}
+    except (TypeError, ValueError):
+        d = {}
+    return d if d.get("refresh") else {}
+
+
+def _gravar_conta(repo, d):
+    repo._req("POST", "ia_resumos", corpo=[{"chave": CONTA, "ia": "Mercado Livre (conta)", "texto": json.dumps(d, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+
+
+def conectar_conta(repo, codigo, redirect):
+    """Troca o código da volta do login pelo token do usuário; guarda o refresh cifrado. Devolve {id, nick}."""
+    d = _oauth({"grant_type": "authorization_code", "code": codigo, "redirect_uri": redirect})
+    if not d.get("access_token") or not d.get("refresh_token"):
+        raise ErroLogin("o Mercado Livre não devolveu o acesso da conta (confira se o app pede 'offline_access')")
+    req = urllib.request.Request(f"{API}/users/me", headers={"Authorization": f"Bearer {d['access_token']}", "Accept": "application/json"})
+    try:
+        with _abrir(req, 20) as r:
+            eu = json.loads(r.read() or b"{}")
+    except Exception:  # noqa: BLE001
+        eu = {}
+    conta = {"id": eu.get("id") or d.get("user_id"), "nick": eu.get("nickname") or "", "refresh": cifrar(d["refresh_token"]),
+             "em": datetime.now(timezone.utc).isoformat(), "escopo": d.get("scope") or ""}
+    _gravar_conta(repo, conta)
+    _USUARIO.update(valor=d["access_token"], ate=time.time() + max(300, int(d.get("expires_in") or 21600) - 300),
+                    erro=None, nick=conta["nick"], falhou_em=0.0)
+    _CACHE.pop("items|bloqueado", None)           # com a conta, /items pode voltar a funcionar na hora
+    return {"id": conta["id"], "nick": conta["nick"]}
+
+
+def desconectar_conta(repo):
+    _gravar_conta(repo, {"desconectada_em": datetime.now(timezone.utc).isoformat()})
+    _USUARIO.update(valor=None, ate=0.0, nick=None, erro=None)
+
+
+def _token_usuario(forcar=False):
+    """Token da conta conectada (renova sozinho pelo refresh; o ML troca o refresh a cada uso e o novo é gravado).
+    Sem conta, sem repositório ou com erro: None (usa o do app). Depois de uma falha, espera 10 min para tentar de novo."""
+    if not forcar and _USUARIO["valor"] and time.time() < _USUARIO["ate"]:
+        return _USUARIO["valor"]
+    if USUARIO_REPO is None or not tem_chave() or time.time() - _USUARIO["falhou_em"] < 600:
+        return None
+    try:
+        repo = USUARIO_REPO()
+        conta = ler_conta(repo)
+        if not conta:
+            _USUARIO.update(valor=None, erro=None, nick=None)
+            return None
+        d = _oauth({"grant_type": "refresh_token", "refresh_token": decifrar(conta["refresh"])})
+        if not d.get("access_token"):
+            raise ErroLogin("o Mercado Livre não renovou o acesso da conta")
+        if d.get("refresh_token"):
+            _gravar_conta(repo, dict(conta, refresh=cifrar(d["refresh_token"]), renovado_em=datetime.now(timezone.utc).isoformat()))
+        _USUARIO.update(valor=d["access_token"], ate=time.time() + max(300, int(d.get("expires_in") or 21600) - 300),
+                        erro=None, nick=conta.get("nick"), falhou_em=0.0)
+        return _USUARIO["valor"]
+    except Exception as e:  # noqa: BLE001  (a conta é um extra: sem ela segue o token do app)
+        _USUARIO.update(valor=None, erro=str(e)[:160], falhou_em=time.time())
+        return None
+
+
+def token_em_uso():
+    """Para o diagnóstico: qual token está valendo (sem mostrar o token)."""
+    return {"conta": _USUARIO.get("nick") if _token_usuario() else None, "erro_conta": _USUARIO.get("erro")}
+
+
 def _get(caminho, params=None, timeout=20):
     url = f"{API}{caminho}" + (("&" if "?" in caminho else "?") + urllib.parse.urlencode(params) if params else "")
     forcar = False
     for tentativa in range(3):
-        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {_token(forcar)}", "Accept": "application/json"})
+        tok = _token_usuario(forcar) or _token(forcar)
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}", "Accept": "application/json"})
         try:
             with _abrir(req, timeout) as r:
                 return json.loads(r.read() or b"null")
@@ -1271,6 +1404,11 @@ def painel_extensao(p, calib=None, max_concorrentes=200):
         if mlb in vis and cat:
             out["visitas"]["parte"] = round(100 * vis[mlb] / cat)
     if mlb:
+        # com a conta do ML conectada, /items libera: data de criação, vendidos e estoque DE VERDADE
+        it = ((_ext_tenta(itens, [mlb]) or {}).get(mlb) or {})
+        if it and not it.get("bloqueado") and not it.get("sumiu"):
+            out["item"] = {k: it.get(k) for k in ("criado_em", "vendidos", "disponivel", "vendedor_id", "tipo_id", "categoria",
+                                                   "produto_catalogo", "full")}
         out["historico"] = _ext_tenta(historico_visitas, mlb) or {}
     if mlb and calib and not (out.get("historico") or {}).get("primeira_visita"):
         d, folga = data_pelo_mlb(mlb, calib)
@@ -1388,3 +1526,59 @@ def ext_vencedores(pares):
     for v in out.values():
         v["loja"] = lj.get(v["vendedor"])
     return out
+
+
+# ---------------------------------------------------------------------------
+# Comparar vendas Nubimetrics x API do ML (29/09, pedido do Bruno: "se descobrirmos como o Nubimetrics extrai, podemos extrair
+# direto do ML — mas tem que bater os números; testes separados antes"). O ML não dá as vendas por dia de outra loja; dá o
+# TOTAL vendido de cada anúncio. Uma foto por dia de todos os anúncios da loja; a diferença de um dia para o outro = as
+# vendas do dia pelo ML. Precisa da conta do ML conectada (a busca por loja dá 403 para o app).
+FAIXAS_VENDIDOS = {25, 50, 100, 150, 200, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000}
+
+
+def foto_da_loja(sid, limite=1000):
+    """{total, itens: {MLB: {v: vendidos, d: disponível, p: preço, g: GTIN, t: título, s: status, f: Full}}, bloqueados}."""
+    try:
+        primeiro = _get(f"/sites/{SITE}/search", {"seller_id": sid, "offset": 0, "limit": 50}) or {}
+    except Bloqueado:
+        raise ErroMeli("a busca por loja está bloqueada para o app: conecte a conta do Mercado Livre no nubi (🔐)")
+    total = int((primeiro.get("paging") or {}).get("total") or 0)
+    ids = [r.get("id") for r in primeiro.get("results") or []]
+    offs = list(range(50, min(total, limite), 50))
+    for r in _em_paralelo(lambda o: _get(f"/sites/{SITE}/search", {"seller_id": sid, "offset": o, "limit": 50}) or {}, offs, 4):
+        ids += [x.get("id") for x in r.get("results") or []]
+    ids = [str(i).upper() for i in dict.fromkeys(ids) if i][:limite]
+    its = itens(ids)
+    out, bloq = {}, 0
+    for i in ids:
+        m = its.get(i) or {}
+        if m.get("bloqueado"):
+            bloq += 1
+            continue
+        if m.get("sumiu"):
+            continue
+        out[i] = {"v": m.get("vendidos"), "d": m.get("disponivel"), "p": m.get("preco"), "g": m.get("gtin") or "",
+                  "t": (m.get("titulo") or "")[:90], "s": m.get("status") or "", "f": bool(m.get("full"))}
+    return {"total": total, "itens": out, "bloqueados": bloq}
+
+
+def vendidos_em_faixa(fotos_itens):
+    """Parte dos anúncios cujo 'vendidos' é número redondo de faixa (25, 50, 100…): o ML pode estar arredondando."""
+    vs = [x.get("v") for x in fotos_itens.values() if isinstance(x.get("v"), int) and x.get("v") >= 25]
+    return round(sum(1 for v in vs if v in FAIXAS_VENDIDOS) / len(vs), 2) if vs else None
+
+
+def vendas_entre_fotos(antes, depois):
+    """Vendas pelo ML entre duas fotos: soma do que o 'vendidos' de cada anúncio subiu (só anúncios nas duas fotos).
+    Devolve {un, por_anuncio{MLB: un}, novos, sumiram, desceu} — 'desceu' = anúncios cujo vendido diminuiu (ML recontou)."""
+    a, d = antes.get("itens") or {}, depois.get("itens") or {}
+    por, desceu = {}, 0
+    for i, x in d.items():
+        if i in a and isinstance(x.get("v"), int) and isinstance(a[i].get("v"), int):
+            dif = x["v"] - a[i]["v"]
+            if dif > 0:
+                por[i] = dif
+            elif dif < 0:
+                desceu += 1
+    return {"un": sum(por.values()), "por_anuncio": por, "novos": sum(1 for i in d if i not in a),
+            "sumiram": sum(1 for i in a if i not in d), "desceu": desceu}

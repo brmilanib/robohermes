@@ -5839,21 +5839,110 @@ function ligarMLBusca() {
   inp.onkeydown = e => { if (e.key === "Enter") ir(/perfil\.|_CustId_|^\d+$/.test(inp.value.trim()) ? "loja" : "anuncio"); };
 }
 function telaML() {
+  if (location.hash.split("?")[0].startsWith("#/ml/comparar")) return telaMLComparar();
   const m = location.hash.split("?")[0].match(/^#\/ml\/(anuncio|loja)\/(.+)$/);
   if (m) { const id = decodeURIComponent(m[2]); return m[1] === "anuncio" ? telaMLAnuncio(id) : telaMLLoja(id); }
   return telaMLInicio();
 }
+// 29/09 (autorizado pelo Bruno): conta de teste do ML ligada por OAuth. O login é na página do ML; o nubi guarda só o
+// acesso cifrado. Com ela, /items e a busca por loja deixam de dar 403.
+async function mlConta() {
+  const el = $("#ml-conta"); if (!el) return;
+  let c;
+  try { c = await api("meli_conta"); } catch (e) { el.innerHTML = mlAviso(e); return; }
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🔐 Conta do Mercado Livre</h2>
+      ${c.conectada ? `<span class="pill" style="background:${c.funcionando ? "#dcfce7;color:#166534" : "#fee2e2;color:#991b1b"}">${c.funcionando ? "conectada" : "conectada, com erro"}</span>` : ""}
+      <span style="margin-left:auto;display:flex;gap:8px">${c.conectada ? `<button class="btn small ghost" id="ml-desconectar">Desconectar</button>` : ""}
+        <button class="btn small ml-laranja" id="ml-conectar">${c.conectada ? "↻ Conectar de novo" : "🔐 Conectar conta do ML"}</button></span></div>
+    <p class="muted" style="margin:6px 0 0;font-size:13px">${c.conectada
+      ? `<b>${esc(c.nick || "")}</b> (${esc(String(c.id || ""))}) desde ${esc(String(c.em || "").slice(0, 10).split("-").reverse().join("/"))}. ${c.funcionando
+        ? "O nubi usa esta conta para ler anúncios (/items), a busca por loja e as datas de criação."
+        : "Não conseguiu renovar o acesso: " + esc(c.erro || "") + " — clique em Conectar de novo."}`
+      : `Sem conta, o ML libera pouco para o app (anúncio de outra loja e busca por loja dão 403). Conecte uma conta sua
+        (a de teste, a mesma do app no DevCenter). O login é feito na página do Mercado Livre; a senha não passa pelo nubi.`}</p>
+    <p class="muted" style="margin:6px 0 0;font-size:11.5px">No app do DevCenter, o <b>Redirect URI</b> tem que ser exatamente:
+      <code>${esc(c.retorno || "")}</code></p>`;
+  $("#ml-conectar").onclick = async () => {
+    try { const r = await api("meli_conectar", {}, {method: "POST", body: "{}"}); location.href = r.url; } catch (e) { toast(String(e.message || e)); }
+  };
+  const d = $("#ml-desconectar");
+  if (d) d.onclick = async () => {
+    if (!confirm("Desconectar a conta do Mercado Livre do nubi?")) return;
+    await api("meli_desconectar", {}, {method: "POST", body: "{}"}); mlConta();
+  };
+}
+
+// 29/09 (Bruno: "comparar as vendas do Nubimetrics com as da API do ML, mesmo período; tem que bater antes de trocar"):
+// uma foto por dia dos anúncios da loja; a diferença do "vendidos" = vendas do dia pelo ML, ao lado do Nubimetrics.
+async function telaMLComparar() {
+  const main = $("#main");
+  const qs = new URLSearchParams(location.hash.split("?")[1] || "");
+  const loja = qs.get("loja") || "", vend = qs.get("vendedor") || "";
+  main.innerHTML = `<p style="margin:0"><a href="#/ml">← Mercado Livre</a></p><h1>⚖️ Nubimetrics × API do ML</h1>
+    <p class="muted" style="margin-top:4px">Teste separado antes de trocar a fonte. Uma loja que já achamos: o nubi tira uma <b>foto por dia</b> de todos
+      os anúncios dela no ML (logo depois da meia-noite) e a diferença do "vendidos" de cada anúncio de um dia para o outro são as vendas
+      do dia pelo ML. Ao lado, as vendas do mesmo vendedor no Nubimetrics nos mesmos dias. Precisa da conta do ML conectada.</p>
+    <div class="card pad" style="margin-top:12px" id="cmp-escolha">Carregando…</div><div id="cmp-res"></div>`;
+  try {
+    const o = await api("meli_comparar");
+    const ops = o.opcoes || [];
+    $("#cmp-escolha").innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b>Loja:</b>
+      <select id="cmp-sel" style="min-width:280px"><option value="">escolha…</option>${ops.map(x => `<option value="${esc(x.loja)}|${esc(x.vendedor)}"
+        ${x.loja === loja ? "selected" : ""}>${esc(x.vendedor)} → ${esc(x.nome || x.loja)} (${esc(x.confianca || "")})</option>`).join("")}</select>
+      <span class="muted" style="font-size:12px">${Object.keys(o.lojas || {}).length} em comparação · só aparecem lojas já achadas (manual, certa ou provável)</span></div>`;
+    $("#cmp-sel").onchange = e => { const [l, v] = e.target.value.split("|"); if (l) location.hash = `#/ml/comparar?loja=${l}&vendedor=${encodeURIComponent(v)}`; };
+  } catch (e) { $("#cmp-escolha").innerHTML = mlAviso(e); return; }
+  if (!loja) return;
+  const el = $("#cmp-res"); el.innerHTML = `<div class="card pad" style="margin-top:12px">Tirando a foto de hoje da loja no ML (pode levar 1 minuto)…</div>`;
+  let c;
+  try { c = await api("meli_comparar", {loja, vendedor: vend}); } catch (e) { el.innerHTML = `<div class="card pad" style="margin-top:12px">${mlAviso(e)}</div>`; return; }
+  const n = v => v == null ? "—" : Number(v).toLocaleString("pt-BR");
+  const dif = (a, b) => a == null || b == null ? "" : b === 0 ? (a === 0 ? "✅" : "") : Math.abs(a - b) / b <= 0.05 ? "✅" : Math.abs(a - b) / b <= 0.15 ? "🟡" : "🔴";
+  const pct = (a, b) => a == null || b == null || !b ? "" : ((a - b) / b * 100).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + "%";
+  const h = c.hoje || {};
+  el.innerHTML = `
+    <div class="card pad" style="margin-top:12px"><h2 style="margin:0">${esc(c.vendedor)} <span class="muted" style="font-weight:400">× loja ${esc(c.loja)}</span></h2>
+      <div class="muted" style="font-size:13px;margin-top:6px">Em comparação desde ${esc(c.desde.split("-").reverse().join("/"))} ·
+        ${c.fotos.length} foto(s): ${c.fotos.map(f => f.slice(8, 10) + "/" + f.slice(5, 7)).join(", ")} ·
+        hoje: ${n(h.anuncios)} anúncios lidos de ${n(h.total_na_busca)} na busca${h.bloqueados ? ` (${n(h.bloqueados)} bloqueados)` : ""}, ${n(h.vendidos_total)} vendidos somados</div>
+      ${h.faixa != null && h.faixa >= 0.5 ? `<div class="aviso warn" style="margin-top:8px">⚠️ ${Math.round(h.faixa * 100)}% dos anúncios com 25+ vendas mostram número
+        "redondo" (25, 50, 100, 500…): o ML pode estar mandando o vendido em <b>faixas</b> para esta conta. Aí a diferença entre fotos não mede venda do dia.</div>` : ""}
+      ${c.fotos.length < 2 ? `<p style="margin:10px 0 0"><b>Primeira foto tirada.</b> A comparação começa amanhã: o nubi tira a próxima foto sozinho
+        logo depois da meia-noite e a diferença entre as duas são as vendas do dia pelo ML.</p>` : ""}</div>
+    ${c.dias.length ? `<div class="card pad" style="margin-top:12px"><h2 style="margin:0 0 8px">📅 Dia a dia</h2>
+      <table class="t"><thead><tr><th>Dia</th><th style="text-align:right">Nubimetrics (un.)</th><th style="text-align:right">API do ML (un.)</th>
+        <th style="text-align:right">Diferença</th><th></th><th>Observação</th></tr></thead><tbody>
+      ${c.dias.map(x => `<tr><td>${x.dias.map(d => d.slice(8, 10) + "/" + d.slice(5, 7)).join(", ")}</td><td style="text-align:right">${n(x.nubi)}</td>
+        <td style="text-align:right">${n(x.ml)}</td><td style="text-align:right">${pct(x.ml, x.nubi)}</td><td>${dif(x.ml, x.nubi)}</td>
+        <td class="muted" style="font-size:12px">${[x.faltam_nubi.length ? "Nubimetrics sem " + x.faltam_nubi.map(d => d.slice(8, 10) + "/" + d.slice(5, 7)).join(", ") : "",
+          x.novos ? x.novos + " anúncio(s) novo(s)" : "", x.sumiram ? x.sumiram + " saíram" : "", x.desceu ? x.desceu + " com vendido menor (ML recontou)" : ""].filter(Boolean).join(" · ")}</td></tr>`).join("")}
+      <tr style="font-weight:700"><td>Total</td><td style="text-align:right">${n(c.total.nubi)}</td><td style="text-align:right">${n(c.total.ml)}</td>
+        <td style="text-align:right">${pct(c.total.ml, c.total.nubi)}</td><td>${dif(c.total.ml, c.total.nubi)}</td><td></td></tr></tbody></table>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">✅ até 5% de diferença · 🟡 até 15% · 🔴 mais que isso. A foto é tirada perto da meia-noite de Brasília; o
+        Nubimetrics fecha o dia no horário dele, então uma venda pode cair num dia de um lado e no outro do outro — olhe o total da semana.</p></div>` : ""}
+    ${c.produtos.length ? `<div class="card pad" style="margin-top:12px"><h2 style="margin:0 0 8px">📦 Por produto (GTIN), no período</h2>
+      <table class="t"><thead><tr><th>Produto</th><th>GTIN</th><th style="text-align:right">Nubimetrics</th><th style="text-align:right">ML</th><th></th></tr></thead><tbody>
+      ${c.produtos.map(x => `<tr><td>${esc(x.titulo || "")}</td><td class="muted" style="font-size:12px">${esc(x.chave)}</td><td style="text-align:right">${n(x.nubi)}</td>
+        <td style="text-align:right">${n(x.ml)}</td><td>${dif(x.ml, x.nubi)}</td></tr>`).join("")}</tbody></table>
+      ${c.so_no_nubimetrics.length ? `<p class="muted" style="font-size:12px;margin:8px 0 0">Só no Nubimetrics (sem anúncio com esse GTIN na loja no ML):
+        ${c.so_no_nubimetrics.map(x => `${esc(x.chave)} (${n(x.nubi)})`).join(", ")}</p>` : ""}</div>` : ""}`;
+}
+
 async function telaMLInicio() {
   const main = $("#main");
   main.innerHTML = `<h1>🛰️ Mercado Livre</h1>
     <p class="muted" style="margin-top:4px">A loja de verdade (o Nubimetrics embaralha os vendedores), o link do anúncio e o preço de agora, pela API oficial do
       Mercado Livre. As vendas continuam as do Nubimetrics.</p>
     ${mlBusca()}
+    <div class="card pad" style="margin-top:14px" id="ml-conta">Carregando a conta do Mercado Livre…</div>
+    <div class="card pad" style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div><h2 style="margin:0">⚖️ Nubimetrics × API do ML</h2>
+      <div class="muted" style="font-size:13px">Teste: as vendas de uma loja que já achamos, dia a dia, pelos dois lados.</div></div>
+      <a class="btn small" href="#/ml/comparar" style="margin-left:auto">Abrir comparação</a></div>
     <div class="card pad" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🏪 Lojas já identificadas</h2>
       <button class="btn small" id="ml-teste" style="margin-left:auto">🔌 Testar conexão com o ML</button></div>
       <div id="ml-teste-res"></div><div id="ml-lojas" class="muted" style="margin-top:8px">Carregando…</div></div>
     <div class="card pad" style="margin-top:14px"><h2 style="margin:0">🧩 Extensão do Chrome: nubi · Mercado Livre</h2>
-      <p class="muted" style="margin:6px 0 8px;font-size:13px">Como a do Hunter (versão 0.2): na busca, embaixo de cada anúncio, a loja real (nome,
+      <p class="muted" style="margin:6px 0 8px;font-size:13px">Como a do Hunter (versão 0.4): na busca, embaixo de cada anúncio, a loja real (nome,
         cidade, reputação, vendas, data do anúncio); no produto, o quadro <b>nubi Spy</b> (frete, comissão, valor recebido, visitas do catálogo,
         vendas, faturamento, nota, tempo ativo, concorrentes com a loja real, baixar fotos, perfil do vendedor); e a aba azul <b>n</b> no canto
         abre o painel com <b>Calculadora</b>, <b>Histórico</b> de análises, <b>Tendências</b> de busca, <b>Gerador EAN</b> e Ajustes.
@@ -5866,6 +5955,7 @@ async function telaMLInicio() {
           clique no ↻ da extensão.</li>
         <li>Abra uma busca ou um produto no Mercado Livre.</li></ol></div>`;
   ligarMLBusca();
+  mlConta();
   $("#ml-teste").onclick = async () => {
     const el = $("#ml-teste-res"); el.innerHTML = `<div class="muted" style="margin-top:8px">Testando…</div>`;
     try {

@@ -835,6 +835,8 @@ def atender(metodo, rota, q, corpo, token):
             rc = RepoSupabase(login_agente())
             ligar_registro_uso(rc, "rotinas")
             return _json(rodar_rotinas(rc))
+        if rota == "meli_retorno":
+            return _meli_retorno(q)
         if rota.startswith("ext_"):
             # extensão do Chrome (29/09): SEM login, só dado público do ML (nada do nubi nem do Bruno). Liberado para
             # qualquer origem (print do Bruno: "sem resposta do nubi (Failed to fetch)" no Chrome dele): assim a
@@ -3221,6 +3223,10 @@ def rodar_rotinas(repo, so=None):
             out["perseguir"] = (perseguir.conferir(repo) or {}).get("status")
         except Exception as e:  # noqa: BLE001
             out["perseguir"] = f"erro: {str(e)[:120]}"
+        try:                                            # 29/09: foto do dia das lojas em comparação Nubimetrics x ML
+            out["ml_fotos"] = fotos_comparar(repo)
+        except Exception as e:  # noqa: BLE001
+            out["ml_fotos"] = f"erro: {str(e)[:120]}"
         try:                                            # base de conhecimento: junta o que mudou na última hora (fase 1, 26/09)
             out["saber"] = agentes.sincronizar_saber(repo, forcar=True)
         except Exception as e:  # noqa: BLE001
@@ -4404,6 +4410,155 @@ def _painel_seguidos(repo):
     return sorted(out, key=lambda x: -x["vendas"])
 
 
+# 29/09 (autorizado pelo Bruno): conta de teste do ML conectada por OAuth. O endereço de volta tem que estar cadastrado
+# igualzinho no app do ML (DevCenter → Redirect URI).
+ML_RETORNO = os.environ.get("NUBI_ML_RETORNO", "https://nubi-explorador.vercel.app/api/app?r=meli_retorno")
+_REPO_AGENTE = {"repo": None, "ts": 0.0}
+
+
+def _repo_agente():
+    if not _REPO_AGENTE["repo"] or time.time() - _REPO_AGENTE["ts"] > 45 * 60:
+        _REPO_AGENTE.update(repo=RepoSupabase(login_agente()), ts=time.time())
+    return _REPO_AGENTE["repo"]
+
+
+meli.USUARIO_REPO = _repo_agente if os.environ.get("NUBI_AGENTE_EMAIL") else None
+
+
+def _pagina(titulo, texto, ok=True):
+    corpo = (f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>{titulo}</title>"
+             f"<body style='font:16px -apple-system,Segoe UI,Roboto,sans-serif;background:#f5f7fb;color:#1d2b4f;display:grid;place-items:center;min-height:90vh'>"
+             f"<div style='background:#fff;border:1px solid #d8e1f3;border-radius:14px;padding:28px 32px;max-width:460px;text-align:center'>"
+             f"<div style='font-size:40px'>{'✅' if ok else '⚠️'}</div><h2>{titulo}</h2><p>{texto}</p>"
+             f"<a href='/#/ml' style='color:#2f5bd3'>Voltar ao nubi</a></div>")
+    return 200, "text/html; charset=utf-8", corpo.encode(), {}
+
+
+def _meli_retorno(q):
+    """Volta do login no ML: confere o state (uso único, 15 min), troca o código e guarda a conta cifrada."""
+    import html as _h
+    if q.get("error"):
+        return _pagina("Conta não conectada", _h.escape(f"O Mercado Livre respondeu: {q.get('error')}"), ok=False)
+    try:
+        repo = _repo_agente()
+        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq("meli|estado")}) or [None])[0]
+        est = json.loads(r["texto"]) if r else {}
+        import hmac as _hm
+        if not q.get("code") or not est.get("estado") or not _hm.compare_digest(str(q.get("state") or ""), est["estado"]) \
+                or time.time() - float(est.get("em") or 0) > 15 * 60:
+            return _pagina("Conta não conectada", "O pedido de conexão venceu ou não é deste nubi. Clique em Conectar de novo.", ok=False)
+        repo._req("POST", "ia_resumos", corpo=[{"chave": "meli|estado", "ia": "Mercado Livre (conta)", "texto": "{}"}],
+                  prefer="resolution=merge-duplicates,return=minimal")           # uso único
+        c = meli.conectar_conta(repo, q["code"], ML_RETORNO)
+        return _pagina("Conta do Mercado Livre conectada", _h.escape(f"{c.get('nick') or 'Conta'} ({c.get('id')}) está ligada ao nubi. "
+                                                                     "Pode fechar esta aba e testar a conexão no nubi."))
+    except (meli.ErroMeli, ErroNuvem, ValueError) as e:
+        return _pagina("Conta não conectada", _h.escape(str(e)[:200]), ok=False)
+
+
+# ---------------------------------------------------------------------------
+# Comparar vendas Nubimetrics x API do ML (29/09, pedido do Bruno). Uma foto por dia de todos os anúncios da loja
+# (meli.foto_da_loja, tirada no 1º cron depois da meia-noite de Brasília); a diferença entre duas fotos seguidas = vendas
+# do dia pelo ML, lado a lado com vend_vendas_dia (Nubimetrics) do mesmo vendedor seguido. Lojas em meli|comparar.
+COMPARA = "meli|comparar"
+
+
+def _hoje_br():
+    return (datetime.now(timezone.utc) - timedelta(hours=3)).date()
+
+
+def _lojas_comparar(repo):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(COMPARA)}) or [None])[0]
+    try:
+        return json.loads(r["texto"]) if r else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _foto_do_dia(repo, sid, forcar=False):
+    """Tira (se ainda não tem) a foto de hoje da loja. Devolve a foto."""
+    chave = f"meli|foto|{sid}|{_hoje_br().isoformat()}"
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(chave)}) or [None])[0]
+    if r and not forcar:
+        return json.loads(r["texto"])
+    f = meli.foto_da_loja(sid)
+    f["em"] = datetime.now(timezone.utc).isoformat()
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": "Mercado Livre (foto)", "texto": json.dumps(f, ensure_ascii=False,
+                                                                                                           separators=(",", ":"))}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return f
+
+
+def fotos_comparar(repo):
+    """Cron de hora em hora: a foto do dia de cada loja em comparação (1 por dia, a 1ª depois da meia-noite)."""
+    out = {}
+    for sid in _lojas_comparar(repo):
+        try:
+            f = _foto_do_dia(repo, sid)
+            out[sid] = len(f.get("itens") or {})
+        except Exception as e:  # noqa: BLE001
+            out[sid] = f"erro: {str(e)[:100]}"
+    return out
+
+
+def comparar_loja(repo, sid, vendedor):
+    """A página de comparação: dia a dia, Nubimetrics (vend_vendas_dia) x ML (diferença das fotos), por anúncio/GTIN."""
+    lojas = _lojas_comparar(repo)
+    if sid not in lojas or (vendedor and lojas[sid].get("vendedor") != vendedor):
+        lojas[sid] = {"vendedor": vendedor or (lojas.get(sid) or {}).get("vendedor") or "", "desde": _hoje_br().isoformat()}
+        repo._req("POST", "ia_resumos", corpo=[{"chave": COMPARA, "ia": "Mercado Livre (comparação)",
+                                                "texto": json.dumps(lojas, ensure_ascii=False)}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+    vendedor = lojas[sid]["vendedor"]
+    hoje = _foto_do_dia(repo, sid)
+    linhas = repo._todos("ia_resumos", {"select": "chave,texto", "chave": f"like.meli|foto|{sid}|*", "order": "chave"}) or []
+    fotos = []
+    for l in linhas:
+        try:
+            fotos.append((date.fromisoformat(l["chave"].rsplit("|", 1)[1]), json.loads(l["texto"])))
+        except (ValueError, TypeError):
+            continue
+    fotos.sort(key=lambda x: x[0])
+    nubi_dias = {}
+    if vendedor and fotos:
+        for r in repo._todos("vend_vendas_dia", {"select": "data,u,v,itens", "vendedor": repo._eq(vendedor),
+                                                 "data": f"gte.{fotos[0][0].isoformat()}", "order": "data"}) or []:
+            nubi_dias[str(r["data"])[:10]] = r
+    dias, por_gtin_ml, por_gtin_nubi = [], {}, {}
+    for (d0, f0), (d1, f1) in zip(fotos, fotos[1:]):
+        dif = meli.vendas_entre_fotos(f0, f1)
+        periodo = [(d0 + timedelta(days=k)).isoformat() for k in range((d1 - d0).days)]      # dias cobertos pelo intervalo
+        nb = [nubi_dias[p] for p in periodo if p in nubi_dias]
+        un_nubi = sum(int(x.get("u") or 0) for x in nb) if len(nb) == len(periodo) else None
+        for i, u in dif["por_anuncio"].items():
+            g = (f1["itens"].get(i) or {}).get("g") or f"MLB:{i}"
+            por_gtin_ml[g] = por_gtin_ml.get(g, 0) + u
+        for x in nb:
+            for it in x.get("itens") or []:
+                k = str(it.get("k") or "")
+                por_gtin_nubi[k] = por_gtin_nubi.get(k, 0) + int(it.get("u") or 0)
+        dias.append({"de": d0.isoformat(), "ate": d1.isoformat(), "dias": periodo, "ml": dif["un"], "nubi": un_nubi,
+                     "novos": dif["novos"], "sumiram": dif["sumiram"], "desceu": dif["desceu"],
+                     "faltam_nubi": [p for p in periodo if p not in nubi_dias]})
+    # produtos: GTIN do ML x chave do Nubimetrics (GTIN ou título)
+    titulos = {}
+    for _, f in fotos:
+        for i, x in (f.get("itens") or {}).items():
+            titulos.setdefault(x.get("g") or f"MLB:{i}", x.get("t"))
+    prods = sorted(({"chave": k, "titulo": titulos.get(k) or k, "ml": por_gtin_ml.get(k, 0), "nubi": por_gtin_nubi.get(k)}
+                    for k in set(por_gtin_ml) | {k for k in por_gtin_nubi if k in titulos}),
+                   key=lambda x: -(x["ml"] + (x["nubi"] or 0)))[:200]
+    so_nubi = sorted(((k, u) for k, u in por_gtin_nubi.items() if k not in titulos), key=lambda x: -x[1])[:30]
+    tot_ml = sum(d["ml"] for d in dias)
+    tot_nubi = sum(d["nubi"] for d in dias if d["nubi"] is not None) if dias else None
+    return {"loja": sid, "vendedor": vendedor, "desde": lojas[sid]["desde"], "fotos": [d.isoformat() for d, _ in fotos],
+            "hoje": {"anuncios": len(hoje.get("itens") or {}), "total_na_busca": hoje.get("total"), "bloqueados": hoje.get("bloqueados"),
+                     "faixa": meli.vendidos_em_faixa(hoje.get("itens") or {}), "em": hoje.get("em"),
+                     "vendidos_total": sum(x.get("v") or 0 for x in (hoje.get("itens") or {}).values())},
+            "dias": dias, "total": {"ml": tot_ml, "nubi": tot_nubi}, "produtos": prods,
+            "so_no_nubimetrics": [{"chave": k, "nubi": u} for k, u in so_nubi]}
+
+
 _EXT_CALIB = {"ts": 0.0, "pts": []}
 
 
@@ -4444,6 +4599,12 @@ def rota_meli(repo, metodo, rota, q, corpo):
             raise ErroNuvem("Pedido inválido.")
     if rota == "meli_teste":
         t = meli.testar()
+        c = meli.ler_conta(repo)
+        uso = meli.token_em_uso() if c else {}
+        t.setdefault("passos", []).insert(0, {"passo": "conta do ML conectada (token de usuário)", "ok": bool(uso.get("conta")),
+                                              "detalhe": (f"{uso['conta']}: /items e busca usam a conta" if uso.get("conta") else
+                                                          f"conectada, mas não renovou: {uso.get('erro_conta')}" if c else
+                                                          "nenhuma: usando só o token do app (clique em 🔐 Conectar conta do ML)")})
         if t.get("chaves"):
             try:
                 pts = _calibracao_mlb(repo, forcar=True)
@@ -4456,7 +4617,9 @@ def rota_meli(repo, metodo, rota, q, corpo):
             try:
                 cs = [c for c in _conferir_oficiais(repo) if c["ofertas"]]
                 bate = [c for c in cs if set(c["explorador"]) & set(c["ml"])]
-                t["passos"].append({"passo": "nº da loja oficial: Explorador x ML (lojas que você confirmou)", "ok": bool(bate),
+                t["passos"].append({"passo": "nº da loja oficial: Explorador x ML (lojas que você confirmou)",
+                                    # o nº é outro (conferido 29/09); fica ✅ quando o nubi já tem a tradução aprendida
+                                    "ok": bool(bate) or bool(_oficiais(repo)),
                                     "detalhe": ("; ".join(f"{c['loja']}: Explorador {', '.join(map(str, c['explorador']))} x ML "
                                                           f"{', '.join(map(str, c['ml'])) or 'sem nº'} ({c['ofertas']} oferta(s))" for c in cs)
                                                 + (" — o nº é o mesmo: a prova da loja oficial vale" if bate else
@@ -4466,6 +4629,33 @@ def rota_meli(repo, metodo, rota, q, corpo):
             except Exception as e:  # noqa: BLE001
                 t["passos"].append({"passo": "nº da loja oficial: Explorador x ML", "ok": False, "detalhe": str(e)[:120]})
         return t
+    if rota == "meli_conta":
+        c = meli.ler_conta(repo)
+        uso = meli.token_em_uso() if c else {}
+        return {"conectada": bool(c), "id": c.get("id"), "nick": c.get("nick"), "em": c.get("em"),
+                "funcionando": bool(uso.get("conta")), "erro": uso.get("erro_conta"), "retorno": ML_RETORNO}
+    if rota == "meli_conectar" and metodo == "POST":
+        import secrets
+        estado = secrets.token_urlsafe(24)
+        repo._req("POST", "ia_resumos", corpo=[{"chave": "meli|estado", "ia": "Mercado Livre (conta)",
+                                                "texto": json.dumps({"estado": estado, "em": time.time()})}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return {"url": meli.url_conectar(ML_RETORNO, estado), "retorno": ML_RETORNO}
+    if rota == "meli_comparar":
+        # sem loja: as lojas que dá para comparar (seguidos com a loja real achada) e as que já estão em comparação
+        if not q.get("loja"):
+            seg = meli.ler_hash_lojas(repo, meli.SEGUIDOS)
+            return {"lojas": _lojas_comparar(repo),
+                    "opcoes": sorted(({"vendedor": v, "loja": str(x.get("id")), "nome": x.get("nome"), "confianca": x.get("confianca")}
+                                      for v, x in seg.items() if x.get("id") and x.get("confianca") in ("manual", "certa", "provável")),
+                                     key=lambda x: x["vendedor"])}
+        sid = re.sub(r"\D", "", str(q.get("loja")))
+        if not sid:
+            raise ErroNuvem("Informe a loja (nº do vendedor no ML).")
+        return comparar_loja(repo, sid, str(q.get("vendedor") or ""))
+    if rota == "meli_desconectar" and metodo == "POST":
+        meli.desconectar_conta(repo)
+        return {"ok": True}
     if rota == "meli_hash_lojas":
         # 29/09 (Bruno): "aqui tem que ter o nome da loja que tá no Nubimetrics": o nome de cada hash no Explorador
         # (o fictício deles, ou o que o Bruno deu ao seguido) + os vendedores seguidos ligados

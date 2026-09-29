@@ -44,7 +44,16 @@ CANDS = {"achou": False, "testados": 3, "motivo": "nenhuma loja bateu com prova 
 NOMEADA = {"ok": True, "loja": {"id": "2540338692", "nome": "KAIDOXSTOREE", "link": "https://perfil.mercadolivre.com.br/KAIDOXSTOREE",
                                 "votos": 0, "confianca": "manual", "prova": "confirmada pelo Bruno", "anuncios": []}}
 PEDIDOS = []
-RESP = {"meli_anuncio": ANUNCIO, "meli_loja": LOJA, "meli_gtin": GTIN, "meli_hash_lojas": HASH, "meli_teste": TESTE, "meli_descobrir": DESC,
+# 29/09: conta do ML (OAuth) e a comparação Nubimetrics x API do ML
+CONTA = {"conectada": False, "retorno": "https://nubi-explorador.vercel.app/api/app?r=meli_retorno"}
+COMP = {"loja": "222222222", "vendedor": "ESSENCE", "desde": "2026-09-27", "fotos": ["2026-09-27", "2026-09-28", "2026-09-29"],
+        "hoje": {"anuncios": 120, "total_na_busca": 124, "bloqueados": 0, "faixa": 0.1, "em": "x", "vendidos_total": 26000},
+        "dias": [{"de": "2026-09-27", "ate": "2026-09-28", "dias": ["2026-09-27"], "ml": 15, "nubi": 15, "novos": 0, "sumiram": 0, "desceu": 0, "faltam_nubi": []},
+                 {"de": "2026-09-28", "ate": "2026-09-29", "dias": ["2026-09-28"], "ml": 10, "nubi": 14, "novos": 1, "sumiram": 0, "desceu": 1, "faltam_nubi": []}],
+        "total": {"ml": 25, "nubi": 29}, "produtos": [{"chave": "6290362346548", "titulo": "Perfume Asad Elixir", "ml": 20, "nubi": 21}],
+        "so_no_nubimetrics": [{"chave": "T:kit x", "nubi": 3}]}
+OPCOES = {"lojas": {}, "opcoes": [{"vendedor": "ESSENCE", "loja": "222222222", "nome": "ESSENCEPRIMEBR", "confianca": "manual"}]}
+RESP = {"meli_conta": CONTA, "meli_comparar": lambda d: COMP if d.get("loja") else OPCOES,"meli_anuncio": ANUNCIO, "meli_loja": LOJA, "meli_gtin": GTIN, "meli_hash_lojas": HASH, "meli_teste": TESTE, "meli_descobrir": DESC,
         "meli_seguido": {"loja": None}, "meli_seguido_nomear": NOMEADA,
         "meli_fotos_seguido": {"ini": "2026-09-01", "fim": "2026-09-27", "em": "2026-09-29T12:00:00+00:00", "itens": [
             {"foto": "https://http2.mlstatic.com/D_951134-MLB91143087125_082025-I.jpg", "title": "Perfume Bareeq Al Dhahab", "price": 149.9}]},
@@ -80,7 +89,8 @@ REL = {"marca": "LATTAFA", "atual": {"inicio": "2026-08-01", "fim": "2026-09-27"
 def responder(route):
     r = urllib.parse.parse_qs(urllib.parse.urlparse(route.request.url).query).get("r", [""])[0]
     if r in RESP:
-        corpo = json.loads(route.request.post_data or "{}") if route.request.method == "POST" else {}
+        corpo = json.loads(route.request.post_data or "{}") if route.request.method == "POST" else \
+            {k: v[0] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(route.request.url).query).items() if k != "r"}
         PEDIDOS.append((r, corpo))
         x = RESP[r](corpo) if callable(RESP[r]) else RESP[r]
         return route.fulfill(content_type="application/json", body=json.dumps(x))
@@ -110,6 +120,13 @@ try:
             assert "https://perfil.mercadolivre.com.br/KAIDOXSTOREE" in links and all(l.startswith("https://") for l in links), links   # o ML manda http://
             pg.click("#ml-teste"); pg.wait_for_selector("#ml-teste-res li", timeout=5000)
             assert "token do app" in pg.inner_text("#ml-teste-res") and "❌" not in pg.inner_text("#ml-teste-res")
+            assert "Conectar conta do ML" in pg.inner_text("#ml-conta") and "meli_retorno" in pg.inner_text("#ml-conta")
+            # 1b) comparação Nubimetrics x ML
+            pg.goto(f"http://127.0.0.1:{PORTA}/#/ml/comparar?loja=222222222&vendedor=ESSENCE"); pg.wait_for_selector("#cmp-res table", timeout=15000)
+            t = pg.inner_text("#cmp-res").replace("\xa0", " ")
+            assert "ESSENCE" in t and "27/09" in t and "28/09" in t and "Total" in t and "✅" in t and "🔴" in t and "-13,8%" in t, t
+            assert "Perfume Asad Elixir" in t and "T:kit x (3)" in t and "1 com vendido menor" in t, t
+            assert pg.eval_on_selector("#cmp-sel", "s => s.value") == "222222222|ESSENCE"
             # 2) análise do anúncio
             pg.goto(f"http://127.0.0.1:{PORTA}/#/ml/anuncio/MLB1000100"); pg.wait_for_selector(".ml-score", timeout=15000)
             t = pg.inner_text("#main")
