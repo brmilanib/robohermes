@@ -43,3 +43,8 @@ input,select{width:100%;padding:8px 10px;border:1px solid var(--linha);border-ra
 .termo .n{color:var(--laranja);font-weight:700;width:22px}.termo a{flex:1;color:var(--txt);text-decoration:none;font-weight:600}
 .ean{font-family:ui-monospace,Menlo,monospace;font-size:15px;letter-spacing:1px}
 .ok{color:var(--verde)}.erro{color:var(--verm)}
+.pn-logo{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#1f3a7a,#2f5bd3);color:#fff;display:grid;place-items:center;font-weight:800}
+.pn-trilho button{display:grid;place-items:center}
+.atalho .bola{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;font-style:normal}
+.bola.az{background:#e5edff;color:#2f5bd3}.bola.rx{background:#ede9fe;color:#6d28d9}.bola.lj{background:#ffedd5;color:#c2410c}.bola.vd{background:#dcfce7;color:#15803d}
+.nubi-ic{display:inline-block;vertical-align:-2px}

@@ -1267,12 +1267,53 @@ def painel_extensao(p, calib=None, max_concorrentes=200):
         out["visitas"]["catalogo_lidos"] = sum(1 for o in ofs[:50] if o["anuncio"] in vis)
         if mlb in vis and cat:
             out["visitas"]["parte"] = round(100 * vis[mlb] / cat)
-    if mlb and calib:
+    if mlb:
+        out["historico"] = _ext_tenta(historico_visitas, mlb) or {}
+    if mlb and calib and not (out.get("historico") or {}).get("primeira_visita"):
         d, folga = data_pelo_mlb(mlb, calib)
         if d:
             out["criado_estimado"] = {"data": d.isoformat(), "folga_dias": round(folga)}
     _CACHE[chave] = (time.time(), out)
     return out
+
+
+def historico_visitas(mlb):
+    """29/09 (print do Hunter: "Tempo ativo 252 dias, desde 19/01/2026", "19.651 visitas no total"): o ML não dá ao app a
+    data de criação de anúncio de outra loja (/items 403), mas dá as visitas. O 1º dia com visita ≈ o dia em que o anúncio
+    entrou no ar; o total desde então = visitas na vida. {primeira_visita, total, dias_lidos} ou {}."""
+    def ler():
+        hoje = datetime.now(timezone.utc).date()
+        for dias in (365, 180, 150, 90):             # o ML limita a janela; tenta da maior para a menor
+            try:
+                r = _get(f"/items/{mlb}/visits/time_window", {"last": dias, "unit": "day"}) or {}
+            except ErroLogin:
+                raise
+            except ErroMeli:
+                continue
+            xs = sorted((str(x.get("date") or "")[:10], int(x.get("total") or 0)) for x in r.get("results") or [])
+            com = [d for d, n in xs if n > 0]
+            if not xs:
+                continue
+            out = {"dias_lidos": dias, "total_janela": sum(n for _, n in xs)}
+            # a 1ª visita só vale como data de entrada se não for o 1º dia da janela (senão o anúncio é mais velho que ela)
+            if com and com[0] > xs[0][0]:
+                out["primeira_visita"] = com[0]
+            else:
+                out["mais_velho_que"] = xs[0][0]
+            try:                                     # visitas na vida: da data de entrada (ou 3 anos) até hoje
+                de = out.get("primeira_visita") or (hoje - timedelta(days=3 * 365)).isoformat()
+                t = _get("/items/visits", {"ids": mlb, "date_from": f"{de}T00:00:00.000-00:00",
+                                            "date_to": f"{hoje.isoformat()}T23:59:59.000-00:00"})
+                t = t[0] if isinstance(t, list) and t else t
+                if isinstance(t, dict) and t.get("total_visits") is not None:
+                    out["total"] = int(t["total_visits"])
+            except ErroLogin:
+                raise
+            except ErroMeli:
+                pass
+            return out
+        return {}
+    return _mem("ext|hist|" + mlb, 6 * 3600, ler)
 
 
 def ext_categorias():

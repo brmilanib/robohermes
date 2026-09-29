@@ -131,6 +131,15 @@ class DubleML:
         if p.startswith("/users/"):
             u2 = USUARIOS.get(int(m[2]))
             return self._json(u2) if u2 else self._erro(url, 404)
+        if len(m) == 5 and m[1] == "items" and m[3] == "visits" and m[4] == "time_window":
+            dias = int(q["last"])
+            if dias > 150:                                     # o ML limita a janela: a maior dá erro
+                self._erro(url, 400, b'{"message":"last must be lower than 150"}')
+            ini = HOJE.date() - timedelta(days=dias - 1)
+            entrou = {"MLB2000200": HOJE.date() - timedelta(days=100)}.get(m[2])
+            return self._json({"item_id": m[2], "results": [{"date": f"{ini + timedelta(days=k)}T00:00:00Z",
+                                                             "total": (30 if entrou and ini + timedelta(days=k) >= entrou else 0) if entrou else 5}
+                                                            for k in range(dias)]})
         if p == "/items/visits":
             return self._json([{"item_id": i, "total_visits": VISITAS.get(i, 0)} for i in q["ids"].split(",")])
         if p == "/sites/MLB/search":
@@ -752,13 +761,18 @@ def test_extensao_do_chrome_dado_publico_do_ml():
     assert x["visitas"] == {"anuncio": 3000, "catalogo": 5260, "catalogo_lidos": 2, "parte": 57}, x["visitas"]
     assert x["total_concorrentes"] == 2 and [c["loja"] for c in x["concorrentes"]] == ["FINKE", "ESSENCEPRIMEBR"]
     assert [c["eu"] for c in x["concorrentes"]] == [False, True] and x["concorrentes"][0]["preco"] == 265.28
-    assert x["criado_estimado"] == {"data": "2026-01-21", "folga_dias": 4}, x["criado_estimado"]
+    # a 1ª visita (histórico de visitas do ML) é a data de entrada; com ela não precisa estimar pelo nº
+    assert x["historico"]["primeira_visita"] == str(HOJE.date() - timedelta(days=100)) and x["historico"]["dias_lidos"] == 150, x["historico"]
+    assert x["historico"]["total"] == 3000 and x["criado_estimado"] is None
+    h2 = meli.historico_visitas("MLB1000100")                       # visita desde o 1º dia da janela: mais velho que ela
+    assert "primeira_visita" not in h2 and h2["mais_velho_que"] == str(HOJE.date() - timedelta(days=149)), h2
+    assert meli.painel_extensao(dict(p, mlb="MLB4000400"), calib=calib)["criado_estimado"] is None     # fora da calibração
     n = len(d.pedidos)
     assert meli.painel_extensao(p, calib=calib) == x and len(d.pedidos) == n                  # 30 min na memória
     # só o anúncio, abaixo de R$ 79: sem frete (quem paga é o comprador)
     y = meli.painel_extensao(meli.ext_parametros({"mlb": "MLB3000300", "vendedor": "222222222", "categoria": "MLB1234",
                                                   "tipo": "gold_special", "preco": "69.90"}))
-    assert y["frete"] is None and y["visitas"] == {"anuncio": 22} and not y["concorrentes"]
+    assert y["frete"] is None and y["visitas"] == {"anuncio": 22} and not y["concorrentes"] and "mais_velho_que" in y["historico"]
     # a rota: sem login (token vazio), e o que não é ext_ continua pedindo login
     st, _, corpo, _ = w.atender("GET", "ext_tendencias", {"categoria": "mlb1246"}, b"", "")
     assert st == 200 and [t["termo"] for t in json.loads(corpo)["termos"]] == ["asad elixir", "starlink mini"]

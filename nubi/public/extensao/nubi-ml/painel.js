@@ -10,6 +10,9 @@
   const num = v => { const x = parseFloat(String(v ?? "").replace(/\./g, "").replace(",", ".")); return isNaN(x) ? 0 : x; };
   const numCampo = v => { const s = String(v ?? "").trim(); return s.includes(",") ? num(s) : (parseFloat(s) || 0); };
   const PADRAO = {nome: "Bruno", imposto: 0, busca: true, quadro: true};
+  const ic = (n, t) => (window.nubiIcone ? window.nubiIcone(n, t) : "");
+  const ICONE_ABA = {inicio: "casa", calc: "calc", hist: "historico", tend: "fogo", ean: "codigo", ajustes: "ajustes"};
+  document.querySelectorAll("#pn-trilho [data-aba]").forEach(b => { if (window.nubiIcone) b.innerHTML = ic(ICONE_ABA[b.dataset.aba], 18); });
 
   // guardar neste navegador (sem chrome.storage, nos testes, usa o localStorage)
   const guardado = {
@@ -59,8 +62,8 @@
           <div>${brl(a.preco)} · ${esc(a.loja || "")}</div></div>` : `<p class="fraco" style="margin-top:12px">Abra um anúncio do Mercado Livre para ver os dados dele aqui.</p>`}
         <p class="sub" style="margin-top:14px">ATALHOS</p>
         <div class="grade">
-          <button class="atalho" data-ir="calc">🧮<b>Calculadora</b></button><button class="atalho" data-ir="hist">🕘<b>Histórico</b></button>
-          <button class="atalho" data-ir="tend">🔥<b>Tendências</b></button><button class="atalho" data-ir="ean">▦<b>Gerador EAN</b></button>
+          <button class="atalho" data-ir="calc"><i class="bola az">${ic("calc", 16)}</i><b>Calculadora</b></button><button class="atalho" data-ir="hist"><i class="bola rx">${ic("historico", 16)}</i><b>Histórico</b></button>
+          <button class="atalho" data-ir="tend"><i class="bola lj">${ic("fogo", 16)}</i><b>Tendências</b></button><button class="atalho" data-ir="ean"><i class="bola vd">${ic("codigo", 16)}</i><b>Gerador EAN</b></button>
         </div>
         <p class="sub" style="margin-top:14px">NO NUBI</p>
         <div class="grade">

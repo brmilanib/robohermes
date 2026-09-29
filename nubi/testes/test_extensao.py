@@ -97,6 +97,7 @@ with sync_playwright() as p:
            "tarifas": {"gold_pro": {"pct": 17, "fixa": 0, "total": 41.99}, "gold_special": {"pct": 12, "fixa": 0, "total": 29.64}},
            "frete": 24.45, "visitas": {"anuncio": 142, "catalogo": 944, "catalogo_lidos": 21, "parte": 15},
            "total_concorrentes": 21, "criado_estimado": {"data": "2026-03-29", "folga_dias": 4},
+           "historico": {"primeira_visita": "2026-01-19", "total": 19651, "dias_lidos": 365},
            "concorrentes": [{"anuncio": "MLB1", "link": "https://x/1", "vendedor_id": 1, "preco": 239.9, "full": True, "tipo": "Clássico",
                              "loja": "KAIDOXSTOREE", "eu": False},
                             {"anuncio": "MLB6123456789", "link": "https://x/2", "vendedor_id": 1111222233, "preco": 246.98, "full": False,
@@ -110,13 +111,20 @@ with sync_playwright() as p:
     pg.add_style_tag(content=(EXT / "estilo.css").read_text())
     pg.add_script_tag(content=STUB2)
     js_conteudo = (EXT / "conteudo.js").read_text().replace("location.href", "'https://www.mercadolivre.com.br/asad/p/MLB67389993'")
-    pg.add_script_tag(content=js_conteudo)
+    pg.add_script_tag(content=(EXT / "icones.js").read_text()); pg.add_script_tag(content=js_conteudo)
     pg.wait_for_function("(document.querySelector('#nubi-ml-quadro')||{}).innerText?.replace(/\\u00a0/g,' ').includes('R$ 180,54')", timeout=5000)
     t = pg.inner_text("#nubi-ml-quadro").replace("\xa0", " ")
-    for x in ("nubi Spy", "CATÁLOGO", "PREMIUM", "R$ 24,45", "R$ 41,99", "R$ 180,54", "31/dia", "0,5/dia", "944 nos últimos 30 dias", "15%",
-              "+100 total", "R$ 24,7 mil", "≈", "dias", "desde 29/03/2026", "estimado pelo nº MLB6123456789", "Menor preço do catálogo", "R$ 239,90", "este é o 2º de 2", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
-              "Curitiba - PR", "Vendas totais", "Baixar mídias (1)", "Abrir na calculadora", "Nota nubi"):
+    dias = (__import__("datetime").date.today() - __import__("datetime").date(2026, 1, 19)).days
+    for x in ("nubi Spy", "CATÁLOGO", "PREMIUM", "R$ 24,45", "R$ 41,99", "17%", "R$ 180,54", "Conversão", "0,5%", "Vende a cada 197 visitas",
+              "Visitas", "4,7/dia", "19.651 no total", "142 em 30 dias", "Catálogo: 31/dia", "15% deste anúncio",
+              "+100 total", "Faturamento previsto", "R$ 24,7 mil", "Projeção 30 dias", "desde 19/01/2026 · 1ª visita",
+              "Menor preço", "R$ 239,90", "você está em 2º de 2", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
+              "Curitiba - PR", "Vendas totais", "Baixar mídias (1)", "Abrir na calculadora", "Nota nubi", "Ver página", "No nubi"):
         assert x in t, (x, t)
+    assert f"{dias} dias" in t or f"{dias - 1} dias" in t, t                    # fuso: conta dias inteiros
+    assert "estimado" not in t and "≈ 1 venda" in t                               # com a 1ª visita não precisa estimar
+    assert pg.evaluate("document.querySelectorAll('#nubi-ml-quadro svg.nubi-ic').length") >= 15      # ícones de linha, não emoji
+    assert pg.evaluate("document.querySelectorAll('.nubi-spy-termo i').length") == 5
     assert pg.evaluate("document.querySelector('.ui-pdp-container__row--price').nextElementSibling.id") == "nubi-ml-quadro"
     ped = [m for m in pg.evaluate("PEDIDOS") if m["tipo"] == "nubi"][0]
     assert ped["rota"] == "ext_ml" and ped["params"] == {"mlb": "MLB6123456789", "pid": "MLB67389993", "vendedor": "1111222233",

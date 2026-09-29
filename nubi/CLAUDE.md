@@ -197,6 +197,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     (`ext_vencedores`, "pid:wid" = o anúncio do card entre as ofertas; sem wid, o buy box, marcado "quem ganha o produto
     agora"); o resto lê a página e, sem vendedor, a linha mostra o motivo (status, tamanho, título). Data "≈" pelo nº do MLB
     pode errar (print: ≈74 dias x 183 no Hunter): o quadro mostra o nº do anúncio para conferir a calibração.
+    Versão 0.3 (29/09, print lado a lado com o Hunter: "deixe mais bonito igual a deles"): ícones de linha (`icones.js`,
+    `window.nubiIcone`, carregado antes do conteudo.js e no painel), chips NORMAL/CATÁLOGO + tipo, Conversão (vendidos ÷
+    visitas na vida, barra, "vende a cada N visitas"), Visitas (/dia, no total, em 30 dias, catálogo), Vendas/dia,
+    Faturamento previsto, Projeção 30 dias (visitas de 30 dias × conversão), Tempo ativo pela 1ª visita, perfil do
+    vendedor com termômetro de reputação. Data de entrada SEM /items: `meli.historico_visitas` lê
+    `/items/{id}/visits/time_window` (365→180→150→90 dias, o ML limita) e o 1º dia com visita vira a data (se a visita
+    começa no 1º dia da janela: "mais velho que"); visitas na vida por `/items/visits` desde essa data. Só estima pelo
+    nº do MLB quando não há 1ª visita.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a
