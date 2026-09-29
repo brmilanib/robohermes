@@ -581,6 +581,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (`SERVIDOR_PODE`, `COLETAS`; o vigia do servidor roda as coletas com horário). Tirar a pausa = apagar a linha, depois da
   reinstalação do macOS e da troca de chaves. No servidor, coletas e logins usam o perfil `perfil-coleta` do Chrome (o atendente,
   `NUBI_PAPEL=atendente`, fica com o `perfil` principal sempre aberto).
+- **Pausa tirada (29/09 à tarde, Bruno: "pode liberar o Mac, está tudo perfeito")**: linha `fila|mac_pausado` apagada
+  ANTES da reinstalação do macOS (marcada para 30/09) — risco assumido pelo Bruno. O `seguranca_mac` continua de hora em
+  hora. Ferreiro (card #120, extensão na busca) e Astra (card #121, lojas reais com fotos e preço) voltaram à fila.
 - **Estoque liberado no Mac pausado + vigia de segurança (28/09, Bruno assumiu o risco)**: `ia_resumos` `fila|mac_libera`
   (texto `estoque`) → o `mac_tick` do Mac pausado devolve `libera`; o vigia do Mac pausado (`_vigiar_pausado`) só atualiza o
   coletor (sem rodar coleta por isso) e faz o estoque do UpSeller (pedido `coletor_pedido?tarefa=estoque` ou horário). Com o
