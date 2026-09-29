@@ -3907,8 +3907,39 @@ def vendas_importar(repo, conteudo, arquivo, origem="coletor"):
                                 f"{unidades} unidades em {dias} dias."]}
 
 
-def _vendas_atuais(repo):
-    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(VENDAS_CHAVE)}) or [None])[0]
+GESTOR_VENDAS_CHAVE = "gestor_vendas|atual"
+
+
+def gestor_vendas_importar(repo, conteudo, arquivo, inicio=None, fim=None, origem="coletor"):
+    """card #124: 'Relatório de Vendas' do Gestor Seller (últimos 30 dias, todas as contas). Linhas em gestor_vendas|atual e
+    os totais do dia em gestor_vendas|AAAA-MM-DD."""
+    try:
+        linhas = estoque.ler_gestor_vendas(conteudo)
+    except estoque.ErroEstoque as e:
+        raise ErroNuvem(f"Relatório de vendas do Gestor não importado: {e}.")
+    h = ranking.hash_de(conteudo)
+    if (_vendas_atuais(repo, GESTOR_VENDAS_CHAVE) or {}).get("hash") == h:
+        return {"ok": True, "repetido": True, "log": ["Esse relatório de vendas do Gestor já foi importado."]}
+    agora = datetime.now(timezone.utc).isoformat()
+    soma = lambda c: round(sum(x.get(c) or 0 for x in linhas), 2)
+    tot = {c: soma(c) for c in ("unidades", "valor", "custo", "imposto", "taxa", "frete", "lucro")}
+    d = {"arquivo": arquivo, "origem": origem, "hash": h, "importado_em": agora, "inicio": inicio, "fim": fim, "dias": 30,
+         "linhas_n": len(linhas), "pedidos": len({x["pedido"] for x in linhas if x.get("pedido")}) or len(linhas),
+         "skus": len({estoque._chave(x["sku"]) for x in linhas}), **tot,
+         "margem_pct": round(tot["lucro"] / tot["valor"] * 100, 1) if tot["valor"] else None, "linhas": linhas}
+    if inicio and fim:
+        d["dias"] = max(1, (datetime.fromisoformat(fim) - datetime.fromisoformat(inicio)).days + 1)
+    resumo = {k: v for k, v in d.items() if k != "linhas"}
+    repo._req("POST", "ia_resumos", corpo=[
+        {"chave": GESTOR_VENDAS_CHAVE, "ia": "gestor", "criado_em": agora, "texto": json.dumps(d, ensure_ascii=False)},
+        {"chave": f"gestor_vendas|{_agora_br().date().isoformat()}", "ia": "gestor", "criado_em": agora,
+         "texto": json.dumps(resumo, ensure_ascii=False)}], prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True, "log": [f"OK: vendas do Gestor importadas ({arquivo}): {len(linhas)} linhas, {resumo['skus']} SKUs, "
+                                f"lucro {tot['lucro']:.2f} de {tot['valor']:.2f} em {d['dias']} dias."]}
+
+
+def _vendas_atuais(repo, chave=VENDAS_CHAVE):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(chave)}) or [None])[0]
     try:
         return json.loads(r["texto"]) if r else None
     except (TypeError, ValueError):
@@ -3961,7 +3992,8 @@ def estoque_compras(repo, com_plano=True):
     ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": 1}) or [None])[0]
     itens = _num_itens(_estoque_itens(repo, ult["id"])) if ult else []
     v = _vendas_atuais(repo)
-    ls = estoque.listas(itens, (v or {}).get("linhas") or [], dias=(v or {}).get("dias") or 30)
+    g = _vendas_atuais(repo, GESTOR_VENDAS_CHAVE)             # card #124: margem real do Gestor Seller
+    ls = estoque.listas(itens, (v or {}).get("linhas") or [], dias=(v or {}).get("dias") or 30, gestor=(g or {}).get("linhas"))
     hoje = _agora_br().date().isoformat()
     an = (repo._req("GET", "ia_resumos", {"select": "chave,texto,criado_em,ia", "chave": "like.analise_estoque|*",
                                           "order": "chave.desc", "limit": 1}) or [None])[0]
@@ -4853,6 +4885,10 @@ def rota_estoque(repo, metodo, rota, q, corpo):
     if rota == "estoque_vendas_importar" and metodo == "POST":
         return vendas_importar(repo, corpo, (q.get("arquivo") or "Vendas_por_Produtos.xlsx")[:200],
                                "manual" if q.get("origem") == "manual" else "coletor")
+    if rota == "gestor_vendas_importar" and metodo == "POST":
+        data = lambda k: q.get(k) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(q.get(k) or "")) else None
+        return gestor_vendas_importar(repo, corpo, (q.get("arquivo") or "relatorio_de_vendas.xlsx")[:200], data("inicio"), data("fim"),
+                                      "manual" if q.get("origem") == "manual" else "coletor")
     if rota == "estoque_compras":
         return estoque_compras(repo)
     if rota == "estoque_chat" and metodo == "POST":

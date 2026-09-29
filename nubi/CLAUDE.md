@@ -74,6 +74,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   baixa junto do estoque da madrugada (`baixar_vendas`, endereço achado guardado em `upseller_vendas_url`; falha nunca derruba o
   estoque) e manda para `estoque_vendas_importar`; também dá para importar à mão na tela. Guardado em `ia_resumos`
   `vendas_anuncio|atual` (linhas) + `vendas_anuncio|AAAA-MM-DD` (totais do dia).
+- **Relatório de Vendas do Gestor Seller (card #124, 29/09)**: `baixar_gestor_vendas` (coletor, junto do estoque, Chrome novo,
+  falha nunca derruba o estoque) abre Relatório de Vendas (endereço achado em `gestor_vendas_url`), põe os últimos 30 dias,
+  marca todas as contas e clica só em "Baixar relatório de vendas" (nunca salvar/importar/excluir). Rota
+  `gestor_vendas_importar` (`estoque.ler_gestor_vendas`: colunas casadas por palavra, cabeçalho até a 15ª linha) grava
+  `gestor_vendas|atual` (linhas) + `gestor_vendas|AAAA-MM-DD` (totais). `por_anuncio` traz `margem_real_pct`/`lucro_un`
+  (lucro do Gestor ÷ faturamento, por SKU) e a aba 📊 Por anúncio mostra "Margem real". Teste: `test_gestor_vendas.py`.
 - `estoque.listas` (números em código, SKU casado sem maiúsculas): **zerados** (atual 0, os que venderam primeiro),
   **mais vendidos** (soma dos anúncios/lojas do SKU), **preciso comprar** (venda/dia = unidades ÷ dias; dura = (disponível +
   trânsito) ÷ venda/dia < `ALERTA_DIAS`=15, ou abaixo do mínimo; sugestão = `ALVO_DIAS`=30 dias de venda − disponível −

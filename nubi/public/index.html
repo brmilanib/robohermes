@@ -3514,13 +3514,14 @@ const CP_ABAS = [["comprar", "🛒 Preciso comprar"], ["vendidos", "🔥 Mais ve
 function cpTabelaExtra(r, aba, q, max) {
   const f = x => !q || JSON.stringify(x).toLowerCase().includes(q), pct = v => v == null ? "—" : String(v).replace(".", ",") + "%";
   const xs = (r[aba] || []).filter(f);
-  if (aba === "anuncios") return {n: xs.length, cab: `<th>Anúncio / SKU</th><th>Loja</th><th class="num">Vendidos</th><th class="num">Faturamento</th><th class="num">Preço médio</th><th class="num">Custo</th><th class="num">Margem</th><th>Frequência</th><th class="num">Estoque</th>`,
+  if (aba === "anuncios") return {n: xs.length, cab: `<th>Anúncio / SKU</th><th>Loja</th><th class="num">Vendidos</th><th class="num">Faturamento</th><th class="num">Preço médio</th><th class="num">Custo</th><th class="num">Margem</th><th class="num">Margem real</th><th>Frequência</th><th class="num">Estoque</th>`,
     linhas: xs.slice(0, max).map(a => `<tr><td class="first wrap"><span class="es-sku">${esc(a.sku)}</span> <span class="muted">${esc(a.anuncio || "")}</span><br><span class="muted">${esc((a.produto || "").slice(0, 80))}</span></td>
       <td class="muted" style="font-size:12px">${esc(a.loja)}</td><td class="num">${nf0.format(a.unidades)}</td><td class="num">${rsES(a.valor)}</td>
       <td class="num">${a.preco ? rsES(a.preco) : "—"}</td><td class="num">${a.custo ? rsES(a.custo) : "—"}</td>
       <td class="num ${a.margem_pct == null ? "" : a.margem_pct < 25 ? "neg" : "pos"}">${a.margem != null ? rsES(a.margem) + "<br>" + pct(a.margem_pct) : "—"}</td>
+      <td class="num ${a.margem_real_pct == null ? "" : a.margem_real_pct < 10 ? "neg" : "pos"}">${a.margem_real_pct != null ? (a.lucro_un != null ? rsES(a.lucro_un) + "<br>" : "") + pct(a.margem_real_pct) : "—"}</td>
       <td class="muted" style="font-size:12px">${esc(a.frequencia)}</td><td class="num">${a.estoque == null ? `<span class="neg">fora</span>` : unES(a.estoque)}</td></tr>`).join(""),
-    nota: "Margem = preço médio − custo médio, antes das taxas do canal e do frete (vermelho: abaixo de 25%). Frequência = pedidos no período ÷ dias."};
+    nota: "Margem = preço médio − custo médio, antes das taxas do canal e do frete (vermelho: abaixo de 25%). Margem real = lucro do Gestor Seller ÷ faturamento, depois de taxas, imposto e frete (lucro por unidade; vermelho: abaixo de 10%). Frequência = pedidos no período ÷ dias."};
   if (aba === "precos") return {n: xs.length, cab: `<th>SKU / produto</th><th class="num">Mais barato</th><th class="num">Mais caro</th><th class="num">Diferença</th><th class="num">Anúncios</th><th class="num">Vendidos</th>`,
     linhas: xs.slice(0, max).map(x => `<tr><td class="first wrap"><span class="es-sku">${esc(x.sku)}</span><br><span class="muted">${esc((x.produto || "").slice(0, 80))}</span></td>
       <td class="num">${rsES(x.menor)}<br><span class="muted" style="font-size:11px">${esc(x.loja_menor)}</span></td>
