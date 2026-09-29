@@ -2,7 +2,7 @@
 """Extensão do Chrome nubi · Mercado Livre (29/09, pedido do Bruno: igual à do Hunter): lê a página do anúncio (vendedor,
 data, vendas) e mostra a loja embaixo de cada anúncio da busca e num quadro na página do produto. Testa o leitor da
 página (node), a tela (Playwright, com o chrome.runtime de mentira) e o zip igual à pasta."""
-import json, os, subprocess, sys, zipfile
+import json, os, re, subprocess, sys, zipfile
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -17,7 +17,7 @@ with zipfile.ZipFile(RAIZ / "public" / "extensao" / "nubi-ml.zip") as z:
         assert z.read(f"nubi-ml/{f.name}") == f.read_bytes(), f"zip desatualizado: rode python3 testes/gerar_extensao.py ({f.name})"
 man = json.loads((EXT / "manifest.json").read_text())
 assert man["manifest_version"] == 3 and "https://*.mercadolivre.com.br/*" in man["host_permissions"]
-assert man["version"] == "0.7.1", man["version"]
+assert man["version"] == "0.7.2", man["version"]
 assert man["action"]["default_popup"] == "popup.html"
 
 # 2) leitor da página do anúncio
@@ -221,6 +221,40 @@ with sync_playwright() as p3:
     assert lista and "MLB5832648414:MLBU3510508734" in lista[0]["params"]["mlbs"], lista
     assert not erros, erros
     pr.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "busca_real.png"), full_page=True)
+
+    # 0.7.2 (print do Bruno no Chrome dele: "Vendas —" e "a página não trouxe o produto" em todos): no navegador de verdade o ML
+    # tira o script do estado depois de montar. cedo.js (document_start) guarda a cópia; sem estado nenhum, o card é lido na tela.
+    FALSO = """window.chrome={runtime:{sendMessage:(m,cb)=>{window.PEDIDOS=(window.PEDIDOS||[]).concat([m]);setTimeout(()=>cb(
+      m.tipo==='busca'?{resultados:lerBusca(m.html)}:
+      m.tipo==='nubi'&&m.rota==='ext_lista'?{itens:Object.fromEntries(m.params.mlbs.split(',').map(x=>[x.split(':')[0],{visitas30:300}]))}:{}),10);}}};"""
+    def pagina(html, com_cedo=True):
+        pg = b3.new_page(viewport={"width": 1440, "height": 1000})
+        errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+        pg.route("https://lista.mercadolivre.com.br/teste", lambda r: r.fulfill(status=200, content_type="text/html", body=html))
+        if com_cedo: pg.add_init_script((EXT / "cedo.js").read_text())
+        pg.goto("https://lista.mercadolivre.com.br/teste")
+        pg.add_script_tag(content=(EXT / "fundo.js").read_text()); pg.add_script_tag(content=FALSO)
+        pg.add_script_tag(content=(EXT / "icones.js").read_text()); pg.add_script_tag(content=(EXT / "conteudo.js").read_text())
+        pg.wait_for_function("document.querySelectorAll('.nubi-ml-linha').length === 6 && document.body.innerText.includes('~300')", timeout=8000)
+        pg.wait_for_timeout(300)
+        return pg, errs
+    TIRA = "<script>document.querySelectorAll('#__NORDIC_RENDERING_CTX__').forEach(s => s.remove())</script>"
+    pt, errs = pagina(f"<html><body>{REAL}{TIRA}</body></html>")
+    assert pt.evaluate("!document.getElementById('__NORDIC_RENDERING_CTX__')")
+    lista = [m for m in pt.evaluate("PEDIDOS") if m.get("rota") == "ext_lista"]
+    assert lista and "MLB5832648414:MLBU3510508734" in lista[0]["params"]["mlbs"], lista     # o pid veio da cópia
+    c0 = pt.eval_on_selector_all(".nubi-ml-linha", "xs => xs.map(x => x.innerText)")[0].replace("\xa0", " ")
+    assert "+5.000" in c0, c0
+    assert not errs, errs
+    # sem estado nenhum (script apagado antes da extensão): vendidos lidos no próprio card ("+5mil vendidos")
+    SEM = re.sub(r'<script id="__NORDIC_RENDERING_CTX__">.*?</script>', "", REAL, flags=re.S)
+    SEM = SEM.replace('<li class="ui-search-layout__item" style="height: 443.094px;"><div class="ui-search-result__wrapper ui-search-result__wrapper--large"><div class="andes-card poly-card poly-card--grid-card poly-card--xlarge poly-card--CORE andes-card--flat andes-card--primary andes-card--padding-0" id="_R_85kqcla_" data-andes-card="true" data-andes-card-hierarchy="primary">',                  # o card como no Chrome do Bruno
+                      '<li class="ui-search-layout__item" style="height: 443.094px;"><div class="ui-search-result__wrapper ui-search-result__wrapper--large"><div class="andes-card poly-card poly-card--grid-card poly-card--xlarge poly-card--CORE andes-card--flat andes-card--primary andes-card--padding-0" id="_R_85kqcla_" data-andes-card="true" data-andes-card-hierarchy="primary"><span class="poly-reviews__total">| +5mil vendidos</span>', 1)
+    assert "printed_result" not in SEM
+    ps, errs = pagina(f"<html><body>{SEM}</body></html>", com_cedo=False)
+    cs = [x.replace("\xa0", " ") for x in ps.eval_on_selector_all(".nubi-ml-linha", "xs => xs.map(x => x.innerText)")]
+    assert "+5.000" in cs[0], cs[0]
+    assert not errs, errs
     b3.close()
 
 # 29/09 (Bruno: "quando dou um clique na extensão quero esse menu igual [ao do Hunter]"): o menu abre o painel na aba do ML

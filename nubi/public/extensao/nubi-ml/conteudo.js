@@ -367,7 +367,9 @@
   // estado da própria página de busca (lido no fundo.js, lerBusca); relido só quando os scripts mudam (troca de página)
   let ESTADO = Promise.resolve([]), estadoTam = 0;
   function estadoDaBusca() {
-    const s = [...document.querySelectorAll("script#__PRELOADED_STATE__, script#__NORDIC_RENDERING_CTX__")].map(x => x.outerHTML).join("");
+    // 0.7.2: na página de verdade o ML tira o script depois de montar; cedo.js/pagina.js guardam a cópia (__nubiScripts)
+    const copias = [...(globalThis.__nubiScripts || [])].map(t => `<script id="__NORDIC_RENDERING_CTX__">${t}</script>`);
+    const s = [...document.querySelectorAll("script#__PRELOADED_STATE__, script#__NORDIC_RENDERING_CTX__")].map(x => x.outerHTML).concat(copias).join("");
     if (s.length !== estadoTam) { estadoTam = s.length; ESTADO = pedir({tipo: "busca", html: s}).then(r => r.resultados || []); }
     return ESTADO;
   }
@@ -375,6 +377,24 @@
   const doEstado = (est, urls) => est.find(r => r.link && urls.some(u => semProto(r.link) === semProto(u))) ||
     est.find(r => r.item && urls.some(u => r.item === itemDe(u))) ||
     est.find(r => r.produto && urls.some(u => r.produto === pidDe(u) && (!widDe(u) || r.item === widDe(u)))) || {};
+  // o que o próprio card mostra (0.7.2): "+5mil vendidos", selo FULL, marca e preço; vale quando o estado da página não vem
+  function doCartao(c) {
+    const t = (c.innerText || c.textContent || "").replace(/\s+/g, " ");
+    const out = {};
+    const v = t.match(/(\+)?\s*(\d+(?:[.,]\d+)?)\s*(mil)?\s*vendidos?/i);
+    if (v) { out.vendidos = Math.round(parseFloat(v[2].replace(/\./g, "").replace(",", ".")) * (v[3] ? 1000 : 1)); out.vendidosMais = !!v[1]; }
+    if (c.querySelector("[aria-label*='FULL' i], svg[class*='full' i], .poly-component__shipped-from, [class*='fulfillment']") || /\bFULL\b/.test(t)) { out.full = true; out.envio = "full"; }
+    const mc = c.querySelector(".poly-component__brand, .ui-search-item__brand-discoverability");
+    if (mc && mc.textContent.trim()) out.marca = mc.textContent.trim();
+    const pr = c.querySelector(".poly-price__current .andes-money-amount, .ui-search-price__second-line .andes-money-amount");
+    if (pr) {
+      const fr = (pr.querySelector(".andes-money-amount__fraction") || {}).textContent || "";
+      const ct = (pr.querySelector(".andes-money-amount__cents") || {}).textContent || "0";
+      const x = parseFloat(fr.replace(/\D/g, "") + "." + (ct.replace(/\D/g, "") || "0").padEnd(2, "0"));
+      if (x > 0) out.preco = x;
+    }
+    return out;
+  }
   function caixa(c) {
     // 29/09 (página real): o ML fixa a altura do card (style="height: 443px"); sem soltar, os blocos cobriam o card de baixo
     for (let e = c; e && e !== document.body; e = e.parentElement) {
@@ -390,11 +410,11 @@
   // página traz (vendidos, envio, preço) e o nubi completa em lote o vendedor, as visitas e a data (ext_lista).
   async function varrer() {
     if (!AJ.busca || ehAnuncio()) return;
-    const novos = cartoes().map(([c, urls]) => [caixa(c), urls]);
+    const novos = cartoes().map(([c, urls]) => { const vc = doCartao(c); return [caixa(c), urls, vc]; });
     if (!novos.length) return;
     const est = await estadoDaBusca();
-    novos.forEach(([box, urls]) => {
-      const e = doEstado(est, urls);
+    novos.forEach(([box, urls, vc]) => {
+      const e = {...vc, ...Object.fromEntries(Object.entries(doEstado(est, urls)).filter(([, v]) => v != null))};
       const item = e.item || urls.map(itemDe).find(Boolean) || null;
       const link = urls.find(u => !CLIQUE.test(u)) || (e.link && !CLIQUE.test(e.link) ? e.link : "") ||
         (item ? `https://produto.mercadolivre.com.br/MLB-${item.slice(3)}` : "");

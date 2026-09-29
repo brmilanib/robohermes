@@ -270,6 +270,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     "MLB:pid" e devolve vendedor + loja (MLBP: ofertas do catálogo; MLBU: /user-products, senão /questions/search), visitas
     de 30 dias e data pelo nº do MLB. Produção 29/09 na busca "assad lattafa elixir": 25 de 52 com catálogo (vendedor certo) e
     26 MLBU (vendedor só quando o anúncio tem pergunta). Teste com a página real em `testes/dados/ml_busca_real.html`.
+  - 0.7.2 (29/09 à noite, print do Bruno no Chrome dele: "Vendas —" e "a página não trouxe o produto" em TODOS os cards):
+    no navegador de verdade o ML tira o script `__NORDIC_RENDERING_CTX__` depois de montar (o coletor salvava antes).
+    `cedo.js` (document_start) guarda a cópia do texto com `printed_result` (`globalThis.__nubiScripts`), `pagina.js`
+    (world MAIN) manda `window._n.ctx.r`; `doCartao` lê no próprio card "+5mil vendidos", FULL, marca e preço.
+  - TESTE COM A AURASCENT (29/09, botão 🔌): mesmo com a conta de VENDEDOR, `/items/{id}`, `/items?ids=` e
+    `/sites/MLB/search` dão 403; funcionam /users/me, anúncios da própria conta, descrição, catálogo, visitas, tarifa. O
+    bloqueio é do APP no ML (DevCenter), não da conta. Vendedor de anúncio fora de catálogo segue sem fonte oficial.
   - CONTA DO ML CONECTADA (29/09, autorizado): `#/ml` → 🔐 Conectar conta do ML (`meli_conectar` grava o `state` de uso
     único e manda para `auth.mercadolivre.com.br/authorization`); a volta `meli_retorno` é PÚBLICA (antes do login em
     `atender`, confere o state em 15 min, troca o código, `meli.conectar_conta`) e mostra uma página simples. Redirect URI
