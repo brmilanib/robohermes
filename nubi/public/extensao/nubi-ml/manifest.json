@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "nubi · Mercado Livre",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A loja real de cada anúncio do Mercado Livre, o quadro nubi Spy (comissão, frete, visitas, vendas, concorrentes) e o painel com calculadora, histórico, tendências e gerador EAN.",
   "icons": {"128": "icone.png"},
   "permissions": ["storage", "downloads"],

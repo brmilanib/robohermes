@@ -17,6 +17,7 @@ with zipfile.ZipFile(RAIZ / "public" / "extensao" / "nubi-ml.zip") as z:
         assert z.read(f"nubi-ml/{f.name}") == f.read_bytes(), f"zip desatualizado: rode python3 testes/gerar_extensao.py ({f.name})"
 man = json.loads((EXT / "manifest.json").read_text())
 assert man["manifest_version"] == 3 and "https://*.mercadolivre.com.br/*" in man["host_permissions"]
+assert man["version"] == "0.6.0", man["version"]
 
 # 2) leitor da página do anúncio
 js = """global.chrome={runtime:{onMessage:{addListener(){}}}};const {lerAnuncio}=require(process.argv[1]);
@@ -105,6 +106,100 @@ with sync_playwright() as p:
                                                                        "https://www.mercadolivre.com.br/x/p/MLB22222222"], ped
     assert not erros, erros
     pg.close()
+
+    # 3c) card #120: página de busca salva, em lista (__PRELOADED_STATE__) e em grade (__NORDIC_RENDERING_CTX__ com as aspas
+    #     escapadas, cards poly-card), com patrocinado (só o link click1) e catálogo. Cada resultado do estado casa com o card
+    #     pelo MLB (ou pelo link, no patrocinado); a página do anúncio só é aberta quando o estado não traz o vendedor e o
+    #     click1 nunca é aberto (contaria um clique pago)
+    K = LOJA["loja"]
+    P = {"id": 1111222233, "nome": "PEREIRAELOISA", "link": "https://perfil.mercadolivre.com.br/PEREIRAELOISA", "cidade": "Curitiba", "uf": "PR"}
+    E = {"id": 3333444455, "nome": "ESSENCEPRIME", "link": "https://perfil.mercadolivre.com.br/ESSENCEPRIME"}
+    CLICK_A = "https://click1.mercadolivre.com.br/mclics/clicks/external/MLB/count?a=abc123"
+    CLICK_B = "https://click1.mercadolivre.com.br/mclics/clicks/external/MLB/count?a=def456"
+    EST_LISTA = {"initialState": {"results": [
+        {"id": "MLB4350649701", "title": "Asad 100ml", "permalink": "https://produto.mercadolivre.com.br/MLB-4350649701-asad-_JM",
+         "price": 199.9, "sold_quantity": 500, "start_time": "2025-12-07T10:06:52.000Z",
+         "seller": {"id": 2540338692, "nickname": "KAIDOXSTOREE"}, "shipping": {"logistic_type": "fulfillment"}},
+        {"id": "MLB4350649702", "title": "Asad patrocinado", "permalink": CLICK_A, "price": 149.9, "sold_quantity": 50,
+         "seller": {"id": 1111222233}, "shipping": {"logistic_type": "cross_docking"}},
+        {"id": "MLB4350649703", "catalog_product_id": "MLB67389993", "permalink": "https://www.mercadolivre.com.br/asad/p/MLB67389993",
+         "price": 246.98, "sold_quantity": 1000},
+        {"id": "MLB4350649704", "title": "Sem vendedor", "permalink": "https://produto.mercadolivre.com.br/MLB-4350649704-x", "price": 99.9}]}}
+    def poly(id_, url, params, comps, pid=None):
+        md = {"id": id_, "url": url, "url_params": params}
+        if pid: md["product_id"] = pid
+        return {"polycard": {"metadata": md, "components": comps}}
+    preco = lambda v: {"type": "price", "price": {"current_price": {"value": v, "currency": "BRL"}, "previous_price": {"value": v * 1.2}}}
+    full = {"type": "shipping", "shipping": {"text": "Enviado pelo {icon}", "values": [{"key": "icon", "type": "icon", "icon": {"key": "full"}}]}}
+    EST_GRADE = {"appProps": {"pageProps": {"initialState": {"results": [
+        poly("MLB5000000001", "produto.mercadolivre.com.br/MLB-5000000001-x", "#polycard_client=search-nordic",
+             [{"type": "title", "title": {"text": "Khamrah 100ml"}}, preco(189.9), full,
+              {"type": "seller", "seller": {"id": 3333444455, "text": "Por {icon}Essence Prime"}},
+              {"type": "reviews", "reviews": {"rating_average": 4.8, "total": 120, "sold_text": "+1000 vendidos"}}]),
+        poly("MLB5000000002", CLICK_B.replace("https://", ""), "", [preco(139.5), {"type": "highlight", "highlight": {"text": "+50 vendidos"}}]),
+        poly("MLB5000000003", "www.mercadolivre.com.br/khamrah/p/MLB77777777", "#wid=MLB5000000003&sid=search", [preco(210.0), full], pid="MLB77777777")]}}}}
+    ul = lambda cls, lis: f'<ol class="ui-search-layout {cls}">{"".join(lis)}</ol>'
+    item_lista = lambda href, t: (f'<li class="ui-search-layout__item"><div class="ui-search-result__wrapper"><a href="{href}"><img alt="{t}"></a>'
+                                  f'<h2><a href="{href}">{t}</a></h2></div></li>')
+    item_grade = lambda href, t: (f'<li class="ui-search-layout__item"><div class="poly-card poly-card--grid"><a href="{href}"><img alt="{t}"></a>'
+                                  f'<h3 class="poly-component__title-wrapper"><a href="{href}">{t}</a></h3></div></li>')
+    PAG_LISTA = ('<script>window._n={ctx:{}}</script>' + ul("ui-search-layout--stack", [
+        item_lista("https://produto.mercadolivre.com.br/MLB-4350649701-asad-_JM#position=1", "A1"),
+        item_lista(CLICK_A, "A2 patrocinado"),
+        item_lista("https://www.mercadolivre.com.br/asad/p/MLB67389993#wid=MLB4350649703&sid=search", "A3 catálogo"),
+        item_lista("https://produto.mercadolivre.com.br/MLB-4350649704-x#position=4", "A4")]) +
+        '<script id="__PRELOADED_STATE__" type="application/json">' + json.dumps(EST_LISTA) + '</script>')
+    PAG_GRADE = ('<script>window._n={ctx:{}}</script>' + ul("ui-search-layout--grid", [
+        item_grade("https://produto.mercadolivre.com.br/MLB-5000000001-x#polycard_client=search-nordic", "B1"),
+        item_grade(CLICK_B, "B2 patrocinado"),
+        item_grade("https://www.mercadolivre.com.br/khamrah/p/MLB77777777#wid=MLB5000000003&sid=search", "B3 catálogo")]) +
+        '<script id="__NORDIC_RENDERING_CTX__">_n.ctx.r=' + json.dumps(json.dumps(EST_GRADE)) + ';</script>')
+    LOJAS = {"2540338692": K, "1111222233": P, "3333444455": E}
+    VENC2 = {"produtos": {"MLB67389993:MLB4350649703": {"item": "MLB4350649703", "vendedor": "2540338692", "do_card": True, "loja": K},
+                          "MLB77777777:MLB5000000003": {"item": "MLB5000000003", "vendedor": "3333444455", "do_card": True, "loja": E}}}
+    PAGINAS = {"https://produto.mercadolivre.com.br/MLB-4350649704-x#position=4":
+               {"vendedor": "1111222233", "item": "MLB4350649704", "criado": "2026-03-01T00:00:00Z", "loja": P},
+               "https://produto.mercadolivre.com.br/MLB-5000000002":
+               {"vendedor": "2540338692", "item": "MLB5000000002", "criado": "2026-02-10T00:00:00Z", "loja": K}}
+    STUB4 = ("window.chrome={runtime:{sendMessage:(m,cb)=>{window.PEDIDOS=(window.PEDIDOS||[]).concat([m]);setTimeout(()=>cb("
+             "m.tipo==='busca'?{resultados:lerBusca(m.html).map(a=>({...a,loja:%s[a.vendedor]||null}))}:"
+             "m.tipo==='nubi'?%s:%s[m.url]||{motivo:'página 404'}),10);}}};" % (json.dumps(LOJAS), json.dumps(VENC2), json.dumps(PAGINAS)))
+    esperado = {
+        "lista": (PAG_LISTA, [("KAIDOXSTOREE", "R$ 199,90", "500 vendidos", "FULL", "criado 07/12/2025"),
+                              ("PEREIRAELOISA", "R$ 149,90", "50 vendidos"),
+                              ("KAIDOXSTOREE", "R$ 246,98", "1.000 vendidos"),
+                              ("PEREIRAELOISA", "R$ 99,90", "criado 01/03/2026")],
+                  ["https://produto.mercadolivre.com.br/MLB-4350649704-x#position=4"], "MLB67389993:MLB4350649703"),
+        "grade": (PAG_GRADE, [("ESSENCEPRIME", "R$ 189,90", "+1.000 vendidos", "FULL"),
+                              ("KAIDOXSTOREE", "R$ 139,50", "+50 vendidos", "criado 10/02/2026"),
+                              ("ESSENCEPRIME", "R$ 210,00", "FULL")],
+                  ["https://produto.mercadolivre.com.br/MLB-5000000002"], "MLB77777777:MLB5000000003")}
+    for nome, (html, linhas, abertas, pids) in esperado.items():
+        pg = b.new_page(viewport={"width": 1440, "height": 900})
+        erros = []; pg.on("pageerror", lambda e: erros.append(str(e)))
+        pg.set_content(f"<html><body>{html}</body></html>")
+        pg.add_style_tag(content=(EXT / "estilo.css").read_text())
+        pg.add_script_tag(content=(EXT / "fundo.js").read_text())
+        pg.add_script_tag(content=STUB4); pg.add_script_tag(content=(EXT / "conteudo.js").read_text())
+        pg.wait_for_function("document.querySelectorAll('.nubi-ml-linha').length === %d && [...document.querySelectorAll('.nubi-ml-linha')]"
+                             ".every(x => !x.innerText.includes('lendo'))" % len(linhas), timeout=5000)
+        ls = [x.replace("\xa0", " ") for x in pg.eval_on_selector_all(".nubi-ml-linha", "xs => xs.map(x => x.innerText)")]
+        for texto, quer in zip(ls, linhas):
+            assert all(q in texto for q in quer) and "não achei" not in texto, (nome, quer, texto)
+        assert "FULL" not in ls[1], (nome, ls)
+        ped = pg.evaluate("PEDIDOS")
+        assert [m["url"] for m in ped if m["tipo"] == "anuncio"] == abertas, (nome, ped)            # só quem não tem vendedor
+        assert [m["params"]["pids"] for m in ped if m["tipo"] == "nubi"] == [pids], (nome, ped)     # catálogo em lote
+        assert sum(m["tipo"] == "busca" for m in ped) == 1 and not any("click1" in json.dumps(m) for m in ped if m["tipo"] != "busca"), ped
+        assert pg.get_attribute(".nubi-ml-linha b a", "href").startswith("https://perfil.mercadolivre.com.br/"), nome
+        # rolagem infinita: card novo sem nada no estado ganha a linha pelo observador
+        pg.evaluate("""document.querySelector('ol').insertAdjacentHTML('beforeend',
+            '<li class="ui-search-layout__item"><a href="https://produto.mercadolivre.com.br/MLB-5000000002">novo</a></li>')""")
+        pg.wait_for_function("document.querySelectorAll('.nubi-ml-linha').length === %d && !document.querySelector('ol li:last-child .nubi-ml-linha')"
+                             ".innerText.includes('lendo')" % (len(linhas) + 1), timeout=5000)
+        assert "KAIDOXSTOREE" in pg.inner_text("ol li:last-child .nubi-ml-linha")
+        assert not erros, erros
+        pg.close()
 
     # 4) página do produto: quadro nubi Spy (os números do print do Hunter: Asad Elixir R$ 246,98 Premium)
     PAG = {"vendedor": "1111222233", "item": "MLB6123456789", "produto": "MLB67389993", "criado": None, "apelido": "PEREIRAELOISA",

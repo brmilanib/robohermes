@@ -45,6 +45,53 @@ function lerAnuncio(html, url) {
     full: logistica ? logistica === "fulfillment" : null, nome_loja: nomeLoja, produto_usuario: up ? up[1].toUpperCase() : null};
 }
 
+// 30/09 (card #120, "igual ao Hunter em todos os cards"): a página de BUSCA já traz os resultados no estado dela
+// (__PRELOADED_STATE__ ou __NORDIC_RENDERING_CTX__, às vezes num texto com as aspas escapadas). Cada resultado é lido
+// pelo lerAnuncio só no pedaço dele; o link vai junto para casar o card patrocinado (click1), que não tem o MLB no link.
+function estadoJson(s) {
+  let t = String(s || "").trim().replace(/^[^{"]*?=\s*/, "").replace(/;\s*$/, "").replace(/^JSON\.parse\(([\s\S]*)\)$/, "$1");
+  for (let i = 0; i < 3 && typeof t === "string"; i++) { try { t = JSON.parse(t); } catch (e) { return null; } }
+  return t && typeof t === "object" ? t : null;
+}
+
+function lerBusca(html) {
+  const ID = /^MLB\d{6,}$/, achados = [];
+  const andar = (o, n) => {
+    if (typeof o === "string" && /^\s*[{[]/.test(o)) o = estadoJson(o);
+    if (!o || typeof o !== "object" || n > 40) return;
+    if (Array.isArray(o)) return o.forEach(x => andar(x, n + 1));
+    const c = o.polycard || (ID.test(o.id || o.item_id || "") && (o.permalink || o.url || o.seller || o.price != null) ? o : null);
+    if (c) return achados.push(c);
+    Object.values(o).forEach(x => andar(x, n + 1));
+  };
+  const scripts = [...String(html || "").matchAll(/<script[^>]*id="(?:__PRELOADED_STATE__|__NORDIC_RENDERING_CTX__)"[^>]*>([\s\S]*?)<\/script>/g)];
+  scripts.forEach(m => {
+    const o = estadoJson(m[1]);
+    if (o) andar(o, 0);
+    // não deu para ler como JSON: um pedaço por "polycard", com as aspas desfeitas como no lerAnuncio
+    else m[1].replace(/\\+"/g, '"').split(/(?="polycard"\s*:)/).slice(1).forEach(p => achados.push({texto: p}));
+  });
+  const vistos = new Set(), out = [];
+  achados.forEach(c => {
+    const t = c.texto || JSON.stringify(c), md = c.metadata || {};
+    const um = re => (t.match(re) || [])[1] || null;
+    const mu = md.url || um(/"url"\s*:\s*"([^"]+)"/) || "";
+    const link = c.permalink || c.url || (mu ? (/^https?:/.test(mu) ? mu : "https://" + mu) + (md.url_params || "") : "");
+    const a = lerAnuncio(t, link);
+    a.item = c.id || c.item_id || md.id || um(/"id"\s*:\s*"(MLB\d{6,})"/);
+    if (!a.item || vistos.has(a.item)) return;
+    vistos.add(a.item);
+    if (a.preco == null) { const p = um(/"(?:current_price|price)"\s*:\s*\{[^{}]*?"(?:value|amount)"\s*:\s*([\d.]+)/); a.preco = p != null ? +p : null; }
+    const v = t.match(/(\+?)\s*(\d+(?:\.\d{3})*)\s*(mil)?\s*vendidos?/i);
+    if (a.vendidos == null && v) { a.vendidos = +v[2].replace(/\./g, "") * (v[3] ? 1000 : 1); a.vendidosMais = !!v[1]; }
+    if (a.full == null && /:\s*"(?:[a-z_]+_)?(?:full|fulfillment)(?:_[a-z_]+)?"/i.test(t)) a.full = true;
+    a.apelido = a.apelido || um(/"seller"\s*:\s*\{[^{}]*?"text"\s*:\s*"(?:Vendido )?[Pp]or\s*(?:\{[^}"]*\}\s*)?([^"{}]{2,80}?)\s*(?:\{[^}"]*\})?"/);
+    delete a.fotos;
+    out.push({...a, link});
+  });
+  return out;
+}
+
 async function anuncio(url) {
   if (cacheAnuncio.has(url)) return cacheAnuncio.get(url);
   // o motivo vai junto quando não acha a loja (29/09: "não achei a loja" em todos os cards da busca)
@@ -106,6 +153,10 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
       anuncio(msg.url).then(async a => responder({...a, loja: await loja(a.vendedor)}));
       return true;
     }
+    if (msg && msg.tipo === "busca") {
+      Promise.all(lerBusca(msg.html || "").map(async a => ({...a, loja: await loja(a.vendedor)}))).then(r => responder({resultados: r}));
+      return true;
+    }
     if (msg && msg.tipo === "pagina") {
       const a = lerAnuncio(msg.html || "", msg.url || "");
       loja(a.vendedor).then(l => responder({...a, loja: l}));
@@ -130,4 +181,4 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
   });
 }
 
-if (typeof module !== "undefined") module.exports = {lerAnuncio, itemPublico};
+if (typeof module !== "undefined") module.exports = {lerAnuncio, lerBusca, itemPublico};

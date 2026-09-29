@@ -5,6 +5,7 @@
 .nubi-ml-rep{padding:0 6px;border-radius:10px;background:#e2e8f0}.nubi-ml-rep.r5{background:#d1fae5;color:#065f46}
 .nubi-ml-rep.r4{background:#ecfccb;color:#3f6212}.nubi-ml-rep.r3{background:#fef9c3;color:#854d0e}
 .nubi-ml-rep.r1,.nubi-ml-rep.r2{background:#fee2e2;color:#991b1b}
+.nubi-ml-full{padding:0 6px;border-radius:10px;background:#dcfce7;color:#166534;font-weight:700}
 .nubi-ml-bt{display:inline-block;padding:2px 8px;border-radius:6px;background:#1f3a7a;color:#fff!important;font-weight:600}
 .nubi-ml-quadro{position:fixed;right:16px;bottom:16px;z-index:2147483000;width:320px;max-width:calc(100vw - 32px);background:#fff;
   border:1px solid #c9d7ff;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.18);font:13px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;color:#1d2b4f}
