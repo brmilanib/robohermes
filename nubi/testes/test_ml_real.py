@@ -46,6 +46,8 @@ NOMEADA = {"ok": True, "loja": {"id": "2540338692", "nome": "KAIDOXSTOREE", "lin
 PEDIDOS = []
 RESP = {"meli_anuncio": ANUNCIO, "meli_loja": LOJA, "meli_gtin": GTIN, "meli_hash_lojas": HASH, "meli_teste": TESTE, "meli_descobrir": DESC,
         "meli_seguido": {"loja": None}, "meli_seguido_nomear": NOMEADA,
+        "meli_fotos_seguido": {"ini": "2026-09-01", "fim": "2026-09-27", "em": "2026-09-29T12:00:00+00:00", "itens": [
+            {"foto": "https://http2.mlstatic.com/D_951134-MLB91143087125_082025-I.jpg", "title": "Perfume Bareeq Al Dhahab", "price": 149.9}]},
         "meli_seguido_descobrir": lambda d: CANDS if d.get("vendedor") == "SEM PROVA P1" else SEG,
         "meli_seguidos_lista": {"vendedores": [
             {"vendedor": "ICARBONXX P3", "nome_exibido": "ICARBONXX P3", "hash": "37E3A268395D" + "0" * 116, "relatorio_id": 9, "mes": "2026-09",
@@ -158,10 +160,13 @@ try:
             pg.wait_for_selector("#vml-desc", timeout=5000); pg.click("#vml-desc"); pg.wait_for_selector("#vml-loja .ml-loja", timeout=5000)
             pg.click("#vml-loja summary")
             v = pg.inner_text("#vml-loja")
+            pg.wait_for_selector("#vml-fotos .ml-foto", timeout=5000)
+            v = pg.inner_text("#vml-loja") + pg.inner_text("#vml-fotos")
             assert "ICARBONXX" in v and "MLB2000200" in v and "certa" in v and "loja oficial nº 23829" in v, v
+            assert "Fotos dos anúncios no Nubimetrics" in v and "951134-MLB91143087125" in v and "R$ 149,90" in v, v
             assert pg.get_attribute("#vml-loja td a", "href").startswith("https://produto.mercadolivre.com.br/")
             # 6b) sem prova: candidatas com link; "É esta" grava a escolhida (manual)
-            pg.evaluate("() => { document.querySelector('#vml-loja').remove(); const d = document.createElement('div'); d.id = 'vml-loja'; document.querySelector('#main').prepend(d); lojaMLSeguido('SEM PROVA P1'); }")
+            pg.evaluate("() => { document.querySelector('#vml-loja').remove(); document.querySelector('#vml-fotos').remove(); const d = document.createElement('div'); d.id = 'vml-loja'; document.querySelector('#main').prepend(d); lojaMLSeguido('SEM PROVA P1'); }")
             pg.wait_for_selector("#vml-desc", timeout=5000); pg.click("#vml-desc"); pg.wait_for_selector("#vml-cands .ml-cand", timeout=5000)
             v = pg.inner_text("#vml-loja")
             assert "Sem certeza" in v and "KAIDOXSTOREE" in v and "em 2 de 3 produto" in v and pg.locator("#vml-cands .ml-cand").count() == 2, v

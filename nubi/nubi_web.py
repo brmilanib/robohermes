@@ -4457,6 +4457,12 @@ def rota_meli(repo, metodo, rota, q, corpo):
     if rota == "meli_seguido":
         # vendedor SEGUIDO (Concorrentes -> Vendedores): a loja real já achada, se houver
         return {"loja": _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(str(q.get("vendedor") or "")))}
+    if rota == "meli_fotos_seguido":
+        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(f"vend_fotos|{q.get('vendedor') or ''}")}) or [None])[0]
+        try:
+            return json.loads(r["texto"]) if r else {"itens": []}
+        except (TypeError, ValueError):
+            return {"itens": []}
     if rota == "meli_seguido_descobrir" and metodo == "POST":
         return _descobrir_seguido(repo, str(d.get("vendedor") or ""))
     if rota == "meli_seguido_nomear" and metodo == "POST":
@@ -5126,6 +5132,7 @@ COMANDOS_MAC = {
     "navegador_status": "Navegador: conferir se está pronto (chave e gasto do dia)",
     "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
     "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora",
+    "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 VETOR_LOCAL_DESDE = "2026-09-27T00:00:00+00:00"   # card #29: só itens novos da caixa ganham vetor (os antigos ficam de fora)
@@ -5416,6 +5423,18 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
             mud["preco"] = d["preco"]
         repo._req("PATCH", "meus_anuncios", {"id": repo._eq(aid)}, corpo=mud, prefer="return=minimal")
         return {"ok": True, "loja": mud.get("loja")}
+    if rota == "ml_vend_fotos" and metodo == "POST":
+        # 29/09 (Bruno): fotos dos anúncios do vendedor seguido na tela do Nubimetrics (coletor, comando vend_fotos), para
+        # comparar com a foto do anúncio no Mercado Livre. Só dados da tela; guardado por vendedor.
+        nome = str(d.get("nome") or "").strip()[:120]
+        if not nome:
+            raise ErroNuvem("Falta o vendedor.")
+        itens = [x for x in (d.get("itens") or [])[:600] if isinstance(x, dict) and x.get("foto")]
+        repo._req("POST", "ia_resumos", corpo=[{"chave": f"vend_fotos|{nome}", "ia": "coletor", "texto": json.dumps(
+            {"vendedor": nome, "seller_hash": str(d.get("seller_hash") or "")[:200], "mes": d.get("mes"), "ini": d.get("ini"),
+             "fim": d.get("fim"), "em": datetime.now(timezone.utc).isoformat(), "itens": itens}, ensure_ascii=False)}],
+            prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True, "itens": len(itens)}
     if rota == "ml_posicoes_gravar" and metodo == "POST":
         termo = str(d.get("termo") or "").strip()
         meus = {a["id"] for a in repo._todos("meus_anuncios", {"select": "id"})}

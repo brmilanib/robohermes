@@ -2104,6 +2104,110 @@ def coletar_ml_posicoes(p, cfg, token, paginas=3):
     return feitos, meus, erros, f"{feitos} busca(s), {meus} posição(ões) dos meus anúncios anotada(s)"
 
 
+def fotos_do_json(dados, maximo=500):
+    """29/09 (Bruno: "a foto do anúncio no Nubimetrics é a mesma do anúncio no ML"): a resposta 'analysisitems' que a tela
+    do vendedor carrega -> os anúncios que têm foto do Mercado Livre (mlstatic), com os campos simples de cada um (título,
+    preço, SKU…). Só o que a própria tela já mostra; nada de cookie ou token."""
+    achados = []
+
+    def andar(x, fundo=0):
+        if fundo > 8 or len(achados) >= maximo:
+            return
+        if isinstance(x, list):
+            for y in x:
+                andar(y, fundo + 1)
+        elif isinstance(x, dict):
+            img = next((v for v in x.values() if isinstance(v, str) and "mlstatic.com" in v), None)
+            if img:
+                achados.append({"foto": img[:300], **{str(k)[:40]: v for k, v in x.items()
+                                                      if isinstance(v, (int, float, bool)) or (isinstance(v, str) and len(v) <= 200)}})
+            else:
+                for v in x.values():
+                    andar(v, fundo + 1)
+    andar(dados)
+    return achados
+
+
+def capturar_fotos_vendedor(pg, h, per, nome=None, espera=60):
+    """Abre a análise do vendedor no período e guarda as respostas 'analysisitems' (a tabela da tela), passando as
+    páginas da tabela para vir tudo. Não exporta nada."""
+    respostas = []
+
+    def ouvir(r):
+        if "analysisitems" in r.url:
+            try:
+                respostas.append(r.json())
+            except Exception:  # noqa: BLE001
+                pass
+    pg.on("response", ouvir)
+    try:
+        url = (f"{BASE}/competition/analysisbycompetitor?seller={h}&range={per['rng']}&category="
+               f"&from={per['ini']}&to={per['fim']}")
+        ir(pg, url, "button#tab-1")
+        pg.click("button#tab-1")
+        fim_t = time.time() + espera
+        while time.time() < fim_t and not respostas:
+            pg.wait_for_timeout(700)
+        devagar(3)
+        for _ in range(30):                              # passa as páginas da tabela (cada uma pede à API de novo)
+            prox = pg.locator('button[aria-label="Go to next page"]')
+            if prox.count() == 0 or prox.first.is_disabled():
+                break
+            antes = len(respostas)
+            prox.first.scroll_into_view_if_needed()
+            prox.first.click()
+            fim_p = time.time() + 20
+            while time.time() < fim_p and len(respostas) == antes:
+                pg.wait_for_timeout(500)
+            devagar(1)
+    finally:
+        try:
+            pg.remove_listener("response", ouvir)
+        except Exception:  # noqa: BLE001
+            pass
+    itens, vistos = [], set()
+    for d in respostas:
+        for it in fotos_do_json(d):
+            chave = json.dumps(it, sort_keys=True, ensure_ascii=False)[:400]
+            if chave not in vistos:
+                vistos.add(chave)
+                itens.append(it)
+    return itens
+
+
+def coletar_fotos_vendedores(p, cfg, token, so=None):
+    """Para cada vendedor seguido: as fotos dos anúncios do mês atual (a tela do Nubimetrics), enviadas ao nubi para
+    comparar com a foto dos anúncios no Mercado Livre."""
+    ctx = abrir_navegador(p, cfg)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    feitos, total, erros, partes = 0, 0, 0, []
+    try:
+        lista, _ = listar_vendedores(pg, cfg)
+        per = (periodos(cfg) or [None])[-1]
+        if not per:
+            return 0, 0, 0, "sem período liberado"
+        for h, nome in lista:
+            if so and so.upper() != nome.upper():
+                continue
+            try:
+                itens = capturar_fotos_vendedor(pg, h, per, nome)
+                api(token, "ml_vend_fotos", corpo={"seller_hash": h, "nome": nome, "mes": per["mes"], "ini": per["ini"],
+                                                 "fim": per["fim"], "itens": itens}, timeout=60)
+                feitos += 1
+                total += len(itens)
+                log(f"  {nome}: {len(itens)} anúncio(s) com foto")
+            except SessaoExpirada:
+                raise
+            except Exception as e:  # noqa: BLE001
+                erros += 1
+                log(f"  {nome}: ERRO {str(e)[:150]}")
+            time.sleep(PAUSA * random.uniform(0.5, 1.0))
+        guardar_sessao(ctx)
+    finally:
+        ctx.close()
+    return feitos, total, erros, f"fotos de {feitos} vendedor(es): {total} anúncio(s)"
+
+
 def cmd_entrar_upseller(args, cfg):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -2506,7 +2610,7 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  # 27/09 (Mac com malware, reinstalação): coletas e logins também no servidor (gamdias)
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
-                 "ml_lojas", "ml_posicoes", "entrar_ml", "atender_tiktok")
+                 "ml_lojas", "ml_posicoes", "entrar_ml", "atender_tiktok", "vend_fotos")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -2561,6 +2665,7 @@ def comando_mac(chave, arg=""):
         "ferreiro_status": [*c, "programar", "0"], "astra_status": [*c, "programar-astra", "0"],
         "navegador_status": [*c, "navegar", "0"],
         "ml_lojas": [*c, "ml-lojas"], "ml_posicoes": [*c, "ml-posicoes"], "entrar_ml": [*c, "entrar-ml"],
+        "vend_fotos": [*c, "fotos-vendedores"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -6444,6 +6549,8 @@ def main():
     sub.add_parser("entrar-ml", help="Mercado Livre: abre a janela para passar pela verificação (sessão fica salva)")
     sub.add_parser("ml-lojas", help="Mercado Livre: acha os anúncios das minhas lojas")
     sub.add_parser("ml-posicoes", help="Mercado Livre: posição dos meus anúncios na busca")
+    fv = sub.add_parser("fotos-vendedores", help="Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML)")
+    fv.add_argument("--so", default=None, help="só este vendedor (nome como aparece no Nubimetrics)")
     gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
     gs.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     es = sub.add_parser("estoque", help="exporta a Lista de Estoque do UpSeller e manda para o nubi")
@@ -6556,6 +6663,8 @@ def main():
         return executar("ml_lojas", coletar_ml_lojas)
     if args.cmd == "ml-posicoes":
         return executar("ml_posicoes", coletar_ml_posicoes)
+    if args.cmd == "fotos-vendedores":
+        return executar("vend_fotos", lambda p, cfg, token: coletar_fotos_vendedores(p, cfg, token, args.so))
     if args.cmd == "atualizar":
         novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro

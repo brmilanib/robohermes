@@ -168,6 +168,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     KLASSEY 25333 x 360842, BAGATELLE 20309/78630 x 220802). `casar` agora exige só "é/não é loja oficial" igual; o nº
     vira prova ("loja oficial nº") só com a tradução aprendida (`meli|oficial_nubi_ml`, `_oficiais`), que o nubi grava
     quando o Bruno confirma uma loja com 1 nº de cada lado (`_aprender_oficial`) e no 🔌.
+  - FOTO (29/09, pedido do Bruno: "a foto do anúncio no Nubimetrics é a mesma do ML"): a foto NÃO vem no export; vem na
+    resposta interna `analysisitems` que a tela do vendedor carrega. Coletor `fotos-vendedores` (comando da Central
+    `vend_fotos`, roda no servidor gamdias onde o Nubimetrics está logado): abre a análise de cada seguido no mês atual,
+    passa as páginas da tabela, `fotos_do_json` pega os objetos com link mlstatic (+ campos simples) e manda para
+    `ml_vend_fotos` -> ia_resumos `vend_fotos|<vendedor>`; a página do vendedor mostra "📷 Fotos dos anúncios no
+    Nubimetrics" (rota `meli_fotos_seguido`, com os nomes dos campos para conferir). Próximo passo: comparar com a foto do
+    anúncio no ML. Teste 29/09: o Apify `sourabhbgp/mercadolibre-scraper` (busca, US$ 0,005/resultado) devolveu o
+    MLB4350649763 com a foto 951134-MLB91143087125 (a do Cowork) — traz itemId e thumbnail, mas o vendedor só em loja
+    oficial; `maximedupre/mercado-libre-search-scraper` NÃO serve (devolve a marca no lugar do vendedor, sem MLB).
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

@@ -250,6 +250,11 @@ a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .ml-cands{display:grid;gap:6px;margin-top:6px}
 .ml-cand{display:flex;gap:10px;align-items:center;justify-content:space-between;border:1px dashed var(--line);border-radius:8px;padding:6px 8px;background:var(--card)}
 .ml-cand .btn{flex:none}
+.ml-fotos{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px}
+.ml-foto{border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--card);min-width:0}
+.ml-foto img{width:100%;aspect-ratio:1;object-fit:contain;background:#fff;border-radius:6px}
+.ml-foto .t{font-size:11.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ml-foto .p{font-size:12px;font-weight:700}
 #sml-tab .btn.ghost,#vml-loja .btn.ghost,#pv-ml .btn.ghost{background:var(--card);border-color:var(--line);color:var(--ink)}
 #sml-tab .btn.ghost:hover,#vml-loja .btn.ghost:hover,#pv-ml .btn.ghost:hover{background:var(--soft)}
 .calc-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}@media (max-width:600px){.calc-g{grid-template-columns:1fr}}
@@ -6129,6 +6134,26 @@ async function lojaMLSeguido(nomeV) {
   };
   try { desenhar((await api("meli_seguido", {vendedor: nomeV})).loja); }
   catch (e) { el.innerHTML = mlAviso(e); }
+  fotosNubiSeguido(nomeV);
+}
+// 29/09 (Bruno): as fotos dos anúncios dele na tela do Nubimetrics (coletor "fotos dos vendedores"): a mesma foto do
+// anúncio no Mercado Livre é a prova mais forte de qual é a loja
+async function fotosNubiSeguido(nomeV) {
+  const el = $("#vml-loja"); if (!el) return;
+  let r; try { r = await api("meli_fotos_seguido", {vendedor: nomeV}); } catch { return; }
+  const xs = r.itens || [];
+  let box = $("#vml-fotos");                      // fora do #vml-loja: o "Descobrir" redesenha aquele quadro
+  if (!box) { box = document.createElement("div"); box.id = "vml-fotos"; el.insertAdjacentElement("afterend", box); }
+  box.className = "card pad"; box.style.marginTop = "10px";
+  const campo = (x, re) => { const k = Object.keys(x).find(k => re.test(k)); return k ? x[k] : null; };
+  box.innerHTML = xs.length ? `<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>📷 Fotos dos anúncios no Nubimetrics</b>
+      <span class="muted" style="font-size:12.5px">${nf0.format(xs.length)} anúncio(s) · ${esc(dataBR(String(r.ini || "")))} a ${esc(dataBR(String(r.fim || "")))} · lidas em ${esc(atQuando(r.em))}</span></div>
+    <div class="ml-fotos">${xs.slice(0, 60).map(x => { const t = campo(x, /title|titul|name|nome/i), pr = campo(x, /price|preco|preço/i);
+      return `<div class="ml-foto"><img src="${esc(urlML(x.foto))}" alt="" loading="lazy"><div class="t" title="${esc(t || "")}">${esc(t || "")}</div>
+        ${pr != null && !isNaN(+pr) ? `<div class="p">${rsES(+pr)}</div>` : ""}<div class="muted" style="font-size:10.5px;overflow-wrap:anywhere">${esc((String(x.foto).match(/\d+-ML[AB]\d+/) || [""])[0])}</div></div>`; }).join("")}</div>
+    <details class="muted" style="font-size:11.5px;margin-top:6px"><summary>campos que o Nubimetrics manda</summary>${esc(Object.keys(xs[0]).join(", "))}</details>`
+    : `<span class="muted" style="font-size:13px">📷 Fotos dos anúncios no Nubimetrics: ainda não lidas. Na Central, peça ao coletor
+      "Nubimetrics: fotos dos anúncios dos vendedores seguidos".</span>`;
 }
 // Painel "Vendedores × ML" (29/09, pedido do Bruno): todos os vendedores seguidos com os dados técnicos do último relatório
 // (hash, anúncios, GTIN, catálogo, Full, faturamento…) e o botão "Descobrir loja no ML" em cada um

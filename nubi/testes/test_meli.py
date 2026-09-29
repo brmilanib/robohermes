@@ -700,6 +700,31 @@ def test_calibracao_com_os_anuncios_do_bruno():
     assert cal["ok"] and "8 anúncios seus, de 19/01/2026 a 26/01/2026" in cal["detalhe"], cal
 
 
+def test_fotos_do_nubimetrics_para_comparar_com_o_ml():
+    """29/09 (Bruno: 'a foto do anúncio no Nubimetrics é a mesma do ML'): o coletor lê a resposta 'analysisitems' da tela
+    do vendedor e o nubi guarda as fotos por vendedor."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "public" / "coletor"))
+    import coletor
+    resp = {"data": {"items": [
+        {"title": "Perfume Árabe Al Wataniah Bareeq Al Dhah", "price": 149.9, "sku": "BAREEQ",
+         "thumbnail": "https://http2.mlstatic.com/D_951134-MLB91143087125_082025-I.jpg", "extra": {"x": 1}},
+        {"title": "Sem foto", "price": 10}]}, "total": 1}
+    xs = coletor.fotos_do_json(resp)
+    assert xs == [{"foto": "https://http2.mlstatic.com/D_951134-MLB91143087125_082025-I.jpg", "title": "Perfume Árabe Al Wataniah Bareeq Al Dhah",
+                   "price": 149.9, "sku": "BAREEQ", "thumbnail": "https://http2.mlstatic.com/D_951134-MLB91143087125_082025-I.jpg"}], xs
+    os.environ.setdefault("OLLAMA_API_KEY", "x")
+    os.environ.setdefault("ANTHROPIC_API_KEY", "x")
+    import nubi_web as w
+    r = Repo()
+    out = w.rota_posicoes(r, "POST", "ml_vend_fotos", {}, json.dumps({"nome": "ICARBONXX P3", "seller_hash": "H", "mes": "2026-09",
+                                                                    "itens": xs + [{"sem": "foto"}]}).encode())
+    assert out == {"ok": True, "itens": 1}
+    lido = w.rota_meli(r, "GET", "meli_fotos_seguido", {"vendedor": "ICARBONXX P3"}, b"")
+    assert lido["itens"][0]["sku"] == "BAREEQ" and lido["mes"] == "2026-09"
+    assert w.rota_meli(r, "GET", "meli_fotos_seguido", {"vendedor": "OUTRO"}, b"") == {"itens": []}
+    assert "vend_fotos" in w.COMANDOS_MAC and coletor.comando_mac("vend_fotos")[-1] == "fotos-vendedores"
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):
