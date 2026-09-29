@@ -836,11 +836,17 @@ def atender(metodo, rota, q, corpo, token):
             ligar_registro_uso(rc, "rotinas")
             return _json(rodar_rotinas(rc))
         if rota.startswith("ext_"):
-            # extensão do Chrome (29/09): SEM login, só dado público do ML (nada do nubi nem do Bruno)
+            # extensão do Chrome (29/09): SEM login, só dado público do ML (nada do nubi nem do Bruno). Liberado para
+            # qualquer origem (print do Bruno: "sem resposta do nubi (Failed to fetch)" no Chrome dele): assim a
+            # extensão não depende da permissão de site que o Chrome dá a ela
+            cors = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET"}
             try:
-                return _json(rota_extensao(rota, q))
+                st, tipo, dados, extra = _json(rota_extensao(rota, q))
             except meli.ErroMeli as e:
-                raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 400)
+                st, tipo, dados, extra = _json({"erro": str(e)[:1].upper() + str(e)[1:]}, 400)
+            except ErroNuvem as e:
+                st, tipo, dados, extra = _json({"erro": str(e)}, e.status)
+            return st, tipo, dados, {**extra, **cors}
         repo = RepoSupabase(token)
         ligar_registro_uso(repo, rota)
         if rota == "agente" and metodo == "POST":

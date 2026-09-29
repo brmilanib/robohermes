@@ -62,7 +62,7 @@
 .nubi-spy-bt.escuro{background:var(--az)!important;border-color:var(--az)!important;color:#fff!important}
 .nubi-spy .nubi-spy-vend{margin:0 10px 12px;border:1px solid var(--ln)}
 .nubi-spy-vend{border-radius:12px;overflow:hidden;background:#fff}
-#nubi-ml-vendedor{margin:14px 0}
+#nubi-ml-vendedor{display:block;width:100%;max-width:100%;flex:1 0 100%;box-sizing:border-box;margin:14px 0;align-self:stretch}
 .nubi-spy-vcab{display:flex;align-items:center;gap:6px;font-weight:700;color:#fff;padding:8px 10px;background:linear-gradient(100deg,var(--az),var(--az2))}
 .nubi-spy-vtopo{display:flex;gap:10px;align-items:center;padding:10px}
 .nubi-spy-vic{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:#eef3ff;color:var(--az2);flex:none}

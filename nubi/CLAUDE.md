@@ -218,6 +218,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     as canceladas = `vendas_ok` de `normalizar_loja`, como o Hunter: 25.957 x 26.173). O Hunter mostra a data sem a conta
     do Bruno conectada: a extensão testa o `/items/{id}` público do ML direto do navegador, sem token nem cookie
     (`itemPublico`); se o ML deixar, usa a data de criação, vendidos e estoque de lá; senão o quadro mostra o código.
+    0.4.1 (29/09, print: "sem resposta do nubi (Failed to fetch)" e /items do navegador 403): as rotas `ext_*` respondem com
+    `Access-Control-Allow-Origin: *` (e `api/app.py` responde OPTIONS) para a extensão não depender da permissão de site do
+    Chrome; o servidor já devolvia certo (frete 24,45, comissão 30,84 = Hunter). `/items` público do navegador = 403: a
+    data exata e o total de visitas na vida só com token de USUÁRIO do ML (OAuth da conta do Bruno) — decisão dele.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

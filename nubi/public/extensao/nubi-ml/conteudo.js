@@ -133,7 +133,8 @@
         conv != null ? `Vende a cada ${nf(Math.round(1 / conv))} visitas` : "precisa das visitas no total",
         `<div class="nubi-spy-barra"><i style="width:${conv != null ? Math.min(100, conv / 0.05 * 100) : 0}%"></i></div>`)}
       ${linha("olho", "azul", "Visitas", ld || dec(v.anuncio != null ? v.anuncio / 30 : null), "/dia",
-        [total != null ? `${nf(total)} no total` : "", v.anuncio != null ? `${nf(v.anuncio)} em 30 dias` : ""].filter(Boolean).join(" · ") +
+        [total != null ? `${nf(total)} no total` : h.total_janela != null ? `${nf(h.total_janela)} em ${h.dias_lidos} dias` : "",
+         v.anuncio != null ? `${nf(v.anuncio)} em 30 dias` : ""].filter(Boolean).join(" · ") +
         (v.catalogo != null ? `<br>Catálogo: <b>${dec(v.catalogo / 30)}/dia</b>${v.parte != null ? ` · <b>${v.parte}%</b> deste anúncio` : ""}` : ""))}
       ${linha("carrinho", "verde", `Vendas <small class="nubi-spy-fraco">${a.vendidos != null ? (a.vendidosExato ? "" : "+") + nf(a.vendidos) + " total" : "sem o total"}</small>`,
         dec(vendasDia), "/dia", a.estoque != null ? `Estoque: <b>${nf(a.estoque)} un.</b>${vendasDia ? ` · dura ≈ ${nf(Math.round(a.estoque / vendasDia))} dias` : ""}` : "",
@@ -175,8 +176,10 @@
     if (!cv) {
       cv = document.createElement("div");
       cv.id = "nubi-ml-vendedor"; cv.className = "nubi-spy nubi-spy-vend";
+      // embaixo do bloco inteiro de compra da coluna da direita (no print ficou espremido ao lado dele)
       const bb = document.querySelector("#buybox-form, form.ui-pdp-buybox, .ui-pdp-buybox");
-      const bloco = bb && (bb.closest(".ui-box-component, .ui-pdp-component-list") || bb);
+      const bloco = bb && (bb.closest(".ui-pdp-container__row, .ui-pdp-buybox-container, [class*='buybox__container']") ||
+        bb.closest(".ui-box-component, .ui-pdp-component-list") || bb);
       if (bloco && bloco.parentElement && !q.contains(bloco)) bloco.insertAdjacentElement("afterend", cv); else q.appendChild(cv);
     }
     cv.innerHTML = vend;

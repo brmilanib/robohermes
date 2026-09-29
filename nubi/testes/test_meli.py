@@ -777,7 +777,8 @@ def test_extensao_do_chrome_dado_publico_do_ml():
                                                   "tipo": "gold_special", "preco": "69.90"}))
     assert y["frete"] is None and y["visitas"] == {"anuncio": 22} and not y["concorrentes"] and "mais_velho_que" in y["historico"]
     # a rota: sem login (token vazio), e o que não é ext_ continua pedindo login
-    st, _, corpo, _ = w.atender("GET", "ext_tendencias", {"categoria": "mlb1246"}, b"", "")
+    st, _, corpo, cab = w.atender("GET", "ext_tendencias", {"categoria": "mlb1246"}, b"", "")
+    assert cab.get("Access-Control-Allow-Origin") == "*"            # a extensão não depende da permissão de site do Chrome
     assert st == 200 and [t["termo"] for t in json.loads(corpo)["termos"]] == ["asad elixir", "starlink mini"]
     assert json.loads(corpo)["termos"][0]["link"].startswith("https://")
     st, _, corpo, _ = w.atender("GET", "ext_categorias", {}, b"", "")

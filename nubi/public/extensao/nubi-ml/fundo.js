@@ -91,7 +91,7 @@ async function nubi(rota, params) {
   const qs = new URLSearchParams(Object.entries(params || {}).filter(([, v]) => v != null && v !== ""));
   const url = `${NUBI}/api/app?r=${rota}&${qs}`;
   if (cacheNubi.has(url)) return cacheNubi.get(url);
-  const uma = () => fetch(url).then(async r => { const j = await r.json().catch(() => ({})); return r.ok ? j : {erro: j.erro || j.detail || `erro ${r.status}`}; });
+  const uma = () => fetch(url, {mode: "cors", credentials: "omit", cache: "no-store"}).then(async r => { const j = await r.json().catch(() => ({})); return r.ok ? j : {erro: j.erro || j.detail || `erro ${r.status}`}; });
   // 1 nova tentativa (o nubi pode estar trocando de versão); o erro diz o motivo
   const p = uma().catch(() => new Promise(ok => setTimeout(ok, 1500)).then(uma))
     .catch(e => ({erro: `sem resposta do nubi (${String(e && e.message || e).slice(0, 60)})`}));

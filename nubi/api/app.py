@@ -34,3 +34,10 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self._rodar("POST")
+
+    def do_OPTIONS(self):
+        # a extensão do Chrome pede as rotas ext_* de outra origem; só GET, sem credenciais
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET")
+        self.end_headers()
