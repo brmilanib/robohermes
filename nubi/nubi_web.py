@@ -299,12 +299,29 @@ def _lojas_ml_do(repo, hashes):
     return {h: _hash_ok(x) for h, x in m.items() if h in hashes and _hash_ok(x)}
 
 
-def relatorio(repo, marca):
+def escolher_periodo(snaps, periodo=None):
+    """30/09 (Bruno: "analisar os últimos 30 dias e os últimos 7 dias"): o export do Explorador é por período (sem venda
+    por dia); cada período importado vira uma opção. Sem escolha: o que termina por último e, empatado, o mais longo.
+    Anterior = o último período que TERMINA antes deste começar (7 dias dentro de 59 não é "anterior")."""
+    s = snaps.assign(_fim=snaps["fim"].astype(str), _ini=snaps["inicio"].astype(str), _d=snaps["dias"].astype(int))
+    atual = None
+    if periodo not in (None, ""):
+        achou = s[s["id"].astype(str) == str(periodo)]
+        if achou.empty:
+            raise ErroNuvem("Período não encontrado para esta marca.", 404)
+        atual = achou.iloc[0]
+    if atual is None:
+        atual = s.sort_values(["_fim", "_d", "id"]).iloc[-1]
+    antes = s[s["_fim"] < atual["_ini"]].sort_values(["_fim", "_d", "id"])
+    anterior = antes.iloc[-1] if len(antes) else None
+    return atual, anterior
+
+
+def relatorio(repo, marca, periodo=None):
     snaps = repo.snapshots(marca)
     if snaps.empty:
         raise ErroNuvem(f"Nenhum período importado para {marca}.", 404)
-    atual = snaps.iloc[-1]
-    anterior = snaps.iloc[-2] if len(snaps) >= 2 else None
+    atual, anterior = escolher_periodo(snaps, periodo)
     df = nubi.ler_snapshot(repo, atual["id"], marca)
     df, un_trocada = _com_marca_trocada(repo, df, atual, marca)
     dias = int(atual["dias"])
@@ -1535,7 +1552,7 @@ def atender(metodo, rota, q, corpo, token):
 
         if rota == "relatorio":
             _preparar(repo)
-            return _json(relatorio(repo, q["marca"]))
+            return _json(relatorio(repo, q["marca"], q.get("periodo")))
 
         if rota == "importar" and metodo == "POST":
             log = _preparar(repo)

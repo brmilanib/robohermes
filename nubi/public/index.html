@@ -1018,6 +1018,11 @@ header.top{padding:7px 16px}
 .in-tempo-ic{font-size:28px}
 .ml-nota{font-size:42px}
 .ml-preco{font-size:21px}
+.per-marca{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 2px;font-size:12px}
+.per-chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--ink)}
+.per-chip small{color:var(--muted)}
+.per-chip.on{background:var(--accent);border-color:var(--accent);color:#fff}.per-chip.on small{color:#e8efff}
+.per-chip.falta{border-style:dashed;color:var(--muted);cursor:help}
 /* telas grandes: aumenta menos (antes 1.2/1.4/1.6 deixava tudo enorme) */
 @media (min-width:2200px){body{zoom:1.05}}
 @media (min-width:2800px){body{zoom:1.2}}
@@ -5762,12 +5767,35 @@ const kpi = (l, v, o = "") => `<div class="card kpi"><div class="l">${esc(l)}</d
 // ---------- Marca ----------
 async function abrirMarca(marca, manterAba = false) {
   $("#main").innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando ${esc(nome(marca))}</div></div>`;
-  try { S.rel = await api("relatorio", {marca}); }
-  catch (e) { $("#main").innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  S.perMarca = S.perMarca || {};
+  const per = S.perMarca[marca];
+  try { S.rel = await api("relatorio", per ? {marca, periodo: per} : {marca}); }
+  catch (e) {
+    if (per) { delete S.perMarca[marca]; return abrirMarca(marca, manterAba); }   // período apagado: volta ao padrão
+    $("#main").innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!manterAba) S.aba = "oportunidades";
   S.tabelas = {};
   telaMarca();
 }
+
+// 30/09 (Bruno: "opção de analisar os últimos 30 dias e os últimos 7 dias"): o export do Explorador vem por período (sem
+// venda por dia), então cada período importado é uma opção; 7 e 30 dias aparecem quando o export desse período foi importado.
+const rotuloPer = p => p.dias <= 8 ? "7 dias" : p.dias >= 28 && p.dias <= 31 ? "30 dias" : p.dias <= 16 ? `${p.dias} dias` : `Completo · ${p.dias} dias`;
+function periodosMarca(r) {
+  const ps = [...(r.periodos || [])].sort((a, b) => b.fim.localeCompare(a.fim) || b.dias - a.dias).slice(0, 8);
+  const tem = n => ps.some(p => n === 7 ? p.dias <= 8 : p.dias >= 28 && p.dias <= 31);
+  const falta = [[30, "30 dias"], [7, "7 dias"]].filter(([n]) => !tem(n));
+  return `<div class="per-marca"><span class="muted">Analisar:</span>
+    ${ps.map(p => `<button class="per-chip ${p.id === r.atual.id ? "on" : ""}" data-per="${p.id}" title="${dataBR(p.inicio)} a ${dataBR(p.fim)} · ${esc(p.arquivo || "")}">
+      <b>${rotuloPer(p)}</b> <small>${dataBR(p.inicio).slice(0, 5)}–${dataBR(p.fim).slice(0, 5)}</small></button>`).join("")}
+    ${falta.map(([, t]) => `<span class="per-chip falta" title="No Nubimetrics, Explorador de anúncios: filtre a marca, escolha os últimos ${t} e exporte; depois importe aqui (⬆ Importar). O nubi guarda cada período e você troca por aqui.">+ ${t}: importe o export</span>`).join("")}</div>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest(".per-chip[data-per]");
+  if (!b || !S.rel) return;
+  S.perMarca = S.perMarca || {}; S.perMarca[S.rel.marca] = +b.dataset.per;
+  abrirMarca(S.rel.marca, true);
+});
 
 const ABAS = [
   ["oportunidades", "Oportunidades"], ["evolucao", "Evolução"], ["historico", "Histórico"], ["produtos", "Produtos"],
@@ -5784,6 +5812,7 @@ function telaMarca() {
       <h1>${esc(r.nome)}</h1>
       <span class="muted">${dataBR(r.atual.inicio)} a ${dataBR(r.atual.fim)} · ${r.atual.dias} dias${ant ? ` · comparando com ${dataBR(ant.inicio)} a ${dataBR(ant.fim)}` : ""}</span>
     </div>
+    ${periodosMarca(r)}
     <p class="aviso">Mercado inteiro (todos os vendedores), não só a sua loja.</p>
     <div class="kpis">
       ${kpi("Unidades no período", nf0.format(z.un), "giro " + nf1.format(z.giro) + "/dia")}
