@@ -1521,9 +1521,17 @@ def _vendedor_do_anuncio(item, pid):
                 return str(of["seller_id"]), {"preco": _num(of.get("price")), "full": sh.get("logistic_type") == "fulfillment",
                                               "tipo": TIPOS.get(of.get("listing_type_id"), ""), "oficial": of.get("official_store_id")}
         if pid.startswith("MLBU"):
-            u = _get(f"/user-products/{pid}") or {}
+            try:
+                u = _get(f"/user-products/{pid}") or {}
+            except (NaoAchou, ErroMeli):
+                u = {}
             if u.get("user_id"):
                 return str(u["user_id"]), {}
+        # sem catálogo: as perguntas do anúncio trazem o vendedor (API pública de perguntas)
+        q = _get("/questions/search", {"item": item, "limit": 1}) or {}
+        sid = next((x.get("seller_id") for x in q.get("questions") or [] if x.get("seller_id")), None) or q.get("seller_id")
+        if sid:
+            return str(sid), {}
     except ErroLogin:
         raise
     except ErroMeli:
