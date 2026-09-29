@@ -17,7 +17,7 @@ with zipfile.ZipFile(RAIZ / "public" / "extensao" / "nubi-ml.zip") as z:
         assert z.read(f"nubi-ml/{f.name}") == f.read_bytes(), f"zip desatualizado: rode python3 testes/gerar_extensao.py ({f.name})"
 man = json.loads((EXT / "manifest.json").read_text())
 assert man["manifest_version"] == 3 and "https://*.mercadolivre.com.br/*" in man["host_permissions"]
-assert man["version"] == "0.7.3", man["version"]
+assert man["version"] == "0.7.4", man["version"]
 assert man["action"]["default_popup"] == "popup.html"
 
 # 2) leitor da página do anúncio

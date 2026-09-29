@@ -1543,11 +1543,13 @@ def _vendedor_do_anuncio(item, pid):
                 sh = of.get("shipping") or {}
                 return str(of["seller_id"]), {"preco": _num(of.get("price")), "full": sh.get("logistic_type") == "fulfillment",
                                               "tipo": TIPOS.get(of.get("listing_type_id"), ""), "oficial": of.get("official_store_id")}
+        motivo = []
         if pid.startswith("MLBU"):
             try:
                 u = _get(f"/user-products/{pid}") or {}
-            except (NaoAchou, ErroMeli):
+            except (NaoAchou, ErroMeli) as e:
                 u = {}
+                motivo.append("produto do vendedor: " + str(e)[:40])
             if u.get("user_id"):
                 return str(u["user_id"]), {}
         # sem catálogo: as perguntas do anúncio trazem o vendedor (API pública de perguntas)
@@ -1555,11 +1557,27 @@ def _vendedor_do_anuncio(item, pid):
         sid = next((x.get("seller_id") for x in q.get("questions") or [] if x.get("seller_id")), None) or q.get("seller_id")
         if sid:
             return str(sid), {}
+        motivo.append("sem perguntas no anúncio")
+        return None, {"motivo": "o ML não diz o vendedor (" + "; ".join(motivo) + ")"}
     except ErroLogin:
         raise
     except ErroMeli:
         pass
     return None, {}
+
+
+def _primeira_visita(mlb):
+    """30/09 (print lado a lado com o Hunter: anúncios NOVOS saíam sem data): o 1º dia com visita nos últimos 150 dias =
+    o dia em que o anúncio entrou no ar (1 pedido). Mais velho que 150 dias: None (fica a estimativa pelo nº do MLB)."""
+    try:
+        r = _get(f"/items/{mlb}/visits/time_window", {"last": 150, "unit": "day"}) or {}
+    except ErroLogin:
+        raise
+    except ErroMeli:
+        return None
+    xs = sorted((str(x.get("date") or "")[:10], int(x.get("total") or 0)) for x in r.get("results") or [])
+    com = [d for d, q in xs if q > 0]
+    return com[0] if com and xs and com[0] > xs[0][0] else None
 
 
 def ext_lista(mlbs, calib=None):
@@ -1590,14 +1608,21 @@ def ext_lista(mlbs, calib=None):
     if falta_v:
         for (it, _), r in _em_paralelo(lambda c: (c, _vendedor_do_anuncio(*c)), falta_v):
             _CACHE[f"ext|vend|{it}"] = (time.time(), r)
+    # data de entrada pela 1ª visita (a data não muda: cache de 1 dia)
+    falta_d = [m for m in ids if f"ext|entrou|{m}" not in _CACHE or time.time() - _CACHE[f"ext|entrou|{m}"][0] > 86400]
+    if falta_d:
+        for m, d in _em_paralelo(lambda m: (m, _primeira_visita(m)), falta_d, n=10):
+            _CACHE[f"ext|entrou|{m}"] = (time.time(), d)
     vend = {it: (_CACHE.get(f"ext|vend|{it}") or (0, (None, {})))[1] for it in ids}
     lj = lojas([v[0] for v in vend.values() if v and v[0]])
     out = {}
     for m in ids:
         d, folga = data_pelo_mlb(m, calib) if calib else (None, None)
+        entrou = (_CACHE.get(f"ext|entrou|{m}") or (0, None))[1]
         sid, extra = vend.get(m) or (None, {})
         out[m] = {"visitas30": (_CACHE.get(f"ext|vis30|{m}") or (0, None))[1],
-                  "criado": d.isoformat() if d else None, "folga": round(folga) if folga else None,
+                  "criado": entrou or (d.isoformat() if d else None), "criado_por": "1ª visita" if entrou else "nº do anúncio" if d else None,
+                  "folga": None if entrou else round(folga) if folga else None,
                   "vendedor": sid, "loja": lj.get(sid) if sid else None, **(extra or {})}
     return out
 

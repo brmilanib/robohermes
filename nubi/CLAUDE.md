@@ -278,6 +278,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     no navegador de verdade o ML tira o script `__NORDIC_RENDERING_CTX__` depois de montar (o coletor salvava antes).
     `cedo.js` (document_start) guarda a cópia do texto com `printed_result` (`globalThis.__nubiScripts`), `pagina.js`
     (world MAIN) manda `window._n.ctx.r`; `doCartao` lê no próprio card "+5mil vendidos", FULL, marca e preço.
+  - 0.7.3/0.7.4 (30/09, prints lado a lado com o Hunter: "as lojas novas, anúncios novos não estão puxando"): nome da loja
+    que o card mostra (`.poly-component__seller`) quando a API não diz; `ext_lista` dá a data pela 1ª visita dos últimos
+    150 dias (`_primeira_visita`, cache 1 dia; `criado_por`), senão pelo nº do MLB; sem vendedor devolve `motivo`.
   - TESTE COM A AURASCENT (29/09, botão 🔌): mesmo com a conta de VENDEDOR, `/items/{id}`, `/items?ids=` e
     `/sites/MLB/search` dão 403; funcionam /users/me, anúncios da própria conta, descrição, catálogo, visitas, tarifa. O
     bloqueio é do APP no ML (DevCenter), não da conta. Vendedor de anúncio fora de catálogo segue sem fonte oficial.

@@ -939,11 +939,6 @@ def test_comparar_vendas_nubimetrics_com_o_ml():
     assert [x["vendedor"] for x in o["opcoes"]] == ["ESSENCE"] and "222222222" in o["lojas"]
 
 
-if __name__ == "__main__":
-    for n, f in list(globals().items()):
-        if n.startswith("test_"):
-            f()
-            print("ok", n)
 
 
 def test_ext_lista_visitas_em_lote_e_data_pelo_mlb():
@@ -962,3 +957,41 @@ def test_ext_lista_visitas_em_lote_e_data_pelo_mlb():
         assert len(pedidos) == 1                                                    # cache de 30 min
     finally:
         meli.visitas = velho
+
+
+def test_ext_lista_data_pela_1a_visita_e_motivo_do_vendedor():
+    """30/09 (print lado a lado com o Hunter): anúncio NOVO ganha a data pela 1ª visita (antes só pelo nº do MLB) e o card
+    diz por que o vendedor não veio."""
+    from datetime import date
+    velho_v, velho_g = meli.visitas, meli._get
+    meli.visitas = lambda ids, dias=30: {i: 10 for i in ids}
+
+    def falso(caminho, params=None, **k):
+        if caminho.endswith("/visits/time_window"):
+            if "MLB4355000000" in caminho:     # novo: primeiras semanas sem visita
+                return {"results": [{"date": "2026-05-01T00:00:00Z", "total": 0}, {"date": "2026-09-24T00:00:00Z", "total": 3},
+                                    {"date": "2026-09-25T00:00:00Z", "total": 5}]}
+            return {"results": [{"date": "2026-05-01T00:00:00Z", "total": 2}]}     # velho: visita desde o 1º dia da janela
+        if caminho.startswith("/user-products/"):
+            raise meli.ErroMeli("403 forbidden")
+        if caminho == "/questions/search":
+            return {"questions": [], "total": 0}
+        raise meli.NaoAchou(caminho)
+    meli._get = falso
+    try:
+        meli._CACHE.clear()
+        calib = [(4350000000, date(2025, 12, 1)), (4360000000, date(2025, 12, 31))]
+        r = meli.ext_lista(["MLB4355000000:MLBU123456", "MLB4356000000"], calib=calib)
+        assert r["MLB4355000000"]["criado"] == "2026-09-24" and r["MLB4355000000"]["criado_por"] == "1ª visita", r
+        assert r["MLB4356000000"]["criado"] == "2025-12-19" and r["MLB4356000000"]["criado_por"] == "nº do anúncio", r
+        m = r["MLB4355000000"]["motivo"]
+        assert r["MLB4355000000"]["vendedor"] is None and "403" in m and "sem perguntas" in m, m
+    finally:
+        meli.visitas, meli._get = velho_v, velho_g
+
+
+if __name__ == "__main__":
+    for n, f in list(globals().items()):
+        if n.startswith("test_"):
+            f()
+            print("ok", n)

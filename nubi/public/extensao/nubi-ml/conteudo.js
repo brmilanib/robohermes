@@ -76,7 +76,7 @@
         if (!a.vendedor && x.vendedor) { a.vendedor = x.vendedor; a.loja = x.loja || a.loja; }
         if (a.preco == null && x.preco != null) a.preco = x.preco;
         if (a.full == null && x.full != null) a.full = x.full;
-        if (!a.vendedor) a.motivo = a.pid ? "o ML não disse o vendedor deste anúncio" : "a página não trouxe o produto deste anúncio"; });
+        if (!a.vendedor) a.motivo = x.motivo || (a.pid ? "o ML não disse o vendedor deste anúncio" : "a página não trouxe o produto deste anúncio"); });
     }
     REG.forEach((_, box) => desenharCartao(box));
     resumo();
