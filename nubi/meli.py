@@ -1352,14 +1352,16 @@ def testar(mlb="MLB4577439527", gtin="6290362346548"):
 EXT_TIPOS = ("gold_special", "gold_pro")
 EXT_POR_MINUTO = 90                      # pedidos novos (sem cache) por minuto nesta instância: rota sem login
 _EXT_CONTA = {"min": 0, "n": 0}
+EXT_COLETA_POR_MINUTO = 30               # coletas da extensão gravadas por minuto (rota sem login que grava no banco)
+_EXT_COLETA = {"min": 0, "n": 0}
 
 
-def _ext_limite():
+def _ext_limite(conta=_EXT_CONTA, teto=None):
     m = int(time.time() // 60)
-    if _EXT_CONTA["min"] != m:
-        _EXT_CONTA.update(min=m, n=0)
-    _EXT_CONTA["n"] += 1
-    if _EXT_CONTA["n"] > EXT_POR_MINUTO:
+    if conta["min"] != m:
+        conta.update(min=m, n=0)
+    conta["n"] += 1
+    if conta["n"] > (EXT_POR_MINUTO if teto is None else teto):
         raise ErroMeli("muitos pedidos agora; tente em 1 minuto")
 
 
@@ -1376,6 +1378,27 @@ def ext_parametros(q):
     tipo = str(q.get("tipo") or "")
     return {"mlb": cod("mlb", r"MLB\d{6,14}"), "pid": cod("pid", r"MLB\d{5,14}"), "vendedor": cod("vendedor", r"\d{3,14}"),
             "categoria": cod("categoria", r"MLB\d{1,9}"), "tipo": tipo if tipo in TIPOS else None, "preco": preco}
+
+
+def ext_coleta(q):
+    """Card #121: o que a extensão leu da página do anúncio que o Bruno abriu -> o registro do anúncio. Só código do ML,
+    números e fotos do mlstatic; o que a página não trouxe fica None ("sem dados"), nunca zero nem chute."""
+    p = ext_parametros(q)
+    if not (p["mlb"] and p["vendedor"]):
+        raise ErroMeli("informe o anúncio e o vendedor")
+    nome = re.sub(r"[<>\x00-\x1f]", "", str(q.get("loja") or "")).strip()[:80] or None
+    try:
+        vend = int(str(q.get("vendidos") or ""))
+        vend = vend if 0 <= vend < 10 ** 9 else None
+    except ValueError:
+        vend = None
+    full = {"1": True, "true": True, "0": False, "false": False}.get(str(q.get("full") or "").lower())
+    fotos = [f for f in dict.fromkeys(str(q.get("fotos") or "").split(","))
+             if re.fullmatch(r"https://http2\.mlstatic\.com/[\w\-.]{5,200}", f)][:12]
+    reg = {"mlb": p["mlb"], "vendedor": p["vendedor"], "loja": nome, "preco": p["preco"], "fotos": fotos or None,
+           "vendidos": vend, "vendidos_faixa": None if vend is None else vend in FAIXAS_VENDIDOS, "full": full}
+    reg["sem_dados"] = [k for k, v in reg.items() if v is None]
+    return reg
 
 
 def _ext_tenta(f, *a):

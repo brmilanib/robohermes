@@ -17,7 +17,7 @@ with zipfile.ZipFile(RAIZ / "public" / "extensao" / "nubi-ml.zip") as z:
         assert z.read(f"nubi-ml/{f.name}") == f.read_bytes(), f"zip desatualizado: rode python3 testes/gerar_extensao.py ({f.name})"
 man = json.loads((EXT / "manifest.json").read_text())
 assert man["manifest_version"] == 3 and "https://*.mercadolivre.com.br/*" in man["host_permissions"]
-assert man["version"] == "0.7.0", man["version"]
+assert man["version"] == "0.7.1", man["version"]
 assert man["action"]["default_popup"] == "popup.html"
 
 # 2) leitor da página do anúncio
@@ -268,6 +268,11 @@ with sync_playwright() as p:
     ped = [m for m in pg.evaluate("PEDIDOS") if m["tipo"] == "nubi"][0]
     assert ped["rota"] == "ext_ml" and ped["params"] == {"mlb": "MLB6123456789", "pid": "MLB67389993", "vendedor": "1111222233",
                                                          "categoria": "MLB6284", "tipo": "gold_pro", "preco": 246.98}, ped
+    # card #121: o que a página mostrou vai para o nubi (ext_coleta), depois do quadro
+    pg.wait_for_function("(window.PEDIDOS||[]).some(m => m.rota === 'ext_coleta')", timeout=5000)
+    col = [m for m in pg.evaluate("PEDIDOS") if m.get("rota") == "ext_coleta"]
+    assert len(col) == 1 and col[0]["params"] == {"mlb": "MLB6123456789", "vendedor": "1111222233", "loja": "Pereira Eloisa", "preco": 246.98,
+                                                  "vendidos": 100, "full": 1, "fotos": "https://http2.mlstatic.com/D_NQ_NP_2X_1-O.webp"}, col
     pg.click("[data-nubi=conc]")
     assert pg.is_visible(".nubi-spy-lista") and "KAIDOXSTOREE" in pg.inner_text(".nubi-spy-lista")
     pg.click("[data-nubi=midias]")
