@@ -5013,7 +5013,11 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         _enriquecer_diff(repo, atual, itens)
         an = (repo._req("GET", "ia_resumos", {"select": "chave,texto,ia", "chave": "like.analise_estoque|*", "order": "chave.desc",
                                               "limit": 1}) or [None])[0]
+        v = _vendas_atuais(repo)                  # card #122: painel "Estoque total" pelas listas (código, nunca IA)
+        nums = _num_itens([dict(it) for it in itens])
+        ls = estoque.listas(nums, (v or {}).get("linhas") or [], dias=(v or {}).get("dias") or 30)
         return {"atual": atual, "itens": itens, "historico": hist, "rotina": rot, "ultima_execucao": falha,
+                "painel": estoque.painel(nums, ls, tem_vendas=bool(v and v.get("linhas"))),
                 "analise_dia": an and {"dia": an["chave"].split("|", 1)[1], "texto": an["texto"], "por": an.get("ia")},
                 "gestor": {"importacoes": gestor, "automatico": bool(rot_g and rot_g.get("ativo")), "horario": (rot_g or {}).get("horario"), "pedido": pend_g[0] if pend_g else None}}
     raise ErroNuvem("Rota desconhecida.", 404)

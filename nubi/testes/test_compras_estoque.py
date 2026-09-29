@@ -73,12 +73,6 @@ def test_deepseek_so_nas_analises_do_dia():
     assert estoque.ORDEM_IA == (("ollama", None, "Estoquista (gpt-oss)"),)   # importação do estoque: só a grátis
 
 
-if __name__ == "__main__":
-    for nome, f in list(globals().items()):
-        if nome.startswith("test_"):
-            f()
-            print("ok", nome)
-
 
 # 29/09 (Bruno): o DeepSeek acha o equilíbrio da reposição SEMANAL e monta a lista com o último custo pago
 def test_ultimo_custo_pago():
@@ -148,3 +142,31 @@ def test_anuncios_precos_e_encalhados():
     txt = estoque.pedido_analise(ls)
     for sec in ("## Anúncios", "## Preços e margem", "## Encalhados", "MARGEM ABAIXO DE 25% (2 anúncios)", "MESMO SKU COM PREÇO DIFERENTE (1)"):
         assert sec in txt, sec
+
+
+# card #122 (Bruno): painel "Estoque total" no topo do Estoque, só com números de estoque.listas/encalhados (nunca IA)
+def test_painel_estoque_total():
+    est = [dict(x, custo_medio=c) for x, c in zip(ESTOQUE, (170, 40, 60, 80))]
+    vendas = estoque.ler_vendas(_xlsx(VENDAS))
+    ls = estoque.listas(est, vendas, dias=30, alerta=15)
+    p = estoque.painel(est, ls)
+    assert p["unidades"] == 110 and p["valor_custo"] == 10 * 170 + 100 * 40             # atual × custo médio
+    assert p["zerados_vendem"] == ls["zerados_com_venda"] == 1
+    assert p["parado"] == sum(x["parado"] or 0 for x in ls["encalhados"]) == 4000 and p["encalhados"] == 1   # B: 100 un × 40, dura 100 d
+    cob = [r["cobertura_dias"] for r in ls["mais_vendidos"] if r["no_estoque"]]         # A 10, B 100, C 0 (D fora do estoque)
+    assert p["cobertura_media"] == round(sum(cob) / len(cob), 1) == 36.7 and p["cobertura_skus"] == 3
+    ls2 = estoque.listas([dict(ESTOQUE[1], custo_medio=40, disponivel=500)], vendas, dias=30)
+    assert estoque.painel([dict(ESTOQUE[1], custo_medio=40, disponivel=500)], ls2)["parado"] == ls2["encalhados"][0]["parado"] == 20000.0
+    # sem vendas ou sem custo: "sem dados" (None), nunca zero inventado
+    sv = estoque.painel(ESTOQUE, estoque.listas(ESTOQUE, [], dias=30), tem_vendas=False)
+    assert sv["unidades"] == 110 and sv["valor_custo"] is None and sv["parado"] is None
+    assert sv["zerados_vendem"] is None and sv["cobertura_media"] is None
+    vazio = estoque.painel([], estoque.listas([], vendas, dias=30))
+    assert all(vazio[k] is None for k in ("unidades", "valor_custo", "parado", "zerados_vendem", "cobertura_media"))
+
+
+if __name__ == "__main__":
+    for nome, f in list(globals().items()):
+        if nome.startswith("test_"):
+            f()
+            print("ok", nome)

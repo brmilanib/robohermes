@@ -106,6 +106,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `estoque_chat`, `PAPEL_CHAT_COMPRAS`, deepseek-v4-pro, dentro de `deepseek_liberado`), no máximo `COMPRAS_CHAT_MAX`=30
   mensagens por dia (env `NUBI_COMPRAS_CHAT_MAX`), conversa do dia em `compras|chat|<data>`. Se ele mandar `LISTA_JSON`, a
   lista é trocada (mesmas travas). Testes: `test_compras_estoque.py`, `test_compras_real.py` (a IA falsa responde o chat).
+- **Card #122 (29/09)**: painel "📦 Estoque total" no topo do Estoque = `estoque.painel` (rota `estoque`, só de `listas`/
+  `encalhados`; None = "sem dados", nunca zero inventado). Compras: ordenar por coluna (`cpTh`/`S.cpOrd`; no celular pelo
+  seletor `#cp-ordsel`), filtro loja/canal (`#cp-loja`) em Por anúncio e Preços diferentes, tabelas `.cp-tab` viram cartões
+  abaixo de 600 px. O export do UpSeller não tem fornecedor: a lista de compra fica sem agrupar (CSV igual).
 
 - **DeepSeek programador do estoque (29/09, pedido do Bruno: "libera a branch de código pra ele de estoque, mexer no código e
   no layout")**: `coletor programar-deepseek <card>` = o mesmo Codex do Astra com o provedor da API do DeepSeek
