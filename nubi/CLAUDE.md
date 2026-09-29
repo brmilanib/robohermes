@@ -88,6 +88,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   aceita SKUs do plano e só muda quantidade/motivo (nome e custo SEMPRE do sistema). Lista em `ia_resumos` `compras|lista|atual`
   (botão "↺ Voltar ao plano base" = rota `estoque_lista`). A caixa "Análise do Estoquista" do Estoque mostra essa análise
   do dia (`analise_dia` na rota `estoque`); a leitura rápida grátis só aparece sem ela.
+- **DeepSeek focado no estoque (29/09 à tarde, pedido do Bruno: "listas, preços, custo, frequência de venda, análise por
+  anúncio, reposição")**: `estoque.listas` também devolve `anuncios` (`por_anuncio`: preço médio, custo médio, margem antes
+  das taxas, `frequencia`, estoque do SKU), `precos` (`precos_diferentes`: mesmo SKU 15%+ mais caro em outro anúncio/loja)
+  e `encalhados` (dura mais de `ENCALHE_DIAS`=90 dias ou sem venda; dinheiro parado = disponível × custo). Vão para a
+  análise do dia (seções Anúncios, Preços e margem, Encalhados; `tabelas_extra`) e para o chat; abas novas em Compras.
 - **Chat de Compras com o DeepSeek (29/09, EXCEÇÃO pedida pelo Bruno às 2 análises/dia)**: `conversar_compras` (rota
   `estoque_chat`, `PAPEL_CHAT_COMPRAS`, deepseek-v4-pro, dentro de `deepseek_liberado`), no máximo `COMPRAS_CHAT_MAX`=30
   mensagens por dia (env `NUBI_COMPRAS_CHAT_MAX`), conversa do dia em `compras|chat|<data>`. Se ele mandar `LISTA_JSON`, a

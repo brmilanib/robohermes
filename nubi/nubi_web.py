@@ -3993,7 +3993,7 @@ def analise_estoque(repo):
     plano = c.get("plano") or []
     ia.USO["origem"] = "rotina analise_estoque"
     with ia.deepseek_liberado():
-        txt, _, qual = ia.perguntar(estoque.pedido_analise(c) + estoque.pedido_plano(plano), web=False, max_tokens=4500,
+        txt, _, qual = ia.perguntar(estoque.pedido_analise(c) + estoque.pedido_plano(plano), web=False, max_tokens=6500,
                                     qual="deepseek", modelo="pro", sistema=agentes.SISTEMA)
     if not (txt or "").strip():
         return "o DeepSeek não respondeu"

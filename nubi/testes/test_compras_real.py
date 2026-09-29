@@ -58,6 +58,14 @@ try:
                 pg.once("dialog", lambda d: d.accept()); pg.click("#cp-base"); pg.wait_for_selector("text=Plano do sistema", timeout=10000)
             pg.click("[data-cp-aba=zerados]"); pg.wait_for_timeout(800)
             assert pg.locator("tbody").last.inner_text().strip().startswith("C-100")                      # zerado que vendeu vem primeiro
+            # 29/09 (Bruno): por anúncio (preço, custo, margem, frequência), preços diferentes e encalhados
+            pg.click("[data-cp-aba=anuncios]"); pg.wait_for_timeout(800)
+            t = pg.locator("table").last.inner_text()
+            assert "75%" in t and "MLB1" in t and "PUREHOME (Mercado Libre BR)" in t and "pedidos/dia" in t, t[:600]
+            pg.click("[data-cp-aba=encalhados]"); pg.wait_for_timeout(800)
+            assert "B-100" in pg.locator("table").last.inner_text()                     # 100 un., vende 1/dia: 100 dias
+            pg.click("[data-cp-aba=precos]"); pg.wait_for_timeout(800)
+            assert "15% ou mais diferente" in pg.inner_text("#main")
             pg.click("[data-cp-aba=vendidos]"); pg.wait_for_timeout(800)
             larg = pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
             assert larg[0] <= larg[1] + 1, (nome, larg)                                    # sem rolagem de lado

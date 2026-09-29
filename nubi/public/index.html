@@ -3508,7 +3508,32 @@ function abrirMudancasES(k) {
 }
 // 28/09 (Bruno): zerados, mais vendidos e preciso comprar = estoque do UpSeller × vendas por anúncio (30 dias) + a análise
 // diária do DeepSeek. Os números são calculados no servidor (estoque.listas); a IA só interpreta.
-const CP_ABAS = [["comprar", "🛒 Preciso comprar"], ["vendidos", "🔥 Mais vendidos"], ["zerados", "🚫 Zerados"]];
+const CP_ABAS = [["comprar", "🛒 Preciso comprar"], ["vendidos", "🔥 Mais vendidos"], ["zerados", "🚫 Zerados"],
+  ["anuncios", "📊 Por anúncio"], ["precos", "💲 Preços diferentes"], ["encalhados", "🧊 Encalhados"]];
+// 29/09 (Bruno): anúncio (preço, custo, margem antes das taxas, frequência), mesmo SKU com preço diferente e estoque parado
+function cpTabelaExtra(r, aba, q, max) {
+  const f = x => !q || JSON.stringify(x).toLowerCase().includes(q), pct = v => v == null ? "—" : String(v).replace(".", ",") + "%";
+  const xs = (r[aba] || []).filter(f);
+  if (aba === "anuncios") return {n: xs.length, cab: `<th>Anúncio / SKU</th><th>Loja</th><th class="num">Vendidos</th><th class="num">Faturamento</th><th class="num">Preço médio</th><th class="num">Custo</th><th class="num">Margem</th><th>Frequência</th><th class="num">Estoque</th>`,
+    linhas: xs.slice(0, max).map(a => `<tr><td class="first wrap"><span class="es-sku">${esc(a.sku)}</span> <span class="muted">${esc(a.anuncio || "")}</span><br><span class="muted">${esc((a.produto || "").slice(0, 80))}</span></td>
+      <td class="muted" style="font-size:12px">${esc(a.loja)}</td><td class="num">${nf0.format(a.unidades)}</td><td class="num">${rsES(a.valor)}</td>
+      <td class="num">${a.preco ? rsES(a.preco) : "—"}</td><td class="num">${a.custo ? rsES(a.custo) : "—"}</td>
+      <td class="num ${a.margem_pct == null ? "" : a.margem_pct < 25 ? "neg" : "pos"}">${a.margem != null ? rsES(a.margem) + "<br>" + pct(a.margem_pct) : "—"}</td>
+      <td class="muted" style="font-size:12px">${esc(a.frequencia)}</td><td class="num">${a.estoque == null ? `<span class="neg">fora</span>` : unES(a.estoque)}</td></tr>`).join(""),
+    nota: "Margem = preço médio − custo médio, antes das taxas do canal e do frete (vermelho: abaixo de 25%). Frequência = pedidos no período ÷ dias."};
+  if (aba === "precos") return {n: xs.length, cab: `<th>SKU / produto</th><th class="num">Mais barato</th><th class="num">Mais caro</th><th class="num">Diferença</th><th class="num">Anúncios</th><th class="num">Vendidos</th>`,
+    linhas: xs.slice(0, max).map(x => `<tr><td class="first wrap"><span class="es-sku">${esc(x.sku)}</span><br><span class="muted">${esc((x.produto || "").slice(0, 80))}</span></td>
+      <td class="num">${rsES(x.menor)}<br><span class="muted" style="font-size:11px">${esc(x.loja_menor)}</span></td>
+      <td class="num">${rsES(x.maior)}<br><span class="muted" style="font-size:11px">${esc(x.loja_maior)}</span></td>
+      <td class="num neg">+${pct(x.diferenca_pct)}</td><td class="num">${nf0.format(x.anuncios)}</td><td class="num">${nf0.format(x.unidades)}</td></tr>`).join(""),
+    nota: "Mesmo SKU vendido em mais de um anúncio/loja com preço médio 15% ou mais diferente."};
+  const tot = xs.reduce((a, x) => a + (x.parado || 0), 0);
+  return {n: xs.length, cab: `<th>SKU / título</th><th class="num">Disponível</th><th class="num">Vendidos (${r.dias}d)</th><th class="num">Dura</th><th class="num">Custo</th><th class="num">Dinheiro parado</th>`,
+    linhas: xs.slice(0, max).map(x => `<tr><td class="first wrap"><span class="es-sku">${esc(x.sku)}</span><br><span class="muted">${esc((x.titulo || "").slice(0, 80))}</span></td>
+      <td class="num">${unES(x.disponivel)}</td><td class="num">${nf0.format(x.vendidos)}</td><td class="num">${x.dura == null ? "sem venda" : nf0.format(x.dura) + " d"}</td>
+      <td class="num">${x.custo ? rsES(x.custo) : "—"}</td><td class="num"><b>${x.parado != null ? rsES(x.parado) : "—"}</b></td></tr>`).join(""),
+    nota: `Estoque que dura mais de 90 dias no ritmo atual ou que não vendeu no período · ${rsES(tot)} parados nesta lista.`};
+}
 async function telaCompras() {
   const main = $("#main");
   main.innerHTML = esAbas("compras") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Cruzando estoque e vendas</div></div>`;
@@ -3517,6 +3542,7 @@ async function telaCompras() {
   if (!location.hash.startsWith("#/estoque/compras")) return;
   const aba = S.cpAba || "comprar", v = r.vendas, an = r.analise, q = (S.cpBusca || "").trim().toLowerCase();
   const dias = x => x == null ? "—" : x < 1 ? "acabou" : `${String(x).replace(".", ",")} d`;
+  const extra = ["anuncios", "precos", "encalhados"].includes(aba) ? cpTabelaExtra(r, aba, q, S.cpMax || 80) : null;
   const sel = {comprar: r.comprar, vendidos: r.mais_vendidos, zerados: r.zerados}[aba] || [];
   const linhas = sel.filter(x => !q || (x.sku + " " + x.titulo).toLowerCase().includes(q));
   const cab = aba === "comprar" ? "<th class='num'>Comprar</th><th>Motivo</th>" : "";
@@ -3535,13 +3561,13 @@ async function telaCompras() {
       ${an ? `<div class="md">${mdSimples(an.texto)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">${an.hoje ? "de hoje" : "de " + esc(an.dia.split("-").reverse().join("/"))} · ${esc(an.por || "")}</p>`
         : `<p class="muted">Sai uma vez por dia, depois que o relatório de vendas e o estoque entram.</p>`}</div>
     ${cpLista(r)}${cpChat(r)}
-    <div class="card pad"><div class="seg es-seg" style="margin-bottom:10px">${CP_ABAS.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-cp-aba="${k}">${n} (${nf0.format(({comprar: r.comprar, vendidos: r.mais_vendidos, zerados: r.zerados}[k] || []).length)})</button>`).join("")}</div>
+    <div class="card pad"><div class="seg es-seg" style="margin-bottom:10px">${CP_ABAS.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-cp-aba="${k}">${n} (${nf0.format(({comprar: r.comprar, vendidos: r.mais_vendidos, zerados: r.zerados}[k] || r[k] || []).length)})</button>`).join("")}</div>
       <div class="es-filtros"><input type="search" id="cp-busca" placeholder="Buscar SKU ou título…" value="${esc(S.cpBusca || "")}"></div>
-      <p class="muted" style="font-size:12px;margin:6px 0">${aba === "comprar" ? `Venda por dia = unidades vendidas em ${r.dias} dias ÷ ${r.dias}. “Dura” = (disponível + em trânsito) ÷ venda por dia. Sugestão = ${r.alvo_dias} dias de venda − disponível − trânsito.`
+      <p class="muted" style="font-size:12px;margin:6px 0">${extra ? extra.nota : aba === "comprar" ? `Venda por dia = unidades vendidas em ${r.dias} dias ÷ ${r.dias}. “Dura” = (disponível + em trânsito) ÷ venda por dia. Sugestão = ${r.alvo_dias} dias de venda − disponível − trânsito.`
         : aba === "zerados" ? "SKUs com estoque atual zero, os que mais venderam primeiro." : `Somando todos os anúncios e lojas de cada SKU nos últimos ${r.dias} dias.`}</p>
-      <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>SKU / título</th><th class="num">Vendidos (${r.dias}d)</th><th class="num">Disponível</th><th class="num">Em trânsito</th><th class="num">Dura</th>${cab}</tr></thead>
-        <tbody>${tab || `<tr><td colspan="7" class="muted">${v ? "nada aqui" : "Importe o relatório de vendas por anúncio para ver esta lista."}</td></tr>`}</tbody></table></div>
-      ${linhas.length > (S.cpMax || 80) ? `<button class="btn small ghost" id="cp-mais" style="margin-top:8px">Mostrar mais (${nf0.format(linhas.length - (S.cpMax || 80))})</button>` : ""}</div>`;
+      <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr>${extra ? extra.cab : `<th>SKU / título</th><th class="num">Vendidos (${r.dias}d)</th><th class="num">Disponível</th><th class="num">Em trânsito</th><th class="num">Dura</th>${cab}`}</tr></thead>
+        <tbody>${(extra ? extra.linhas : tab) || `<tr><td colspan="9" class="muted">${v ? "nada aqui" : "Importe o relatório de vendas por anúncio para ver esta lista."}</td></tr>`}</tbody></table></div>
+      ${(extra ? extra.n : linhas.length) > (S.cpMax || 80) ? `<button class="btn small ghost" id="cp-mais" style="margin-top:8px">Mostrar mais (${nf0.format((extra ? extra.n : linhas.length) - (S.cpMax || 80))})</button>` : ""}</div>`;
   main.querySelectorAll("[data-cp-aba]").forEach(b => b.onclick = () => { S.cpAba = b.dataset.cpAba; S.cpMax = 80; telaCompras(); });
   const bb = $("#cp-busca"); if (bb) bb.onchange = () => { S.cpBusca = bb.value; telaCompras(); };
   const bm = $("#cp-mais"); if (bm) bm.onclick = () => { S.cpMax = (S.cpMax || 80) + 200; telaCompras(); };

@@ -128,3 +128,23 @@ def test_chat_de_compras_tem_limite_por_dia():
         raise AssertionError("passou do limite")
     except nubi_web.ErroNuvem as e:
         assert "limite" in str(e)
+
+
+# 29/09 (Bruno: "DeepSeek focado no meu estoque: preços, custo, frequência, vendas por anúncio")
+def test_anuncios_precos_e_encalhados():
+    est = [dict(x, custo_medio=c) for x, c in zip(ESTOQUE, (170, 40, 60, 80))]
+    vendas = estoque.ler_vendas(_xlsx(VENDAS + [("Perfume B", "AURA SCENT[Shopee]", "B-100", "S2", 5, 5, 650, 130)]))
+    ls = estoque.listas(est, vendas, dias=30)
+    a = {x["anuncio"]: x for x in ls["anuncios"]}
+    assert ls["anuncios"][0]["anuncio"] == "MLB1" and a["MLB1"]["loja"] == "PUREHOME (Mercado Libre BR)"
+    assert a["MLB1"]["margem"] == 30 and a["MLB1"]["margem_pct"] == 15.0 and a["MLB1"]["frequencia"] == "2,0 pedidos/dia"
+    assert a["MLB3"]["frequencia"] == "1 pedido a cada 10 dias" and a["MLB4"]["estoque"] is None       # D fora do estoque
+    pr = ls["precos"]
+    assert len(pr) == 1 and pr[0]["sku"] == "B-100" and pr[0]["menor"] == 100 and pr[0]["maior"] == 130 and pr[0]["diferenca_pct"] == 30.0
+    en = {x["sku"]: x for x in ls["encalhados"]}
+    assert set(en) == set()                                  # B: 100 ÷ (35/30) = 86 dias, não encalhou (limite 90)
+    ls2 = estoque.listas([dict(ESTOQUE[1], custo_medio=40, disponivel=500)], vendas, dias=30)
+    assert ls2["encalhados"][0]["parado"] == 20000.0                                 # 500 × 40
+    txt = estoque.pedido_analise(ls)
+    for sec in ("## Anúncios", "## Preços e margem", "## Encalhados", "MARGEM ABAIXO DE 25% (2 anúncios)", "MESMO SKU COM PREÇO DIFERENTE (1)"):
+        assert sec in txt, sec

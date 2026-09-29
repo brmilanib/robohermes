@@ -331,18 +331,112 @@ def listas(itens, vendas, dias=30, alerta=ALERTA_DIAS, alvo=ALVO_DIAS):
             if r["sugerido"] > 0:
                 comprar.append(r)
     comprar.sort(key=lambda r: (r["cobertura_dias"] if r["cobertura_dias"] is not None else 9e9, -r["vendidos"]))
+    anuncios = por_anuncio(itens, vendas, dias)
     return {"dias": dias, "alerta_dias": alerta, "alvo_dias": alvo, "zerados": zerados, "mais_vendidos": vendidos,
             "comprar": comprar, "zerados_com_venda": sum(1 for r in zerados if r["vendidos"] > 0),
-            "vendas_sem_estoque": sum(1 for r in vendidos if not r["no_estoque"])}
+            "vendas_sem_estoque": sum(1 for r in vendidos if not r["no_estoque"]),
+            "anuncios": anuncios, "precos": precos_diferentes(anuncios), "encalhados": encalhados(itens, vendas, dias)}
 
 
-PAPEL_ANALISE = ("Você é o DeepSeek, analista de estoque do nubi. Abaixo, as listas do estoque do Bruno (UpSeller) cruzadas com "
-                 "as vendas por anúncio dos últimos {dias} dias, já calculadas pelo sistema: NÃO recalcule e NÃO invente nenhum "
-                 "número. Escreva em português do Brasil, direto, em markdown curto, com estas seções:\n"
-                 "## Comprar já\nos 5 a 8 mais urgentes (acabam primeiro e vendem bem), com a quantidade sugerida e o porquê.\n"
-                 "## Zerados que vendem\no que está parado vendendo zero por falta de estoque.\n"
-                 "## Campeões\nos que mais vendem e como está o estoque deles.\n"
-                 "## Atenção\n1 ou 2 riscos (estoque encalhado, SKU vendido que não está no estoque, custo faltando).")
+# ---------------------------------------------------------------------------
+# 29/09 (Bruno: "DeepSeek focado no meu estoque: listas, preços, custo, frequência de venda, análise de vendas por anúncio,
+# reposição"). Tudo calculado aqui; a IA só lê e organiza.
+# ---------------------------------------------------------------------------
+MARGEM_BAIXA = 0.25       # (preço médio − custo médio) ÷ preço abaixo disso = margem baixa (antes das taxas do canal)
+ENCALHE_DIAS = 90         # estoque que dura mais que isso (ou sem venda no período) = encalhado
+PRECO_DIFERENTE = 0.15    # mesmo SKU com preço médio 15%+ diferente entre anúncios/lojas
+
+
+def _loja_curta(loja):
+    m = re.match(r"\s*(.*?)\s*\[(.*?)\]", loja or "")
+    return f"{m.group(1).strip().upper()} ({m.group(2).strip()})" if m else (loja or "").strip().upper()
+
+
+def _frequencia(pedidos, dias):
+    if not pedidos:
+        return "sem venda"
+    por_dia = pedidos / dias
+    return f"{por_dia:.1f} pedidos/dia".replace(".", ",") if por_dia >= 1 else f"1 pedido a cada {dias / pedidos:.0f} dias"
+
+
+def por_anuncio(itens, vendas, dias=30):
+    """Uma linha por anúncio: preço médio, custo médio do SKU, margem antes das taxas, frequência (pedidos/dia) e o estoque do
+    SKU. Ordem: o que mais fatura primeiro."""
+    est = {_chave(it["sku"]): it for it in itens or []}
+    out = []
+    for v in vendas or []:
+        it = est.get(_chave(v["sku"])) or {}
+        un, ped, val = v.get("unidades") or 0, v.get("pedidos") or 0, v.get("valor") or 0
+        preco = v.get("preco_medio") or (val / un if un else 0)
+        custo = it.get("custo_medio")
+        custo = float(custo) if custo not in (None, "") and float(custo) > 0 else None
+        margem = round(preco - custo, 2) if custo and preco else None
+        out.append({"anuncio": v.get("anuncio") or "", "sku": v["sku"], "produto": v.get("produto") or it.get("titulo") or "",
+                    "loja": _loja_curta(v.get("loja")), "pedidos": round(ped), "unidades": round(un), "valor": round(val, 2),
+                    "preco": round(preco, 2) if preco else None, "custo": custo, "margem": margem,
+                    "margem_pct": round(margem / preco * 100, 1) if margem is not None and preco else None,
+                    "pedidos_dia": round(ped / dias, 2), "frequencia": _frequencia(ped, dias),
+                    "estoque": (it.get("disponivel") or 0) if it else None})
+    out.sort(key=lambda r: (-r["valor"], -r["unidades"]))
+    return out
+
+
+def precos_diferentes(anuncios, limite=PRECO_DIFERENTE):
+    """SKUs vendidos em mais de um anúncio com preço médio muito diferente (o mais barato pode estar deixando dinheiro)."""
+    por = {}
+    for a in anuncios:
+        if a["preco"]:
+            por.setdefault(_chave(a["sku"]), []).append(a)
+    out = []
+    for xs in por.values():
+        if len(xs) < 2:
+            continue
+        lo, hi = min(xs, key=lambda a: a["preco"]), max(xs, key=lambda a: a["preco"])
+        if hi["preco"] >= lo["preco"] * (1 + limite):
+            out.append({"sku": lo["sku"], "produto": lo["produto"], "menor": lo["preco"], "loja_menor": lo["loja"],
+                        "anuncio_menor": lo["anuncio"], "maior": hi["preco"], "loja_maior": hi["loja"], "anuncio_maior": hi["anuncio"],
+                        "diferenca_pct": round((hi["preco"] / lo["preco"] - 1) * 100, 1), "anuncios": len(xs),
+                        "unidades": sum(a["unidades"] for a in xs)})
+    out.sort(key=lambda r: -r["unidades"])
+    return out
+
+
+def encalhados(itens, vendas, dias=30, limite=ENCALHE_DIAS):
+    """Estoque parado: disponível > 0 que dura mais de `limite` dias no ritmo atual (ou não vendeu nada). Valor parado =
+    disponível × custo médio; o que mais prende dinheiro primeiro."""
+    vend = {}
+    for v in vendas or []:
+        k = _chave(v["sku"])
+        vend[k] = vend.get(k, 0) + (v.get("unidades") or 0)
+    out = []
+    for it in itens or []:
+        disp = it.get("disponivel") or 0
+        if disp <= 0:
+            continue
+        vd = vend.get(_chave(it["sku"]), 0) / dias
+        dura = round(disp / vd) if vd else None
+        if dura is not None and dura <= limite:
+            continue
+        custo = it.get("custo_medio")
+        custo = float(custo) if custo not in (None, "") and float(custo) > 0 else None
+        out.append({"sku": it["sku"], "titulo": it.get("titulo") or "", "disponivel": disp, "vendidos": round(vd * dias),
+                    "dura": dura, "custo": custo, "parado": round(disp * custo, 2) if custo else None})
+    out.sort(key=lambda r: -(r["parado"] or 0))
+    return out
+
+
+PAPEL_ANALISE = ("Você é o DeepSeek, analista do ESTOQUE do Bruno no nubi (seu foco é só o estoque dele). Abaixo, o estoque do "
+                 "UpSeller cruzado com as vendas por anúncio dos últimos {dias} dias, já calculado pelo sistema: NÃO recalcule e "
+                 "NÃO invente nenhum número. Margem = preço médio − custo médio, ANTES das taxas do canal e do frete. Escreva em "
+                 "português do Brasil, direto, em markdown curto, com estas seções:\n"
+                 "## Comprar já\nos 5 a 8 mais urgentes (acabam primeiro e vendem bem), com a quantidade e o porquê.\n"
+                 "## Zerados que vendem\no que está vendendo zero por falta de estoque.\n"
+                 "## Campeões\nos que mais vendem, a frequência de venda e como está o estoque deles.\n"
+                 "## Anúncios\nos anúncios que mais faturam e os que vendem pouco para o estoque que têm; por loja quando fizer diferença.\n"
+                 "## Preços e margem\nmargem baixa ou negativa, e o mesmo SKU com preço diferente entre anúncios/lojas "
+                 "(qual subir ou baixar).\n"
+                 "## Encalhados\no que prende mais dinheiro parado e uma ideia para girar (promoção, kit, outra loja).\n"
+                 "## Atenção\n1 ou 2 riscos (SKU vendido que não está no estoque, custo faltando).")
 
 
 def pedido_analise(ls):
@@ -359,7 +453,36 @@ def tabelas(ls):
             + tab(ls["comprar"], 25, lambda r: f" | sugerido {r['sugerido']} | {r['motivo']}")
             + f"\n\nZERADOS COM VENDA NO PERÍODO ({ls['zerados_com_venda']}):\n" + tab([r for r in ls["zerados"] if r["vendidos"]], 20)
             + "\n\nMAIS VENDIDOS:\n" + tab(ls["mais_vendidos"], 20)
-            + f"\n\nSKUs vendidos que não estão no estoque do UpSeller: {ls['vendas_sem_estoque']}.")
+            + f"\n\nSKUs vendidos que não estão no estoque do UpSeller: {ls['vendas_sem_estoque']}."
+            + tabelas_extra(ls))
+
+
+def _rs(v):
+    return "—" if v is None else f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def tabelas_extra(ls, n=30):
+    """Anúncios, preços diferentes e encalhados, em texto para a IA."""
+    an = ls.get("anuncios") or []
+    t = "\n\nANÚNCIOS (mais faturamento primeiro; margem antes das taxas):\n" + ("\n".join(
+        f"  {a['anuncio'] or '—'} | {a['loja']} | {a['sku']} | {a['produto'][:45]} | {a['unidades']} un | {_rs(a['valor'])} | "
+        f"preço {_rs(a['preco'])} | custo {_rs(a['custo'])} | margem {a['margem_pct'] if a['margem_pct'] is not None else '—'}% | "
+        f"{a['frequencia']} | estoque do SKU {a['estoque'] if a['estoque'] is not None else 'fora do estoque'}" for a in an[:n])
+        or "  (nenhum)")
+    baixa = [a for a in an if a["margem_pct"] is not None and a["margem_pct"] < MARGEM_BAIXA * 100]
+    t += f"\n\nMARGEM ABAIXO DE {MARGEM_BAIXA * 100:.0f}% ({len(baixa)} anúncios):\n" + ("\n".join(
+        f"  {a['anuncio'] or '—'} | {a['loja']} | {a['sku']} | preço {_rs(a['preco'])} | custo {_rs(a['custo'])} | "
+        f"margem {a['margem_pct']}% | {a['unidades']} un" for a in sorted(baixa, key=lambda a: a["margem_pct"])[:15]) or "  (nenhum)")
+    pr = ls.get("precos") or []
+    t += f"\n\nMESMO SKU COM PREÇO DIFERENTE ({len(pr)}):\n" + ("\n".join(
+        f"  {x['sku']} | {x['produto'][:45]} | {_rs(x['menor'])} em {x['loja_menor']} x {_rs(x['maior'])} em {x['loja_maior']} "
+        f"(+{x['diferenca_pct']}%) | {x['unidades']} un" for x in pr[:15]) or "  (nenhum)")
+    en = ls.get("encalhados") or []
+    t += f"\n\nENCALHADOS (dura mais de {ENCALHE_DIAS} dias ou sem venda; {len(en)} SKUs, "
+    t += f"{_rs(sum(x['parado'] or 0 for x in en))} parados):\n" + ("\n".join(
+        f"  {x['sku']} | {x['titulo'][:45]} | disp. {x['disponivel']:g} | vendeu {x['vendidos']} | "
+        f"dura {x['dura'] if x['dura'] is not None else 'sem venda'} | parado {_rs(x['parado'])}" for x in en[:15]) or "  (nenhum)")
+    return t
 
 
 # ---------------------------------------------------------------------------
