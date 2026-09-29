@@ -177,6 +177,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     anúncio no ML. Teste 29/09: o Apify `sourabhbgp/mercadolibre-scraper` (busca, US$ 0,005/resultado) devolveu o
     MLB4350649763 com a foto 951134-MLB91143087125 (a do Cowork) — traz itemId e thumbnail, mas o vendedor só em loja
     oficial; `maximedupre/mercado-libre-search-scraper` NÃO serve (devolve a marca no lugar do vendedor, sem MLB).
+  - EXTENSÃO DO CHROME "nubi · Mercado Livre" (29/09, igual à do Hunter): `public/extensao/nubi-ml/` (MV3; zip em
+    `public/extensao/nubi-ml.zip`, refeito com `python3 testes/gerar_extensao.py`; teste `test_extensao.py`). Só lê:
+    `fundo.js` busca a página do anúncio com o login do próprio navegador e tira do JSON dela vendedor, data de criação,
+    vendas e loja oficial (`lerAnuncio`), e o perfil público `/users/{id}`; `conteudo.js` põe a linha da loja embaixo de
+    cada anúncio da busca (3 por vez, até 60) e um quadro na página do produto, com "📊 nubi" (#/ml/loja/<id>). Sem login
+    do nubi, sem token. Baixar/instalar: card "🧩 Extensão do Chrome" em #/ml.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

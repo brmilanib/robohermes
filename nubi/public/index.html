@@ -5851,7 +5851,16 @@ async function telaMLInicio() {
     ${mlBusca()}
     <div class="card pad" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🏪 Lojas já identificadas</h2>
       <button class="btn small" id="ml-teste" style="margin-left:auto">🔌 Testar conexão com o ML</button></div>
-      <div id="ml-teste-res"></div><div id="ml-lojas" class="muted" style="margin-top:8px">Carregando…</div></div>`;
+      <div id="ml-teste-res"></div><div id="ml-lojas" class="muted" style="margin-top:8px">Carregando…</div></div>
+    <div class="card pad" style="margin-top:14px"><h2 style="margin:0">🧩 Extensão do Chrome: nubi · Mercado Livre</h2>
+      <p class="muted" style="margin:6px 0 8px;font-size:13px">Como a do Hunter: na busca do Mercado Livre, embaixo de cada anúncio aparece a loja real (nome,
+        cidade, reputação, vendas, data do anúncio) e o botão "📊 nubi"; na página do produto, um quadro com a loja. Ela só lê a página que você abriu.</p>
+      <a class="btn small ml-laranja" href="/extensao/nubi-ml.zip" download>⬇ Baixar a extensão</a>
+      <ol style="margin:10px 0 0;padding-left:18px;font-size:13px;line-height:1.6">
+        <li>Descompacte o arquivo (fica a pasta <b>nubi-ml</b>).</li>
+        <li>No Chrome, abra <code>chrome://extensions</code> e ligue o <b>Modo do desenvolvedor</b> (canto de cima, à direita).</li>
+        <li>Clique em <b>Carregar sem compactação</b> e escolha a pasta <b>nubi-ml</b>.</li>
+        <li>Abra uma busca no Mercado Livre: cada anúncio ganha a linha azul do nubi.</li></ol></div>`;
   ligarMLBusca();
   $("#ml-teste").onclick = async () => {
     const el = $("#ml-teste-res"); el.innerHTML = `<div class="muted" style="margin-top:8px">Testando…</div>`;
