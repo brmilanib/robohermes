@@ -607,7 +607,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 7: mesmo GTIN volta para a marca citada no título mesmo depois de trocado"   # 30/09 (Ameerati da Al Wataniah)
+REGRA_ATUAL = "regra 8: palavra antes da marca na coluna Marca (Scuderia Ferrari) não vira linha"   # 30/09 (Ferrari Black x Scuderia Black)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"

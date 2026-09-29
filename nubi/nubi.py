@@ -799,6 +799,20 @@ def variantes_da_marca(titulos_norm, declaradas, marca):
     return out
 
 
+def prefixos_da_marca(declaradas, marca, minimo=2):
+    """Palavras que a coluna Marca põe antes do nome da marca ("SCUDERIA FERRARI" -> {"scuderia"}), em 2+ anúncios:
+    fazem parte do nome da marca e não viram linha ("Scuderia Black" = "Black")."""
+    alvo = normalizar(marca).split()
+    if not alvo:
+        return set()
+    conta = {}
+    for v in declaradas:
+        p = normalizar(v).split()
+        if len(p) == len(alvo) + 1 and p[1:] == alvo and len(p[0]) >= 4 and not p[0].isdigit():
+            conta[p[0]] = conta.get(p[0], 0) + 1
+    return {w for w, n in conta.items() if n >= minimo}
+
+
 def dono_do_anuncio(df, marca, pesquisados=None):
     """
     Confirma, anúncio por anúncio, se ele é mesmo da marca do export — cruzando a
@@ -1130,6 +1144,16 @@ def consolidar(df, marca, cfg, info=None):
         return " ".join(p) if p else "Outros"
     so_linha = ~df["tipo"].isin([TIPO_OUTRA, TIPO_FORA])
     df.loc[so_linha, "linha"] = df.loc[so_linha, "linha"].map(_sem_arabe)
+    # 30/09 (print do Bruno: "Ferrari Black" e "Ferrari Scuderia Black" são o mesmo produto): palavra que o próprio arquivo
+    # põe ANTES da marca na coluna Marca ("SCUDERIA FERRARI", 2+ anúncios) é parte do nome da marca, não da linha
+    prefixos = prefixos_da_marca(df.get("marca_anuncio", pd.Series(dtype=str)).fillna(""), marca)
+    if prefixos:
+        def _sem_prefixo(l):
+            p = str(l).split()
+            while p and normalizar(p[0]) in prefixos:
+                p = p[1:]
+            return " ".join(p) if p else "Outros"
+        df.loc[so_linha, "linha"] = df.loc[so_linha, "linha"].map(_sem_prefixo)
     marca_txt = nome_bonito(marca)
     df["produto"] = [
         f"{marca_txt} {l} (não perfume)" if t == TIPO_FORA else
