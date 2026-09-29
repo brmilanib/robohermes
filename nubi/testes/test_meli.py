@@ -985,7 +985,14 @@ def test_ext_lista_data_pela_1a_visita_e_motivo_do_vendedor():
         assert r["MLB4355000000"]["criado"] == "2026-09-24" and r["MLB4355000000"]["criado_por"] == "1ª visita", r
         assert r["MLB4356000000"]["criado"] == "2025-12-19" and r["MLB4356000000"]["criado_por"] == "nº do anúncio", r
         m = r["MLB4355000000"]["motivo"]
-        assert r["MLB4355000000"]["vendedor"] is None and "403" in m and "sem perguntas" in m, m
+        assert r["MLB4355000000"]["vendedor"] is None and "não libera o vendedor" in m, m
+        # anúncio novo: o ML manda a janela só desde a criação (sem os dias zerados antes)
+        from datetime import datetime, timedelta, timezone
+        d0 = (datetime.now(timezone.utc).date() - timedelta(days=14)).isoformat()
+        meli._get = lambda c, p=None, **k: {"results": [{"date": d0 + "T00:00:00Z", "total": 4}]}
+        assert meli._primeira_visita("MLB1") == d0
+        meli._get = lambda c, p=None, **k: {"results": [{"date": "2020-01-01T00:00:00Z", "total": 4}]}
+        assert meli._primeira_visita("MLB1") is None
     finally:
         meli.visitas, meli._get = velho_v, velho_g
 

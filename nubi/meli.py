@@ -1493,7 +1493,7 @@ def historico_visitas(mlb):
             com = [d for d, q in xs if q > 0]
             if unid == "day":
                 out.update(dias_lidos=n, total_janela=sum(q for _, q in xs))
-            if com and com[0] > xs[0][0]:
+            if com and (com[0] > xs[0][0] or (unid == "day" and xs[0][0] > (hoje - timedelta(days=n - 5)).isoformat())):
                 out.update(primeira_visita=com[0], precisao={"day": "dia", "week": "semana", "month": "mês"}[unid])
                 out.pop("mais_velho_que", None)
             elif not out.get("mais_velho_que") or xs[0][0] < out["mais_velho_que"]:
@@ -1558,7 +1558,7 @@ def _vendedor_do_anuncio(item, pid):
         if sid:
             return str(sid), {}
         motivo.append("sem perguntas no anúncio")
-        return None, {"motivo": "o ML não diz o vendedor (" + "; ".join(motivo) + ")"}
+        return None, {"motivo": "o ML não libera o vendedor deste anúncio para o nosso app"}
     except ErroLogin:
         raise
     except ErroMeli:
@@ -1577,7 +1577,12 @@ def _primeira_visita(mlb):
         return None
     xs = sorted((str(x.get("date") or "")[:10], int(x.get("total") or 0)) for x in r.get("results") or [])
     com = [d for d, q in xs if q > 0]
-    return com[0] if com and xs and com[0] > xs[0][0] else None
+    if not com or not xs:
+        return None
+    # 30/09 (ARENA_INFO, 14 dias no Hunter, saiu "—"): em anúncio novo o ML devolve a janela só desde a criação (sem os
+    # dias zerados antes); janela que começa bem depois de 150 dias atrás = começa na criação
+    corte = (datetime.now(timezone.utc).date() - timedelta(days=145)).isoformat()
+    return com[0] if com[0] > xs[0][0] or xs[0][0] > corte else None
 
 
 def ext_lista(mlbs, calib=None):
