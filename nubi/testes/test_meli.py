@@ -972,6 +972,8 @@ def test_ext_lista_data_pela_1a_visita_e_motivo_do_vendedor():
                 return {"results": [{"date": "2026-05-01T00:00:00Z", "total": 0}, {"date": "2026-09-24T00:00:00Z", "total": 3},
                                     {"date": "2026-09-25T00:00:00Z", "total": 5}]}
             return {"results": [{"date": "2026-05-01T00:00:00Z", "total": 2}]}     # velho: visita desde o 1º dia da janela
+        if caminho == "/products/MLB77777":
+            return {"name": "Gabinete", "date_created": "2024-12-08T10:00:00Z"}
         if caminho.startswith("/user-products/"):
             raise meli.ErroMeli("403 forbidden")
         if caminho == "/questions/search":
@@ -981,7 +983,8 @@ def test_ext_lista_data_pela_1a_visita_e_motivo_do_vendedor():
     try:
         meli._CACHE.clear()
         calib = [(4350000000, date(2025, 12, 1)), (4360000000, date(2025, 12, 31))]
-        r = meli.ext_lista(["MLB4355000000:MLBU123456", "MLB4356000000"], calib=calib)
+        r = meli.ext_lista(["MLB4355000000:MLBU123456", "MLB4356000000:MLBP77777"], calib=calib)
+        assert r["MLB4356000000"]["catalogo_criado"] == "2024-12-08" and r["MLB4355000000"]["catalogo_criado"] is None, r
         assert r["MLB4355000000"]["criado"] == "2026-09-24" and r["MLB4355000000"]["criado_por"] == "1ª visita", r
         assert r["MLB4356000000"]["criado"] == "2025-12-19" and r["MLB4356000000"]["criado_por"] == "nº do anúncio", r
         m = r["MLB4355000000"]["motivo"]

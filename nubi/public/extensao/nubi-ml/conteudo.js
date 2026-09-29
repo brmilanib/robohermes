@@ -48,6 +48,8 @@
         : `<small>${a.lendo ? "lendo a loja…" : "loja não encontrada" + (a.motivo ? ` — ${esc(a.motivo)}` : "")}</small>`}</div>
       <div class="nb-b"><small>${ic("calendario", 11)} Anúncio criado</small><div class="nb-l"><b ${a.criado ? "" : `title="estimado (1ª visita ou nº do anúncio); o ML não libera a data exata ao nosso app"`}>${criado ? (a.criado ? "" : "≈ ") + esc(dia(criado)) : "—"}</b>
         ${d != null ? `<em class="${d < 180 ? "novo" : d < 365 ? "medio" : "velho"}">${nf(d)} dias</em>` : ""}</div></div>
+      ${a.catCriado ? `<div class="nb-b"><small>${ic("calendario", 11)} Catálogo criado</small><div class="nb-l"><b>${esc(dia(a.catCriado))}</b>
+        ${diasDesde(a.catCriado) != null ? `<em class="${diasDesde(a.catCriado) < 180 ? "novo" : diasDesde(a.catCriado) < 365 ? "medio" : "velho"}">${nf(diasDesde(a.catCriado))} dias</em>` : ""}</div></div>` : ""}
       ${a.nota_card ? `<small class="nb-obs">${esc(a.nota_card)}</small>` : ""}
       <div class="nb-bts"><a class="nb-abrir" href="${a.item ? `${NUBI}/#/ml/anuncio/${esc(a.item)}` : "#"}" target="_blank" rel="noopener">${ic("grafico", 12)} Abrir análise</a>
         <button class="nb-calc" data-nubi-calc title="Abrir na calculadora">${ic("calc", 13)}</button></div>`;
@@ -73,6 +75,7 @@
       const r = await pedir({tipo: "nubi", rota: "ext_lista", params: {mlbs: [...new Set(faltam.map(a => a.item + (a.pid ? ":" + a.pid : "")))].slice(0, 60).join(",")}});
       faltam.forEach(a => { const x = (r.itens || {})[a.item] || {}; a.pedindo = false; a.lendo = false; a.vis30 = x.visitas30 ?? null;
         if (!a.criado && x.criado) a.criadoEst = x.criado;
+        if (x.catalogo_criado) a.catCriado = x.catalogo_criado;
         if (!a.vendedor && x.vendedor) { a.vendedor = x.vendedor; a.loja = x.loja || a.loja; }
         if (a.preco == null && x.preco != null) a.preco = x.preco;
         if (a.full == null && x.full != null) a.full = x.full;

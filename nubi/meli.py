@@ -824,7 +824,7 @@ def _produto_catalogo(pid):
             return {}
         fotos = p.get("pictures") or []
         return {"nome": p.get("name") or "", "foto": str((fotos[0].get("url") if fotos else "") or "").replace("http://", "https://"),
-                "link": p.get("permalink") or ""}
+                "link": p.get("permalink") or "", "criado": str(p.get("date_created") or "")[:10] or None}
     return _mem("prod|" + pid, 6 * 3600, ler)
 
 
@@ -1620,6 +1620,9 @@ def ext_lista(mlbs, calib=None):
     if falta_d:
         for m, d in _em_paralelo(lambda m: (m, _primeira_visita(m)), falta_d, n=10):
             _CACHE[f"ext|entrou|{m}"] = (time.time(), d)
+    # 30/09 (Hunter mostra "Catálogo criado"): a data do produto de catálogo (MLBP) vem de /products (6 h de cache)
+    cat = dict(_em_paralelo(lambda c: (c[0], (_produto_catalogo("MLB" + c[1][4:]) or {}).get("criado")),
+                            [(it, pid) for it, pid in pares if pid.startswith("MLBP")], n=10))
     vend = {it: (_CACHE.get(f"ext|vend|{it}") or (0, (None, {})))[1] for it in ids}
     lj = lojas([v[0] for v in vend.values() if v and v[0]])
     out = {}
@@ -1630,7 +1633,7 @@ def ext_lista(mlbs, calib=None):
         out[m] = {"visitas30": (_CACHE.get(f"ext|vis30|{m}") or (0, None))[1],
                   "criado": entrou or (d.isoformat() if d else None), "criado_por": "1ª visita" if entrou else "nº do anúncio" if d else None,
                   "folga": None if entrou else round(folga) if folga else None,
-                  "vendedor": sid, "loja": lj.get(sid) if sid else None, **(extra or {})}
+                  "catalogo_criado": cat.get(m), "vendedor": sid, "loja": lj.get(sid) if sid else None, **(extra or {})}
     return out
 
 
