@@ -883,7 +883,7 @@ const FMT = {
   x: v => v == null || v === 0 ? "" : nf1.format(v) + "x",
   txt: v => v ?? "",
 };
-const NUM = new Set(["pp","int","dec","moeda","moeda2","pct","var","x","nota","numtxt"]);
+const NUM = new Set(["pp","int","dec","moeda","moeda2","pct","var","x","nota","numtxt","vpreco"]);
 const dataBR = s => s ? s.split("-").reverse().join("/") : "";
 
 let S = { sessao: null, painel: [], marca: null, rel: null, aba: "oportunidades", tabelas: {} };
@@ -2283,8 +2283,35 @@ function telaColetor() {
   $("#main").innerHTML = opsAbas("coletor") + `<h1>📥 Coletor e agente de GTIN</h1>
     <p class="muted" style="margin-top:4px">O coletor roda no Mac mini e baixa do Nubimetrics os vendedores seguidos e o ranking MARCAS. O agente de GTIN roda aqui no nubi.</p>
     ${cartaoColetor()}
-    <div class="card pad" style="margin-top:14px"><h2>🤖 Agente de GTIN</h2><div id="agente-box" class="muted" style="font-size:13px"></div></div>`;
-  desenharAgente();
+    <div class="card pad" style="margin-top:14px"><h2>🤖 Agente de GTIN</h2><div id="agente-box" class="muted" style="font-size:13px"></div></div>
+    <div class="card pad" style="margin-top:14px" id="aud-card"><h2>🧹 Conferência das marcas do Explorador</h2><div class="muted">Carregando…</div></div>`;
+  desenharAgente(); carregarAuditoria();
+}
+// 29/09 (Bruno): o Agente do Explorador confere todas as marcas 1 vez por dia, só com regras (sem IA), conserta o que é regra
+// (marca escrita errado -> reprocessa) e lista o resto: outra marca grande, linhas parecidas, o que mais vende em "Outros"
+async function carregarAuditoria(rodar) {
+  const el = $("#aud-card"); if (!el) return;
+  let a;
+  try { a = (await api("explorador_auditoria", {}, rodar ? {method: "POST"} : {})).auditoria; }
+  catch (e) { el.innerHTML = `<h2>🧹 Conferência das marcas do Explorador</h2><div class="muted">${esc(e.message)}</div>`; return; }
+  const cor = n => n >= 90 ? "pos" : n >= 75 ? "" : "neg";
+  const TIPO = {marca_errada: "✏️", outra_marca_grande: "🏷️", linhas_parecidas: "🔁"};
+  el.innerHTML = `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🧹 Conferência das marcas do Explorador</h2>
+      <span class="muted" style="font-size:12.5px">${a ? `${esc(a.dia.split("-").reverse().join("/"))} · ${esc(a.resumo)}` : "ainda não rodou"}</span>
+      <button class="btn small" id="aud-rodar" style="margin-left:auto">↻ Conferir agora</button></div>
+    <p class="muted" style="font-size:12.5px;margin:6px 0 10px">Todo dia com o Agente do Explorador (sem IA, só regras e o que o nubi já aprendeu: Nomes de marcas,
+      linhas da Configuração e GTINs pesquisados). Nota = % das unidades com a linha do produto identificada.</p>
+    ${a ? `<div class="tw" style="max-height:60vh"><table class="t"><thead><tr><th>Marca</th><th class="num">Nota</th><th class="num">Un.</th>
+      <th class="num" title="% das unidades da marca sem linha identificada">Outros</th><th class="num">Dúvida</th><th class="num">Outra marca</th>
+      <th>O que conferir</th></tr></thead><tbody>
+      ${a.marcas.map((m, i) => `<tr><td class="first"><a href="#/${encodeURIComponent(m.marca)}">${esc(m.nome)}</a></td>
+        <td class="num ${cor(m.nota)}"><b>${nf1.format(m.nota)}</b></td><td class="num">${nf0.format(m.un)}</td>
+        <td class="num">${nf1.format(m.pct_outros)}%</td><td class="num">${nf1.format(m.pct_duvida)}%</td><td class="num">${nf1.format(m.pct_outra_marca)}%</td>
+        <td class="wrap" style="min-width:280px;font-size:12.5px">${m.achados.map(x => `<div>${TIPO[x.tipo] || "•"} ${esc(x.texto)}${x.corrigido ? ' <span class="pill good">corrigido</span>' : ""}</div>`).join("")}
+          ${m.outros_top.length ? `<details><summary class="muted">Mais vendidos sem linha (${m.outros_top.length})</summary>${m.outros_top.map(t => `<div class="muted">${nf0.format(t.un)} un. · ${esc(t.titulo)}</div>`).join("")}</details>` : ""}
+          ${!m.achados.length && !m.outros_top.length ? '<span class="muted">tudo certo</span>' : ""}</td></tr>`).join("")}
+    </tbody></table></div>` : ""}`;
+  $("#aud-rodar", el).onclick = async () => { $("#aud-rodar", el).disabled = true; $("#aud-rodar", el).textContent = "Conferindo…"; await carregarAuditoria(true); };
 }
 // ---------- Vendas diárias (export de 1 dia de cada vendedor): dia a dia, dia da semana, produtos e o dia escolhido ----------
 const DSEM = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
@@ -5508,10 +5535,11 @@ const COLUNAS = {
     ["var","Variação do giro","var"],["vendedores","Vendedores com venda","int"],["giro_por_vendedor","Giro por vendedor","dec"],
     ["anuncios","Anúncios","int"],["lider","Líder (share)","pct"],["pct_full","% FULL","pct"],["pct_catalogo","% catálogo","pct"],
     ["mediana","Preço mediano","moeda2"],["faixa","Faixa de preço","txt","sel"],["amplitude","Amplitude","x"]],
-  produtos: [["produto","Produto","txt","txt"],["categoria_l1","Categoria L1","txt","sel"],["categoria","Categoria","txt","sel"],["marca","Marca","txt","sel"],["linha","Linha","txt","sel"],
-    ["tipo","Tipo","txt","sel"],["volume","Volume","txt","sel"],["gtins","GTINs","int"],
+  // 29/09 (Bruno): sem categoria, tipo, volume e GTINs (estão no título e dentro do produto); + preço dos 2 maiores vendedores
+  produtos: [["produto","Produto","txt","txt"],["titulo_top","Título mais vendido","wrap","txt"],["marca","Marca","txt","sel"],["linha","Linha","txt","sel"],
     ["anuncios","Anúncios","int"],["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],
-    ["preco_medio","Preço médio","moeda2"],["faixa","Faixa de preço","txt","sel"],["giro","Giro/dia","dec"],["proj30","Projeção 30d","int"],
+    ["preco_medio","Preço médio","moeda2"],["preco_v1","Preço médio 1º vendedor","vpreco"],["preco_v2","Preço médio 2º vendedor","vpreco"],
+    ["faixa","Faixa de preço","txt","sel"],["giro","Giro/dia","dec"],["proj30","Projeção 30d","int"],
     ["pct_volume","% do volume","pct"],["pct_acum","% acumulado","pct"],["abc","ABC","txt","sel"],["un_por_anuncio","Un. por anúncio","dec"],
     ["pct_catalogo","% catálogo","pct"],["pct_full","% FULL","pct"],["confianca","Confiança","conf","sel"]],
   evolucao: [["produto","Produto","txt","txt"],["categoria","Categoria","txt","sel"],["movimento","Movimento","mov","sel"],
@@ -5642,6 +5670,8 @@ function celula(r, k, f, i) {
   if (f === "link") return `<td><a href="${esc(v)}" target="_blank" rel="noopener">pesquisar ↗</a></td>`;
   if (f === "editar") return `<td><button class="btn small" data-edit="${esc(r.gtin)}">Corrigir</button></td>`;
   if (f === "wrap") return `<td class="wrap">${esc(v)}</td>`;
+  if (f === "vpreco") { const nm = k === "preco_v1" ? r.vendedor_v1 : r.vendedor_v2;
+    return `<td class="num" title="${esc(nm || "")}">${v == null ? "—" : "R$ " + nf2.format(v)}${nm ? `<div class="muted" style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:auto">${esc(nm)}</div>` : ""}</td>`; }
   if (f === "sparku") return `<td>${sparkSerie(v)}</td>`;
   if (f === "pesq") return `<td><button class="btn small" title="Pesquisar a categoria desta marca" onclick="pesquisarCategorias([S.cats.marcas.find(m => m.marca === ${esc(JSON.stringify(r.marca))})])">🔎</button></td>`;
   if (f === "catsel") return `<td><select class="catsel" data-cm="${esc(r.marca)}" style="border-left:4px solid ${COR_CAT[v]}">

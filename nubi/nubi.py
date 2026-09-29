@@ -91,6 +91,9 @@ DUV_LINHA = "Dúvida: linha não identificada"
 
 # Especificações pesquisadas por GTIN (gtins.json). Carregado no main().
 INFO_GTIN = {}
+# 29/09 (print do Bruno: "Outra marca: Lataffa" com 28 mil un. dentro da Lattafa): grafias da tela Nomes de marcas
+# {grafia compactada: chave compactada oficial}; o nubi_web preenche antes de consolidar (definir_apelidos).
+APELIDOS_MARCA = {}
 
 # Prefixos GS1 plausíveis para achar um GTIN dentro de uma string de dígitos colados.
 PREFIXOS_GS1 = ("789", "332", "542", "629", "608", "500", "871", "400", "301", "760", "335")
@@ -373,6 +376,7 @@ def detectar_linhas(df, marca):
     alvo = compacta(marca)
     outras = {compacta(v).lower() for v in df.get("marca_anuncio", pd.Series(dtype=str)).fillna("")
               if v and not marca_bate(v, alvo)}
+    palavras_marca = palavras_marca | variantes_da_marca(df["titulo"].map(normalizar), df.get("marca_anuncio", pd.Series(dtype=str)).fillna(""), marca)
     util = lambda p: (p not in PALAVRAS_VAZIAS and p not in palavras_marca and p not in outras
                       and not any(ch.isdigit() for ch in p))
     volume = {}
@@ -461,6 +465,42 @@ def achar_linha(titulo_norm, linhas, palavras_marca):
 PALAVRAS_TIPO = {"eau", "de", "toilette", "parfum", "cologne", "edt", "edp", "edc", "ml", "body", "splash",
                  "deo", "desodorante", "kit", "masculino", "feminino", "masculina", "feminina", "unissex"}
 
+
+
+# Palavras que vêm depois do nome da linha e não são nome de variação (concentração, público, anúncio).
+PARA_VARIACAO = {"extrait", "extrai", "extra", "men", "man", "women", "woman", "homme", "femme", "pour", "for", "arabe", "arab",
+                 "arabic", "spray", "oz", "gift", "set", "decant", "one", "size", "unisex", "corporal", "mist", "edition",
+                 "collection", "new", "nova", "novo", "lacrado", "lacrada"}
+
+
+def _completar_linha(titulo_norm, linha, palavras_marca, cortado=False):
+    """Linha + as até 2 palavras que vêm logo depois dela no título ("fakhar gold extrait" -> "Fakhar Gold"). Pula
+    concentração/público e a marca antes da variação ("Fakhar Extrait Gold", "Fakhar Lattafa Rose"); para em palavra de
+    tipo/volume/anúncio; a última palavra de título cortado não conta."""
+    k = normalizar(linha)
+    alvo = f" {titulo_norm} "
+    pos = alvo.find(f" {k} ")
+    if pos < 0:
+        return linha
+    resto = alvo[pos + len(k) + 2:].split()
+    extra = []
+    for j, tok in enumerate(resto):
+        if cortado and j == len(resto) - 1:
+            break
+        pedaco_marca = len(tok) >= 3 and any(p.startswith(tok) for p in palavras_marca)
+        volume = re.fullmatch(r"\d+(ml|g)?", tok) and (tok.endswith(("ml", "g")) or (j + 1 < len(resto) and resto[j + 1] in ("ml", "g")))
+        if tok in PARA_VARIACAO or tok in palavras_marca or pedaco_marca:
+            if extra:                              # "Fakhar Extrait Gold", "Fakhar Lattafa Rose": pula antes da variação
+                break
+            continue
+        if (tok in PALAVRAS_VAZIAS or tok in PALAVRAS_TIPO or volume or len(tok) < 3 or tok.isdigit() and len(tok) > 4):
+            break
+        extra.append(tok)
+        if len(extra) == 2:
+            break
+    if not extra:
+        return linha
+    return linha + " " + " ".join(w.upper() if w.isdigit() else w[:1].upper() + w[1:] for w in extra)
 
 def linha_pelo_titulo(titulos, unidades, palavras_marca, outras=()):
     """
@@ -583,9 +623,62 @@ def compacta(txt):
     return re.sub(r"[^A-Z0-9]", "", sem_acento(txt).upper())
 
 
+def definir_apelidos(ap):
+    APELIDOS_MARCA.clear()
+    APELIDOS_MARCA.update({compacta(k): compacta(v) for k, v in (ap or {}).items() if k and v})
+
+
+def _distancia(a, b):
+    """Distância de edição com troca de letras vizinhas (Damerau/OSA)."""
+    ant2, ant = None, list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i] + [0] * len(b)
+        for j, cb in enumerate(b, 1):
+            cur[j] = min(ant[j] + 1, cur[j - 1] + 1, ant[j - 1] + (ca != cb))
+            if ant2 is not None and i > 1 and j > 1 and ca == b[j - 2] and a[i - 2] == cb:
+                cur[j] = min(cur[j], ant2[j - 2] + 1)
+        ant2, ant = ant, cur
+    return ant[-1]
+
+
+def grafia_parecida(v, alvo):
+    """Erro de digitação do nome da marca (LATAFFA x LATTAFA, FERARRI x FERRARI): mesma 1ª letra, mesmos números,
+    até 1 letra de diferença (2 a partir de 7 letras). Nome curto (< 5) só vale igual — DIOR x DIOT seria chute."""
+    v, alvo = compacta(v), compacta(alvo)
+    if len(v) < 5 or len(alvo) < 5 or v == alvo or v[0] != alvo[0] or re.sub(r"\D", "", v) != re.sub(r"\D", "", alvo):
+        return False
+    teto = 2 if min(len(v), len(alvo)) >= 7 else 1
+    return abs(len(v) - len(alvo)) <= teto and _distancia(v, alvo) <= teto
+
+
 def marca_bate(valor, alvo):
     v = compacta(valor)
-    return bool(v) and (v == alvo or (len(v) >= 4 and (v in alvo or alvo in v)))
+    if not v:
+        return False
+    if v == alvo or APELIDOS_MARCA.get(v) == alvo or (len(v) >= 4 and (v in alvo or alvo in v)):
+        return True
+    if grafia_parecida(v, alvo):
+        return True
+    # erro de digitação numa parte do nome ("LATAFFA VURV", "BELARA - LATAFFA YARA"): palavras inteiras (1 a 3 seguidas),
+    # nunca um pedaço de palavra ("CAROLINA HERRERA" não vira "AROEIRA", "MONTBLANC" não vira "MONTANA")
+    pal = normalizar(valor).split()
+    return len(pal) > 1 and any(grafia_parecida("".join(pal[i:j]), alvo)
+                                for i in range(len(pal)) for j in range(i + 1, min(i + 3, len(pal)) + 1))
+
+
+def variantes_da_marca(titulos_norm, declaradas, marca):
+    """Grafias erradas da própria marca que aparecem nos títulos e na coluna Marca ("lataffa"): contam como nome da marca,
+    não como linha de produto."""
+    alvo = compacta(marca)
+    out = set()
+    for t in set(" ".join(titulos_norm).split()):
+        if len(t) >= 5 and grafia_parecida(t, alvo):
+            out.add(t)
+    for v in set(declaradas):
+        c = compacta(v)
+        if c and c != alvo and (grafia_parecida(c, alvo) or APELIDOS_MARCA.get(c) == alvo) and len(normalizar(v).split()) == 1:
+            out.add(normalizar(v))
+    return out
 
 
 def dono_do_anuncio(df, marca, pesquisados=None):
@@ -676,6 +769,63 @@ def identificar_marca(df, existentes=(), consultar=True, max_gtins=3):
             "pesquisados": pesquisados}
 
 
+def _linhas_parecidas(a, b):
+    """Duas linhas da mesma marca que são a mesma escrita errado ("Khamrah" x "Khamarh"): 1 letra, mesmos números."""
+    x, y = compacta(a), compacta(b)
+    return (min(len(x), len(y)) >= 5 and x != y and x[0] == y[0] and re.sub(r"\D", "", x) == re.sub(r"\D", "", y)
+            and abs(len(x) - len(y)) <= 1 and _distancia(x, y) <= 1)
+
+
+def auditar_marca(df, marca):
+    """
+    29/09 (Bruno: "conferir todas as marcas do explorador, rotina de otimização sem gastar LLM"): conferência só com
+    regras do agrupamento de UMA marca (último período). Devolve números e achados:
+    - marca_errada: "Outra marca" que é a própria marca escrita errado (some reprocessando, com apelido ou grafia parecida);
+    - outra_marca_grande: outra marca com 5%+ das unidades — pode ser linha da marca (Egeo no Boticário) ou contratipo;
+    - linhas_parecidas: a mesma linha escrita de dois jeitos;
+    - outros: o que mais vende sem linha identificada (títulos, para cadastrar a linha).
+    """
+    alvo = compacta(marca)
+    d = df.copy()
+    d["un"] = pd.to_numeric(d.get("un"), errors="coerce").fillna(0)
+    for c in ("linha", "tipo", "confianca", "gtin", "titulo", "marca_anuncio"):
+        d[c] = d.get(c, pd.Series("", index=d.index)).fillna("").astype(str)
+    total = float(d["un"].sum())
+    outra, fora = d["tipo"] == TIPO_OUTRA, d["tipo"] == TIPO_FORA
+    da = d[~outra & ~fora]
+    un_da = float(da["un"].sum())
+    outros = da[da["linha"] == "Outros"]
+    duv = da[da["confianca"].str.startswith("Dúvida")]
+    pct = lambda x, t: round(100 * x / t, 1) if t else 0.0
+    achados = []
+    for dono, g in d[outra].groupby("linha"):
+        un = float(g["un"].sum())
+        decl = [v for v in g["marca_anuncio"] if v] or [str(dono)]
+        if any(marca_bate(v, alvo) for v in decl):
+            achados.append({"tipo": "marca_errada", "nome": str(dono), "un": un, "anuncios": len(g),
+                            "texto": f"'{dono}' é a própria marca escrita errado ({int(un)} un.): reprocessar"})
+        elif total and un / total >= 0.05:
+            achados.append({"tipo": "outra_marca_grande", "nome": str(dono), "un": un, "anuncios": len(g),
+                            "texto": f"'{dono}' tem {str(pct(un, total)).replace('.', ',')}% das unidades como outra marca: se for a mesma marca "
+                                     "ou uma linha dela, junte em Nomes de marcas"})
+    por_linha = da[~da["linha"].isin(NEUTROS)].groupby("linha")["un"].sum().sort_values(ascending=False)
+    ls = list(por_linha.index)
+    for i, a in enumerate(ls):
+        for b in ls[i + 1:]:
+            if _linhas_parecidas(a, b):
+                achados.append({"tipo": "linhas_parecidas", "nome": f"{a} / {b}", "un": float(por_linha[a] + por_linha[b]),
+                                "texto": f"linhas '{a}' e '{b}' parecem a mesma (confira na Configuração da marca)"})
+    top = outros.groupby("titulo")["un"].sum().sort_values(ascending=False).head(5)
+    un_ruim = float(outros["un"].sum()) + float(duv[duv["linha"] != "Outros"]["un"].sum())
+    return {"marca": marca, "un": total, "anuncios": len(d),
+            "pct_outra_marca": pct(float(d[outra]["un"].sum()), total), "pct_nao_perfume": pct(float(d[fora]["un"].sum()), total),
+            "pct_outros": pct(float(outros["un"].sum()), un_da), "pct_duvida": pct(float(duv["un"].sum()), un_da),
+            "pct_so_titulo": pct(float(da[da["confianca"] == CONF_TITULO]["un"].sum()), un_da),
+            "nota": round(100 - pct(un_ruim, un_da), 1) if un_da else 100.0,
+            "achados": sorted(achados, key=lambda a: -a["un"]),
+            "outros_top": [{"titulo": t, "un": float(u)} for t, u in top.items() if u > 0]}
+
+
 def consolidar(df, marca, cfg, info=None):
     """Devolve df com linha, volume, tipo, gênero, produto e confiança preenchidos."""
     df = df.copy()
@@ -687,6 +837,7 @@ def consolidar(df, marca, cfg, info=None):
     alvo_marca = compacta(marca)
     outras_marcas = {compacta(v).lower() for v in df.get("marca_anuncio", pd.Series(dtype=str)).fillna("")
                      if v and not marca_bate(v, alvo_marca)}
+    palavras_marca = palavras_marca | variantes_da_marca(tn, df.get("marca_anuncio", pd.Series(dtype=str)).fillna(""), marca)
 
     # Etapa 1 — ler o título.
     lido = pd.DataFrame([ler_texto(t, linhas, palavras_marca) for t in tn], index=df.index)
@@ -750,6 +901,48 @@ def consolidar(df, marca, cfg, info=None):
                 conf = DUV_LINHA
         df.loc[grupo.index, "confianca"] = conf
 
+    # Etapa 2c (29/09, print do Bruno: "Lattafa Fakhar EDP 100 ml" era o Fakhar GOLD Extrait) — quando a marca tem variações
+    # de uma linha ("Fakhar Black", "Fakhar Rose"), a linha curta ("Fakhar") é completada pelo que vem logo depois dela no
+    # nome pesquisado do GTIN ou no título que mais vende: "Fakhar Extrait Gold" -> "Fakhar Gold", "Fakhar Platin 100ml" ->
+    # "Fakhar Platin". Se o título cita uma variação conhecida ("Fakhar Rose Feminino"), fica ela.
+    conhecidas_2c = {l for l in df.loc[(df["gtin"] != "") & ~fora, "linha"] if l not in NEUTROS} | {r for _, r in linhas}
+    base_de = {}
+    for l in conhecidas_2c:
+        k = normalizar(l)
+        filhas = [m for m in conhecidas_2c if m != l and f" {normalizar(m)} ".startswith(f" {k} ")]
+        if filhas and len(k) >= 3:
+            base_de[l] = filhas
+    if base_de:
+        pares_2c = [(l, l) for l in sorted(conhecidas_2c)]
+        def _variacao(texto, linha):
+            t = normalizar(texto)
+            achou = achar_linha(t, pares_2c, palavras_marca)
+            if achou != "Outros" and achou != linha and achou in base_de.get(linha, []):
+                return achou
+            return _completar_linha(t, linha, palavras_marca | outras_marcas, cortado=len(str(texto)) in range(38, 42))
+        for gtin, grupo in df[(df["gtin"] != "") & ~fora & df["linha"].isin(base_de)].groupby("gtin"):
+            linha = df.at[grupo.index[0], "linha"]
+            nome_pesq = (info.get(gtin) or {}).get("nome", "")
+            nova = _variacao(nome_pesq, linha) if nome_pesq else linha
+            if nova == linha:
+                votos = {}
+                for t, u in zip(grupo["titulo"], grupo["un"]):
+                    v = _variacao(t, linha)
+                    votos[v] = votos.get(v, 0) + int(u or 0) + 1
+                nova = max(votos.items(), key=lambda kv: kv[1])[0]
+            if nova != linha:
+                df.loc[grupo.index, "linha"] = nova
+        for i in df.index[(df["gtin"] == "") & ~fora & df["linha"].isin(base_de)]:
+            df.at[i, "linha"] = _variacao(df.at[i, "titulo"], df.at[i, "linha"])
+        # grafia cortada da mesma variação ("Fakhar Platin" x "Fakhar Platinum"): fica a que mais vende
+        novas = df.loc[~fora, ["linha", "un"]].groupby("linha")["un"].sum()
+        for a in novas.index:
+            for b in novas.index:
+                ca, cb = compacta(a), compacta(b)
+                if a != b and len(ca) >= 8 and cb.startswith(ca) and len(cb) - len(ca) <= 3 and not cb[len(ca):].isdigit():
+                    de, para = (a, b) if novas[b] >= novas[a] else (b, a)
+                    df.loc[(df["linha"] == de) & ~fora, "linha"] = para
+
     # Etapa 2b (29/09, print do Bruno: "Xerjoff Outros EDP 100 ml" com 106 anúncios) — as linhas que a própria marca
     # já tem pelos GTINs servem de dicionário para os anúncios SEM GTIN que ficaram em "Outros":
     # "Perfume Xerjoff 1861 Naxos Eau De Parfum 100ml" -> "Naxos 1861"; "Erba Pura", "Torino 21"...
@@ -762,7 +955,8 @@ def consolidar(df, marca, cfg, info=None):
     for l in un_linha:
         palavras = frozenset(normalizar(l).split())
         if len(normalizar(l)) >= 4 and not palavras <= palavras_marca and not palavras & LINHA_NAO_E:
-            grupos.setdefault(palavras, []).append(l)
+            # mesma linha em outra ordem ("1861 Naxos") ou com apóstrofo/espaço ("Bade'e" x "Badee"): uma chave só
+            grupos.setdefault("".join(sorted(normalizar(l).split())), []).append(l)
     canonica, chaves = {}, []
     for variantes in grupos.values():
         melhor = max(variantes, key=lambda l: (un_linha.get(l, 0), l))

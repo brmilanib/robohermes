@@ -264,6 +264,12 @@ def relatorio(repo, marca):
     anun = g.size()
     cat_n = g["catalogo"].sum()
     full_n = g["full"].sum()
+    # 29/09 (Bruno): o título do anúncio que mais vende em cada produto, para saber qual é ("Fakhar Gold Extrait")
+    titulo_top = df.sort_values("un", ascending=False, kind="mergesort").groupby("produto")["titulo"].first()
+    # 29/09 (Bruno): preço médio dos 2 maiores vendedores de cada produto (faturamento ÷ unidades de cada um)
+    pv = df.groupby(["produto", "vendedor_id"]).agg(un=("un", "sum"), fat=("fat", "sum"), nome=("vendedor", "first")).reset_index()
+    pv = pv[pv["un"] > 0].sort_values(["produto", "un", "fat"], ascending=[True, False, False], kind="mergesort")
+    top2 = {prod: [(float(r["fat"]) / float(r["un"]), str(r["nome"])) for _, r in x.head(2).iterrows()] for prod, x in pv.groupby("produto")}
     produtos, acum = [], 0
     for prod, a in attrs.iterrows():
         un = int(a["un"])
@@ -271,15 +277,17 @@ def relatorio(repo, marca):
         antes = acum
         acum += pct
         pm = _div(a["fat"], un)
+        t2 = (top2.get(prod) or []) + [(None, "")] * 2
         produtos.append({
-            "produto": prod, "categoria_l1": a["cat_l1"], "categoria": a["cat"], "marca": a["marca"],
+            "produto": prod, "titulo_top": str(titulo_top.get(prod, "")), "categoria_l1": a["cat_l1"], "categoria": a["cat"], "marca": a["marca"],
             "linha": a["linha"], "tipo": a["tipo"], "volume": a["volume"], "gtins": int(a["gtins"]),
             "anuncios": int(anun[prod]), "vendedores": int(a["vendedores"]), "un": un,
             "fat": float(a["fat"]), "preco_medio": pm, "faixa": faixa(pm), "giro": un / dias,
             "proj30": un / dias * 30, "pct_volume": pct, "pct_acum": acum,
             "abc": "A" if antes < 0.8 else "B" if antes < 0.95 else "C",
             "un_por_anuncio": _div(un, anun[prod]), "pct_catalogo": _div(cat_n[prod], anun[prod]),
-            "pct_full": _div(full_n[prod], anun[prod]), "confianca": a["confianca"]})
+            "pct_full": _div(full_n[prod], anun[prod]), "confianca": a["confianca"],
+            "preco_v1": t2[0][0], "vendedor_v1": t2[0][1], "preco_v2": t2[1][0], "vendedor_v2": t2[1][1]})
 
     # Oportunidades
     oport = []
@@ -492,6 +500,10 @@ def _preparar(repo):
     """Estado por requisição: GTINs pesquisados e mensagens para a resposta."""
     nubi.INFO_GTIN.clear()
     nubi.INFO_GTIN.update(repo.carregar_gtins())
+    try:                                   # 29/09: "LATAFFA" (Nomes de marcas) é a Lattafa também no Explorador
+        nubi.definir_apelidos({k: v[0] for k, v in apelidos(repo).items()})
+    except Exception:  # noqa: BLE001
+        nubi.definir_apelidos({})
     log = []
     nubi._SAIDA[0] = log.append
     return log
@@ -530,7 +542,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 3: sem GTIN usa as linhas que a marca já tem pelos GTINs"   # 29/09 (Xerjoff Outros)
+REGRA_ATUAL = "regra 4: marca escrita errado (Nomes de marcas + grafia parecida) é a própria marca"   # 29/09 (Lataffa)
 
 
 def aplicar_regra_nova(repo):
@@ -557,6 +569,13 @@ def rodar_agente(repo, origem, marca=None, segundos=TEMPO_MAX):
     if mudaram and time.monotonic() < prazo + 40:
         nubi.reconsolidar(repo, repo.carregar_config(), mudaram)
         nubi.avisar(f"    Produtos reagrupados: {', '.join(nubi.nome_bonito(m) for m in mudaram)}.")
+    if time.monotonic() < prazo + 30:
+        try:
+            aud = auditar_explorador(repo)            # 1 vez por dia, sem IA: confere todas as marcas e conserta o que é regra
+            if aud:
+                nubi.avisar(f"    Conferência das marcas: {aud}")
+        except Exception as e:  # noqa: BLE001
+            nubi.avisar(f"    Conferência das marcas falhou: {e.__class__.__name__}: {str(e)[:200]}")
     reg = {"origem": origem, "marca": marca, "iniciado_em": inicio.isoformat(),
            "terminado_em": datetime.now(timezone.utc).isoformat(),
            "pendentes": res["pendentes"], "pesquisados": res["pesquisados"], "encontrados": res["encontrados"],
@@ -568,6 +587,59 @@ def rodar_agente(repo, origem, marca=None, segundos=TEMPO_MAX):
     except ErroNuvem:
         pass   # registrar a rodada não pode derrubar a pesquisa
     return dict(reg, marcas=mudaram, log=log, regra_aplicada=regra)
+
+
+AUDITORIA_CHAVE = "explorador_auditoria|"
+
+
+def auditar_explorador(repo, forcar=False):
+    """29/09 (Bruno): conferência diária de TODAS as marcas do Explorador pelo Agente do Explorador, só com regras (sem LLM):
+    usa o que o nubi aprendeu (Nomes de marcas, linhas da Configuração, GTINs pesquisados). O que é regra ele conserta na
+    hora (marca escrita errado -> reprocessa a marca); o resto vira lista para o Bruno em Coletor e agente -> Conferência."""
+    hoje = _agora_br().date().isoformat()
+    chave = AUDITORIA_CHAVE + hoje
+    if not forcar and repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave), "limit": 1}):
+        return None
+    snaps = repo.snapshots()
+    if snaps.empty:
+        return None
+    ult = snaps.sort_values("id").groupby("marca").tail(1)
+    campos = "titulo,marca_anuncio,gtin,un,linha,tipo,confianca"
+    marcas, consertar = [], []
+    for _, s in ult.iterrows():
+        df = pd.DataFrame(repo._todos("anuncios", {"select": campos, "snapshot_id": repo._eq(int(s["id"]))}))
+        if df.empty:
+            continue
+        a = nubi.auditar_marca(df, s["marca"])
+        a.update(nome=nubi.nome_bonito(s["marca"]), inicio=str(s.get("inicio") or "")[:10], fim=str(s.get("fim") or "")[:10])
+        if any(x["tipo"] == "marca_errada" for x in a["achados"]):
+            consertar.append(s["marca"])
+        marcas.append(a)
+    if consertar:
+        nubi.reconsolidar(repo, repo.carregar_config(), consertar)
+        for a in marcas:
+            if a["marca"] in consertar:
+                for x in a["achados"]:
+                    if x["tipo"] == "marca_errada":
+                        x["corrigido"] = True
+    marcas.sort(key=lambda a: (a["nota"], -a["un"]))
+    abertos = sum(1 for a in marcas for x in a["achados"] if not x.get("corrigido"))
+    resumo = (f"{len(marcas)} marca(s) conferida(s); nota média {round(sum(a['nota'] for a in marcas) / max(1, len(marcas)), 1)}; "
+              f"{len(consertar)} reprocessada(s) por marca escrita errado; {abertos} ponto(s) para conferir")
+    dados = {"dia": hoje, "resumo": resumo, "consertadas": consertar, "marcas": marcas}
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": "Agente do Explorador (regras, sem IA)",
+                                            "texto": json.dumps(dados, ensure_ascii=False, default=float)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return resumo
+
+
+def auditoria_explorador_ultima(repo):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto,criado_em", "chave": f"like.{AUDITORIA_CHAVE}*",
+                                         "order": "chave.desc", "limit": 1}) or [None])[0]
+    try:
+        return dict(json.loads(r["texto"]), em=r.get("criado_em")) if r else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _dt_utc(ts):
@@ -670,6 +742,12 @@ def atender(metodo, rota, q, corpo, token):
         if rota == "agente" and metodo == "POST":
             seg = min(TEMPO_MAX, int(q.get("segundos") or 60))
             return _json(rodar_agente(repo, q.get("origem") or "manual", q.get("marca") or None, seg))
+        if rota == "explorador_auditoria":
+            # 29/09: conferência das marcas (a última; POST roda de novo agora)
+            if metodo == "POST":
+                _preparar(repo)
+                auditar_explorador(repo, forcar=True)
+            return _json({"auditoria": auditoria_explorador_ultima(repo)})
         if rota == "agente_status":
             ult = repo._req("GET", "agente_execucoes", {"select": "*", "order": "id.desc", "limit": 15,
                                                         "origem": "not.like.regra*"}) or []

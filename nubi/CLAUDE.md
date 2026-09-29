@@ -100,6 +100,18 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   a que mais vende; palavras de anúncio (`LINHA_NAO_E`: decant, set, nicho…) não viram linha; se casar com várias,
   ganha a que mais vende. Mudou a regra → suba `REGRA_ATUAL` em `nubi_web.py` (reprocessa tudo uma vez no agente).
 
+## Marca escrita errado, variações da linha e conferência diária (29/09, prints da Lattafa)
+- `marca_bate` usa os apelidos da tela Nomes de marcas (`nubi.definir_apelidos`, carregado em `_preparar`) e aceita erro
+  de digitação (`grafia_parecida`: mesma 1ª letra e números, 1 letra de diferença, 2 a partir de 7 letras; em nome maior,
+  só palavras inteiras). "Lataffa" deixou de ser "Outra marca" na Lattafa; `variantes_da_marca` impede que vire linha.
+- Etapa 2c: linha que tem variações conhecidas ("Fakhar" com "Fakhar Black"/"Fakhar Rose") é completada pelo nome
+  pesquisado do GTIN ou pelo título que mais vende (`_completar_linha`: "Fakhar Extrait Gold" -> "Fakhar Gold");
+  grafia cortada junta ("Platin"/"Platinum"). Produtos trazem `titulo_top` (título do anúncio que mais vende).
+- Conferência das marcas (`auditar_explorador`, sem IA) roda 1x/dia no Agente do Explorador: nota por marca, marca
+  escrita errado (reprocessa sozinho), outra marca grande (juntar em Nomes de marcas), linhas parecidas e o que mais
+  vende em "Outros". Tela: Coletor e agente → 🧹 Conferência; rota `explorador_auditoria` (POST roda agora).
+- Regra de agrupamento mudou → `REGRA_ATUAL` sobe (hoje "regra 4") e o agente reprocessa tudo uma vez.
+
 ## Quadro do produto no Explorador (30/09, pedido do Bruno) — `abrirVendedoresProduto` + rota `estoque_produto`
 - Quadro largo (`.modal.larga.pq`): cabeçalho com o mercado (un., faturamento, preço médio e faixa, vendedores, líder) e
   o MEU lado vindo de `produto_meu`: vendo? (vendas por anúncio do UpSeller, 30 dias, por loja), meu preço médio vs.
