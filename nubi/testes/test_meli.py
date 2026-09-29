@@ -329,6 +329,9 @@ def test_catalogo_le_todas_as_paginas_e_o_numero_da_loja_oficial():
     meli.ofertas_do_produto("MLB8880888")
     assert len(d.pedidos) == antes                                                           # 20 min de cache
     assert len(meli.ofertas_por_gtin(["7899463112978"], maximo=50)) == 50                   # a tela do produto lê só a 1ª página
+    assert meli.TOTAL_OFERTAS["MLB8880888"] == 122 and len(meli.ofertas_do_produto("MLB8880888", maximo=100)) == 100
+    t = meli.testar("MLB1000100", "7899463112978")
+    assert any(p["passo"] == "todas as páginas do catálogo" and "122 ofertas lidas de 122 no catálogo" in p["detalhe"] for p in t["passos"]), t
     assert meli.ofertas_do_produto("MLB0000000") == []                                       # produto sem oferta: vazio, sem erro
 
 

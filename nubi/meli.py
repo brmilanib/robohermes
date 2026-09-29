@@ -683,7 +683,7 @@ def _produto_catalogo(pid):
     return _mem("prod|" + pid, 6 * 3600, ler)
 
 
-MAX_OFERTAS = 300                       # ofertas lidas por produto de catálogo (o ML devolve 50 por página)
+MAX_OFERTAS = 1000                      # ofertas lidas por produto de catálogo (o ML devolve 50 por página)
 
 
 def loja_oficial_do_texto(txt):
@@ -700,29 +700,47 @@ def _produtos_do_gtin(g, limite_produtos=2):
     return _mem("gtin|" + g, 30 * 60, buscar)[:limite_produtos]
 
 
+TOTAL_OFERTAS = {}                        # produto -> quantas ofertas o ML diz que tem (para o diagnóstico)
+
+
 def ofertas_do_produto(pid, maximo=MAX_OFERTAS):
     """As ofertas (anúncios de catálogo) de um produto do ML, 50 por página, até `maximo`. 29/09: a 1ª versão lia só a
-    1ª página, e a loja certa (ICARBONXX) podia estar depois das 50 primeiras."""
+    1ª página, e a loja certa (ICARBONXX) podia estar depois das 50 primeiras. Com o total da 1ª página, as outras vêm em
+    paralelo (produção: o Asad Elixir passa de 300)."""
+    def pagina(off):
+        return _get(f"/products/{pid}/items", {"limit": 50, "offset": off}) or {}
+
+    def seguinte(off):
+        try:
+            return pagina(off).get("results") or []
+        except ErroLogin:
+            raise
+        except ErroMeli:
+            return None                        # o ML recusou esta página: fica com o que veio
+
     def ler():
+        try:
+            r = pagina(0)
+        except NaoAchou:
+            return []                          # produto sem oferta ativa agora
         out, vistos = [], set()
-        for off in range(0, maximo, 50):
-            try:
-                r = _get(f"/products/{pid}/items", {"limit": 50, "offset": off}) or {}
-            except NaoAchou:
-                break                          # produto sem oferta ativa agora
-            except ErroLogin:
-                raise
-            except ErroMeli:
-                if off == 0:
-                    raise
-                break                          # o ML recusou a página seguinte: fica com o que veio
-            pagina = r.get("results") or []
-            novos = [x for x in pagina if x.get("item_id") and x["item_id"] not in vistos]
+
+        def juntar(xs):
+            novos = [x for x in xs or [] if x.get("item_id") and x["item_id"] not in vistos]
             vistos.update(x["item_id"] for x in novos)
-            out += novos
-            total = (r.get("paging") or {}).get("total")
-            if len(pagina) < 50 or not novos or (total is not None and off + 50 >= int(total)):
-                break
+            out.extend(novos)
+            return novos
+        juntar(r.get("results") or [])
+        total = (r.get("paging") or {}).get("total")
+        if total is not None:
+            TOTAL_OFERTAS[pid] = int(total)
+            for xs in _em_paralelo(seguinte, range(50, min(int(total), maximo), 50), 4):
+                juntar(xs)
+        elif len(r.get("results") or []) >= 50:                    # sem o total: uma página depois da outra
+            for off in range(50, maximo, 50):
+                xs = seguinte(off)
+                if not juntar(xs) or len(xs) < 50:
+                    break
         return out
     return _mem(f"prodit|{pid}|{maximo}", 20 * 60, ler)
 
@@ -1085,7 +1103,11 @@ def testar(mlb="MLB4577439527", gtin="6290362346548"):
         return (f"{len(xs)} anúncio(s); {sum(1 for x in xs if x.get('titulo'))} com título; "
                 f"{sum(1 for x in xs if (x.get('loja') or {}).get('nome'))} com a loja; {oficial}")
     passo("catálogo pelo GTIN (/products)", catalogo)
-    passo("todas as páginas do catálogo", lambda: f"{len(ofertas_por_gtin([gtin], max_gtins=1))} ofertas lidas (50 por página)")
+    def paginas():
+        n = len(ofertas_por_gtin([gtin], max_gtins=1))
+        tot = sum(TOTAL_OFERTAS.get(pid, 0) for pid in _produtos_do_gtin(gtin))
+        return f"{n} ofertas lidas" + (f" de {tot} no catálogo" if tot else "") + " (50 por página, em paralelo)"
+    passo("todas as páginas do catálogo", paginas)
     sid = next((x.get("vendedor_id") for x in cat.get("xs") or [] if x.get("vendedor_id")), None)
     passo("loja (/users/ID)", lambda: (_get(f"/users/{sid}") or {}).get("nickname") if sid else "sem vendedor para testar")
     passo("visitas (/items/visits)", lambda: visitas([mlb]).get(mlb))

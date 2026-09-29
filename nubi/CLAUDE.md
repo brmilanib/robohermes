@@ -134,8 +134,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   - o Explorador NÃO embaralha a coluna "Loja oficial" (`LOJA.OFICIAL.23829` = official_store_id do ML; 150 dos 1.603
     vendedores têm) e mostra, na coluna Vendedor, o NOME QUE O BRUNO DEU aos vendedores seguidos ("ICARBONXX P3") e o da
     loja dele (PUREHOME). `_linhas_nubi(..., com_bruto=True)` traz `loja_oficial_id` e `exposicao` da linha original;
-  - `meli.ofertas_por_gtin` lê TODAS as páginas de `/products/{id}/items` (50 por vez, até 300; a 1ª versão lia 50 e a loja
-    certa ficava depois); `meli.casar` pontua cada loja: Full e tipo (Clássico/Premium) iguais e o nº da loja oficial
+  - `meli.ofertas_por_gtin` lê TODAS as páginas de `/products/{id}/items` (50 por vez, até 1.000, em paralelo depois do total
+    da 1ª página; a 1ª versão lia 50 e a loja certa ficava depois; em produção o Asad Elixir passa de 300); `meli.casar` pontua cada loja: Full e tipo (Clássico/Premium) iguais e o nº da loja oficial
     igual são obrigatórios; preço do dia do export ("Último preço", export de até 5 dias) ±1% = exato; preço médio do mês
     do seguido só "perto"; cada produto conta 1 vez; idade do anúncio só quando o ML dá `/items` (hoje não dá ao app);
   - `meli.decidir`: "certa" = nº da loja oficial só desta loja + (2 produtos ou preço exato), ou preço exato em 3+
@@ -174,7 +174,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Painel "🔗 Vendedores × ML" (`#/vendedores-ml`, rota `meli_seguidos_lista`, `_painel_seguidos`): todos os seguidos com
   hash, o mesmo vendedor no Explorador (hash + nº da loja oficial), anúncios/ativos/GTIN/catálogo/Full, faturamento,
   unidades, marcas, a loja real com a prova e "🔎 Descobrir"/"↻ Refazer" (e "Descobrir as que faltam"); sem prova mostra
-  as candidatas com "✔ É esta". Diagnóstico 🔌 mostra se o ML manda o nº da loja oficial e quantas ofertas leu.
+  as candidatas com "✔ É esta". Diagnóstico 🔌 mostra se o ML manda o nº da loja oficial e quantas ofertas leu de quantas o catálogo tem
+  (produção 29/09: o nº da loja oficial vem; `/items` e `/items?ids=` dão 403; a paginação funciona).
 - `/items` de outras lojas não vem para o token do app: depois de 3 falhas seguidas o nubi para de pedir por 30 min.
 
 ## Quadro do produto no Explorador (30/09, pedido do Bruno) — `abrirVendedoresProduto` + rota `estoque_produto`
