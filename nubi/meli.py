@@ -1581,7 +1581,9 @@ def _primeira_visita(mlb):
         return None
     # 30/09 (ARENA_INFO, 14 dias no Hunter, saiu "—"): em anúncio novo o ML devolve a janela só desde a criação (sem os
     # dias zerados antes); janela que começa bem depois de 150 dias atrás = começa na criação
-    corte = (datetime.now(timezone.utc).date() - timedelta(days=145)).isoformat()
+    # (anúncio de 212 dias no Hunter saiu com 143 pela 1ª visita: sem visita nos primeiros dias da janela; só confia na
+    # janela "cortada" quando ela começa nos últimos 120 dias)
+    corte = (datetime.now(timezone.utc).date() - timedelta(days=120)).isoformat()
     return com[0] if com[0] > xs[0][0] or xs[0][0] > corte else None
 
 

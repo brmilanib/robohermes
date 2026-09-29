@@ -46,7 +46,7 @@
         ${l.cidade ? `<small>${ic("local", 10)} ${esc(l.cidade)}${l.uf ? ", " + esc(l.uf) : ""}</small>` : ""}
         ${nivel ? `<div class="nb-l"><small>Reputação</small><span class="nb-termo">${[1, 2, 3, 4, 5].map(i => `<i class="${i <= nivel ? "on r" + nivel : ""}"></i>`).join("")}</span><b>${nivel}/5</b></div>` : ""}`
         : `<small>${a.lendo ? "lendo a loja…" : "loja não encontrada" + (a.motivo ? ` — ${esc(a.motivo)}` : "")}</small>`}</div>
-      <div class="nb-b"><small>${ic("calendario", 11)} Anúncio criado</small><div class="nb-l"><b ${a.criado ? "" : `title="pelo nº do anúncio"`}>${criado ? esc(dia(criado)) : "—"}</b>
+      <div class="nb-b"><small>${ic("calendario", 11)} Anúncio criado</small><div class="nb-l"><b ${a.criado ? "" : `title="estimado (1ª visita ou nº do anúncio); o ML não libera a data exata ao nosso app"`}>${criado ? (a.criado ? "" : "≈ ") + esc(dia(criado)) : "—"}</b>
         ${d != null ? `<em class="${d < 180 ? "novo" : d < 365 ? "medio" : "velho"}">${nf(d)} dias</em>` : ""}</div></div>
       ${a.nota_card ? `<small class="nb-obs">${esc(a.nota_card)}</small>` : ""}
       <div class="nb-bts"><a class="nb-abrir" href="${a.item ? `${NUBI}/#/ml/anuncio/${esc(a.item)}` : "#"}" target="_blank" rel="noopener">${ic("grafico", 12)} Abrir análise</a>
