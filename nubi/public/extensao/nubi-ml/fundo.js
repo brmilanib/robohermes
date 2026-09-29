@@ -26,9 +26,19 @@ function lerAnuncio(html, url) {
   const titulo = um(/<h1[^>]*class="[^"]*ui-pdp-title[^"]*"[^>]*>([^<]{3,200})</) || um(/<meta[^>]+property="og:title"[^>]+content="([^"]{3,200})"/);
   const fotos = [...new Set((html.match(/https:\/\/http2\.mlstatic\.com\/D_NQ_NP_(?:2X_)?[0-9A-Za-z_\-]+-(?:O|F)\.(?:webp|jpg|jpeg|png)/g) || [])
     .map(f => f.replace("D_NQ_NP_", "D_NQ_NP_2X_").replace("D_NQ_NP_2X_2X_", "D_NQ_NP_2X_")))].slice(0, 30);
+  // 29/09 (inspeção da página /up/ pelo Claude no Chrome): o estado vem no script __NORDIC_RENDERING_CTX__, nos blocos
+  // melidata_event.event_data — busca pela chave, não pela posição. A data de criação NÃO está na página.
+  const estoque = um(/"quantity"\s*:\s*(\d+)\s*,\s*"sold_quantity"/) || um(/"available_quantity"\s*:\s*(\d+)/);
+  const nota = um(/"reviews"\s*:\s*\{\s*"rating"\s*:\s*([\d.]+)/);
+  const avaliacoes = um(/"reviews"\s*:\s*\{[^{}]*?"amount"\s*:\s*(\d+)/) || um(/"reviews"\s*:\s*\{\s*"count"\s*:\s*(\d+)/);
+  const logistica = um(/"logistic_type"\s*:\s*"([a-z_]+)"/);
+  const nomeLoja = um(/"seller_name"\s*:\s*"([^"]{2,80})"/);
+  const up = u.match(/\/up\/(MLBU\d{5,})/i);
   return {vendedor, item, produto, criado, apelido: apelido ? decodeURIComponent(apelido) : null,
     vendidos: vendidos != null ? +vendidos : null, oficial: oficial ? +oficial : null, categoria, tipo,
-    preco: preco != null ? +preco : null, titulo: titulo ? titulo.trim() : null, fotos};
+    preco: preco != null ? +preco : null, titulo: titulo ? titulo.trim() : null, fotos,
+    estoque: estoque != null ? +estoque : null, nota: nota != null ? +nota : null, avaliacoes: avaliacoes != null ? +avaliacoes : null,
+    full: logistica ? logistica === "fulfillment" : null, nome_loja: nomeLoja, produto_usuario: up ? up[1].toUpperCase() : null};
 }
 
 async function anuncio(url) {

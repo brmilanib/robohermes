@@ -204,7 +204,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     vendedor com termômetro de reputação. Data de entrada SEM /items: `meli.historico_visitas` lê
     `/items/{id}/visits/time_window` (365→180→150→90 dias, o ML limita) e o 1º dia com visita vira a data (se a visita
     começa no 1º dia da janela: "mais velho que"); visitas na vida por `/items/visits` desde essa data. Só estima pelo
-    nº do MLB quando não há 1ª visita.
+    nº do MLB quando não há 1ª visita. Produção 29/09: a janela por dia vai até 150 e por semana/mês o ML recusa; anúncio
+    mais velho mostra "+150 dias" (o Hunter tem a data porque usa o login de lojista). Inspeção da página /up/ (Claude no
+    Chrome, 29/09): o estado vem em `<script id="__NORDIC_RENDERING_CTX__">` (blocos `melidata_event.event_data`: item_id,
+    seller_id, seller_name, listing_type_id, category_id, logistic_type, `"quantity":98,"sold_quantity":500` = estoque
+    exato e vendidos em faixa) e `components.header.reviews` {rating, amount}; a DATA DE CRIAÇÃO NÃO está na página. O
+    quadro mostra estoque (e quantos dias dura), avaliações, selo FULL e o nome de exibição da loja.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

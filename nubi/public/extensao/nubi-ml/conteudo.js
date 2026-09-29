@@ -121,7 +121,7 @@
     const nivel = +(l.nivel || 0);
     q.innerHTML = `
       <div class="nubi-spy-cab"><span class="nubi-spy-logo">n</span><b>nubi Spy</b>
-        <span class="nubi-spy-chips"><i>${catalogo ? "CATÁLOGO" : "NORMAL"}</i>${TIPO[a.tipo] ? `<i class="on">${esc(TIPO[a.tipo]).toUpperCase()}</i>` : ""}</span></div>
+        <span class="nubi-spy-chips">${a.full ? `<i class="full">${ic("raio", 10)}FULL</i>` : ""}<i>${catalogo ? "CATÁLOGO" : "NORMAL"}</i>${TIPO[a.tipo] ? `<i class="on">${esc(TIPO[a.tipo]).toUpperCase()}</i>` : ""}</span></div>
       ${n && n.erro ? `<div class="nubi-spy-aviso">nubi: ${esc(n.erro)}</div>` : ""}
       <div class="nubi-spy-3">
         <div><small>${ic("frete", 12)} Frete</small><b>${ld || (frete != null ? brl(frete) : a.preco < 79 ? "comprador" : "—")}</b></div>
@@ -148,6 +148,12 @@
         ${conc.length ? `<div><small>${ic("etiqueta", 12)} Menor preço</small><b>${brl(menor)}</b><small>${pos ? `você está em ${pos}º de ${conc.length}` : `${conc.length} ofertas`}</small></div>` :
           `<div><small>${ic("olho", 12)} Visitas no total</small><b>${ld || nf(total)}</b><small>${h.primeira_visita ? "desde a entrada" : total != null ? "nos últimos 3 anos" : ""}</small></div>`}
       </div>
+      ${a.estoque != null || a.avaliacoes != null ? `<div class="nubi-spy-2">
+        <div><small>${ic("carrinho", 12)} Estoque</small><b>${a.estoque != null ? `${nf(a.estoque)} un.` : "—"}</b>
+          <small>${a.estoque != null && vendasDia ? `dura ≈ ${nf(Math.round(a.estoque / vendasDia))} dias no ritmo atual` : ""}</small></div>
+        <div><small>${ic("estrela", 12)} Avaliações</small><b>${a.nota != null ? `${dec(a.nota)} ★` : "—"}</b>
+          <small>${a.avaliacoes != null ? `${nf(a.avaliacoes)} avaliações` : ""}</small></div>
+      </div>` : ""}
       ${conc.length ? `<button class="nubi-spy-conc" data-nubi="conc">${ic("pessoas", 14)} Ver ${nf(n.total_concorrentes || conc.length)} concorrentes ›</button>
         <div class="nubi-spy-lista" hidden>${conc.slice(0, 60).map(c => `<div class="${c.eu ? "eu" : ""}">
           <a href="${esc(c.link)}" target="_blank" rel="noopener">${esc(c.loja || "loja " + c.vendedor_id)}</a>
@@ -159,7 +165,7 @@
       <button class="nubi-spy-bt cheio escuro" data-nubi="calc">${ic("calc", 13)} Abrir na calculadora</button>
       <div class="nubi-spy-vend"><div class="nubi-spy-vcab">${ic("loja", 14)} Perfil do vendedor</div>
         <div class="nubi-spy-vtopo"><span class="nubi-spy-vic">${ic("loja", 18)}</span><div>
-          <b>${esc(l.nome || a.apelido || "—")}</b>
+          <b>${esc(l.nome || a.apelido || "—")}</b>${a.nome_loja && a.nome_loja !== l.nome ? ` <span class="nubi-spy-fraco">· ${esc(a.nome_loja)}</span>` : ""}
           <div class="nubi-spy-fraco">${l.cidade ? `${ic("local", 11)} ${esc(l.cidade)}${l.uf ? " - " + esc(l.uf) : ""}` : ""}
             ${l.medalha ? `<em class="medalha">${ic("medalha", 11)} ${esc(l.medalha)}</em>` : ""}${l.loja_oficial ? `<em class="oficial">✔ Loja oficial</em>` : ""}</div></div></div>
         <div class="nubi-spy-l nubi-spy-caixinha"><span>Vendas totais</span><b>${nf(l.vendas)}</b></div>

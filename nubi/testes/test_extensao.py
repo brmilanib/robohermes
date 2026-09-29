@@ -26,7 +26,8 @@ console.log(JSON.stringify(lerAnuncio(h,'https://produto.mercadolivre.com.br/MLB
 a = json.loads(subprocess.run(["node", "-e", js, str(EXT / "fundo.js")], capture_output=True, text=True, check=True).stdout)
 assert a == {"vendedor": "2540338692", "item": "MLB4350649763", "produto": None, "criado": "2025-12-07T10:06:52.463Z",
              "apelido": "KAIDOXSTOREE", "vendidos": 10000, "oficial": None, "categoria": None, "tipo": None, "preco": None,
-             "titulo": None, "fotos": []}, a
+             "titulo": None, "fotos": [], "estoque": None, "nota": None, "avaliacoes": None, "full": None, "nome_loja": None,
+             "produto_usuario": None}, a
 # página de catálogo (/p/MLB…): produto do link, anúncio, categoria, tipo, preço e as fotos grandes
 js2 = """global.chrome={runtime:{onMessage:{addListener(){}}}};const {lerAnuncio}=require(process.argv[1]);
 const h='<meta itemprop="price" content="246.98"><h1 class="ui-pdp-title">Asad Elixir 100ml</h1><script>{"item_id":"MLB6123456789",'
@@ -36,6 +37,15 @@ console.log(JSON.stringify(lerAnuncio(h,'https://www.mercadolivre.com.br/asad/p/
 b2 = json.loads(subprocess.run(["node", "-e", js2, str(EXT / "fundo.js")], capture_output=True, text=True, check=True).stdout)
 assert (b2["produto"], b2["item"], b2["categoria"], b2["tipo"], b2["preco"], b2["titulo"]) == \
     ("MLB67389993", "MLB6123456789", "MLB6284", "gold_pro", 246.98, "Asad Elixir 100ml"), b2
+js3 = """global.chrome={runtime:{onMessage:{addListener(){}}}};const {lerAnuncio}=require(process.argv[1]);
+const h='<script id="__NORDIC_RENDERING_CTX__">_n.ctx.r={"components":{"bookmark":{"item_id":"MLB4430562169"},"header":{"reviews":{"rating":4.7,"amount":124}}},'
+ + '"melidata_event":{"event_data":{"item_id":"MLB4430562169","seller_id":2162683356,"seller_name":"Essence Prime","listing_type_id":"gold_special",'
+ + '"category_id":"MLB6284","logistic_type":"self_service","stock_type":"normal","quantity":98,"sold_quantity":500}}}</script>';
+console.log(JSON.stringify(lerAnuncio(h,'https://www.mercadolivre.com.br/perfume-asad/up/MLBU3736729421#polycard_client=search')));"""
+b3 = json.loads(subprocess.run(["node", "-e", js3, str(EXT / "fundo.js")], capture_output=True, text=True, check=True).stdout)
+assert (b3["item"], b3["vendedor"], b3["tipo"], b3["categoria"], b3["estoque"], b3["vendidos"], b3["nota"], b3["avaliacoes"], b3["full"],
+        b3["nome_loja"], b3["produto_usuario"], b3["criado"]) == ("MLB4430562169", "2162683356", "gold_special", "MLB6284", 98, 500, 4.7, 124,
+                                                                   False, "Essence Prime", "MLBU3736729421", None), b3
 assert b2["fotos"] == ["https://http2.mlstatic.com/D_NQ_NP_2X_951134-MLB91143087125_082025-O.webp"], b2["fotos"]
 
 # 3) na tela: a linha embaixo de cada anúncio da busca e o quadro na página do produto
@@ -90,6 +100,7 @@ with sync_playwright() as p:
 
     # 4) página do produto: quadro nubi Spy (os números do print do Hunter: Asad Elixir R$ 246,98 Premium)
     PAG = {"vendedor": "1111222233", "item": "MLB6123456789", "produto": "MLB67389993", "criado": None, "apelido": "PEREIRAELOISA",
+           "estoque": 2, "nota": 5.0, "avaliacoes": 2, "full": True, "nome_loja": "Pereira Eloisa",
            "vendidos": 100, "categoria": "MLB6284", "tipo": "gold_pro", "preco": 246.98, "titulo": "Asad Elixir",
            "fotos": ["https://http2.mlstatic.com/D_NQ_NP_2X_1-O.webp"], "loja": None}
     NUB = {"loja": {"id": 1111222233, "nome": "PEREIRAELOISA20220126003352", "link": "https://perfil.mercadolivre.com.br/P",
@@ -118,7 +129,7 @@ with sync_playwright() as p:
     for x in ("nubi Spy", "CATÁLOGO", "PREMIUM", "R$ 24,45", "R$ 41,99", "17%", "R$ 180,54", "Conversão", "0,5%", "Vende a cada 197 visitas",
               "Visitas", "4,7/dia", "19.651 no total", "142 em 30 dias", "Catálogo: 31/dia", "15% deste anúncio",
               "+100 total", "Faturamento previsto", "R$ 24,7 mil", "Projeção 30 dias", "desde 19/01/2026 · 1ª visita",
-              "Menor preço", "R$ 239,90", "você está em 2º de 2", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
+              "Menor preço", "R$ 239,90", "FULL", "Estoque", "2 un.", "Avaliações", "5 ★", "2 avaliações", "· Pereira Eloisa", "você está em 2º de 2", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
               "Curitiba - PR", "Vendas totais", "Baixar mídias (1)", "Abrir na calculadora", "Nota nubi", "Ver página", "No nubi"):
         assert x in t, (x, t)
     assert f"{dias} dias" in t or f"{dias - 1} dias" in t, t                    # fuso: conta dias inteiros
