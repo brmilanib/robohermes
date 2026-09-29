@@ -487,8 +487,14 @@ def mostrar_mais_linhas(pg):
 
 def listar_vendedores(pg, cfg):
     """Nome e hash de cada vendedor do grupo (tabela paginada, 10 por página)."""
-    ir(pg, f"{BASE}/competition/dashboardbycompetitor?group={cfg['grupo']}&range=PREVMONTH",
-       'td a[aria-label="Analise um concorrente"]')
+    url = f"{BASE}/competition/dashboardbycompetitor?group={cfg['grupo']}&range=PREVMONTH"
+    try:
+        ir(pg, url, 'td a[aria-label="Analise um concorrente"]')
+    except SessaoExpirada:
+        raise
+    except Falha:                                       # a tabela às vezes fica carregando para sempre (card #115)
+        log("  lista de vendedores: a tabela não apareceu; recarrego a página")
+        ir(pg, url, 'td a[aria-label="Analise um concorrente"]')
     vistos, pagina = {}, 1
     mostrar_mais_linhas(pg)
     js_nomes = ("() => Array.from(document.querySelectorAll('td a[aria-label=\"Analise um concorrente\"]'))"
