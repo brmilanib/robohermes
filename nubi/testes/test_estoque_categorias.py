@@ -73,8 +73,26 @@ try:
             pg.wait_for_selector("text=Estoque por categoria", timeout=15000); pg.wait_for_selector("#ec-marcas table", timeout=15000)
             txt = pg.inner_text("#main")
             assert "Árabe" in txt and "Designer" in txt and "Lattafa" in txt and "Ferrari" in txt, txt[:1500]
-            assert "sem marca no título" in txt and "Por tipo de produto" in txt, txt[:1500]
+            assert ("sem marca no título" in txt or nome == "cel") and "Por tipo de produto" in txt, txt[:1500]   # no cel a marca já foi corrigida
+            if nome == "cel":
+                assert "Nacional" in txt, txt[:1500]                                    # a categoria escolhida no pc valeu
             sem_rolagem(pg, nome, "estoque por categoria")
+            if nome == "pc":
+                # 30/09 (Bruno): clicar na categoria abre os produtos dela; marca por SKU e categoria da marca editáveis
+                pg.click(".kpi.ec-clica[data-ev='Sem categoria']"); pg.wait_for_selector(".modal .ec-marca", timeout=8000)
+                m = pg.inner_text(".modal")
+                assert "CREAMY-1" in m and "ASAD-100" not in m, m[:800]
+                pg.fill(".modal .ec-marca[data-sku='CREAMY-1']", "Creamy"); pg.press(".modal .ec-marca[data-sku='CREAMY-1']", "Enter")
+                pg.wait_for_selector(".modal [data-eccat='Creamy']", timeout=10000)     # reabriu já com a marca nova
+                pg.once("dialog", lambda d: d.accept())
+                pg.select_option(".modal [data-eccat='Creamy']", "Nacional")
+                pg.wait_for_function("() => !document.querySelector('.modal') || !document.querySelector('.modal').innerText.includes('CREAMY-1')", timeout=10000)
+                pg.wait_for_selector(".modal", timeout=8000); pg.click(".modal [data-fechar]")
+                pg.click(".kpi.ec-clica[data-ev='Nacional']")
+                pg.wait_for_selector(".modal .ec-marca", timeout=8000)
+                m = pg.inner_text(".modal")
+                assert "Nacional" in m and "CREAMY-1" in m, m[:800]
+                pg.click(".modal [data-fechar]")
             assert not erros, erros
             pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"estoque_categorias_{nome}.png"), full_page=True)
         b.close()

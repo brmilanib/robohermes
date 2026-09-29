@@ -4076,6 +4076,35 @@ def estoque_compras(repo, com_plano=True):
     return out
 
 
+MARCA_SKU_CHAVE = "estoque|marca_sku"
+
+
+def _marca_sku(repo):
+    """{sku compactado: marca} que o Bruno corrigiu na aba Por categoria (o título não tinha a marca ou tinha errado)."""
+    try:
+        reg = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(MARCA_SKU_CHAVE)}) or [None])[0]
+        return json.loads(reg["texto"]) if reg and reg.get("texto") else {}
+    except (ErroNuvem, ValueError, TypeError):
+        return {}
+
+
+def estoque_marca_salvar(repo, sku, marca):
+    """30/09 (Bruno: "poder editar a marca e a categoria caso esteja errada"): marca do SKU escolhida à mão; vazia = volta ao título."""
+    k = nubi.compacta(sku or "")
+    if not k:
+        raise ErroNuvem("Informe o SKU.")
+    atual = _marca_sku(repo)
+    marca = re.sub(r"\s+", " ", str(marca or "")).strip()[:80]
+    if marca:
+        atual[k] = marca
+    else:
+        atual.pop(k, None)
+    repo._req("POST", "ia_resumos", corpo=[{"chave": MARCA_SKU_CHAVE, "ia": "bruno", "texto": json.dumps(atual, ensure_ascii=False),
+                                            "criado_em": datetime.now(timezone.utc).isoformat()}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True, "sku": sku, "marca": marca}
+
+
 def estoque_categorias(repo):
     """30/09 (Bruno): o estoque por categoria de marca (a mesma do Ranking de marcas), por tipo de produto e por marca,
     com o valor pelo custo e as vendas dos últimos 30 dias (relatório do UpSeller)."""
@@ -4112,7 +4141,7 @@ def estoque_categorias(repo):
         d = vendas_sku.setdefault(k, {"unidades": 0.0, "valor": 0.0})
         d["unidades"] += float(x.get("unidades") or 0)
         d["valor"] += float(x.get("valor") or 0)
-    r = categorias.estoque_por_categoria(itens, conhecidas, manuais, vendas_sku)
+    r = categorias.estoque_por_categoria(itens, conhecidas, manuais, vendas_sku, _marca_sku(repo))
     r.update({"estoque_em": ult["criado_em"], "vendas": {k: x for k, x in v.items() if k != "linhas"} or None})
     return r
 
@@ -5080,6 +5109,9 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         return estoque_compras(repo)
     if rota == "estoque_categorias":
         return estoque_categorias(repo)
+    if rota == "estoque_marca_salvar" and metodo == "POST":
+        d = json.loads(corpo or b"{}")
+        return estoque_marca_salvar(repo, d.get("sku"), d.get("marca"))
     if rota == "estoque_chat" and metodo == "POST":
         return conversar_compras(repo, json.loads(corpo or b"{}").get("texto"))
     if rota == "estoque_lista" and metodo == "POST":

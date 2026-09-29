@@ -227,10 +227,12 @@ def marca_do_titulo(titulo, conhecidas):
     return conhecidas[melhor] if melhor else None
 
 
-def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None):
+def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marca_sku=None):
     """itens do estoque (sku, titulo, atual, custo_medio) -> totais por categoria de marca, por tipo de produto e por marca.
-    vendas_sku: {sku compactado: {"unidades", "valor"}} dos últimos 30 dias (relatório do UpSeller)."""
-    vendas_sku = vendas_sku or {}
+    vendas_sku: {sku compactado: {"unidades", "valor"}} dos últimos 30 dias (relatório do UpSeller).
+    marca_sku: {sku compactado: marca} escolhida pelo Bruno na tela (vence a marca achada no título)."""
+    vendas_sku, marca_sku = vendas_sku or {}, marca_sku or {}
+    lista = []
     cats, tipos, marcas = {}, {}, {}
     total = {"skus": 0, "unidades": 0.0, "valor": 0.0, "vend_un": 0.0, "vend_valor": 0.0}
     sem = []
@@ -238,8 +240,9 @@ def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None):
         atual = float(it.get("atual") or 0)
         custo = it.get("custo_medio")
         valor = atual * float(custo) if custo not in (None, "") else 0.0
-        marca = marca_do_titulo(it.get("titulo"), conhecidas)
-        cat = classificar(marca, manuais)[0] if marca else SEM
+        manual = marca_sku.get(nubi.compacta(it.get("sku") or ""))
+        marca = manual or marca_do_titulo(it.get("titulo"), conhecidas)
+        cat, fonte_cat = classificar(marca, manuais) if marca else (SEM, "sem")
         tipo = tipo_produto(it.get("titulo"))
         v = vendas_sku.get(nubi.compacta(it.get("sku") or ""), {})
         vu, vv = float(v.get("unidades") or 0), float(v.get("valor") or 0)
@@ -256,6 +259,10 @@ def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None):
         m.setdefault("categoria", cat)
         m.setdefault("tipos", {})
         m["tipos"][tipo] = m["tipos"].get(tipo, 0) + 1
+        lista.append({"sku": it.get("sku"), "titulo": it.get("titulo"), "marca": marca or "", "marca_manual": bool(manual),
+                      "categoria": cat, "categoria_fonte": fonte_cat, "tipo": tipo, "atual": atual, "custo": float(custo) if custo not in (None, "") else None,
+                      "valor": round(valor, 2), "vend_un": vu, "vend_valor": round(vv, 2),
+                      "cobertura_dias": round(atual / (vu / 30), 1) if vu else None})
         if not marca and atual > 0:
             sem.append({"sku": it.get("sku"), "titulo": it.get("titulo"), "atual": atual, "valor": round(valor, 2)})
         total["skus"] += 1
@@ -278,4 +285,5 @@ def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None):
     sem.sort(key=lambda x: -x["valor"])
     return {"total": {k: round(v, 2) if isinstance(v, float) else v for k, v in total.items()},
             "categorias": fechar(cats, "categoria"), "tipos": fechar(tipos, "tipo"), "marcas": fechar(marcas, "marca"),
-            "sem_marca": sem[:60], "ordem": CATEGORIAS + [SEM]}
+            "sem_marca": sem[:60], "ordem": CATEGORIAS + [SEM], "opcoes": CATEGORIAS,
+            "itens": sorted(lista, key=lambda x: (-x["valor"], -x["atual"]))}

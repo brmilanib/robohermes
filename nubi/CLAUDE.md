@@ -124,6 +124,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   cada categoria); a categoria é a do ranking (`classificar`, a escolha manual vence). Também por tipo de produto
   (`tipo_produto`: Casa, Body splash, Skincare, Perfume) e por marca, com valor pelo custo e vendas de 30 dias do UpSeller
   (cobertura = unidades ÷ venda/dia). Itens com estoque sem marca no título aparecem numa lista. Teste: `test_estoque_categorias.py`.
+  Cards e linhas clicáveis (`abrirEcLista`): lista dos produtos com a MARCA editável por SKU (`estoque_marca_salvar`, em
+  `ia_resumos` `estoque|marca_sku`; vazia = volta ao título) e a CATEGORIA editável por marca (`ranking_categoria_salvar`,
+  vale também no Ranking).
 - **Explorador: período analisado (30/09, "últimos 30 e 7 dias")**: o export é por período (sem venda por dia); cada período
   importado da marca vira um botão na página da marca (`periodosMarca`, rota `relatorio&periodo=<id>`, `escolher_periodo`:
   padrão = termina por último e mais longo; anterior = termina antes do escolhido começar). 7 e 30 dias aparecem quando o
