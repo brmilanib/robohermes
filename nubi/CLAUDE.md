@@ -80,6 +80,19 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   trânsito). Rota `estoque_compras`; a análise do dia (`analise_estoque`, DeepSeek v4-pro, `ia_resumos` `analise_estoque|data`)
   aparece no topo da aba.
 
+- **Reposição semanal, lista de compra e chat (29/09, pedido do Bruno)**: `estoque.plano_semanal` (código) = venda/dia ×
+  (`REPOR_SEMANA`=7 + `SEGURANCA_DIAS`=7) − disponível − trânsito, só de quem vende; custo = ÚLTIMO preço pago
+  (`estoque.ultimo_custo_pago` pelas últimas 12 fotos do estoque: entrada = (custo novo × qtd nova − custo velho × qtd velha)
+  ÷ qtd que entrou; vinha zerado = custo novo; conta fora de 0,3–3× não chuta), senão o custo médio. A análise do dia
+  (`analise_estoque`, mesma chamada, sem gastar outra) ajusta o plano e devolve `LISTA_JSON`; `estoque.lista_da_resposta` só
+  aceita SKUs do plano e só muda quantidade/motivo (nome e custo SEMPRE do sistema). Lista em `ia_resumos` `compras|lista|atual`
+  (botão "↺ Voltar ao plano base" = rota `estoque_lista`). A caixa "Análise do Estoquista" do Estoque mostra essa análise
+  do dia (`analise_dia` na rota `estoque`); a leitura rápida grátis só aparece sem ela.
+- **Chat de Compras com o DeepSeek (29/09, EXCEÇÃO pedida pelo Bruno às 2 análises/dia)**: `conversar_compras` (rota
+  `estoque_chat`, `PAPEL_CHAT_COMPRAS`, deepseek-v4-pro, dentro de `deepseek_liberado`), no máximo `COMPRAS_CHAT_MAX`=30
+  mensagens por dia (env `NUBI_COMPRAS_CHAT_MAX`), conversa do dia em `compras|chat|<data>`. Se ele mandar `LISTA_JSON`, a
+  lista é trocada (mesmas travas). Testes: `test_compras_estoque.py`, `test_compras_real.py` (a IA falsa responde o chat).
+
 ## Perseguir anúncios pelo Apify (28/09, pedido do Bruno) — Estoque → 🎯 Perseguir anúncios (`#/estoque/perseguir`), `perseguir.py`
 
 - O Bruno cadastra anúncio (MLB… ou link) + palavra de busca (+ CEP e apelido opcionais), até `MAX_ANUNCIOS`=40. O robô do

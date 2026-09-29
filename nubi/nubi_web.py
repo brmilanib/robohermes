@@ -3920,8 +3920,42 @@ def _num_itens(xs):
     return xs
 
 
-def estoque_compras(repo):
-    """Zerados, mais vendidos e preciso comprar: último estoque do UpSeller × vendas por anúncio (30 dias)."""
+COMPRAS_LISTA = "compras|lista|atual"
+COMPRAS_CHAT_MAX = int(os.environ.get("NUBI_COMPRAS_CHAT_MAX", "30"))   # mensagens do Bruno por dia no chat do DeepSeek
+
+
+def _custos_pagos(repo, n=12):
+    """Último preço pago por SKU pelo histórico das últimas n fotos do estoque (estoque.ultimo_custo_pago)."""
+    hist = sorted(repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": n}) or [],
+                  key=lambda h: h["id"])
+    fotos = []
+    for h in hist:
+        quando = _br(h["criado_em"]).strftime("%d/%m") if h.get("criado_em") else None
+        fotos.append({estoque._chave(it["sku"]): {"atual": it.get("atual"), "custo_medio": it.get("custo_medio"), "quando": quando}
+                      for it in repo._todos("estoque_itens", {"select": "sku,atual,custo_medio", "atualizacao_id": repo._eq(int(h["id"]))})})
+    return estoque.ultimo_custo_pago(fotos)
+
+
+def _lista_compra(repo):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto,criado_em", "chave": repo._eq(COMPRAS_LISTA)}) or [None])[0]
+    try:
+        return dict(json.loads(r["texto"]), gravada_em=r.get("criado_em")) if r else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _gravar_lista(repo, itens, por):
+    d = {"itens": itens, "por": por, "dia": _agora_br().date().isoformat(),
+         "total": round(sum(x.get("subtotal") or 0 for x in itens), 2), "unidades": sum(x["quantidade"] for x in itens),
+         "sem_custo": sum(1 for x in itens if not x.get("ultimo_custo"))}
+    repo._req("POST", "ia_resumos", corpo=[{"chave": COMPRAS_LISTA, "ia": por, "texto": json.dumps(d, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return d
+
+
+def estoque_compras(repo, com_plano=True):
+    """Zerados, mais vendidos e preciso comprar: último estoque do UpSeller × vendas por anúncio (30 dias). 29/09: o plano de
+    reposição semanal (código), a lista de compra (DeepSeek ou plano) e o chat."""
     ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": 1}) or [None])[0]
     itens = _num_itens(_estoque_itens(repo, ult["id"])) if ult else []
     v = _vendas_atuais(repo)
@@ -3929,13 +3963,24 @@ def estoque_compras(repo):
     hoje = _agora_br().date().isoformat()
     an = (repo._req("GET", "ia_resumos", {"select": "chave,texto,criado_em,ia", "chave": "like.analise_estoque|*",
                                           "order": "chave.desc", "limit": 1}) or [None])[0]
-    return {"estoque_em": (ult or {}).get("criado_em"), "vendas": {k: x for k, x in (v or {}).items() if k != "linhas"} or None,
-            "analise": an and {"dia": an["chave"].split("|", 1)[1], "texto": an["texto"], "em": an["criado_em"], "por": an.get("ia"),
-                               "hoje": an["chave"].endswith(hoje)}, **ls}
+    out = {"estoque_em": (ult or {}).get("criado_em"), "vendas": {k: x for k, x in (v or {}).items() if k != "linhas"} or None,
+           "analise": an and {"dia": an["chave"].split("|", 1)[1], "texto": an["texto"], "em": an["criado_em"], "por": an.get("ia"),
+                              "hoje": an["chave"].endswith(hoje)}, **ls}
+    if com_plano and v and ult:
+        try:
+            custos = _custos_pagos(repo)
+        except Exception:  # noqa: BLE001  (sem histórico: fica o custo médio)
+            custos = {}
+        out["plano"] = estoque.plano_semanal(ls, custos)
+        out["repor"] = {"semana": estoque.REPOR_SEMANA, "folga": estoque.SEGURANCA_DIAS}
+        out["lista"] = _lista_compra(repo)
+        out["chat"] = _chat_compras(repo)
+    return out
 
 
 def analise_estoque(repo):
-    """28/09 (Bruno): 1 análise do estoque por dia, com o DeepSeek (v4-pro), em cima das listas calculadas em código."""
+    """28/09 (Bruno): 1 análise do estoque por dia, com o DeepSeek (v4-pro), em cima das listas calculadas em código.
+    29/09: a mesma chamada acha o equilíbrio da reposição semanal e devolve a lista de compra (LISTA_JSON)."""
     hoje = _agora_br().date().isoformat()
     chave = f"analise_estoque|{hoje}"
     if repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave), "limit": 1}):
@@ -3945,15 +3990,75 @@ def analise_estoque(repo):
         return "sem o relatório de vendas por anúncio do UpSeller"
     if not c.get("estoque_em"):
         return "sem estoque importado"
+    plano = c.get("plano") or []
     ia.USO["origem"] = "rotina analise_estoque"
     with ia.deepseek_liberado():
-        txt, _, qual = ia.perguntar(estoque.pedido_analise(c), web=False, max_tokens=2500, qual="deepseek", modelo="pro",
-                                    sistema=agentes.SISTEMA)
+        txt, _, qual = ia.perguntar(estoque.pedido_analise(c) + estoque.pedido_plano(plano), web=False, max_tokens=4500,
+                                    qual="deepseek", modelo="pro", sistema=agentes.SISTEMA)
     if not (txt or "").strip():
         return "o DeepSeek não respondeu"
-    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": txt.strip(), "ia": ia.nome(qual)}],
+    texto, lista, veio = estoque.lista_da_resposta(txt, plano)
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": texto, "ia": ia.nome(qual)}],
               prefer="resolution=merge-duplicates,return=minimal")
-    return f"análise do estoque gravada ({len(c['comprar'])} para comprar, {c['zerados_com_venda']} zerados com venda)"
+    _gravar_lista(repo, lista, ia.nome(qual) if veio else "plano do sistema (o DeepSeek não mandou a lista)")
+    return f"análise do estoque gravada ({len(c['comprar'])} para comprar, {len(lista)} na lista da semana)"
+
+
+# ---------------------------------------------------------------------------
+# Chat com o DeepSeek sobre as compras (29/09, pedido do Bruno: "abra um chat com ele ali dentro pra eu falar sobre as
+# compras"). Exceção autorizada à regra "DeepSeek só 2 análises por dia": até COMPRAS_CHAT_MAX mensagens por dia.
+# ---------------------------------------------------------------------------
+PAPEL_CHAT_COMPRAS = ("Você é o DeepSeek, comprador do nubi, conversando com o Bruno na aba Compras. Use SÓ os números dos "
+                      "dados abaixo (estoque do UpSeller, vendas de 30 dias, plano base e a lista de compra atual); não invente "
+                      "preço nem venda. Responda em português do Brasil, curto e prático. Se o Bruno pedir para mudar a lista "
+                      "(tirar, pôr, mudar quantidade, caber num orçamento), faça e escreva na ÚLTIMA linha exatamente:\n"
+                      "LISTA_JSON: [{\"sku\": \"…\", \"quantidade\": N, \"motivo\": \"…\"}, …] com a lista INTEIRA nova "
+                      "(só SKUs do plano base). Se não mudar a lista, não escreva essa linha.")
+
+
+def _chat_compras(repo, dia=None):
+    dia = dia or _agora_br().date().isoformat()
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(f"compras|chat|{dia}")}) or [None])[0]
+    try:
+        ms = json.loads(r["texto"]) if r else []
+    except (TypeError, ValueError):
+        ms = []
+    return {"mensagens": ms, "usadas": sum(1 for m in ms if m.get("de") == "voce"), "max": COMPRAS_CHAT_MAX}
+
+
+def conversar_compras(repo, texto):
+    texto = str(texto or "").strip()[:2000]
+    if not texto:
+        raise ErroNuvem("Escreva a mensagem.")
+    dia = _agora_br().date().isoformat()
+    ch = _chat_compras(repo, dia)
+    if ch["usadas"] >= COMPRAS_CHAT_MAX:
+        raise ErroNuvem(f"Chegou ao limite de {COMPRAS_CHAT_MAX} mensagens com o DeepSeek hoje. Amanhã libera de novo.", 429)
+    c = estoque_compras(repo)
+    plano = c.get("plano") or []
+    lista = (c.get("lista") or {}).get("itens") or []
+    dados = (estoque.tabelas(c) + "\n\nPLANO BASE (venda/dia × " + str(estoque.REPOR_SEMANA + estoque.SEGURANCA_DIAS)
+             + " dias − disponível − trânsito):\n" + estoque.linhas_plano(plano)
+             + "\n\nLISTA DE COMPRA ATUAL:\n" + ("\n".join(f"  {x['sku']} | {x['produto'][:55]} | {x['quantidade']} un | custo "
+                                                         f"{x.get('ultimo_custo') or '—'} | {x.get('motivo') or ''}" for x in lista)
+                                               or "  (vazia)"))
+    conversa = "\n".join(f"{'BRUNO' if m['de'] == 'voce' else 'VOCÊ'}: {m['texto']}" for m in ch["mensagens"][-12:])
+    pedido = f"{PAPEL_CHAT_COMPRAS}\n\nDADOS:\n{dados}\n\nCONVERSA ATÉ AGORA:\n{conversa or '(começo)'}\n\nBRUNO: {texto}\nVOCÊ:"
+    ia.USO["origem"] = "chat compras"
+    with ia.deepseek_liberado():
+        txt, _, qual = ia.perguntar(pedido, web=False, max_tokens=3000, qual="deepseek", modelo="pro", sistema=agentes.SISTEMA)
+    if not (txt or "").strip():
+        raise ErroNuvem("O DeepSeek não respondeu agora. Tente de novo em instantes.", 503)
+    resposta, nova, veio = estoque.lista_da_resposta(txt, plano)
+    agora = datetime.now(timezone.utc).isoformat()
+    ms = ch["mensagens"] + [{"de": "voce", "texto": texto, "em": agora},
+                            {"de": "deepseek", "texto": resposta, "em": agora, "mudou_lista": veio}]
+    repo._req("POST", "ia_resumos", corpo=[{"chave": f"compras|chat|{dia}", "ia": ia.nome(qual), "texto": json.dumps(ms, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    out = {"chat": {"mensagens": ms, "usadas": ch["usadas"] + 1, "max": COMPRAS_CHAT_MAX}}
+    if veio:
+        out["lista"] = _gravar_lista(repo, nova, "DeepSeek (chat)")
+    return out
 
 
 def _enriquecer_diff(repo, atual, itens):
@@ -4748,6 +4853,12 @@ def rota_estoque(repo, metodo, rota, q, corpo):
                                "manual" if q.get("origem") == "manual" else "coletor")
     if rota == "estoque_compras":
         return estoque_compras(repo)
+    if rota == "estoque_chat" and metodo == "POST":
+        return conversar_compras(repo, json.loads(corpo or b"{}").get("texto"))
+    if rota == "estoque_lista" and metodo == "POST":
+        # refaz a lista pelo plano do sistema (sem IA) — botão "voltar ao plano base"
+        c = estoque_compras(repo)
+        return {"lista": _gravar_lista(repo, c.get("plano") or [], "plano do sistema")}
     if rota == "estoque_produto":
         # 30/09 (Bruno): o meu lado do produto no quadro do Explorador
         sep = lambda k: [x for x in str(q.get(k) or "").split("|") if x][:40]
@@ -4860,7 +4971,10 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         pend_g = repo._req("GET", "coletor_pedidos", {"select": "id,pedido_em", "atendido_em": "is.null", "tarefa": "eq.gestor", "limit": 1}) or []
         itens = _estoque_itens(repo, aid)
         _enriquecer_diff(repo, atual, itens)
+        an = (repo._req("GET", "ia_resumos", {"select": "chave,texto,ia", "chave": "like.analise_estoque|*", "order": "chave.desc",
+                                              "limit": 1}) or [None])[0]
         return {"atual": atual, "itens": itens, "historico": hist, "rotina": rot, "ultima_execucao": falha,
+                "analise_dia": an and {"dia": an["chave"].split("|", 1)[1], "texto": an["texto"], "por": an.get("ia")},
                 "gestor": {"importacoes": gestor, "automatico": bool(rot_g and rot_g.get("ativo")), "horario": (rot_g or {}).get("horario"), "pedido": pend_g[0] if pend_g else None}}
     raise ErroNuvem("Rota desconhecida.", 404)
 

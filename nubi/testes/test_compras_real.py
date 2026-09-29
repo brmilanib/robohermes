@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_compras_estoque import _xlsx, VENDAS  # noqa: E402
 AQUI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "servidor_teste")
 PORTA = os.environ.get("PORTA_COMPRAS", "8797")
-env = dict(os.environ, IA_FALSA="1", OLLAMA_API_KEY="x", PORTA=PORTA)
+env = dict(os.environ, IA_FALSA="1", OLLAMA_API_KEY="x", DEEPSEEK_API_KEY="x", PORTA=PORTA)
 srv = subprocess.Popen([sys.executable, "-W", "ignore", os.path.join(AQUI, "servidor.py")], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 STUB = """window.supabase = { createClient: () => { const sess = {access_token: "TOKEN", user: {id: "u1", email: "brmilani@gmail.com"}};
   return { auth: { getSession: async () => ({data: {session: sess}}), signOut: async () => {}, updateUser: async () => ({}),
@@ -44,8 +44,20 @@ try:
             txt = pg.inner_text("#main")
             assert "A-100" in txt and "fora do estoque" in txt, txt[:800]                   # D-100 vendeu e não está no estoque
             assert "Preciso comprar (3)" in txt and "Zerados (2)" in txt, txt[:600]
+            # 29/09 (Bruno): lista de compra da semana (plano base até o DeepSeek montar) e o chat com ele
+            li = pg.inner_text("#cp-lista")
+            assert "Plano do sistema" in li and "A-100" in li and "Perfume A" in li, li[:800]
+            if nome == "pc":
+                pg.fill("#cp-texto", "posso segurar o C?"); pg.click("#cp-form button")
+                try: pg.wait_for_selector("text=aumentei o A", timeout=15000)
+                except Exception: print(pg.inner_text("#main")[:2500]); print("TOAST", pg.evaluate("() => [...document.querySelectorAll('[class*=toast]')].map(e => e.innerText)")); raise
+                li = pg.inner_text("#cp-lista")
+                assert "Montada por" in li and "campeão de vendas" in li and "C-100" not in li, li[:800]
+                assert "1 de 30 mensagens" in pg.inner_text("#main")
+                assert "↺ Voltar ao plano base" in li
+                pg.once("dialog", lambda d: d.accept()); pg.click("#cp-base"); pg.wait_for_selector("text=Plano do sistema", timeout=10000)
             pg.click("[data-cp-aba=zerados]"); pg.wait_for_timeout(800)
-            assert pg.inner_text("tbody").strip().startswith("C-100")                      # zerado que vendeu vem primeiro
+            assert pg.locator("tbody").last.inner_text().strip().startswith("C-100")                      # zerado que vendeu vem primeiro
             pg.click("[data-cp-aba=vendidos]"); pg.wait_for_timeout(800)
             larg = pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
             assert larg[0] <= larg[1] + 1, (nome, larg)                                    # sem rolagem de lado

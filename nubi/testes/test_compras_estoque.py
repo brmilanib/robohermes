@@ -78,3 +78,53 @@ if __name__ == "__main__":
         if nome.startswith("test_"):
             f()
             print("ok", nome)
+
+
+# 29/09 (Bruno): o DeepSeek acha o equilíbrio da reposição SEMANAL e monta a lista com o último custo pago
+def test_ultimo_custo_pago():
+    fotos = [{"a-100": {"atual": 10, "custo_medio": 50, "quando": "20/09"}, "c-100": {"atual": 0, "custo_medio": 40, "quando": "20/09"}},
+             {"a-100": {"atual": 30, "custo_medio": 60, "quando": "25/09"}, "c-100": {"atual": 12, "custo_medio": 45, "quando": "25/09"}},
+             {"a-100": {"atual": 25, "custo_medio": 60, "quando": "27/09"}, "c-100": {"atual": 12, "custo_medio": 45, "quando": "27/09"}}]
+    c = estoque.ultimo_custo_pago(fotos)
+    assert c["a-100"] == {"preco": 65.0, "quando": "25/09"}         # (60×30 − 50×10) ÷ 20
+    assert c["c-100"] == {"preco": 45.0, "quando": "25/09"}         # vinha zerado: o custo novo
+    # conta que não fecha (vendeu no meio): não chuta
+    assert estoque.ultimo_custo_pago([{"x": {"atual": 10, "custo_medio": 50}}, {"x": {"atual": 11, "custo_medio": 90}}]) == {}
+
+
+def test_plano_semanal_e_lista_da_resposta():
+    ls = estoque.listas(ESTOQUE, estoque.ler_vendas(_xlsx(VENDAS)), dias=30)
+    plano = estoque.plano_semanal(ls, {estoque._chave("A-100"): {"preco": 65.0, "quando": "25/09"}})
+    p = {x["sku"]: x for x in plano}
+    assert set(p) == {"A-100", "C-100", "D-100"}                    # B tem 100 dias
+    assert p["A-100"]["quantidade"] == 12                           # 3/dia × 14 − 10 − 20
+    assert p["A-100"]["ultimo_custo"] == 65.0 and p["A-100"]["subtotal"] == 780.0 and "25/09" in p["A-100"]["fonte_custo"]
+    assert p["C-100"]["quantidade"] == 2 and p["C-100"]["ultimo_custo"] is None     # 0,1/dia × 14 = 1,4 → 2; sem custo
+    assert plano[0]["dura"] == 0                                    # o que já acabou primeiro
+    assert "LISTA_JSON" in estoque.pedido_plano(plano) and "A-100" in estoque.pedido_plano(plano)
+    resp = ('Segure o C.\nLISTA_JSON: [{"sku": "a-100", "quantidade": 20, "motivo": "campeão", "preco": 1},'
+            ' {"sku": "C-100", "quantidade": 0}, {"sku": "ZZZ", "quantidade": 5}]')
+    texto, lista, veio = estoque.lista_da_resposta(resp, plano)
+    assert veio and texto == "Segure o C." and len(lista) == 1       # C zerado sai, SKU inventado sai
+    assert lista[0]["sku"] == "A-100" and lista[0]["quantidade"] == 20 and lista[0]["ultimo_custo"] == 65.0   # custo do sistema
+    assert lista[0]["subtotal"] == 1300.0 and lista[0]["motivo"] == "campeão"
+    texto, lista, veio = estoque.lista_da_resposta("só texto", plano)
+    assert not veio and texto == "só texto" and [x["sku"] for x in lista] == [x["sku"] for x in plano]
+    assert estoque.lista_da_resposta("x\nLISTA_JSON: [quebrado", plano)[2] is False
+
+
+def test_chat_de_compras_tem_limite_por_dia():
+    import json as _j
+    import nubi_web
+
+    class Repo:
+        def _eq(self, v): return "eq." + str(v)
+
+        def _req(self, metodo, tabela, params=None, **k):
+            ms = [{"de": "voce", "texto": "oi"}, {"de": "deepseek", "texto": "oi"}] * nubi_web.COMPRAS_CHAT_MAX
+            return [{"texto": _j.dumps(ms)}]
+    try:
+        nubi_web.conversar_compras(Repo(), "mais uma")
+        raise AssertionError("passou do limite")
+    except nubi_web.ErroNuvem as e:
+        assert "limite" in str(e)

@@ -913,6 +913,11 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 .es-aviso.bad{border-left-color:#c0392b}
 .es-grade{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;margin-top:14px}
 .es-log{margin:0;padding-left:18px;font-size:13px;line-height:1.55}
+.cp-chat{max-height:420px;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:4px 2px}
+.cp-msg{display:flex}.cp-msg.eu{justify-content:flex-end}
+.cp-bal{max-width:min(720px,88%);padding:9px 12px;border-radius:12px;background:var(--card2,rgba(127,127,127,.1));font-size:13.5px;line-height:1.45;overflow-wrap:anywhere}
+.cp-msg.eu .cp-bal{background:var(--accent,#6d5dfc);color:#fff}
+.es-analise{max-height:380px;overflow:auto}
 .es-mud{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:8px}
 .es-mud-cab{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:18px}.es-mud-cab h2{margin:0}
 .es-tile{text-align:left;font:inherit;color:inherit;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -3441,9 +3446,10 @@ async function telaEstoque() {
       <div class="card pad"><h2>📋 Log da atualização</h2><ul class="es-log">${(a.resumo || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
         <p class="muted" style="font-size:12px;margin:8px 0 0">Arquivo: ${esc(a.arquivo || "—")}</p></div>
       <div class="card pad"><h2>📦 Análise do Estoquista</h2>
-        ${a.analise ? `<div class="md">${mdSimples(a.analise)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">${esc(a.analise_por || "")}</p>`
-          : `<p class="muted">Sem a leitura rápida desta atualização (ela usa só a IA grátis, que pode estar sem cota). A análise completa do dia, com o DeepSeek, fica em <a href="#/estoque/compras">🛒 Compras e vendas</a>.</p>`}
-        <button class="btn small ghost" id="es-analisar" style="margin-top:8px">${a.analise ? "↻ Refazer a análise" : "Pedir a análise agora"}</button></div>
+        ${r.analise_dia ? `<div class="md es-analise">${mdSimples(r.analise_dia.texto)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">DeepSeek · análise de ${esc(r.analise_dia.dia.split("-").reverse().join("/"))} (1 por dia) · lista de compra e chat em <a href="#/estoque/compras">🛒 Compras e vendas</a></p>`
+          : a.analise ? `<div class="md">${mdSimples(a.analise)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">${esc(a.analise_por || "")}</p>`
+          : `<p class="muted">A análise do DeepSeek sai uma vez por dia, depois que o estoque e o relatório de vendas entram.</p>`}
+        ${r.analise_dia ? "" : `<button class="btn small ghost" id="es-analisar" style="margin-top:8px">${a.analise ? "↻ Refazer a leitura rápida" : "Pedir a leitura rápida agora"}</button>`}</div>
     </div>
     ${d.tem_anterior ? `<div class="es-mud-cab"><h2>Mudanças ${d.base ? `desde ${esc(quandoES(d.base.criado_em))}` : "desde a atualização anterior"}</h2>
       <span class="muted">clique num quadro para ver a lista completa</span></div>
@@ -3528,6 +3534,7 @@ async function telaCompras() {
     <div class="card pad" style="margin-bottom:14px"><h2>🧮 Análise do estoque (DeepSeek, 1 por dia)</h2>
       ${an ? `<div class="md">${mdSimples(an.texto)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">${an.hoje ? "de hoje" : "de " + esc(an.dia.split("-").reverse().join("/"))} · ${esc(an.por || "")}</p>`
         : `<p class="muted">Sai uma vez por dia, depois que o relatório de vendas e o estoque entram.</p>`}</div>
+    ${cpLista(r)}${cpChat(r)}
     <div class="card pad"><div class="seg es-seg" style="margin-bottom:10px">${CP_ABAS.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-cp-aba="${k}">${n} (${nf0.format(({comprar: r.comprar, vendidos: r.mais_vendidos, zerados: r.zerados}[k] || []).length)})</button>`).join("")}</div>
       <div class="es-filtros"><input type="search" id="cp-busca" placeholder="Buscar SKU ou título…" value="${esc(S.cpBusca || "")}"></div>
       <p class="muted" style="font-size:12px;margin:6px 0">${aba === "comprar" ? `Venda por dia = unidades vendidas em ${r.dias} dias ÷ ${r.dias}. “Dura” = (disponível + em trânsito) ÷ venda por dia. Sugestão = ${r.alvo_dias} dias de venda − disponível − trânsito.`
@@ -3538,6 +3545,7 @@ async function telaCompras() {
   main.querySelectorAll("[data-cp-aba]").forEach(b => b.onclick = () => { S.cpAba = b.dataset.cpAba; S.cpMax = 80; telaCompras(); });
   const bb = $("#cp-busca"); if (bb) bb.onchange = () => { S.cpBusca = bb.value; telaCompras(); };
   const bm = $("#cp-mais"); if (bm) bm.onclick = () => { S.cpMax = (S.cpMax || 80) + 200; telaCompras(); };
+  ligarCpLista(r); ligarCpChat(r);
   const fa = $("#cp-arq");
   if (fa) fa.onchange = async () => { const f = fa.files[0]; if (!f) return;
     toast("Importando " + f.name + "…", 20000);
@@ -3545,6 +3553,73 @@ async function telaCompras() {
       toast((x.log || ["Importado."]).join(" "), 7000); telaCompras();
     } catch (e) { toast(e.message, 7000); } };
   desenharMenu();
+}
+// 29/09 (Bruno): lista de compra da semana (DeepSeek em cima do plano do sistema: produto, quantidade e ÚLTIMO custo pago)
+function cpItensLista(r) {
+  const l = r.lista && (r.lista.itens || []).length ? r.lista : null;
+  if (l) return {itens: l.itens, por: l.por, dia: l.dia, base: /^plano do sistema/i.test(l.por || "")};
+  const it = r.plano || [];
+  return {itens: it, por: "plano do sistema", dia: null, base: true};
+}
+function cpLista(r) {
+  if (!r.plano) return "";
+  const L = cpItensLista(r), tot = L.itens.reduce((a, x) => a + (+x.subtotal || 0), 0), un = L.itens.reduce((a, x) => a + (+x.quantidade || 0), 0);
+  const sem = L.itens.filter(x => !x.ultimo_custo).length, rp = r.repor || {};
+  const linhas = L.itens.map(x => `<tr><td class="first wrap"><b>${esc(x.produto || x.sku)}</b><br><span class="es-sku">${esc(x.sku)}</span></td>
+      <td class="num"><b>${nf0.format(x.quantidade)}</b></td>
+      <td class="num">${x.ultimo_custo ? rsES(x.ultimo_custo) : "—"}${x.fonte_custo ? `<br><span class="muted" style="font-size:11px">${esc(x.fonte_custo)}</span>` : ""}</td>
+      <td class="num">${x.subtotal ? rsES(x.subtotal) : "—"}</td>
+      <td class="num muted">${x.venda_semana != null ? String(x.venda_semana).replace(".", ",") : "—"}</td>
+      <td class="muted wrap" style="font-size:12px">${esc(x.motivo || "")}</td></tr>`).join("");
+  return `<div class="card pad" style="margin-bottom:14px" id="cp-lista">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><h2 style="margin:0;flex:1">📋 Lista de compra da semana</h2>
+      <button class="btn small ghost" id="cp-copiar">📋 Copiar</button><button class="btn small ghost" id="cp-csv">⬇ CSV</button>
+      ${L.base ? "" : `<button class="btn small ghost" id="cp-base" title="Trocar a lista pelo plano calculado pelo sistema">↺ Voltar ao plano base</button>`}</div>
+    <p class="muted" style="font-size:12px;margin:6px 0 10px">${L.base ? "Plano do sistema (o DeepSeek ainda não montou a lista de hoje)" : `Montada por ${esc(L.por || "")}${L.dia ? " em " + esc(L.dia.split("-").reverse().join("/")) : ""}`}
+      · repor ${rp.semana || 7} dias + ${rp.folga || 7} de folga, descontando disponível e em trânsito · último custo = o preço da última entrada no estoque (senão o custo médio)</p>
+    <div class="kpis" style="margin-bottom:10px">${kpi("Itens", nf0.format(L.itens.length), "")}${kpi("Unidades", nf0.format(un), "")}
+      ${kpi("Total estimado", rsES(tot), sem ? `${nf0.format(sem)} item(ns) sem custo` : "pelo último custo pago")}</div>
+    <div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th>Produto</th><th class="num">Qtd.</th><th class="num">Último custo</th><th class="num">Subtotal</th><th class="num">Vende/sem.</th><th>Por quê</th></tr></thead>
+      <tbody>${linhas || `<tr><td colspan="6" class="muted">Nada a repor esta semana.</td></tr>`}</tbody></table></div></div>`;
+}
+function ligarCpLista(r) {
+  const L = cpItensLista(r);
+  const txt = () => L.itens.map(x => `${x.quantidade} × ${x.produto || x.sku} (${x.sku})${x.ultimo_custo ? " — " + rsES(x.ultimo_custo) : ""}`).join("\n");
+  const bc = $("#cp-copiar"); if (bc) bc.onclick = async () => { try { await navigator.clipboard.writeText(txt()); toast("Lista copiada."); } catch (e) { toast("Não deu para copiar.") } };
+  const bv = $("#cp-csv"); if (bv) bv.onclick = () => {
+    const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = ["Produto;SKU;Quantidade;Último custo;Subtotal;Motivo", ...L.itens.map(x => [q(x.produto), q(x.sku), x.quantidade,
+      x.ultimo_custo != null ? String(x.ultimo_custo).replace(".", ",") : "", x.subtotal != null ? String(x.subtotal).replace(".", ",") : "", q(x.motivo)].join(";"))].join("\n");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + csv], {type: "text/csv"}));
+    a.download = `lista-de-compra-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); };
+  const bb = $("#cp-base"); if (bb) bb.onclick = async () => { if (!confirm("Trocar a lista pelo plano base do sistema?")) return;
+    try { await api("estoque_lista", {}, {method: "POST", body: "{}"}); toast("Lista voltou ao plano base."); telaCompras(); } catch (e) { toast(e.message, 7000); } };
+}
+// 29/09 (Bruno): conversar com o DeepSeek sobre as compras; ele pode mudar a lista (limite de mensagens por dia)
+function cpChat(r) {
+  if (!r.chat) return "";
+  const c = r.chat;
+  const msgs = (c.mensagens || []).map(m => `<div class="cp-msg ${m.de === "voce" ? "eu" : "ia"}"><div class="cp-bal">${m.de === "voce" ? esc(m.texto) : mdSimples(m.texto)}
+      ${m.mudou_lista ? `<div class="muted" style="font-size:11px;margin-top:4px">📋 atualizou a lista de compra</div>` : ""}</div></div>`).join("");
+  return `<div class="card pad" style="margin-bottom:14px"><h2>💬 Conversar com o DeepSeek sobre as compras</h2>
+    <div class="cp-chat" id="cp-msgs">${msgs || `<p class="muted">Pergunte, por exemplo: “quais itens posso segurar esta semana?”, “tenho R$ 5.000, o que priorizo?” ou “aumenta o Asad para 30”. Se ele mudar a lista, ela atualiza aqui em cima.</p>`}</div>
+    <form id="cp-form" class="es-filtros" style="margin-top:10px;gap:8px"><textarea id="cp-texto" rows="2" style="flex:1" placeholder="Escreva para o DeepSeek…" ${c.usadas >= c.max ? "disabled" : ""}></textarea>
+      <button class="btn small primary" ${c.usadas >= c.max ? "disabled" : ""}>Enviar</button></form>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">${nf0.format(c.usadas)} de ${nf0.format(c.max)} mensagens hoje · a conversa recomeça todo dia</p></div>`;
+}
+function ligarCpChat(r) {
+  const f = $("#cp-form"); if (!f) return;
+  const box = $("#cp-msgs"); if (box) box.scrollTop = box.scrollHeight;
+  f.onsubmit = async e => { e.preventDefault();
+    const t = $("#cp-texto"), texto = t.value.trim(); if (!texto) return;
+    const bt = f.querySelector("button"); bt.disabled = true; t.disabled = true;
+    box.insertAdjacentHTML("beforeend", `<div class="cp-msg eu"><div class="cp-bal">${esc(texto)}</div></div><div class="cp-msg ia" id="cp-pensando"><div class="cp-bal muted">DeepSeek pensando…</div></div>`);
+    box.scrollTop = box.scrollHeight;
+    try { const x = await api("estoque_chat", {}, {method: "POST", body: JSON.stringify({texto})});
+      r.chat = x.chat; if (x.lista) { r.lista = x.lista; toast("O DeepSeek atualizou a lista de compra."); }
+      const y = window.scrollY; await telaCompras(); window.scrollTo(0, y);
+    } catch (er) { const p = $("#cp-pensando"); if (p) p.remove(); toast(er.message, 8000); bt.disabled = false; t.disabled = false; } };
+  const t = $("#cp-texto"); if (t) t.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); f.requestSubmit(); } };
 }
 // 28/09 (Bruno): anúncios do Mercado Livre perseguidos pelo Apify (1 vez por semana e quando ele pede), com o histórico
 async function telaPerseguir() {

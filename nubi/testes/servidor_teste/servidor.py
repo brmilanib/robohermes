@@ -41,6 +41,9 @@ if os.environ.get("IA_FALSA"):
                     "prompt_eval_count": 50, "eval_count": 12}
         if "ollama.com" in url:
             return {"model": corpo["model"], "message": {"content": "gpt-oss: OK, modelo " + corpo["model"]}, "prompt_eval_count": 50, "eval_count": 12}
+        if "deepseek.com" in url and "comprador do nubi" in txt:
+            c = "Dá para segurar o C esta semana; aumentei o A.\nLISTA_JSON: [{\"sku\": \"A-100\", \"quantidade\": 20, \"motivo\": \"campeão de vendas\"}]"
+            return {"model": corpo["model"], "usage": {"prompt_tokens": 1200, "completion_tokens": 80}, "choices": [{"message": {"content": c}}]}
         if "deepseek.com" in url:
             return {"model": corpo["model"], "usage": {"prompt_tokens": 1200, "completion_tokens": 300},
                     "choices": [{"message": {"content": "DeepSeek aqui: sugiro cache nas consultas do dia e índice em vend_vendas_dia(data)."}}]}

@@ -8,6 +8,7 @@ desses números, e nunca inventa um número que não esteja na comparação.
 """
 
 import io
+import json
 import re
 import unicodedata
 
@@ -345,16 +346,125 @@ PAPEL_ANALISE = ("Você é o DeepSeek, analista de estoque do nubi. Abaixo, as l
 
 
 def pedido_analise(ls):
+    return PAPEL_ANALISE.replace("{dias}", str(ls["dias"])) + "\n\n" + tabelas(ls)
+
+
+def tabelas(ls):
+    """As listas do estoque × vendas em texto, para a IA (sem o papel)."""
     def tab(xs, n, extra=lambda r: ""):
         return "\n".join(f"  {r['sku']} | {r['titulo'][:60]} | vendeu {r['vendidos']} | disp. {r['disponivel']:g} | trânsito "
                          f"{r['transito']:g} | dura {r['cobertura_dias'] if r['cobertura_dias'] is not None else '—'} dias{extra(r)}"
                          for r in xs[:n]) or "  (nenhum)"
-    return (PAPEL_ANALISE.replace("{dias}", str(ls["dias"]))
-            + f"\n\nPRECISO COMPRAR (dura menos de {ls['alerta_dias']} dias; sugestão cobre {ls['alvo_dias']} dias):\n"
+    return (f"PRECISO COMPRAR (dura menos de {ls['alerta_dias']} dias; sugestão cobre {ls['alvo_dias']} dias):\n"
             + tab(ls["comprar"], 25, lambda r: f" | sugerido {r['sugerido']} | {r['motivo']}")
             + f"\n\nZERADOS COM VENDA NO PERÍODO ({ls['zerados_com_venda']}):\n" + tab([r for r in ls["zerados"] if r["vendidos"]], 20)
             + "\n\nMAIS VENDIDOS:\n" + tab(ls["mais_vendidos"], 20)
             + f"\n\nSKUs vendidos que não estão no estoque do UpSeller: {ls['vendas_sem_estoque']}.")
+
+
+# ---------------------------------------------------------------------------
+# Reposição semanal e lista de compra (29/09, pedido do Bruno: "o DeepSeek analisa minhas vendas e acha o melhor equilíbrio
+# de reposição semanal; lista de compra com nome, quantidade e último preço pago de custo"). Os números saem daqui (código);
+# o DeepSeek só ajusta a quantidade de cada SKU e explica.
+# ---------------------------------------------------------------------------
+REPOR_SEMANA = 7          # o pedido é semanal: compra para cobrir a semana…
+SEGURANCA_DIAS = 7        # …mais uma semana de folga (atraso do fornecedor, pico de venda)
+
+
+def ultimo_custo_pago(fotos):
+    """Último preço pago por SKU, tirado do histórico do estoque (o UpSeller só dá o custo MÉDIO). fotos = lista em ordem de
+    data de {chave_sku: {"atual", "custo_medio", "quando"}}. Numa entrada (o atual subiu e o custo médio mudou):
+    preço = (custo novo × qtd nova − custo velho × qtd velha) ÷ quantidade que entrou. Vinha zerado: preço = custo novo.
+    Devolve {chave: {"preco", "quando"}} com a entrada mais recente de cada SKU."""
+    out = {}
+    for a, b in zip(fotos, fotos[1:]):
+        for k, y in b.items():
+            x = a.get(k)
+            if not x:
+                continue
+            qa, qb = float(x.get("atual") or 0), float(y.get("atual") or 0)
+            ca, cb = float(x.get("custo_medio") or 0), float(y.get("custo_medio") or 0)
+            if qb <= qa or cb <= 0:
+                continue
+            if qa <= 0:
+                preco = cb
+            elif ca > 0 and abs(cb - ca) > 0.005:
+                preco = (cb * qb - ca * qa) / (qb - qa)
+                if not (0.3 * min(ca, cb) <= preco <= 3 * max(ca, cb)):
+                    continue                 # vendeu no meio e a conta não fecha: não chuta
+            else:
+                preco = cb                   # entrou pelo mesmo custo
+            out[k] = {"preco": round(preco, 2), "quando": y.get("quando")}
+    return out
+
+
+def plano_semanal(ls, custos=None, semana=REPOR_SEMANA, seguranca=SEGURANCA_DIAS):
+    """Quanto comprar AGORA para a semana: venda/dia × (semana + folga) − disponível − em trânsito, só de quem vende.
+    Custo = último preço pago (histórico) ou o custo médio do UpSeller."""
+    import math
+    custos = custos or {}
+    vistos, out = set(), []
+    for r in (ls.get("comprar") or []) + (ls.get("mais_vendidos") or []):
+        k = _chave(r["sku"])
+        if k in vistos or not r.get("venda_dia"):
+            continue
+        vistos.add(k)
+        qtd = math.ceil(r["venda_dia"] * (semana + seguranca) - (r.get("disponivel") or 0) - (r.get("transito") or 0))
+        if qtd <= 0:
+            continue
+        c = custos.get(k)
+        preco = c["preco"] if c else (float(r["custo"]) if r.get("custo") not in (None, "") and float(r["custo"]) > 0 else None)
+        out.append({"sku": r["sku"], "produto": r.get("titulo") or "", "quantidade": qtd, "venda_semana": round(r["venda_dia"] * 7, 1),
+                    "disponivel": r.get("disponivel") or 0, "transito": r.get("transito") or 0, "dura": r.get("cobertura_dias"),
+                    "ultimo_custo": preco, "fonte_custo": ("última compra" + (f" {c['quando']}" if c.get("quando") else "")) if c
+                    else ("custo médio" if preco else "sem custo"),
+                    "subtotal": round(preco * qtd, 2) if preco else None, "motivo": ""})
+    out.sort(key=lambda x: (x["dura"] if x["dura"] is not None else 9e9, -x["venda_semana"]))
+    return out
+
+
+PAPEL_PLANO = ("\n\n## Reposição da semana\nAbaixo, o PLANO BASE calculado pelo sistema (venda/dia × {dias} dias − disponível − "
+               "trânsito). Ache o melhor equilíbrio: ajuste a quantidade de cada SKU quando fizer sentido (venda irregular, produto "
+               "caro parado, campeão que não pode faltar) e explique em 1 frase curta. Use SÓ os SKUs do plano; não invente preço. "
+               "Na ÚLTIMA linha da resposta, escreva exatamente:\nLISTA_JSON: [{\"sku\": \"…\", \"quantidade\": N, \"motivo\": \"…\"}, …]")
+
+
+def pedido_plano(plano, n=60):
+    return PAPEL_PLANO.replace("{dias}", str(REPOR_SEMANA + SEGURANCA_DIAS)) + "\n\nPLANO BASE:\n" + linhas_plano(plano, n)
+
+
+def linhas_plano(plano, n=60):
+    return "\n".join(f"  {x['sku']} | {x['produto'][:55]} | vende {x['venda_semana']:g}/semana | disp. {x['disponivel']:g} | trânsito "
+                        f"{x['transito']:g} | base {x['quantidade']} un | custo {x['ultimo_custo'] if x['ultimo_custo'] else '—'}"
+                        for x in plano[:n]) or "  (nada a repor)"
+
+
+def lista_da_resposta(txt, plano):
+    """Separa o texto da linha LISTA_JSON e monta a lista final: só SKUs do plano, quantidade inteira ≥ 0; nome, custo e
+    subtotal SEMPRE do sistema (a IA só muda a quantidade e o motivo). Sem a linha (ou inválida): o plano base."""
+    base = {_chave(x["sku"]): x for x in plano}
+    m = re.search(r"LISTA_JSON:\s*(\[.*\])\s*$", txt or "", re.S)
+    texto = (txt[:m.start()] if m else txt or "").strip()
+    if not m:
+        return texto, [dict(x) for x in plano], False
+    try:
+        itens = json.loads(m.group(1))
+    except ValueError:
+        return texto, [dict(x) for x in plano], False
+    out = []
+    for it in itens if isinstance(itens, list) else []:
+        k = _chave(str((it or {}).get("sku") or ""))
+        if k not in base:
+            continue
+        try:
+            q = max(0, int(round(float(it.get("quantidade")))))
+        except (TypeError, ValueError):
+            continue
+        x = dict(base[k], quantidade=q, motivo=str(it.get("motivo") or "")[:160])
+        x["subtotal"] = round(x["ultimo_custo"] * q, 2) if x.get("ultimo_custo") else None
+        if q > 0:
+            out.append(x)
+    return texto, out, True
 
 
 # ---------------------------------------------------------------------------
