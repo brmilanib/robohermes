@@ -5768,7 +5768,9 @@ function celula(r, k, f, i) {
 // ---------- Mercado Livre (API oficial, 29/09, pedido do Bruno) ----------
 // Por CIMA dos dados do Nubimetrics (que continuam a base): a loja real (o Nubimetrics embaralha os vendedores), o link
 // da loja e do anúncio, a foto e o preço de agora. Visual do HunterHub. Só leitura: o agrupamento não muda.
-const urlML = u => /^https:\/\//i.test(String(u || "")) ? String(u) : "";   // link/foto da API: só https (nunca javascript:)
+// link/foto da API: só https (nunca javascript:). 29/09: o ML devolve o perfil da loja em http:// -> vira https:// (antes ficava
+// vazio e "abrir no ML" abria o próprio nubi)
+const urlML = u => { const x = String(u || "").trim().replace(/^http:\/\//i, "https://"); return /^https:\/\/[^\s"'<>]+$/i.test(x) ? x : ""; };
 function mlAviso(e) {
   const msg = (e && e.message) || String(e || "");
   if (msg.includes("Faltam as chaves")) return `<div class="es-aviso">🔑 A ligação com o Mercado Livre ainda não está ativa: falta criar o app no

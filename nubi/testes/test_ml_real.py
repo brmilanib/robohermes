@@ -26,7 +26,7 @@ LOJA["nubimetrics"] = {"hashes": [HB], "nomes": ["ICARBONXX P3"], "un": 2040, "f
 GTIN = {"anuncios": meli.por_gtin(["6290362346548"]),
         "casados": {HA: {"id": "111111111", "nome": "FINKE", "link": "https://perfil.mercadolivre.com.br/FINKE", "votos": 1, "confianca": "provável"}}}
 HASH = {"lojas": {HA: GTIN["casados"][HA]}, "nomes": {HA: "HIMALAIA.INDIGO"},
-        "seguidos": {"ICARBONXX P3": {"id": "2540338692", "nome": "KAIDOXSTOREE", "link": "https://perfil.mercadolivre.com.br/KAIDOXSTOREE",
+        "seguidos": {"ICARBONXX P3": {"id": "2540338692", "nome": "KAIDOXSTOREE", "link": "http://perfil.mercadolivre.com.br/KAIDOXSTOREE",
                                       "confianca": "manual", "prova": "conferida no navegador"}}}
 TESTE = meli.testar("MLB1000100", "6290362346548")
 DESC = {"achou": True, "loja": {"id": "222222222", "nome": "ESSENCEPRIMEBR", "link": "https://perfil.mercadolivre.com.br/ESSENCEPRIMEBR",
@@ -104,6 +104,8 @@ try:
             pg.goto(f"http://127.0.0.1:{PORTA}/#/ml"); pg.wait_for_selector("#ml-lojas table", timeout=15000)
             t = pg.inner_text("#ml-lojas")                                           # 29/09: o nome que está no Nubimetrics
             assert "FINKE" in t and "HIMALAIA.INDIGO" in t and "KAIDOXSTOREE" in t and "ICARBONXX P3" in t and "(seguido)" in t, t
+            links = pg.eval_on_selector_all("#ml-lojas td a[target=_blank]", "as => as.map(a => a.getAttribute('href'))")
+            assert "https://perfil.mercadolivre.com.br/KAIDOXSTOREE" in links and all(l.startswith("https://") for l in links), links   # o ML manda http://
             pg.click("#ml-teste"); pg.wait_for_selector("#ml-teste-res li", timeout=5000)
             assert "token do app" in pg.inner_text("#ml-teste-res") and "❌" not in pg.inner_text("#ml-teste-res")
             # 2) análise do anúncio

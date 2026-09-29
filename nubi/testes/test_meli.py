@@ -333,6 +333,8 @@ def test_catalogo_le_todas_as_paginas_e_o_numero_da_loja_oficial():
     t = meli.testar("MLB1000100", "7899463112978")
     assert any(p["passo"] == "todas as páginas do catálogo" and "122 ofertas lidas de 122 no catálogo" in p["detalhe"] for p in t["passos"]), t
     assert meli.ofertas_do_produto("MLB0000000") == []                                       # produto sem oferta: vazio, sem erro
+    # o ML manda o perfil da loja em http:// ("abrir no ML" abria o próprio nubi): sai sempre https://
+    assert meli.lojas([1395403852])["1395403852"]["link"] == "https://perfil.mercadolivre.com.br/LUH20230609125415"
 
 
 def test_loja_oficial_acha_a_loja_certa_e_nao_a_parecida():

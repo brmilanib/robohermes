@@ -242,7 +242,7 @@ def normalizar_loja(u):
     end = u.get("address") or {}
     desde = u.get("registration_date")
     dias = _dias_desde(desde) if desde else None
-    return {"id": u.get("id"), "nome": u.get("nickname") or "", "link": u.get("permalink") or "",
+    return {"id": u.get("id"), "nome": u.get("nickname") or "", "link": re.sub(r"^http://", "https://", u.get("permalink") or ""),
             "cidade": end.get("city") or "", "uf": _uf(end.get("state")), "nivel": _nivel(rep.get("level_id")),
             "cor": rep.get("level_id") or "", "medalha": MEDALHAS.get(rep.get("power_seller_status") or "", ""),
             "vendas": tr.get("total"), "concluidas": tr.get("completed"), "desde": desde,
