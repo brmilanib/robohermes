@@ -245,7 +245,10 @@ def normalizar_loja(u):
     return {"id": u.get("id"), "nome": u.get("nickname") or "", "link": re.sub(r"^http://", "https://", u.get("permalink") or ""),
             "cidade": end.get("city") or "", "uf": _uf(end.get("state")), "nivel": _nivel(rep.get("level_id")),
             "cor": rep.get("level_id") or "", "medalha": MEDALHAS.get(rep.get("power_seller_status") or "", ""),
-            "vendas": tr.get("total"), "concluidas": tr.get("completed"), "desde": desde,
+            "vendas": tr.get("total"), "concluidas": tr.get("completed"), "canceladas": tr.get("canceled"), "desde": desde,
+            # 29/09 (print: Hunter 25.957 x nubi 26.173 na ESSENCEPRIMEBR): vendas sem as canceladas, como o Hunter mostra
+            "vendas_ok": tr.get("completed") if tr.get("completed") is not None else
+            (tr.get("total") - tr.get("canceled") if tr.get("total") is not None and tr.get("canceled") is not None else None),
             "anos": round(dias / 365, 1) if dias is not None else None,
             "loja_oficial": bool((u.get("tags") or []) and "brand" in (u.get("tags") or []))}
 

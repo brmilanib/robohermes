@@ -6,7 +6,10 @@ const NUBI = "https://nubi-explorador.vercel.app";
 const cacheAnuncio = new Map(), cacheLoja = new Map(), cacheNubi = new Map();
 
 function lerAnuncio(html, url) {
-  // a página do anúncio já traz o vendedor, a categoria e as datas no JSON dela; aqui só se procura o texto
+  // a página do anúncio já traz o vendedor, a categoria e as datas no JSON dela; aqui só se procura o texto.
+  // 29/09 (print do Bruno: vendedor "BRUNOMILANI" na página /up/): lá o JSON vem dentro de um texto, com as aspas
+  // escapadas (\"seller_id\"); sem desfazer isso o leitor não achava o vendedor e pegava o apelido de quem está logado
+  html = String(html || "").replace(/\\+"/g, '"').replace(/\\u002[fF]/g, "/");
   const um = (re) => { const m = html.match(re); return m ? m[1] : null; };
   const u = String(url || "");
   const vendedor = um(/"seller_id"\s*:\s*"?(\d{4,})/) || um(/"sellerId"\s*:\s*"?(\d{4,})/) ||
@@ -17,7 +20,8 @@ function lerAnuncio(html, url) {
   const pl = u.match(/\/p\/(MLB\d{5,})/i);
   const produto = pl ? pl[1].toUpperCase() : um(/"catalog_product_id"\s*:\s*"(MLB\d{5,})"/) || um(/"product_id"\s*:\s*"(MLB\d{5,})"/);
   const criado = um(/"date_created"\s*:\s*"([0-9T:.\-+Z]{10,})"/) || um(/"start_time"\s*:\s*"([0-9T:.\-+Z]{10,})"/);
-  const apelido = um(/perfil\.mercadolivre\.com\.br\/([A-Za-z0-9_.\-%]+)/) || um(/"nickname"\s*:\s*"([^"]{2,60})"/);
+  // o nome vem do vendedor do anúncio (seller_name); "nickname" e o link de perfil da página podem ser de QUEM ESTÁ LOGADO
+  const apelido = um(/"seller_name"\s*:\s*"([^"]{2,80})"/) || um(/"seller"\s*:\s*\{[^{}]*?"nickname"\s*:\s*"([^"]{2,60})"/);
   const vendidos = um(/"sold_quantity"\s*:\s*(\d+)/);
   const oficial = um(/"official_store_id"\s*:\s*(\d+)/);
   const categoria = um(/"category_id"\s*:\s*"(MLB\d{1,9})"/) || um(/"categoryId"\s*:\s*"(MLB\d{1,9})"/);
@@ -68,13 +72,29 @@ async function loja(id) {
   return p;
 }
 
+// 29/09 (Bruno: "minha conta não está conectada ao Hunter e ele mostra a data"): tenta o /items público do ML direto do
+// navegador, sem token e sem cookie. Se o ML deixar: data de criação, vendidos e estoque de verdade. Se não: diz o código.
+async function itemPublico(mlb) {
+  if (!/^MLB\d{6,}$/.test(mlb || "")) return {};
+  try {
+    const r = await fetch(`https://api.mercadolibre.com/items/${mlb}`, {credentials: "omit"});
+    if (!r.ok) return {status: r.status};
+    const x = await r.json();
+    return {status: 200, criado: x.date_created || x.start_time || null, vendidos: x.sold_quantity ?? null,
+      estoque: x.available_quantity ?? null, vendedor: x.seller_id ? String(x.seller_id) : null, tipo: x.listing_type_id || null,
+      categoria: x.category_id || null, catalogo: x.catalog_product_id || null};
+  } catch (e) { return {status: 0}; }
+}
+
 // dado público do ML pelo nubi (rota sem login): comissão, frete, visitas, concorrentes, tendências
 async function nubi(rota, params) {
   const qs = new URLSearchParams(Object.entries(params || {}).filter(([, v]) => v != null && v !== ""));
   const url = `${NUBI}/api/app?r=${rota}&${qs}`;
   if (cacheNubi.has(url)) return cacheNubi.get(url);
-  const p = fetch(url).then(async r => { const j = await r.json().catch(() => ({})); return r.ok ? j : {erro: j.erro || j.detail || `erro ${r.status}`}; })
-    .catch(() => ({erro: "sem resposta do nubi"}));
+  const uma = () => fetch(url).then(async r => { const j = await r.json().catch(() => ({})); return r.ok ? j : {erro: j.erro || j.detail || `erro ${r.status}`}; });
+  // 1 nova tentativa (o nubi pode estar trocando de versão); o erro diz o motivo
+  const p = uma().catch(() => new Promise(ok => setTimeout(ok, 1500)).then(uma))
+    .catch(e => ({erro: `sem resposta do nubi (${String(e && e.message || e).slice(0, 60)})`}));
   cacheNubi.set(url, p);
   setTimeout(() => cacheNubi.delete(url), 20 * 60 * 1000);
   return p;
@@ -89,6 +109,10 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
     if (msg && msg.tipo === "pagina") {
       const a = lerAnuncio(msg.html || "", msg.url || "");
       loja(a.vendedor).then(l => responder({...a, loja: l}));
+      return true;
+    }
+    if (msg && msg.tipo === "item") {
+      itemPublico(String(msg.mlb || "")).then(responder);
       return true;
     }
     if (msg && msg.tipo === "nubi" && /^ext_[a-z]+$/.test(msg.rota || "")) {
@@ -106,4 +130,4 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
   });
 }
 
-if (typeof module !== "undefined") module.exports = {lerAnuncio};
+if (typeof module !== "undefined") module.exports = {lerAnuncio, itemPublico};

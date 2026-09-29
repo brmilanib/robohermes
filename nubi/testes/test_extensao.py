@@ -25,7 +25,7 @@ const h='<script>{"item_id":"MLB4350649763","seller_id":2540338692,"date_created
 console.log(JSON.stringify(lerAnuncio(h,'https://produto.mercadolivre.com.br/MLB-4350649763-x')));"""
 a = json.loads(subprocess.run(["node", "-e", js, str(EXT / "fundo.js")], capture_output=True, text=True, check=True).stdout)
 assert a == {"vendedor": "2540338692", "item": "MLB4350649763", "produto": None, "criado": "2025-12-07T10:06:52.463Z",
-             "apelido": "KAIDOXSTOREE", "vendidos": 10000, "oficial": None, "categoria": None, "tipo": None, "preco": None,
+             "apelido": None, "vendidos": 10000, "oficial": None, "categoria": None, "tipo": None, "preco": None,
              "titulo": None, "fotos": [], "estoque": None, "nota": None, "avaliacoes": None, "full": None, "nome_loja": None,
              "produto_usuario": None}, a
 # página de catálogo (/p/MLB…): produto do link, anúncio, categoria, tipo, preço e as fotos grandes
@@ -46,6 +46,14 @@ b3 = json.loads(subprocess.run(["node", "-e", js3, str(EXT / "fundo.js")], captu
 assert (b3["item"], b3["vendedor"], b3["tipo"], b3["categoria"], b3["estoque"], b3["vendidos"], b3["nota"], b3["avaliacoes"], b3["full"],
         b3["nome_loja"], b3["produto_usuario"], b3["criado"]) == ("MLB4430562169", "2162683356", "gold_special", "MLB6284", 98, 500, 4.7, 124,
                                                                    False, "Essence Prime", "MLBU3736729421", None), b3
+# 29/09 (print do Bruno: vendedor "BRUNOMILANI"): na página /up/ o JSON vem num texto com as aspas escapadas e o
+# apelido/perfil de QUEM ESTÁ LOGADO aparece antes; o leitor tem que achar o vendedor do anúncio
+js4 = r"""global.chrome={runtime:{onMessage:{addListener(){}}}};const {lerAnuncio}=require(process.argv[1]);
+const h='<a href="https://perfil.mercadolivre.com.br/BRUNOMILANI">bruno</a><script id="__NORDIC_RENDERING_CTX__">_n.ctx.r="{\\"viewer\\":{\\"nickname\\":\\"BRUNOMILANI\\"},'
+ + '\\"event_data\\":{\\"item_id\\":\\"MLB4430562169\\",\\"seller_id\\":2162683356,\\"seller_name\\":\\"Essence Prime\\"}}"</script>';
+console.log(JSON.stringify(lerAnuncio(h,'https://www.mercadolivre.com.br/x/up/MLBU3736729421')));"""
+b4 = json.loads(subprocess.run(["node", "-e", js4, str(EXT / "fundo.js")], capture_output=True, text=True, check=True).stdout)
+assert (b4["vendedor"], b4["item"], b4["apelido"]) == ("2162683356", "MLB4430562169", "Essence Prime"), b4
 assert b2["fotos"] == ["https://http2.mlstatic.com/D_NQ_NP_2X_951134-MLB91143087125_082025-O.webp"], b2["fotos"]
 
 # 3) na tela: a linha embaixo de cada anúncio da busca e o quadro na página do produto
@@ -128,12 +136,17 @@ with sync_playwright() as p:
     dias = (__import__("datetime").date.today() - __import__("datetime").date(2026, 1, 19)).days
     for x in ("nubi Spy", "CATÁLOGO", "PREMIUM", "R$ 24,45", "R$ 41,99", "17%", "R$ 180,54", "Conversão", "0,5%", "Vende a cada 197 visitas",
               "Visitas", "4,7/dia", "19.651 no total", "142 em 30 dias", "Catálogo: 31/dia", "15% deste anúncio",
-              "+100 total", "Faturamento previsto", "R$ 24,7 mil", "Projeção 30 dias", "desde 19/01/2026 · 1ª visita",
-              "Menor preço", "R$ 239,90", "FULL", "Estoque", "2 un.", "Avaliações", "5 ★", "2 avaliações", "· Pereira Eloisa", "você está em 2º de 2", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
-              "Curitiba - PR", "Vendas totais", "Baixar mídias (1)", "Abrir na calculadora", "Nota nubi", "Ver página", "No nubi"):
+              "+100 total", "Faturamento previsto", "R$ 24,7 mil", "Projeção de vendas", "desde 19/01/2026 · 1ª visita",
+              "menor R$ 239,90", "FULL", "Estoque: 2 un. · dura ≈ 5 dias", "Avaliações", "5 ★", "2 no total", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
+              "Curitiba - BR-PR", "Vendas totais", "Baixar mídias (1)", "Abrir na calculadora", "Nota nubi", "Ver página", "No nubi"):
         assert x in t, (x, t)
     assert f"{dias} dias" in t or f"{dias - 1} dias" in t, t                    # fuso: conta dias inteiros
-    assert "estimado" not in t and "≈ 1 venda" in t                               # com a 1ª visita não precisa estimar
+    assert "estimado" not in t and "7 dias" not in t                             # projeção fechada até clicar
+    pg.click("[data-nubi=proj]")
+    pj = pg.inner_text(".nubi-spy-proj").replace("\xa0", " ")
+    assert "30 dias" in pj and "≈ 1" in pj and "você está em 2º de 2 no preço" in pj, pj
+    # o perfil do vendedor fica num cartão próprio (na página de verdade, embaixo do "Comprar agora")
+    assert "PEREIRAELOISA20220126003352" in pg.inner_text("#nubi-ml-vendedor")                               # com a 1ª visita não precisa estimar
     assert pg.evaluate("document.querySelectorAll('#nubi-ml-quadro svg.nubi-ic').length") >= 15      # ícones de linha, não emoji
     assert pg.evaluate("document.querySelectorAll('.nubi-spy-termo i').length") == 5
     assert pg.evaluate("document.querySelector('.ui-pdp-container__row--price').nextElementSibling.id") == "nubi-ml-quadro"

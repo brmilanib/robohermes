@@ -60,7 +60,9 @@
 .nubi-spy-bt:disabled{opacity:.5;cursor:default}
 .nubi-spy-bt.cheio{width:calc(100% - 20px);margin:8px 10px 10px}
 .nubi-spy-bt.escuro{background:var(--az)!important;border-color:var(--az)!important;color:#fff!important}
-.nubi-spy-vend{margin:0 10px 12px;border:1px solid var(--ln);border-radius:12px;overflow:hidden;background:#fff}
+.nubi-spy .nubi-spy-vend{margin:0 10px 12px;border:1px solid var(--ln)}
+.nubi-spy-vend{border-radius:12px;overflow:hidden;background:#fff}
+#nubi-ml-vendedor{margin:14px 0}
 .nubi-spy-vcab{display:flex;align-items:center;gap:6px;font-weight:700;color:#fff;padding:8px 10px;background:linear-gradient(100deg,var(--az),var(--az2))}
 .nubi-spy-vtopo{display:flex;gap:10px;align-items:center;padding:10px}
 .nubi-spy-vic{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:#eef3ff;color:var(--az2);flex:none}
@@ -82,3 +84,9 @@
 html.nubi-ml-com-painel .nubi-ml-aba{right:420px}
 @media (min-width:1100px){html.nubi-ml-com-painel body{margin-right:420px}}
 @media (max-width:460px){html.nubi-ml-com-painel .nubi-ml-aba{right:auto;left:0;border-radius:0 10px 10px 0}}
+.nubi-spy-proj{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 10px 0;padding:8px;border:1px solid #ddd6fe;border-radius:10px;background:#f5f3ff}
+.nubi-spy-proj>div{text-align:center}.nubi-spy-proj small{display:block;color:var(--fr);font-size:10px}.nubi-spy-proj b{font-size:14px;color:#5b21b6}
+.nubi-spy-proj p{grid-column:1/-1;margin:2px 0 0;color:var(--fr);font-size:10px;text-align:center}
+.nubi-spy-mais{display:block;text-align:center;font-size:11px;margin:-2px 0 10px}
+.nubi-spy-diag{color:var(--fr);font-size:9.5px;text-align:center;margin:-6px 0 8px}
+.nubi-spy [hidden]{display:none!important}

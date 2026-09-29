@@ -757,7 +757,7 @@ def test_extensao_do_chrome_dado_publico_do_ml():
     assert set(ruim.values()) == {None}, ruim
     calib = [(2000000, date(2026, 1, 1)), (2000400, date(2026, 2, 10))]
     x = meli.painel_extensao(p, calib=calib)
-    assert x["loja"]["nome"] == "ESSENCEPRIMEBR" and x["frete"] == 24.45
+    assert x["loja"]["nome"] == "ESSENCEPRIMEBR" and x["frete"] == 24.45 and x["loja"]["vendas_ok"] == 25000     # sem as canceladas, como o Hunter
     assert set(x["tarifas"]) == {"gold_special", "gold_pro"} and x["tarifas"]["gold_pro"]["pct"] == 14
     assert x["visitas"] == {"anuncio": 3000, "catalogo": 5260, "catalogo_lidos": 2, "parte": 57}, x["visitas"]
     assert x["total_concorrentes"] == 2 and [c["loja"] for c in x["concorrentes"]] == ["FINKE", "ESSENCEPRIMEBR"]

@@ -210,6 +210,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     seller_id, seller_name, listing_type_id, category_id, logistic_type, `"quantity":98,"sold_quantity":500` = estoque
     exato e vendidos em faixa) e `components.header.reviews` {rating, amount}; a DATA DE CRIAÇÃO NÃO está na página. O
     quadro mostra estoque (e quantos dias dura), avaliações, selo FULL e o nome de exibição da loja.
+    Versão 0.4 (29/09, print: vendedor "BRUNOMILANI" = o login do Bruno): na página /up/ o JSON vem num texto com aspas
+    escapadas (\"seller_id\"); `lerAnuncio` desfaz o escape antes de procurar e o nome vem de `seller_name` (nunca de
+    "nickname"/link de perfil, que podem ser de quem está logado). Layout na ordem do Hunter (tiles, conversão, visitas,
+    vendas, nota, avaliações + tempo ativo, concorrentes, "Projeção de vendas" escuro + baixar mídias, calculadora) e o
+    perfil do vendedor num cartão próprio embaixo do "Comprar agora" (`#nubi-ml-vendedor`, cidade "X - BR-UF", vendas SEM
+    as canceladas = `vendas_ok` de `normalizar_loja`, como o Hunter: 25.957 x 26.173). O Hunter mostra a data sem a conta
+    do Bruno conectada: a extensão testa o `/items/{id}` público do ML direto do navegador, sem token nem cookie
+    (`itemPublico`); se o ML deixar, usa a data de criação, vendidos e estoque de lá; senão o quadro mostra o código.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a
