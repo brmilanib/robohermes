@@ -580,7 +580,7 @@ def _preparar(repo):
 # ---------------------------------------------------------------------------
 
 AGENTE_EMAIL = os.environ.get("NUBI_AGENTE_EMAIL", "")
-AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)", "Astra (design)", "Navegador", "Atendente TikTok", "Atendente Shopee", "Importador SAC")   # modelos grátis que rodam no Mac mini (Ollama)
+AGENTES_LOCAIS = ("Hermes", "Qwen (revisor)", "DeepSeek R1 (Mac)", "Ferreiro (Claude no Mac)", "Astra (design)", "DeepSeek (estoque)", "Navegador", "Atendente TikTok", "Atendente Shopee", "Importador SAC")   # modelos grátis que rodam no Mac mini (Ollama)
 ATENDENTES_AGRUPAVEIS = ("Atendente TikTok", "Atendente Shopee")   # card #111: rodadas normais juntam 1 resumo por hora
 # Conversa direta na Sala (card #64, fase 2): nome de exibição de cada agente que aparece na lista de conversas.
 CONVERSA_NOME = {"claude": "Claude", "chatgpt": "ChatGPT", "deepseek": "DeepSeek", "gptoss": "gpt-oss",
@@ -1161,7 +1161,8 @@ def atender(metodo, rota, q, corpo, token):
             agrupar = d.get("agrupar") or {}
             if agrupar and autor in ATENDENTES_AGRUPAVEIS:
                 return _json({"ok": True, "id": _atendente_resumo_agrupado(repo, autor, agrupar)})
-            aid = {"Hermes": "hermes", "Qwen (revisor)": "qwen", "Ferreiro (Claude no Mac)": "claude_mac", "Astra (design)": "astra", "Navegador": "navegador"}.get(autor)
+            aid = {"Hermes": "hermes", "Qwen (revisor)": "qwen", "Ferreiro (Claude no Mac)": "claude_mac", "Astra (design)": "astra", "Navegador": "navegador",
+                   "DeepSeek (estoque)": "deepseek_mac"}.get(autor)
             if aid:
                 agora_ = datetime.now(timezone.utc).isoformat()
                 try:
@@ -1374,7 +1375,7 @@ def atender(metodo, rota, q, corpo, token):
             tid, tipo = int(d.get("id") or 0), str(d.get("tipo") or "passo")
             if not tid or tipo not in ("passo", "erro_teste", "relatorio", "pergunta"):
                 raise ErroNuvem("Card ou tipo inválido.")
-            quem = d.get("quem") if d.get("quem") in ("astra", "navegador") else "claude_mac"   # quem está no Mac (26/09)
+            quem = d.get("quem") if d.get("quem") in ("astra", "navegador", "deepseek_mac") else "claude_mac"   # quem está no Mac (26/09)
             _evento(repo, tid, quem, str(d.get("texto") or "")[:7500], tipo=tipo)
             reg = {"atualizado_em": datetime.now(timezone.utc).isoformat()}
             if d.get("status") == "em_desenvolvimento":
@@ -3333,10 +3334,11 @@ PRIORIDADE_ORDEM = {"urgente": 0, "alta": 1, "media": 2, "média": 2, "baixa": 3
 
 PROGRAMADORES_MAC = {"ferreiro": ("claude_mac", "programar_card", "Ferreiro", "🔨"),
                      "astra": ("astra", "programar_astra", "Astra", "🎨"),
+                     "deepseek": ("deepseek_mac", "programar_deepseek", "DeepSeek", "🐋"),   # 29/09: programa o estoque
                      "navegador": ("navegador", "navegar_card", "Navegador", "🧭")}
 # o Ferreiro e o Astra dividem o clone do projeto no Mac; o Navegador usa o Chrome do coletor (fila própria)
-TRAVA_MAC = {"ferreiro": (("programar_card", "programar_astra"), ("claude_mac", "astra")),
-             "astra": (("programar_card", "programar_astra"), ("claude_mac", "astra")),
+_CLONE = (("programar_card", "programar_astra", "programar_deepseek"), ("claude_mac", "astra", "deepseek_mac"))
+TRAVA_MAC = {"ferreiro": _CLONE, "astra": _CLONE, "deepseek": _CLONE,
              "navegador": (("navegar_card",), ("navegador",))}
 
 
@@ -5395,7 +5397,8 @@ def assumir_aprovados(repo, tid):
         if r_:
             partes.append(r_)
     t = (repo._req("GET", "reuniao_tarefas", {"select": "id,status,responsavel,risco,aguardando", "id": repo._eq(int(tid))}) or [{}])[0]
-    quem = {"claude_mac": "ferreiro", "claude_code": "ferreiro", "astra": "astra", "navegador": "navegador"}.get(t.get("responsavel"))
+    quem = {"claude_mac": "ferreiro", "claude_code": "ferreiro", "astra": "astra", "navegador": "navegador",
+            "deepseek_mac": "deepseek"}.get(t.get("responsavel"))
     if t.get("status") == "aprovada" and not t.get("aguardando") and quem:
         if (t.get("risco") or "medio") == "alto":
             _motivo_card(repo, tid, "Card não executado sozinho: risco alto só anda com o Bruno.")
@@ -5471,6 +5474,8 @@ COMANDOS_MAC = {
     "ferreiro_status": "Ferreiro: conferir se está pronto (Claude Code, chave e git no Mac)",
     "programar_card": "Ferreiro programar um card agora (número do card)",
     "programar_astra": "Astra programar um card de design agora (número do card)",
+    "programar_deepseek": "DeepSeek programar um card do estoque agora (número do card)",
+    "deepseek_status": "DeepSeek programador: conferir se está pronto (Codex, chave do DeepSeek e git no Mac)",
     "astra_status": "Astra programador: conferir se está pronto (Codex, chave da OpenAI e git no Mac)",
     "navegar_card": "Navegador fazer a tarefa de um card no Chrome do Mac (número do card)",
     "atender_tiktok": "Atendente da TikTok Shop: olhar o chat, trazer mensagens ao nubi e enviar as aprovadas",
@@ -6165,7 +6170,8 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             return {"pendentes": [], "sala": [], "vetorizar": [], "reserva": True, "pausado": True, "libera": mac_libera(repo)}
         if (maq == "mac" and not pausado) or (maq == "servidor" and (pausado or not _mac_vivo(repo))):
             if not pausado:     # Ferreiro, Astra e Navegador rodam no Mac: parados junto com ele
-                if "pegou" not in (ferreiro_proximo(repo, a_cada_min=0, quem="astra") or ""):   # design primeiro (Astra); não pegou, o Ferreiro
+                # design primeiro (Astra), depois o estoque (DeepSeek); ninguém pegou, o Ferreiro (os três usam o mesmo clone)
+                if not any("pegou" in (ferreiro_proximo(repo, a_cada_min=0, quem=q) or "") for q in ("astra", "deepseek")):
                     ferreiro_proximo(repo, a_cada_min=0)
                 ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
             atendimento.atendente_proximo(repo)     # atendente da TikTok Shop ligado: a cada 5 min ou na hora, se há resposta aprovada

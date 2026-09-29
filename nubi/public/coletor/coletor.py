@@ -2662,7 +2662,7 @@ def comando_mac(chave, arg=""):
         "entrar": [*c, "entrar"], "entrar_upseller": [*c, "entrar-upseller"], "entrar_gestor": [*c, "entrar-gestor"],
         "entrar_auto_nubimetrics": [*c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [*c, "entrar-auto", "upseller"],
         "entrar_auto_gestor": [*c, "entrar-auto", "gestor"],
-        "ferreiro_status": [*c, "programar", "0"], "astra_status": [*c, "programar-astra", "0"],
+        "ferreiro_status": [*c, "programar", "0"], "astra_status": [*c, "programar-astra", "0"], "deepseek_status": [*c, "programar-deepseek", "0"],
         "navegador_status": [*c, "navegar", "0"],
         "ml_lojas": [*c, "ml-lojas"], "ml_posicoes": [*c, "ml-posicoes"], "entrar_ml": [*c, "entrar-ml"],
         "vend_fotos": [*c, "fotos-vendedores"],
@@ -2716,6 +2716,8 @@ def comando_mac(chave, arg=""):
         return [*c, "importar-sac"]
     if chave == "programar_astra":
         return [*c, "programar-astra", arg] if str(arg).isdigit() else None
+    if chave == "programar_deepseek":
+        return [*c, "programar-deepseek", arg] if str(arg).isdigit() else None
     return tabela.get(chave)
 
 
@@ -3687,6 +3689,37 @@ def astra_pronto(cfg=None):
     return True, ""
 
 
+# DeepSeek programador (29/09, pedido do Bruno: "libera a branch de código pra ele de estoque, mexer no código e no layout"):
+# o mesmo Codex do Astra, com o modelo do DeepSeek pela API dele (compatível com a da OpenAI); só a parte do ESTOQUE; branch
+# deepseek/card-N, testes do projeto, nunca publica (o Chefe revisa e publica). Chave só no Chaveiro (guardar-senha deepseek).
+DEEPSEEK_PROG_MODELO = os.environ.get("NUBI_DEEPSEEK_PROG_MODELO", "deepseek-v4-pro")
+DEEPSEEK_PROG_URL = os.environ.get("NUBI_DEEPSEEK_URL", "https://api.deepseek.com/v1")
+DEEPSEEK_CARDS_DIA = int(os.environ.get("NUBI_DEEPSEEK_CARDS_DIA", "6"))
+DEEPSEEK_AUTOR = "DeepSeek (estoque)"
+PROGRAMADORES_PID = ("ferreiro.pid", "astra.pid", "deepseek.pid")     # os três dividem o clone do projeto
+
+
+def deepseek_pronto(cfg=None):
+    """(pronto, motivo): tem o Codex instalado, a chave do DeepSeek no Chaveiro e o git?"""
+    if not _codex_bin():
+        return False, "Codex não instalado no Mac (npm install -g @openai/codex)"
+    if not _credencial("deepseek", cfg)[1]:
+        return False, "chave do DeepSeek não guardada (coletor guardar-senha deepseek)"
+    if not shutil.which("git"):
+        return False, "git não instalado"
+    return True, ""
+
+
+def _cards_hoje(cfg, campo, somar=0):
+    hoje = date.today().isoformat()
+    g = {k: v for k, v in (cfg.get(campo) or {}).items() if k == hoje}
+    if somar:
+        g[hoje] = g.get(hoje, 0) + somar
+        cfg[campo] = g
+        salvar_config(cfg)
+    return g.get(hoje, 0)
+
+
 def _cards_astra_hoje(cfg, somar=0):
     hoje = date.today().isoformat()
     g = {k: v for k, v in (cfg.get("astra_cards") or {}).items() if k == hoje}
@@ -3791,26 +3824,29 @@ def _passo_card(token, tid, texto, status=None, tipo="passo", quem="claude_mac")
 def cmd_programar(args, cfg, quem="ferreiro"):
     """O Ferreiro (Claude Code) ou o Astra (Codex com o modelo dele) pega o card N, programa no clone do projeto, testa e
     envia num branch próprio para o Chefe revisar e publicar."""
-    astra = quem == "astra"
-    nome, autor = ("Astra", ASTRA_AUTOR) if astra else ("Ferreiro", FERREIRO_AUTOR)
-    trava = PASTA / ("astra.pid" if astra else "ferreiro.pid")
-    if _pid_vivo(trava) or (astra and _pid_vivo(PASTA / "ferreiro.pid")) or (not astra and _pid_vivo(PASTA / "astra.pid")):
+    ds = quem == "deepseek"
+    astra = quem in ("astra", "deepseek")                 # os dois programam com o Codex
+    quem_card = {"astra": "astra", "deepseek": "deepseek_mac"}.get(quem, "claude_mac")
+    nome, autor = ("DeepSeek", DEEPSEEK_AUTOR) if ds else ("Astra", ASTRA_AUTOR) if astra else ("Ferreiro", FERREIRO_AUTOR)
+    trava = PASTA / f"{quem}.pid"
+    if any(_pid_vivo(PASTA / x) for x in PROGRAMADORES_PID):
         print(f"O {nome} não pode começar agora: o clone do projeto está em uso por outro card.")
         return 1
-    ok, motivo = astra_pronto(cfg) if astra else ferreiro_pronto(cfg)
-    gasto = _cards_astra_hoje(cfg) if astra else _gasto_ferreiro(cfg)
-    limite = f"{gasto} de {ASTRA_CARDS_DIA} cards" if astra else f"US$ {gasto:.2f} de {FERREIRO_TETO_DIA:.0f}"
+    ok, motivo = deepseek_pronto(cfg) if ds else astra_pronto(cfg) if astra else ferreiro_pronto(cfg)
+    gasto = _cards_hoje(cfg, "deepseek_cards") if ds else _cards_astra_hoje(cfg) if astra else _gasto_ferreiro(cfg)
+    teto = DEEPSEEK_CARDS_DIA if ds else ASTRA_CARDS_DIA if astra else FERREIRO_TETO_DIA
+    limite = f"{gasto} de {teto} cards" if astra else f"US$ {gasto:.2f} de {FERREIRO_TETO_DIA:.0f}"
+    modelo = DEEPSEEK_PROG_MODELO if ds else ASTRA_MODELO if astra else FERREIRO_MODELO
     if str(args.id) == "0":                               # só conferir (comando "conferir" da Central)
-        print((f"✅ {nome} pronto" if ok else f"❌ {nome} indisponível: {motivo}")
-              + f" · hoje {limite} · modelo {ASTRA_MODELO if astra else FERREIRO_MODELO}")
+        print((f"✅ {nome} pronto" if ok else f"❌ {nome} indisponível: {motivo}") + f" · hoje {limite} · modelo {modelo}")
         return 0 if ok else 1
     token = token_nubi(cfg)
     tid = int(args.id)
-    if not ok or (gasto >= ASTRA_CARDS_DIA if astra else gasto >= FERREIRO_TETO_DIA):
+    if not ok or gasto >= teto:
         porque = f"indisponível: {motivo}" if not ok else f"limite do dia atingido ({limite})"
         print(f"{nome} {porque}")
         try:                                              # devolve o card para a fila com o motivo (o servidor espera 1 h)
-            _passo_card(token, tid, f"⏸ {nome} {porque}. O card volta para a fila.", "aprovada", tipo="erro_teste", quem=("astra" if astra else "claude_mac"))
+            _passo_card(token, tid, f"⏸ {nome} {porque}. O card volta para a fila.", "aprovada", tipo="erro_teste", quem=quem_card)
         except Exception:  # noqa: BLE001
             pass
         return 1
@@ -3833,11 +3869,18 @@ def cmd_programar(args, cfg, quem="ferreiro"):
         co = _git(repo, "checkout", "-B", ramo, f"origin/{BRANCH_NUBI}")
         if co.returncode:
             raise Falha(f"não consegui trocar para o branch {ramo}: " + (co.stderr or co.stdout)[-300:])
-        _passo_card(token, tid, (f"🎨 Astra (Codex no Mac, modelo {ASTRA_MODELO}) pegou o card na hora." if astra else
+        _passo_card(token, tid, (f"🐋 DeepSeek (Codex no Mac, modelo {DEEPSEEK_PROG_MODELO}) pegou o card na hora." if ds else
+                                 f"🎨 Astra (Codex no Mac, modelo {ASTRA_MODELO}) pegou o card na hora." if astra else
                                  "🔨 Ferreiro (Claude Code no Mac) pegou o card na hora.") + f" Trabalhando no branch {ramo}.",
-                    "em_desenvolvimento", quem=("astra" if astra else "claude_mac"))
+                    "em_desenvolvimento", quem=quem_card)
         historico = "\n".join(f"[{e['autor']}] {e['texto'][:1500]}" for e in evs[-12:])
         pedido = (
+            (f"Você é o DeepSeek, analista e agora também programador do ESTOQUE do Bruno no nubi, no Mac mini. Leia nubi/CLAUDE.md "
+             "antes (seções de Estoque, Compras e DeepSeek). Implemente o card #{tid} abaixo mexendo SÓ na parte do estoque: "
+             "nubi/estoque.py, as rotas estoque_* e as funções de estoque/compras em nubi/nubi_web.py, as telas do Estoque em "
+             "nubi/public/index.html (telaEstoque, telaCompras, esAbas e o CSS .es-/.cp-) e os testes de estoque em nubi/testes/. "
+             "Números sempre calculados em código (nunca pela IA); layout claro no celular e no computador."
+             ).replace("{tid}", str(tid)) if ds else
             (f"Você é o Astra, designer de produto e UX do nubi, agora programando você mesmo no Mac mini. Leia nubi/CLAUDE.md antes. "
              f"Implemente o card #{tid} abaixo (design, usabilidade e organização das telas, quase sempre nubi/public/index.html), "
              "no estilo do código em volta, pensando no Bruno usando no celular e no computador." if astra else
@@ -3858,16 +3901,24 @@ def cmd_programar(args, cfg, quem="ferreiro"):
         print(f"{nome} trabalhando no card #{tid}…", flush=True)
         if astra:
             env = {k: v for k, v in env.items() if k != "ANTHROPIC_API_KEY"}
-            chave_oa = _credencial("openai", cfg)[1]
-            env.update({"OPENAI_API_KEY": chave_oa, "CODEX_API_KEY": chave_oa})
-            ultima = PASTA / f"astra-card-{tid}.txt"
+            ultima = PASTA / f"{quem}-card-{tid}.txt"
+            if ds:
+                # a API do DeepSeek fala o formato de chat da OpenAI: o Codex usa um provedor próprio só nesta chamada
+                env["DEEPSEEK_API_KEY"] = _credencial("deepseek", cfg)[1]
+                prov = ["-c", 'model_provider="deepseek"', "-c", 'model_providers.deepseek.name="DeepSeek"',
+                        "-c", f'model_providers.deepseek.base_url="{DEEPSEEK_PROG_URL}"',
+                        "-c", 'model_providers.deepseek.env_key="DEEPSEEK_API_KEY"', "-c", 'model_providers.deepseek.wire_api="chat"']
+            else:
+                chave_oa = _credencial("openai", cfg)[1]
+                env.update({"OPENAI_API_KEY": chave_oa, "CODEX_API_KEY": chave_oa})
+                prov = []
             # sandbox do Codex: escreve só dentro do clone do projeto; o push é feito depois pelo coletor, não pelo agente
-            r = subprocess.run([_codex_bin(), "exec", "--model", ASTRA_MODELO, "--sandbox", "workspace-write",
+            r = subprocess.run([_codex_bin(), "exec", *prov, "--model", modelo, "--sandbox", "workspace-write",
                                 "--output-last-message", str(ultima), pedido],
                                cwd=str(repo), env=env, capture_output=True, text=True, timeout=3600)
             relatorio = (ultima.read_text() if ultima.exists() else (r.stdout or r.stderr or "")[-3000:]).strip()
-            custo = 0.0                                   # o Codex não informa o custo; aparece no uso da OpenAI
-            _cards_astra_hoje(cfg, 1)
+            custo = 0.0                                   # o Codex não informa o custo; aparece no uso da OpenAI/DeepSeek
+            _cards_hoje(cfg, "deepseek_cards", 1) if ds else _cards_astra_hoje(cfg, 1)
         else:
             r = subprocess.run([_claude_bin(), "-p", pedido, "--output-format", "json", "--model", FERREIRO_MODELO,
                                 "--max-turns", "60", "--permission-mode", "acceptEdits",
@@ -3885,8 +3936,8 @@ def cmd_programar(args, cfg, quem="ferreiro"):
         testes = _testes_projeto(repo, env)
         if astra and novos in ("", "0") and _git(repo, "status", "--porcelain").stdout.strip():
             _git(repo, "add", "-A")                       # o Codex às vezes deixa a mudança sem commit: o coletor faz o commit
-            _git(repo, "-c", "user.name=Astra (nubi)", "-c", "user.email=astra@nubi.local", "commit", "-m",
-                 f"Card #{tid}: {t['titulo'][:80]} (Astra)")
+            _git(repo, "-c", f"user.name={nome} (nubi)", "-c", f"user.email={quem}@nubi.local", "commit", "-m",
+                 f"Card #{tid}: {t['titulo'][:80]} ({nome})")
             novos = _git(repo, "rev-list", "--count", f"origin/{BRANCH_NUBI}..HEAD").stdout.strip()
             testes = _testes_projeto(repo, env)
         ferramenta = "o Codex" if astra else "o Claude Code"
@@ -3904,22 +3955,22 @@ def cmd_programar(args, cfg, quem="ferreiro"):
                     falhas += f"Branch `{ramo}` enviado ao GitHub para conferência (não publicado).\n\n"
             _passo_card(token, tid, f"⚠️ {nome} não conseguiu fechar ({motivo}" + ("" if astra else f"; custo US$ {custo:.2f}")
                         + "). Volta para a fila.\n\n" + falhas + (relatorio[:3000] or (testes.stdout + testes.stderr)[-1500:]),
-                        "aprovada", tipo="erro_teste", quem=("astra" if astra else "claude_mac"))
+                        "aprovada", tipo="erro_teste", quem=quem_card)
             _postar_hermes_como(token, autor, f"⚠️ Card #{tid}: não consegui fechar ({motivo}). Devolvi para a fila.", custo)
             return 1
         env_push = _git(repo, "push", "-f", "origin", ramo)
         if env_push.returncode:
             _passo_card(token, tid, f"⚠️ {nome} fez o card, mas não conseguiu enviar o branch para o GitHub (login do GitHub no Mac: "
-                        "gh auth login). Volta para a fila.\n\n" + relatorio[:4000], "aprovada", tipo="erro_teste", quem=("astra" if astra else "claude_mac"))
+                        "gh auth login). Volta para a fila.\n\n" + relatorio[:4000], "aprovada", tipo="erro_teste", quem=quem_card)
             return 1
         _passo_card(token, tid, f"📦 **Entrega do {nome}** (branch `{ramo}`, {novos} commit(s), testes do Mac ✅"
                     + ("" if astra else f", custo US$ {custo:.2f}") + f"). O Chefe revisa, junta e publica.\n\n{relatorio[:6000]}",
-                    "em_teste", quem=("astra" if astra else "claude_mac"))
-        _postar_hermes_como(token, autor, f"{'🎨' if astra else '🔨'} Card #{tid} pronto no branch {ramo} (testes ✅). "
+                    "em_teste", quem=quem_card)
+        _postar_hermes_como(token, autor, f"{'🐋' if ds else '🎨' if astra else '🔨'} Card #{tid} pronto no branch {ramo} (testes ✅). "
                                           "Chefe: revisar, juntar e publicar.", custo)
         return 0
     except Exception as e:  # noqa: BLE001
-        _passo_card(token, tid, f"⚠️ {nome} parou: {str(e)[:300]}. Volta para a fila.", "aprovada", tipo="erro_teste", quem=("astra" if astra else "claude_mac"))
+        _passo_card(token, tid, f"⚠️ {nome} parou: {str(e)[:300]}. Volta para a fila.", "aprovada", tipo="erro_teste", quem=quem_card)
         return 1
     finally:
         try:
@@ -4162,11 +4213,14 @@ def cmd_guardar_senha(args, cfg):
     """O Bruno guarda (uma vez, no próprio Mac) o login de um site no Chaveiro, para o coletor entrar sozinho."""
     site = args.site
     nome = {"gmail": "Gmail (código do UpSeller)", "anthropic": "Anthropic (chave da API do Ferreiro e do atendente)",
-            "openai": "OpenAI (chave da API do Astra programador)"}.get(site) or LOGIN_SITES[site][0]
+            "openai": "OpenAI (chave da API do Astra programador)",
+            "deepseek": "DeepSeek (chave da API do DeepSeek programador)"}.get(site) or LOGIN_SITES[site][0]
     usuario = input(f"E-mail/usuário do {nome}: ").strip()
     if site == "anthropic":
         senha = getpass.getpass("Chave da API (console.anthropic.com → API Keys → criar uma; começa com sk-ant-; "
                                 "não aparece enquanto cola): ").strip()
+    elif site == "deepseek":
+        senha = getpass.getpass("Chave da API do DeepSeek (platform.deepseek.com → API keys → criar 'nubi Mac'; começa com sk-): ").strip()
     elif site == "openai":
         senha = getpass.getpass("Chave da API da OpenAI (platform.openai.com → API keys → criar 'Astra Mac'; começa com sk-): ").strip()
     elif site == "gmail":
@@ -6529,7 +6583,7 @@ def main():
     cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
     cv.add_argument("--modelo", default=None)
     gsn = sub.add_parser("guardar-senha", help="guarda no Chaveiro do Mac o login de um site (para o coletor entrar sozinho)")
-    gsn.add_argument("site", choices=["nubimetrics", "upseller", "gestor", "gmail", "anthropic", "openai"])
+    gsn.add_argument("site", choices=["nubimetrics", "upseller", "gestor", "gmail", "anthropic", "openai", "deepseek"])
     pgr = sub.add_parser("programar", help="o Ferreiro (Claude Code no Mac, pela API) corrige o card N e envia num branch")
     pgr.add_argument("id")
     sub.add_parser("ferreiro-conversa", help="o Ferreiro responde a conversa direta com o Bruno no nubi (só leitura do projeto)")
@@ -6549,6 +6603,8 @@ def main():
     sp_rl.add_argument("argv", nargs=argparse.REMAINDER)
     sub.add_parser("importar-sac", help="traz para o nubi o histórico já respondido do SAC do UpSeller (base de conhecimento)")
     sub.add_parser("atender-tiktok", help="o atendente olha o chat da TikTok Shop, traz as mensagens ao nubi e envia as aprovadas")
+    pgd = sub.add_parser("programar-deepseek", help="o DeepSeek (Codex no Mac, modelo do DeepSeek) faz o card de estoque N num branch")
+    pgd.add_argument("id")
     pga = sub.add_parser("programar-astra", help="o Astra (Codex no Mac, modelo do Astra) faz o card de design N e envia num branch")
     pga.add_argument("id")
     ea = sub.add_parser("entrar-auto", help="entra sozinho no site (senha do navegador/Chaveiro, código do e-mail)")
@@ -6603,6 +6659,8 @@ def main():
         return cmd_navegar(args, cfg)
     if args.cmd == "programar-astra":
         return cmd_programar(args, cfg, quem="astra")
+    if args.cmd == "programar-deepseek":
+        return cmd_programar(args, cfg, quem="deepseek")
     if args.cmd == "importar-sac":
         return cmd_importar_sac(args, cfg)
     if args.cmd == "atender-tiktok":

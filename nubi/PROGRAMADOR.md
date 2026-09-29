@@ -53,6 +53,9 @@ Leia antes, nesta ordem: `nubi/CLAUDE.md` (regras do dono), este arquivo e a cai
    **Entregas do Astra** (design, usabilidade e organização; autorizado pelo Bruno em 26/09): mesma coisa com
    `responsavel='astra'` e branch `astra/card-<id>` (Codex no Mac com o modelo do Astra). Revise com atenção extra ao
    visual no celular e no computador; diga no relatório que foi o Astra.
+   **Entregas do DeepSeek** (só o estoque; autorizado pelo Bruno em 29/09): mesma coisa com `responsavel='deepseek_mac'` e
+   branch `deepseek/card-<id>` (Codex no Mac com a API do DeepSeek). Confira que ele só mexeu na parte do estoque
+   (estoque.py, rotas/funções estoque_*, telas do Estoque) e que os números saem do código; diga que foi o DeepSeek.
 2. **Contexto.** Leia `select titulo, texto from conhecimento where fixo or atualizado_em > now() - interval '14 days' order by fixo desc, atualizado_em desc limit 60`
    e as últimas 30 mensagens de `reuniao_mensagens`.
    **Card 🩺 urgente (aberto pelo Hermes) vem antes de tudo** (pedido do Bruno, 25/09: o sistema não pode ficar parado

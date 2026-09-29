@@ -98,6 +98,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   mensagens por dia (env `NUBI_COMPRAS_CHAT_MAX`), conversa do dia em `compras|chat|<data>`. Se ele mandar `LISTA_JSON`, a
   lista é trocada (mesmas travas). Testes: `test_compras_estoque.py`, `test_compras_real.py` (a IA falsa responde o chat).
 
+- **DeepSeek programador do estoque (29/09, pedido do Bruno: "libera a branch de código pra ele de estoque, mexer no código e
+  no layout")**: `coletor programar-deepseek <card>` = o mesmo Codex do Astra com o provedor da API do DeepSeek
+  (`DEEPSEEK_PROG_MODELO`=deepseek-v4-pro, `DEEPSEEK_PROG_URL`), chave só no Chaveiro (`coletor guardar-senha deepseek`),
+  branch `deepseek/card-N`, até `DEEPSEEK_CARDS_DIA`=6 cards/dia, só a parte do estoque; nunca publica (o Chefe revisa,
+  PROGRAMADOR.md 1c). Cards com `responsavel='deepseek_mac'` (o id `deepseek` continua sendo o agente de texto da Sala);
+  fila `ferreiro_proximo(quem="deepseek")` depois do Astra; os três dividem o clone (`_CLONE`, `PROGRAMADORES_PID`).
+
 ## Perseguir anúncios pelo Apify (28/09, pedido do Bruno) — Estoque → 🎯 Perseguir anúncios (`#/estoque/perseguir`), `perseguir.py`
 
 - O Bruno cadastra anúncio (MLB… ou link) + palavra de busca (+ CEP e apelido opcionais), até `MAX_ANUNCIOS`=40. O robô do

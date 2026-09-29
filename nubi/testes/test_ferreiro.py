@@ -213,6 +213,33 @@ def test_astra_com_codex_saindo_com_erro_mas_trabalho_feito_entrega():
     assert passos[-1]["status"] == "em_teste" and "astra/card-93" in passos[-1]["texto"]
 
 
+def test_deepseek_programa_o_estoque_pelo_codex_com_a_api_dele():
+    """29/09 (Bruno: "libera a branch de código pra ele de estoque"): o DeepSeek programa com o Codex apontado para a API dele,
+    no branch deepseek/card-N, e o card fica com ele (deepseek_mac)."""
+    import shutil
+    shutil.rmtree(c.PASTA / "projeto", ignore_errors=True)
+    c.salvar_config({})
+    passos, sala = _preparar(_claude_falso())
+    args_f, env_f = TMP / "codex_args.txt", TMP / "codex_env.txt"
+    exe = TMP / "codex_ds"
+    exe.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > " + str(args_f) + "\nenv > " + str(env_f) + "\nout=''\n"
+                   "while [ $# -gt 0 ]; do if [ \"$1\" = --output-last-message ]; then out=$2; fi; shift; done\n"
+                   "echo estoque novo > nubi/estoque_tela.txt\necho '## Feito' > \"$out\"\nexit 0\n")
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    c._codex_bin = lambda: str(exe)
+    c._credencial = lambda site, cfg=None: ("bruno", "sk-ds-falsa") if site == "deepseek" else ("", "")
+    assert c.cmd_programar(type("A", (), {"id": "130"})(), c.ler_config(), quem="deepseek") == 0
+    assert passos[-1]["status"] == "em_teste" and "deepseek/card-130" in passos[-1]["texto"] and passos[-1]["quem"] == "deepseek_mac"
+    a = args_f.read_text()
+    assert 'model_provider="deepseek"' in a and "api.deepseek.com" in a and "deepseek-v4-pro" in a and "SÓ na parte do estoque" in a
+    e = env_f.read_text()
+    assert "DEEPSEEK_API_KEY=sk-ds-falsa" in e and "OPENAI_API_KEY" not in e and "ANTHROPIC_API_KEY" not in e
+    # sem a chave: não começa e devolve o card com o motivo
+    c._credencial = lambda site, cfg=None: ("", "")
+    assert c.cmd_programar(type("A", (), {"id": "131"})(), c.ler_config(), quem="deepseek") == 1
+    assert "guardar-senha deepseek" in passos[-1]["texto"] and passos[-1]["quem"] == "deepseek_mac"
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):
