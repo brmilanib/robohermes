@@ -1102,9 +1102,9 @@ def atender(metodo, rota, q, corpo, token):
             except ErroNuvem:
                 evs = []
             try:
-                apelidos = {a["id"]: a["apelido"] for a in repo._todos("agentes", {"select": "id,apelido"}) if a.get("apelido")}
+                apel_agentes = {a["id"]: a["apelido"] for a in repo._todos("agentes", {"select": "id,apelido"}) if a.get("apelido")}
             except ErroNuvem:
-                apelidos = {}
+                apel_agentes = {}
             refs = _duracoes_feitas_por_responsavel(ts)
             ult = {}
             for e in evs:
@@ -1116,11 +1116,11 @@ def atender(metodo, rota, q, corpo, token):
                 if t.get("status") in ("em_desenvolvimento", "em_teste"):
                     t["previsao_min"] = _previsao_min_card_execucao(t, refs)
                 t["situacao"], t["situacao_motivo"], t["proxima_rodada"] = _situacao_card(t, agora)
-                if t.get("responsavel") in apelidos:
-                    t["responsavel_apelido"] = apelidos[t["responsavel"]]
-                if t.get("testador") in apelidos:
-                    t["testador_apelido"] = apelidos[t["testador"]]
-            return _json({"tarefas": ts, "status": reuniao.STATUS, "apelidos": apelidos})
+                if t.get("responsavel") in apel_agentes:
+                    t["responsavel_apelido"] = apel_agentes[t["responsavel"]]
+                if t.get("testador") in apel_agentes:
+                    t["testador_apelido"] = apel_agentes[t["testador"]]
+            return _json({"tarefas": ts, "status": reuniao.STATUS, "apelidos": apel_agentes})
         if rota == "tarefa_eventos":
             tid = int(q.get("id") or 0)
             t = (repo._req("GET", "reuniao_tarefas", {"select": "*", "id": repo._eq(tid)}) or [None])[0]
