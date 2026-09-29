@@ -3122,6 +3122,49 @@ def _atendente_resumo_agrupado(repo, autor, info):
     return (r or [{}])[0].get("id")
 
 
+def ultima_quinzena(hoje):
+    """30/09 (Bruno: "atualizar todas as marcas do Explorador todo dia 02 e 16, para ver se o mercado cresce ou cai"): a última
+    quinzena FECHADA com o atraso de 2 dias do Nubimetrics (D-2). No dia 2 = 16 ao fim do mês anterior; do dia 17 = 1 a 15."""
+    d = hoje - timedelta(days=2)
+    fim_mes = (d.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    if d == fim_mes:
+        return d.replace(day=16), d
+    if d.day >= 15:
+        return d.replace(day=1), d.replace(day=15)
+    fim_ant = d.replace(day=1) - timedelta(days=1)
+    return fim_ant.replace(day=16), fim_ant
+
+
+EXPLORADOR_LOTE = 25          # marcas por rodada do coletor (o vigia chama de novo até acabar)
+
+
+def explorador_quinzena_pendente(repo, agora=None):
+    """Marcas do Explorador sem o export da quinzena. Roda do dia 2 ao 6 e do 17 ao 21 (se o Mac falhar num dia, tenta nos
+    próximos) ou quando o Bruno pede um período (ia_resumos explorador|quinzena_pedido = {"inicio", "fim"})."""
+    agora = agora or _agora_br()
+    pedido = None
+    try:
+        reg = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": "eq.explorador|quinzena_pedido"}) or [None])[0]
+        pedido = json.loads(reg["texto"]) if reg and reg.get("texto") else None
+    except (ErroNuvem, ValueError, TypeError):
+        pedido = None
+    if pedido and pedido.get("inicio") and pedido.get("fim"):
+        ini, fim = date.fromisoformat(pedido["inicio"]), date.fromisoformat(pedido["fim"])
+    else:
+        ini, fim = ultima_quinzena(agora.date())
+        if not (2 <= agora.day <= 6 or 17 <= agora.day <= 21):
+            return {"rodar": False, "inicio": ini.isoformat(), "fim": fim.isoformat(), "motivo": "fora dos dias (2 e 17)"}
+    snaps = repo._todos("snapshots", {"select": "marca,inicio,fim"})
+    todas = sorted({x["marca"] for x in snaps})
+    feitas = {x["marca"] for x in snaps if str(x["inicio"])[:10] == ini.isoformat() and str(x["fim"])[:10] == fim.isoformat()}
+    faltam = [m for m in todas if m not in feitas]
+    if pedido and not faltam:
+        repo._req("DELETE", "ia_resumos", {"chave": "eq.explorador|quinzena_pedido"}, prefer="return=minimal")
+    return {"rodar": bool(faltam), "inicio": ini.isoformat(), "fim": fim.isoformat(), "total": len(todas), "feitas": len(feitas),
+            "marcas": [{"marca": m, "busca": nubi.nome_bonito(m),
+                        "arquivo": f"{m.replace(' ', '_')}__{ini.isoformat()}_{fim.isoformat()}.csv"} for m in faltam[:EXPLORADOR_LOTE]]}
+
+
 def rotina_no_dia(r, agora=None):
     agora = agora or _agora_br()
     if r.get("dia_mes"):
@@ -5100,6 +5143,18 @@ def rota_estoque(repo, metodo, rota, q, corpo):
             return {"existe": False}
         existe = any(_normalizar_sku(it["sku"]) == norm for it in _estoque_itens(repo, ult["id"]))
         return {"existe": existe}
+    if rota == "explorador_quinzena_pendente":
+        return explorador_quinzena_pendente(repo)
+    if rota == "explorador_quinzena_pedir" and metodo == "POST":
+        # o Bruno (ou a sessão de código) pede um período para todas as marcas: {"inicio": "2026-09-01", "fim": "2026-09-15"}
+        d = json.loads(corpo or b"{}")
+        ini, fim = _data(d.get("inicio"), "Data inicial"), _data(d.get("fim"), "Data final")
+        if fim < ini:
+            raise ErroNuvem("A data final é anterior à inicial.")
+        repo._req("POST", "ia_resumos", corpo=[{"chave": "explorador|quinzena_pedido", "ia": "bruno",
+                                                "texto": json.dumps({"inicio": str(ini), "fim": str(fim)})}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True, "inicio": str(ini), "fim": str(fim)}
     if rota == "gestor_pendente":
         # rotina 'gestor' (ex.: 00:40, 10 min depois do estoque): importa 1 vez por dia, só se o estoque de hoje já entrou
         if q.get("maquina") == "servidor" and _so_no_mac(repo, "gestor"):
@@ -5670,6 +5725,7 @@ COMANDOS_MAC = {
     "navegador_status": "Navegador: conferir se está pronto (chave e gasto do dia)",
     "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
     "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora", "ml_pagina": "Mercado Livre: salvar uma página (busca ou anúncio) no nubi para análise, só lê",
+    "explorador_quinzena": "Nubimetrics: exportar o Explorador da última quinzena de todas as marcas e importar no nubi",
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")

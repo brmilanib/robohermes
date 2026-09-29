@@ -128,6 +128,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   importado da marca vira um botão na página da marca (`periodosMarca`, rota `relatorio&periodo=<id>`, `escolher_periodo`:
   padrão = termina por último e mais longo; anterior = termina antes do escolhido começar). 7 e 30 dias aparecem quando o
   export desse período é importado. A Visão geral dos vendedores já tem 7/15/30 dias.
+- **Explorador por quinzena (30/09, Bruno: "atualizar todas as marcas dia 02 e 16, ver se o mercado cresce ou cai")**: o
+  Nubimetrics atrasa 2 dias, então dia 2 = 16 ao fim do mês anterior e dia **17** = 1 a 15 (`ultima_quinzena`).
+  `explorador_quinzena_pendente` (dias 2–6 e 17–21, ou pedido `explorador|quinzena_pedido` pela rota
+  `explorador_quinzena_pedir`) devolve até `EXPLORADOR_LOTE`=25 marcas sem o export da quinzena (busca = nome da marca,
+  arquivo `MARCA__ini_fim.csv`); o coletor exporta no Explorador e manda para `importar` com `marca`, `inicio`, `fim`.
+  Comando da Central `explorador_quinzena`. Comparação = período anterior (`escolher_periodo`). Teste: `test_explorador_quinzena.py`.
 - **Scuderia (30/09)**: palavra que a coluna Marca põe ANTES da marca em 2+ anúncios ("SCUDERIA FERRARI") não vira linha
   (`nubi.prefixos_da_marca`, fim da etapa 3); `REGRA_ATUAL` = regra 8.
 
