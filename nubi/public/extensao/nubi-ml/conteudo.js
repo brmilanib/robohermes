@@ -19,8 +19,13 @@
   function linhaLoja(a) {
     const l = a.loja || {}, d = diasDesde(a.criado);
     const nome = l.nome || a.apelido || (a.vendedor ? "loja " + a.vendedor : "");
-    if (!nome) return `<span class="nubi-ml-fraco">nubi: não achei a loja deste anúncio${a.motivo ? ` — ${esc(a.motivo)}` : ""}</span>`;
+    // 30/09 (card #120): preço de agora, vendidos do anúncio e Full, como no Hunter
+    const doCard = `${a.preco ? `<span>💲 ${brl(a.preco)}</span>` : ""}
+      ${a.vendidos != null ? `<span>📦 ${a.vendidosMais ? "+" : ""}${nf(a.vendidos)} vendidos</span>` : ""}
+      ${a.full ? `<span class="nubi-ml-full">⚡ FULL</span>` : ""}`;
+    if (!nome) return `<span class="nubi-ml-fraco">nubi: não achei a loja deste anúncio${a.motivo ? ` — ${esc(a.motivo)}` : ""}</span> ${doCard}`;
     return `<b>🏪 ${l.link ? `<a href="${esc(l.link)}" target="_blank" rel="noopener">${esc(nome)}</a>` : esc(nome)}</b>
+      ${doCard}
       ${l.cidade ? `<span>📍 ${esc(l.cidade)}${l.uf ? "-" + esc(l.uf) : ""}</span>` : ""}
       ${l.nivel ? `<span class="nubi-ml-rep r${esc(l.nivel)}">rep ${esc(l.nivel)}/5</span>` : ""}
       ${l.medalha ? `<span>🎖 ${esc(l.medalha)}</span>` : ""}
@@ -234,18 +239,35 @@
   // ---------------- busca/lista/loja: embaixo de cada anúncio
   const feitos = new WeakSet();
   let fila = [], rodando = 0;
+  // cada card com todos os links dele (o patrocinado só tem o click1, casado pelo estado da página); até 60 por vez,
+  // o resto entra na próxima volta do observador
+  const CLIQUE = /click\d?\.mercadolivre/;
   function cartoes() {
-    const out = [];
+    const out = new Map();
     document.querySelectorAll("a[href*='mercadolivre.com.br']").forEach(a => {
       const h = a.getAttribute("href") || "";
-      if (!/MLB-?\d{6,}|\/p\/MLB\d|\/up\/MLBU\d/.test(h) || /click\d?\.mercadolivre/.test(h)) return;
+      if (!/MLB-?\d{6,}|\/p\/MLB\d|\/up\/MLBU\d/.test(h) && !CLIQUE.test(h)) return;
       const c = a.closest("li.ui-search-layout__item, .poly-card, .ui-search-result, .andes-card") || null;
-      if (c && !feitos.has(c) && !(document.getElementById("nubi-ml-quadro") || {contains: () => false}).contains(c)) { feitos.add(c); out.push([c, a.href]); }
+      if (c && !feitos.has(c) && !(document.getElementById("nubi-ml-quadro") || {contains: () => false}).contains(c)) out.set(c, [...(out.get(c) || []), a.href]);
     });
-    return out;
+    return [...out].slice(0, 60).map(([c, urls]) => { feitos.add(c); return [c, urls]; });
   }
   const pidDe = url => { const m = String(url).match(/\/p\/(MLB\d{5,})/i); return m ? m[1].toUpperCase() : null; };
   const widDe = url => { const m = String(url).match(/[?&#]wid=(MLB\d{6,})/i); return m ? m[1].toUpperCase() : null; };
+  const itemDe = url => { if (widDe(url)) return widDe(url); const m = !pidDe(url) && String(url).match(/\/MLB-?(\d{6,})/i); return m ? "MLB" + m[1] : null; };
+  // estado da própria página de busca (lido no fundo.js, lerBusca); relido só quando os scripts mudam (troca de página)
+  let ESTADO = Promise.resolve([]), estadoTam = 0;
+  function estadoDaBusca() {
+    const s = [...document.querySelectorAll("script#__PRELOADED_STATE__, script#__NORDIC_RENDERING_CTX__")].map(x => x.outerHTML).join("");
+    if (s.length !== estadoTam) { estadoTam = s.length; ESTADO = pedir({tipo: "busca", html: s}).then(r => r.resultados || []); }
+    return ESTADO;
+  }
+  const semProto = u => String(u || "").replace(/^https?:\/\//, "").split("#")[0];
+  const doEstado = (est, urls) => est.find(r => r.link && urls.some(u => semProto(r.link) === semProto(u))) ||
+    est.find(r => r.item && urls.some(u => r.item === itemDe(u))) ||
+    est.find(r => r.produto && urls.some(u => r.produto === pidDe(u) && (!widDe(u) || r.item === widDe(u)))) || {};
+  // o que a página do anúncio trouxe vale mais; o estado da busca completa o que faltar
+  const junta = (r, a) => ({...r, ...Object.fromEntries(Object.entries(a || {}).filter(([, v]) => v != null && v !== ""))});
   function caixa(c) {
     const box = document.createElement("div");
     box.className = "nubi-ml-linha"; box.innerHTML = `<span class="nubi-ml-fraco">nubi: lendo a loja…</span>`;
@@ -254,9 +276,9 @@
   }
   function andar() {
     while (rodando < 3 && fila.length) {
-      const [box, url] = fila.shift();
+      const [box, url, r] = fila.shift();
       rodando++;
-      pedir({tipo: "anuncio", url}).then(a => { box.innerHTML = linhaLoja(a); }).finally(() => { rodando--; andar(); });
+      pedir({tipo: "anuncio", url}).then(a => { box.innerHTML = linhaLoja(junta(r, a)); }).finally(() => { rodando--; andar(); });
     }
   }
   // cards de catálogo (/p/MLB…): o nubi diz de quem é o anúncio do card (ou quem ganha o produto), 40 por pedido;
@@ -266,22 +288,33 @@
     for (let i = 0; i < lote.length; i += 40) {
       const parte = lote.slice(i, i + 40);
       const r = await pedir({tipo: "nubi", rota: "ext_vencedores", params: {pids: [...new Set(parte.map(chave))].join(",")}});
-      parte.forEach(([box, url]) => {
+      parte.forEach(([box, url, e]) => {
         const v = (r.produtos || {})[chave([box, url])];
         if (v && v.vendedor) {
-          box.innerHTML = linhaLoja({vendedor: v.vendedor, item: v.item, oficial: v.oficial, loja: v.loja}) +
+          box.innerHTML = linhaLoja({...e, vendedor: v.vendedor, item: v.item, oficial: v.oficial, loja: v.loja}) +
             (v.do_card ? "" : `<span class="nubi-ml-fraco" title="o link do card não diz qual anúncio é">· quem ganha o produto agora</span>`);
-        } else fila.push([box, url]);
+        } else fila.push([box, url, e]);
       });
       andar();
     }
   }
-  function varrer() {
+  // catálogo: em lote pelo nubi; anúncio com o vendedor no estado: a linha sai na hora; sem vendedor: lê a página do
+  // anúncio (nunca o click1 do patrocinado, que contaria um clique: vai o link do anúncio pelo MLB do estado)
+  async function varrer() {
     if (!AJ.busca || ehAnuncio()) return;
-    const novos = cartoes().slice(0, 60).map(([c, url]) => [caixa(c), url]);
-    fila.push(...novos.filter(([, url]) => !pidDe(url)));
+    const novos = cartoes().map(([c, urls]) => [caixa(c), urls]);
+    if (!novos.length) return;
+    const est = await estadoDaBusca(), cat = [];
+    novos.forEach(([box, urls]) => {
+      const e = doEstado(est, urls);
+      const url = urls.find(u => !CLIQUE.test(u)) || (e.link && !CLIQUE.test(e.link) ? e.link : null) ||
+        (e.item ? `https://produto.mercadolivre.com.br/MLB-${e.item.slice(3)}` : null);
+      if (url && pidDe(url)) cat.push([box, url, e]);
+      else if (e.vendedor) box.innerHTML = linhaLoja(e);
+      else if (url) fila.push([box, url, e]);
+      else box.innerHTML = linhaLoja({...e, motivo: "patrocinado sem o anúncio no estado da página"});
+    });
     andar();
-    const cat = novos.filter(([, url]) => pidDe(url));
     if (cat.length) porCatalogo(cat);
   }
 
