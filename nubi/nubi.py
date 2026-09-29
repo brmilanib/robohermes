@@ -1080,6 +1080,14 @@ def consolidar(df, marca, cfg, info=None):
             if vencedor is not None:
                 df.loc[faltando, "genero"] = vencedor
 
+    # "Arabe Sabah" -> "Sabah" (29/09): linhas antigas da Configuração começando por palavra de anúncio; "Arabe" sozinho = Outros
+    def _sem_arabe(l):
+        p = str(l).split()
+        while p and normalizar(p[0]) in ("arabe", "arabes", "arabic", "arab"):
+            p = p[1:]
+        return " ".join(p) if p else "Outros"
+    so_linha = ~df["tipo"].isin([TIPO_OUTRA, TIPO_FORA])
+    df.loc[so_linha, "linha"] = df.loc[so_linha, "linha"].map(_sem_arabe)
     marca_txt = nome_bonito(marca)
     df["produto"] = [
         f"{marca_txt} {l} (não perfume)" if t == TIPO_FORA else

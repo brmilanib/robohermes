@@ -577,7 +577,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 5: mesmo GTIN em marcas diferentes = mesmo produto (dona pelo título)"   # 29/09 (LIPX x Lattafa)
+REGRA_ATUAL = "regra 5.1: mesmo GTIN em marcas diferentes = mesmo produto; linha sem Arabe"   # 29/09 (LIPX x Lattafa)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"
