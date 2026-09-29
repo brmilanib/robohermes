@@ -4022,8 +4022,18 @@ def _descobrir_loja(repo, vid):
 def _nubi_da_loja(repo, seller_id):
     """Os NOSSOS números (Nubimetrics, agrupamento do nubi) da loja real: pelos vendedores embaralhados já identificados."""
     hashes = [h for h, x in meli.ler_hash_lojas(repo).items() if str(x.get("id")) == str(seller_id)]
+    seguidos = [v for v, x in meli.ler_hash_lojas(repo, meli.SEGUIDOS).items() if str(x.get("id")) == str(seller_id)]
+    seg = None
+    if seguidos:                           # o vendedor seguido ligado a esta loja: o último relatório dele
+        ls, rel = _linhas_seguido(repo, seguidos[0])
+        if rel:
+            top = sorted(ls, key=lambda l: -float(l["vendas"] or 0))[:60]
+            seg = {"vendedor": seguidos[0], "mes": str(rel.get("mes") or "")[:7], "ate": rel.get("ate"),
+                   "vendas": round(sum(float(l["vendas"] or 0) for l in ls), 2), "unidades": int(sum(l["unidades"] for l in ls)),
+                   "produtos": [{"titulo": l["titulo"], "marca": l["marca"], "vendas": l["vendas"], "unidades": l["unidades"],
+                                 "preco": l["preco"]} for l in top]}
     if not hashes:
-        return None
+        return {"hashes": [], "nomes": [], "produtos": [], "un": 0, "fat": 0, "marcas": [], "seguido": seg} if seg else None
     linhas = _linhas_nubi(repo, _ultimos_snapshots(repo), {"vendedor_id": f"in.({','.join(hashes)})"})
     prods = {}
     for l in linhas:
@@ -4038,7 +4048,57 @@ def _nubi_da_loja(repo, seller_id):
         p["preco_medio"] = round(p["fat"] / p["un"], 2) if p["un"] else None
     nomes = sorted({str(l.get("vendedor") or "") for l in linhas if l.get("vendedor")})
     return {"hashes": hashes, "nomes": nomes, "produtos": lista[:80], "un": sum(p["un"] for p in lista),
-            "fat": round(sum(p["fat"] for p in lista), 2), "marcas": sorted({p["marca"] for p in lista})}
+            "fat": round(sum(p["fat"] for p in lista), 2), "marcas": sorted({p["marca"] for p in lista}), "seguido": seg}
+
+
+def _linhas_seguido(repo, vendedor):
+    """Anúncios do último relatório do vendedor seguido: GTINs (o campo pode ter 2 colados), preço médio, Full, catálogo."""
+    rels = sorted(_vend_rels(repo, vendedor), key=lambda r: (str(r.get("mes")), int(r["id"])))
+    if not rels:
+        return [], None
+    rel = rels[-1]
+    out = []
+    for l in _vend_linhas(repo, rel["id"]):
+        gs = [g for g in meli.gtins_do_texto(l.get("gtin")) if nubi._ean_valido(g)]
+        if gs:
+            out.append({"gtins": gs, "preco": l.get("preco"), "full": l.get("full"), "catalogo": bool(l.get("catalogo")),
+                        "vendas": l.get("vendas") or 0, "titulo": l.get("titulo") or "", "marca": l.get("marca") or "",
+                        "unidades": l.get("unidades") or 0})
+    return out, rel
+
+
+def _descobrir_seguido(repo, vendedor):
+    """Vendedor seguido -> loja real: os produtos dele que mais vendem, no catálogo do ML (8 GTINs, catálogo primeiro)."""
+    linhas, rel = _linhas_seguido(repo, vendedor)
+    if not rel:
+        raise ErroNuvem("Vendedor não encontrado.", 404)
+    linhas.sort(key=lambda l: (not l["catalogo"], -float(l["vendas"] or 0)))
+    gtins = list(dict.fromkeys(g for l in linhas for g in l["gtins"]))[:8]
+    if not gtins:
+        return {"achou": False, "motivo": "os anúncios dele no Nubimetrics não têm GTIN"}
+    ml = meli.por_gtin(gtins, max_gtins=8)
+    x = meli.casar_seguido(vendedor, linhas, ml)
+    if not x:
+        return {"achou": False, "testados": len(gtins),
+                "motivo": f"nenhuma loja do catálogo do ML bateu com ele nos {len(gtins)} produtos que mais vendem (podem estar fora do catálogo)"}
+    meli.gravar_hash_lojas(repo, {vendedor: x}, meli.SEGUIDOS)
+    return {"achou": True, "loja": dict(meli.lojas([x["id"]]).get(str(x["id"])) or {}, **x)}
+
+
+def _gtins_da_loja(repo, sid):
+    """GTINs que a loja real vende segundo o Nubimetrics (Explorador pelos hashes ligados + vendedores seguidos ligados)."""
+    gt = []
+    hashes = [h for h, x in meli.ler_hash_lojas(repo).items() if str(x.get("id")) == str(sid)]
+    if hashes:
+        ls = _linhas_nubi(repo, _ultimos_snapshots(repo), {"vendedor_id": f"in.({','.join(hashes)})"})
+        ls.sort(key=lambda l: -float(l.get("un") or 0))
+        gt += [l["gtin"] for l in ls if re.fullmatch(r"\d{8,14}", str(l.get("gtin") or ""))]
+    for vend, x in meli.ler_hash_lojas(repo, meli.SEGUIDOS).items():
+        if str(x.get("id")) == str(sid):
+            ls, _ = _linhas_seguido(repo, vend)
+            ls.sort(key=lambda l: (not l["catalogo"], -float(l["vendas"] or 0)))
+            gt += [g for l in ls for g in l["gtins"]]
+    return list(dict.fromkeys(gt))[:8]
 
 
 def rota_meli(repo, metodo, rota, q, corpo):
@@ -4062,9 +4122,28 @@ def rota_meli(repo, metodo, rota, q, corpo):
             m["meu"] = None
         return m
     if rota == "meli_loja":
-        p = meli.pagina_loja(repo, q.get("link") or q.get("id") or "", forcar=q.get("forcar") == "1")
+        p = meli.pagina_loja(repo, q.get("link") or q.get("id") or "", forcar=q.get("forcar") == "1",
+                             gtins_fn=lambda sid: _gtins_da_loja(repo, sid))
         p["nubimetrics"] = _nubi_da_loja(repo, p["loja"]["id"])
         return p
+    if rota == "meli_seguido":
+        # vendedor SEGUIDO (Concorrentes -> Vendedores): a loja real já achada, se houver
+        return {"loja": meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(str(q.get("vendedor") or ""))}
+    if rota == "meli_seguido_descobrir" and metodo == "POST":
+        return _descobrir_seguido(repo, str(d.get("vendedor") or ""))
+    if rota == "meli_seguido_nomear" and metodo == "POST":
+        vend = str(d.get("vendedor") or "")
+        alvo = meli.codigo_do_texto(d.get("loja") or "")
+        if not vend or not _vend_rels(repo, vend) or not alvo:
+            raise ErroNuvem("Informe o vendedor e o link da loja (ou de um anúncio dela).")
+        sid = alvo[1] if alvo[0] == "loja" else str((meli.itens([alvo[1]]).get(alvo[1]) or {}).get("vendedor_id") or "")
+        lj = meli.lojas([sid]).get(sid) if sid else None
+        if not lj:
+            raise ErroNuvem("Não achei essa loja no Mercado Livre.", 404)
+        x = {"id": sid, "nome": lj["nome"], "link": lj["link"], "votos": 0, "confianca": "manual", "anuncios": [],
+             "em": datetime.now(timezone.utc).isoformat()}
+        meli.gravar_hash_lojas(repo, {vend: x}, meli.SEGUIDOS)
+        return {"ok": True, "loja": dict(lj, **x)}
     if rota == "meli_gtin":
         sep = lambda k: [x for x in str(q.get(k) or "").split("|") if x]
         return _ml_do_produto(repo, q.get("marca") or d.get("marca"), d.get("gtins") or sep("gtins"))

@@ -140,6 +140,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   cache 6 h em `meli|loja|<id>`). Rota genérica `meli_anuncios` (POST {anuncios, visitas}) para outras telas.
 - Vendidos/estoque do ML vêm em faixas (+1.000); nota e insights são regras (sem IA). Testes: `test_meli.py` (dublê da
   API) e `test_ml_real.py` (tela, pc e celular, e sem as chaves).
+- Produção (29/09, botão 🔌): o token do app funciona; catálogo pelo GTIN, visitas e /users funcionam; `/items?ids=` não
+  devolveu o anúncio (cai para `/items/{id}` um por um; se o ML recusar, título/foto vêm do produto de catálogo) e
+  `/sites/MLB/search` (busca por loja) dá 403 para o app — a página da loja usa os anúncios dela no catálogo dos GTINs que
+  ela vende no Nubimetrics (`_gtins_da_loja`). Erro de login do app (`ErroLogin`) nunca vira "bloqueado" em silêncio.
+- Vendedores SEGUIDOS (Concorrentes → Vendedores): o export não tem ID de anúncio e o preço é o médio do mês; o
+  `seller_hash` (128) não é o hash do Explorador (64). `meli.casar_seguido` pontua cada loja do catálogo por presença nos
+  GTINs que ele mais vende, preço perto do médio (±8%), Full e nome ("ICARBONXX P3" x ICARBONXX, sufixo P/TOP é rótulo).
+  De-para em `meli|seguidos` (com os IDs e links dos anúncios achados); rotas `meli_seguido`, `meli_seguido_descobrir`,
+  `meli_seguido_nomear`; quadro "🏪 Loja no Mercado Livre" na página do vendedor. GTIN colado (13+13) é separado.
 
 ## Quadro do produto no Explorador (30/09, pedido do Bruno) — `abrirVendedoresProduto` + rota `estoque_produto`
 - Quadro largo (`.modal.larga.pq`): cabeçalho com o mercado (un., faturamento, preço médio e faixa, vendedores, líder) e

@@ -29,7 +29,11 @@ HASH = {"lojas": {HA: GTIN["casados"][HA]}}
 TESTE = meli.testar("MLB1000100", "6290362346548")
 DESC = {"achou": True, "loja": {"id": "222222222", "nome": "ESSENCEPRIMEBR", "link": "https://perfil.mercadolivre.com.br/ESSENCEPRIMEBR",
                                 "votos": 2, "confianca": "provável", "nivel": 5, "medalha": "Platinum"}}
-RESP = {"meli_anuncio": ANUNCIO, "meli_loja": LOJA, "meli_gtin": GTIN, "meli_hash_lojas": HASH, "meli_teste": TESTE, "meli_descobrir": DESC}
+SEG = {"achou": True, "loja": {"id": "222222222", "nome": "ICARBONXX", "link": "https://perfil.mercadolivre.com.br/ICARBONXX", "votos": 6,
+                                "confianca": "provável", "anuncios": [{"anuncio": "MLB2000200", "link": "https://produto.mercadolivre.com.br/MLB-2000200",
+                                                                      "titulo": "Perfume Asad Elixir Lattafa 100ml", "preco": 279.0, "full": True}]}}
+RESP = {"meli_anuncio": ANUNCIO, "meli_loja": LOJA, "meli_gtin": GTIN, "meli_hash_lojas": HASH, "meli_teste": TESTE, "meli_descobrir": DESC,
+        "meli_seguido": {"loja": None}, "meli_seguido_descobrir": SEG}
 PROD = "Lattafa Asad Elixir EDP 100 ml"
 LISTA = [{"codigo": "V01", "vendedor": "HIMALAIA.INDIGO", "vid": HA, "un": 2800, "fat": 742000, "share": 0.68, "preco_medio": 265.0,
           "ultimo_preco": 265.28, "anuncios": 3, "full": 0, "catalogo": 1, "loja_oficial": False},
@@ -112,6 +116,14 @@ try:
             pg.click("#pv-ml-desc"); pg.wait_for_selector("#pv-ml .ml-loja", timeout=5000)
             assert "ESSENCEPRIMEBR" in pg.inner_text("#pv-ml")
             pg.screenshot(path=f"{tmp}/ml_vendedor_{nome}.png")
+            pg.evaluate("document.querySelectorAll('.modal-bg').forEach(x => x.remove())")
+            # 6) vendedor seguido (Concorrentes -> Vendedores): descobrir a loja, o link dela e os IDs/links dos anúncios
+            pg.evaluate("() => { const d = document.createElement('div'); d.id = 'vml-loja'; document.querySelector('#main').prepend(d); lojaMLSeguido('ICARBONXX P3'); }")
+            pg.wait_for_selector("#vml-desc", timeout=5000); pg.click("#vml-desc"); pg.wait_for_selector("#vml-loja .ml-loja", timeout=5000)
+            pg.click("#vml-loja summary")
+            v = pg.inner_text("#vml-loja")
+            assert "ICARBONXX" in v and "MLB2000200" in v and "provável" in v, v
+            assert pg.get_attribute("#vml-loja td a", "href").startswith("https://produto.mercadolivre.com.br/")
             assert not erros, erros
         # 6) sem as chaves na Vercel (hoje): só o aviso, nada quebra
         pg = b.new_page(viewport={"width": 1440, "height": 900})

@@ -45,6 +45,16 @@ class NaoAchou(ErroMeli):
     pass
 
 
+class ErroLogin(ErroMeli):
+    """Sem as chaves ou o ML recusou o login do app: aparece sempre (nunca vira 'bloqueado' em silêncio)."""
+    pass
+
+
+class Bloqueado(ErroMeli):
+    """O ML recusou este recurso para o token do app (403): não é erro do nubi."""
+    pass
+
+
 # ---------------------------------------------------------------------------
 # Conexão: token do app só na memória; nada de token em mensagem de erro
 # ---------------------------------------------------------------------------
@@ -62,7 +72,7 @@ def _abrir(req, timeout):                 # ponto único de rede (os testes troc
 
 def _token(forcar=False):
     if not tem_chave():
-        raise ErroMeli(FALTA_CHAVE)
+        raise ErroLogin(FALTA_CHAVE)
     if not forcar and _TOKEN["valor"] and time.time() < _TOKEN["ate"]:
         return _TOKEN["valor"]
     corpo = urllib.parse.urlencode({"grant_type": "client_credentials", "client_id": os.environ["ML_CLIENT_ID"],
@@ -77,12 +87,12 @@ def _token(forcar=False):
             motivo = json.loads(e.read() or b"{}").get("error") or ""
         except Exception:  # noqa: BLE001
             motivo = ""
-        raise ErroMeli(f"o Mercado Livre recusou o login do app ({e.code}{': ' + str(motivo)[:60] if motivo else ''}); "
+        raise ErroLogin(f"o Mercado Livre recusou o login do app ({e.code}{': ' + str(motivo)[:60] if motivo else ''}); "
                        "confira ML_CLIENT_ID e ML_CLIENT_SECRET na Vercel")
     except (urllib.error.URLError, TimeoutError, OSError):
-        raise ErroMeli("sem resposta do Mercado Livre (login do app)")
+        raise ErroLogin("sem resposta do Mercado Livre (login do app)")
     if not d.get("access_token"):
-        raise ErroMeli("o Mercado Livre não devolveu o token do app")
+        raise ErroLogin("o Mercado Livre não devolveu o token do app")
     _TOKEN.update(valor=d["access_token"], ate=time.time() + max(300, int(d.get("expires_in") or 21600) - 300))
     return _TOKEN["valor"]
 
@@ -104,7 +114,13 @@ def _get(caminho, params=None, timeout=20):
             if (e.code == 429 or e.code >= 500) and tentativa < 2:
                 time.sleep(1.2 * (tentativa + 1))
                 continue
-            raise ErroMeli(f"o Mercado Livre respondeu {e.code} em {caminho.split('?')[0]}")
+            try:                                 # a mensagem do ML ajuda a entender (nunca tem token nem segredo)
+                corpo = json.loads(e.read() or b"{}")
+                motivo = str(corpo.get("message") or corpo.get("error") or corpo.get("code") or "")[:90]
+            except Exception:  # noqa: BLE001
+                motivo = ""
+            txt = f"o Mercado Livre respondeu {e.code} em {caminho.split('?')[0]}" + (f" ({motivo})" if motivo else "")
+            raise (Bloqueado if e.code == 403 else ErroMeli)(txt)
         except (urllib.error.URLError, TimeoutError, OSError):
             if tentativa < 2:
                 time.sleep(1.0)
@@ -246,7 +262,14 @@ def itens(ids):
             faltam.append(i)
 
     def lote(grupo):
-        r = _get("/items", {"ids": ",".join(grupo), "attributes": ITEM_CAMPOS}) or []
+        try:
+            r = _get("/items", {"ids": ",".join(grupo), "attributes": ITEM_CAMPOS}) or []
+        except NaoAchou:
+            return []
+        except ErroLogin:
+            raise
+        except ErroMeli:                      # o ML recusou o pedido de vários: vai um por um abaixo
+            return []
         return r if isinstance(r, list) else []
 
     for resp in _em_paralelo(lote, [faltam[k:k + 20] for k in range(0, len(faltam), 20)]):
@@ -256,6 +279,24 @@ def itens(ids):
             if x.get("code") == 200 and mlb:
                 out[mlb] = normalizar_item(b)
                 _CACHE["item|" + mlb] = (time.time(), out[mlb])
+    # 29/09 (produção): o pedido de vários pode não devolver o anúncio para o token do app; tenta um por um (até 40)
+    faltando = [i for i in faltam if i not in out]
+
+    def um(i):
+        try:
+            return i, normalizar_item(_get(f"/items/{i}"))
+        except NaoAchou:
+            return i, None
+        except ErroLogin:
+            raise
+        except ErroMeli:
+            return i, "bloqueado"
+    for i, m in _em_paralelo(um, faltando[:40]):
+        if isinstance(m, dict) and m.get("anuncio"):
+            out[i] = m
+            _CACHE["item|" + i] = (time.time(), m)
+        elif m == "bloqueado":
+            out[i] = {"anuncio": i, "bloqueado": True, "link": link_do_item(i)}
     for i in ids:
         out.setdefault(i, {"anuncio": i, "sumiu": True})
     return out
@@ -292,6 +333,8 @@ def visitas(ids, dias=30):
                 out.update({str(k2).upper(): int(v or 0) for k2, v in r.items() if str(k2).upper().startswith("MLB")})
         if out:
             return out
+    except ErroLogin:
+        raise
     except ErroMeli:
         pass
 
@@ -299,6 +342,8 @@ def visitas(ids, dias=30):
         try:
             r = _get(f"/items/{i}/visits/time_window", {"last": dias, "unit": "day"}) or {}
             return i, int(r.get("total_visits") or 0)
+        except ErroLogin:
+            raise
         except ErroMeli:
             return i, None
     return {i: v for i, v in _em_paralelo(um, ids[:60]) if v is not None}
@@ -311,7 +356,7 @@ def anuncios(ids, com_visitas=False):
     lj = lojas([m.get("vendedor_id") for m in its.values() if m.get("vendedor_id")])
     vis = visitas([i for i, m in its.items() if not m.get("sumiu")]) if com_visitas else {}
     for i, m in its.items():
-        if m.get("sumiu"):
+        if m.get("sumiu") or m.get("bloqueado"):
             continue
         m["loja"] = lj.get(str(m.get("vendedor_id"))) or {}
         if com_visitas and i in vis:
@@ -486,6 +531,8 @@ def tarifa(preco, categoria, tipo_id):
     try:
         r = _get(f"/sites/{SITE}/listing_prices", {"price": round(float(preco), 2), "category_id": categoria,
                                                     "listing_type_id": tipo_id or "gold_special"})
+    except ErroLogin:
+        raise
     except ErroMeli:
         return None
     x = r[0] if isinstance(r, list) and r else r if isinstance(r, dict) else {}
@@ -498,6 +545,8 @@ def frete_do_vendedor(vendedor_id, mlb):
     """O que o vendedor paga de frete grátis neste anúncio (custo cheio de lista)."""
     try:
         r = _get(f"/users/{vendedor_id}/shipping_options/free", {"item_id": mlb}) or {}
+    except ErroLogin:
+        raise
     except ErroMeli:
         return None
     return _num((((r.get("coverage") or {}).get("all_country") or {}).get("list_cost")))
@@ -510,6 +559,8 @@ def pagina_anuncio(texto):
         raise ErroMeli("cole o link de um anúncio do Mercado Livre (ou o código MLB…)")
     mlb = alvo[1] if alvo[0] == "item" else _item_do_produto(alvo[1])
     m = anuncios([mlb], com_visitas=True)[str(mlb).upper()]
+    if m.get("bloqueado"):
+        raise ErroMeli(f"o Mercado Livre não libera os detalhes do anúncio {mlb} para o app")
     if m.get("sumiu"):
         raise NaoAchou(f"o Mercado Livre não achou o anúncio {mlb} (removido?)")
     m["analise"] = analisar_anuncio(m)
@@ -520,9 +571,26 @@ def pagina_anuncio(texto):
     return m
 
 
-def produtos_da_loja(vendedor_id, limite=MAX_PRODUTOS_LOJA):
-    """Os anúncios ativos da loja pela busca do ML (50 por página), completos e com as visitas de 30 dias."""
-    primeiro = _get(f"/sites/{SITE}/search", {"seller_id": vendedor_id, "offset": 0, "limit": 50}) or {}
+def _com_visitas(prods):
+    vis = visitas([m["anuncio"] for m in prods if m.get("anuncio")])
+    return [dict(m, visitas={"total": vis[str(m["anuncio"]).upper()], "por_dia": round(vis[str(m["anuncio"]).upper()] / 30, 1)})
+            if str(m.get("anuncio") or "").upper() in vis else m for m in prods]
+
+
+def produtos_da_loja(vendedor_id, limite=MAX_PRODUTOS_LOJA, gtins_fn=None):
+    """Os anúncios da loja. 1º pela busca do ML (50 por página); a busca por loja é bloqueada para o token do app (403 em
+    produção, 29/09) — aí vêm os anúncios dela no catálogo dos produtos que o Nubimetrics mostra que ela vende (gtins_fn).
+    Devolve (produtos, total da loja ou None, fonte)."""
+    try:
+        primeiro = _get(f"/sites/{SITE}/search", {"seller_id": vendedor_id, "offset": 0, "limit": 50}) or {}
+    except ErroLogin:
+        raise
+    except ErroMeli:
+        gtins = list(gtins_fn(vendedor_id) or []) if gtins_fn else []
+        if not gtins:
+            return [], None, "bloqueada"
+        prods = [m for m in por_gtin(gtins, max_gtins=8) if str(m.get("vendedor_id")) == str(vendedor_id)]
+        return _com_visitas(prods), None, "catálogo"
     total = int((primeiro.get("paging") or {}).get("total") or 0)
     ids = [r.get("id") for r in primeiro.get("results") or []]
     offs = list(range(50, min(total, limite), 50))
@@ -530,33 +598,34 @@ def produtos_da_loja(vendedor_id, limite=MAX_PRODUTOS_LOJA):
         ids += [x.get("id") for x in r.get("results") or []]
     ids = [i for i in dict.fromkeys(ids) if i][:limite]
     its = itens(ids)
-    vis = visitas([i for i, m in its.items() if not m.get("sumiu")])
-    prods = []
-    for i in ids:
-        m = its.get(str(i).upper())
-        if not m or m.get("sumiu"):
-            continue
-        if i.upper() in vis:
-            m = dict(m, visitas={"total": vis[i.upper()], "por_dia": round(vis[i.upper()] / 30, 1)})
-        prods.append(m)
-    return prods, total
+    prods = [its[str(i).upper()] for i in ids if its.get(str(i).upper()) and not its[str(i).upper()].get("sumiu")
+             and not its[str(i).upper()].get("bloqueado")]
+    return _com_visitas(prods), total, "busca"
 
 
-def pagina_loja(repo, texto, forcar=False):
-    """Link de anúncio/loja ou seller_id -> perfil, insights, KPIs e produtos (cache de 6 h em ia_resumos)."""
+def pagina_loja(repo, texto, forcar=False, gtins_fn=None):
+    """Link de anúncio/loja ou seller_id -> perfil, insights, KPIs e produtos (cache de 6 h em ia_resumos).
+    gtins_fn(seller_id) -> GTINs que a loja vende segundo o Nubimetrics (para quando a busca por loja é bloqueada)."""
     alvo = codigo_do_texto(texto)
     if not alvo:
         raise ErroMeli("cole o link de um anúncio ou da loja no Mercado Livre")
     if alvo[0] == "loja":
         vid = alvo[1]
     elif alvo[0] == "apelido":
-        r = _get(f"/sites/{SITE}/search", {"nickname": alvo[1], "limit": 1}) or {}
+        try:
+            r = _get(f"/sites/{SITE}/search", {"nickname": alvo[1], "limit": 1}) or {}
+        except ErroLogin:
+            raise
+        except ErroMeli:
+            raise ErroMeli("o Mercado Livre não deixa o app achar a loja pelo nome: cole o link de um anúncio dela")
         vid = str((r.get("seller") or {}).get("id") or ((r.get("results") or [{}])[0].get("seller") or {}).get("id") or "")
         if not vid:
             raise NaoAchou(f"não achei a loja {alvo[1]}")
     else:
         mlb = alvo[1] if alvo[0] == "item" else _item_do_produto(alvo[1])
         m = itens([mlb])[str(mlb).upper()]
+        if m.get("bloqueado"):
+            raise ErroMeli(f"o Mercado Livre não libera os detalhes do anúncio {mlb} para o app")
         if m.get("sumiu"):
             raise NaoAchou(f"o Mercado Livre não achou o anúncio {mlb}")
         vid = str(m["vendedor_id"])
@@ -573,10 +642,10 @@ def pagina_loja(repo, texto, forcar=False):
     loja = lojas([vid]).get(str(vid))
     if not loja:
         raise NaoAchou(f"o Mercado Livre não achou a loja {vid}")
-    prods, total = produtos_da_loja(vid)
+    prods, total, fonte = produtos_da_loja(vid, gtins_fn=gtins_fn)
     loja["anuncios"] = total
-    d = {"loja": loja, "produtos": prods, "total_anuncios": total, **analisar_loja(loja, prods), "_ts": time.time(),
-         "atualizado_em": datetime.now(timezone.utc).isoformat()}
+    d = {"loja": loja, "produtos": prods, "total_anuncios": total, "fonte_produtos": fonte, **analisar_loja(loja, prods),
+         "_ts": time.time(), "atualizado_em": datetime.now(timezone.utc).isoformat()}
     d["hash_nubimetrics"] = [h for h, x in (ler_hash_lojas(repo) or {}).items() if str(x.get("id")) == str(vid)]
     try:
         repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": "Mercado Livre (API)", "texto": json.dumps(d, ensure_ascii=False)}],
@@ -586,10 +655,25 @@ def pagina_loja(repo, texto, forcar=False):
     return d
 
 
-def por_gtin(gtins, limite_produtos=2):
+def _produto_catalogo(pid):
+    """Nome, foto e link da página do produto de catálogo (6 h de cache)."""
+    def ler():
+        try:
+            p = _get(f"/products/{pid}") or {}
+        except ErroLogin:
+            raise
+        except ErroMeli:
+            return {}
+        fotos = p.get("pictures") or []
+        return {"nome": p.get("name") or "", "foto": str((fotos[0].get("url") if fotos else "") or "").replace("http://", "https://"),
+                "link": p.get("permalink") or ""}
+    return _mem("prod|" + pid, 6 * 3600, ler)
+
+
+def por_gtin(gtins, limite_produtos=2, max_gtins=4):
     """Quem vende o produto agora: catálogo do ML pelo GTIN. [{anúncio + loja}] do mais barato para o mais caro."""
     achados = []
-    for g in [str(x).strip() for x in gtins if str(x or "").strip()][:4]:
+    for g in [str(x).strip() for x in gtins if str(x or "").strip()][:max_gtins]:
         def buscar(g=g):
             r = _get("/products/search", {"status": "active", "site_id": SITE, "product_identifier": g}) or {}
             return [p.get("id") for p in r.get("results") or [] if p.get("id")][:limite_produtos]
@@ -605,8 +689,13 @@ def por_gtin(gtins, limite_produtos=2):
     out = []
     for pid, g, x in achados:
         m = dict(its.get(str(x["item_id"]).upper()) or {"anuncio": x["item_id"]})
-        if m.get("sumiu"):
-            m = {"anuncio": x["item_id"], "link": link_do_item(x["item_id"])}
+        if m.get("sumiu") or m.get("bloqueado") or not m.get("titulo"):
+            # o ML não deu o anúncio para o app: título, foto e tipo vêm do catálogo e do próprio item do catálogo
+            pc = _produto_catalogo(pid)
+            m = {"anuncio": x["item_id"], "link": link_do_item(x["item_id"]), "titulo": pc.get("nome") or "",
+                 "foto": pc.get("foto") or "", "tipo": TIPOS.get(x.get("listing_type_id"), x.get("listing_type_id") or ""),
+                 "tipo_id": x.get("listing_type_id"), "catalogo": True, "condicao": x.get("condition") or "",
+                 "vendedor_id": x.get("seller_id")}
         m.setdefault("preco", _num(x.get("price")))
         m.setdefault("vendedor_id", x.get("seller_id"))
         m["preco"] = _num(x.get("price")) or m.get("preco")          # o preço do catálogo é o de agora
@@ -627,21 +716,24 @@ def por_gtin(gtins, limite_produtos=2):
 # ---------------------------------------------------------------------------
 # Vendedor embaralhado do Nubimetrics (hash) -> loja real
 # ---------------------------------------------------------------------------
-def ler_hash_lojas(repo):
-    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{HASH_LOJAS}"}) or [None])[0]
+SEGUIDOS = "meli|seguidos"              # vendedor seguido no Nubimetrics (nome) -> loja real + anúncios dela
+
+
+def ler_hash_lojas(repo, chave=HASH_LOJAS):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{chave}"}) or [None])[0]
     try:
         return json.loads(r["texto"]) if r and r.get("texto") else {}
     except (TypeError, ValueError):
         return {}
 
 
-def gravar_hash_lojas(repo, novos):
-    atual = ler_hash_lojas(repo)
+def gravar_hash_lojas(repo, novos, chave=HASH_LOJAS):
+    atual = ler_hash_lojas(repo, chave)
     for h, x in novos.items():
         velho = atual.get(h)
         if not velho or velho.get("confianca") != "manual":       # o que o Bruno confirmou à mão não é trocado
             atual[h] = x
-    repo._req("POST", "ia_resumos", corpo=[{"chave": HASH_LOJAS, "ia": "Mercado Livre (API)",
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": "Mercado Livre (API)",
                                             "texto": json.dumps(atual, ensure_ascii=False)}],
               prefer="resolution=merge-duplicates,return=minimal")
     return atual
@@ -695,10 +787,85 @@ def casar_vendedores(linhas, ml, data_ref=None):
     return out
 
 
+def gtins_do_texto(txt):
+    """O Nubimetrics às vezes cola 2 GTINs no mesmo campo ("78994631129785055810099459" = 7899463112978 + 5055810099459)."""
+    t = re.sub(r"\D", "", str(txt or ""))
+    if len(t) in (8, 12, 13, 14):
+        return [t]
+    if len(t) > 14 and len(t) % 13 == 0:
+        return [t[i:i + 13] for i in range(0, len(t), 13)]
+    return []
+
+
+def _base_nome(nome):
+    """"ICARBONXX P3" -> "ICARBONXX"; "MAMS ECOMMERCE TOP14" -> "MAMSECOMMERCE" (o P3/TOP14 é rótulo do Bruno)."""
+    import unicodedata
+    n = re.sub(r"\s+(P|TOP)\s*\d+$", "", str(nome or "").strip(), flags=re.I)
+    return re.sub(r"[^A-Z0-9]", "", unicodedata.normalize("NFKD", n).encode("ascii", "ignore").decode().upper())
+
+
+def casar_seguido(nome, linhas, ml):
+    """
+    Vendedor SEGUIDO no Nubimetrics (o export dele não tem ID de anúncio; preço é o MÉDIO do mês) -> loja real.
+    linhas: [{gtins, preco (médio), full, catalogo}]; ml: por_gtin dos GTINs dele. Cada loja do ML ganha ponto por produto
+    dele em que aparece, por preço perto do médio (±8%), por Full igual e, forte, pelo nome parecido ("ICARBONXX P3" x
+    ICARBONXX). Devolve a loja + os anúncios dela achados ({anuncio, link, titulo, preco}) ou None.
+    """
+    base = _base_nome(nome)
+    por_g = {}
+    for m in ml:
+        por_g.setdefault(str(m.get("gtin_busca") or ""), []).append(m)
+    cand = {}
+    for l in linhas:
+        for g in l.get("gtins") or []:
+            for m in por_g.get(g, []):
+                sid = str(m.get("vendedor_id") or "")
+                if not sid:
+                    continue
+                c = cand.setdefault(sid, {"presenca": set(), "preco": 0, "full": 0, "loja": m.get("loja") or {}, "anuncios": {}})
+                if g in c["presenca"]:
+                    continue
+                c["presenca"].add(g)
+                pm, pl = _num(m.get("preco")), _num(l.get("preco"))
+                if pm and pl and abs(pm - pl) <= 0.08 * pl:
+                    c["preco"] += 1
+                if bool(m.get("full")) == bool(l.get("full")):
+                    c["full"] += 1
+                c["anuncios"][m["anuncio"]] = {"anuncio": m["anuncio"], "link": m.get("link") or link_do_item(m["anuncio"]),
+                                               "titulo": m.get("titulo") or "", "preco": m.get("preco"), "full": bool(m.get("full"))}
+    if not cand:
+        return None
+    for c in cand.values():
+        nick = _base_nome((c["loja"] or {}).get("nome"))
+        c["nome_bate"] = bool(base and nick and len(min(base, nick, key=len)) >= 4 and (base == nick or base in nick or nick in base))
+        c["pontos"] = len(c["presenca"]) + c["preco"] + 0.5 * c["full"] + (6 if c["nome_bate"] else 0)
+    ordem = sorted(cand.items(), key=lambda kv: -kv[1]["pontos"])
+    sid, c = ordem[0]
+    seg = ordem[1][1]["pontos"] if len(ordem) > 1 else 0
+    if c["nome_bate"] or (len(c["presenca"]) >= 3 and c["preco"] >= 2 and c["pontos"] - seg >= 2):
+        conf = "provável"
+    elif c["pontos"] >= 3 and c["pontos"] > seg:
+        conf = "dúvida"
+    else:
+        return None
+    lj = c["loja"] or {}
+    return {"id": sid, "nome": lj.get("nome") or "", "link": lj.get("link") or "", "votos": len(c["presenca"]),
+            "preco_bate": c["preco"], "nome_bate": c["nome_bate"], "confianca": conf, "em": datetime.now(timezone.utc).isoformat(),
+            "anuncios": sorted(c["anuncios"].values(), key=lambda a: a.get("titulo") or "")[:40]}
+
+
 # ---------------------------------------------------------------------------
 # Diagnóstico (botão "testar conexão"): o que funciona com o token do app
 # ---------------------------------------------------------------------------
+def _diag_varios(mlb):
+    r = _get("/items", {"ids": mlb, "attributes": ITEM_CAMPOS}) or []
+    x = (r if isinstance(r, list) else [{}])[0] or {}
+    b = x.get("body") or {}
+    return f"código {x.get('code')}: " + (b.get("title") or str(b.get("message") or b.get("error") or "")[:90])
+
+
 def testar(mlb="MLB4577439527", gtin="6290362346548"):
+    """Botão 🔌 da tela: cada recurso da API com o código e a mensagem do ML (nunca token nem segredo)."""
     passos = []
 
     def passo(nome, f):
@@ -711,9 +878,19 @@ def testar(mlb="MLB4577439527", gtin="6290362346548"):
     if not tem_chave():
         return {"chaves": False, "passos": [{"passo": "chaves", "ok": False, "detalhe": FALTA_CHAVE}]}
     passo("token do app", lambda: "ok" if _token(True) else "")
-    passo("anúncio (/items)", lambda: (itens([mlb]).get(mlb) or {}).get("titulo") or "não achou")
-    passo("loja (/users)", lambda: (lambda m: (lojas([m.get("vendedor_id")]).get(str(m.get("vendedor_id"))) or {}).get("nome", ""))(itens([mlb]).get(mlb) or {}))
-    passo("visitas", lambda: visitas([mlb]).get(mlb))
-    passo("catálogo pelo GTIN", lambda: f"{len(por_gtin([gtin]))} anúncio(s)")
-    passo("busca por loja", lambda: (_get(f"/sites/{SITE}/search", {"seller_id": (itens([mlb]).get(mlb) or {}).get("vendedor_id"), "limit": 1}) or {}).get("paging", {}).get("total"))
+    passo("vários anúncios (/items?ids=)", lambda: _diag_varios(mlb))
+    passo("um anúncio (/items/ID)", lambda: (_get(f"/items/{mlb}") or {}).get("title") or "sem título")
+    cat = {}
+
+    def catalogo():
+        xs = por_gtin([gtin])
+        cat["xs"] = xs
+        return f"{len(xs)} anúncio(s); {sum(1 for x in xs if x.get('titulo'))} com título; {sum(1 for x in xs if (x.get('loja') or {}).get('nome'))} com a loja"
+    passo("catálogo pelo GTIN (/products)", catalogo)
+    sid = next((x.get("vendedor_id") for x in cat.get("xs") or [] if x.get("vendedor_id")), None)
+    passo("loja (/users/ID)", lambda: (_get(f"/users/{sid}") or {}).get("nickname") if sid else "sem vendedor para testar")
+    passo("visitas (/items/visits)", lambda: visitas([mlb]).get(mlb))
+    passo("tarifa (/sites/MLB/listing_prices)", lambda: (tarifa(100, "MLB6284", "gold_special") or {}).get("pct"))
+    passo("busca por loja (/sites/MLB/search)",
+          lambda: (_get(f"/sites/{SITE}/search", {"seller_id": sid or 1, "limit": 1}) or {}).get("paging", {}).get("total"))
     return {"chaves": True, "passos": passos}

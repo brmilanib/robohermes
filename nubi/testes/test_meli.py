@@ -62,6 +62,7 @@ class DubleML:
     def __init__(self):
         self.pedidos, self.logins, self.falhar_401 = [], 0, 0
         self.token_recusado = False
+        self.bloq_varios = self.bloq_um = self.bloq_busca = False      # o que o ML recusa para o token do app
 
     def _json(self, d):
         return Resp(json.dumps(d).encode())
@@ -87,9 +88,15 @@ class DubleML:
             self.falhar_401 -= 1
             self._erro(url, 401)
         if p == "/items":
+            if self.bloq_varios:
+                self._erro(url, 403, b'{"message":"forbidden","error":"forbidden"}')
             return self._json([{"code": 200, "body": ITENS[i]} if i in ITENS else {"code": 404, "body": {"id": i}}
                                for i in q["ids"].split(",")])
         m = p.split("/")
+        if len(m) == 3 and m[1] == "items" and m[2].startswith("MLB"):
+            if self.bloq_um:
+                self._erro(url, 403, b'{"message":"forbidden"}')
+            return self._json(ITENS[m[2]]) if m[2] in ITENS else self._erro(url, 404)
         if p.startswith("/users/") and p.endswith("/shipping_options/free"):
             return self._json({"coverage": {"all_country": {"list_cost": 24.45}}})
         if p.startswith("/users/"):
@@ -98,6 +105,8 @@ class DubleML:
         if p == "/items/visits":
             return self._json([{"item_id": i, "total_visits": VISITAS.get(i, 0)} for i in q["ids"].split(",")])
         if p == "/sites/MLB/search":
+            if self.bloq_busca:
+                self._erro(url, 403, b'{"message":"forbidden","error":"forbidden","status":403}')
             res = [{"id": i} for i, x in ITENS.items() if str(x["seller_id"]) == q.get("seller_id")]
             off, lim = int(q.get("offset", 0)), int(q.get("limit", 50))
             return self._json({"paging": {"total": len(res)}, "results": res[off:off + lim]})
@@ -109,7 +118,9 @@ class DubleML:
                 {"item_id": "MLB1000100", "seller_id": 111111111, "price": 265.28, "original_price": 389.93,
                  "shipping": {"free_shipping": True, "logistic_type": "drop_off"}}]})
         if p == "/products/MLB9990999":
-            return self._json({"id": "MLB9990999", "buy_box_winner": {"item_id": "MLB1000100"}})
+            return self._json({"id": "MLB9990999", "name": "Lattafa Asad Elixir Eau de Parfum 100 ml",
+                               "pictures": [{"url": "http://x/prod.jpg"}], "permalink": "https://www.mercadolivre.com.br/p/MLB9990999",
+                               "buy_box_winner": {"item_id": "MLB1000100"}})
         if p == "/sites/MLB/listing_prices":
             return self._json([{"sale_fee_amount": round(float(q["price"]) * 0.14 + 6.25, 2),
                                 "sale_fee_details": {"percentage_fee": 14, "fixed_fee": 6.25}}])
@@ -131,6 +142,9 @@ def _preparar(chaves=True):
 class Repo:
     def __init__(self):
         self.resumos = {}
+
+    def _eq(self, v):
+        return f"eq.{v}"
 
     def _req(self, metodo, tabela, q=None, corpo=None, **k):
         if tabela == "ia_resumos" and metodo == "GET":
@@ -317,6 +331,76 @@ def test_rotas_do_servidor_ligam_o_vendedor_do_nubimetrics_a_loja():
     except w.ErroNuvem:
         pass
 
+
+
+def test_ml_recusa_o_pedido_de_varios_e_a_busca_por_loja():
+    # 29/09 (produção): /items?ids= não devolveu o anúncio e /sites/MLB/search deu 403 para o token do app
+    d = _preparar()
+    d.bloq_varios = True
+    m = meli.itens(["MLB1000100"])["MLB1000100"]
+    assert m["titulo"].startswith("Perfume Árabe Asad")                # veio um por um
+    d2 = _preparar()
+    d2.bloq_varios = d2.bloq_um = True
+    assert meli.itens(["MLB1000100"])["MLB1000100"]["bloqueado"] is True
+    xs = meli.por_gtin(["6290362346548"])                                  # título e foto vêm do produto de catálogo
+    assert xs[0]["titulo"] == "Lattafa Asad Elixir Eau de Parfum 100 ml" and xs[0]["foto"] == "https://x/prod.jpg"
+    assert xs[0]["loja"]["nome"] == "FINKE" and xs[0]["link"].startswith("https://produto.mercadolivre.com.br/MLB-")
+    try:
+        meli.pagina_anuncio("MLB1000100")
+        raise AssertionError("devia avisar que o ML não libera")
+    except meli.ErroMeli as e:
+        assert "não libera" in str(e)
+    d3 = _preparar()
+    d3.bloq_busca = True
+    prods, total, fonte = meli.produtos_da_loja("222222222", gtins_fn=lambda sid: ["6290362346548"])
+    assert fonte == "catálogo" and total is None and [p["anuncio"] for p in prods] == ["MLB2000200"], prods
+    assert prods[0]["visitas"]["total"] == 3000
+    assert meli.produtos_da_loja("222222222")[2] == "bloqueada"
+    try:
+        meli._get("/sites/MLB/search", {"seller_id": 1})
+    except meli.Bloqueado as e:
+        assert "403" in str(e) and "forbidden" in str(e)
+    t = meli.testar("MLB1000100", "6290362346548")
+    assert [p["ok"] for p in t["passos"]][-1] is False and all(p["ok"] for p in t["passos"][:-1]), t
+
+
+def test_vendedor_seguido_vira_a_loja_real_com_os_anuncios():
+    # 29/09 (Bruno): "pegar um vendedor que a gente segue e descobrir o link da loja e o link dos produtos"
+    assert meli.gtins_do_texto("78994631129785055810099459") == ["7899463112978", "5055810099459"]
+    assert meli.gtins_do_texto("6290362346548") == ["6290362346548"] and meli.gtins_do_texto("123") == []
+    assert meli._base_nome("ICARBONXX P3") == "ICARBONXX" and meli._base_nome("MAMS ECOMMERCE TOP14") == "MAMSECOMMERCE"
+    _preparar()
+    ml = meli.por_gtin(["6290362346548"])
+    # preço médio perto do de agora + Full igual; o nome não bate: ESSENCEPRIMEBR vence pela presença e pelo preço?
+    linhas = [{"gtins": ["6290362346548"], "preco": 281.0, "full": True, "catalogo": True}]
+    x = meli.casar_seguido("ESSENCE PRIME P9", linhas, ml)                        # nome parecido -> provável
+    assert x["nome"] == "ESSENCEPRIMEBR" and x["confianca"] == "provável" and x["nome_bate"]
+    assert x["anuncios"][0]["anuncio"] == "MLB2000200" and x["anuncios"][0]["link"].startswith("https://")
+    assert meli.casar_seguido("XYZ", [{"gtins": ["000"], "preco": 1, "full": False}], ml) is None
+
+
+def test_rota_do_vendedor_seguido():
+    os.environ.setdefault("OLLAMA_API_KEY", "x")
+    os.environ.setdefault("ANTHROPIC_API_KEY", "x")
+    import nubi_web as w
+    _preparar()
+
+    class R(Repo):
+        def _todos(self, t, q=None):
+            if t == "vend_relatorios":
+                return [{"id": 5, "vendedor": "ESSENCE PRIME P9", "mes": "2026-09-01", "ate": "2026-09-27", "arquivo": "x",
+                         "importado_em": "x", "seller_hash": "H" * 128, "nome_exibido": "ESSENCE PRIME P9"}]
+            if t == "vend_anuncios":
+                return [{"titulo": "Asad Elixir", "marca": "LATTAFA", "marca_chave": "LATTAFA", "gtin": "62903623465486290362346548",
+                         "sku": "A", "vendas": 30000, "unidades": 100, "preco": 280.0, "tipo_pub": "Clássico", "fulfillment": True,
+                         "catalogo": True, "frete_gratis": True, "desconto": False, "estado": "active"}]
+            return []
+    r = R()
+    assert w.rota_meli(r, "GET", "meli_seguido", {"vendedor": "ESSENCE PRIME P9"}, b"")["loja"] is None
+    d = w.rota_meli(r, "POST", "meli_seguido_descobrir", {}, json.dumps({"vendedor": "ESSENCE PRIME P9"}).encode())
+    assert d["achou"] and d["loja"]["nome"] == "ESSENCEPRIMEBR" and d["loja"]["anuncios"][0]["anuncio"] == "MLB2000200", d
+    assert w.rota_meli(r, "GET", "meli_seguido", {"vendedor": "ESSENCE PRIME P9"}, b"")["loja"]["id"] == "222222222"
+    assert w._gtins_da_loja(r, "222222222") == ["6290362346548"]
 
 if __name__ == "__main__":
     for n, f in list(globals().items()):
