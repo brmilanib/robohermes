@@ -641,6 +641,47 @@ def test_registrar_recusa_chat_de_outra_cliente_e_nome_vazio():
     assert any(r == "atendimento_receber" for r, _ in ch2["api"])
 
 
+def test_nao_achada_2_rodadas_vai_para_precisa_de_voce_e_sai_da_fila():
+    # card #119: conversa não achada em 2 rodadas seguidas para de repetir a cada hora e avisa o Bruno
+    c.salvar_config({})
+    for _ in range(2):
+        antes = c.ler_config().get("nao_achadas", {})          # _preparar zera a config: guarda a contagem entre as rodadas
+        ch = _preparar([("ler", {}), ("abrir_conversa", {"cliente": "fulana_que_nao_existe"}), ("terminar", {"resumo": "x"})])
+        c.salvar_config({"nao_achadas": antes})
+        c.cmd_atender_tiktok(None, c.ler_config())
+    n = c.ler_config()["nao_achadas"]["tiktok_shop"]["fulana_que_nao_existe"]["n"]
+    assert n == 2
+    assert any("precisa de você" in json.dumps(cp, ensure_ascii=False) for r, cp in ch["api"] if r == "reuniao_postar")
+    antes = c.ler_config().get("nao_achadas", {})
+    ch = _preparar([("ler", {}), ("abrir_conversa", {"cliente": "fulana_que_nao_existe"}), ("terminar", {"resumo": "x"})])
+    c.salvar_config({"nao_achadas": antes})
+    c.cmd_atender_tiktok(None, c.ler_config())            # 3ª rodada: fora da fila, a IA nem tenta abrir
+    assert "NÃO ABRA" in json.dumps(ch["ultima"], ensure_ascii=False) or "saiu da fila automática" in _ultimo_resultado(ch)
+    assert c.ler_config()["nao_achadas"]["tiktok_shop"]["fulana_que_nao_existe"]["n"] == 2   # não conta de novo
+
+
+def test_1_nao_achada_usa_busca_primeiro_e_achar_zera_a_contagem():
+    c.salvar_config({"nao_achadas": {"tiktok_shop": {"leidianearaujo182": {"n": 1, "em": c.datetime.now().isoformat(), "nome": "leidianearaujo182"}}}})
+    chamou = []
+    orig = c._atendente_buscar
+    c._atendente_buscar = lambda pg, cli, estado: chamou.append(cli) or "busca"
+    try:
+        _preparar([("ler", {}), ("abrir_conversa", {"cliente": "leidianearaujo182"}), ("terminar", {"resumo": "x"})])
+        c.salvar_config({"nao_achadas": {"tiktok_shop": {"leidianearaujo182": {"n": 1, "em": c.datetime.now().isoformat(), "nome": "leidianearaujo182"}}}})
+        c.cmd_atender_tiktok(None, c.ler_config())
+    finally:
+        c._atendente_buscar = orig
+    assert chamou == ["leidianearaujo182"]                  # buscou por nome ANTES de procurar na lista
+    assert "leidianearaujo182" not in c.ler_config().get("nao_achadas", {}).get("tiktok_shop", {})
+
+
+def test_sem_envio_falso_corta_registrei_com_contador_zero():
+    fim = "Registrei 3 conversas. Nada mais a fazer."
+    assert c._sem_envio_falso(fim, 0, 0) == "Nada mais a fazer."
+    assert c._sem_envio_falso(fim, 0, 3) == fim
+    assert c._sem_envio_falso("Enviei tudo.", 0) == ""
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

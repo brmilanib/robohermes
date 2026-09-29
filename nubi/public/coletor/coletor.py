@@ -3990,13 +3990,16 @@ def _postar_hermes_como(token, autor, texto, custo=0.0, agrupar=None):
         print(f"não postei na Sala ({e})", flush=True)
 
 
-def _sem_envio_falso(texto, enviadas):
+def _sem_envio_falso(texto, enviadas, registradas=None):
     """Card #111: a frase livre da IA (ferramenta 'terminar') às vezes diz 'enviei'/'mandei' mesmo com o contador de
     enviadas em 0; corta as frases que citam envio nesse caso, para o resumo nunca afirmar um envio que não houve."""
-    if not texto or enviadas:
+    cortar = [] if enviadas else [r"envi(ei|ada|ado|amos|ar|ando|adas|ados)|mandei|mandad[oa]"]
+    if registradas is not None and not registradas:
+        cortar.append(r"registr(ei|ada|ado|amos|ando|adas|ados)|anotei|gravei")       # card #119: idem para "registrei"
+    if not texto or not cortar:
         return texto
     frases = re.split(r"(?<=[.!?])\s+", texto.strip())
-    frases = [f for f in frases if not re.search(r"envi(ei|ada|ado|amos|ar|ando|adas|ados)|mandei|mandad[oa]", f, re.I)]
+    frases = [f for f in frases if not re.search("|".join(cortar), f, re.I)]
     return " ".join(frases).strip()
 
 
@@ -4813,6 +4816,8 @@ PAPEL_SAC = (
 
 
 MESES = {"jan": 1, "fev": 2, "mar": 3, "abr": 4, "mai": 5, "jun": 6, "jul": 7, "ago": 8, "set": 9, "out": 10, "nov": 11, "dez": 12}
+ATENDENTE_NAO_ACHADA_MAX = 2         # card #119: conversa não achada em 2 rodadas seguidas vai para "precisa de você"
+ATENDENTE_NAO_ACHADA_HORAS = 12      # e fica fora da fila automática por 12 h
 ATENDENTE_ROLAR_MAX = 3            # 28/09: rolar a lista até 3 vezes por rodada (sem rolar, conversa nova abaixo do topo sumia)
 DIAS_RESPONDER = 7                 # a Shopee não deixa responder conversa com mais de 7 dias
 
@@ -4959,14 +4964,34 @@ def _atendente_buscar(pg, cliente, estado):
     return "Não achei a caixa de busca nesta página: role a lista (rolar) ou abra a aba de todas as conversas."
 
 
+def _nao_achadas_cfg(cfg, canal):
+    """Card #119: {cliente: {"n": rodadas seguidas sem achar, "em": quando}} de cada plataforma; entrada com 12 h some."""
+    d = cfg.setdefault("nao_achadas", {}).setdefault(canal, {})
+    limite = (datetime.now() - timedelta(hours=ATENDENTE_NAO_ACHADA_HORAS)).isoformat()
+    for k in [k for k, v in d.items() if str((v or {}).get("em") or "") < limite]:
+        d.pop(k)
+    return d
+
+
 def _atendente_abrir_conversa(pg, cliente, estado):
     """27/09 (Shopee): a lista de conversas não vira elemento numerado; clica no nome do cliente (em qualquer quadro da
     página) e devolve a leitura já com a conversa aberta. Só clica em texto que é o nome, nunca em botão."""
     cliente = cliente.strip()
     if len(cliente) < 3:
         return "Informe o nome do cliente como aparece na lista."
-    if _abrir_linha(pg, cliente) or (_atendente_buscar(pg, cliente, estado) and _abrir_linha(pg, cliente)):
+    chave = cliente.lower()
+    if chave in estado.get("ignorar", ()):
+        return (f"'{cliente}' não foi achada em {ATENDENTE_NAO_ACHADA_MAX} rodadas seguidas: saiu da fila automática e voltou "
+                "para o Bruno ('precisa de você'). NÃO tente de novo; siga para a próxima.")
+    if chave in estado.get("busca_primeiro", ()):
+        # card #119: na rodada seguinte a uma não achada, a busca por nome da plataforma vem antes de procurar na lista
+        achou = (_atendente_buscar(pg, cliente, estado) and _abrir_linha(pg, cliente)) or _abrir_linha(pg, cliente)
+    else:
+        achou = _abrir_linha(pg, cliente) or (_atendente_buscar(pg, cliente, estado) and _abrir_linha(pg, cliente))
+    if achou:
+        estado.setdefault("achadas", set()).add(chave)
         return f"Abri a conversa de {cliente}.\n\n" + _nav_ler(pg, estado)
+    estado.setdefault("nao_achadas", {})[chave] = cliente
     return f"Não achei '{cliente}' na página nem pela busca: role a lista (rolar) e tente de novo."
 
 
@@ -5650,6 +5675,13 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
             _no_chat(pg, cfg.get(k_url) or url_ini)
         except Exception:  # noqa: BLE001
             pass
+    if not sac:
+        nao = _nao_achadas_cfg(cfg, canal)
+        estado["ignorar"] = {k for k, v in nao.items() if int(v.get("n") or 0) >= ATENDENTE_NAO_ACHADA_MAX}
+        estado["busca_primeiro"] = {k for k, v in nao.items() if 0 < int(v.get("n") or 0) < ATENDENTE_NAO_ACHADA_MAX}
+        if estado["ignorar"]:
+            pedido += ("\n\nNÃO ABRA estas conversas (não achadas em 2 rodadas seguidas; já voltaram para o Bruno): "
+                       + ", ".join(sorted(nao[k].get("nome") or k for k in estado["ignorar"])))
     mensagens = [{"role": "user", "content": pedido}]
     inicio_rodada = time.monotonic()
     limite_rodada = ATENDENTE_RODADA_SEG * (3 if sac else 1)
@@ -5826,6 +5858,18 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
         pass
     if sac:
         cfg["sac_vazias"] = 0 if estado.get("registradas") else int(cfg.get("sac_vazias") or 0) + 1
+    else:
+        nao = _nao_achadas_cfg(cfg, canal)
+        for k in estado.get("achadas", ()):
+            nao.pop(k, None)                      # achou: zera a contagem
+        for k, nome_cli in (estado.get("nao_achadas") or {}).items():
+            if k in estado.get("achadas", ()) or k in estado.get("ignorar", ()):
+                continue
+            n = int((nao.get(k) or {}).get("n") or 0) + 1
+            nao[k] = {"n": n, "em": datetime.now().isoformat(), "nome": nome_cli}
+            if n >= ATENDENTE_NAO_ACHADA_MAX:
+                _postar_hermes_como(token, autor, f"🙋 {nome}: não achei a conversa de {nome_cli} em {n} rodadas seguidas "
+                                    "(busca por nome incluída). Saiu da fila automática: precisa de você (12 h).")
     salvar_config(cfg)
     _gasto_atendente(cfg, custo, "sac_gasto" if sac else "atendente_gasto")
     resumo = (f"{'🎵' if canal == 'tiktok_shop' else '📥' if sac else '🛍️'} {autor}: {estado.get('registradas', 0)} mensagem(ns) trazida(s) para o nubi, "
@@ -5843,7 +5887,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
     k_aviso = f"{canal}_aviso_login"
     ja_avisou = aviso_login and str(cfg.get(k_aviso) or "") > (datetime.now() - timedelta(hours=3)).isoformat()
     falhou = bool(estado.get("recusadas_outra") or estado.get("erros_envio"))
-    fim_seguro = _sem_envio_falso(fim, estado.get("enviadas", 0)) if fim else fim
+    fim_seguro = _sem_envio_falso(fim, estado.get("enviadas", 0), estado.get("registradas", 0)) if fim else fim
     if falhou or (aviso_login and not ja_avisou):
         # falha ou login: sai na hora, fora do agrupamento por hora (card #111)
         if aviso_login and not estado.get("registradas"):
