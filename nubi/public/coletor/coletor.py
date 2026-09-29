@@ -5878,8 +5878,9 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
               + (f" ⚠️ {estado['recusadas_outra']} gravação(ões) recusada(s): chat aberto de outra cliente."
                  if estado.get("recusadas_outra") else "")
               + (" ⚠️ não enviei: " + " | ".join(estado["erros_envio"][:4]) if estado.get("erros_envio") else ""))
+    fim_seguro = _sem_envio_falso(fim, estado.get("enviadas", 0), estado.get("registradas", 0)) if fim else fim
     try:        # 28/09: último resumo de cada plataforma no nubi (para conferir de longe se as conversas estão chegando)
-        api(token, "atendimento_rodada", corpo={"canal": canal, "resumo": resumo[:600], "fim": str(fim or "")[:600]},
+        api(token, "atendimento_rodada", corpo={"canal": canal, "resumo": resumo[:600], "fim": str(fim_seguro or "")[:600]},
             metodo="POST", timeout=30)
     except Exception:  # noqa: BLE001
         pass
@@ -5887,7 +5888,6 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
     k_aviso = f"{canal}_aviso_login"
     ja_avisou = aviso_login and str(cfg.get(k_aviso) or "") > (datetime.now() - timedelta(hours=3)).isoformat()
     falhou = bool(estado.get("recusadas_outra") or estado.get("erros_envio"))
-    fim_seguro = _sem_envio_falso(fim, estado.get("enviadas", 0), estado.get("registradas", 0)) if fim else fim
     if falhou or (aviso_login and not ja_avisou):
         # falha ou login: sai na hora, fora do agrupamento por hora (card #111)
         if aviso_login and not estado.get("registradas"):
@@ -5910,7 +5910,7 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
             pass
     if estado.get("roladas") and not sac:
         _rolar_topo(pg)
-    return custo, estado, resumo + (f"\n{fim}" if fim else "")
+    return custo, estado, resumo + (f"\n{fim_seguro}" if fim_seguro else "")
 
 
 def _atendente_pronto(cfg):
