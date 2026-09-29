@@ -939,6 +939,27 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 .es-hist a.on{font-weight:700}
 @media (max-width:900px){.es-grade{grid-template-columns:1fr}}
 .es-painel{margin:12px 0}.es-painel h2{margin:0}.es-painel .kpis{margin:10px 0 0}
+/* 30/09 (Bruno: "diminui um pouco esse layout, está muito grande"): tela do Estoque mais compacta */
+.es-pg{font-size:13px}
+.es-pg .es-cab h1{font-size:19px;margin:4px 0}
+.es-pg .card.pad{padding:10px 14px}
+.es-pg h2{font-size:14px;margin:0 0 6px}
+.es-pg .kpis{gap:8px;margin:8px 0}
+.es-pg .kpi{padding:7px 11px}
+.es-pg .kpi .v{font-size:16px;margin-top:0}
+.es-pg .kpi .l{font-size:11px}
+.es-pg .kpi .o{font-size:11px;-webkit-line-clamp:1}
+.es-pg .es-painel{margin:8px 0}.es-pg .es-painel .kpis{margin:6px 0 0}
+.es-pg .es-grade{gap:10px;margin-top:10px}
+.es-pg .es-log{font-size:12px;line-height:1.45}
+.es-pg .es-analise{max-height:300px;font-size:12.5px}
+.es-pg .es-analise h1,.es-pg .es-analise h2,.es-pg .es-analise h3{font-size:13.5px;margin:8px 0 4px}
+.es-pg .es-analise p,.es-pg .es-analise li{margin:2px 0}
+.es-pg .es-analise ol,.es-pg .es-analise ul{margin:2px 0;padding-left:18px}
+.es-pg .es-tile{padding:8px 10px}
+.es-pg .kpis,.es-pg .kpis:has(> :nth-child(6):last-child){grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.es-pg .es-tv{font-size:22px}
+@media (max-width:700px){.es-pg .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .cp-filtro,.cp-ordsel{max-width:100%}.cp-ord.on{text-decoration:underline}.cp-ordsel{display:none}
 /* card #122: abaixo de 600 px as tabelas de Compras viram cartões (rótulo da coluna à esquerda, valor à direita) */
 @media (max-width:600px){.cp-tab thead{display:none}.cp-ordsel{display:block}
@@ -3428,9 +3449,9 @@ async function telaEstoque() {
     : ex && ex.em_andamento ? `<div class="es-aviso">⏳ O coletor está exportando o estoque do UpSeller agora…</div>` : "";
   const auto = `<span class="muted">${rot.ativo === false ? "atualização automática desligada (Central → Rotinas)" : `atualiza sozinho todo dia às ${esc(rot.horario || "03:00")}`}</span>`;
   if (!a) {
-    main.innerHTML = esAbas("estoque") + `<div class="es-cab"><h1>📦 Estoque</h1>${auto}${acoes}</div>${falhou}
+    main.innerHTML = `<div class="es-pg">` + esAbas("estoque") + `<div class="es-cab"><h1>📦 Estoque</h1>${auto}${acoes}</div>${falhou}
       <div class="card empty"><h2>Nenhuma atualização ainda</h2><p>O coletor do Mac mini exporta a Lista de Estoque do UpSeller (My Warehouse) de madrugada e ela aparece aqui.
-      Para já ver, use <b>Atualizar agora</b> ou importe a planilha.</p></div>`;
+      Para já ver, use <b>Atualizar agora</b> ou importe a planilha.</p></div></div>`;
     ligarEstoque(); desenharMenu(); return;
   }
   const d = a.diff || {}, t = d.totais || {}, ta = d.totais_antes, n = d.n || {};
@@ -3443,7 +3464,7 @@ async function telaEstoque() {
   const transitoES = x => { if (x.transito == null) return "";
     const ok = x.transito > 0 && x.transito >= (x.minimo || 0);
     return `<span class="${ok ? "pos" : x.transito > 0 ? "" : "neg"}">${x.transito > 0 ? `🚚 em trânsito ${unES(x.transito)}` : "nada em trânsito"}${x.minimo ? ` · mín. ${unES(x.minimo)}` : ""}</span>`; };
-  main.innerHTML = esAbas("estoque") + `<div class="es-cab"><h1>📦 Estoque</h1>
+  main.innerHTML = `<div class="es-pg">` + esAbas("estoque") + `<div class="es-cab"><h1>📦 Estoque</h1>
       <span class="muted">${esc(a.loja || "UpSeller")} · ${r.historico[0].id === a.id ? "atualizado" : "foto de"} ${esc(quandoES(a.criado_em))} (${a.origem === "manual" ? "importado à mão" : "coletor"})</span>
       ${acoes}</div>
     <div>${auto}</div>${falhou}
@@ -3473,7 +3494,7 @@ async function telaEstoque() {
       <div id="es-tab"></div></div>
     <div class="card pad es-hist" style="margin-top:14px"><h2>Histórico de atualizações</h2>
       ${r.historico.map(h => `<a href="#/estoque?id=${h.id}" class="${h.id === a.id ? "on" : ""}"><span>${esc(quandoES(h.criado_em))} · ${h.origem === "manual" ? "à mão" : "coletor"}</span>
-        <span class="muted">${nf0.format(h.skus || 0)} SKUs · ${unES(h.unidades)} un · ${rsES(h.valor)} · ${nf0.format(h.zerados || 0)} zerados</span></a>`).join("")}</div>`;
+        <span class="muted">${nf0.format(h.skus || 0)} SKUs · ${unES(h.unidades)} un · ${rsES(h.valor)} · ${nf0.format(h.zerados || 0)} zerados</span></a>`).join("")}</div></div>`;
   S.esMud = {d, custoES, transitoES};
   main.querySelectorAll("[data-esmud]").forEach(b => b.onclick = () => abrirMudancasES(b.dataset.esmud));
   desenharTabEstoque(); ligarEstoque(); desenharMenu();
