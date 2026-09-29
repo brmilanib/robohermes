@@ -4084,6 +4084,29 @@ def _calibracao_mlb(repo, forcar=False):
     return pts
 
 
+def _conferir_oficiais(repo, max_lojas=4):
+    """29/09: nenhum vendedor de loja oficial fechou pela loja oficial (AUMA, VANVIC, ROCHA). Nas lojas que o Bruno
+    confirmou à mão e que o Explorador diz ser loja oficial: o nº do Explorador aparece nas ofertas delas no catálogo do
+    ML? É isso que diz se o "LOJA.OFICIAL.nnn" do Nubimetrics é o official_store_id do ML."""
+    snaps = _ultimos_snapshots(repo)
+    out = []
+    for h, x in meli.ler_hash_lojas(repo).items():
+        if len(out) >= max_lojas:
+            break
+        if x.get("confianca") != "manual" or not re.fullmatch(r"[0-9a-f]{64}", h):
+            continue
+        ls = [l for l in _linhas_nubi(repo, snaps, {"vendedor_id": f"eq.{h}", "loja_oficial": "eq.1"}, com_bruto=True)
+              if l.get("loja_oficial_id") and re.fullmatch(r"\d{8,14}", str(l.get("gtin") or "")) and l.get("catalogo")]
+        if not ls:
+            continue
+        ls.sort(key=lambda l: -float(l.get("un") or 0))
+        gtins = list(dict.fromkeys(l["gtin"] for l in ls))[:3]
+        ofs = [o for o in meli.ofertas_por_gtin(gtins, max_gtins=3) if str(o.get("vendedor_id")) == str(x.get("id"))]
+        out.append({"loja": x.get("nome") or x.get("id"), "explorador": sorted({int(l["loja_oficial_id"]) for l in ls}),
+                    "ml": sorted({int(o["loja_oficial"]) for o in ofs if o.get("loja_oficial")}), "ofertas": len(ofs)})
+    return out
+
+
 def _calib_ou_nada(repo):
     try:
         return _calibracao_mlb(repo)
@@ -4365,6 +4388,17 @@ def rota_meli(repo, metodo, rota, q, corpo):
                                     "sem anúncios seus com SKU no Explorador e no relatório de vendas do UpSeller"})
             except Exception as e:  # noqa: BLE001
                 t["passos"].append({"passo": "data de criação pelo nº do anúncio (calibração)", "ok": False, "detalhe": str(e)[:120]})
+            try:
+                cs = [c for c in _conferir_oficiais(repo) if c["ofertas"]]
+                bate = [c for c in cs if set(c["explorador"]) & set(c["ml"])]
+                t["passos"].append({"passo": "nº da loja oficial: Explorador x ML (lojas que você confirmou)", "ok": bool(bate),
+                                    "detalhe": ("; ".join(f"{c['loja']}: Explorador {', '.join(map(str, c['explorador']))} x ML "
+                                                          f"{', '.join(map(str, c['ml'])) or 'sem nº'} ({c['ofertas']} oferta(s))" for c in cs)
+                                                + (" — o nº é o mesmo: a prova da loja oficial vale" if bate else
+                                                   " — o nº do Nubimetrics NÃO é o do ML" if cs else ""))
+                                    or "confirme à mão (✔ É esta) uma loja que o Explorador diz ser loja oficial para conferir"})
+            except Exception as e:  # noqa: BLE001
+                t["passos"].append({"passo": "nº da loja oficial: Explorador x ML", "ok": False, "detalhe": str(e)[:120]})
         return t
     if rota == "meli_hash_lojas":
         # 29/09 (Bruno): "aqui tem que ter o nome da loja que tá no Nubimetrics": o nome de cada hash no Explorador

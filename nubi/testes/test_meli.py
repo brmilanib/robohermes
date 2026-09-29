@@ -359,6 +359,12 @@ def test_loja_oficial_acha_a_loja_certa_e_nao_a_parecida():
            {"gtins": ["6290360598352"], "preco": 216.86, "full": True, "catalogo": True, "tipo": "Clássico"}]
     x2, _ = meli.achar_loja("ICARBONXX P3", seg, ofs)
     assert x2 and x2["id"] == "2540338692" and x2["confianca"] == "provável", x2
+    # 29/09 (ROCHA -> OUD_ESSENCE): vendedor de loja oficial no Explorador, casando só pelo relatório do mês -> não liga
+    rocha = seg + [dict(r, catalogo=False) for r in refs]                     # o Explorador diz: loja oficial 23829
+    xr, cr = meli.achar_loja("ROCHA IMPORTADOS", rocha, ofs)
+    assert xr is None and cr[0]["id"] == "2540338692", (xr, cr)
+    xr2, _ = meli.achar_loja("KAIDOXSTOREE P1", rocha, ofs)                   # com o nome batendo, liga
+    assert xr2 and xr2["id"] == "2540338692" and xr2["confianca"] == "provável" and xr2["nome_bate"]
     # um produto só e preço médio: não dá certeza -> não escolhe, mostra as candidatas
     x3, c3 = meli.achar_loja("ICARBONXX P3", seg[:1], ofs)
     assert x3 is None and c3 and c3[0]["id"] == "2540338692" and "em 1 de 1 produto" in c3[0]["prova"], c3
@@ -439,6 +445,16 @@ def test_rotas_do_servidor_ligam_o_vendedor_do_nubimetrics_a_loja():
     assert d["loja"]["confianca"] == "certa" and d["loja"]["oficial"] == [555]      # nº da loja oficial do Explorador = do ML
     n = w.rota_meli(r, "POST", "meli_nomear", {}, json.dumps({"vendedor_id": "b" * 64, "loja": "https://produto.mercadolivre.com.br/MLB-1000100-x"}).encode())
     assert n["loja"]["nome"] == "FINKE" and meli.ler_hash_lojas(r)["b" * 64]["confianca"] == "manual"
+    # o botão 🔌 confere, nas lojas confirmadas à mão, se o nº da loja oficial do Explorador é o do ML
+    t = w.rota_meli(r, "GET", "meli_teste", {}, b"")
+    p = [x for x in t["passos"] if x["passo"].startswith("nº da loja oficial")][0]
+    assert not p["ok"] and "FINKE: Explorador 555 x ML sem nº (1 oferta(s))" in p["detalhe"] and "NÃO é o do ML" in p["detalhe"], p
+    guardado = r.resumos[meli.HASH_LOJAS]                                       # (o manual não se troca: troca direto)
+    r.resumos[meli.HASH_LOJAS] = json.dumps({**json.loads(guardado), "b" * 64: {"id": "222222222", "nome": "ESSENCEPRIMEBR",
+                                                                                "confianca": "manual"}})
+    p = [x for x in w.rota_meli(r, "GET", "meli_teste", {}, b"")["passos"] if x["passo"].startswith("nº da loja oficial")][0]
+    assert p["ok"] and "Explorador 555 x ML 555" in p["detalhe"] and "a prova da loja oficial vale" in p["detalhe"], p
+    r.resumos[meli.HASH_LOJAS] = guardado
     meli.gravar_hash_lojas(r, {"c" * 64: {"id": "3153658428", "nome": "GLBRASIL2026", "confianca": "provável", "votos": 2}})
     hl = w.rota_meli(r, "GET", "meli_hash_lojas", {}, b"")                       # a tela #/ml mostra o nome de lá
     assert "c" * 64 not in hl["lojas"]                                         # regra antiga, sem prova: some da tela
@@ -672,7 +688,8 @@ def test_calibracao_com_os_anuncios_do_bruno():
     assert w._calibracao_mlb(r) == pts and R.pedidos == 1                      # 1 vez por dia
     _preparar()
     t = w.rota_meli(r, "GET", "meli_teste", {}, b"")                             # o botão 🔌 mostra a calibração
-    assert t["passos"][-1]["ok"] and "8 anúncios seus, de 19/01/2026 a 26/01/2026" in t["passos"][-1]["detalhe"], t["passos"][-1]
+    cal = [x for x in t["passos"] if x["passo"].startswith("data de criação")][0]
+    assert cal["ok"] and "8 anúncios seus, de 19/01/2026 a 26/01/2026" in cal["detalhe"], cal
 
 
 if __name__ == "__main__":

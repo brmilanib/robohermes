@@ -159,6 +159,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     mostra "Anúncio criado": foi assim que o Bruno viu que as datas da KAIDOXSTOREE batem com as do ICARBONXX.
   - O nº da loja oficial é da MARCA (a Mugler "por Auma Perfumaria"): vários vendedores podem estar na mesma (20309 em 5
     vendedores do Explorador). Por isso "certa" pela loja oficial só quando nenhuma outra candidata tem o mesmo nº.
+  - ROCHA IMPORTADOS -> OUD_ESSENCE (errado, 29/09): todos os anúncios dele no Explorador são da loja oficial 14017 e a
+    OUD_ESSENCE casou só pelo relatório do mês. Vendedor de loja oficial só vira "provável" sem a loja oficial batendo se
+    o nome ou a data de criação baterem (`achar_loja`). Nenhum vendedor de loja oficial fechou pela loja oficial em
+    produção (AUMA, VANVIC, ROCHA): o botão 🔌 confere, nas lojas que o Bruno confirmou à mão, se o nº do Explorador
+    aparece nas ofertas delas no ML (`_conferir_oficiais`) — se não aparecer, o nº do Nubimetrics não é o do ML.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

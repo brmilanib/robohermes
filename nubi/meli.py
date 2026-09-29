@@ -1098,6 +1098,12 @@ def achar_loja(nome, refs, ofertas, un_mes=None, calib=None):
             return None, []
     cands = sorted(top, key=lambda c: (-c["pontos"], -c["produtos"])) + cands[6:]
     conf = decidir(cands, sondados)
+    # 29/09 (ROCHA IMPORTADOS -> OUD_ESSENCE, errado): no Explorador todos os anúncios dele são da loja oficial 14017 e a
+    # OUD_ESSENCE casou só pelo relatório do mês (4 de 8 produtos, preço perto). Vendedor de loja oficial só vira
+    # "provável" sem a loja oficial batendo se o nome ou a data de criação baterem; senão, candidatas para o Bruno.
+    if (conf == "provável" and any(r.get("loja_oficial") for r in refs) and cands and not cands[0]["oficial"]
+            and not cands[0].get("nome_bate") and not cands[0]["idade"]):
+        conf = None
     mostrar = [{"id": c["id"], "nome": c.get("nome") or "", "link": c.get("link") or "", "produtos": c["produtos"],
                 "sondados": sondados, "exato": c["exato"], "perto": c["perto"], "idade": c["idade"], "oficial": c["oficial"],
                 "prova": _prova(c, sondados)} for c in cands[:3]]
