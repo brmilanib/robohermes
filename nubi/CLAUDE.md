@@ -262,6 +262,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     `Access-Control-Allow-Origin: *` (e `api/app.py` responde OPTIONS) para a extensão não depender da permissão de site do
     Chrome; o servidor já devolvia certo (frete 24,45, comissão 30,84 = Hunter). `/items` público do navegador = 403: a
     data exata e o total de visitas na vida só com token de USUÁRIO do ML (OAuth da conta do Bruno) — decisão dele.
+  - BUSCA DA EXTENSÃO PELA PÁGINA REAL (29/09, 0.7.1; print do Bruno com captcha em todos os cards): o coletor salvou a
+    busca real (`coletor ml-pagina <url>`, comando `ml_pagina`, rota `ml_pagina_salvar` -> `ia_resumos` `ml|pagina|…`). A
+    página NÃO traz o vendedor (0 "seller_id"); traz `printed_result` (item_id, PAD/ORGANIC, sold_quantity,
+    first_shipping_logistic_type, price/price_base, product_id e o pid MLBP=catálogo/MLBU=produto do vendedor) -> `lerImpressos`.
+    A extensão NÃO abre mais o anúncio por trás (3 em paralelo davam /captcha/wall/logged). `ext_lista` (pública) recebe
+    "MLB:pid" e devolve vendedor + loja (MLBP: ofertas do catálogo; MLBU: /user-products, senão /questions/search), visitas
+    de 30 dias e data pelo nº do MLB. Produção 29/09 na busca "assad lattafa elixir": 25 de 52 com catálogo (vendedor certo) e
+    26 MLBU (vendedor só quando o anúncio tem pergunta). Teste com a página real em `testes/dados/ml_busca_real.html`.
   - CONTA DO ML CONECTADA (29/09, autorizado): `#/ml` → 🔐 Conectar conta do ML (`meli_conectar` grava o `state` de uso
     único e manda para `auth.mercadolivre.com.br/authorization`); a volta `meli_retorno` é PÚBLICA (antes do login em
     `atender`, confere o state em 15 min, troca o código, `meli.conectar_conta`) e mostra uma página simples. Redirect URI
