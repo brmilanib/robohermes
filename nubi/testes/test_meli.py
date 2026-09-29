@@ -293,7 +293,8 @@ def test_vendedor_embaralhado_do_nubimetrics_vira_a_loja_real():
         {"vendedor_id": "hashE", "gtin": "6290362346548", "preco": 279.50, "full": True, "loja_oficial_id": 555},  # loja oficial + preço
         {"vendedor_id": "hashG", "gtin": "6290362346548", "preco": 289.00, "full": True, "loja_oficial_id": 555},  # só a loja oficial
         {"vendedor_id": "hashF", "gtin": "6290362346548", "preco": 279.00, "full": True, "loja_oficial_id": 0}]    # não é loja oficial
-    m = meli.casar_vendedores(linhas, ml, ref)
+    assert "hashE" not in meli.casar_vendedores(linhas, ml, ref)             # nº do Nubimetrics sem tradução: não prova
+    m = meli.casar_vendedores(linhas, ml, ref, oficiais={555: 555})           # tradução aprendida com o Bruno
     assert m["hashA"]["nome"] == "FINKE" and m["hashA"]["confianca"] == "provável"
     assert m["hashE"]["nome"] == "ESSENCEPRIMEBR" and m["hashE"]["confianca"] == "certa" and "loja oficial nº 555" in m["hashE"]["prova"]
     # 29/09 (ICARBONXX): preço parecido num produto só não prova nada (várias lojas cobram o mesmo) -> não liga
@@ -348,7 +349,9 @@ def test_loja_oficial_acha_a_loja_certa_e_nao_a_parecida():
             "exposicao": "Clássica", "un": 2600, "data_ref": hoje - timedelta(days=1)}]
     refs = [meli.ref_explorador(l, hoje) for l in exp]
     ofs = meli.ofertas_por_gtin(["7899463112978", "6290360598352"])
-    x, cands = meli.achar_loja("ICARBONXX P3", refs, ofs)
+    x0, c0 = meli.achar_loja("ICARBONXX P3", refs, ofs)                       # sem a tradução do nº: não liga sozinho
+    assert x0 is None and c0[0]["id"] == "2540338692" and all(c["id"] != "1395403852" for c in c0), (x0, c0)
+    x, cands = meli.achar_loja("ICARBONXX P3", refs, ofs, oficiais={23829: 23829})
     assert x["id"] == "2540338692" and x["nome"] == "KAIDOXSTOREE" and x["confianca"] == "certa", (x, cands)
     assert x["oficial"] == [23829] and "loja oficial nº 23829" in x["prova"] and x["votos"] == 2 and x["sondados"] == 2
     assert {a["anuncio"] for a in x["anuncios"]} == {"MLB5000002", "MLB6000002"}
@@ -369,9 +372,9 @@ def test_loja_oficial_acha_a_loja_certa_e_nao_a_parecida():
     x3, c3 = meli.achar_loja("ICARBONXX P3", seg[:1], ofs)
     assert x3 is None and c3 and c3[0]["id"] == "2540338692" and "em 1 de 1 produto" in c3[0]["prova"], c3
     # trava do Cowork: ele vende 25,7 mil un./mês; loja com menos de metade disso em vendas NA VIDA não pode ser ele
-    x4, _ = meli.achar_loja("ICARBONXX P3", refs, ofs, un_mes=25708)
+    x4, _ = meli.achar_loja("ICARBONXX P3", refs, ofs, un_mes=25708, oficiais={23829: 23829})
     assert x4["id"] == "2540338692"                                                          # 180 mil vendas na vida: passa
-    assert meli.achar_loja("ICARBONXX P3", refs, ofs, un_mes=400000) == (None, [])           # ninguém tem 200 mil: nenhuma
+    assert meli.achar_loja("ICARBONXX P3", refs, ofs, un_mes=400000, oficiais={23829: 23829}) == (None, [])           # ninguém tem 200 mil: nenhuma
     luh = [dict(r, full=False, loja_oficial=0) for r in refs]                                # o que casaria com a LUH
     x5, c5 = meli.achar_loja("X", luh, ofs, un_mes=25708)
     assert x5 is None and all(c["id"] != "1395403852" for c in c5), (x5, c5)                  # 230 vendas na vida: fora
@@ -441,6 +444,9 @@ def test_rotas_do_servidor_ligam_o_vendedor_do_nubimetrics_a_loja():
     assert out["casados"]["a" * 64]["nome"] == "FINKE"                         # HIMALAIA (Nubimetrics) = FINKE (preço, idade, sem Full)
     assert meli.ler_hash_lojas(r)["a" * 64]["id"] == "111111111"
     d = w.rota_meli(r, "POST", "meli_descobrir", {}, json.dumps({"vendedor_id": "b" * 64}).encode())
+    assert not d["achou"] and d["candidatas"][0]["nome"] == "ESSENCEPRIMEBR", d      # nº do Nubimetrics sem tradução
+    r.resumos[w.OFICIAIS] = json.dumps({"555": 555})                                # aprendida com uma loja confirmada
+    d = w.rota_meli(r, "POST", "meli_descobrir", {}, json.dumps({"vendedor_id": "b" * 64}).encode())
     assert d["achou"] and d["loja"]["nome"] == "ESSENCEPRIMEBR" and d["loja"]["medalha"] == "Platinum", d
     assert d["loja"]["confianca"] == "certa" and d["loja"]["oficial"] == [555]      # nº da loja oficial do Explorador = do ML
     n = w.rota_meli(r, "POST", "meli_nomear", {}, json.dumps({"vendedor_id": "b" * 64, "loja": "https://produto.mercadolivre.com.br/MLB-1000100-x"}).encode())
@@ -454,6 +460,7 @@ def test_rotas_do_servidor_ligam_o_vendedor_do_nubimetrics_a_loja():
                                                                                 "confianca": "manual"}})
     p = [x for x in w.rota_meli(r, "GET", "meli_teste", {}, b"")["passos"] if x["passo"].startswith("nº da loja oficial")][0]
     assert p["ok"] and "Explorador 555 x ML 555" in p["detalhe"] and "a prova da loja oficial vale" in p["detalhe"], p
+    assert json.loads(r.resumos[w.OFICIAIS]) == {"555": 555}                    # aprendeu a tradução com a confirmada
     r.resumos[meli.HASH_LOJAS] = guardado
     meli.gravar_hash_lojas(r, {"c" * 64: {"id": "3153658428", "nome": "GLBRASIL2026", "confianca": "provável", "votos": 2}})
     hl = w.rota_meli(r, "GET", "meli_hash_lojas", {}, b"")                       # a tela #/ml mostra o nome de lá
@@ -554,6 +561,7 @@ def test_rota_do_vendedor_seguido():
             return []
     r = R()
     assert w.rota_meli(r, "GET", "meli_seguido", {"vendedor": "ESSENCE PRIME P9"}, b"")["loja"] is None
+    r.resumos[w.OFICIAIS] = json.dumps({"555": 555})
     d = w.rota_meli(r, "POST", "meli_seguido_descobrir", {}, json.dumps({"vendedor": "ESSENCE PRIME P9"}).encode())
     assert d["achou"] and d["loja"]["nome"] == "ESSENCEPRIMEBR" and d["loja"]["confianca"] == "certa", d
     assert d["loja"]["anuncios"][0]["anuncio"] == "MLB2000200" and d["loja"]["anuncios"][0]["titulo"].startswith("Lattafa Asad")

@@ -164,6 +164,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     o nome ou a data de criação baterem (`achar_loja`). Nenhum vendedor de loja oficial fechou pela loja oficial em
     produção (AUMA, VANVIC, ROCHA): o botão 🔌 confere, nas lojas que o Bruno confirmou à mão, se o nº do Explorador
     aparece nas ofertas delas no ML (`_conferir_oficiais`) — se não aparecer, o nº do Nubimetrics não é o do ML.
+  - CONFERIDO no 🔌 (29/09): o nº "LOJA.OFICIAL" do Nubimetrics NÃO é o official_store_id do ML (WATHIQ 25357 x 361164,
+    KLASSEY 25333 x 360842, BAGATELLE 20309/78630 x 220802). `casar` agora exige só "é/não é loja oficial" igual; o nº
+    vira prova ("loja oficial nº") só com a tradução aprendida (`meli|oficial_nubi_ml`, `_oficiais`), que o nubi grava
+    quando o Bruno confirma uma loja com 1 nº de cada lado (`_aprender_oficial`) e no 🔌.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

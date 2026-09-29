@@ -933,7 +933,7 @@ def ref_explorador(l, hoje=None, data_ref=None):
             "criado": _data(l.get("criado")) or _data_br(l.get("criado"))}
 
 
-def casar(refs, ofertas, calib=None):
+def casar(refs, ofertas, calib=None, oficiais=None):
     """
     refs: o que o Nubimetrics diz dos anúncios de UM vendedor [{gtins, preco, full, exato, loja_oficial (nº; 0 = sabido
     que não é; None = não se sabe), tipo, catalogo, dias_pub, data_ref}]; ofertas: ofertas_por_gtin (catálogo agora).
@@ -967,9 +967,16 @@ def casar(refs, ofertas, calib=None):
                         continue
                     oficial = None
                     if o.get("_tem_oficial") and lo_r is not None:
-                        if int(o.get("loja_oficial") or 0) != int(lo_r or 0):
+                        # 29/09 (🔌 em produção): o nº "LOJA.OFICIAL" do Nubimetrics NÃO é o official_store_id do ML
+                        # (WATHIQ 25357 x 361164). Vale: ser ou não loja oficial; e o nº traduzido pelo que o Bruno confirmou
+                        lo_o = int(o.get("loja_oficial") or 0)
+                        if bool(lo_o) != bool(lo_r):
                             continue
-                        oficial = int(lo_r) or None
+                        alvo = (oficiais or {}).get(int(lo_r)) if lo_r else None
+                        if alvo:
+                            if lo_o != int(alvo):
+                                continue
+                            oficial = int(lo_r)
                     idade_ok = False
                     criado = _data(o.get("criado_em"))
                     if dl is not None and dref and criado:            # só quando o ML dá o anúncio (hoje não dá ao app)
@@ -1033,7 +1040,7 @@ def _prova(c, sondados):
     return "; ".join(p) + "; Full e tipo iguais"
 
 
-def casar_vendedores(linhas, ml, data_ref=None, calib=None):
+def casar_vendedores(linhas, ml, data_ref=None, calib=None, oficiais=None):
     """
     Quadro do produto: os vendedores embaralhados do Explorador x ofertas do catálogo agora -> {hash: loja}, só com
     prova (loja oficial, ou preço do dia + idade do anúncio). linhas: [{vendedor_id (hash), gtin, preco, full,
@@ -1047,7 +1054,7 @@ def casar_vendedores(linhas, ml, data_ref=None, calib=None):
             por_h.setdefault(l["vendedor_id"], []).append(ref_explorador(l, hoje, data_ref))
     out = {}
     for h, refs in por_h.items():
-        cands, sondados = casar(refs, ml, calib)
+        cands, sondados = casar(refs, ml, calib, oficiais)
         conf = decidir(cands, sondados)
         if conf:
             c, loja = cands[0], lj.get(cands[0]["id"]) or {}
@@ -1074,7 +1081,7 @@ def _base_nome(nome):
     return re.sub(r"[^A-Z0-9]", "", unicodedata.normalize("NFKD", n).encode("ascii", "ignore").decode().upper())
 
 
-def achar_loja(nome, refs, ofertas, un_mes=None, calib=None):
+def achar_loja(nome, refs, ofertas, un_mes=None, calib=None, oficiais=None):
     """
     Vendedor do Nubimetrics (refs do Explorador + do relatório do seguido) x ofertas do catálogo -> (loja escolhida ou
     None, candidatas). nome: o que o Bruno deu ao seguido ("ICARBONXX P3"); é rótulo dele, então só desempata.
@@ -1082,7 +1089,7 @@ def achar_loja(nome, refs, ofertas, un_mes=None, calib=None):
     metade disso não pode ser ele (a LUH… que entrou errado no ICARBONXX tinha 230 vendas; ele vende 25 mil/mês).
     A escolhida traz os anúncios dela achados no catálogo (ID, link, preço de agora).
     """
-    cands, sondados = casar(refs, ofertas, calib)
+    cands, sondados = casar(refs, ofertas, calib, oficiais)
     top = cands[:6]
     lj = lojas([c["id"] for c in top]) if top else {}
     base = _base_nome(nome)

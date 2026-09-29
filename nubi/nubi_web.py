@@ -4022,7 +4022,7 @@ def _ml_do_produto(repo, marca, gtins):
     casados = {}
     if marca and ml:
         linhas = _linhas_nubi(repo, _ultimos_snapshots(repo, marca), {"gtin": f"in.({','.join(gtins)})"}, com_bruto=True)
-        casados = meli.casar_vendedores(linhas, ml, calib=_calib_ou_nada(repo))
+        casados = meli.casar_vendedores(linhas, ml, calib=_calib_ou_nada(repo), oficiais=_oficiais(repo))
         if casados:
             meli.gravar_hash_lojas(repo, casados)
     return {"anuncios": ml, "casados": casados}
@@ -4084,7 +4084,18 @@ def _calibracao_mlb(repo, forcar=False):
     return pts
 
 
-def _conferir_oficiais(repo, max_lojas=4):
+OFICIAIS = "meli|oficial_nubi_ml"             # nº da loja oficial no Nubimetrics -> official_store_id do ML
+
+
+def _oficiais(repo):
+    """Tradução aprendida com as lojas que o Bruno confirmou (29/09: WATHIQ 25357 -> 361164, KLASSEY 25333 -> 360842)."""
+    try:
+        return {int(k): int(v) for k, v in meli.ler_hash_lojas(repo, OFICIAIS).items()}
+    except (TypeError, ValueError, AttributeError):
+        return {}
+
+
+def _conferir_oficiais(repo, max_lojas=4, so=None):
     """29/09: nenhum vendedor de loja oficial fechou pela loja oficial (AUMA, VANVIC, ROCHA). Nas lojas que o Bruno
     confirmou à mão e que o Explorador diz ser loja oficial: o nº do Explorador aparece nas ofertas delas no catálogo do
     ML? É isso que diz se o "LOJA.OFICIAL.nnn" do Nubimetrics é o official_store_id do ML."""
@@ -4093,7 +4104,7 @@ def _conferir_oficiais(repo, max_lojas=4):
     for h, x in meli.ler_hash_lojas(repo).items():
         if len(out) >= max_lojas:
             break
-        if x.get("confianca") != "manual" or not re.fullmatch(r"[0-9a-f]{64}", h):
+        if x.get("confianca") != "manual" or not re.fullmatch(r"[0-9a-f]{64}", h) or (so and h != so):
             continue
         ls = [l for l in _linhas_nubi(repo, snaps, {"vendedor_id": f"eq.{h}", "loja_oficial": "eq.1"}, com_bruto=True)
               if l.get("loja_oficial_id") and re.fullmatch(r"\d{8,14}", str(l.get("gtin") or "")) and l.get("catalogo")]
@@ -4104,7 +4115,18 @@ def _conferir_oficiais(repo, max_lojas=4):
         ofs = [o for o in meli.ofertas_por_gtin(gtins, max_gtins=3) if str(o.get("vendedor_id")) == str(x.get("id"))]
         out.append({"loja": x.get("nome") or x.get("id"), "explorador": sorted({int(l["loja_oficial_id"]) for l in ls}),
                     "ml": sorted({int(o["loja_oficial"]) for o in ofs if o.get("loja_oficial")}), "ofertas": len(ofs)})
+    novos = {str(c["explorador"][0]): c["ml"][0] for c in out if len(c["explorador"]) == 1 and len(c["ml"]) == 1}
+    if novos:                                  # 1 nº de cada lado: aprende a tradução
+        repo._req("POST", "ia_resumos", corpo=[{"chave": OFICIAIS, "ia": "Mercado Livre (API)", "texto": json.dumps(
+            {**{str(k): v for k, v in _oficiais(repo).items()}, **novos})}], prefer="resolution=merge-duplicates,return=minimal")
     return out
+
+
+def _aprender_oficial(repo, h):
+    try:
+        _conferir_oficiais(repo, so=h)
+    except Exception:  # noqa: BLE001  (extra: sem aprender, a confirmação do Bruno vale igual)
+        pass
 
 
 def _calib_ou_nada(repo):
@@ -4136,7 +4158,7 @@ def _achar_e_gravar(repo, nome, refs, hashes=(), seguido=None, un_mes=None):
     if not gtins:
         return {"achou": False, "motivo": "os anúncios dele no Nubimetrics não têm GTIN de produto de catálogo do Mercado Livre"}
     x, cands = meli.achar_loja(nome, refs, meli.ofertas_por_gtin(gtins, max_gtins=len(gtins)), un_mes=un_mes,
-                               calib=_calib_ou_nada(repo))
+                               calib=_calib_ou_nada(repo), oficiais=_oficiais(repo))
     base = {"testados": len(gtins), "candidatas": cands}
     manual = ((meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(seguido) if seguido else None)
               or next((meli.ler_hash_lojas(repo).get(h) for h in hashes if meli.ler_hash_lojas(repo).get(h)), None))
@@ -4395,7 +4417,8 @@ def rota_meli(repo, metodo, rota, q, corpo):
                                     "detalhe": ("; ".join(f"{c['loja']}: Explorador {', '.join(map(str, c['explorador']))} x ML "
                                                           f"{', '.join(map(str, c['ml'])) or 'sem nº'} ({c['ofertas']} oferta(s))" for c in cs)
                                                 + (" — o nº é o mesmo: a prova da loja oficial vale" if bate else
-                                                   " — o nº do Nubimetrics NÃO é o do ML" if cs else ""))
+                                                   " — o nº do Nubimetrics NÃO é o do ML; o nubi aprende a tradução com as "
+                                                   f"lojas que você confirma ({len(_oficiais(repo))} aprendida(s))" if cs else ""))
                                     or "confirme à mão (✔ É esta) uma loja que o Explorador diz ser loja oficial para conferir"})
             except Exception as e:  # noqa: BLE001
                 t["passos"].append({"passo": "nº da loja oficial: Explorador x ML", "ok": False, "detalhe": str(e)[:120]})
@@ -4451,6 +4474,8 @@ def rota_meli(repo, metodo, rota, q, corpo):
         hashes = _hashes_do_nome(repo, vend)                 # o mesmo vendedor no Explorador (nome que o Bruno deu)
         if hashes:
             meli.gravar_hash_lojas(repo, {h: {k: v for k, v in x.items() if k != "anuncios"} for h in hashes})
+            for h in hashes:
+                _aprender_oficial(repo, h)
         return {"ok": True, "loja": dict(lj, **x)}
     if rota == "meli_gtin":
         sep = lambda k: [x for x in str(q.get(k) or "").split("|") if x]
@@ -4470,6 +4495,7 @@ def rota_meli(repo, metodo, rota, q, corpo):
         x = {"id": sid, "nome": lj["nome"], "link": lj["link"], "votos": 0, "confianca": "manual",
              "prova": "confirmada pelo Bruno", "em": datetime.now(timezone.utc).isoformat()}
         meli.gravar_hash_lojas(repo, {vid: x})
+        _aprender_oficial(repo, vid)
         nome = _nome_do_hash(repo, vid)                        # se é um vendedor seguido, liga o seguido também
         if nome and _vend_rels(repo, nome):
             meli.gravar_hash_lojas(repo, {nome: dict(x, anuncios=[])}, meli.SEGUIDOS)
