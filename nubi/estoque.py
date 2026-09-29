@@ -517,6 +517,20 @@ def encalhados(itens, vendas, dias=30, limite=ENCALHE_DIAS):
     return out
 
 
+def painel(itens, ls, tem_vendas=True):
+    """Card #122: quadro "Estoque total" do topo do Estoque, só com números de `listas`/`encalhados` (nunca IA). None = sem
+    dados: sem estoque, sem custo ou (dinheiro parado, zerados que vendem e cobertura) sem o relatório de vendas."""
+    com_custo = [it for it in itens or [] if (it.get("custo_medio") or 0) > 0 and (it.get("atual") or 0) > 0]
+    cob = [r["cobertura_dias"] for r in ls.get("mais_vendidos") or [] if r["no_estoque"] and r["cobertura_dias"] is not None]
+    en = [x["parado"] for x in ls.get("encalhados") or [] if x["parado"] is not None]
+    return {"unidades": round(sum(it.get("atual") or 0 for it in itens), 2) if itens else None,
+            "valor_custo": round(sum(it["atual"] * it["custo_medio"] for it in com_custo), 2) if com_custo else None,
+            "parado": round(sum(en), 2) if tem_vendas and itens and (en or not ls.get("encalhados")) else None,
+            "encalhados": len(ls.get("encalhados") or []) if tem_vendas and itens else None,
+            "zerados_vendem": ls.get("zerados_com_venda") if tem_vendas and itens else None,
+            "cobertura_media": round(sum(cob) / len(cob), 1) if tem_vendas and cob else None, "cobertura_skus": len(cob)}
+
+
 PAPEL_ANALISE = ("Você é o DeepSeek, analista do ESTOQUE do Bruno no nubi (seu foco é só o estoque dele). Abaixo, o estoque do "
                  "UpSeller cruzado com as vendas por anúncio dos últimos {dias} dias, já calculado pelo sistema: NÃO recalcule e "
                  "NÃO invente nenhum número. Margem = preço médio − custo médio, ANTES das taxas do canal e do frete. Escreva em "
