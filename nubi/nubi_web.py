@@ -3228,6 +3228,10 @@ def rodar_rotinas(repo, so=None):
             out["ml_fotos"] = fotos_comparar(repo)
         except Exception as e:  # noqa: BLE001
             out["ml_fotos"] = f"erro: {str(e)[:120]}"
+        try:                                            # card #121: preço de agora dos GTINs das marcas pelo catálogo, 1x/dia
+            out["ml_precos"] = precos_catalogo(repo) if meli.tem_chave() else "sem as chaves do ML"
+        except Exception as e:  # noqa: BLE001
+            out["ml_precos"] = f"erro: {str(e)[:120]}"
         try:                                            # base de conhecimento: junta o que mudou na última hora (fase 1, 26/09)
             out["saber"] = agentes.sincronizar_saber(repo, forcar=True)
         except Exception as e:  # noqa: BLE001
@@ -4712,7 +4716,78 @@ def _ext_calib():
     return _EXT_CALIB["pts"]
 
 
+EXT_COLETA = "ext_coleta"               # ia_resumos ext_coleta|<MLB>: o último que a extensão leu da página do anúncio
+
+
+def _ext_coleta(q):
+    """Card #121: grava o que a extensão leu da página que o Bruno abriu (1 registro por anúncio, com a data)."""
+    meli._ext_limite(meli._EXT_COLETA, meli.EXT_COLETA_POR_MINUTO)
+    reg = meli.ext_coleta(q)
+    agora = datetime.now(timezone.utc)
+    reg.update(em=agora.isoformat(), dia=(agora - timedelta(hours=3)).date().isoformat())
+    RepoSupabase(login_agente())._req("POST", "ia_resumos", corpo=[{"chave": f"{EXT_COLETA}|{reg['mlb']}", "ia": "extensão do Chrome",
+                                                                    "texto": json.dumps(reg, ensure_ascii=False, separators=(",", ":"))}],
+                                      prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True, "mlb": reg["mlb"], "sem_dados": reg["sem_dados"]}
+
+
+PRECO_CAT = "meli|preco"                # meli|preco|<gtin>: ofertas do catálogo agora; meli|preco|dia: GTINs já lidos hoje
+PRECO_CAT_SEG = 60                      # tempo por rodada do cron (o cron tem 300 s para tudo); o resto fica para a próxima hora
+
+
+def _gtins_das_marcas(repo):
+    """GTINs pesquisados (gtin_info) das marcas do Explorador (marcas_config)."""
+    marcas = set(repo.carregar_config())
+    return sorted({str(r["gtin"]) for r in repo._todos("gtin_info", {"select": "gtin,marca"})
+                   if nubi.chave_marca(r.get("marca") or "") in marcas and re.fullmatch(r"\d{8,14}", str(r.get("gtin") or ""))})
+
+
+def preco_catalogo(repo, gtin):
+    """Card #121: preço de agora de um GTIN pelo catálogo do ML (/products/{id}/items, todas as páginas; nunca /items nem
+    /sites/MLB/search de outras lojas). Grava meli|preco|<gtin>."""
+    ofs = meli.ofertas_por_gtin([gtin], maximo=meli.MAX_OFERTAS)
+    precos = [o["preco"] for o in ofs if o.get("preco")]
+    agora = datetime.now(timezone.utc)
+    f = {"gtin": gtin, "em": agora.isoformat(), "dia": (agora - timedelta(hours=3)).date().isoformat(),
+         "menor": min(precos) if precos else None, "total": len(ofs),
+         "ofertas": [{k: o.get(k) for k in ("anuncio", "vendedor_id", "preco", "preco_cheio", "full", "tipo_id", "produto_catalogo")}
+                     for o in ofs]}
+    repo._req("POST", "ia_resumos", corpo=[{"chave": f"{PRECO_CAT}|{gtin}", "ia": "Mercado Livre (catálogo)",
+                                            "texto": json.dumps(f, ensure_ascii=False, separators=(",", ":"))}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return f
+
+
+def precos_catalogo(repo, forcar=False, segundos=PRECO_CAT_SEG):
+    """Cron de hora em hora (e o botão): cada GTIN das marcas 1 vez por dia (dia de Brasília); forcar = lê todos de novo."""
+    t0, hoje = time.monotonic(), _hoje_br().isoformat()
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(f"{PRECO_CAT}|dia")}) or [None])[0]
+    try:
+        idx = json.loads(r["texto"]) if r else {}
+    except (TypeError, ValueError):
+        idx = {}
+    feitos = set(idx.get("gtins") or []) if idx.get("dia") == hoje and not forcar else set()
+    falta = [g for g in _gtins_das_marcas(repo) if g not in feitos]
+    erros = 0
+    for g in falta:
+        if time.monotonic() - t0 > segundos:
+            break
+        try:
+            preco_catalogo(repo, g)
+            feitos.add(g)
+        except meli.ErroLogin:
+            raise
+        except Exception:  # noqa: BLE001  (um GTIN que o ML recusou não para os outros; tenta na próxima hora)
+            erros += 1
+    repo._req("POST", "ia_resumos", corpo=[{"chave": f"{PRECO_CAT}|dia", "ia": "Mercado Livre (catálogo)",
+                                            "texto": json.dumps({"dia": hoje, "gtins": sorted(feitos)})}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return {"dia": hoje, "lidos": len(feitos), "faltam": len([g for g in falta if g not in feitos]), "erros": erros}
+
+
 def rota_extensao(rota, q):
+    if rota == "ext_coleta":
+        return _ext_coleta(q)                # não precisa das chaves do ML: só grava o que a página mostrou
     if not meli.tem_chave():
         raise ErroNuvem(meli.FALTA_CHAVE, 503)
     if rota == "ext_ml":
@@ -4837,6 +4912,15 @@ def rota_meli(repo, metodo, rota, q, corpo):
             return json.loads(r["texto"]) if r else {"itens": []}
         except (TypeError, ValueError):
             return {"itens": []}
+    if rota == "meli_preco_catalogo":
+        # card #121: preço de agora pelo catálogo. GET ?gtin= o gravado; POST {gtin} lê esse agora; POST {} os GTINs das marcas
+        g = re.sub(r"\D", "", str(d.get("gtin") or q.get("gtin") or ""))
+        if g and not re.fullmatch(r"\d{8,14}", g):
+            raise ErroNuvem("GTIN inválido (8 a 14 números).")
+        if metodo == "POST":
+            return preco_catalogo(repo, g) if g else precos_catalogo(repo, forcar=bool(d.get("todos")))
+        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(f"{PRECO_CAT}|{g}")}) or [None])[0] if g else None
+        return json.loads(r["texto"]) if r else {"gtin": g or None, "ofertas": []}
     if rota == "meli_seguido_descobrir" and metodo == "POST":
         return _descobrir_seguido(repo, str(d.get("vendedor") or ""))
     if rota == "meli_seguido_nomear" and metodo == "POST":
@@ -5013,7 +5097,11 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         _enriquecer_diff(repo, atual, itens)
         an = (repo._req("GET", "ia_resumos", {"select": "chave,texto,ia", "chave": "like.analise_estoque|*", "order": "chave.desc",
                                               "limit": 1}) or [None])[0]
+        v = _vendas_atuais(repo)                  # card #122: painel "Estoque total" pelas listas (código, nunca IA)
+        nums = _num_itens([dict(it) for it in itens])
+        ls = estoque.listas(nums, (v or {}).get("linhas") or [], dias=(v or {}).get("dias") or 30)
         return {"atual": atual, "itens": itens, "historico": hist, "rotina": rot, "ultima_execucao": falha,
+                "painel": estoque.painel(nums, ls, tem_vendas=bool(v and v.get("linhas"))),
                 "analise_dia": an and {"dia": an["chave"].split("|", 1)[1], "texto": an["texto"], "por": an.get("ia")},
                 "gestor": {"importacoes": gestor, "automatico": bool(rot_g and rot_g.get("ativo")), "horario": (rot_g or {}).get("horario"), "pedido": pend_g[0] if pend_g else None}}
     raise ErroNuvem("Rota desconhecida.", 404)

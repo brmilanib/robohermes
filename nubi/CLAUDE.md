@@ -106,6 +106,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `estoque_chat`, `PAPEL_CHAT_COMPRAS`, deepseek-v4-pro, dentro de `deepseek_liberado`), no máximo `COMPRAS_CHAT_MAX`=30
   mensagens por dia (env `NUBI_COMPRAS_CHAT_MAX`), conversa do dia em `compras|chat|<data>`. Se ele mandar `LISTA_JSON`, a
   lista é trocada (mesmas travas). Testes: `test_compras_estoque.py`, `test_compras_real.py` (a IA falsa responde o chat).
+- **Card #122 (29/09)**: painel "📦 Estoque total" no topo do Estoque = `estoque.painel` (rota `estoque`, só de `listas`/
+  `encalhados`; None = "sem dados", nunca zero inventado). Compras: ordenar por coluna (`cpTh`/`S.cpOrd`; no celular pelo
+  seletor `#cp-ordsel`), filtro loja/canal (`#cp-loja`) em Por anúncio e Preços diferentes, tabelas `.cp-tab` viram cartões
+  abaixo de 600 px. O export do UpSeller não tem fornecedor: a lista de compra fica sem agrupar (CSV igual).
 
 - **DeepSeek programador do estoque (29/09, pedido do Bruno: "libera a branch de código pra ele de estoque, mexer no código e
   no layout")**: `coletor programar-deepseek <card>` = o mesmo Codex do Astra com o provedor da API do DeepSeek
@@ -292,6 +296,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     subiu entre duas fotos = vendas do dia pelo ML, ao lado de `vend_vendas_dia` (Nubimetrics) nos mesmos dias, e por GTIN.
     Avisa quando o vendido vem em FAIXAS (`vendidos_em_faixa`: números redondos 25/50/100/500…), porque aí a diferença não
     mede venda. Só trocar a fonte depois de dias batendo (✅ até 5%).
+  - LOJAS REAIS, FASE 1 (card #121, 30/09): a extensão (0.7.1) manda à rota PÚBLICA `ext_coleta` (limite
+    `EXT_COLETA_POR_MINUTO`=30, conta própria) o que a PÁGINA do anúncio aberta pelo Bruno mostrou: MLB, seller_id, nome da
+    loja, preço, fotos do mlstatic (até 12), vendidos (`vendidos_faixa` = número redondo de faixa) e Full. `meli.ext_coleta`
+    confere tudo; o que não veio fica None (lista `sem_dados`), nunca zero. 1 linha por anúncio em `ia_resumos`
+    `ext_coleta|<MLB>` (com `em` UTC e `dia` de Brasília), sem tabela nova e sem senha/token/cookie. Preço de agora pelo
+    catálogo: `precos_catalogo` (cron de hora em hora, até 60 s por rodada) lê `/products/{id}/items` (todas as páginas) de
+    cada GTIN de `gtin_info` das marcas do Explorador 1 vez por dia -> `meli|preco|<gtin>` (ofertas, menor, total) e
+    `meli|preco|dia` (os já lidos hoje). Sob demanda: `meli_preco_catalogo` (GET ?gtin=; POST {gtin}; POST {} as que faltam;
+    POST {todos:true} relê todas). A página #/ml/loja/<id> com as fotos e o casamento pela foto ficam para o card seguinte.
+    Teste: `test_ext_coleta.py`.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

@@ -325,6 +325,9 @@
     const h1 = document.querySelector("h1.ui-pdp-title, h1");
     if (h1 && h1.textContent.trim()) A.titulo = h1.textContent.trim();
     desenharQuadro(q, A, null);
+    // card #121: o que a PÁGINA mostra (vendidos em faixa, antes da API) vai para o nubi no fim: 1 registro por anúncio, com data
+    const coleta = {mlb: A.item, vendedor: A.vendedor, loja: A.nome_loja || A.apelido, preco: A.preco, vendidos: A.vendidos,
+      full: A.full == null ? null : A.full ? 1 : 0, fotos: (A.fotos || []).slice(0, 12).join(",")};
     const it = await pedir({tipo: "item", mlb: A.item});
     if (it.status) A.itemApi = it.status;
     if (it.status === 200) {
@@ -344,6 +347,7 @@
       A.itemApi = 200;
     }
     desenharQuadro(q, A, n);
+    if (coleta.mlb && coleta.vendedor) pedir({tipo: "nubi", rota: "ext_coleta", params: coleta});
   }
 
   // ---------------- busca/lista/loja: embaixo de cada anúncio

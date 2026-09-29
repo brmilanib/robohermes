@@ -22,6 +22,11 @@ def _estoque_xlsx(linhas=(("A-100", 10, 20, 50, 0), ("B-100", 100, 0, 50, 0), ("
     b = io.BytesIO(); wb.save(b); return b.getvalue()
 
 
+def sem_rolagem(pg, nome, onde):
+    larg = pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
+    assert larg[0] <= larg[1] + 1, (nome, onde, larg)                              # sem rolagem de lado
+
+
 for _ in range(40):
     try: urllib.request.urlopen(f"http://127.0.0.1:{PORTA}/", timeout=2); break
     except OSError: time.sleep(0.5)
@@ -62,13 +67,37 @@ try:
             pg.click("[data-cp-aba=anuncios]"); pg.wait_for_timeout(800)
             t = pg.locator("table").last.inner_text()
             assert "75%" in t and "MLB1" in t and "PUREHOME (Mercado Libre BR)" in t and "pedidos/dia" in t, t[:600]
+            sem_rolagem(pg, nome, "por anúncio")
+            # card #122: cartões abaixo de 600 px (rótulo da coluna em cada célula), tabela no pc
+            vis = pg.evaluate("() => [getComputedStyle(document.querySelector('.cp-tab thead')).display, document.querySelector('.cp-tab tbody td[data-l=Faturamento]') != null]")
+            assert vis == (["none", True] if nome == "cel" else ["table-header-group", True]), (nome, vis)
+            # card #122: filtro por loja/canal e ordenar por coluna
+            pg.select_option("#cp-loja", "c:Shopee"); pg.wait_for_timeout(800)
+            t = pg.locator("table").last.inner_text()
+            assert "S1" in t and "MLB1" not in t and "MLB3" not in t, t[:600]
+            pg.select_option("#cp-loja", ""); pg.wait_for_timeout(800)
+            ordem = (lambda d: pg.click("[data-cp-ord=valor]")) if nome == "pc" else (lambda d: pg.select_option("#cp-ordsel", "valor:" + d))
+            ordem("1"); pg.wait_for_timeout(800)                                    # 1º clique: maior faturamento primeiro
+            assert pg.locator("tbody").last.locator("tr").first.inner_text().startswith("A-100 MLB1"), pg.locator("tbody").last.inner_text()[:300]
+            ordem("0"); pg.wait_for_timeout(800)                                    # 2º clique: menor primeiro
+            assert pg.locator("tbody").last.locator("tr").first.inner_text().startswith("C-100 MLB3"), pg.locator("tbody").last.inner_text()[:300]
+            assert "▲" in pg.evaluate("document.querySelector('[data-cp-ord=valor]').textContent")
+            assert pg.is_visible("#cp-ordsel") == (nome == "cel")                  # no celular o cabeçalho some: ordena pelo seletor
             pg.click("[data-cp-aba=encalhados]"); pg.wait_for_timeout(800)
             assert "B-100" in pg.locator("table").last.inner_text()                     # 100 un., vende 1/dia: 100 dias
             pg.click("[data-cp-aba=precos]"); pg.wait_for_timeout(800)
-            assert "15% ou mais diferente" in pg.inner_text("#main")
+            assert "15% ou mais diferente" in pg.inner_text("#main") and pg.locator("#cp-loja").count() == 1
+            pg.select_option("#cp-loja", "l:PUREHOME (Shopee)"); pg.wait_for_timeout(800)
+            assert pg.input_value("#cp-loja") == "l:PUREHOME (Shopee)"
+            sem_rolagem(pg, nome, "preços")
+            pg.select_option("#cp-loja", ""); pg.wait_for_timeout(800)
+            if nome == "pc":                                                        # card #122: o CSV da lista continua igual
+                with pg.expect_download() as dl:
+                    pg.click("#cp-csv")
+                csv = open(dl.value.path(), encoding="utf-8-sig").read().splitlines()
+                assert csv[0] == "Produto;SKU;Quantidade;Último custo;Subtotal;Motivo" and any('"A-100"' in x for x in csv[1:]), csv
             pg.click("[data-cp-aba=vendidos]"); pg.wait_for_timeout(800)
-            larg = pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
-            assert larg[0] <= larg[1] + 1, (nome, larg)                                    # sem rolagem de lado
+            sem_rolagem(pg, nome, "mais vendidos")
             pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"compras_{nome}.png"), full_page=True)
             assert not erros, erros
         pg = b.new_page(viewport={"width": 1440, "height": 900})
@@ -83,6 +112,11 @@ try:
                                                     ("E-100", 0, 0, 50, 0)))).decode())
         pg.evaluate("telaEstoque()"); pg.wait_for_selector(".es-mud", timeout=15000)
         mud = pg.inner_text(".es-mud")
+        # card #122: painel "Estoque total" (A 40 un × 55; zerados B e C venderam; cobertura A 13,3 · B 30 · C 0 = 14,4 dias)
+        pn = pg.inner_text("#es-painel")
+        for tx in ("Estoque total", "40", "R$ 2.200,00", "R$ 0,00", "0 encalhado", "Zerados que vendem\n2", "14,4 dias"):
+            assert tx in pn, (tx, pn)
+        sem_rolagem(pg, "pc", "estoque")
         assert "Saíram" in mud and "B-100" in mud and "ver a lista" in mud, mud
         # 28/09 (Bruno): o quadro é clicável e a lista completa abre no meio, grande e organizada
         pg.click("[data-esmud=entradas]"); pg.wait_for_selector(".modal.pq", timeout=5000)
@@ -96,6 +130,15 @@ try:
         pg.fill("#esm-busca", "zzz"); assert pg.locator(".modal.pq tbody tr:visible").count() == 0
         pg.click(".modal.pq [data-fechar]")
         pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "estoque_listas.png"), full_page=True)
+        cel = b.new_page(viewport={"width": 390, "height": 800})
+        cel.route("https://cdn.jsdelivr.net/**", lambda r: r.fulfill(content_type="application/javascript", body=STUB))
+        cel.route("https://fonts.**", lambda r: r.abort())
+        cel.on("pageerror", lambda e: erros.append(str(e)))
+        cel.goto(f"http://127.0.0.1:{PORTA}/#/estoque"); cel.wait_for_selector("#es-painel", timeout=15000)
+        assert "14,4 dias" in cel.inner_text("#es-painel")
+        sem_rolagem(cel, "cel", "estoque")
+        cel.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "estoque_cel.png"), full_page=True)
+        cel.close()
         # 28/09 (Bruno): perseguir anúncios (sem a chave do Apify aqui: cadastra e avisa da chave)
         pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/perseguir"); pg.wait_for_selector("#pg-form", timeout=15000)
         assert "APIFY_TOKEN" in pg.inner_text("#main")
