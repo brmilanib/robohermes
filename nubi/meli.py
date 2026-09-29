@@ -1508,14 +1508,46 @@ def ext_tendencias(categoria=None):
     return _mem(f"ext|tend|{cat or ''}", 3 * 3600, ler)
 
 
+def _vendedor_do_anuncio(item, pid):
+    """29/09 (página real da busca: o vendedor NÃO vem nela; vem o produto de cada anúncio em "printed_result"):
+    MLBP<n> = produto de catálogo MLB<n> -> o anúncio entre as ofertas dele; MLBU<n> = produto do vendedor -> /user-products.
+    Devolve (seller_id, dados da oferta) ou (None, {})."""
+    pid = str(pid or "").upper()
+    try:
+        if pid.startswith("MLBP"):
+            of = next((x for x in ofertas_do_produto("MLB" + pid[4:], 400) if x.get("item_id") == item), None)
+            if of and of.get("seller_id"):
+                sh = of.get("shipping") or {}
+                return str(of["seller_id"]), {"preco": _num(of.get("price")), "full": sh.get("logistic_type") == "fulfillment",
+                                              "tipo": TIPOS.get(of.get("listing_type_id"), ""), "oficial": of.get("official_store_id")}
+        if pid.startswith("MLBU"):
+            u = _get(f"/user-products/{pid}") or {}
+            if u.get("user_id"):
+                return str(u["user_id"]), {}
+    except ErroLogin:
+        raise
+    except ErroMeli:
+        pass
+    return None, {}
+
+
 def ext_lista(mlbs, calib=None):
-    """Busca do ML na extensão (29/09, prints do Hunter: "como os produtos aparecem na listagem, precisamos fazer igual"):
-    para até 60 anúncios da página, as visitas dos últimos 30 dias (1 pedido para 50, API de visitas) e a data de criação
-    estimada pelo nº do MLB (calibração). {MLB: {visitas30, criado, folga}}; cache de 30 min por anúncio."""
-    ids = [m for m in dict.fromkeys(str(x).strip().upper() for x in mlbs or []) if re.fullmatch(r"MLB\d{6,14}", m)][:60]
-    falta = [m for m in ids if f"ext|vis30|{m}" not in _CACHE or time.time() - _CACHE[f"ext|vis30|{m}"][0] > 1800]
-    if falta:
+    """Busca do ML na extensão (29/09, prints do Hunter): para até 60 anúncios da página ("MLB" ou "MLB:pid", pid = o
+    MLBP/MLBU que a página traz), as visitas dos últimos 30 dias (1 pedido para 50), a data de criação estimada pelo nº do
+    MLB e o VENDEDOR com o perfil da loja (nome, cidade, reputação, medalha). Cache de 30 min por anúncio."""
+    pares = []
+    for x in mlbs or []:
+        it, _, pid = str(x).strip().upper().partition(":")
+        if re.fullmatch(r"MLB\d{6,14}", it) and (not pid or re.fullmatch(r"MLB[PU]\d{5,14}", pid)):
+            pares.append((it, pid))
+    pares = list(dict.fromkeys(pares))[:60]
+    ids = list(dict.fromkeys(it for it, _ in pares))
+    novo = lambda k: k not in _CACHE or time.time() - _CACHE[k][0] > 1800
+    falta = [m for m in ids if novo(f"ext|vis30|{m}")]
+    falta_v = [(it, pid) for it, pid in pares if pid and novo(f"ext|vend|{it}")]
+    if falta or falta_v:
         _ext_limite()
+    if falta:
         try:
             vs = visitas(falta, 30)
         except ErroLogin:
@@ -1524,11 +1556,18 @@ def ext_lista(mlbs, calib=None):
             vs = {}
         for m in falta:
             _CACHE[f"ext|vis30|{m}"] = (time.time(), vs.get(m))
+    if falta_v:
+        for (it, _), r in _em_paralelo(lambda c: (c, _vendedor_do_anuncio(*c)), falta_v):
+            _CACHE[f"ext|vend|{it}"] = (time.time(), r)
+    vend = {it: (_CACHE.get(f"ext|vend|{it}") or (0, (None, {})))[1] for it in ids}
+    lj = lojas([v[0] for v in vend.values() if v and v[0]])
     out = {}
     for m in ids:
         d, folga = data_pelo_mlb(m, calib) if calib else (None, None)
+        sid, extra = vend.get(m) or (None, {})
         out[m] = {"visitas30": (_CACHE.get(f"ext|vis30|{m}") or (0, None))[1],
-                  "criado": d.isoformat() if d else None, "folga": round(folga) if folga else None}
+                  "criado": d.isoformat() if d else None, "folga": round(folga) if folga else None,
+                  "vendedor": sid, "loja": lj.get(sid) if sid else None, **(extra or {})}
     return out
 
 

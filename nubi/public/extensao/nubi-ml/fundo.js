@@ -56,6 +56,24 @@ function estadoJson(s) {
   return t && typeof t === "object" ? t : null;
 }
 
+// 29/09 (página REAL da busca, salva pelo coletor): o vendedor não vem na página; vem a lista "printed_result" com cada
+// anúncio: item_id, PAD (patrocinado) ou ORGANIC, sold_quantity, first_shipping_logistic_type, preço, product_id e o "pid"
+// (MLBP… = produto de catálogo, MLBU… = produto do vendedor), com que o nubi acha o vendedor pela API oficial.
+const ENVIO = {fulfillment: "full", self_service: "flex", xd_drop_off: "agencia", cross_docking: "agencia", drop_off: "agencia"};
+function lerImpressos(html) {
+  const t = String(html || "").replace(/\\+"/g, '"').replace(/\\u002[fF]/g, "/");
+  const out = [];
+  for (const m of t.matchAll(/\{"item_id":"MLB\d{6,}"[^{}]*\}/g)) {
+    let x; try { x = JSON.parse(m[0]); } catch (e) { continue; }
+    const lg = x.first_shipping_logistic_type || null;
+    out.push({item: x.item_id, pid: x.pid || null, produto: x.product_id || null, patrocinado: x.type === "PAD",
+      vendidos: x.sold_quantity != null ? +x.sold_quantity : null, logistica: lg, envio: ENVIO[lg] || (lg ? "agencia" : null),
+      full: lg ? lg === "fulfillment" : null, preco: x.price != null ? +x.price : null, preco_base: x.price_base != null ? +x.price_base : null,
+      frete_gratis: !!x.has_free_shipping});
+  }
+  return out;
+}
+
 function lerBusca(html) {
   const ID = /^MLB\d{6,}$/, achados = [];
   const andar = (o, n) => {
@@ -90,6 +108,14 @@ function lerBusca(html) {
     a.apelido = a.apelido || um(/"seller"\s*:\s*\{[^{}]*?"text"\s*:\s*"(?:Vendido )?[Pp]or\s*(?:\{[^}"]*\}\s*)?([^"{}]{2,80}?)\s*(?:\{[^}"]*\})?"/);
     delete a.fotos;
     out.push({...a, link});
+  });
+  // a lista "printed_result" completa (e corrige) o que veio dos cards: vendidos, envio, preço e o pid para achar o vendedor
+  lerImpressos(html).forEach(p => {
+    const a = out.find(x => x.item === p.item);
+    const limpo = Object.fromEntries(Object.entries(p).filter(([, v]) => v != null));
+    // o patrocinado aparece 2 vezes na lista (PAD e ORGANIC): vale o "patrocinado" de qualquer uma
+    if (a) Object.assign(a, limpo, {vendidos: a.vendidos != null ? a.vendidos : p.vendidos, patrocinado: !!(a.patrocinado || p.patrocinado)});
+    else out.push(limpo);
   });
   return out;
 }
@@ -183,4 +209,4 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
   });
 }
 
-if (typeof module !== "undefined") module.exports = {lerAnuncio, lerBusca, itemPublico};
+if (typeof module !== "undefined") module.exports = {lerAnuncio, lerBusca, lerImpressos, itemPublico};

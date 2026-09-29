@@ -16,30 +16,11 @@
   const TIPO = {gold_special: "Clássico", gold_pro: "Premium", gold_premium: "Premium"};
   let AJ = {busca: true, quadro: true};
 
-  function linhaLoja(a) {
-    const l = a.loja || {}, d = diasDesde(a.criado);
-    const nome = l.nome || a.apelido || (a.vendedor ? "loja " + a.vendedor : "");
-    // 30/09 (card #120): preço de agora, vendidos do anúncio e Full, como no Hunter
-    const doCard = `${a.preco ? `<span>💲 ${brl(a.preco)}</span>` : ""}
-      ${a.vendidos != null ? `<span>📦 ${a.vendidosMais ? "+" : ""}${nf(a.vendidos)} vendidos</span>` : ""}
-      ${a.full ? `<span class="nubi-ml-full">⚡ FULL</span>` : ""}`;
-    if (!nome) return `<span class="nubi-ml-fraco">nubi: não achei a loja deste anúncio${a.motivo ? ` — ${esc(a.motivo)}` : ""}</span> ${doCard}`;
-    return `<b>🏪 ${l.link ? `<a href="${esc(l.link)}" target="_blank" rel="noopener">${esc(nome)}</a>` : esc(nome)}</b>
-      ${doCard}
-      ${l.cidade ? `<span>📍 ${esc(l.cidade)}${l.uf ? "-" + esc(l.uf) : ""}</span>` : ""}
-      ${l.nivel ? `<span class="nubi-ml-rep r${esc(l.nivel)}">rep ${esc(l.nivel)}/5</span>` : ""}
-      ${l.medalha ? `<span>🎖 ${esc(l.medalha)}</span>` : ""}
-      ${l.vendas != null ? `<span>🛒 ${nf(l.vendas)} vendas</span>` : ""}
-      ${a.criado ? `<span>📅 criado ${esc(dia(a.criado))}${d != null ? ` (${d} dias)` : ""}</span>` : ""}
-      ${a.oficial ? `<span>✔ loja oficial</span>` : ""}
-      ${a.vendedor ? `<a class="nubi-ml-bt" href="${NUBI}/#/ml/loja/${esc(a.vendedor)}" target="_blank" rel="noopener">📊 nubi</a>` : ""}
-      ${a.item ? `<span class="nubi-ml-fraco">${esc(a.item)}</span>` : ""}`;
-  }
-
   // ---------------- busca no formato do Hunter (29/09, prints do Bruno): blocos por card + "Resumo do mercado" na lateral
   const REG = new Map();                      // caixa do card -> dados do anúncio (para o resumo e as visitas em lote)
   const kf = n => n == null ? "—" : n >= 1000 ? (n / 1000).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + "k" : nf(Math.round(n));
-  const rsk = n => n == null ? "—" : "R$ " + (n >= 1000 ? (n / 1000).toLocaleString("pt-BR", {maximumFractionDigits: 0}) + "k" : nf(Math.round(n)));
+  const rsk = n => n == null ? "—" : "R$ " + (n >= 1e6 ? (n / 1e6).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + " mi" :
+    n >= 1000 ? (n / 1000).toLocaleString("pt-BR", {maximumFractionDigits: 0}) + "k" : nf(Math.round(n)));
   const MEDALHA = {platinum: "Platinum", gold: "Gold", silver: "Silver"};
   const idade = a => diasDesde(a.criado || a.criadoEst);
   function totalVisitas() { let t = 0; REG.forEach(a => { t += a.vis30 || 0; }); return t; }
@@ -51,7 +32,8 @@
     const criado = a.criado || a.criadoEst;
     return `
       <div class="nb-g2"><div><small>${ic("carrinho", 11)} Vendas</small><b>${a.vendidos != null ? (a.vendidosExato ? "" : "+") + nf(a.vendidos) : "—"}</b></div>
-        <div><small>${ic("caixa", 11)} Estoque</small><b>${a.estoque != null ? nf(a.estoque) : "—"}</b></div></div>
+        ${a.estoque != null ? `<div><small>${ic("caixa", 11)} Estoque</small><b>${nf(a.estoque)}</b></div>` :
+          `<div><small>${ic("frete", 11)} Envio</small><b class="${a.envio === "full" ? "full" : ""}">${a.envio === "full" ? "⚡ FULL" : a.envio === "flex" ? "Flex" : a.envio === "agencia" ? "Agência" : "—"}</b></div>`}</div>
       <div class="nb-b"><small>${ic("subindo", 11)} Faturamento</small><div class="nb-l"><b class="verde">${rsk(fat)}</b>
         <span>${fat != null && d ? brl(fat / Math.max(d, 1)) + "/dia" : ""}</span></div></div>
       <div class="nb-b"><small>${ic("olho", 11)} Visitas · 30 dias</small><div class="nb-l"><b class="azul">${a.vis30 != null ? "~" + kf(a.vis30) : a.pedindo ? `<span class="nubi-spy-ld"></span>` : "—"}</b>
@@ -79,7 +61,7 @@
     box.onclick = ev => { if (!ev.target.closest("a")) ev.stopPropagation(); };   // clicar nos blocos não abre o anúncio
   }
   function mostrar(box, a) {
-    REG.set(box, {...(REG.get(box) || {}), ...a, lendo: false});
+    REG.set(box, {...(REG.get(box) || {}), lendo: false, ...a});
     desenharCartao(box);
     clearTimeout(mostrar.t); mostrar.t = setTimeout(emLote, 500);
   }
@@ -88,8 +70,13 @@
     const faltam = [...REG.values()].filter(a => a.item && a.vis30 === undefined && !a.pedindo);
     if (faltam.length) {
       faltam.forEach(a => { a.pedindo = true; });
-      const r = await pedir({tipo: "nubi", rota: "ext_lista", params: {mlbs: [...new Set(faltam.map(a => a.item))].slice(0, 60).join(",")}});
-      faltam.forEach(a => { const x = (r.itens || {})[a.item] || {}; a.pedindo = false; a.vis30 = x.visitas30 ?? null; if (!a.criado && x.criado) a.criadoEst = x.criado; });
+      const r = await pedir({tipo: "nubi", rota: "ext_lista", params: {mlbs: [...new Set(faltam.map(a => a.item + (a.pid ? ":" + a.pid : "")))].slice(0, 60).join(",")}});
+      faltam.forEach(a => { const x = (r.itens || {})[a.item] || {}; a.pedindo = false; a.lendo = false; a.vis30 = x.visitas30 ?? null;
+        if (!a.criado && x.criado) a.criadoEst = x.criado;
+        if (!a.vendedor && x.vendedor) { a.vendedor = x.vendedor; a.loja = x.loja || a.loja; }
+        if (a.preco == null && x.preco != null) a.preco = x.preco;
+        if (a.full == null && x.full != null) a.full = x.full;
+        if (!a.vendedor) a.motivo = a.pid ? "o ML não disse o vendedor deste anúncio" : "a página não trouxe o produto deste anúncio"; });
     }
     REG.forEach((_, box) => desenharCartao(box));
     resumo();
@@ -108,7 +95,7 @@
       if (a.vendidos != null && a.preco && d) fatMes += a.vendidos / Math.max(d, 1) * 30 * a.preco;
       if (d != null) idades.push(d);
       if (a.vendedor && a.vis30) vis[a.vendedor] = (vis[a.vendedor] || 0) + a.vis30;
-      if (a.full || a.logistica === "fulfillment") log.full++; else if (a.logistica === "self_service") log.flex++; else log.agencia++;
+      if (a.envio === "full" || a.full) log.full++; else if (a.envio === "flex") log.flex++; else if (a.envio) log.agencia++;
     });
     const porLoja = new Map(); xs.forEach(a => { if (a.vendedor && a.loja) porLoja.set(a.vendedor, a.loja); });
     porLoja.forEach(l => { const n = +(l.nivel || 0); if (n >= 4) rep[0]++; else if (n === 3) rep[1]++; else if (n) rep[2]++;
@@ -361,7 +348,6 @@
 
   // ---------------- busca/lista/loja: embaixo de cada anúncio
   const feitos = new WeakSet();
-  let fila = [], rodando = 0;
   // cada card com todos os links dele (o patrocinado só tem o click1, casado pelo estado da página); até 60 por vez,
   // o resto entra na próxima volta do observador
   const CLIQUE = /click\d?\.mercadolivre/;
@@ -389,56 +375,31 @@
   const doEstado = (est, urls) => est.find(r => r.link && urls.some(u => semProto(r.link) === semProto(u))) ||
     est.find(r => r.item && urls.some(u => r.item === itemDe(u))) ||
     est.find(r => r.produto && urls.some(u => r.produto === pidDe(u) && (!widDe(u) || r.item === widDe(u)))) || {};
-  // o que a página do anúncio trouxe vale mais; o estado da busca completa o que faltar
-  const junta = (r, a) => ({...r, ...Object.fromEntries(Object.entries(a || {}).filter(([, v]) => v != null && v !== ""))});
   function caixa(c) {
+    // 29/09 (página real): o ML fixa a altura do card (style="height: 443px"); sem soltar, os blocos cobriam o card de baixo
+    for (let e = c; e && e !== document.body; e = e.parentElement) {
+      if (e.style && e.style.height) e.style.height = "auto";
+      if (e.matches && e.matches("li.ui-search-layout__item")) break;
+    }
     const box = document.createElement("div");
     box.className = "nubi-ml-linha nubi-spy nb-card"; REG.set(box, {lendo: true}); desenharCartao(box);
     c.appendChild(box);
     return box;
   }
-  function andar() {
-    while (rodando < 3 && fila.length) {
-      const [box, url, r] = fila.shift();
-      rodando++;
-      pedir({tipo: "anuncio", url}).then(a => { mostrar(box, junta(r, a)); }).finally(() => { rodando--; andar(); });
-    }
-  }
-  // cards de catálogo (/p/MLB…): o nubi diz de quem é o anúncio do card (ou quem ganha o produto), 40 por pedido;
-  // os outros (e o que o nubi não achar) leem a página do anúncio
-  async function porCatalogo(lote) {
-    const chave = ([, url]) => pidDe(url) + (widDe(url) ? ":" + widDe(url) : "");
-    for (let i = 0; i < lote.length; i += 40) {
-      const parte = lote.slice(i, i + 40);
-      const r = await pedir({tipo: "nubi", rota: "ext_vencedores", params: {pids: [...new Set(parte.map(chave))].join(",")}});
-      parte.forEach(([box, url, e]) => {
-        const v = (r.produtos || {})[chave([box, url])];
-        if (v && v.vendedor) {
-          mostrar(box, {...e, vendedor: v.vendedor, item: v.item || e.item, oficial: v.oficial, loja: v.loja, preco: e.preco || v.preco, full: e.full ?? v.full,
-            nota_card: v.do_card ? "" : "catálogo: quem ganha o produto agora"});
-        } else fila.push([box, url, e]);
-      });
-      andar();
-    }
-  }
-  // catálogo: em lote pelo nubi; anúncio com o vendedor no estado: a linha sai na hora; sem vendedor: lê a página do
-  // anúncio (nunca o click1 do patrocinado, que contaria um clique: vai o link do anúncio pelo MLB do estado)
+  // 29/09 (busca real: abrir o anúncio por trás dava captcha): nada de abrir páginas. O card sai na hora com o que a
+  // página traz (vendidos, envio, preço) e o nubi completa em lote o vendedor, as visitas e a data (ext_lista).
   async function varrer() {
     if (!AJ.busca || ehAnuncio()) return;
     const novos = cartoes().map(([c, urls]) => [caixa(c), urls]);
     if (!novos.length) return;
-    const est = await estadoDaBusca(), cat = [];
+    const est = await estadoDaBusca();
     novos.forEach(([box, urls]) => {
       const e = doEstado(est, urls);
-      const url = urls.find(u => !CLIQUE.test(u)) || (e.link && !CLIQUE.test(e.link) ? e.link : null) ||
-        (e.item ? `https://produto.mercadolivre.com.br/MLB-${e.item.slice(3)}` : null);
-      if (url && pidDe(url)) cat.push([box, url, e]);
-      else if (e.vendedor) mostrar(box, e);
-      else if (url) fila.push([box, url, e]);
-      else mostrar(box, {...e, motivo: "patrocinado sem o anúncio no estado da página"});
+      const item = e.item || urls.map(itemDe).find(Boolean) || null;
+      const link = urls.find(u => !CLIQUE.test(u)) || (e.link && !CLIQUE.test(e.link) ? e.link : "") ||
+        (item ? `https://produto.mercadolivre.com.br/MLB-${item.slice(3)}` : "");
+      mostrar(box, {...e, item, link, lendo: !e.vendedor && !!item});
     });
-    andar();
-    if (cat.length) porCatalogo(cat);
   }
 
   function comecar() {
