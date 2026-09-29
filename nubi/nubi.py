@@ -98,6 +98,7 @@ APELIDOS_MARCA = {}
 # {gtin: {"marca": dona, linha, volume, tipo, genero, produto, titulo}} — o nubi_web preenche (definir_gtin_global).
 GTIN_GLOBAL = {}
 CONF_GTIN_OUTRA = "Mesmo GTIN de outra marca"
+CONF_SKU = "GTIN pelo SKU do vendedor"   # 29/09: anúncio sem GTIN, mesmo SKU de outro anúncio do vendedor que tem GTIN
 
 # Prefixos GS1 plausíveis para achar um GTIN dentro de uma string de dígitos colados.
 PREFIXOS_GS1 = ("789", "332", "542", "629", "608", "500", "871", "400", "301", "760", "335")
@@ -643,6 +644,38 @@ def definir_gtin_global(m):
     GTIN_GLOBAL.update(m or {})
 
 
+def _ean_valido(txt):
+    """SKU que é um código de barras de verdade (8, 12, 13 ou 14 dígitos com o dígito verificador certo)."""
+    t = str(txt or "").strip()
+    if not re.fullmatch(r"\d{8}|\d{12,14}", t) or set(t) == {"0"}:
+        return False
+    soma = sum(int(c) * (3 if i % 2 == 0 else 1) for i, c in enumerate(reversed(t[:-1])))
+    return (10 - soma % 10) % 10 == int(t[-1])
+
+
+def gtin_efetivo(df):
+    """
+    29/09 (print do Bruno: ICARBONXX com 2 anúncios do Asad Elixir, mesmo título e SKU ASADELIXIR, um sem GTIN "para
+    enganar a concorrência"): o GTIN que vale para agrupar —
+    1) o do anúncio; 2) sem GTIN, o do outro anúncio do MESMO vendedor com o MESMO SKU (se só houver um GTIN nesse SKU);
+    3) sem nada, o próprio SKU quando ele é um código de barras válido.
+    """
+    g = df["gtin"].fillna("").astype(str).str.strip() if "gtin" in df.columns else pd.Series("", index=df.index)
+    if "sku" not in df.columns or "vendedor_id" not in df.columns:
+        return g
+    sku = df["sku"].fillna("").astype(str).str.strip().str.upper()
+    vend = df["vendedor_id"].fillna("").astype(str)
+    chave = vend + "|" + sku
+    com = pd.DataFrame({"k": chave, "g": g})[(g != "") & (sku.str.len() >= 3)]
+    unico = com.groupby("k")["g"].agg(lambda x: x.iloc[0] if x.nunique() == 1 else "")
+    out = g.copy()
+    vazio = (g == "") & (sku.str.len() >= 3)
+    out[vazio] = chave[vazio].map(unico).fillna("")
+    resto = (out == "") & sku.map(_ean_valido)
+    out[resto] = sku[resto]
+    return out
+
+
 def _titulo_canonico(titulos):
     """O título que mais aparece entre os anúncios; empate, o mais completo (mais longo)."""
     cont = {}
@@ -910,6 +943,9 @@ def consolidar(df, marca, cfg, info=None):
     df = df.copy()
     info = INFO_GTIN if info is None else info
     linhas = cfg.get(chave_marca(marca), {}).get("linhas", [])
+    gtin_real = df["gtin"].copy()
+    df["gtin"] = gtin_efetivo(df)                        # mesmo SKU do vendedor / SKU que é código de barras (29/09)
+    herdado = (gtin_real.fillna("").astype(str).str.strip() == "") & (df["gtin"] != "")
     palavras_marca = palavras_da_marca(marca)
     tn = df["titulo"].map(normalizar)
 
@@ -1095,6 +1131,8 @@ def consolidar(df, marca, cfg, info=None):
         re.sub(r"\s+", " ", f"{marca_txt} {l} {t} {v if v != '-' else ''}").strip()
         for l, t, v in zip(df["linha"], df["tipo"], df["volume"])
     ]
+    herd = herdado & df["confianca"].isin([CONF_GTIN, CONF_PESQ, CONF_LINHA_TITULO])
+    df.loc[herd, "confianca"] = CONF_SKU
     # Etapa 4 (29/09): GTIN que é de OUTRA marca (vendedor que troca a marca no cadastro, ex.: LIPX com o Asad Elixir da
     # Lattafa) vira o produto da dona, marcado como outra marca aqui; no relatório da dona ele entra junto (mesmo GTIN).
     alvo_g = compacta(marca)
@@ -1107,6 +1145,7 @@ def consolidar(df, marca, cfg, info=None):
                 df.at[i, c] = g[c]
             df.at[i, "tipo"] = TIPO_OUTRA
             df.at[i, "confianca"] = CONF_GTIN_OUTRA
+    df["gtin"] = gtin_real                               # o GTIN gravado continua o do arquivo
     return df
 
 

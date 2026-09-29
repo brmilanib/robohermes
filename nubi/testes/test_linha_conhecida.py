@@ -314,3 +314,29 @@ def test_relatorio_da_dona_traz_o_anuncio_com_a_marca_trocada():
 
 if __name__ == "__main__":
     test_relatorio_da_dona_traz_o_anuncio_com_a_marca_trocada()
+
+
+def test_anuncio_sem_gtin_herda_pelo_sku_do_vendedor():
+    # 29/09 (print do Bruno): ICARBONXX, mesmo título e SKU ASADELIXIR, um anúncio sem GTIN
+    nubi.definir_apelidos({})
+    nubi.definir_gtin_global({})
+    R = lambda t, g, u, v, sku: {"titulo": t, "gtin": g, "un": u, "fat": u * 300.0, "categoria": "", "marca_anuncio": "Lattafa",
+                                 "vendedor": v, "vendedor_id": v, "sku": sku, "preco": 300.0}
+    df = pd.DataFrame([
+        R("Perfume Asad Elixir Lattafa Eau De Parfum 100ml", "6290362346548", 1300, "ICARBONXX", "ASADELIXIR"),
+        R("Perfume Asad Elixir Lattafa Eau De Parfum 100ml", "", 740, "ICARBONXX", "asadelixir "),
+        R("Perfume Lattafa Khamrah Edp 100ml", "", 50, "OUTRO", "ASADELIXIR"),        # outro vendedor: não herda
+        R("Perfume Lattafa Yara Edp 100ml", "", 30, "V3", "6290360593159"),            # SKU que é código de barras
+        R("Perfume Lattafa Yara Edp 100ml", "", 5, "V4", "82688")])
+    ef = nubi.gtin_efetivo(df)
+    assert list(ef) == ["6290362346548", "6290362346548", "", "6290360593159", ""], list(ef)
+    out = nubi.consolidar(df, "LATTAFA", {"LATTAFA": {"linhas": [["asad elixir", "Asad Elixir"], ["khamrah", "Khamrah"], ["yara", "Yara"]]}}, info={})
+    assert out.at[0, "produto"] == out.at[1, "produto"] == "Lattafa Asad Elixir EDP 100 ml", list(out["produto"])
+    assert out.at[1, "confianca"] == nubi.CONF_SKU and out.at[0, "confianca"] == nubi.CONF_GTIN
+    assert list(out["gtin"]) == ["6290362346548", "", "", "", ""]            # o GTIN gravado não muda
+    assert out.at[2, "produto"].startswith("Lattafa Khamrah")
+    print("ok test_anuncio_sem_gtin_herda_pelo_sku_do_vendedor")
+
+
+if __name__ == "__main__":
+    test_anuncio_sem_gtin_herda_pelo_sku_do_vendedor()

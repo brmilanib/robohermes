@@ -257,9 +257,12 @@ def _com_marca_trocada(repo, df, atual, marca):
         if ult.empty:
             return df, 0
         ids = ",".join(str(int(i)) for i in ult["id"])
-        rows = [r for r in repo._todos("anuncios", {"select": "*", "snapshot_id": f"in.({ids})",
-                                                     "confianca": repo._eq(nubi.CONF_GTIN_OUTRA)})
-                if nubi.compacta((nubi.GTIN_GLOBAL.get(r.get("gtin")) or {}).get("marca", "")) == alvo]
+        todas = repo._todos("anuncios", {"select": "*", "snapshot_id": f"in.({ids})", "confianca": repo._eq(nubi.CONF_GTIN_OUTRA)})
+        if todas:                                        # anúncio sem GTIN com o mesmo SKU do vendedor: o GTIN do outro
+            ef = nubi.gtin_efetivo(pd.DataFrame(todas))
+            for r, g in zip(todas, ef):
+                r["gtin"] = g
+        rows = [r for r in todas if nubi.compacta((nubi.GTIN_GLOBAL.get(r.get("gtin")) or {}).get("marca", "")) == alvo]
     except Exception:  # noqa: BLE001  (extra: sem isso o relatório sai como antes)
         return df, 0
     if not rows:
@@ -577,7 +580,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 5.1: mesmo GTIN em marcas diferentes = mesmo produto; linha sem Arabe"   # 29/09 (LIPX x Lattafa)
+REGRA_ATUAL = "regra 6: anúncio sem GTIN herda o GTIN do mesmo SKU do vendedor"   # 29/09 (ICARBONXX sem GTIN)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"

@@ -110,7 +110,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Conferência das marcas (`auditar_explorador`, sem IA) roda 1x/dia no Agente do Explorador: nota por marca, marca
   escrita errado (reprocessa sozinho), outra marca grande (juntar em Nomes de marcas), linhas parecidas e o que mais
   vende em "Outros". Tela: Coletor e agente → 🧹 Conferência; rota `explorador_auditoria` (POST roda agora).
-- Regra de agrupamento mudou → `REGRA_ATUAL` sobe (hoje "regra 5") e o agente reprocessa tudo uma vez.
+- Regra de agrupamento mudou → `REGRA_ATUAL` sobe (hoje "regra 6") e o agente reprocessa tudo uma vez.
 - Mesmo GTIN em marcas diferentes = mesmo produto (29/09, LIPX vendendo o Asad Elixir da Lattafa): `construir_gtin_global`
   grava em `ia_resumos` `explorador|gtin_global` o mapa `nubi.mapa_gtin_global` (dona = marca citada nos títulos com 20%+
   das unidades; senão a do GTIN pesquisado; senão a que mais vende; produto = o da dona; título = o que mais aparece, empate
@@ -118,6 +118,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   confiança "Mesmo GTIN de outra marca". No relatório da dona, `_com_marca_trocada` traz esses anúncios (mesmo período)
   para o produto certo (`resumo.un_marca_trocada`, nota nas abas). O mapa é refeito na conferência diária e as marcas cujos
   GTINs mudaram são reagrupadas. "Arabe" não é nome de linha. Produtos: `titulo_top` = título que mais aparece.
+- GTIN efetivo (29/09, ICARBONXX com o mesmo SKU, um anúncio sem GTIN): `nubi.gtin_efetivo` — sem GTIN, vale o do outro
+  anúncio do MESMO vendedor com o MESMO SKU (se for um só); sem nada, o SKU quando é código de barras válido
+  (`_ean_valido`). Só para agrupar (confiança "GTIN pelo SKU do vendedor"); o GTIN gravado continua o do arquivo.
 
 ## Quadro do produto no Explorador (30/09, pedido do Bruno) — `abrirVendedoresProduto` + rota `estoque_produto`
 - Quadro largo (`.modal.larga.pq`): cabeçalho com o mercado (un., faturamento, preço médio e faixa, vendedores, líder) e
