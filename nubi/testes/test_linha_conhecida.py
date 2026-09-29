@@ -186,6 +186,8 @@ def test_conferencia_diaria_de_todas_as_marcas():
             return pd.DataFrame([{"id": 1, "marca": "LATTAFA", "inicio": "2026-08-01", "fim": "2026-09-27"},
                                  {"id": 2, "marca": "XERJOFF", "inicio": "2026-08-01", "fim": "2026-09-27"}])
         def _todos(self, t, q=None):
+            if q["snapshot_id"].startswith("in."):              # mapa de GTIN entre marcas: nenhum GTIN repetido aqui
+                return []
             if q["snapshot_id"] == "eq.1":
                 return [{"titulo": "Perfume Lattafa Asad", "marca_anuncio": "Lataffa", "gtin": "", "un": 800, "linha": "Lataffa",
                          "tipo": nubi.TIPO_OUTRA, "confianca": "-"},
@@ -226,3 +228,89 @@ def test_conferencia_diaria_de_todas_as_marcas():
 
 if __name__ == "__main__":
     test_conferencia_diaria_de_todas_as_marcas()
+
+
+def test_mesmo_gtin_em_outra_marca_e_o_mesmo_produto():
+    # 29/09 (print do Bruno): ICARBONXX cadastra o Asad Elixir da Lattafa com a marca LIPX (mesmo GTIN 6290362346548)
+    nubi.definir_apelidos({})
+    L = lambda **k: dict({"confianca": nubi.CONF_GTIN, "genero": "Masculino", "volume": "100 ml", "tipo": "EDP"}, **k)
+    linhas = [
+        L(gtin="6290362346548", un=2800, marca_snap="LATTAFA", titulo="Perfume Asad Elixir Lattafa Árabe Origin",
+          linha="Asad Elixir", produto="Lattafa Asad Elixir EDP 100 ml"),
+        L(gtin="6290362346548", un=1300, marca_snap="LIPX", titulo="Perfume Asad Elixir 100ml Eau De Parfum Original Edp",
+          linha="Lattafa", produto="Lipx Lattafa EDP 100 ml"),
+        # a LIPX vende mais, mas o título não diz LIPX e o da Lattafa diz: a dona é a Lattafa
+        L(gtin="6291107455365", un=1900, marca_snap="LIPX", titulo="Perfume Arabe Qaed Al Fursan 90ml", linha="Qaed",
+          produto="Lipx Qaed EDP 90 ml", volume="90 ml"),
+        L(gtin="6291107455365", un=504, marca_snap="LATTAFA", titulo="Lattafa Qaed Al Fursan Edp 90ml", linha="Qaed AL Fursan",
+          produto="Lattafa Qaed AL Fursan EDP 90 ml", volume="90 ml"),
+        # ninguém cita a marca no título e ninguém pesquisou: vale quem mais vende
+        L(gtin="6290360378053", un=2010, marca_snap="LIPX", titulo="Perfume French Avenue Vulcan Feu Edp 100ml",
+          linha="Vulcan Feu", produto="Lipx Vulcan Feu EDP 100 ml"),
+        L(gtin="6290360378053", un=11, marca_snap="LATTAFA", titulo="Perfume Fakhar Men Black Árabe", linha="Fakhar Black",
+          produto="Lattafa Fakhar Black EDP 100 ml"),
+        L(gtin="111", un=5, marca_snap="LATTAFA", titulo="x", linha="Yara", produto="Lattafa Yara EDP 100 ml")]   # só 1 marca
+    m = nubi.mapa_gtin_global(linhas)
+    assert set(m) == {"6290362346548", "6291107455365", "6290360378053"}, m
+    assert m["6290362346548"]["marca"] == "LATTAFA" and m["6290362346548"]["produto"] == "Lattafa Asad Elixir EDP 100 ml"
+    assert m["6291107455365"]["marca"] == "LATTAFA"
+    assert m["6290360378053"]["marca"] == "LIPX"
+    nubi.definir_gtin_global(m)
+    try:
+        df = pd.DataFrame([{"titulo": "Perfume Asad Elixir 100ml Eau De Parfum Original Edp", "gtin": "6290362346548", "un": 1300,
+                            "fat": 363000.0, "categoria": "", "marca_anuncio": "LIPX", "vendedor": "ICARBONXX P3", "preco": 369.9},
+                           {"titulo": "Perfume Lipx Arabe Shaghaf 100ml", "gtin": "999", "un": 10, "fat": 1000.0, "categoria": "",
+                            "marca_anuncio": "LIPX", "vendedor": "X", "preco": 100.0}])
+        out = nubi.consolidar(df, "LIPX", {}, info={})
+        assert out.at[0, "produto"] == "Lattafa Asad Elixir EDP 100 ml" and out.at[0, "tipo"] == nubi.TIPO_OUTRA, out.iloc[0].to_dict()
+        assert out.at[0, "confianca"] == nubi.CONF_GTIN_OUTRA
+        assert out.at[1, "linha"] == "Shaghaf", out.at[1, "linha"]            # "Arabe" não é nome de linha
+        assert nubi._titulo_canonico(["a b", "a b c", "a b"]) == "a b" and nubi._titulo_canonico(["a b", "a b c"]) == "a b c"
+    finally:
+        nubi.definir_gtin_global({})
+    print("ok test_mesmo_gtin_em_outra_marca_e_o_mesmo_produto")
+
+
+if __name__ == "__main__":
+    test_mesmo_gtin_em_outra_marca_e_o_mesmo_produto()
+
+
+def test_relatorio_da_dona_traz_o_anuncio_com_a_marca_trocada():
+    # 29/09: no relatório da Lattafa, o anúncio da LIPX do mesmo GTIN (mesmo período) entra no Asad Elixir
+    import nubi_web as w
+    g = {"6290362346548": {"marca": "LATTAFA", "linha": "Asad Elixir", "volume": "100 ml", "tipo": "EDP", "genero": "Masculino",
+                           "produto": "Lattafa Asad Elixir EDP 100 ml", "titulo": "Perfume Asad Elixir Lattafa"}}
+    nubi.definir_gtin_global(g)
+    base = {c: None for c in nubi.CAMPOS_ANUNCIO}
+
+    class R:
+        def _eq(self, v): return f"eq.{v}"
+        def snapshots(self, marca=None):
+            return pd.DataFrame([{"id": 1, "marca": "LATTAFA", "inicio": "2026-08-01", "fim": "2026-09-27"},
+                                 {"id": 2, "marca": "LIPX", "inicio": "2026-08-01", "fim": "2026-09-27"},
+                                 {"id": 3, "marca": "LIPX", "inicio": "2026-07-01", "fim": "2026-07-31"}])
+        def _todos(self, t, q=None):
+            assert q["snapshot_id"] == "in.(2)" and q["confianca"] == f"eq.{nubi.CONF_GTIN_OUTRA}", q
+            return [dict(base, id=9, snapshot_id=2, titulo="Perfume Asad Elixir 100ml", vendedor="ICARBONXX P3", vendedor_id="77",
+                         marca_anuncio="LIPX", gtin="6290362346548", un=1300, fat=363000, preco=369.9, linha="Asad Elixir",
+                         tipo=nubi.TIPO_OUTRA, confianca=nubi.CONF_GTIN_OUTRA, produto="Lattafa Asad Elixir EDP 100 ml",
+                         volume="100 ml", genero="Masculino", catalogo=True, full=True)]
+    try:
+        df = pd.DataFrame([dict(base, rid=1, snapshot_id=1, titulo="Perfume Asad Elixir Lattafa", vendedor="HIMALAIA", vendedor_id="5",
+                                marca_anuncio="LATTAFA", gtin="6290362346548", un=2800, fat=758000, preco=279.0, linha="Asad Elixir",
+                                tipo="EDP", confianca=nubi.CONF_GTIN, produto="Lattafa Asad Elixir EDP 100 ml", volume="100 ml",
+                                genero="Masculino")])
+        df = nubi.campos_do_arquivo(nubi.preparar(df), "LATTAFA")
+        novo, un = w._com_marca_trocada(R(), df, {"inicio": "2026-08-01", "fim": "2026-09-27"}, "LATTAFA")
+        assert un == 1300 and len(novo) == 2 and set(novo["produto"]) == {"Lattafa Asad Elixir EDP 100 ml"}
+        assert list(novo["tipo"]) == ["EDP", "EDP"] and list(novo["marca_prod"]) == ["Lattafa", "Lattafa"], novo[["tipo", "marca_prod"]]
+        # na LIPX, a coluna Marca mostra a dona do GTIN
+        lipx = nubi.campos_do_arquivo(nubi.preparar(pd.DataFrame(R()._todos("a", {"snapshot_id": "in.(2)", "confianca": f"eq.{nubi.CONF_GTIN_OUTRA}"}))), "LIPX")
+        assert lipx.at[0, "marca_prod"] == "Lattafa"
+    finally:
+        nubi.definir_gtin_global({})
+    print("ok test_relatorio_da_dona_traz_o_anuncio_com_a_marca_trocada")
+
+
+if __name__ == "__main__":
+    test_relatorio_da_dona_traz_o_anuncio_com_a_marca_trocada()

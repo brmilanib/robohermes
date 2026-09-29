@@ -5516,7 +5516,11 @@ function telaMarcaAba() {
   if (k === "config") return telaConfig(c);
   if (k === "periodos") return telaPeriodos(c);
   if (k === "historico") return telaHistorico(c);
-  tabela(c, k, S.rel.tabelas[k] || [], k === "anuncios" ? colunasAnuncios() : COLUNAS[k], EXTRAS[k]);
+  // 29/09: anúncios de outro vendedor com a marca trocada (mesmo GTIN) entram no produto certo; a nota avisa quanto é
+  const trocada = (S.rel.resumo || {}).un_marca_trocada, ex = {...(EXTRAS[k] || {})};
+  if (trocada && (k === "produtos" || k === "anuncios" || k === "vendedores"))
+    ex.nota = (ex.nota ? ex.nota + " " : "") + `Inclui ${nf0.format(trocada)} un. de anúncios com a marca trocada no cadastro (mesmo GTIN desta marca, ex.: LIPX).`;
+  tabela(c, k, S.rel.tabelas[k] || [], k === "anuncios" ? colunasAnuncios() : COLUNAS[k], ex);
 }
 
 const notaHTML = n => {

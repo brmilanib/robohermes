@@ -243,6 +243,34 @@ def _periodo(s):
                                    "dias": int(s["dias"]), "arquivo": s.get("arquivo") or ""}
 
 
+def _com_marca_trocada(repo, df, atual, marca):
+    """29/09 (Bruno): anúncios do MESMO GTIN desta marca que outro vendedor cadastrou com a marca dele (LIPX com o Asad
+    Elixir da Lattafa) entram no relatório desta marca, no mesmo produto — só do mesmo período. Devolve (df, unidades)."""
+    if not nubi.GTIN_GLOBAL:
+        return df, 0
+    alvo = nubi.compacta(marca)
+    try:
+        snaps = repo.snapshots()
+        mesmos = snaps[(snaps["marca"] != marca) & (snaps["inicio"].astype(str) == str(atual["inicio"]))
+                       & (snaps["fim"].astype(str) == str(atual["fim"]))]
+        ult = mesmos.sort_values("id").groupby("marca").tail(1)
+        if ult.empty:
+            return df, 0
+        ids = ",".join(str(int(i)) for i in ult["id"])
+        rows = [r for r in repo._todos("anuncios", {"select": "*", "snapshot_id": f"in.({ids})",
+                                                     "confianca": repo._eq(nubi.CONF_GTIN_OUTRA)})
+                if nubi.compacta((nubi.GTIN_GLOBAL.get(r.get("gtin")) or {}).get("marca", "")) == alvo]
+    except Exception:  # noqa: BLE001  (extra: sem isso o relatório sai como antes)
+        return df, 0
+    if not rows:
+        return df, 0
+    for r in rows:                                       # no relatório da dona ele é produto dela (tipo real, não "outra")
+        g = nubi.GTIN_GLOBAL[r["gtin"]]
+        r.update(tipo=g["tipo"], produto=g["produto"], linha=g["linha"], volume=g["volume"])
+    extra = nubi.campos_do_arquivo(nubi.preparar(pd.DataFrame(rows).rename(columns={"id": "rid"})), marca)
+    return pd.concat([df, extra], ignore_index=True), int(pd.to_numeric(extra["un"], errors="coerce").fillna(0).sum())
+
+
 def relatorio(repo, marca):
     snaps = repo.snapshots(marca)
     if snaps.empty:
@@ -250,6 +278,7 @@ def relatorio(repo, marca):
     atual = snaps.iloc[-1]
     anterior = snaps.iloc[-2] if len(snaps) >= 2 else None
     df = nubi.ler_snapshot(repo, atual["id"], marca)
+    df, un_trocada = _com_marca_trocada(repo, df, atual, marca)
     dias = int(atual["dias"])
     df.attrs["dias"] = dias
     df_ant = nubi.ler_snapshot(repo, anterior["id"], marca) if anterior is not None else None
@@ -265,7 +294,8 @@ def relatorio(repo, marca):
     cat_n = g["catalogo"].sum()
     full_n = g["full"].sum()
     # 29/09 (Bruno): o título do anúncio que mais vende em cada produto, para saber qual é ("Fakhar Gold Extrait")
-    titulo_top = df.sort_values("un", ascending=False, kind="mergesort").groupby("produto")["titulo"].first()
+    # "prevalece o título que aparece mais entre os anúncios; empate, o mais completo" (Bruno, 29/09)
+    titulo_top = df.groupby("produto")["titulo"].agg(nubi._titulo_canonico)
     # 29/09 (Bruno): preço médio dos 2 maiores vendedores de cada produto (faturamento ÷ unidades de cada um)
     pv = df.groupby(["produto", "vendedor_id"]).agg(un=("un", "sum"), fat=("fat", "sum"), nome=("vendedor", "first")).reset_index()
     pv = pv[pv["un"] > 0].sort_values(["produto", "un", "fat"], ascending=[True, False, False], kind="mergesort")
@@ -468,7 +498,7 @@ def relatorio(repo, marca):
         "pct_catalogo": _div(df["catalogo"].sum(), n), "pct_full": _div(df["full"].sum(), n),
         "un_outras_marcas": int(df.loc[df["tipo"] == nubi.TIPO_OUTRA, "un"].sum()),
         "un_nao_perfume": int(df.loc[df["tipo"] == nubi.TIPO_FORA, "un"].sum()),
-        "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin}
+        "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada}
 
     return {
         "marca": marca, "nome": nubi.nome_bonito(marca), "atual": _periodo(atual),
@@ -504,6 +534,11 @@ def _preparar(repo):
         nubi.definir_apelidos({k: v[0] for k, v in apelidos(repo).items()})
     except Exception:  # noqa: BLE001
         nubi.definir_apelidos({})
+    try:                                   # 29/09: mesmo GTIN em marcas diferentes = mesmo produto (LIPX x Lattafa)
+        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(GTIN_GLOBAL_CHAVE)}) or [None])[0]
+        nubi.definir_gtin_global(json.loads(r["texto"]) if r else {})
+    except Exception:  # noqa: BLE001
+        nubi.definir_gtin_global({})
     log = []
     nubi._SAIDA[0] = log.append
     return log
@@ -542,13 +577,42 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 4.1: marca escrita errado é a própria marca; variação sem repetir a linha"   # 29/09 (Lataffa, Fakhar)
+REGRA_ATUAL = "regra 5: mesmo GTIN em marcas diferentes = mesmo produto (dona pelo título)"   # 29/09 (LIPX x Lattafa)
+
+
+GTIN_GLOBAL_CHAVE = "explorador|gtin_global"
+
+
+def construir_gtin_global(repo):
+    """29/09 (Bruno): GTIN que aparece em mais de uma marca (último período de cada) é UM produto; grava o mapa
+    (nubi.mapa_gtin_global) em ia_resumos e já o usa nesta requisição. Devolve as marcas cujos GTINs mudaram."""
+    snaps = repo.snapshots()
+    if snaps.empty:
+        return set()
+    ult = snaps.sort_values("id").groupby("marca").tail(1)
+    marca_de = {int(r["id"]): r["marca"] for _, r in ult.iterrows()}
+    linhas = []
+    ids = sorted(marca_de)
+    for i in range(0, len(ids), 40):
+        for l in repo._todos("anuncios", {"select": "snapshot_id,gtin,un,titulo,linha,volume,tipo,genero,produto,confianca",
+                                          "snapshot_id": f"in.({','.join(map(str, ids[i:i + 40]))})", "gtin": "neq."}):
+            l["marca_snap"] = marca_de.get(int(l["snapshot_id"]))
+            linhas.append(l)
+    novo = nubi.mapa_gtin_global(linhas)
+    antes = dict(nubi.GTIN_GLOBAL)
+    repo._req("POST", "ia_resumos", corpo=[{"chave": GTIN_GLOBAL_CHAVE, "ia": "Agente do Explorador (regras)",
+                                            "texto": json.dumps(novo, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    nubi.definir_gtin_global(novo)
+    mudou = {g for g in set(novo) | set(antes) if novo.get(g) != antes.get(g)}
+    return {l["marca_snap"] for l in linhas if l["gtin"] in mudou}
 
 
 def aplicar_regra_nova(repo):
     if repo._req("GET", "agente_execucoes", {"select": "id", "origem": repo._eq(REGRA_ATUAL), "limit": 1}):
         return False
     nubi.avisar("    Aplicando a regra nova de agrupamento em todos os períodos já importados…")
+    construir_gtin_global(repo)
     nubi.reconsolidar(repo, repo.carregar_config())
     agora = datetime.now(timezone.utc).isoformat()
     repo._req("POST", "agente_execucoes", corpo=[{"origem": REGRA_ATUAL, "iniciado_em": agora, "terminado_em": agora,
@@ -600,6 +664,9 @@ def auditar_explorador(repo, forcar=False):
     chave = AUDITORIA_CHAVE + hoje
     if not forcar and repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave), "limit": 1}):
         return None
+    mudaram = construir_gtin_global(repo)                 # mesmo GTIN em outra marca: reagrupa as marcas que mudaram
+    if mudaram:
+        nubi.reconsolidar(repo, repo.carregar_config(), sorted(mudaram))
     snaps = repo.snapshots()
     if snaps.empty:
         return None
@@ -624,7 +691,8 @@ def auditar_explorador(repo, forcar=False):
                         x["corrigido"] = True
     marcas.sort(key=lambda a: (a["nota"], -a["un"]))
     abertos = sum(1 for a in marcas for x in a["achados"] if not x.get("corrigido"))
-    resumo = (f"{len(marcas)} marca(s) conferida(s); nota média {round(sum(a['nota'] for a in marcas) / max(1, len(marcas)), 1)}; "
+    resumo = ((f"{len(mudaram)} marca(s) reagrupada(s) por GTIN de outra marca; " if mudaram else "")
+              + f"{len(marcas)} marca(s) conferida(s); nota média {round(sum(a['nota'] for a in marcas) / max(1, len(marcas)), 1)}; "
               f"{len(consertar)} reprocessada(s) por marca escrita errado; {abertos} ponto(s) para conferir")
     dados = {"dia": hoje, "resumo": resumo, "consertadas": consertar, "marcas": marcas}
     repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": "Agente do Explorador (regras, sem IA)",

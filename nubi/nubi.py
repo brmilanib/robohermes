@@ -94,6 +94,10 @@ INFO_GTIN = {}
 # 29/09 (print do Bruno: "Outra marca: Lataffa" com 28 mil un. dentro da Lattafa): grafias da tela Nomes de marcas
 # {grafia compactada: chave compactada oficial}; o nubi_web preenche antes de consolidar (definir_apelidos).
 APELIDOS_MARCA = {}
+# 29/09 (print do Bruno: LIPX vendendo o Asad Elixir da Lattafa com a marca dela): GTIN que aparece em mais de uma marca
+# {gtin: {"marca": dona, linha, volume, tipo, genero, produto, titulo}} — o nubi_web preenche (definir_gtin_global).
+GTIN_GLOBAL = {}
+CONF_GTIN_OUTRA = "Mesmo GTIN de outra marca"
 
 # Prefixos GS1 plausíveis para achar um GTIN dentro de uma string de dígitos colados.
 PREFIXOS_GS1 = ("789", "332", "542", "629", "608", "500", "871", "400", "301", "760", "335")
@@ -116,6 +120,7 @@ oferta envio imediato pronta entrega frete gratis brinde caixa selo nacional not
 adipec garantia autentico autentica verdadeiro produto unidade unidades frasco tester
 contratipo inspiracao essencia intensa oriental floral frutado aromatico citrico
 presente vaporizador tradicional fixacao alta longa duracao cheiroso cheirosa melhor mais
+arabe arabes arabic arab
 de da do das dos di du la le the and em por
 """.split())
 
@@ -599,7 +604,12 @@ def campos_do_arquivo(df, marca):
     b = [x if isinstance(x, dict) else {} for x in (df["bruto"] if "bruto" in df.columns else [None] * len(df))]
     df["cat"] = [x.get("Categoria final") or categoria_de(t) for x, t in zip(b, df["tipo"])]
     df["cat_l1"] = [x.get("Categoria L1") or "-" for x in b]
-    df["marca_prod"] = [l if t == TIPO_OUTRA else nome_bonito(marca) for l, t in zip(df["linha"], df["tipo"])]
+    conf = df["confianca"] if "confianca" in df.columns else [""] * len(df)
+    gt = df["gtin"] if "gtin" in df.columns else [""] * len(df)
+    # mesmo GTIN de outra marca (29/09): a marca é a dona do GTIN, não a linha
+    df["marca_prod"] = [nome_bonito((GTIN_GLOBAL.get(g) or {}).get("marca") or l) if c == CONF_GTIN_OUTRA
+                        else l if t == TIPO_OUTRA else nome_bonito(marca)
+                        for l, t, c, g in zip(df["linha"], df["tipo"], conf, gt)]
     return df
 
 def ler_texto(t, linhas, palavras_marca):
@@ -626,6 +636,75 @@ def compacta(txt):
 def definir_apelidos(ap):
     APELIDOS_MARCA.clear()
     APELIDOS_MARCA.update({compacta(k): compacta(v) for k, v in (ap or {}).items() if k and v})
+
+
+def definir_gtin_global(m):
+    GTIN_GLOBAL.clear()
+    GTIN_GLOBAL.update(m or {})
+
+
+def _titulo_canonico(titulos):
+    """O título que mais aparece entre os anúncios; empate, o mais completo (mais longo)."""
+    cont = {}
+    for t in titulos:
+        t = re.sub(r"\s+", " ", str(t or "")).strip()
+        if t:
+            cont[t] = cont.get(t, 0) + 1
+    return max(cont, key=lambda t: (cont[t], len(t))) if cont else ""
+
+
+def mapa_gtin_global(linhas):
+    """
+    GTIN que aparece em mais de uma marca é UM produto (29/09, Bruno): a dona é
+    1) a marca escrita nos títulos desse GTIN (anúncios que citam a marca com 20%+ das unidades — a LIPX põe a marca dela
+       no cadastro, mas o título diz "Asad Elixir Lattafa");
+    2) senão, a marca do GTIN pesquisado (INFO_GTIN);
+    3) senão, a que mais vende.
+    O produto (linha, tipo, volume) é o que a dona tem; o título é o que mais aparece em todos os anúncios do GTIN.
+    linhas: dicts com gtin, un, titulo, marca_snap, linha, volume, tipo, genero, produto, confianca.
+    """
+    por = {}
+    for l in linhas:
+        g = str(l.get("gtin") or "")
+        if g:
+            por.setdefault(g, []).append(l)
+    out = {}
+    for g, ls in por.items():
+        marcas = {l["marca_snap"] for l in ls}
+        if len(marcas) < 2:
+            continue
+        proprias = [l for l in ls if l.get("tipo") not in (TIPO_OUTRA, TIPO_FORA) and l.get("confianca") != CONF_GTIN_OUTRA]
+        if not proprias:
+            continue
+        total = sum(float(l.get("un") or 0) + 1 for l in ls)
+        cita = {}
+        for m in marcas:
+            alvo = compacta(m)
+            cita[m] = sum(float(l.get("un") or 0) + 1 for l in ls if marca_bate(l.get("titulo") or "", alvo))
+        dona = None
+        cand = [m for m in marcas if cita[m] / total >= 0.2 and any(p["marca_snap"] == m for p in proprias)]
+        if cand:
+            dona = max(cand, key=lambda m: cita[m])
+        if dona is None:
+            pesq = (INFO_GTIN.get(g) or {}).get("marca", "")
+            dona = next((m for m in marcas if pesq and marca_bate(pesq, compacta(m))
+                         and any(p["marca_snap"] == m for p in proprias)), None)
+        if dona is None:
+            un = {}
+            for p in proprias:
+                un[p["marca_snap"]] = un.get(p["marca_snap"], 0) + float(p.get("un") or 0)
+            dona = max(un, key=un.get)
+        dela = [p for p in proprias if p["marca_snap"] == dona]
+        votos = {}
+        for p in dela:
+            k = tuple(str(p.get(c) or "-") for c in ("linha", "volume", "tipo", "genero", "produto"))
+            votos[k] = votos.get(k, 0) + float(p.get("un") or 0) + 1
+        linha, volume, tipo, genero, produto = max(votos, key=votos.get)
+        if linha in NEUTROS or produto.startswith("Outra marca"):
+            continue                                   # a dona também não sabe o que é: não impõe nada
+        out[g] = {"marca": dona, "linha": linha, "volume": volume, "tipo": tipo, "genero": genero, "produto": produto,
+                  "titulo": _titulo_canonico(l.get("titulo") for l in ls)}
+    return out
 
 
 def _distancia(a, b):
@@ -798,7 +877,7 @@ def auditar_marca(df, marca):
     duv = da[da["confianca"].str.startswith("Dúvida")]
     pct = lambda x, t: round(100 * x / t, 1) if t else 0.0
     achados = []
-    for dono, g in d[outra].groupby("linha"):
+    for dono, g in d[outra & (d["confianca"] != CONF_GTIN_OUTRA)].groupby("linha"):
         un = float(g["un"].sum())
         decl = [v for v in g["marca_anuncio"] if v] or [str(dono)]
         if any(marca_bate(v, alvo) for v in decl):
@@ -1008,6 +1087,18 @@ def consolidar(df, marca, cfg, info=None):
         re.sub(r"\s+", " ", f"{marca_txt} {l} {t} {v if v != '-' else ''}").strip()
         for l, t, v in zip(df["linha"], df["tipo"], df["volume"])
     ]
+    # Etapa 4 (29/09): GTIN que é de OUTRA marca (vendedor que troca a marca no cadastro, ex.: LIPX com o Asad Elixir da
+    # Lattafa) vira o produto da dona, marcado como outra marca aqui; no relatório da dona ele entra junto (mesmo GTIN).
+    alvo_g = compacta(marca)
+    if GTIN_GLOBAL:
+        for i in df.index[(df["gtin"] != "") & ~nao_perf]:
+            g = GTIN_GLOBAL.get(df.at[i, "gtin"])
+            if not g or compacta(g["marca"]) == alvo_g or APELIDOS_MARCA.get(compacta(g["marca"])) == alvo_g:
+                continue
+            for c in ("linha", "volume", "genero", "produto"):
+                df.at[i, c] = g[c]
+            df.at[i, "tipo"] = TIPO_OUTRA
+            df.at[i, "confianca"] = CONF_GTIN_OUTRA
     return df
 
 
