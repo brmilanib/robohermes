@@ -3942,7 +3942,7 @@ def cmd_programar(args, cfg, quem="ferreiro"):
     quem_card = {"astra": "astra", "deepseek": "deepseek_mac"}.get(quem, "claude_mac")
     nome, autor = ("DeepSeek", DEEPSEEK_AUTOR) if ds else ("Astra", ASTRA_AUTOR) if astra else ("Ferreiro", FERREIRO_AUTOR)
     trava = PASTA / f"{quem}.pid"
-    if any(_pid_vivo(PASTA / x) for x in PROGRAMADORES_PID):
+    if str(args.id) != "0" and any(_pid_vivo(PASTA / x) for x in PROGRAMADORES_PID):   # conferir (0) só lê: vale sempre
         print(f"O {nome} não pode começar agora: o clone do projeto está em uso por outro card.")
         return 1
     ok, motivo = deepseek_pronto(cfg) if ds else astra_pronto(cfg) if astra else ferreiro_pronto(cfg)
@@ -3951,7 +3951,9 @@ def cmd_programar(args, cfg, quem="ferreiro"):
     limite = f"{gasto} de {teto} cards" if astra else f"US$ {gasto:.2f} de {FERREIRO_TETO_DIA:.0f}"
     modelo = DEEPSEEK_PROG_MODELO if ds else ASTRA_MODELO if astra else FERREIRO_MODELO
     if str(args.id) == "0":                               # só conferir (comando "conferir" da Central)
-        print((f"✅ {nome} pronto" if ok else f"❌ {nome} indisponível: {motivo}") + f" · hoje {limite} · modelo {modelo}")
+        ocupado = next((x.split(".")[0] for x in PROGRAMADORES_PID if _pid_vivo(PASTA / x)), None)
+        print((f"✅ {nome} pronto" if ok else f"❌ {nome} indisponível: {motivo}") + f" · hoje {limite} · modelo {modelo}"
+              + (f" · agora o clone está com o {ocupado}" if ocupado else ""))
         return 0 if ok else 1
     token = token_nubi(cfg)
     tid = int(args.id)
