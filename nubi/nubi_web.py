@@ -38,6 +38,7 @@ import atendimento
 import pesquisador
 import saber
 import estoque
+import meli
 import perseguir
 import reuniao
 import vend_bi
@@ -274,6 +275,14 @@ def _com_marca_trocada(repo, df, atual, marca):
     return pd.concat([df, extra], ignore_index=True), int(pd.to_numeric(extra["un"], errors="coerce").fillna(0).sum())
 
 
+def _lojas_ml_do(repo, hashes):
+    try:
+        m = meli.ler_hash_lojas(repo)
+    except Exception:  # noqa: BLE001  (extra: sem o de-para o relatório sai como antes)
+        return {}
+    return {h: x for h, x in m.items() if h in hashes}
+
+
 def relatorio(repo, marca):
     snaps = repo.snapshots(marca)
     if snaps.empty:
@@ -347,7 +356,7 @@ def relatorio(repo, marca):
             "share": share, "share_acum": acum, "anuncios": n, "referencias": int(sub["produto"].nunique()),
             "preco_medio": _div(v["fat"], v["un"]), "un_por_anuncio": _div(v["un"], n),
             "pct_catalogo": _div(sub["catalogo"].sum(), n), "pct_full": _div(sub["full"].sum(), n),
-            "loja_oficial": int(sub["loja_oficial"].sum()), "internacional": int(sub["internacional"].sum())})
+            "loja_oficial": int(sub["loja_oficial"].sum()), "internacional": int(sub["internacional"].sum()), "vid": str(vid)})
 
     # Preços
     precos = []
@@ -458,7 +467,7 @@ def relatorio(repo, marca):
             "codigo": vend.at[vid, "cod"], "vendedor": vend.at[vid, "nome"], "anuncios": n, "un": un, "fat": fat,
             "preco_medio": _div(fat, un), "ultimo_preco": float(x["preco"].median()),
             "full": int(x["full"].sum()), "catalogo": int(x["catalogo"].sum()),
-            "loja_oficial": int(x["loja_oficial"].max())})
+            "loja_oficial": int(x["loja_oficial"].max()), "vid": str(vid)})
     for lista in vend_prod.values():
         tot = sum(v["un"] for v in lista)
         for v in lista:
@@ -515,6 +524,8 @@ def relatorio(repo, marca):
         "vendedores_produto": {k: _registros(v) for k, v in vend_prod.items()},
         "produtos_vendedor": {k: _registros(v) for k, v in prod_vend.items()},
         "colunas_arquivo": colunas,
+        # 29/09: a loja real (Mercado Livre) dos vendedores embaralhados que o nubi já identificou (meli|hash_lojas)
+        "lojas_ml": _lojas_ml_do(repo, set(df["vendedor_id"].astype(str))),
     }
 
 
@@ -992,6 +1003,14 @@ def atender(metodo, rota, q, corpo, token):
                 return _json(atendimento.rota(repo, metodo, rota, q, corpo))
             except (ValueError, KeyError) as e:
                 raise ErroNuvem(f"Atendimento: {e}", 400)
+        if rota.startswith("meli_"):
+            # 29/09 (Bruno): API oficial do Mercado Livre — loja real, links, foto e preço de agora (só leitura)
+            try:
+                return _json(rota_meli(repo, metodo, rota, q, corpo))
+            except meli.NaoAchou as e:
+                raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 404)
+            except meli.ErroMeli as e:
+                raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 400)
         if rota.startswith("estoque") or rota.startswith("gestor_") or rota == "coleta_pendente":
             return _json(rota_estoque(repo, metodo, rota, q, corpo))
         if rota == "conhecimento":
@@ -3920,6 +3939,152 @@ def _enriquecer_diff(repo, atual, itens):
             a, b = agora.get(x.get("sku")) or {}, antes.get(x.get("sku")) or {}
             x.update(custo=f(a.get("custo_medio")), custo_antes=f(b.get("custo_medio")),
                      transito=f(a.get("transito_compra")), minimo=f(a.get("estoque_min")))
+
+
+# ---------------------------------------------------------------------------
+# Mercado Livre (API oficial, 29/09, pedido do Bruno): por CIMA dos dados do Nubimetrics (que continuam a base), a loja
+# real, o link da loja e do anúncio, a foto e o preço de agora. Só leitura; o agrupamento não muda.
+# ---------------------------------------------------------------------------
+ML_CAMPOS_NUBI = "vendedor_id,vendedor,gtin,sku,preco,full,dias_pub,un,fat,produto,titulo,snapshot_id,tipo"
+
+
+def _ultimos_snapshots(repo, marca=None):
+    snaps = repo.snapshots(marca) if marca else repo.snapshots()
+    return snaps if snaps.empty else snaps.sort_values("id").groupby("marca").tail(1)
+
+
+def _data_do_export(s):
+    """O Nubimetrics conta 'dias publicados' no dia do export (= dia da importação)."""
+    for c in ("importado_em", "fim"):
+        try:
+            v = s.get(c)
+            if v is not None and str(v) not in ("", "nan", "NaT"):
+                return _br(str(v)).date() if "T" in str(v) or " " in str(v) else date.fromisoformat(str(v)[:10])
+        except Exception:  # noqa: BLE001
+            continue
+    return _agora_br().date()
+
+
+def _linhas_nubi(repo, snaps, filtro):
+    if snaps.empty:
+        return []
+    ref = {int(r["id"]): _data_do_export(r) for _, r in snaps.iterrows()}
+    marca_de = {int(r["id"]): r["marca"] for _, r in snaps.iterrows()}
+    rows = repo._todos("anuncios", {"select": ML_CAMPOS_NUBI, "snapshot_id": f"in.({','.join(str(i) for i in ref)})", **filtro})
+    if not rows:
+        return []
+    df = pd.DataFrame(rows)
+    df["vendedor_id"] = df["vendedor_id"].astype(str)
+    df["gtin"] = nubi.gtin_efetivo(df)
+    out = df.to_dict("records")
+    for r in out:
+        r["data_ref"] = ref.get(int(r["snapshot_id"]))
+        r["marca"] = marca_de.get(int(r["snapshot_id"]), "")
+    return out
+
+
+def _ml_do_produto(repo, marca, gtins):
+    """Quem vende o produto no ML agora (catálogo pelo GTIN) + quais vendedores do Nubimetrics são essas lojas."""
+    gtins = [g for g in dict.fromkeys(str(x).strip() for x in gtins or []) if re.fullmatch(r"\d{8,14}", g)][:4]
+    if not gtins:
+        return {"anuncios": [], "casados": {}, "sem_gtin": True}
+    ml = meli.por_gtin(gtins)
+    casados = {}
+    if marca and ml:
+        linhas = _linhas_nubi(repo, _ultimos_snapshots(repo, marca), {"gtin": f"in.({','.join(gtins)})"})
+        casados = meli.casar_vendedores(linhas, ml)
+        if casados:
+            meli.gravar_hash_lojas(repo, casados)
+    return {"anuncios": ml, "casados": casados}
+
+
+def _descobrir_loja(repo, vid):
+    """Vendedor embaralhado (hash) -> loja real: os produtos dele com GTIN (os que mais vendem) no catálogo do ML."""
+    vid = str(vid or "").strip()
+    if not re.fullmatch(r"[0-9a-f]{16,64}", vid):
+        raise ErroNuvem("Vendedor inválido.")
+    linhas = [l for l in _linhas_nubi(repo, _ultimos_snapshots(repo), {"vendedor_id": f"eq.{vid}"})
+              if re.fullmatch(r"\d{8,14}", str(l.get("gtin") or ""))]
+    linhas.sort(key=lambda l: -float(l.get("un") or 0))
+    gtins = list(dict.fromkeys(l["gtin"] for l in linhas))[:4]
+    if not gtins:
+        return {"achou": False, "motivo": "os anúncios deste vendedor no Nubimetrics não têm GTIN (ou SKU que seja código de barras)"}
+    casados = meli.casar_vendedores(linhas, meli.por_gtin(gtins))
+    x = casados.get(vid)
+    if not x:
+        return {"achou": False, "testados": len(gtins),
+                "motivo": "nenhum anúncio do mesmo produto no catálogo do ML bateu preço, Full e idade (o anúncio pode estar fora do "
+                          "catálogo ou ter mudado de preço desde o export)"}
+    meli.gravar_hash_lojas(repo, {vid: x})
+    return {"achou": True, "loja": dict(meli.lojas([x["id"]]).get(str(x["id"])) or {}, **x)}
+
+
+def _nubi_da_loja(repo, seller_id):
+    """Os NOSSOS números (Nubimetrics, agrupamento do nubi) da loja real: pelos vendedores embaralhados já identificados."""
+    hashes = [h for h, x in meli.ler_hash_lojas(repo).items() if str(x.get("id")) == str(seller_id)]
+    if not hashes:
+        return None
+    linhas = _linhas_nubi(repo, _ultimos_snapshots(repo), {"vendedor_id": f"in.({','.join(hashes)})"})
+    prods = {}
+    for l in linhas:
+        k = (l["marca"], l.get("produto") or l.get("titulo"))
+        p = prods.setdefault(k, {"marca": nubi.nome_bonito(l["marca"]), "produto": k[1], "un": 0, "fat": 0.0, "anuncios": 0,
+                                 "titulo": l.get("titulo") or ""})
+        p["un"] += int(l.get("un") or 0)
+        p["fat"] += float(l.get("fat") or 0)
+        p["anuncios"] += 1
+    lista = sorted(prods.values(), key=lambda p: (-p["un"], -p["fat"]))
+    for p in lista:
+        p["preco_medio"] = round(p["fat"] / p["un"], 2) if p["un"] else None
+    nomes = sorted({str(l.get("vendedor") or "") for l in linhas if l.get("vendedor")})
+    return {"hashes": hashes, "nomes": nomes, "produtos": lista[:80], "un": sum(p["un"] for p in lista),
+            "fat": round(sum(p["fat"] for p in lista), 2), "marcas": sorted({p["marca"] for p in lista})}
+
+
+def rota_meli(repo, metodo, rota, q, corpo):
+    d = {}
+    if metodo == "POST" and corpo:
+        try:
+            d = json.loads(corpo)
+        except ValueError:
+            raise ErroNuvem("Pedido inválido.")
+    if rota == "meli_teste":
+        return meli.testar()
+    if rota == "meli_hash_lojas":
+        return {"lojas": meli.ler_hash_lojas(repo)}
+    if rota == "meli_anuncios" and metodo == "POST":
+        return {"anuncios": meli.anuncios(d.get("anuncios") or [], com_visitas=bool(d.get("visitas")))}
+    if rota == "meli_anuncio":
+        m = meli.pagina_anuncio(q.get("link") or q.get("id") or "")
+        try:                                  # o meu lado (estoque do UpSeller) para a calculadora de margem
+            m["meu"] = produto_meu(repo, m.get("titulo") or "", [m["gtin"]] if m.get("gtin") else [], [])
+        except Exception:  # noqa: BLE001
+            m["meu"] = None
+        return m
+    if rota == "meli_loja":
+        p = meli.pagina_loja(repo, q.get("link") or q.get("id") or "", forcar=q.get("forcar") == "1")
+        p["nubimetrics"] = _nubi_da_loja(repo, p["loja"]["id"])
+        return p
+    if rota == "meli_gtin":
+        sep = lambda k: [x for x in str(q.get(k) or "").split("|") if x]
+        return _ml_do_produto(repo, q.get("marca") or d.get("marca"), d.get("gtins") or sep("gtins"))
+    if rota == "meli_descobrir" and metodo == "POST":
+        return _descobrir_loja(repo, d.get("vendedor_id"))
+    if rota == "meli_nomear" and metodo == "POST":
+        # o Bruno confirma à mão qual é a loja de um vendedor embaralhado (link/ID da loja ou de um anúncio dela)
+        vid = str(d.get("vendedor_id") or "")
+        alvo = meli.codigo_do_texto(d.get("loja") or "")
+        if not re.fullmatch(r"[0-9a-f]{16,64}", vid) or not alvo:
+            raise ErroNuvem("Informe o vendedor e o link da loja (ou de um anúncio dela).")
+        sid = alvo[1] if alvo[0] == "loja" else str((meli.itens([alvo[1]]).get(alvo[1]) or {}).get("vendedor_id") or "")
+        lj = meli.lojas([sid]).get(sid) if sid else None
+        if not lj:
+            raise ErroNuvem("Não achei essa loja no Mercado Livre.", 404)
+        x = {"id": sid, "nome": lj["nome"], "link": lj["link"], "votos": 0, "confianca": "manual",
+             "em": datetime.now(timezone.utc).isoformat()}
+        meli.gravar_hash_lojas(repo, {vid: x})
+        return {"ok": True, "loja": dict(lj, **x)}
+    raise ErroNuvem("Rota do Mercado Livre desconhecida.", 404)
 
 
 def rota_estoque(repo, metodo, rota, q, corpo):

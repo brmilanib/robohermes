@@ -122,6 +122,25 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   anúncio do MESMO vendedor com o MESMO SKU (se for um só); sem nada, o SKU quando é código de barras válido
   (`_ean_valido`). Só para agrupar (confiança "GTIN pelo SKU do vendedor"); o GTIN gravado continua o do arquivo.
 
+## API oficial do Mercado Livre (29/09, pedido do Bruno) — `meli.py`, rotas `meli_*`, menu Concorrentes → 🛰️ Mercado Livre
+- Objetivo: a loja VERDADEIRA (o Nubimetrics embaralha vendedor e anúncio: `ID do anúncio`/`ID do vendedor` são SHA-256,
+  conferido em 14.406 linhas e no botão copiar da tela deles), o link da loja e do anúncio, a foto e o preço de agora.
+  Camada só de leitura POR CIMA do Nubimetrics: agrupamento, produtos e números continuam os nossos. Visual do HunterHub.
+- Chaves `ML_CLIENT_ID`/`ML_CLIENT_SECRET` na Vercel (o Bruno coloca; nunca no código/banco/log/chat). Token do app
+  (client_credentials) só na memória do servidor; erro nunca mostra segredo nem token. Sem as chaves: só um aviso 🔑.
+- Hash -> loja: pelo GTIN no catálogo do ML (`/products/search` -> `/products/{id}/items`), `meli.casar_vendedores` casa
+  cada anúncio do Nubimetrics com o do ML por preço (±1% ou R$ 1), Full e idade (dias publicados na data do export, ±3);
+  2 votos ou 1 com idade exata = "provável". De-para em `ia_resumos` `meli|hash_lojas` (o que o Bruno confirma à mão fica
+  "manual" e não é trocado). O relatório da marca traz `lojas_ml` e o `vid` (hash) de cada vendedor.
+- Onde aparece: quadro do produto → "No Mercado Livre agora" (quem vende pelo catálogo, loja real, link, preço de agora) e
+  o nome real embaixo do vendedor; quadro do vendedor → "🔎 Descobrir a loja real" / "Já sei qual é" (`meli_descobrir`,
+  `meli_nomear`); `#/ml` (colar link, lojas identificadas, 🔌 testar conexão = `meli_teste`); `#/ml/anuncio/<link|MLB>`
+  (cabeçalho, nota 0–100 com os pontos, KPIs, 🧮 calcular margem com tarifa/frete da API e o meu custo do UpSeller);
+  `#/ml/loja/<link|id>` (perfil, NOSSOS números do Nubimetrics dos hashes ligados, insights, grade com filtros/exportar;
+  cache 6 h em `meli|loja|<id>`). Rota genérica `meli_anuncios` (POST {anuncios, visitas}) para outras telas.
+- Vendidos/estoque do ML vêm em faixas (+1.000); nota e insights são regras (sem IA). Testes: `test_meli.py` (dublê da
+  API) e `test_ml_real.py` (tela, pc e celular, e sem as chaves).
+
 ## Quadro do produto no Explorador (30/09, pedido do Bruno) — `abrirVendedoresProduto` + rota `estoque_produto`
 - Quadro largo (`.modal.larga.pq`): cabeçalho com o mercado (un., faturamento, preço médio e faixa, vendedores, líder) e
   o MEU lado vindo de `produto_meu`: vendo? (vendas por anúncio do UpSeller, 30 dias, por loja), meu preço médio vs.
