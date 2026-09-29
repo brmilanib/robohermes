@@ -3812,10 +3812,18 @@ DEEPSEEK_AUTOR = "DeepSeek (estoque)"
 PROGRAMADORES_PID = ("ferreiro.pid", "astra.pid", "deepseek.pid")     # os três dividem o clone do projeto
 
 
+def _aider_bin():
+    for c in (shutil.which("aider"), str(Path.home() / ".local" / "bin" / "aider"), "/opt/homebrew/bin/aider", "/usr/local/bin/aider"):
+        if c and Path(c).exists():
+            return c
+    return None
+
+
 def deepseek_pronto(cfg=None):
-    """(pronto, motivo): tem o Codex instalado, a chave do DeepSeek no Chaveiro e o git?"""
-    if not _codex_bin():
-        return False, "Codex não instalado no Mac (npm install -g @openai/codex)"
+    """(pronto, motivo): tem o Aider instalado, a chave do DeepSeek no Chaveiro e o git? (29/09: o Codex 0.157 não aceita
+    mais a API de chat, a única que o DeepSeek tem; o Aider fala com o DeepSeek direto)"""
+    if not _aider_bin():
+        return False, "Aider não instalado no Mac (python3 -m pip install --user aider-install && aider-install)"
     if not _credencial("deepseek", cfg)[1]:
         return False, "chave do DeepSeek não guardada (coletor guardar-senha deepseek)"
     if not shutil.which("git"):
@@ -3984,7 +3992,7 @@ def cmd_programar(args, cfg, quem="ferreiro"):
         co = _git(repo, "checkout", "-B", ramo, f"origin/{BRANCH_NUBI}")
         if co.returncode:
             raise Falha(f"não consegui trocar para o branch {ramo}: " + (co.stderr or co.stdout)[-300:])
-        _passo_card(token, tid, (f"🐋 DeepSeek (Codex no Mac, modelo {DEEPSEEK_PROG_MODELO}) pegou o card na hora." if ds else
+        _passo_card(token, tid, (f"🐋 DeepSeek (Aider no Mac, modelo {DEEPSEEK_PROG_MODELO}) pegou o card na hora." if ds else
                                  f"🎨 Astra (Codex no Mac, modelo {ASTRA_MODELO}) pegou o card na hora." if astra else
                                  "🔨 Ferreiro (Claude Code no Mac) pegou o card na hora.") + f" Trabalhando no branch {ramo}.",
                     "em_desenvolvimento", quem=quem_card)
@@ -4018,23 +4026,27 @@ def cmd_programar(args, cfg, quem="ferreiro"):
             env = {k: v for k, v in env.items() if k != "ANTHROPIC_API_KEY"}
             ultima = PASTA / f"{quem}-card-{tid}.txt"
             if ds:
-                # a API do DeepSeek fala o formato de chat da OpenAI: o Codex usa um provedor próprio só nesta chamada
+                # 29/09: o Codex 0.157 recusou a API de chat (a única do DeepSeek); o Aider fala com ela direto. Sem commit
+                # dele (o coletor faz o commit e roda os testes depois), sem perguntas, só no clone do projeto.
                 env["DEEPSEEK_API_KEY"] = _credencial("deepseek", cfg)[1]
-                prov = ["-c", 'model_provider="deepseek"', "-c", 'model_providers.deepseek.name="DeepSeek"',
-                        "-c", f'model_providers.deepseek.base_url="{DEEPSEEK_PROG_URL}"',
-                        "-c", 'model_providers.deepseek.env_key="DEEPSEEK_API_KEY"', "-c", 'model_providers.deepseek.wire_api="chat"']
+                r = subprocess.run([_aider_bin(), "--model", f"deepseek/{modelo}", "--yes-always", "--no-auto-commits",
+                                    "--no-check-update", "--no-show-model-warnings", "--no-pretty", "--no-stream",
+                                    "--map-tokens", "4096", "--read", "nubi/CLAUDE.md", "--message", pedido],
+                                   cwd=str(repo), env=env, capture_output=True, text=True, timeout=3600)
+                relatorio = (r.stdout or "")[-3000:].strip()
+                ferr = "Aider"
             else:
                 chave_oa = _credencial("openai", cfg)[1]
                 env.update({"OPENAI_API_KEY": chave_oa, "CODEX_API_KEY": chave_oa})
-                prov = []
-            # sandbox do Codex: escreve só dentro do clone do projeto; o push é feito depois pelo coletor, não pelo agente
-            r = subprocess.run([_codex_bin(), "exec", *prov, "--model", modelo, "--sandbox", "workspace-write",
-                                "--output-last-message", str(ultima), pedido],
-                               cwd=str(repo), env=env, capture_output=True, text=True, timeout=3600)
-            relatorio = (ultima.read_text() if ultima.exists() else (r.stdout or r.stderr or "")[-3000:]).strip()
+                # sandbox do Codex: escreve só dentro do clone do projeto; o push é feito depois pelo coletor, não pelo agente
+                r = subprocess.run([_codex_bin(), "exec", "--model", modelo, "--sandbox", "workspace-write",
+                                    "--output-last-message", str(ultima), pedido],
+                                   cwd=str(repo), env=env, capture_output=True, text=True, timeout=3600)
+                relatorio = (ultima.read_text() if ultima.exists() else (r.stdout or r.stderr or "")[-3000:]).strip()
+                ferr = "Codex"
             if r.returncode and (r.stderr or "").strip():
-                # 29/09: o card só mostrava o eco do pedido; o erro de verdade do Codex (modelo, chave, cota) vem no stderr
-                relatorio = "## Erro do Codex\n\n```\n" + r.stderr.strip()[-1500:] + "\n```\n\n" + relatorio
+                # 29/09: o card só mostrava o eco do pedido; o erro de verdade (modelo, chave, cota) vem no stderr
+                relatorio = f"## Erro do {ferr}\n\n```\n" + r.stderr.strip()[-1500:] + "\n```\n\n" + relatorio
             custo = 0.0                                   # o Codex não informa o custo; aparece no uso da OpenAI/DeepSeek
             _cards_hoje(cfg, "deepseek_cards", 1) if ds else _cards_astra_hoje(cfg, 1)
         else:
@@ -4058,7 +4070,7 @@ def cmd_programar(args, cfg, quem="ferreiro"):
                  f"Card #{tid}: {t['titulo'][:80]} ({nome})")
             novos = _git(repo, "rev-list", "--count", f"origin/{BRANCH_NUBI}..HEAD").stdout.strip()
             testes = _testes_projeto(repo, env)
-        ferramenta = "o Codex" if astra else "o Claude Code"
+        ferramenta = "o Aider" if ds else "o Codex" if astra else "o Claude Code"
         if astra and r.returncode and novos not in ("", "0") and not testes.returncode:
             r = subprocess.CompletedProcess(r.args, 0)    # o Codex sai com erro quando o sandbox bloqueia o commit dele; o coletor já fez
         if r.returncode or novos in ("", "0") or testes.returncode:
