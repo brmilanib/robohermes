@@ -835,6 +835,12 @@ def atender(metodo, rota, q, corpo, token):
             rc = RepoSupabase(login_agente())
             ligar_registro_uso(rc, "rotinas")
             return _json(rodar_rotinas(rc))
+        if rota.startswith("ext_"):
+            # extensão do Chrome (29/09): SEM login, só dado público do ML (nada do nubi nem do Bruno)
+            try:
+                return _json(rota_extensao(rota, q))
+            except meli.ErroMeli as e:
+                raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 400)
         repo = RepoSupabase(token)
         ligar_registro_uso(repo, rota)
         if rota == "agente" and metodo == "POST":
@@ -4390,6 +4396,35 @@ def _painel_seguidos(repo):
     with ThreadPoolExecutor(max_workers=6) as ex:
         out = list(ex.map(resumo_com_explorador, ult.values()))
     return sorted(out, key=lambda x: -x["vendas"])
+
+
+_EXT_CALIB = {"ts": 0.0, "pts": []}
+
+
+def _ext_calib():
+    """Calibração da data pelo nº do MLB para a extensão (só os pares nº→data; nenhum dado do Bruno sai daqui)."""
+    if time.time() - _EXT_CALIB["ts"] > 6 * 3600:
+        _EXT_CALIB["ts"] = time.time()
+        try:
+            _EXT_CALIB["pts"] = _calibracao_mlb(RepoSupabase(login_agente()))
+        except Exception:  # noqa: BLE001  (extra: sem calibração, sem data estimada)
+            pass
+    return _EXT_CALIB["pts"]
+
+
+def rota_extensao(rota, q):
+    if not meli.tem_chave():
+        raise ErroNuvem(meli.FALTA_CHAVE, 503)
+    if rota == "ext_ml":
+        p = meli.ext_parametros(q)
+        if not (p["mlb"] or p["pid"] or p["vendedor"]):
+            raise ErroNuvem("Informe o anúncio, o produto ou o vendedor.")
+        return meli.painel_extensao(p, calib=_ext_calib() if p["mlb"] else None)
+    if rota == "ext_categorias":
+        return {"categorias": meli.ext_categorias()}
+    if rota == "ext_tendencias":
+        return {"termos": meli.ext_tendencias(str(q.get("categoria") or "").upper() or None)}
+    raise ErroNuvem("Rota desconhecida.", 404)
 
 
 def rota_meli(repo, metodo, rota, q, corpo):

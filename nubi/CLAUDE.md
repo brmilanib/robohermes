@@ -183,6 +183,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     vendas e loja oficial (`lerAnuncio`), e o perfil público `/users/{id}`; `conteudo.js` põe a linha da loja embaixo de
     cada anúncio da busca (3 por vez, até 60) e um quadro na página do produto, com "📊 nubi" (#/ml/loja/<id>). Sem login
     do nubi, sem token. Baixar/instalar: card "🧩 Extensão do Chrome" em #/ml.
+    Versão 0.2 (29/09, prints do painel do Hunter: "quero essas mesmas funções"): quadro **nubi Spy** embaixo do preço (frete,
+    comissão, valor recebido, visitas do catálogo/dia e % deste anúncio, vendas/dia, faturamento = vendidos × preço, nota nubi
+    por regra — procura, conversão, reputação, preço x menor do catálogo —, tempo ativo pela data da página ou "≈" pelo nº do
+    MLB, concorrentes do catálogo com a loja real, baixar mídias, perfil do vendedor) e o **painel lateral** (aba "n" →
+    iframe `painel.html`: Início, Calculadora igual à do Hunter — taxa % da API + custo fixo abaixo de R$ 79, frete do ML ou
+    customizado, imposto, lucro/margem/ROI —, Histórico em `chrome.storage.local`, Tendências, Gerador/conferidor EAN-13,
+    Ajustes). Dado do ML vem da rota PÚBLICA `ext_ml`/`ext_categorias`/`ext_tendencias` (`rota_extensao`, antes do login em
+    `atender`): parâmetros conferidos por regex (`meli.ext_parametros`), só dado público do ML com o token do app, cache
+    30 min e até `EXT_POR_MINUTO`=90 pedidos novos por minuto; a data estimada usa a calibração lida com o login do agente
+    (só pares nº→data). Nada do Bruno sai por ela. Testes: `test_meli.py` (rota) e `test_extensao.py` (quadro e painel).
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

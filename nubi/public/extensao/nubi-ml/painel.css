@@ -1,0 +1,45 @@
+:root{--fundo:#fff;--fundo2:#f5f7fb;--linha:#e3e8f2;--txt:#1d2b4f;--fraco:#6b7a99;--azul:#1f3a7a;--azul2:#1f4fd8;--verde:#0f7b4a;
+  --verde2:#e8f7ef;--verm:#b42318;--laranja:#c2410c}
+@media (prefers-color-scheme:dark){:root{--fundo:#141a26;--fundo2:#1c2433;--linha:#2a3448;--txt:#e6ebf5;--fraco:#95a2bd;--azul:#3b5bb5;
+  --azul2:#8fb0ff;--verde:#4ade80;--verde2:#123524;--verm:#f87171;--laranja:#fb923c}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--fundo);color:var(--txt);font:13px/1.4 -apple-system,Segoe UI,Roboto,sans-serif}
+.pn{display:grid;grid-template-columns:1fr 44px;grid-template-rows:auto 1fr;height:100%}
+.pn-cab{grid-column:1/3;display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--linha)}
+.pn-cab b{font-size:17px;color:var(--azul2)}.pn-cab span{color:var(--fraco);flex:1}
+.pn-cab button{border:0;background:none;color:var(--fraco);font-size:18px;cursor:pointer}
+main{overflow:auto;padding:12px 14px 24px}
+.pn-trilho{display:flex;flex-direction:column;gap:6px;padding:8px 4px;border-left:1px solid var(--linha)}
+.pn-trilho button{width:36px;height:36px;border:0;border-radius:9px;background:none;font-size:16px;cursor:pointer;color:var(--txt)}
+.pn-trilho button.on{background:var(--azul);color:#fff}
+h2{font-size:16px;margin:0 0 2px}.sub{color:var(--fraco);font-size:12px;margin:0 0 12px}
+.cartao{border:1px solid var(--linha);border-radius:10px;padding:10px 12px;background:var(--fundo2);margin-bottom:10px}
+.grade{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.atalho{border:1px solid var(--linha);border-radius:10px;padding:12px;background:var(--fundo2);cursor:pointer;text-align:left;color:var(--txt);font:inherit}
+.atalho b{display:block;margin-top:6px}.atalho:hover{border-color:var(--azul2)}
+label{display:block;font-size:12px;color:var(--fraco);margin:10px 0 4px}
+input,select{width:100%;padding:8px 10px;border:1px solid var(--linha);border-radius:8px;background:var(--fundo);color:var(--txt);font:inherit}
+.tipos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tipos button{padding:8px;border:1px solid var(--linha);border-radius:8px;background:var(--fundo);color:var(--txt);cursor:pointer;font:inherit}
+.tipos button.on{background:var(--azul);border-color:var(--azul);color:#fff}
+.tipos small{display:block;opacity:.8}
+.chave{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--linha);border-radius:8px;padding:8px 10px;margin-top:8px}
+.chave small{display:block;color:var(--fraco)}
+.lucro{border:1px solid var(--verde);background:var(--verde2);border-radius:10px;padding:10px 12px;margin-top:12px}
+.lucro.neg{border-color:var(--verm)}.lucro .v{font-size:26px;font-weight:800;color:var(--verde)}.lucro.neg .v{color:var(--verm)}
+.duas{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.duas div{background:var(--fundo);border-radius:8px;padding:6px;text-align:center}.duas small{display:block;color:var(--fraco);font-size:10px}
+.linha{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--linha)}
+.bt{display:inline-block;padding:8px 12px;border:0;border-radius:8px;background:var(--azul);color:#fff;font:inherit;font-weight:600;cursor:pointer;text-decoration:none}
+.bt.cheio{display:block;width:100%;margin-top:12px;text-align:center}.bt:disabled{opacity:.5;cursor:default}
+.bt.leve{background:var(--fundo2);color:var(--txt);border:1px solid var(--linha)}
+.fraco{color:var(--fraco);font-size:12px}
+.item{display:flex;gap:10px;align-items:center;border:1px solid var(--linha);border-radius:10px;padding:8px;margin-bottom:8px}
+.item img,.item .sem{width:42px;height:42px;border-radius:6px;object-fit:cover;background:var(--fundo2);flex:none}
+.item .meio{flex:1;min-width:0}.item .meio b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .dir{text-align:right}.item .dir b{color:var(--verde)}.item .dir b.neg{color:var(--verm)}
+.mini{border:0;background:none;cursor:pointer;color:var(--fraco);font-size:13px;padding:2px 4px}
+.termo{display:flex;align-items:center;gap:8px;border:1px solid var(--linha);border-radius:8px;padding:7px 10px;margin-bottom:6px}
+.termo .n{color:var(--laranja);font-weight:700;width:22px}.termo a{flex:1;color:var(--txt);text-decoration:none;font-weight:600}
+.ean{font-family:ui-monospace,Menlo,monospace;font-size:15px;letter-spacing:1px}
+.ok{color:var(--verde)}.erro{color:var(--verm)}

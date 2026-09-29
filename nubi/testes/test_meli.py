@@ -151,6 +151,11 @@ class DubleML:
             return self._json({"id": m[2], "name": NOMES_PRODUTO[m[2]],
                                "pictures": [{"url": "http://x/prod.jpg"}], "permalink": f"https://www.mercadolivre.com.br/p/{m[2]}",
                                "buy_box_winner": {"item_id": "MLB1000100"} if m[2] == "MLB9990999" else {}})
+        if p == "/sites/MLB/categories":
+            return self._json([{"id": "MLB1246", "name": "Beleza e Cuidado Pessoal"}, {"id": "MLB1000", "name": "Eletrônicos"}])
+        if p.startswith("/trends/MLB"):
+            base = [{"keyword": "asad elixir", "url": "http://lista.mercadolivre.com.br/asad-elixir"}] if p.endswith("MLB1246") else []
+            return self._json(base + [{"keyword": "starlink mini", "url": "https://lista.mercadolivre.com.br/starlink-mini"}])
         if p == "/sites/MLB/listing_prices":
             return self._json([{"sale_fee_amount": round(float(q["price"]) * 0.14 + 6.25, 2),
                                 "sale_fee_details": {"percentage_fee": 14, "fixed_fee": 6.25}}])
@@ -723,6 +728,57 @@ def test_fotos_do_nubimetrics_para_comparar_com_o_ml():
     assert lido["itens"][0]["sku"] == "BAREEQ" and lido["mes"] == "2026-09"
     assert w.rota_meli(r, "GET", "meli_fotos_seguido", {"vendedor": "OUTRO"}, b"") == {"itens": []}
     assert "vend_fotos" in w.COMANDOS_MAC and coletor.comando_mac("vend_fotos")[-1] == "fotos-vendedores"
+
+
+
+def test_extensao_do_chrome_dado_publico_do_ml():
+    """29/09 (Bruno: "as mesmas funções do Hunter"): a rota ext_* é SEM login e só devolve dado público do ML: comissão
+    (Clássico e Premium), frete, visitas do anúncio e do catálogo, concorrentes com a loja real, data pelo nº do MLB e
+    tendências. Parâmetros conferidos; nada do nubi."""
+    d = _preparar()
+    os.environ.setdefault("OLLAMA_API_KEY", "x")
+    os.environ.setdefault("ANTHROPIC_API_KEY", "x")
+    import nubi_web as w
+    p = meli.ext_parametros({"mlb": "MLB2000200", "pid": "MLB9990999", "vendedor": "222222222", "categoria": "MLB6284",
+                             "tipo": "gold_pro", "preco": "279", "lixo": "x"})
+    assert p == {"mlb": "MLB2000200", "pid": "MLB9990999", "vendedor": "222222222", "categoria": "MLB6284", "tipo": "gold_pro",
+                 "preco": 279.0}, p
+    ruim = meli.ext_parametros({"mlb": "MLB2000200&x=1", "vendedor": "abc", "categoria": "../users", "tipo": "hack", "preco": "-3"})
+    assert set(ruim.values()) == {None}, ruim
+    calib = [(2000000, date(2026, 1, 1)), (2000400, date(2026, 2, 10))]
+    x = meli.painel_extensao(p, calib=calib)
+    assert x["loja"]["nome"] == "ESSENCEPRIMEBR" and x["frete"] == 24.45
+    assert set(x["tarifas"]) == {"gold_special", "gold_pro"} and x["tarifas"]["gold_pro"]["pct"] == 14
+    assert x["visitas"] == {"anuncio": 3000, "catalogo": 5260, "catalogo_lidos": 2, "parte": 57}, x["visitas"]
+    assert x["total_concorrentes"] == 2 and [c["loja"] for c in x["concorrentes"]] == ["FINKE", "ESSENCEPRIMEBR"]
+    assert [c["eu"] for c in x["concorrentes"]] == [False, True] and x["concorrentes"][0]["preco"] == 265.28
+    assert x["criado_estimado"] == {"data": "2026-01-21", "folga_dias": 4}, x["criado_estimado"]
+    n = len(d.pedidos)
+    assert meli.painel_extensao(p, calib=calib) == x and len(d.pedidos) == n                  # 30 min na memória
+    # só o anúncio, abaixo de R$ 79: sem frete (quem paga é o comprador)
+    y = meli.painel_extensao(meli.ext_parametros({"mlb": "MLB3000300", "vendedor": "222222222", "categoria": "MLB1234",
+                                                  "tipo": "gold_special", "preco": "69.90"}))
+    assert y["frete"] is None and y["visitas"] == {"anuncio": 22} and not y["concorrentes"]
+    # a rota: sem login (token vazio), e o que não é ext_ continua pedindo login
+    st, _, corpo, _ = w.atender("GET", "ext_tendencias", {"categoria": "mlb1246"}, b"", "")
+    assert st == 200 and [t["termo"] for t in json.loads(corpo)["termos"]] == ["asad elixir", "starlink mini"]
+    assert json.loads(corpo)["termos"][0]["link"].startswith("https://")
+    st, _, corpo, _ = w.atender("GET", "ext_categorias", {}, b"", "")
+    assert st == 200 and json.loads(corpo)["categorias"][0] == {"id": "MLB1246", "nome": "Beleza e Cuidado Pessoal"}
+    st, _, corpo, _ = w.atender("GET", "ext_ml", {"mlb": "nada"}, b"", "")
+    assert st == 400
+    w._EXT_CALIB.update(ts=9e12, pts=[])
+    st, _, corpo, _ = w.atender("GET", "ext_ml", {"mlb": "MLB2000200", "vendedor": "222222222"}, b"", "")
+    assert st == 200 and json.loads(corpo)["loja"]["nome"] == "ESSENCEPRIMEBR"
+    assert w.atender("GET", "meli_hash_lojas", {}, b"", "")[0] == 401
+    # limite de pedidos novos por minuto (rota sem login)
+    meli._EXT_CONTA.update(min=int(__import__("time").time() // 60), n=meli.EXT_POR_MINUTO)
+    try:
+        meli.painel_extensao(meli.ext_parametros({"vendedor": "111111111"}))
+        assert False, "devia recusar"
+    except meli.ErroMeli as e:
+        assert "muitos pedidos" in str(e)
+    meli._EXT_CONTA.update(n=0)
 
 
 if __name__ == "__main__":

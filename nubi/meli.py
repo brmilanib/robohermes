@@ -1181,3 +1181,110 @@ def testar(mlb="MLB4577439527", gtin="6290362346548"):
     passo("busca por loja (/sites/MLB/search)",
           lambda: (_get(f"/sites/{SITE}/search", {"seller_id": sid or 1, "limit": 1}) or {}).get("paging", {}).get("total"))
     return {"chaves": True, "passos": passos}
+
+
+# ---------------------------------------------------------------------------
+# Extensão do Chrome (29/09, pedido do Bruno: "as mesmas funções do painel do Hunter"). A extensão lê a página do anúncio
+# (vendedor, categoria, tipo, preço, produto de catálogo) e pede aqui só o que é dado PÚBLICO do ML com o token do app:
+# comissão, frete, visitas, concorrentes do catálogo com a loja real, tendências. Nada do nubi, nada do Bruno.
+
+EXT_TIPOS = ("gold_special", "gold_pro")
+EXT_POR_MINUTO = 90                      # pedidos novos (sem cache) por minuto nesta instância: rota sem login
+_EXT_CONTA = {"min": 0, "n": 0}
+
+
+def _ext_limite():
+    m = int(time.time() // 60)
+    if _EXT_CONTA["min"] != m:
+        _EXT_CONTA.update(min=m, n=0)
+    _EXT_CONTA["n"] += 1
+    if _EXT_CONTA["n"] > EXT_POR_MINUTO:
+        raise ErroMeli("muitos pedidos agora; tente em 1 minuto")
+
+
+def ext_parametros(q):
+    """Confere tudo que vem da extensão (rota sem login): só códigos do ML e números."""
+    def cod(k, pad):
+        v = str(q.get(k) or "").strip().upper().replace("-", "")
+        return v if re.fullmatch(pad, v) else None
+    try:
+        preco = float(str(q.get("preco") or "").replace(",", "."))
+        preco = preco if 0 < preco < 1e6 else None
+    except ValueError:
+        preco = None
+    tipo = str(q.get("tipo") or "")
+    return {"mlb": cod("mlb", r"MLB\d{6,14}"), "pid": cod("pid", r"MLB\d{5,14}"), "vendedor": cod("vendedor", r"\d{3,14}"),
+            "categoria": cod("categoria", r"MLB\d{1,9}"), "tipo": tipo if tipo in TIPOS else None, "preco": preco}
+
+
+def _ext_tenta(f, *a):
+    try:
+        return f(*a)
+    except ErroLogin:
+        raise
+    except ErroMeli:
+        return None
+
+
+def painel_extensao(p, calib=None, max_concorrentes=200):
+    """Tudo que a extensão mostra além da página: {loja, tarifas{tipo: {pct, fixa, total}}, frete, visitas{anuncio, catalogo,
+    parte}, concorrentes[], total_concorrentes, criado_estimado}. Cada parte que o ML recusar fica vazia."""
+    chave = "ext|" + "|".join(str(p.get(k) or "") for k in ("mlb", "pid", "vendedor", "categoria", "tipo", "preco"))
+    if chave in _CACHE and time.time() - _CACHE[chave][0] < 1800:
+        return _CACHE[chave][1]
+    _ext_limite()
+    out = {"loja": None, "tarifas": {}, "frete": None, "visitas": {}, "concorrentes": [], "total_concorrentes": None,
+           "criado_estimado": None}
+    mlb, pid, vend, preco = p.get("mlb"), p.get("pid"), p.get("vendedor"), p.get("preco")
+    if vend:
+        out["loja"] = (_ext_tenta(lojas, [vend]) or {}).get(vend)
+    if preco and p.get("categoria"):
+        for t in EXT_TIPOS:
+            tf = _ext_tenta(tarifa, preco, p["categoria"], t)
+            if tf:
+                out["tarifas"][t] = tf
+    if vend and mlb and preco and preco >= 79:
+        out["frete"] = _ext_tenta(frete_do_vendedor, vend, mlb)
+    ofs = []
+    if pid:
+        ofs = [_oferta(pid, None, x) for x in (_ext_tenta(ofertas_do_produto, pid, max_concorrentes) or [])]
+        out["total_concorrentes"] = TOTAL_OFERTAS.get(pid, len(ofs))
+        lj = _ext_tenta(lojas, [o["vendedor_id"] for o in sorted(ofs, key=lambda o: o["preco"] or 9e9)[:60]]) or {}
+        out["concorrentes"] = [dict({k: o[k] for k in ("anuncio", "link", "vendedor_id", "preco", "preco_cheio", "full",
+                                                       "frete_gratis", "tipo", "loja_oficial")},
+                                    loja=(lj.get(str(o["vendedor_id"])) or {}).get("nome"),
+                                    loja_link=(lj.get(str(o["vendedor_id"])) or {}).get("link"),
+                                    vendas_loja=(lj.get(str(o["vendedor_id"])) or {}).get("vendas"),
+                                    eu=o["anuncio"] == mlb)
+                               for o in sorted(ofs, key=lambda o: o["preco"] or 9e9)]
+    ids = [x for x in dict.fromkeys(([mlb] if mlb else []) + [o["anuncio"] for o in ofs][:50]) if x]
+    vis = (_ext_tenta(visitas, ids) or {}) if ids else {}
+    if mlb and mlb in vis:
+        out["visitas"]["anuncio"] = vis[mlb]
+    if ofs:
+        cat = sum(v for k, v in vis.items() if k in {o["anuncio"] for o in ofs})
+        out["visitas"]["catalogo"] = cat
+        out["visitas"]["catalogo_lidos"] = sum(1 for o in ofs[:50] if o["anuncio"] in vis)
+        if mlb in vis and cat:
+            out["visitas"]["parte"] = round(100 * vis[mlb] / cat)
+    if mlb and calib:
+        d, folga = data_pelo_mlb(mlb, calib)
+        if d:
+            out["criado_estimado"] = {"data": d.isoformat(), "folga_dias": round(folga)}
+    _CACHE[chave] = (time.time(), out)
+    return out
+
+
+def ext_categorias():
+    return _mem("ext|categorias", 86400, lambda: [{"id": c.get("id"), "nome": c.get("name")}
+                                                  for c in (_get(f"/sites/{SITE}/categories") or [])])
+
+
+def ext_tendencias(categoria=None):
+    cat = categoria if categoria and re.fullmatch(r"MLB\d{1,9}", categoria) else None
+
+    def ler():
+        _ext_limite()
+        r = _get(f"/trends/{SITE}" + (f"/{cat}" if cat else "")) or []
+        return [{"termo": x.get("keyword"), "link": re.sub(r"^http://", "https://", x.get("url") or "")} for x in r if x.get("keyword")]
+    return _mem(f"ext|tend|{cat or ''}", 3 * 3600, ler)

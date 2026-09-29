@@ -24,8 +24,19 @@ const h='<script>{"item_id":"MLB4350649763","seller_id":2540338692,"date_created
  + '<a href="https://perfil.mercadolivre.com.br/KAIDOXSTOREE">x</a>';
 console.log(JSON.stringify(lerAnuncio(h,'https://produto.mercadolivre.com.br/MLB-4350649763-x')));"""
 a = json.loads(subprocess.run(["node", "-e", js, str(EXT / "fundo.js")], capture_output=True, text=True, check=True).stdout)
-assert a == {"vendedor": "2540338692", "item": "MLB4350649763", "criado": "2025-12-07T10:06:52.463Z", "apelido": "KAIDOXSTOREE",
-             "vendidos": 10000, "oficial": None}, a
+assert a == {"vendedor": "2540338692", "item": "MLB4350649763", "produto": None, "criado": "2025-12-07T10:06:52.463Z",
+             "apelido": "KAIDOXSTOREE", "vendidos": 10000, "oficial": None, "categoria": None, "tipo": None, "preco": None,
+             "titulo": None, "fotos": []}, a
+# página de catálogo (/p/MLB…): produto do link, anúncio, categoria, tipo, preço e as fotos grandes
+js2 = """global.chrome={runtime:{onMessage:{addListener(){}}}};const {lerAnuncio}=require(process.argv[1]);
+const h='<meta itemprop="price" content="246.98"><h1 class="ui-pdp-title">Asad Elixir 100ml</h1><script>{"item_id":"MLB6123456789",'
+ + '"category_id":"MLB6284","listing_type_id":"gold_pro","seller_id":1111222233}</script>'
+ + '<img src="https://http2.mlstatic.com/D_NQ_NP_951134-MLB91143087125_082025-O.webp"><img src="https://http2.mlstatic.com/D_NQ_NP_2X_951134-MLB91143087125_082025-O.webp">';
+console.log(JSON.stringify(lerAnuncio(h,'https://www.mercadolivre.com.br/asad/p/MLB67389993#polycard_client=search')));"""
+b2 = json.loads(subprocess.run(["node", "-e", js2, str(EXT / "fundo.js")], capture_output=True, text=True, check=True).stdout)
+assert (b2["produto"], b2["item"], b2["categoria"], b2["tipo"], b2["preco"], b2["titulo"]) == \
+    ("MLB67389993", "MLB6123456789", "MLB6284", "gold_pro", 246.98, "Asad Elixir 100ml"), b2
+assert b2["fotos"] == ["https://http2.mlstatic.com/D_NQ_NP_2X_951134-MLB91143087125_082025-O.webp"], b2["fotos"]
 
 # 3) na tela: a linha embaixo de cada anúncio da busca e o quadro na página do produto
 LOJA = {"vendedor": "2540338692", "item": "MLB4350649763", "criado": "2025-12-07T10:06:52Z", "apelido": "KAIDOXSTOREE",
@@ -49,5 +60,77 @@ with sync_playwright() as p:
         assert pg.get_attribute(".nubi-ml-bt", "href") == "https://nubi-explorador.vercel.app/#/ml/loja/2540338692"
         assert len(pg.evaluate("PEDIDOS")) == 3 and pg.evaluate("PEDIDOS[0].tipo") == "anuncio"          # o link de ajuda não conta
         assert not erros, erros
+
+    # 4) página do produto: quadro nubi Spy (os números do print do Hunter: Asad Elixir R$ 246,98 Premium)
+    PAG = {"vendedor": "1111222233", "item": "MLB6123456789", "produto": "MLB67389993", "criado": None, "apelido": "PEREIRAELOISA",
+           "vendidos": 100, "categoria": "MLB6284", "tipo": "gold_pro", "preco": 246.98, "titulo": "Asad Elixir",
+           "fotos": ["https://http2.mlstatic.com/D_NQ_NP_2X_1-O.webp"], "loja": None}
+    NUB = {"loja": {"id": 1111222233, "nome": "PEREIRAELOISA20220126003352", "link": "https://perfil.mercadolivre.com.br/P",
+                    "cidade": "Curitiba", "uf": "PR", "nivel": "5", "vendas": 36, "desde": "2022-01-26T00:00:00Z"},
+           "tarifas": {"gold_pro": {"pct": 17, "fixa": 0, "total": 41.99}, "gold_special": {"pct": 12, "fixa": 0, "total": 29.64}},
+           "frete": 24.45, "visitas": {"anuncio": 142, "catalogo": 944, "catalogo_lidos": 21, "parte": 15},
+           "total_concorrentes": 21, "criado_estimado": {"data": "2026-03-29", "folga_dias": 4},
+           "concorrentes": [{"anuncio": "MLB1", "link": "https://x/1", "vendedor_id": 1, "preco": 239.9, "full": True, "tipo": "Clássico",
+                             "loja": "KAIDOXSTOREE", "eu": False},
+                            {"anuncio": "MLB6123456789", "link": "https://x/2", "vendedor_id": 1111222233, "preco": 246.98, "full": False,
+                             "tipo": "Premium", "loja": "PEREIRAELOISA20220126003352", "eu": True}]}
+    STUB2 = ("window.chrome={runtime:{getURL:p=>'about:blank#'+p,sendMessage:(m,cb)=>{window.PEDIDOS=(window.PEDIDOS||[]).concat([m]);"
+             "setTimeout(()=>cb(m.tipo==='pagina'?%s:m.tipo==='nubi'?%s:{ok:true}),10);}}};" % (json.dumps(PAG), json.dumps(NUB)))
+    pg = b.new_page(viewport={"width": 1440, "height": 900})
+    erros = []; pg.on("pageerror", lambda e: erros.append(str(e)))
+    pg.set_content('<html><body><div class="ui-pdp-container__row--price"><span class="ui-pdp-price">R$ 246,98</span></div>'
+                   '<meta itemprop="price" content="246.98"></body></html>')
+    pg.add_style_tag(content=(EXT / "estilo.css").read_text())
+    pg.add_script_tag(content=STUB2)
+    js_conteudo = (EXT / "conteudo.js").read_text().replace("location.href", "'https://www.mercadolivre.com.br/asad/p/MLB67389993'")
+    pg.add_script_tag(content=js_conteudo)
+    pg.wait_for_function("(document.querySelector('#nubi-ml-quadro')||{}).innerText?.replace(/\\u00a0/g,' ').includes('R$ 180,54')", timeout=5000)
+    t = pg.inner_text("#nubi-ml-quadro").replace("\xa0", " ")
+    for x in ("nubi Spy", "CATÁLOGO", "PREMIUM", "R$ 24,45", "R$ 41,99", "R$ 180,54", "31/dia", "0,5/dia", "944 nos últimos 30 dias", "15%",
+              "+100 total", "R$ 24,7 mil", "≈", "dias", "desde 29/03/2026", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
+              "Curitiba - PR", "Vendas totais", "Baixar mídias (1)", "Abrir na calculadora", "Nota nubi"):
+        assert x in t, (x, t)
+    assert pg.evaluate("document.querySelector('.ui-pdp-container__row--price').nextElementSibling.id") == "nubi-ml-quadro"
+    ped = [m for m in pg.evaluate("PEDIDOS") if m["tipo"] == "nubi"][0]
+    assert ped["rota"] == "ext_ml" and ped["params"] == {"mlb": "MLB6123456789", "pid": "MLB67389993", "vendedor": "1111222233",
+                                                         "categoria": "MLB6284", "tipo": "gold_pro", "preco": 246.98}, ped
+    pg.click("[data-nubi=conc]")
+    assert pg.is_visible(".nubi-spy-lista") and "KAIDOXSTOREE" in pg.inner_text(".nubi-spy-lista")
+    pg.click("[data-nubi=midias]")
+    assert [m for m in pg.evaluate("PEDIDOS") if m["tipo"] == "baixar"][0]["urls"] == PAG["fotos"]
+    pg.click("[data-nubi=calc]")
+    assert pg.is_visible("#nubi-ml-painel") and pg.get_attribute("#nubi-ml-painel", "src") == "about:blank#painel.html"
+    assert pg.is_visible("#nubi-ml-aba") and not erros, erros
+
+    # 5) painel lateral: calculadora (números do print do Hunter), histórico e gerador EAN
+    pp = b.new_page(viewport={"width": 420, "height": 900})
+    erros = []; pp.on("pageerror", lambda e: erros.append(str(e)))
+    pp.goto((EXT / "painel.html").as_uri())
+    pp.wait_for_selector("text=Olá, Bruno")
+    pp.evaluate("""window.postMessage({tipo:'nubi-painel',aba:'calc',atual:%s},'*')""" % json.dumps(
+        {"item": "MLB6123456789", "titulo": "Asad Elixir", "preco": 246.98, "tipo": "gold_pro", "tarifas": NUB["tarifas"], "frete": 24.45}))
+    pp.wait_for_selector("text=Lucro líquido")
+    t = pp.inner_text("#pn-corpo").replace("\xa0", " ")
+    assert "R$ 180,54" in t and "73,10%" in t and "Clássico\n12%" in t and "Premium\n17%" in t, t
+    pp.fill("#c-custo", "100")
+    pp.wait_for_function("document.querySelector('.lucro .v').innerText.includes('80,54')")
+    assert "80,54%" in pp.inner_text(".lucro")                                   # ROI = 80,54 / 100
+    pp.fill("#c-imp", "10")
+    pp.wait_for_function("document.querySelector('.lucro .v').innerText.includes('55,85')")   # − 10% de 246,98 (taxa 17% sem arredondar)
+    pp.click("[data-tipo=gold_special]")
+    assert "68,19" in pp.inner_text(".lucro .v")                                 # Clássico 12%: 246,98 − 29,64 − 24,45 − 24,70 − 100
+    pp.click("#c-salvar")
+    pp.wait_for_selector("text=Histórico de análises")
+    assert "Asad Elixir" in pp.inner_text("#pn-corpo") and "R$ 68,19" in pp.inner_text("#pn-corpo").replace("\xa0", " ")
+    pp.click("[data-aba=ean]"); pp.fill("#e-qtd", "3"); pp.click("#e-gerar")
+    cods = pp.eval_on_selector_all(".ean", "xs => xs.map(x => x.textContent)")
+    def ok13(c):
+        return len(c) == 13 and c.startswith("789") and (10 - sum(int(d) * (3 if i % 2 else 1) for i, d in enumerate(c[:12])) % 10) % 10 == int(c[12])
+    assert len(cods) == 3 and all(ok13(c) for c in cods), cods
+    pp.fill("#e-conf", "6290362346548"); assert "válido" in pp.inner_text("#e-res")
+    pp.fill("#e-conf", "6290362346549"); assert "não bate" in pp.inner_text("#e-res")
+    pp.click("[data-aba=tend]"); pp.wait_for_selector("text=Tendências de busca")
+    assert "extensão sem conexão" in pp.inner_text("#pn-corpo")                 # sem o chrome.runtime: avisa, não quebra
+    assert not erros, erros
     b.close()
-print("ok extensão do Chrome (leitor, busca e zip)")
+print("ok extensão do Chrome (leitor, busca, quadro nubi Spy, painel e zip)")
