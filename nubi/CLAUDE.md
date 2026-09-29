@@ -193,6 +193,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     `atender`): parâmetros conferidos por regex (`meli.ext_parametros`), só dado público do ML com o token do app, cache
     30 min e até `EXT_POR_MINUTO`=90 pedidos novos por minuto; a data estimada usa a calibração lida com o login do agente
     (só pares nº→data). Nada do Bruno sai por ela. Testes: `test_meli.py` (rota) e `test_extensao.py` (quadro e painel).
+    Busca (29/09, print do Bruno: "não achei a loja" em todos os cards): card de catálogo (/p/MLB…) pergunta ao nubi em lote
+    (`ext_vencedores`, "pid:wid" = o anúncio do card entre as ofertas; sem wid, o buy box, marcado "quem ganha o produto
+    agora"); o resto lê a página e, sem vendedor, a linha mostra o motivo (status, tamanho, título). Data "≈" pelo nº do MLB
+    pode errar (print: ≈74 dias x 183 no Hunter): o quadro mostra o nº do anúncio para conferir a calibração.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

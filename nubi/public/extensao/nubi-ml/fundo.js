@@ -33,7 +33,14 @@ function lerAnuncio(html, url) {
 
 async function anuncio(url) {
   if (cacheAnuncio.has(url)) return cacheAnuncio.get(url);
-  const p = fetch(url, {credentials: "include"}).then(r => r.text()).then(h => lerAnuncio(h, url)).catch(() => ({}));
+  // o motivo vai junto quando não acha a loja (29/09: "não achei a loja" em todos os cards da busca)
+  const p = fetch(url, {credentials: "include"}).then(async r => {
+    const h = await r.text();
+    const a = lerAnuncio(h, url);
+    if (!a.vendedor) a.motivo = `página ${r.status}, ${Math.round(h.length / 1024)} KB` + (r.redirected ? `, foi para ${new URL(r.url).pathname.slice(0, 40)}` : "") +
+      ((h.match(/<title>([^<]{0,60})/) || [])[1] ? ` ("${h.match(/<title>([^<]{0,60})/)[1].trim()}")` : "");
+    return a;
+  }).catch(e => ({motivo: "a página não abriu (" + String(e && e.message || e).slice(0, 60) + ")"}));
   cacheAnuncio.set(url, p);
   return p;
 }

@@ -61,12 +61,39 @@ with sync_playwright() as p:
         assert len(pg.evaluate("PEDIDOS")) == 3 and pg.evaluate("PEDIDOS[0].tipo") == "anuncio"          # o link de ajuda não conta
         assert not erros, erros
 
+    # 3b) busca com cards de catálogo (/p/MLB…, o do print do Bruno): o nubi diz a loja; o que ele não achar lê a página,
+    #     e a página que não traz o vendedor mostra o motivo
+    BUSCA2 = ('<ul><li class="ui-search-layout__item"><a href="https://www.mercadolivre.com.br/asad/p/MLB67389993#wid=MLB4350649763&sid=search">A</a></li>'
+              '<li class="ui-search-layout__item"><a href="https://www.mercadolivre.com.br/asad/p/MLB11111111#polycard_client=search">B</a></li>'
+              '<li class="ui-search-layout__item"><a href="https://www.mercadolivre.com.br/x/p/MLB22222222">C</a></li>'
+              '<li class="ui-search-layout__item"><a href="https://produto.mercadolivre.com.br/MLB-4999999999-x">D</a></li></ul>')
+    VENC = {"produtos": {"MLB67389993:MLB4350649763": {"item": "MLB4350649763", "vendedor": "2540338692", "do_card": True, "loja": LOJA["loja"]},
+                         "MLB11111111": {"item": "MLB9", "vendedor": "1111222233", "do_card": False,
+                                         "loja": {"nome": "PEREIRAELOISA", "cidade": "Curitiba", "uf": "PR", "vendas": 36}}}}
+    STUB3 = ("window.chrome={runtime:{sendMessage:(m,cb)=>{window.PEDIDOS=(window.PEDIDOS||[]).concat([m]);"
+             "setTimeout(()=>cb(m.tipo==='nubi'?%s:{item:'MLB4999999999',motivo:'página 403, 2 KB'}),10);}}};" % json.dumps(VENC))
+    pg = b.new_page(viewport={"width": 1440, "height": 900})
+    erros = []; pg.on("pageerror", lambda e: erros.append(str(e)))
+    pg.set_content(f"<html><body>{BUSCA2}</body></html>")
+    pg.add_script_tag(content=STUB3); pg.add_script_tag(content=(EXT / "conteudo.js").read_text())
+    pg.wait_for_function("[...document.querySelectorAll('.nubi-ml-linha')].every(x => !x.innerText.includes('lendo'))", timeout=5000)
+    ls = pg.eval_on_selector_all(".nubi-ml-linha", "xs => xs.map(x => x.innerText)")
+    assert "KAIDOXSTOREE" in ls[0] and "quem ganha" not in ls[0], ls
+    assert "PEREIRAELOISA" in ls[1] and "quem ganha o produto agora" in ls[1], ls
+    assert "não achei a loja" in ls[2] and "página 403, 2 KB" in ls[2] and "não achei a loja" in ls[3], ls
+    ped = pg.evaluate("PEDIDOS")
+    assert [m["params"]["pids"] for m in ped if m["tipo"] == "nubi"] == ["MLB67389993:MLB4350649763,MLB11111111,MLB22222222"], ped
+    assert sorted(m["url"] for m in ped if m["tipo"] == "anuncio") == ["https://produto.mercadolivre.com.br/MLB-4999999999-x",
+                                                                       "https://www.mercadolivre.com.br/x/p/MLB22222222"], ped
+    assert not erros, erros
+    pg.close()
+
     # 4) página do produto: quadro nubi Spy (os números do print do Hunter: Asad Elixir R$ 246,98 Premium)
     PAG = {"vendedor": "1111222233", "item": "MLB6123456789", "produto": "MLB67389993", "criado": None, "apelido": "PEREIRAELOISA",
            "vendidos": 100, "categoria": "MLB6284", "tipo": "gold_pro", "preco": 246.98, "titulo": "Asad Elixir",
            "fotos": ["https://http2.mlstatic.com/D_NQ_NP_2X_1-O.webp"], "loja": None}
     NUB = {"loja": {"id": 1111222233, "nome": "PEREIRAELOISA20220126003352", "link": "https://perfil.mercadolivre.com.br/P",
-                    "cidade": "Curitiba", "uf": "PR", "nivel": "5", "vendas": 36, "desde": "2022-01-26T00:00:00Z"},
+                    "cidade": "Curitiba", "uf": "PR", "nivel": "5", "vendas": 36, "desde": None},
            "tarifas": {"gold_pro": {"pct": 17, "fixa": 0, "total": 41.99}, "gold_special": {"pct": 12, "fixa": 0, "total": 29.64}},
            "frete": 24.45, "visitas": {"anuncio": 142, "catalogo": 944, "catalogo_lidos": 21, "parte": 15},
            "total_concorrentes": 21, "criado_estimado": {"data": "2026-03-29", "folga_dias": 4},
@@ -87,7 +114,7 @@ with sync_playwright() as p:
     pg.wait_for_function("(document.querySelector('#nubi-ml-quadro')||{}).innerText?.replace(/\\u00a0/g,' ').includes('R$ 180,54')", timeout=5000)
     t = pg.inner_text("#nubi-ml-quadro").replace("\xa0", " ")
     for x in ("nubi Spy", "CATÁLOGO", "PREMIUM", "R$ 24,45", "R$ 41,99", "R$ 180,54", "31/dia", "0,5/dia", "944 nos últimos 30 dias", "15%",
-              "+100 total", "R$ 24,7 mil", "≈", "dias", "desde 29/03/2026", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
+              "+100 total", "R$ 24,7 mil", "≈", "dias", "desde 29/03/2026", "estimado pelo nº MLB6123456789", "Menor preço do catálogo", "R$ 239,90", "este é o 2º de 2", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
               "Curitiba - PR", "Vendas totais", "Baixar mídias (1)", "Abrir na calculadora", "Nota nubi"):
         assert x in t, (x, t)
     assert pg.evaluate("document.querySelector('.ui-pdp-container__row--price').nextElementSibling.id") == "nubi-ml-quadro"

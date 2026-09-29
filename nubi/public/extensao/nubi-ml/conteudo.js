@@ -19,7 +19,7 @@
   function linhaLoja(a) {
     const l = a.loja || {}, d = diasDesde(a.criado);
     const nome = l.nome || a.apelido || (a.vendedor ? "loja " + a.vendedor : "");
-    if (!nome) return `<span class="nubi-ml-fraco">nubi: não achei a loja deste anúncio</span>`;
+    if (!nome) return `<span class="nubi-ml-fraco">nubi: não achei a loja deste anúncio${a.motivo ? ` — ${esc(a.motivo)}` : ""}</span>`;
     return `<b>🏪 ${l.link ? `<a href="${esc(l.link)}" target="_blank" rel="noopener">${esc(nome)}</a>` : esc(nome)}</b>
       ${l.cidade ? `<span>📍 ${esc(l.cidade)}${l.uf ? "-" + esc(l.uf) : ""}</span>` : ""}
       ${l.nivel ? `<span class="nubi-ml-rep r${esc(l.nivel)}">rep ${esc(l.nivel)}/5</span>` : ""}
@@ -101,6 +101,8 @@
     const nt = n ? nota(a, n, {vendasDia}) : null;
     const l = (n && n.loja) || a.loja || {};
     const conc = (n && n.concorrentes) || [];
+    const menor = conc.reduce((m, c) => c.preco && (m == null || c.preco < m) ? c.preco : m, null);
+    const pos = conc.findIndex(c => c.eu) + 1;
     const carregando = !n ? `<span class="nubi-ml-fraco">…</span>` : null;
     q.innerHTML = `
       <div class="nubi-spy-cab"><b>nubi Spy</b><span>${a.produto ? "CATÁLOGO" : "ANÚNCIO"}</span>${TIPO[a.tipo] ? `<span class="on">${esc(TIPO[a.tipo]).toUpperCase()}</span>` : ""}</div>
@@ -124,9 +126,10 @@
       ${nt ? `<div class="nubi-spy-nota"><div class="nubi-spy-l"><span>⭐ Nota nubi</span><span><i class="${nt.rotulo}">${nt.rotulo}</i> <b>${nt.v}</b><small>/100</small></span></div>
         <div class="nubi-spy-barra"><i style="width:${nt.v}%"></i></div><small>${esc(nt.txt)}</small></div>` : ""}
       <div class="nubi-spy-2">
-        <div><small>🏪 Loja desde</small><b>${l.desde ? esc(dia(l.desde)) : "—"}</b><small>${l.vendas != null ? nf(l.vendas) + " vendas" : ""}</small></div>
+        ${l.desde ? `<div><small>🏪 Loja desde</small><b>${esc(dia(l.desde))}</b><small>${l.vendas != null ? nf(l.vendas) + " vendas" : ""}</small></div>` :
+          `<div><small>🏷 Menor preço do catálogo</small><b>${brl(menor)}</b><small>${pos ? `este é o ${pos}º de ${conc.length}` : ""}</small></div>`}
         <div><small>⏱ Tempo ativo</small><b class="${dias != null && dias > 120 ? "velho" : ""}">${dias != null ? `${est && !a.criado ? "≈" : ""}${dias} dias` : "—"}</b>
-          <small>${criado ? `desde ${esc(dia(criado))}${est && !a.criado ? ` (±${est.folga_dias} d, pelo nº)` : ""}` : ""}</small></div>
+          <small>${criado ? `desde ${esc(dia(criado))}${est && !a.criado ? ` · estimado pelo nº ${esc(a.item || "")}, pode errar` : ""}` : a.item ? esc(a.item) : ""}</small></div>
       </div>
       ${conc.length ? `<button class="nubi-spy-conc" data-nubi="conc">👥 Ver ${nf(n.total_concorrentes || conc.length)} concorrentes ›</button>
         <div class="nubi-spy-lista" hidden>${conc.slice(0, 60).map(c => `<div class="${c.eu ? "eu" : ""}">
@@ -188,20 +191,45 @@
     });
     return out;
   }
+  const pidDe = url => { const m = String(url).match(/\/p\/(MLB\d{5,})/i); return m ? m[1].toUpperCase() : null; };
+  const widDe = url => { const m = String(url).match(/[?&#]wid=(MLB\d{6,})/i); return m ? m[1].toUpperCase() : null; };
+  function caixa(c) {
+    const box = document.createElement("div");
+    box.className = "nubi-ml-linha"; box.innerHTML = `<span class="nubi-ml-fraco">nubi: lendo a loja…</span>`;
+    c.appendChild(box);
+    return box;
+  }
   function andar() {
     while (rodando < 3 && fila.length) {
-      const [c, url] = fila.shift();
+      const [box, url] = fila.shift();
       rodando++;
-      const box = document.createElement("div");
-      box.className = "nubi-ml-linha"; box.innerHTML = `<span class="nubi-ml-fraco">nubi: lendo a loja…</span>`;
-      c.appendChild(box);
       pedir({tipo: "anuncio", url}).then(a => { box.innerHTML = linhaLoja(a); }).finally(() => { rodando--; andar(); });
+    }
+  }
+  // cards de catálogo (/p/MLB…): o nubi diz de quem é o anúncio do card (ou quem ganha o produto), 40 por pedido;
+  // os outros (e o que o nubi não achar) leem a página do anúncio
+  async function porCatalogo(lote) {
+    const chave = ([, url]) => pidDe(url) + (widDe(url) ? ":" + widDe(url) : "");
+    for (let i = 0; i < lote.length; i += 40) {
+      const parte = lote.slice(i, i + 40);
+      const r = await pedir({tipo: "nubi", rota: "ext_vencedores", params: {pids: [...new Set(parte.map(chave))].join(",")}});
+      parte.forEach(([box, url]) => {
+        const v = (r.produtos || {})[chave([box, url])];
+        if (v && v.vendedor) {
+          box.innerHTML = linhaLoja({vendedor: v.vendedor, item: v.item, oficial: v.oficial, loja: v.loja}) +
+            (v.do_card ? "" : `<span class="nubi-ml-fraco" title="o link do card não diz qual anúncio é">· quem ganha o produto agora</span>`);
+        } else fila.push([box, url]);
+      });
+      andar();
     }
   }
   function varrer() {
     if (!AJ.busca || ehAnuncio()) return;
-    fila.push(...cartoes().slice(0, 60));
+    const novos = cartoes().slice(0, 60).map(([c, url]) => [caixa(c), url]);
+    fila.push(...novos.filter(([, url]) => !pidDe(url)));
     andar();
+    const cat = novos.filter(([, url]) => pidDe(url));
+    if (cat.length) porCatalogo(cat);
   }
 
   function comecar() {

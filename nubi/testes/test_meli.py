@@ -771,6 +771,14 @@ def test_extensao_do_chrome_dado_publico_do_ml():
     st, _, corpo, _ = w.atender("GET", "ext_ml", {"mlb": "MLB2000200", "vendedor": "222222222"}, b"", "")
     assert st == 200 and json.loads(corpo)["loja"]["nome"] == "ESSENCEPRIMEBR"
     assert w.atender("GET", "meli_hash_lojas", {}, b"", "")[0] == 401
+    # busca: card de catálogo -> o vendedor do anúncio DO CARD (wid) entre as ofertas; sem wid, quem ganha o produto
+    v = meli.ext_vencedores(["MLB9990999:MLB1000100", "MLB9990999", "MLB8880888:MLB5000002", "lixo", "MLB1:../x"])
+    assert set(v) == {"MLB9990999:MLB1000100", "MLB9990999", "MLB8880888:MLB5000002"}, v
+    assert v["MLB9990999:MLB1000100"]["loja"]["nome"] == "FINKE" and v["MLB9990999:MLB1000100"]["do_card"]
+    assert v["MLB9990999"]["item"] == "MLB2000200" and v["MLB9990999"]["loja"]["nome"] == "ESSENCEPRIMEBR" and not v["MLB9990999"]["do_card"]
+    assert v["MLB8880888:MLB5000002"]["loja"]["nome"] == "KAIDOXSTOREE" and v["MLB8880888:MLB5000002"]["full"]
+    st, _, corpo, _ = w.atender("GET", "ext_vencedores", {"pids": "MLB9990999:MLB1000100"}, b"", "")
+    assert st == 200 and json.loads(corpo)["produtos"]["MLB9990999:MLB1000100"]["vendedor"] == "111111111"
     # limite de pedidos novos por minuto (rota sem login)
     meli._EXT_CONTA.update(min=int(__import__("time").time() // 60), n=meli.EXT_POR_MINUTO)
     try:

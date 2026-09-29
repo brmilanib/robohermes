@@ -1288,3 +1288,48 @@ def ext_tendencias(categoria=None):
         r = _get(f"/trends/{SITE}" + (f"/{cat}" if cat else "")) or []
         return [{"termo": x.get("keyword"), "link": re.sub(r"^http://", "https://", x.get("url") or "")} for x in r if x.get("keyword")]
     return _mem(f"ext|tend|{cat or ''}", 3 * 3600, ler)
+
+
+def ext_vencedores(pares):
+    """Busca do ML na extensão (29/09, print do Bruno: "não achei a loja" em todos os cards): cada card de catálogo
+    (/p/MLB…, com o anúncio do card em "wid" quando o link traz) -> o vendedor DESSE anúncio entre as ofertas do produto;
+    sem o anúncio, quem ganha o produto agora (buy box). {"pid" ou "pid:item": {item, vendedor, preco, full, tipo, loja}}."""
+    ok = []
+    for x in pares or []:
+        pid, _, it = str(x).upper().partition(":")
+        if re.fullmatch(r"MLB\d{5,14}", pid) and (not it or re.fullmatch(r"MLB\d{6,14}", it)):
+            ok.append((pid, it or None))
+    ok = list(dict.fromkeys(ok))[:60]
+    chave = lambda pid, it: f"ext|venc|{pid}|{it or ''}"
+    if any(chave(*c) not in _CACHE or time.time() - _CACHE[chave(*c)][0] > 1800 for c in ok):
+        _ext_limite()
+
+    def um(c):
+        pid, it = c
+
+        def ler():
+            try:
+                bw = None
+                if it:
+                    bw = next((x for x in ofertas_do_produto(pid, 200) if x.get("item_id") == it), None)
+                if not bw:
+                    bw = (_get(f"/products/{pid}") or {}).get("buy_box_winner") or {}
+                if not bw.get("seller_id"):
+                    bw = ((_get(f"/products/{pid}/items", {"limit": 1}) or {}).get("results") or [{}])[0]
+            except ErroLogin:
+                raise
+            except ErroMeli:
+                return None
+            if not bw.get("seller_id"):
+                return None
+            sh = bw.get("shipping") or {}
+            return {"item": bw.get("item_id"), "vendedor": str(bw["seller_id"]), "preco": _num(bw.get("price")),
+                    "full": sh.get("logistic_type") == "fulfillment", "tipo": TIPOS.get(bw.get("listing_type_id"), ""),
+                    "oficial": bw.get("official_store_id"), "do_card": bool(it and bw.get("item_id") == it)}
+        return (f"{pid}:{it}" if it else pid), _mem(chave(pid, it), 1800, ler)
+    pids = ok
+    out = {p: v for p, v in _em_paralelo(um, pids) if v}
+    lj = lojas([v["vendedor"] for v in out.values()]) if out else {}
+    for v in out.values():
+        v["loja"] = lj.get(v["vendedor"])
+    return out

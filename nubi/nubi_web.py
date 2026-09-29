@@ -4420,6 +4420,8 @@ def rota_extensao(rota, q):
         if not (p["mlb"] or p["pid"] or p["vendedor"]):
             raise ErroNuvem("Informe o anúncio, o produto ou o vendedor.")
         return meli.painel_extensao(p, calib=_ext_calib() if p["mlb"] else None)
+    if rota == "ext_vencedores":
+        return {"produtos": meli.ext_vencedores(str(q.get("pids") or "").split(","))}   # "pid" ou "pid:anúncio"
     if rota == "ext_categorias":
         return {"categorias": meli.ext_categorias()}
     if rota == "ext_tendencias":
