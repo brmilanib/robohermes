@@ -1701,6 +1701,88 @@ def baixar_vendas(pg, cfg, p=None):
     return arq
 
 
+# ---------------------------------------------------------------------------
+# Relatório de Vendas do Gestor Seller (card #124, 29/09): lucro, custo, imposto e margem real por pedido/SKU, últimos 30 dias,
+# todas as contas marcadas. Junto do estoque da madrugada, só LÊ no Gestor (nunca salvar/importar/excluir); o endereço
+# achado fica em gestor_vendas_url. Falha nunca derruba o estoque.
+# ---------------------------------------------------------------------------
+GESTOR_VENDAS = os.environ.get("NUBI_GESTOR_VENDAS", "")
+GESTOR_NAO_CLICAR = re.compile(r"salvar|importar|excluir|apagar|remover|deletar", re.I)
+JS_GESTOR_PERIODO = r"""([ini, fim]) => {
+  const vis = e => e.getClientRects().length && !e.disabled;
+  const rot = e => ((e.placeholder || '') + ' ' + (e.name || '') + ' ' + (e.getAttribute('aria-label') || '') + ' '
+    + ((e.closest('label, .form-group, .field, div') || {}).innerText || '').slice(0, 60)).toLowerCase();
+  let cs = [...document.querySelectorAll('input[type=date]')].filter(vis);
+  const br = s => s.split('-').reverse().join('/');
+  if (cs.length < 2) cs = [...document.querySelectorAll('input')].filter(e => vis(e) && /in[íi]cio|fim|final|data|per[íi]odo/.test(rot(e)));
+  const par = cs.slice(0, 2);                          // na ordem da tela: data início, data fim
+  if (par.length < 2) return 0;
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  par.forEach((e, i) => { const v = e.type === 'date' ? [ini, fim][i] : br([ini, fim][i]);
+    set.call(e, v); e.dispatchEvent(new Event('input', {bubbles: true})); e.dispatchEvent(new Event('change', {bubbles: true})); });
+  return 2;
+}"""
+JS_GESTOR_CONTAS = r"""() => {
+  let n = 0;
+  for (const c of document.querySelectorAll('input[type=checkbox]')) {
+    if (!c.getClientRects().length && !(c.parentElement && c.parentElement.getClientRects().length)) continue;
+    if (/salvar|importar|excluir|apagar|remover/i.test((c.closest('label') || c.parentElement || {}).innerText || '')) continue;
+    if (!c.checked && !c.disabled) { c.click(); n++; }
+  }
+  return n;
+}"""
+
+
+def baixar_gestor_vendas(pg, cfg, p=None):
+    """Baixa o 'Relatório de Vendas' do Gestor Seller (últimos 30 dias, todas as contas). -> (arquivo, início, fim)."""
+    fim = date.today() - timedelta(days=1)
+    ini = fim - timedelta(days=29)
+    url = cfg.get("gestor_vendas_url") or GESTOR_VENDAS or f"{GESTOR}/management/products"
+    pg.goto(url, wait_until="domcontentloaded", timeout=90000)
+    devagar(5)
+    if "/auth" in urllib.parse.urlparse(pg.url).path or pg.locator("input[type=password]:visible").count():
+        raise SessaoExpirada(f"O Gestor Seller pediu login de novo (relatório de vendas). Rode {_onde_rodar('entrar-gestor')}")
+    botao = pg.get_by_text(re.compile(r"Baixar relat[óo]rio de vendas", re.I))
+    if not botao.count():
+        # menu: "Relatório de Vendas" (às vezes dentro de "Relatórios"); nunca clica em salvar/importar/excluir
+        _clicar_texto(pg, [r"^\s*Relat[óo]rios?\s*$"], 2)
+        _clicar_texto(pg, [r"^\s*Relat[óo]rio de Vendas\s*$"], 5)
+        botao = pg.get_by_text(re.compile(r"Baixar relat[óo]rio de vendas", re.I))
+    if not botao.count():
+        raise Falha("não achei 'Relatório de Vendas' → 'Baixar relatório de vendas' no Gestor Seller. Na tela: "
+                    + str(pg.evaluate(JS_TEXTOS))[:600] + " " + diagnostico(pg))
+    if not pg.evaluate(JS_GESTOR_PERIODO, [ini.isoformat(), fim.isoformat()]):
+        log("  gestor vendas: não achei as caixas de data; ficou o período que a tela já mostrava")
+    marcadas = pg.evaluate(JS_GESTOR_CONTAS)
+    if marcadas:
+        log(f"  gestor vendas: {marcadas} conta(s) marcada(s)")
+    devagar(2)
+    alvo = botao.first
+    if GESTOR_NAO_CLICAR.search(alvo.inner_text() or ""):
+        raise Falha("o botão do relatório de vendas do Gestor tem texto proibido (salvar/importar/excluir); não cliquei")
+    destino = PASTA / "gestor_vendas"
+    destino.mkdir(parents=True, exist_ok=True)
+    estado = pg.context.storage_state()
+    links = []
+    pg.context.on("request", lambda r: links.append(r.url) if re.search(r"\.(xlsx|csv)(\?|$)|download|export|relat", r.url, re.I) else None)
+    try:
+        with pg.expect_download(timeout=180000) as dl:
+            alvo.click(timeout=15000)
+    except Exception as e:  # noqa: BLE001
+        candidatos = [u for u in links[::-1] if u.startswith("http")]
+        if p is not None and candidatos:
+            log(f"  gestor vendas: o navegador falhou no download ({e.__class__.__name__}); baixando pelo link")
+            return _baixar_link(p, estado, candidatos, destino, ""), ini, fim
+        raise Falha(f"o relatório de vendas do Gestor não baixou ({e.__class__.__name__}). Na tela: " + str(pg.evaluate(JS_TEXTOS))[:600])
+    d = dl.value
+    arq = destino / (d.suggested_filename or "relatorio_de_vendas.xlsx")
+    _salvar_download(pg, d, arq)
+    if not cfg.get("gestor_vendas_url") and "/auth" not in pg.url:
+        cfg["gestor_vendas_url"] = pg.url
+        salvar_config(cfg)
+    return arq, ini, fim
+
+
 def coletar_estoque(p, cfg, token, enviar=True):
     ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -1741,6 +1823,25 @@ def coletar_estoque(p, cfg, token, enviar=True):
                 ctx2.close()
             except Exception:  # noqa: BLE001
                 pass
+    # card #124: o Relatório de Vendas do Gestor Seller (lucro, custo, imposto) também num Chrome novo e sem derrubar o estoque
+    gestor_vendas, nota_gestor, ctx3 = None, "", None
+    try:
+        ctx3 = abrir_navegador(p, cfg, visivel=True if cfg.get("gestor_ver") else None)
+        pg3 = ctx3.pages[0] if ctx3.pages else ctx3.new_page()
+        try:
+            gestor_vendas = baixar_gestor_vendas(pg3, cfg, p)
+        except Exception as ev:  # noqa: BLE001
+            enviar_foto(pg3, f"gestor vendas: {str(ev)[:150]}", str(ev)[:3000])
+            raise
+    except Exception as ev:  # noqa: BLE001
+        nota_gestor = f"vendas do Gestor: não baixou ({ev.__class__.__name__}: {str(ev)[:500]})"
+        log("  " + nota_gestor)
+    finally:
+        if ctx3 is not None:
+            try:
+                ctx3.close()
+            except Exception:  # noqa: BLE001
+                pass
     log(f"  baixado: {arq.name} ({arq.stat().st_size // 1024} KB)")
     if not enviar:
         return 1, 0, 0, f"estoque baixado em {arq} (sem enviar)"
@@ -1756,6 +1857,18 @@ def coletar_estoque(p, cfg, token, enviar=True):
         except Exception as ev:  # noqa: BLE001
             nota_vendas = f"vendas por anúncio: não importou ({str(ev)[:300]})"
             log("  " + nota_vendas)
+    if gestor_vendas:
+        g, ini, fim = gestor_vendas
+        try:
+            for linha in api(token, "gestor_vendas_importar", {"arquivo": g.name, "inicio": ini.isoformat(), "fim": fim.isoformat()},
+                             g.read_bytes()).get("log") or []:
+                log("  " + linha)
+                nota_gestor = linha[:300]
+        except Exception as ev:  # noqa: BLE001
+            nota_gestor = f"vendas do Gestor: não importou ({str(ev)[:300]})"
+            log("  " + nota_gestor)
+    if nota_gestor:
+        nota_vendas = (nota_vendas + " · " if nota_vendas else "") + nota_gestor
     if nota_vendas:                        # 28/09: o resultado das vendas aparece na execução (dá para ver de fora do Mac)
         linhas = linhas + [nota_vendas]
         return 1, 1, 0, ((linhas[1] if len(linhas) > 2 else linhas[0])[:200] + " · " + nota_vendas)[:1500]

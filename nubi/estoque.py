@@ -276,6 +276,94 @@ def ler_vendas(conteudo):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Relatório de Vendas do Gestor Seller (card #124, 29/09): uma linha por pedido/SKU com faturamento, custo, imposto, taxas, frete e
+# lucro. Os nomes das colunas variam: cada campo casa pela 1ª coluna cujo cabeçalho bate (frete/imposto/taxa antes de custo/valor).
+# ---------------------------------------------------------------------------
+GESTOR_VENDAS_CAMPOS = (("frete", r"frete|envio"), ("imposto", r"imposto|tribut|\bnf\b"), ("taxa", r"taxa|comiss|tarifa"),
+                        ("margem", r"margem"), ("lucro", r"lucro|resultado"), ("custo", r"custo"),
+                        ("valor", r"faturamento|valor|receita|total|pre[çc]o"), ("unidades", r"quantidade|qtd|unidades"),
+                        ("sku", r"\bsku\b"), ("pedido", r"pedido|order"), ("conta", r"conta|marketplace|loja|canal"),
+                        ("produto", r"produto|t[íi]tulo|an[úu]ncio|descri"))
+GESTOR_VENDAS_NUMEROS = ("unidades", "valor", "custo", "imposto", "taxa", "frete", "lucro", "margem")
+
+
+def _linhas_planilha(conteudo):
+    """Linhas de um .xlsx (ou .csv) como listas de valores."""
+    if conteudo[:2] != b"PK":
+        import csv
+        txt = conteudo.decode("utf-8-sig", errors="replace")
+        return list(csv.reader(io.StringIO(txt), delimiter=";" if txt[:2000].count(";") > txt[:2000].count(",") else ","))
+    import openpyxl
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(conteudo), data_only=True, read_only=True)
+        except Exception as e:  # noqa: BLE001
+            raise ErroEstoque(f"não é uma planilha .xlsx válida ({e.__class__.__name__})")
+    out = [list(r) for r in wb.worksheets[0].iter_rows(values_only=True)]
+    wb.close()
+    return out
+
+
+def ler_gestor_vendas(conteudo):
+    """Bytes do 'Relatório de Vendas' do Gestor Seller -> lista de linhas (pedido/SKU) com os números do Gestor."""
+    rows = _linhas_planilha(conteudo)
+    for n, row in enumerate(rows[:15]):                    # o cabeçalho pode vir depois de um título/período
+        cab = [_cab(c) for c in row]
+        mapa = {}
+        for i, c in enumerate(cab):
+            campo = next((campo for campo, rx in GESTOR_VENDAS_CAMPOS if c and re.search(rx, c)), None)
+            if campo and campo not in mapa.values():
+                mapa[i] = campo
+        if "sku" in mapa.values() and {"lucro", "margem"} & set(mapa.values()):
+            break
+    else:
+        raise ErroEstoque("não parece o Relatório de Vendas do Gestor Seller (faltam as colunas SKU e Lucro/Margem)")
+    out = []
+    for row in rows[n + 1:]:
+        it = {campo: row[i] if i < len(row) else None for i, campo in mapa.items()}
+        sku = str(it.get("sku") or "").strip()
+        if not sku or re.match(r"(?i)^total", sku):
+            continue
+        it["sku"] = sku
+        for c in GESTOR_VENDAS_NUMEROS:
+            if c in it:
+                it[c] = _num(str(it[c]).replace("%", "")) if isinstance(it[c], str) else _num(it[c])
+        for c in ("pedido", "conta", "produto"):
+            it[c] = str(it.get(c) or "").strip()[:300]
+        out.append(it)
+    if not out:
+        raise ErroEstoque("nenhuma venda na planilha")
+    return out
+
+
+def gestor_por_sku(linhas):
+    """Soma do Gestor por SKU (sem maiúsculas): unidades, faturamento e lucro -> margem real % (depois de taxas e frete)."""
+    por = {}
+    for x in linhas or []:
+        s = por.setdefault(_chave(x["sku"]), {"unidades": 0.0, "valor": 0.0, "lucro": 0.0, "com_lucro": False, "margens": []})
+        s["unidades"] += x.get("unidades") or 0
+        s["valor"] += x.get("valor") or 0
+        if x.get("lucro") is not None:
+            s["lucro"] += x["lucro"]
+            s["com_lucro"] = True
+        elif x.get("margem") is not None:
+            s["margens"].append(x["margem"])
+    out = {}
+    for k, s in por.items():
+        if s["com_lucro"] and s["valor"]:
+            pct = s["lucro"] / s["valor"] * 100
+        elif s["margens"]:
+            pct = sum(s["margens"]) / len(s["margens"])
+            pct = pct * 100 if abs(pct) <= 1 else pct      # 0,23 (célula em %) ou 23
+        else:
+            continue
+        out[k] = {"margem_pct": round(pct, 1), "lucro_un": round(s["lucro"] / s["unidades"], 2) if s["com_lucro"] and s["unidades"] else None}
+    return out
+
+
 def periodo_vendas(nome):
     """'Vendas_por_Produtos_20260829-20260927_…' -> ('2026-08-29', '2026-09-27', 30 dias) ou (None, None, 30)."""
     m = re.search(r"(20\d{6})\s*-\s*(20\d{6})", str(nome or ""))
@@ -290,7 +378,7 @@ def _chave(sku):
     return str(sku or "").strip().upper()
 
 
-def listas(itens, vendas, dias=30, alerta=ALERTA_DIAS, alvo=ALVO_DIAS):
+def listas(itens, vendas, dias=30, alerta=ALERTA_DIAS, alvo=ALVO_DIAS, gestor=None):
     """Zerados, mais vendidos e preciso comprar, calculados em código (números exatos; a IA só interpreta).
     Venda por dia = unidades vendidas no período / dias. Cobertura = (disponível + em trânsito da compra) / venda por dia."""
     import math
@@ -331,7 +419,7 @@ def listas(itens, vendas, dias=30, alerta=ALERTA_DIAS, alvo=ALVO_DIAS):
             if r["sugerido"] > 0:
                 comprar.append(r)
     comprar.sort(key=lambda r: (r["cobertura_dias"] if r["cobertura_dias"] is not None else 9e9, -r["vendidos"]))
-    anuncios = por_anuncio(itens, vendas, dias)
+    anuncios = por_anuncio(itens, vendas, dias, gestor)
     return {"dias": dias, "alerta_dias": alerta, "alvo_dias": alvo, "zerados": zerados, "mais_vendidos": vendidos,
             "comprar": comprar, "zerados_com_venda": sum(1 for r in zerados if r["vendidos"] > 0),
             "vendas_sem_estoque": sum(1 for r in vendidos if not r["no_estoque"]),
@@ -359,10 +447,12 @@ def _frequencia(pedidos, dias):
     return f"{por_dia:.1f} pedidos/dia".replace(".", ",") if por_dia >= 1 else f"1 pedido a cada {dias / pedidos:.0f} dias"
 
 
-def por_anuncio(itens, vendas, dias=30):
+def por_anuncio(itens, vendas, dias=30, gestor=None):
     """Uma linha por anúncio: preço médio, custo médio do SKU, margem antes das taxas, frequência (pedidos/dia) e o estoque do
-    SKU. Ordem: o que mais fatura primeiro."""
+    SKU. Ordem: o que mais fatura primeiro. card #124: com as linhas do Gestor Seller, `margem_real_pct`/`lucro_un` do SKU
+    (depois de taxas, imposto e frete) quando o SKU casa."""
     est = {_chave(it["sku"]): it for it in itens or []}
+    real = gestor_por_sku(gestor)
     out = []
     for v in vendas or []:
         it = est.get(_chave(v["sku"])) or {}
@@ -376,7 +466,9 @@ def por_anuncio(itens, vendas, dias=30):
                     "preco": round(preco, 2) if preco else None, "custo": custo, "margem": margem,
                     "margem_pct": round(margem / preco * 100, 1) if margem is not None and preco else None,
                     "pedidos_dia": round(ped / dias, 2), "frequencia": _frequencia(ped, dias),
-                    "estoque": (it.get("disponivel") or 0) if it else None})
+                    "estoque": (it.get("disponivel") or 0) if it else None,
+                    "margem_real_pct": (real.get(_chave(v["sku"])) or {}).get("margem_pct"),
+                    "lucro_un": (real.get(_chave(v["sku"])) or {}).get("lucro_un")})
     out.sort(key=lambda r: (-r["valor"], -r["unidades"]))
     return out
 
