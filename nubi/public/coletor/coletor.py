@@ -3917,6 +3917,9 @@ def cmd_programar(args, cfg, quem="ferreiro"):
                                 "--output-last-message", str(ultima), pedido],
                                cwd=str(repo), env=env, capture_output=True, text=True, timeout=3600)
             relatorio = (ultima.read_text() if ultima.exists() else (r.stdout or r.stderr or "")[-3000:]).strip()
+            if r.returncode and (r.stderr or "").strip():
+                # 29/09: o card só mostrava o eco do pedido; o erro de verdade do Codex (modelo, chave, cota) vem no stderr
+                relatorio = "## Erro do Codex\n\n```\n" + r.stderr.strip()[-1500:] + "\n```\n\n" + relatorio
             custo = 0.0                                   # o Codex não informa o custo; aparece no uso da OpenAI/DeepSeek
             _cards_hoje(cfg, "deepseek_cards", 1) if ds else _cards_astra_hoje(cfg, 1)
         else:
