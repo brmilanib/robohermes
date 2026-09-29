@@ -1603,7 +1603,7 @@ def _clicar_texto(pg, padroes, espera=2.5):
     return False
 
 
-def baixar_vendas(pg, cfg):
+def baixar_vendas(pg, cfg, p=None):
     """Baixa 'Vendas por Anúncio' (últimos 30 dias) do UpSeller. -> arquivo .xlsx (nome do UpSeller, sem renomear)."""
     url = cfg.get("upseller_vendas_url") or UPSELLER_VENDAS
     if url:
@@ -1650,6 +1650,17 @@ def baixar_vendas(pg, cfg):
     _clicar_texto(pg, [r"^\s*[ÚU]ltimos 30 dias\s*$", r"^\s*30 dias\s*$"], 4)
     destino = PASTA / "vendas"
     destino.mkdir(parents=True, exist_ok=True)
+    # 29/09 (Mac): o Chrome fecha sozinho no download (como no estoque, 25/09): guarda o login e os links antes, deixa uma aba
+    # extra aberta e, se cair, baixa pelo link com um cliente à parte (_baixar_link)
+    ctx = pg.context
+    estado = ctx.storage_state()
+    links = []
+    ctx.on("request", lambda r: links.append(r.url) if re.search(r"\.xlsx(\?|$)|download|export", r.url, re.I) else None)
+    try:
+        ctx.new_page().goto("about:blank")
+    except Exception:  # noqa: BLE001
+        pass
+    dl = None
     try:
         with pg.expect_download(timeout=180000) as dl:
             if not _clicar_texto(pg, [r"^\s*Exportar\s*$"], 3):
@@ -1661,10 +1672,25 @@ def baixar_vendas(pg, cfg):
     except Falha:
         raise
     except Exception as e:  # noqa: BLE001
-        raise Falha(f"o relatório de vendas não baixou ({e.__class__.__name__}). Na tela: " + str(pg.evaluate(JS_TEXTOS))[:600])
+        candidatos = [u for u in links[::-1] if u.startswith("http")]
+        if p is not None and candidatos:
+            log(f"  vendas: o navegador falhou no download ({e.__class__.__name__}); baixando pelo link com um cliente à parte")
+            return _baixar_link(p, estado, candidatos, destino, "")
+        try:
+            tela = str(pg.evaluate(JS_TEXTOS))[:600]
+        except Exception:  # noqa: BLE001
+            tela = "(navegador fechado)"
+        raise Falha(f"o relatório de vendas não baixou ({e.__class__.__name__}). Na tela: " + tela)
     d = dl.value
     arq = destino / (d.suggested_filename or "Vendas_por_Produtos.xlsx")
-    _salvar_download(pg, d, arq)
+    try:
+        _salvar_download(pg, d, arq)
+    except Exception as e:  # noqa: BLE001
+        candidatos = [u for u in [d.url or ""] + links[::-1] if u.startswith("http")]
+        if p is None or not candidatos:
+            raise
+        log(f"  vendas: o download se perdeu ({e.__class__.__name__}); baixando pelo link com um cliente à parte")
+        return _baixar_link(p, estado, candidatos, destino, d.suggested_filename or "")
     if not cfg.get("upseller_vendas_url") and "/login" not in pg.url:
         cfg["upseller_vendas_url"] = pg.url
         salvar_config(cfg)
@@ -1698,7 +1724,7 @@ def coletar_estoque(p, cfg, token, enviar=True):
         ctx2 = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
         pg2 = ctx2.pages[0] if ctx2.pages else ctx2.new_page()
         try:
-            vendas = baixar_vendas(pg2, cfg)
+            vendas = baixar_vendas(pg2, cfg, p)
         except Exception as ev:  # noqa: BLE001
             enviar_foto(pg2, f"vendas por anúncio: {str(ev)[:150]}", str(ev)[:3000])
             raise
