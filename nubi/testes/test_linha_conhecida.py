@@ -252,6 +252,14 @@ def test_mesmo_gtin_em_outra_marca_e_o_mesmo_produto():
         L(gtin="111", un=5, marca_snap="LATTAFA", titulo="x", linha="Yara", produto="Lattafa Yara EDP 100 ml")]   # só 1 marca
     m = nubi.mapa_gtin_global(linhas)
     assert set(m) == {"6290362346548", "6291107455365", "6290360378053"}, m
+    # 30/09 (Ameerati da Al Wataniah preso na LIPX): os anúncios da Al Wataniah já tinham sido gravados como "outra marca";
+    # o mapa refeito tem que devolver o GTIN a quem o título cita, com o nome dela no produto
+    am = [L(gtin="5055810014902", un=1677, marca_snap="AL WATANIAH", titulo="Perfume Feminino Ameerati Al Wataniah Eau De Parfum",
+            linha="Ameerati", produto="Lipx Ameerati EDP 100 ml", tipo=nubi.TIPO_OUTRA, confianca=nubi.CONF_GTIN_OUTRA, genero="Feminino"),
+          L(gtin="5055810014902", un=1502, marca_snap="LIPX", titulo="Perfume Ameerati 100ml Edp", linha="Ameerati",
+            produto="Lipx Ameerati EDP 100 ml", genero="Feminino")]
+    a = nubi.mapa_gtin_global(am)["5055810014902"]
+    assert a["marca"] == "AL WATANIAH" and a["produto"] == "Al Wataniah Ameerati EDP 100 ml", a
     assert m["6290362346548"]["marca"] == "LATTAFA" and m["6290362346548"]["produto"] == "Lattafa Asad Elixir EDP 100 ml"
     assert m["6291107455365"]["marca"] == "LATTAFA"
     assert m["6290360378053"]["marca"] == "LIPX"

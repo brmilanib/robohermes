@@ -126,7 +126,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Conferência das marcas (`auditar_explorador`, sem IA) roda 1x/dia no Agente do Explorador: nota por marca, marca
   escrita errado (reprocessa sozinho), outra marca grande (juntar em Nomes de marcas), linhas parecidas e o que mais
   vende em "Outros". Tela: Coletor e agente → 🧹 Conferência; rota `explorador_auditoria` (POST roda agora).
-- Regra de agrupamento mudou → `REGRA_ATUAL` sobe (hoje "regra 6") e o agente reprocessa tudo uma vez.
+- Regra de agrupamento mudou → `REGRA_ATUAL` sobe (hoje "regra 7") e o agente reprocessa tudo uma vez.
+- 30/09 (Ameerati da Al Wataniah preso na LIPX): `mapa_gtin_global` é refeito com os anúncios já gravados; os da marca
+  que perdeu o GTIN ("Mesmo GTIN de outra marca") agora contam como presença dela, senão a dona errada nunca saía. Se a
+  dona só tem anúncios trocados, o produto ganha o nome dela (linha/tipo/volume dos outros).
 - Mesmo GTIN em marcas diferentes = mesmo produto (29/09, LIPX vendendo o Asad Elixir da Lattafa): `construir_gtin_global`
   grava em `ia_resumos` `explorador|gtin_global` o mapa `nubi.mapa_gtin_global` (dona = marca citada nos títulos com 20%+
   das unidades; senão a do GTIN pesquisado; senão a que mais vende; produto = o da dona; título = o que mais aparece, empate

@@ -709,13 +709,17 @@ def mapa_gtin_global(linhas):
         proprias = [l for l in ls if l.get("tipo") not in (TIPO_OUTRA, TIPO_FORA) and l.get("confianca") != CONF_GTIN_OUTRA]
         if not proprias:
             continue
+        # 30/09 (Ameerati da Al Wataniah preso na LIPX): o mapa é refeito com os anúncios JÁ gravados; os da marca que perdeu
+        # o GTIN ficam como "Mesmo GTIN de outra marca" e antes não contavam mais — a dona errada nunca saía. Agora esses
+        # anúncios contam como presença da marca deles (só o que é de fora da categoria não conta).
+        presentes = [l for l in ls if l.get("tipo") != TIPO_FORA]
         total = sum(float(l.get("un") or 0) + 1 for l in ls)
         cita = {}
         for m in marcas:
             alvo = compacta(m)
             cita[m] = sum(float(l.get("un") or 0) + 1 for l in ls if marca_bate(l.get("titulo") or "", alvo))
         dona = None
-        cand = [m for m in marcas if cita[m] / total >= 0.2 and any(p["marca_snap"] == m for p in proprias)]
+        cand = [m for m in marcas if cita[m] / total >= 0.2 and any(p["marca_snap"] == m for p in presentes)]
         if cand:
             dona = max(cand, key=lambda m: cita[m])
         if dona is None:
@@ -729,10 +733,12 @@ def mapa_gtin_global(linhas):
             dona = max(un, key=un.get)
         dela = [p for p in proprias if p["marca_snap"] == dona]
         votos = {}
-        for p in dela:
+        for p in dela or proprias:
             k = tuple(str(p.get(c) or "-") for c in ("linha", "volume", "tipo", "genero", "produto"))
             votos[k] = votos.get(k, 0) + float(p.get("un") or 0) + 1
         linha, volume, tipo, genero, produto = max(votos, key=votos.get)
+        if not dela:                                   # a dona só tem anúncios já trocados: o produto ganha o nome dela
+            produto = re.sub(r"\s+", " ", f"{nome_bonito(dona)} {linha} {tipo} {volume if volume != '-' else ''}").strip()
         if linha in NEUTROS or produto.startswith("Outra marca"):
             continue                                   # a dona também não sabe o que é: não impõe nada
         out[g] = {"marca": dona, "linha": linha, "volume": volume, "tipo": tipo, "genero": genero, "produto": produto,

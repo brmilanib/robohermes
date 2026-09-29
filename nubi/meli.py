@@ -1285,7 +1285,16 @@ def _diag_varios(mlb):
     r = _get("/items", {"ids": mlb, "attributes": ITEM_CAMPOS}) or []
     x = (r if isinstance(r, list) else [{}])[0] or {}
     b = x.get("body") or {}
-    return f"código {x.get('code')}: " + (b.get("title") or str(b.get("message") or b.get("error") or "")[:90])
+    if x.get("code") != 200:                             # 30/09: 403 aparecia com ✅
+        raise ErroMeli(f"código {x.get('code')}: " + str(b.get("message") or b.get("error") or "sem o anúncio")[:90])
+    return b.get("title") or "sem título"
+
+
+def _diag_meus():
+    # o ML não aceita "me" nesse caminho (400 Invalid user_id): vai o nº da conta
+    uid = (_get("/users/me") or {}).get("id")
+    r = _get(f"/users/{uid}/items/search", {"limit": 1}) or {}
+    return f"{(r.get('paging') or {}).get('total', 0)} anúncio(s)"
 
 
 def testar(mlb="MLB4577439527", gtin="6290362346548"):
@@ -1307,8 +1316,8 @@ def testar(mlb="MLB4577439527", gtin="6290362346548"):
     # 29/09: com a conta conectada o /items continuou 403: estes mostram o que a conta enxerga e onde o ML bloqueia
     if _token_usuario():
         passo("conta: quem sou (/users/me)", lambda: (lambda u: f"{u.get('nickname')} ({u.get('id')}), {u.get('site_id')}")(_get("/users/me") or {}))
-        passo("conta: anúncios da própria conta (/users/me/items/search)",
-              lambda: f"{((_get('/users/me/items/search', {'limit': 1}) or {}).get('paging') or {}).get('total', 0)} anúncio(s)")
+        # o ML não aceita "me" nesse caminho (400 Invalid user_id): vai o nº da conta
+        passo("conta: anúncios da própria conta (/users/ID/items/search)", _diag_meus)
         passo("busca por palavra (/sites/MLB/search?q=)", lambda: f"{((_get(f'/sites/{SITE}/search', {'q': 'perfume', 'limit': 1}) or {}).get('paging') or {}).get('total')} resultados")
         passo("descrição do anúncio (/items/ID/description)", lambda: f"{len(str((_get(f'/items/{mlb}/description') or {}).get('plain_text') or ''))} letras")
     cat = {}

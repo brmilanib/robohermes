@@ -607,7 +607,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 6: anúncio sem GTIN herda o GTIN do mesmo SKU do vendedor"   # 29/09 (ICARBONXX sem GTIN)
+REGRA_ATUAL = "regra 7: mesmo GTIN volta para a marca citada no título mesmo depois de trocado"   # 30/09 (Ameerati da Al Wataniah)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"
