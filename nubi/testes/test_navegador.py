@@ -29,6 +29,7 @@ def _servidor():
 
 
 URL = _servidor()
+CLAUDE_REAL = c._claude_ferramentas
 
 
 def _abrir(p, cfg, visivel=None):
@@ -106,6 +107,29 @@ def test_sem_chave_devolve_para_a_fila():
     c._credencial = lambda site, cfg=None: ("", "")
     assert c.cmd_navegar(type("A", (), {"id": "5"})(), c.ler_config()) == 1
     assert passos[-1]["status"] == "aprovada" and "chave" in passos[-1]["texto"]
+
+
+def test_rede_instavel_tenta_de_novo():
+    # card #123: timeout e conexão derrubada na API do Claude paravam o Navegador no meio do card
+    import io
+    falhas, esperas = [TimeoutError(60, "Operation timed out"), ConnectionResetError(54, "Connection reset by peer")], []
+    urlopen, sleep = c.urllib.request.urlopen, c.time.sleep
+
+    def falso(req, timeout=None):
+        if falhas:
+            raise falhas.pop(0)
+        return io.BytesIO(json.dumps({"content": [], "usage": {}}).encode())
+    c.urllib.request.urlopen, c.time.sleep = falso, esperas.append
+    try:
+        assert CLAUDE_REAL("k", [], "s") == {"content": [], "usage": {}} and len(esperas) == 2
+        falhas[:] = [TimeoutError(60, "x")] * 3
+        try:
+            CLAUDE_REAL("k", [], "s")
+            assert False, "3 falhas seguidas devem subir o erro"
+        except TimeoutError:
+            pass
+    finally:
+        c.urllib.request.urlopen, c.time.sleep = urlopen, sleep
 
 
 if __name__ == "__main__":
