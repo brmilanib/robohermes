@@ -125,9 +125,11 @@ try:
             if celular:
                 # também com toque de verdade (gesto real via CDP, não só roda do mouse): volta ao topo e sobe com o dedo
                 pg.evaluate("document.querySelector('.modal-bg.tarefa .modal').scrollTop = 0")
-                for _ in range(6):
+                for _ in range(24):      # a janela tem ~6000px de rolagem: quantos gestos couberem, até chegar ao fim
                     _rolar_com_o_dedo(pg, w // 2, h - 120, 120)
                     pg.wait_for_timeout(150)
+                    if _fim()["tfTop"] >= _fim()["max"] - 2:
+                        break
                 fim_toque = _fim()
                 assert fim_toque["tfTop"] >= fim_toque["max"] - 2, (nome, "toque", fim_toque)
                 assert fim_toque["statusBottom"] <= fim_toque["inner"] + 1, (nome, "toque", fim_toque)
