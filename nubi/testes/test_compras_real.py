@@ -63,8 +63,18 @@ try:
                                                     ("E-100", 0, 0, 50, 0)))).decode())
         pg.evaluate("telaEstoque()"); pg.wait_for_selector(".es-mud", timeout=15000)
         mud = pg.inner_text(".es-mud")
-        assert "▲ 10%" in mud and "em trânsito 30" in mud and "mín. 20" in mud, mud
-        assert pg.locator(".es-mud .pos", has_text="em trânsito 30").count() == 2             # em Saíram e Zeraram; cobre o mínimo: verde
+        assert "Saíram" in mud and "B-100" in mud and "ver a lista" in mud, mud
+        # 28/09 (Bruno): o quadro é clicável e a lista completa abre no meio, grande e organizada
+        pg.click("[data-esmud=entradas]"); pg.wait_for_selector(".modal.pq", timeout=5000)
+        assert "▲ 10%" in pg.inner_text(".modal.pq")                                       # custo médio 50 -> 55
+        pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "estoque_mudancas.png"))
+        pg.click(".modal.pq [data-fechar]")
+        pg.click("[data-esmud=zeraram]"); pg.wait_for_selector(".modal.pq", timeout=5000)
+        z = pg.inner_text(".modal.pq")
+        assert "🚚 30" in z and "20" in z, z
+        assert pg.locator(".modal.pq td.pos", has_text="🚚 30").count() == 1                  # cobre o mínimo: verde
+        pg.fill("#esm-busca", "zzz"); assert pg.locator(".modal.pq tbody tr:visible").count() == 0
+        pg.click(".modal.pq [data-fechar]")
         pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "estoque_listas.png"), full_page=True)
         # 28/09 (Bruno): perseguir anúncios (sem a chave do Apify aqui: cadastra e avisa da chave)
         pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/perseguir"); pg.wait_for_selector("#pg-form", timeout=15000)

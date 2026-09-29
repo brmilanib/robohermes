@@ -178,6 +178,7 @@ a.plink{color:inherit;text-decoration:none;border-bottom:1px dashed var(--muted)
 a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .modal.larga{max-width:1080px}
 .modal.larga.pq{max-width:min(1440px,100%)}
+.modal-bg:has(> .modal.pq){align-items:center}
 .pq-sec{font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:14px 0 0}
 .pq .kpis.pq-kpis{grid-template-columns:repeat(5,minmax(0,1fr));margin:6px 0 0}
 .pq .kpi .v{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -836,7 +837,15 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 .es-aviso.bad{border-left-color:#c0392b}
 .es-grade{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;margin-top:14px}
 .es-log{margin:0;padding-left:18px;font-size:13px;line-height:1.55}
-.es-mud{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:14px}
+.es-mud{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:8px}
+.es-mud-cab{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:18px}.es-mud-cab h2{margin:0}
+.es-tile{text-align:left;font:inherit;color:inherit;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-width:0}
+.es-tile[disabled]{cursor:default;opacity:.75}.es-tile[disabled]:hover{transform:none;box-shadow:none}
+.es-tt{font-weight:650;font-size:14px}.es-tv{font-size:28px;font-weight:750;line-height:1.1;font-variant-numeric:tabular-nums}
+.es-to{font-size:12px;margin-bottom:4px}
+.es-tl{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0;border-top:1px solid var(--line);min-width:0}
+.es-tl .es-sku{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.es-ver{font-size:12px;color:var(--accent);margin-top:6px;font-weight:600}
 .es-mud ul{list-style:none;margin:6px 0 0;padding:0;font-size:12.5px}
 .es-mud li{display:flex;gap:8px;justify-content:space-between;padding:4px 0;border-top:1px solid var(--line)}
 .es-mud li .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -3311,11 +3320,6 @@ async function telaEstoque() {
   const transitoES = x => { if (x.transito == null) return "";
     const ok = x.transito > 0 && x.transito >= (x.minimo || 0);
     return `<span class="${ok ? "pos" : x.transito > 0 ? "" : "neg"}">${x.transito > 0 ? `🚚 em trânsito ${unES(x.transito)}` : "nada em trânsito"}${x.minimo ? ` · mín. ${unES(x.minimo)}` : ""}</span>`; };
-  const lista = (tit, xs, qtd, cls, tipo) => `<div class="card pad"><h2>${tit} <span class="muted" style="font-weight:500">${nf0.format(qtd || 0)}</span></h2>
-    <ul>${(xs || []).slice(0, 10).map(x => { const ex = [custoES(x), tipo === "zeraram" || tipo === "saidas" ? transitoES(x) : ""].filter(Boolean).join(" · ");
-      return `<li style="flex-wrap:wrap"><span class="t" title="${esc(x.titulo)}"><span class="es-sku">${esc(x.sku)}</span> · ${esc(x.titulo)}</span>
-      <b class="${cls}">${unES(x.antes)} → ${unES(x.agora)}</b>${ex ? `<div class="muted" style="flex-basis:100%;font-size:11.5px;margin-top:1px">${ex}</div>` : ""}</li>`; }).join("") || `<li class="muted">nenhum</li>`}</ul>
-    ${(qtd || 0) > 10 ? `<div class="muted" style="font-size:12px;margin-top:6px">+ ${nf0.format(qtd - 10)} na lista abaixo</div>` : ""}</div>`;
   main.innerHTML = esAbas("estoque") + `<div class="es-cab"><h1>📦 Estoque</h1>
       <span class="muted">${esc(a.loja || "UpSeller")} · ${r.historico[0].id === a.id ? "atualizado" : "foto de"} ${esc(quandoES(a.criado_em))} (${a.origem === "manual" ? "importado à mão" : "coletor"})</span>
       ${acoes}</div>
@@ -3334,9 +3338,9 @@ async function telaEstoque() {
           : `<p class="muted">Sem a leitura rápida desta atualização (ela usa só a IA grátis, que pode estar sem cota). A análise completa do dia, com o DeepSeek, fica em <a href="#/estoque/compras">🛒 Compras e vendas</a>.</p>`}
         <button class="btn small ghost" id="es-analisar" style="margin-top:8px">${a.analise ? "↻ Refazer a análise" : "Pedir a análise agora"}</button></div>
     </div>
-    ${d.tem_anterior ? `<div class="es-mud">${lista("⬇️ Saíram", d.saidas, n.saidas, "neg", "saidas")}${lista("⬆️ Entraram", d.entradas, n.entradas, "pos", "entradas")}
-      ${lista("🚫 Zeraram", d.zeraram, n.zeraram, "neg", "zeraram")}${lista("✅ Voltaram", d.voltaram, n.voltaram, "pos", "voltaram")}
-      ${n.novos || n.removidos ? lista("🆕 SKUs novos", d.novos, n.novos, "pos") + lista("🗑️ Removidos do UpSeller", d.removidos, n.removidos, "") : ""}</div>` : ""}
+    ${d.tem_anterior ? `<div class="es-mud-cab"><h2>Mudanças ${d.base ? `desde ${esc(quandoES(d.base.criado_em))}` : "desde a atualização anterior"}</h2>
+      <span class="muted">clique num quadro para ver a lista completa</span></div>
+      <div class="es-mud">${ES_MUD.filter(([k]) => k !== "novos" && k !== "removidos" || n[k]).map(([k, tit, cls]) => tileES(k, tit, cls, d[k], n[k])).join("")}</div>` : ""}
     <div class="card pad" id="es-itens" style="margin-top:14px;scroll-margin-top:calc(var(--header-h,54px) + 12px)"><h2>Itens do estoque</h2>
       <div class="es-filtros"><input type="search" id="es-busca" placeholder="Buscar SKU ou título…" value="${esc(S.esBusca)}">
         <div class="seg">${ES_FILTROS.map(([k, tx]) => `<button data-esf="${k}" class="${S.esFiltro === k ? "on" : ""}">${tx}</button>`).join("")}</div></div>
@@ -3344,7 +3348,50 @@ async function telaEstoque() {
     <div class="card pad es-hist" style="margin-top:14px"><h2>Histórico de atualizações</h2>
       ${r.historico.map(h => `<a href="#/estoque?id=${h.id}" class="${h.id === a.id ? "on" : ""}"><span>${esc(quandoES(h.criado_em))} · ${h.origem === "manual" ? "à mão" : "coletor"}</span>
         <span class="muted">${nf0.format(h.skus || 0)} SKUs · ${unES(h.unidades)} un · ${rsES(h.valor)} · ${nf0.format(h.zerados || 0)} zerados</span></a>`).join("")}</div>`;
+  S.esMud = {d, custoES, transitoES};
+  main.querySelectorAll("[data-esmud]").forEach(b => b.onclick = () => abrirMudancasES(b.dataset.esmud));
   desenharTabEstoque(); ligarEstoque(); desenharMenu();
+}
+// 28/09 (Bruno): cada mudança (saíram, entraram, zeraram, voltaram) é um quadro clicável; a lista completa abre no meio, grande
+const ES_MUD = [["saidas", "⬇️ Saíram", "neg"], ["entradas", "⬆️ Entraram", "pos"], ["zeraram", "🚫 Zeraram", "neg"],
+  ["voltaram", "✅ Voltaram", "pos"], ["novos", "🆕 SKUs novos", "pos"], ["removidos", "🗑️ Removidos do UpSeller", ""]];
+function tileES(k, tit, cls, xs, qtd) {
+  const un = (xs || []).reduce((a, x) => a + Math.abs((+x.agora || 0) - (+x.antes || 0)), 0);
+  const top = (xs || []).slice(0, 3).map(x => `<div class="es-tl"><span class="es-sku">${esc(x.sku)}</span><b class="${cls}">${unES(x.antes)} → ${unES(x.agora)}</b></div>`).join("");
+  return `<button type="button" class="card pad es-tile kpi-link" data-esmud="${k}" ${qtd ? "" : "disabled"}>
+    <div class="es-tt">${tit}</div><div class="es-tv ${qtd ? cls : "muted"}">${nf0.format(qtd || 0)}</div>
+    <div class="muted es-to">${qtd ? `${k === "zeraram" || k === "voltaram" || k === "novos" || k === "removidos" ? "SKUs" : `SKUs · ${unES(un)} un.`}` : "nenhum"}</div>
+    ${top}${qtd ? `<div class="es-ver">ver a lista ›</div>` : ""}</button>`;
+}
+function abrirMudancasES(k) {
+  const {d, custoES, transitoES} = S.esMud || {}; if (!d) return;
+  const [, tit, cls] = ES_MUD.find(m => m[0] === k), xs = d[k] || [], total = (d.n || {})[k] || xs.length;
+  const pctC = x => x.custo_antes > 0 && x.custo != null && x.custo !== x.custo_antes ? (x.custo - x.custo_antes) / x.custo_antes * 100 : null;
+  const linha = x => { const p = pctC(x), ok = x.transito > 0 && x.transito >= (x.minimo || 0), dif = (+x.agora || 0) - (+x.antes || 0);
+    return `<tr data-q="${esc((x.sku + " " + (x.titulo || "")).toLowerCase())}"><td class="first"><span class="es-sku">${esc(x.sku)}</span></td>
+      <td class="wrap" style="min-width:260px">${esc(x.titulo || "")}</td>
+      <td class="num">${unES(x.antes)}</td><td class="num"><b>${unES(x.agora)}</b></td>
+      <td class="num ${dif > 0 ? "pos" : dif < 0 ? "neg" : ""}">${dif > 0 ? "+" : ""}${unES(dif)}</td>
+      <td class="num">${x.custo != null ? rsES(x.custo) : "—"}</td>
+      <td class="num ${p == null ? "" : p > 0 ? "neg" : "pos"}">${p == null ? "—" : (p > 0 ? "▲ " : "▼ ") + Math.abs(p).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + "%"}</td>
+      <td class="num ${x.transito > 0 ? (ok ? "pos" : "") : ""}">${x.transito > 0 ? "🚚 " + unES(x.transito) : "—"}</td>
+      <td class="num ${x.transito > 0 && ok ? "pos" : ""}">${x.minimo ? unES(x.minimo) : "—"}</td></tr>`; };
+  const bg = modal(`
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <div style="flex:1;min-width:0"><h2 style="margin-bottom:2px;font-size:18px">${tit} <span class="${cls}">${nf0.format(total)}</span></h2>
+        <div class="muted">${d.base ? `comparado com a foto do estoque de ${esc(quandoES(d.base.criado_em))}` : "comparado com a atualização anterior"}
+          ${total > xs.length ? ` · mostrando os ${nf0.format(xs.length)} maiores` : ""}</div></div>
+      <button class="btn small" data-fechar>Fechar</button></div>
+    <input type="search" id="esm-busca" placeholder="Buscar SKU ou título…" style="margin-top:12px;width:100%">
+    <div class="tw" style="margin-top:10px;max-height:64vh"><table class="t"><thead><tr><th>SKU</th><th>Título</th>
+      <th class="num">Antes</th><th class="num">Agora</th><th class="num">Diferença</th><th class="num">Custo médio</th>
+      <th class="num" title="Custo médio agora vs. antes">Var. custo</th><th class="num" title="Compra em trânsito (verde: cobre o mínimo)">Em trânsito</th>
+      <th class="num" title="Estoque baixo do UpSeller">Mínimo</th></tr></thead>
+      <tbody>${xs.map(linha).join("") || `<tr><td colspan="9" class="empty">Nenhum.</td></tr>`}</tbody></table></div>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Verde em trânsito/mínimo: a compra que está chegando cobre o mínimo do UpSeller.</p>`);
+  $(".modal", bg).classList.add("larga", "pq");
+  $("#esm-busca", bg).oninput = e => { const q = e.target.value.trim().toLowerCase();
+    bg.querySelectorAll("tbody tr[data-q]").forEach(tr => tr.style.display = !q || tr.dataset.q.includes(q) ? "" : "none"); };
 }
 // 28/09 (Bruno): zerados, mais vendidos e preciso comprar = estoque do UpSeller × vendas por anúncio (30 dias) + a análise
 // diária do DeepSeek. Os números são calculados no servidor (estoque.listas); a IA só interpreta.

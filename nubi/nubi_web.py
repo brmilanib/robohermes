@@ -3625,12 +3625,18 @@ def estoque_importar(repo, conteudo, arquivo, origem="coletor", esperado=None):
     if ja:
         return {"ok": True, "id": ja[0]["id"], "repetido": True,
                 "log": [f"Essa planilha já foi importada (atualização de {_br(ja[0]['criado_em']):%d/%m %H:%M})."]}
-    ant = (repo._req("GET", "estoque_atualizacoes", {"select": "id", "order": "id.desc", "limit": 1}) or [None])[0]
+    # 28/09 (print do Bruno: "Saíram 0, Entraram 0…"): com várias importações no mesmo dia, cada uma comparava com a anterior
+    # (igual) e as listas zeravam. Compara com a última foto de um dia ANTERIOR: "o que mudou desde ontem".
+    ants = repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": 60}) or []
+    hoje = _agora_br().date()
+    ant = next((x for x in ants if _br(x["criado_em"]).date() < hoje), ants[0] if ants else None)
     anteriores = _estoque_itens(repo, ant["id"]) if ant else []
     for it in anteriores:
         for c in estoque.NUMEROS:
             it[c] = None if it.get(c) is None else float(it[c])
-    d = estoque.comparar(anteriores, itens)
+    d = estoque.comparar(anteriores, itens, limite=400)
+    if ant:
+        d["base"] = {"id": ant["id"], "criado_em": ant["criado_em"]}
     t, resumo = d["totais"], estoque.resumo_texto(d)
     novo = repo._req("POST", "estoque_atualizacoes", corpo=[{
         "origem": origem, "arquivo": arquivo, "hash": h, "esperado": int(esperado) if esperado else None,
@@ -3755,7 +3761,8 @@ def _enriquecer_diff(repo, atual, itens):
     if not d.get("tem_anterior"):
         return
     ids = [x["id"] for x in repo._req("GET", "estoque_atualizacoes", {"select": "id", "order": "id.desc", "limit": 200}) or []]
-    ant = next(({"id": i} for i in sorted(ids, reverse=True) if int(i) < int(atual["id"])), None)
+    ant = ({"id": d["base"]["id"]} if (d.get("base") or {}).get("id")
+           else next(({"id": i} for i in sorted(ids, reverse=True) if int(i) < int(atual["id"])), None))
     antes = {it["sku"]: it for it in (_estoque_itens(repo, ant["id"]) if ant else [])}
     agora = {it["sku"]: it for it in itens}
     f = lambda v: None if v in (None, "") else float(v)
@@ -3831,6 +3838,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         return {"existe": existe}
     if rota == "gestor_pendente":
         # rotina 'gestor' (ex.: 00:40, 10 min depois do estoque): importa 1 vez por dia, só se o estoque de hoje já entrou
+        if q.get("maquina") == "servidor" and _so_no_mac(repo, "gestor"):
+            return {"rodar": False, "no_mac": True}          # 28/09 (Bruno): "pode rodar no mac gestor seller"
         rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.gestor"}) or [None])[0]
         agora = _agora_br()
         na_hora = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "00:40"))

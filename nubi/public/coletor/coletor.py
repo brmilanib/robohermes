@@ -344,8 +344,7 @@ def conferir_sessao(pg):
     """Sessão expirada: o Nubimetrics manda para a tela de login."""
     caminho = urllib.parse.urlparse(pg.url).path          # só o caminho: a tela de login leva o destino na query
     if not caminho.startswith(("/competition", "/market")):
-        raise SessaoExpirada("O Nubimetrics pediu login de novo. No Mac mini, rode: "
-                             "~/.nubi-coletor/coletor entrar " + diagnostico(pg))
+        raise SessaoExpirada(f"O Nubimetrics pediu login de novo. Rode {_onde_rodar('entrar')} " + diagnostico(pg))
 
 
 def ir(pg, url, esperar):
@@ -1411,8 +1410,7 @@ def _upseller_lista(pg):
         u = urllib.parse.urlparse(pg.url)
         senha = pg.locator("input[type=password]:visible").count() > 0
         if senha or "login" in (u.path + u.fragment).lower() or "/inventory" not in u.path:
-            raise SessaoExpirada("O UpSeller pediu login de novo. No Mac mini, rode: ~/.nubi-coletor/coletor entrar-upseller "
-                                 + diagnostico(pg))
+            raise SessaoExpirada(f"O UpSeller pediu login de novo. Rode {_onde_rodar('entrar-upseller')} " + diagnostico(pg))
         raise Falha("a Lista de Estoque do UpSeller não carregou (sem o botão 'Importar & Exportar') " + diagnostico(pg))
     devagar(3)
     _fechar_popups(pg)
@@ -2173,8 +2171,7 @@ def _gestor_produtos(pg):
     except Exception:  # noqa: BLE001
         u = urllib.parse.urlparse(pg.url)
         if "/auth" in u.path or pg.locator("input[type=password]:visible").count():
-            raise SessaoExpirada("O Gestor Seller pediu login de novo. No Mac mini, rode: ~/.nubi-coletor/coletor entrar-gestor "
-                                 + diagnostico(pg))
+            raise SessaoExpirada(f"O Gestor Seller pediu login de novo. Rode {_onde_rodar('entrar-gestor')} " + diagnostico(pg))
         raise Falha("a tela Produtos internos do Gestor Seller não carregou (sem 'Importar por planilha') " + diagnostico(pg))
     devagar(3)
     return botao
@@ -2308,27 +2305,35 @@ def coletar_gestor(p, cfg, token):
     arq = destino / nome
     arq.write_bytes(dados)
     log(f"  planilha do Gestor Seller baixada do nubi: {nome} ({len(dados) // 1024} KB)")
-    ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("gestor_ver") else None)
-    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-    try:
-        msg = importar_gestor(pg, arq)
+    for tentativa in (1, 2):
+        ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("gestor_ver") else None)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
         try:
-            amostra = api(token, "gestor_amostra", timeout=30).get("skus") or []
-        except Exception:  # noqa: BLE001
-            amostra = []
-        if amostra:
-            conf = conferir_gestor(pg, amostra, token)
-            log(f"  {conf}")
-            msg = conf
-        guardar_sessao(ctx)
-    except SessaoExpirada:
-        enviar_foto(pg, "gestor: login vencido", resumo_tela(pg))
-        raise
-    except Exception as e:  # noqa: BLE001
-        enviar_foto(pg, f"gestor: {str(e)[:150]}", resumo_tela(pg))
-        raise
-    finally:
-        ctx.close()
+            msg = importar_gestor(pg, arq)
+            try:
+                amostra = api(token, "gestor_amostra", timeout=30).get("skus") or []
+            except Exception:  # noqa: BLE001
+                amostra = []
+            if amostra:
+                conf = conferir_gestor(pg, amostra, token)
+                log(f"  {conf}")
+                msg = conf
+            guardar_sessao(ctx)
+            break
+        except SessaoExpirada:
+            enviar_foto(pg, "gestor: login vencido", resumo_tela(pg))
+            if tentativa == 2:
+                raise
+        except Exception as e:  # noqa: BLE001
+            enviar_foto(pg, f"gestor: {str(e)[:150]}", resumo_tela(pg))
+            raise
+        finally:
+            ctx.close()
+        # 28/09 (Bruno): login vencido -> entra sozinho (senha salva no navegador do coletor/Chaveiro) e tenta de novo 1 vez
+        log("  Gestor Seller pediu login: tentando entrar sozinho")
+        if not entrar_sozinho(p, cfg, "gestor"):
+            raise SessaoExpirada("O Gestor Seller pediu login de novo e não entrei sozinho (sem senha salva?). "
+                                 f"Rode {_onde_rodar('entrar-gestor')} (ou guarde a senha: {_onde_rodar('guardar-senha gestor')})")
     log(f"  Gestor Seller: {msg}")
     return 1, 1, 0, f"planilha {nome} importada no Gestor Seller ({msg[:120]})"
 
@@ -2462,6 +2467,13 @@ def _parar_coleta_velha():
 # ---------------------------------------------------------------------------
 
 WINDOWS = sys.platform == "win32"
+
+
+def _onde_rodar(sub):
+    """Como o Bruno roda um comando do coletor NESTA máquina (28/09: o Gestor falhava no PC e o aviso mandava rodar no Mac)."""
+    if WINDOWS:
+        return f"no PC (Windows), no Prompt: py -3.12 %USERPROFILE%\\.nubi-coletor\\coletor.py {sub}"
+    return f"no Mac mini: ~/.nubi-coletor/coletor {sub}"
 TAREFA_WIN = "nubi-servidor"
 
 
@@ -3034,7 +3046,7 @@ def _fora_da_janela_coleta():
 
 
 def _vigiar_pausado(cfg, libera):
-    """Mac pausado: a cada ~5 min só atualiza o coletor e, se o estoque foi liberado, faz o estoque (pedido ou horário)."""
+    """Mac pausado: a cada ~5 min só atualiza o coletor e faz o que foi liberado (estoque, gestor), por pedido ou horário."""
     marca = PASTA / "vigia.ultimo"
     try:
         if time.time() - marca.stat().st_mtime < 4 * 60:
@@ -3054,18 +3066,24 @@ def _vigiar_pausado(cfg, libera):
             return 0
     except Exception:  # noqa: BLE001
         pass
-    if "estoque" not in libera or _outra_rodando():
+    if not libera & {"estoque", "gestor"} or _outra_rodando():
         return 0
     try:
         token = token_nubi(cfg)
-        pedido = api(token, "coletor_pedido", {"tarefa": "estoque"}, timeout=30).get("pedido")
-        if pedido and pedido.get("tarefa") == "estoque":
-            api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": "estoque", "resultado": "estoque iniciado (Mac)"}, timeout=30)
-            print(f"{datetime.now():%d/%m %H:%M} vigia (pausado, estoque liberado): pedido no site -> estoque do UpSeller", flush=True)
-            return _soltar("estoque")
-        if _estoque_na_hora(cfg, token):
+        for tarefa in ("estoque", "gestor"):              # 28/09 (Bruno): "pode rodar no mac gestor seller"
+            if tarefa not in libera:
+                continue
+            pedido = api(token, "coletor_pedido", {"tarefa": tarefa}, timeout=30).get("pedido")
+            if pedido and pedido.get("tarefa") == tarefa:
+                api(token, "coletor_pedido_ok", corpo={"id": pedido["id"], "tarefa": tarefa, "resultado": f"{tarefa} iniciado (Mac)"}, timeout=30)
+                print(f"{datetime.now():%d/%m %H:%M} vigia (pausado, {tarefa} liberado): pedido no site -> {tarefa}", flush=True)
+                return _soltar(tarefa)
+        if "estoque" in libera and _estoque_na_hora(cfg, token):
             print(f"{datetime.now():%d/%m %H:%M} vigia (pausado, estoque liberado): hora do estoque do UpSeller", flush=True)
             return _soltar("estoque")
+        if "gestor" in libera and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas"):
+            print(f"{datetime.now():%d/%m %H:%M} vigia (pausado, gestor liberado): hora do Gestor Seller", flush=True)
+            return _soltar("gestor")
     except Exception as e:  # noqa: BLE001
         print(f"{datetime.now():%d/%m %H:%M} vigia (pausado): {e}", flush=True)
     return 0
@@ -6185,7 +6203,7 @@ def _hermes_vigia(cfg):
             site = next((k for k in JANELA_LOGIN if k in f["erro"].lower()), "")
             ja = (cfg.get("hermes_login") or {}).get(hoje, [])
             if not site or ja.count(site) >= 2:
-                texto += "Ação: o login é só com você — rode no Mac: ~/.nubi-coletor/coletor " + JANELA_LOGIN.get(site, "entrar")
+                texto += "Ação: o login é só com você — rode " + _onde_rodar(JANELA_LOGIN.get(site, "entrar"))
                 aviso_mac("Hermes: login vencido", f"{tarefa}: entre de novo no site")
             else:
                 cfg.setdefault("hermes_login", {})[hoje] = ja + [site]
@@ -6221,7 +6239,7 @@ def _hermes_vigia(cfg):
                 elif r.returncode == 0:
                     texto = f"🩺 Login do {site.title()} feito. A próxima coleta já entra normal."
                 else:
-                    texto = f"🩺 A janela de login do {site.title()} fechou sem login (10 min). Rode no Mac: ~/.nubi-coletor/coletor {JANELA_LOGIN[site]}"
+                    texto = f"🩺 A janela de login do {site.title()} fechou sem login (10 min). Rode {_onde_rodar(JANELA_LOGIN[site])}"
         elif acao == "avisar":                              # só login: a senha/o clique é do Bruno
             texto += "Ação: isso eu não consigo resolver sozinho — precisa do Bruno (login)."
             aviso_mac("Hermes: precisa de você", f"{tarefa}: {diag}")

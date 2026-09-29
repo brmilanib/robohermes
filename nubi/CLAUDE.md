@@ -86,6 +86,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Lista em `perseguir|lista`. Chave `APIFY_TOKEN` só na Vercel (o Bruno coloca). Rotas `estoque_perseguir*`.
 - Listas do Estoque (entraram/saíram/zeraram/voltaram) trazem custo médio com a variação em % e, em saíram/zeraram, o que
   está em trânsito e o mínimo (verde se o trânsito cobre o mínimo): `_enriquecer_diff` na rota `estoque`.
+- 28/09 (print do Bruno, tudo 0): a importação compara com a última foto de um DIA ANTERIOR (`diff.base`), não com a
+  anterior do mesmo dia (várias no dia zeravam as listas). As mudanças são quadros clicáveis (`tileES`) e a lista
+  completa (até 400 por tipo) abre no meio, grande, com busca (`abrirMudancasES`).
+- Gestor Seller liberado no Mac pausado (28/09, "pode rodar no mac gestor seller"): `fila|mac_libera` = `estoque,gestor`;
+  `gestor_pendente` devolve `no_mac` ao servidor; `_vigiar_pausado` faz o gestor por pedido ou horário. Login vencido no
+  Gestor: `coletar_gestor` tenta `entrar_sozinho` e importa de novo 1 vez. Avisos de login dizem a máquina certa
+  (`_onde_rodar`: Mac ou PC Windows).
 
 ## Anúncio sem GTIN no produto certo (29/09, "Xerjoff Outros") — `consolidar`, etapa 2b em `nubi.py`
 - As linhas que a marca já tem pelos GTINs viram dicionário para os anúncios SEM GTIN que ficaram em "Outros"

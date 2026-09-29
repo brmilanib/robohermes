@@ -191,6 +191,35 @@ def test_estoque_liberado_no_mac_pausado():
     assert w.rota_estoque(r, "GET", "estoque_pendente", {}, b"")["rodar"] is True          # o Mac pergunta sem 'maquina'
 
 
+def test_gestor_liberado_no_mac_pausado():
+    # 28/09 (Bruno: "pode rodar no mac gestor seller"): o gamdias não pega o Gestor; o Mac pausado faz pelo horário
+    _preparar()
+    r = Repo(["diario"])
+    r.t["ia_resumos"] += [{"chave": "fila|mac_pausado", "texto": "malware"}, {"chave": "fila|mac_libera", "texto": "estoque,gestor"}]
+    _tick(r)
+    assert w._so_no_mac(r, "gestor") and w._so_no_mac(r, "estoque")
+    assert w.rota_estoque(r, "GET", "gestor_pendente", {"maquina": "servidor"}, b"") == {"rodar": False, "no_mac": True}
+    soltos, antes = [], (c.token_nubi, c.api, c._soltar, c._outra_rodando, c._estoque_na_hora, c._na_hora, c.PASTA)
+    c.token_nubi = lambda cfg: "T"
+    c.api = lambda token, rota, params=None, corpo=None, metodo=None, timeout=300: {"pedido": None}
+    c._soltar = lambda t: soltos.append(t) or 0
+    c._outra_rodando = lambda: False
+    c._estoque_na_hora = lambda cfg, token: False
+    c._na_hora = lambda cfg, token, rota, chave: rota == "gestor_pendente"
+    c.PASTA = Path(tempfile.mkdtemp())
+    orig_open = c.urllib.request.urlopen
+    c.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError("sem rede"))
+    try:
+        c._vigiar_pausado({}, {"estoque", "gestor"})
+        assert soltos == ["gestor"], soltos
+        soltos.clear(); (c.PASTA / "vigia.ultimo").unlink()
+        c._vigiar_pausado({}, {"estoque"})                                   # sem o gestor liberado, não roda
+        assert soltos == []
+    finally:
+        c.token_nubi, c.api, c._soltar, c._outra_rodando, c._estoque_na_hora, c._na_hora, c.PASTA = antes
+        c.urllib.request.urlopen = orig_open
+
+
 def test_vigia_de_seguranca_derruba_o_malware_e_avisa():
     # 28/09 (Bruno): de hora em hora, CPU e os arquivos do malware de 27/09
     import shutil

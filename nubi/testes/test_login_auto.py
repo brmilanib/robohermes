@@ -120,6 +120,43 @@ def test_nunca_clica_em_esqueci_a_senha():
     assert not c.PROIBIDO_CLICAR.search("Entrar")
 
 
+
+def test_gestor_entra_sozinho_quando_pede_login():
+    # 28/09: o Gestor falhava com "pediu login" até o Bruno rodar entrar-gestor; agora entra sozinho e tenta de novo 1 vez
+    class Ctx:
+        pages = []
+        def new_page(self): return object()
+        def close(self): pass
+    chamadas, antes = [], (c.baixar_do_nubi, c.abrir_navegador, c.importar_gestor, c.entrar_sozinho, c.guardar_sessao,
+                             c.api, c.enviar_foto, c.resumo_tela)
+    c.baixar_do_nubi = lambda token, rota: (b"x", "import_gestor.xlsx")
+    c.abrir_navegador = lambda p, cfg, visivel=None: Ctx()
+    c.guardar_sessao = c.enviar_foto = lambda *a, **k: None
+    c.resumo_tela = lambda pg: ""
+    c.api = lambda *a, **k: {"skus": []}
+    def importar(pg, arq):
+        chamadas.append("importar")
+        if chamadas.count("importar") == 1:
+            raise c.SessaoExpirada("O Gestor Seller pediu login de novo.")
+        return "importado"
+    c.importar_gestor = importar
+    try:
+        c.entrar_sozinho = lambda p, cfg, site, **k: chamadas.append("login " + site) or True
+        assert c.coletar_gestor(None, {}, "T")[3].startswith("planilha import_gestor.xlsx importada")
+        assert chamadas == ["importar", "login gestor", "importar"], chamadas
+        chamadas.clear()
+        c.entrar_sozinho = lambda p, cfg, site, **k: False
+        try:
+            c.coletar_gestor(None, {}, "T")
+            raise AssertionError("devia falhar sem login")
+        except c.SessaoExpirada as e:
+            assert "pediu login" in str(e) and "guardar-senha gestor" in str(e), e       # o Hermes reconhece e diz a máquina certa
+            assert ("PC (Windows)" if c.WINDOWS else "Mac mini") in str(e)
+    finally:
+        (c.baixar_do_nubi, c.abrir_navegador, c.importar_gestor, c.entrar_sozinho, c.guardar_sessao, c.api, c.enviar_foto,
+         c.resumo_tela) = antes
+
+
 if __name__ == "__main__":
     c.enviar_foto = lambda *a, **k: None
     for nome, f in list(globals().items()):
