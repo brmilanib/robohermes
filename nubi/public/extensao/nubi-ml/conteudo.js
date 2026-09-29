@@ -99,6 +99,23 @@
       <b>${valor}${unid ? `<small>${unid}</small>` : ""}</b></div>${extra || ""}${sub ? `<div class="nubi-spy-sub">${sub}</div>` : ""}</div>`;
   const TERMO = ["#ef4444", "#f97316", "#facc15", "#a3e635", "#22c55e"];
 
+  function precoOutrosMeios() {
+    const els = [...document.querySelectorAll(".ui-pdp-price__subtitles, .ui-pdp-price p, .ui-pdp-price span, p, span")]
+      .filter(e => /em outros meios/i.test(e.textContent || "") && (e.textContent || "").length < 120);
+    for (const e of els) {
+      const m = e.querySelector(".andes-money-amount");
+      if (m) {
+        const fr = (m.querySelector(".andes-money-amount__fraction") || {}).textContent || "";
+        const ct = (m.querySelector(".andes-money-amount__cents") || {}).textContent || "0";
+        const x = parseFloat(fr.replace(/\D/g, "") + "." + (ct.replace(/\D/g, "") || "0").padEnd(2, "0"));
+        if (x > 0) return x;
+      }
+      const t = (e.textContent || "").replace(/\s+/g, " ").match(/R\$\s*([\d.]+)(?:,(\d{2}))?\s*em outros meios/i);
+      if (t) return parseFloat(t[1].replace(/\./g, "") + "." + (t[2] || "00"));
+    }
+    return null;
+  }
+
   function desenharQuadro(q, a, n) {
     const t = (n && n.tarifas) || {}, tp = a.tipo === "gold_premium" ? "gold_pro" : a.tipo;
     const tf = t[tp] || null;
@@ -114,7 +131,9 @@
     const vendasDia = a.vendidos != null && dias ? a.vendidos / Math.max(dias, 1) : null;
     const v = (n && n.visitas) || {};
     const total = h.total != null ? h.total : null;
-    const conv = a.vendidos != null && total ? Math.min(1, a.vendidos / total) : null;
+    // 29/09 (Bruno: "conversão pelos últimos 30 dias, mais atualizado"): vendas de 30 dias no ritmo do anúncio ÷ visitas de 30 dias
+    const vendas30 = vendasDia != null ? vendasDia * 30 : null;
+    const conv = vendas30 != null && v.anuncio ? Math.min(1, vendas30 / v.anuncio) : a.vendidos != null && total ? Math.min(1, a.vendidos / total) : null;
     const l = (n && n.loja) || a.loja || {};
     const conc = (n && n.concorrentes) || [];
     const menor = conc.reduce((m, c) => c.preco && (m == null || c.preco < m) ? c.preco : m, null);
@@ -135,7 +154,8 @@
         <div class="verde"><small>${ic("carteira", 12)} Valor recebido</small><b>${ld || brl(recebido)}</b></div>
       </div>
       ${linha("subindo", "laranja", "Conversão", conv != null ? `${(100 * conv).toLocaleString("pt-BR", {maximumFractionDigits: 1})}%` : ld || "—", "",
-        conv != null ? `Vende a cada ${nf(Math.round(1 / conv))} visitas` : "precisa das visitas no total",
+        conv != null ? `Vende a cada ${nf(Math.round(1 / conv))} visitas` + (vendas30 != null && v.anuncio ? ` · 30 dias: ≈${nf(Math.round(vendas30))} vendas ÷ ${nf(v.anuncio)} visitas` : "")
+          : "precisa das visitas de 30 dias",
         `<div class="nubi-spy-barra"><i style="width:${conv != null ? Math.min(100, conv / 0.05 * 100) : 0}%"></i></div>`)}
       ${linha("olho", "azul", "Visitas", ld || dec(v.anuncio != null ? v.anuncio / 30 : null), "/dia",
         [total != null ? `${nf(total)} no total` : h.total_janela != null ? `${nf(h.total_janela)} em ${h.dias_lidos} dias` : "",
@@ -166,7 +186,7 @@
         <p>${conv != null ? "visitas dos últimos 30 dias × conversão" : "ritmo de vendas desde a entrada"}${pos ? ` · você está em ${pos}º de ${conc.length} no preço` : ""}</p></div>` : ""}
       <button class="nubi-spy-bt cheio" data-nubi="calc">${ic("calc", 13)} Abrir na calculadora</button>
       ${a.item ? `<a class="nubi-spy-mais" href="${NUBI}/#/ml/anuncio/${esc(a.item)}" target="_blank" rel="noopener">${ic("abrir", 12)} Ver mais dados no nubi</a>` : ""}
-      ${a.itemApi && a.itemApi !== 200 ? `<div class="nubi-spy-diag">ML /items do navegador: ${esc(a.itemApi)}</div>` : ""}`;
+`;
     // perfil do vendedor: cartão próprio na coluna da direita, embaixo do "Comprar agora" (como o do Hunter)
     const vend = `<div class="nubi-spy-vcab">${ic("loja", 14)} Perfil do vendedor</div>
         <div class="nubi-spy-vtopo"><span class="nubi-spy-vic">${ic("loja", 18)}</span><div>
@@ -212,6 +232,9 @@
     const A = await pedir({tipo: "pagina", url: location.href, html: document.documentElement.innerHTML});
     const metaPreco = document.querySelector('meta[itemprop="price"]');
     if (metaPreco && +metaPreco.content) A.preco = +metaPreco.content;
+    // 29/09 (Bruno): "ou R$ 167,90 em outros meios" é o preço que o vendedor recebe; o do Pix (142,71) tem rebate do próprio ML
+    const outros = precoOutrosMeios();
+    if (outros && (!A.preco || outros > A.preco)) { A.precoPix = A.preco; A.preco = outros; }
     const h1 = document.querySelector("h1.ui-pdp-title, h1");
     if (h1 && h1.textContent.trim()) A.titulo = h1.textContent.trim();
     desenharQuadro(q, A, null);

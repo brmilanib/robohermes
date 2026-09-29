@@ -200,8 +200,9 @@
     if (id === "c-fg") CALC.freteGratis = e.target.checked;
     if (id === "c-fc") CALC.freteCustom = e.target.checked;
     // redesenha sem perder o campo em que o Bruno está digitando
-    const pos = e.target.selectionStart;
-    desenhar("calc").then(() => { const n = document.getElementById(id); if (n && n.type !== "checkbox") { n.focus(); try { n.setSelectionRange(pos, pos); } catch (er) { /* número */ } } });
+    // 29/09 (Bruno: "não consigo pôr vírgula no custo"): o redesenho trocava "89," por "89"; o texto digitado volta como estava
+    const pos = e.target.selectionStart, txt = e.target.value;
+    desenhar("calc").then(() => { const n = document.getElementById(id); if (n && n.type !== "checkbox") { n.value = txt; n.focus(); try { n.setSelectionRange(pos, pos); } catch (er) { /* número */ } } });
   });
   document.addEventListener("change", async e => {
     if (e.target.id === "t-cat") { await guardado.gravar("tend_cat", e.target.value); desenhar("tend"); }

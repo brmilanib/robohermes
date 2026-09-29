@@ -19,8 +19,8 @@
 .nubi-spy a{color:var(--az2);text-decoration:none}
 .nubi-ic{display:inline-block;vertical-align:-2px;flex:none}
 .nubi-spy-cab{display:flex;align-items:center;gap:8px;background:linear-gradient(100deg,var(--az),var(--az2));color:#fff;padding:10px 12px}
-.nubi-spy-logo{width:20px;height:20px;border-radius:6px;background:#fff;color:var(--az);display:grid;place-items:center;font-weight:800;font-size:13px}
-.nubi-spy-cab b{flex:1;font-size:13px;letter-spacing:.2px}
+.nubi-spy-logo{width:28px;height:28px;border-radius:8px;background:#fff;color:var(--az);display:grid;place-items:center;font-weight:900;font-size:18px}
+.nubi-spy-cab b{flex:1;font-size:16px;letter-spacing:.2px}
 .nubi-spy-chips{display:flex;gap:4px;background:rgba(255,255,255,.16);border-radius:12px;padding:2px}
 .nubi-spy-chips i{font-style:normal;font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:10px;letter-spacing:.4px}
 .nubi-spy-chips i.on{background:#fff;color:var(--az)}

@@ -17,7 +17,7 @@ with zipfile.ZipFile(RAIZ / "public" / "extensao" / "nubi-ml.zip") as z:
         assert z.read(f"nubi-ml/{f.name}") == f.read_bytes(), f"zip desatualizado: rode python3 testes/gerar_extensao.py ({f.name})"
 man = json.loads((EXT / "manifest.json").read_text())
 assert man["manifest_version"] == 3 and "https://*.mercadolivre.com.br/*" in man["host_permissions"]
-assert man["version"] == "0.6.0", man["version"]
+assert man["version"] == "0.6.1", man["version"]
 
 # 2) leitor da página do anúncio
 js = """global.chrome={runtime:{onMessage:{addListener(){}}}};const {lerAnuncio}=require(process.argv[1]);
@@ -229,7 +229,11 @@ with sync_playwright() as p:
     pg.wait_for_function("(document.querySelector('#nubi-ml-quadro')||{}).innerText?.replace(/\\u00a0/g,' ').includes('R$ 180,54')", timeout=5000)
     t = pg.inner_text("#nubi-ml-quadro").replace("\xa0", " ")
     dias = (__import__("datetime").date.today() - __import__("datetime").date(2026, 1, 19)).days
-    for x in ("nubi Spy", "CATÁLOGO", "PREMIUM", "R$ 24,45", "R$ 41,99", "17%", "R$ 180,54", "Conversão", "0,5%", "Vende a cada 197 visitas",
+    # 29/09 (Bruno): conversão pelos últimos 30 dias = vendas/dia × 30 ÷ visitas de 30 dias (142)
+    v30 = 100 / max(dias, 1) * 30
+    conv_txt = f"{100 * v30 / 142:.1f}%".replace(".", ",")
+    for x in ("nubi Spy", "CATÁLOGO", "PREMIUM", "R$ 24,45", "R$ 41,99", "17%", "R$ 180,54", "Conversão", conv_txt,
+              f"Vende a cada {round(142 / v30)} visitas", f"30 dias: ≈{round(v30)} vendas ÷ 142 visitas",
               "Visitas", "4,7/dia", "19.651 no total", "142 em 30 dias", "Catálogo: 31/dia", "15% deste anúncio",
               "+100 total", "Faturamento previsto", "R$ 24,7 mil", "Projeção de vendas", "desde 19/01/2026 · 1ª visita",
               "menor R$ 239,90", "FULL", "Estoque: 2 un. · dura ≈ 5 dias", "Avaliações", "5 ★", "2 no total", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
@@ -239,7 +243,8 @@ with sync_playwright() as p:
     assert "estimado" not in t and "7 dias" not in t                             # projeção fechada até clicar
     pg.click("[data-nubi=proj]")
     pj = pg.inner_text(".nubi-spy-proj").replace("\xa0", " ")
-    assert "30 dias" in pj and "≈ 1" in pj and "você está em 2º de 2 no preço" in pj, pj
+    assert "30 dias" in pj and f"≈ {round(v30)}" in pj and "você está em 2º de 2 no preço" in pj, pj
+    assert "ML /items" not in t                                                  # a linha de diagnóstico saiu do quadro
     # o perfil do vendedor fica num cartão próprio (na página de verdade, embaixo do "Comprar agora")
     assert "PEREIRAELOISA20220126003352" in pg.inner_text("#nubi-ml-vendedor")                               # com a 1ª visita não precisa estimar
     assert pg.evaluate("document.querySelectorAll('#nubi-ml-quadro svg.nubi-ic').length") >= 15      # ícones de linha, não emoji
@@ -256,6 +261,19 @@ with sync_playwright() as p:
     assert pg.is_visible("#nubi-ml-painel") and pg.get_attribute("#nubi-ml-painel", "src") == "about:blank#painel.html"
     assert pg.is_visible("#nubi-ml-aba") and not erros, erros
 
+    # 29/09 (Bruno): preço de venda = o de "outros meios" (R$ 167,90); o do Pix (142,71) tem rebate do próprio ML
+    pg2 = b.new_page(viewport={"width": 1440, "height": 900})
+    pg2.set_content('<html><body><div class="ui-pdp-container__row--price"><span class="ui-pdp-price">R$ 142,71</span>'
+                    '<p class="ui-pdp-price__subtitles">ou <span class="andes-money-amount"><span class="andes-money-amount__currency-symbol">R$</span>'
+                    '<span class="andes-money-amount__fraction">167</span><span class="andes-money-amount__cents">90</span></span> em outros meios</p></div>'
+                    '<meta itemprop="price" content="142.71"></body></html>')
+    pg2.add_style_tag(content=(EXT / "estilo.css").read_text())
+    pg2.add_script_tag(content=STUB2)
+    pg2.add_script_tag(content=(EXT / "icones.js").read_text()); pg2.add_script_tag(content=js_conteudo)
+    pg2.wait_for_function("(window.PEDIDOS||[]).some(m => m.tipo === 'nubi')", timeout=5000)
+    ped2 = [m for m in pg2.evaluate("PEDIDOS") if m["tipo"] == "nubi"][0]
+    assert ped2["params"]["preco"] == 167.9, ped2
+
     # 5) painel lateral: calculadora (números do print do Hunter), histórico e gerador EAN
     pp = b.new_page(viewport={"width": 420, "height": 900})
     erros = []; pp.on("pageerror", lambda e: erros.append(str(e)))
@@ -266,6 +284,10 @@ with sync_playwright() as p:
     pp.wait_for_selector("text=Lucro líquido")
     t = pp.inner_text("#pn-corpo").replace("\xa0", " ")
     assert "R$ 180,54" in t and "73,10%" in t and "Clássico\n12%" in t and "Premium\n17%" in t, t
+    pp.fill("#c-custo", "")
+    pp.type("#c-custo", "99,5")                                                  # 29/09: a vírgula não some ao digitar
+    pp.wait_for_timeout(300)
+    assert pp.input_value("#c-custo") == "99,5", pp.input_value("#c-custo")
     pp.fill("#c-custo", "100")
     pp.wait_for_function("document.querySelector('.lucro .v').innerText.includes('80,54')")
     assert "80,54%" in pp.inner_text(".lucro")                                   # ROI = 80,54 / 100
