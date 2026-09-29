@@ -149,6 +149,18 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     `oficial`, `votos`/`sondados`. Achar o seguido grava também o hash dele no Explorador (e vice-versa). Refazer sem prova
     tira o automático antigo; o "manual" nunca muda (a resposta diz se a busca "confere"). Feito antes da prova nova (sem
     `prova`) aparece "a conferir" (`_a_conferir`); "dúvida" não aparece. O relatório da marca traz `lojas_ml` e o `vid`.
+  - Data de criação pelo nº do MLB (29/09): o ML não dá a data do anúncio de outra loja ao app, mas o nº do MLB cresce
+    com o tempo em SEQUÊNCIAS separadas (nos anúncios do Bruno: 45xx–50xx de mar a ago/2026 e 61xx–73xx de jan a
+    jul/2026). `_calibracao_mlb` junta os MLB do relatório de vendas por anúncio do UpSeller (`vendas_anuncio|atual`) com
+    a "Data de criação" das lojas dele no Explorador (vendedores com 5+ SKUs dele: PUREHOME, AURASCENT), 1 vez por dia
+    em `meli|calibra_mlb`; `meli.data_pelo_mlb` estima só entre 2 vizinhos da mesma sequência (≤ 90 dias) ou até 60
+    dias depois do maior nº, com folga; `casar` compara com a "Data de criação" do Explorador ("criado"). Data batendo
+    em 2+ anúncios = "certa"; preço do dia + data num produto = "provável". O botão 🔌 mostra a calibração. O Hunter
+    mostra "Anúncio criado": foi assim que o Bruno viu que as datas da KAIDOXSTOREE batem com as do ICARBONXX.
+  - O nº da loja oficial é da MARCA (a Mugler "por Auma Perfumaria"): vários vendedores podem estar na mesma (20309 em 5
+    vendedores do Explorador). Por isso "certa" pela loja oficial só quando nenhuma outra candidata tem o mesmo nº.
+  - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
+    Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a
     vitrine): ICARBONXX P3 = KAIDOXSTOREE (2540338692), loja oficial nº 23829 (LIPX), gravado como manual.
   - A solução do Cowork (`meli_cruzar.py`: busca por palavra + mesma foto + data) NÃO roda com o token do app:

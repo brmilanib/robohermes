@@ -869,6 +869,53 @@ def _data(v):
         return None
 
 
+def data_pelo_mlb(mlb, calib):
+    """
+    29/09: o ML não dá a data de criação do anúncio de outra loja ao app (/items 403), mas o nº do MLB cresce com o
+    tempo, em SEQUÊNCIAS separadas (nos anúncios do Bruno: 45xx–50xx de mar a ago/2026 e 61xx–73xx de jan a jul/2026).
+    calib: [(nº, data)] dos anúncios do Bruno (MLB do UpSeller x "Data de criação" do Explorador). Estima só entre dois
+    pontos vizinhos da mesma sequência (data subindo, até 90 dias) ou até 60 dias depois do maior nº de todos.
+    Devolve (data estimada, folga em dias) ou (None, None).
+    """
+    try:
+        n = int(re.sub(r"\D", "", str(mlb or "")))
+    except ValueError:
+        return None, None
+    pts = sorted(calib or [])
+    if len(pts) < 2 or not n:
+        return None, None
+    import bisect
+    i = bisect.bisect_left([p[0] for p in pts], n)
+    if i < len(pts) and pts[i][0] == n:
+        return pts[i][1], 1.0
+    if 0 < i < len(pts):
+        (n0, d0), (n1, d1) = pts[i - 1], pts[i]
+        gap = (d1 - d0).days
+        if gap < 0 or gap > 90 or n1 == n0:
+            return None, None                   # troca de sequência ou buraco grande: não dá para saber
+        return d0 + timedelta(days=round(gap * (n - n0) / (n1 - n0))), 2.0 + 0.04 * gap
+    if i == len(pts):                           # depois do maior nº: segue o ritmo do último trecho (≥ 20 dias)
+        (n1, d1) = pts[-1]
+        ant = next(((m, d) for m, d in reversed(pts[:-1]) if 20 <= (d1 - d).days <= 120), None)
+        if ant and n1 > ant[0]:
+            por_dia = (n1 - ant[0]) / (d1 - ant[1]).days
+            dias = (n - n1) / por_dia
+            if dias <= 60:
+                return d1 + timedelta(days=round(dias)), 3.0 + 0.15 * dias
+    return None, None
+
+
+def _data_br(txt):
+    """'16-07-2026' (Explorador) -> date."""
+    m = re.fullmatch(r"(\d{2})[-/](\d{2})[-/](\d{4})", str(txt or "").strip())
+    if not m:
+        return None
+    try:
+        return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).date()
+    except ValueError:
+        return None
+
+
 def ref_explorador(l, hoje=None, data_ref=None):
     """Linha do Explorador -> o que ela diz do anúncio (ver casar)."""
     hoje = hoje or datetime.now(timezone.utc).date()
@@ -882,10 +929,11 @@ def ref_explorador(l, hoje=None, data_ref=None):
     return {"gtins": [str(l.get("gtin") or "")], "preco": _num(l.get("preco")), "full": bool(l.get("full")),
             "exato": bool(d and 0 <= (hoje - d).days <= 5), "loja_oficial": l.get("loja_oficial_id"),
             "tipo": l.get("exposicao") or None, "catalogo": None if cat is None or cat != cat else bool(cat),
-            "dias_pub": dl, "data_ref": d, "peso": un if un and un == un else 0.0}
+            "dias_pub": dl, "data_ref": d, "peso": un if un and un == un else 0.0,
+            "criado": _data(l.get("criado")) or _data_br(l.get("criado"))}
 
 
-def casar(refs, ofertas):
+def casar(refs, ofertas, calib=None):
     """
     refs: o que o Nubimetrics diz dos anúncios de UM vendedor [{gtins, preco, full, exato, loja_oficial (nº; 0 = sabido
     que não é; None = não se sabe), tipo, catalogo, dias_pub, data_ref}]; ofertas: ofertas_por_gtin (catálogo agora).
@@ -929,6 +977,9 @@ def casar(refs, ofertas):
                         if abs(idade - int(dl)) > 3:
                             continue
                         idade_ok = abs(idade - int(dl)) <= 1
+                    elif r.get("criado") and calib:                   # data estimada pelo nº do MLB (calibrada)
+                        est, folga = data_pelo_mlb(o.get("anuncio"), calib)
+                        idade_ok = bool(est and abs((est - r["criado"]).days) <= folga)
                     pp, como = _pontos_preco(_num(o.get("preco")), pr, r.get("exato"))
                     pts = 1.0 + pp + (4.0 if oficial else 0.0) + (3.0 if idade_ok else 0.0)
                     if pts > melhor.get(sid, (0.0,))[0]:
@@ -956,6 +1007,8 @@ def decidir(cands, sondados):
         return "certa"                          # o nº da loja oficial do Explorador é o desta loja, e só dela
     if c1["exato"] >= 3 and not (c2 and c2["exato"] >= 2):
         return "certa"                          # o preço do dia do export bate exato em 3+ produtos
+    if c1["idade"] >= 2 and not any(c["idade"] >= 2 for c in outros):
+        return "certa"                          # a data de criação bate em 2+ anúncios dele (pelo nº do MLB)
     if c1["exato"] and c1["idade"] and not any(c["exato"] and c["idade"] for c in outros):
         return "provável"                       # preço do dia e idade do anúncio batem (vale para 1 produto só)
     minimo = max(2, -(-sondados // 2))          # em pelo menos metade dos produtos sondados (e 2), mais que qualquer rival
@@ -974,13 +1027,13 @@ def _prova(c, sondados):
     if c.get("perto"):
         p.append(f"preço perto em {c['perto']}")
     if c.get("idade"):
-        p.append(f"idade do anúncio igual em {c['idade']}")
+        p.append(f"data de criação batendo em {c['idade']}")
     if c.get("nome_bate"):
         p.append("nome parecido")
     return "; ".join(p) + "; Full e tipo iguais"
 
 
-def casar_vendedores(linhas, ml, data_ref=None):
+def casar_vendedores(linhas, ml, data_ref=None, calib=None):
     """
     Quadro do produto: os vendedores embaralhados do Explorador x ofertas do catálogo agora -> {hash: loja}, só com
     prova (loja oficial, ou preço do dia + idade do anúncio). linhas: [{vendedor_id (hash), gtin, preco, full,
@@ -994,7 +1047,7 @@ def casar_vendedores(linhas, ml, data_ref=None):
             por_h.setdefault(l["vendedor_id"], []).append(ref_explorador(l, hoje, data_ref))
     out = {}
     for h, refs in por_h.items():
-        cands, sondados = casar(refs, ml)
+        cands, sondados = casar(refs, ml, calib)
         conf = decidir(cands, sondados)
         if conf:
             c, loja = cands[0], lj.get(cands[0]["id"]) or {}
@@ -1021,7 +1074,7 @@ def _base_nome(nome):
     return re.sub(r"[^A-Z0-9]", "", unicodedata.normalize("NFKD", n).encode("ascii", "ignore").decode().upper())
 
 
-def achar_loja(nome, refs, ofertas, un_mes=None):
+def achar_loja(nome, refs, ofertas, un_mes=None, calib=None):
     """
     Vendedor do Nubimetrics (refs do Explorador + do relatório do seguido) x ofertas do catálogo -> (loja escolhida ou
     None, candidatas). nome: o que o Bruno deu ao seguido ("ICARBONXX P3"); é rótulo dele, então só desempata.
@@ -1029,7 +1082,7 @@ def achar_loja(nome, refs, ofertas, un_mes=None):
     metade disso não pode ser ele (a LUH… que entrou errado no ICARBONXX tinha 230 vendas; ele vende 25 mil/mês).
     A escolhida traz os anúncios dela achados no catálogo (ID, link, preço de agora).
     """
-    cands, sondados = casar(refs, ofertas)
+    cands, sondados = casar(refs, ofertas, calib)
     top = cands[:6]
     lj = lojas([c["id"] for c in top]) if top else {}
     base = _base_nome(nome)
@@ -1046,7 +1099,7 @@ def achar_loja(nome, refs, ofertas, un_mes=None):
     cands = sorted(top, key=lambda c: (-c["pontos"], -c["produtos"])) + cands[6:]
     conf = decidir(cands, sondados)
     mostrar = [{"id": c["id"], "nome": c.get("nome") or "", "link": c.get("link") or "", "produtos": c["produtos"],
-                "sondados": sondados, "exato": c["exato"], "perto": c["perto"], "oficial": c["oficial"],
+                "sondados": sondados, "exato": c["exato"], "perto": c["perto"], "idade": c["idade"], "oficial": c["oficial"],
                 "prova": _prova(c, sondados)} for c in cands[:3]]
     if not conf:
         return None, mostrar
@@ -1061,7 +1114,7 @@ def achar_loja(nome, refs, ofertas, un_mes=None):
                                       "titulo": nomes.get(pid, ""), "preco": o.get("preco"), "full": bool(o.get("full")),
                                       "produto_catalogo": pid or ""}
     x = {"id": c["id"], "nome": c["nome"], "link": c["link"], "votos": c["produtos"], "sondados": sondados,
-         "preco_bate": c["exato"] + c["perto"], "exato": c["exato"], "oficial": c["oficial"], "nome_bate": c["nome_bate"],
+         "preco_bate": c["exato"] + c["perto"], "exato": c["exato"], "idade": c["idade"], "oficial": c["oficial"], "nome_bate": c["nome_bate"],
          "confianca": conf, "prova": _prova(c, sondados), "em": datetime.now(timezone.utc).isoformat(),
          "anuncios": sorted(anuncios.values(), key=lambda a: a.get("titulo") or "")[:60]}
     return x, mostrar

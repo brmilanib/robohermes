@@ -284,12 +284,19 @@ def _a_conferir(x):
     return x
 
 
+def _hash_ok(x):
+    """De-para do hash do Explorador: só com prova (ou manual). Os feitos pela regra antiga (1 produto, só preço) saem da
+    tela: o Bruno conferiu no Hunter e GLBRASIL2026 e SHOP ELETRONICO estavam errados (datas de criação e produtos)."""
+    x = _a_conferir(x)
+    return x if x and x.get("confianca") != "a conferir" else None
+
+
 def _lojas_ml_do(repo, hashes):
     try:
         m = meli.ler_hash_lojas(repo)
     except Exception:  # noqa: BLE001  (extra: sem o de-para o relatório sai como antes)
         return {}
-    return {h: _a_conferir(x) for h, x in m.items() if h in hashes and _a_conferir(x)}
+    return {h: _hash_ok(x) for h, x in m.items() if h in hashes and _hash_ok(x)}
 
 
 def relatorio(repo, marca):
@@ -4002,6 +4009,7 @@ def _linhas_nubi(repo, snaps, filtro, com_bruto=False):
                     b = {}
             r["loja_oficial_id"] = (meli.loja_oficial_do_texto(b.get("Loja oficial")) or 0) if "Loja oficial" in b else None
             r["exposicao"] = b.get("Exposição") or ""
+            r["criado"] = meli._data_br(b.get("Data de criação"))
     return out
 
 
@@ -4014,10 +4022,73 @@ def _ml_do_produto(repo, marca, gtins):
     casados = {}
     if marca and ml:
         linhas = _linhas_nubi(repo, _ultimos_snapshots(repo, marca), {"gtin": f"in.({','.join(gtins)})"}, com_bruto=True)
-        casados = meli.casar_vendedores(linhas, ml)
+        casados = meli.casar_vendedores(linhas, ml, calib=_calib_ou_nada(repo))
         if casados:
             meli.gravar_hash_lojas(repo, casados)
     return {"anuncios": ml, "casados": casados}
+
+
+CALIBRA = "meli|calibra_mlb"
+
+
+def _calibracao_mlb(repo, forcar=False):
+    """29/09: pares (nº do MLB, data de criação) dos anúncios do BRUNO, para estimar a data de criação dos anúncios das
+    outras lojas pelo nº (meli.data_pelo_mlb). MLB e SKU vêm do relatório de vendas por anúncio do UpSeller; a data vem
+    do Explorador, onde as lojas dele aparecem (PUREHOME, AURASCENT) — são os vendedores com 5+ SKUs dele. Só SKU com um
+    MLB e uma data. Refeito 1 vez por dia (ia_resumos meli|calibra_mlb)."""
+    if not forcar:
+        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(CALIBRA)}) or [None])[0]
+        try:
+            d = json.loads(r["texto"]) if r else None
+            if d and time.time() - float(d.get("_ts") or 0) < 86400:
+                return [(int(n), date.fromisoformat(x)) for n, x in d.get("pts") or []]
+        except (TypeError, ValueError):
+            pass
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(VENDAS_CHAVE)}) or [None])[0]
+    try:
+        vendas = (json.loads(r["texto"]).get("linhas") or []) if r else []
+    except (TypeError, ValueError):
+        vendas = []
+    norm = lambda x: re.sub(r"[^A-Z0-9]", "", str(x or "").upper())
+    mlbs = {}
+    for x in vendas:
+        if re.fullmatch(r"MLB\d{6,}", str(x.get("anuncio") or "")) and norm(x.get("sku")):
+            mlbs.setdefault(norm(x.get("sku")), set()).add(x["anuncio"])
+    skus = sorted(k for k, v in mlbs.items() if len(v) == 1 and len(k) >= 4)
+    rows = []
+    for i in range(0, len(skus), 60):
+        rows += repo._todos("anuncios", {"select": "vendedor_id,sku,bruto", "sku": "in.(" + ",".join(skus[i:i + 60]) + ")"})
+    por_v = {}
+    for x in rows:
+        por_v.setdefault(str(x.get("vendedor_id")), set()).add(norm(x.get("sku")))
+    meus = {v for v, ks in por_v.items() if len(ks) >= 5}               # as lojas do Bruno no Explorador
+    datas = {}
+    for x in rows:
+        if str(x.get("vendedor_id")) in meus:
+            b = x.get("bruto") or {}
+            if isinstance(b, str):
+                try:
+                    b = json.loads(b)
+                except ValueError:
+                    b = {}
+            dt = meli._data_br(b.get("Data de criação"))
+            if dt:
+                datas.setdefault(norm(x.get("sku")), set()).add(dt)
+    pts = sorted((int(next(iter(mlbs[k]))[3:]), next(iter(ds))) for k, ds in datas.items() if len(ds) == 1 and k in mlbs)
+    try:
+        repo._req("POST", "ia_resumos", corpo=[{"chave": CALIBRA, "ia": "Mercado Livre (API)", "texto": json.dumps(
+            {"_ts": time.time(), "lojas": sorted(meus), "pts": [[n, d.isoformat()] for n, d in pts]})}],
+            prefer="resolution=merge-duplicates,return=minimal")
+    except Exception:  # noqa: BLE001  (sem gravar, calcula de novo na próxima)
+        pass
+    return pts
+
+
+def _calib_ou_nada(repo):
+    try:
+        return _calibracao_mlb(repo)
+    except Exception:  # noqa: BLE001  (extra: sem calibração a busca segue com as outras provas)
+        return []
 
 
 def _refs_seguido(linhas):
@@ -4041,7 +4112,8 @@ def _achar_e_gravar(repo, nome, refs, hashes=(), seguido=None, un_mes=None):
     gtins = _gtins_para_sondar(refs)
     if not gtins:
         return {"achou": False, "motivo": "os anúncios dele no Nubimetrics não têm GTIN de produto de catálogo do Mercado Livre"}
-    x, cands = meli.achar_loja(nome, refs, meli.ofertas_por_gtin(gtins, max_gtins=len(gtins)), un_mes=un_mes)
+    x, cands = meli.achar_loja(nome, refs, meli.ofertas_por_gtin(gtins, max_gtins=len(gtins)), un_mes=un_mes,
+                               calib=_calib_ou_nada(repo))
     base = {"testados": len(gtins), "candidatas": cands}
     manual = ((meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(seguido) if seguido else None)
               or next((meli.ler_hash_lojas(repo).get(h) for h in hashes if meli.ler_hash_lojas(repo).get(h)), None))
@@ -4082,7 +4154,7 @@ def _descobrir_loja(repo, vid):
 
 def _nubi_da_loja(repo, seller_id):
     """Os NOSSOS números (Nubimetrics, agrupamento do nubi) da loja real: pelos vendedores embaralhados já identificados."""
-    hashes = [h for h, x in meli.ler_hash_lojas(repo).items() if str(x.get("id")) == str(seller_id) and _a_conferir(x)]
+    hashes = [h for h, x in meli.ler_hash_lojas(repo).items() if str(x.get("id")) == str(seller_id) and _hash_ok(x)]
     seguidos = [v for v, x in meli.ler_hash_lojas(repo, meli.SEGUIDOS).items() if str(x.get("id")) == str(seller_id) and _a_conferir(x)]
     seg = None
     if seguidos:                           # o vendedor seguido ligado a esta loja: o último relatório dele
@@ -4190,7 +4262,7 @@ def _descobrir_seguido(repo, vendedor):
 def _gtins_da_loja(repo, sid):
     """GTINs que a loja real vende segundo o Nubimetrics (Explorador pelos hashes ligados + vendedores seguidos ligados)."""
     gt = []
-    hashes = [h for h, x in meli.ler_hash_lojas(repo).items() if str(x.get("id")) == str(sid) and _a_conferir(x)]
+    hashes = [h for h, x in meli.ler_hash_lojas(repo).items() if str(x.get("id")) == str(sid) and _hash_ok(x)]
     if hashes:
         ls = _linhas_nubi(repo, _ultimos_snapshots(repo), {"vendedor_id": f"in.({','.join(hashes)})"})
         ls.sort(key=lambda l: -float(l.get("un") or 0))
@@ -4283,11 +4355,21 @@ def rota_meli(repo, metodo, rota, q, corpo):
         except ValueError:
             raise ErroNuvem("Pedido inválido.")
     if rota == "meli_teste":
-        return meli.testar()
+        t = meli.testar()
+        if t.get("chaves"):
+            try:
+                pts = _calibracao_mlb(repo, forcar=True)
+                t["passos"].append({"passo": "data de criação pelo nº do anúncio (calibração)", "ok": len(pts) >= 5,
+                                    "detalhe": (f"{len(pts)} anúncios seus, de {min(d for _, d in pts).strftime('%d/%m/%Y')} a "
+                                                f"{max(d for _, d in pts).strftime('%d/%m/%Y')}") if pts else
+                                    "sem anúncios seus com SKU no Explorador e no relatório de vendas do UpSeller"})
+            except Exception as e:  # noqa: BLE001
+                t["passos"].append({"passo": "data de criação pelo nº do anúncio (calibração)", "ok": False, "detalhe": str(e)[:120]})
+        return t
     if rota == "meli_hash_lojas":
         # 29/09 (Bruno): "aqui tem que ter o nome da loja que tá no Nubimetrics": o nome de cada hash no Explorador
         # (o fictício deles, ou o que o Bruno deu ao seguido) + os vendedores seguidos ligados
-        lojas = {h: _a_conferir(x) for h, x in meli.ler_hash_lojas(repo).items() if _a_conferir(x)}
+        lojas = {h: _hash_ok(x) for h, x in meli.ler_hash_lojas(repo).items() if _hash_ok(x)}
         nomes = {}
         hs = [h for h in lojas if re.fullmatch(r"[0-9a-f]{16,64}", h)]
         snaps = _ultimos_snapshots(repo) if hs else pd.DataFrame()

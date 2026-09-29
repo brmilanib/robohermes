@@ -439,7 +439,9 @@ def test_rotas_do_servidor_ligam_o_vendedor_do_nubimetrics_a_loja():
     assert d["loja"]["confianca"] == "certa" and d["loja"]["oficial"] == [555]      # nº da loja oficial do Explorador = do ML
     n = w.rota_meli(r, "POST", "meli_nomear", {}, json.dumps({"vendedor_id": "b" * 64, "loja": "https://produto.mercadolivre.com.br/MLB-1000100-x"}).encode())
     assert n["loja"]["nome"] == "FINKE" and meli.ler_hash_lojas(r)["b" * 64]["confianca"] == "manual"
+    meli.gravar_hash_lojas(r, {"c" * 64: {"id": "3153658428", "nome": "GLBRASIL2026", "confianca": "provável", "votos": 2}})
     hl = w.rota_meli(r, "GET", "meli_hash_lojas", {}, b"")                       # a tela #/ml mostra o nome de lá
+    assert "c" * 64 not in hl["lojas"]                                         # regra antiga, sem prova: some da tela
     assert hl["nomes"] == {"a" * 64: "HIMALAIA.INDIGO", "b" * 64: "ICARBONXX P3"} and hl["lojas"]["b" * 64]["confianca"] == "manual", hl
     p = w.rota_meli(r, "GET", "meli_loja", {"id": "111111111"}, b"")
     nb = p["nubimetrics"]
@@ -608,6 +610,70 @@ def test_painel_dos_vendedores_seguidos():
     assert a["ml"]["nome"] == "ICARBONXX" and a["ml"]["anuncios"] == 2 and xs[1]["ml"] is None
     assert a["ml"]["confianca"] == "a conferir"                   # feito antes da prova nova (sem "prova"): a conferir
     assert a["explorador"] == {"hashes": ["c" * 64], "anuncios": 2, "oficial": [23829]} and xs[1]["explorador"] is None
+
+# anúncios do Bruno (PUREHOME): nº do MLB (UpSeller) x "Data de criação" (Explorador), 29/09 — duas sequências de nº
+CALIB_REAL = [(4502422545, "2026-03-02"), (4506216155, "2026-03-04"), (4564678013, "2026-03-27"), (4564749711, "2026-03-27"),
+              (4580665857, "2026-04-02"), (4580674031, "2026-04-02"), (4620989177, "2026-04-20"),
+              (4646114313, "2026-04-30"), (4908236905, "2026-07-17"), (4936759727, "2026-07-23"), (5056539183, "2026-08-13"),
+              (6181824276, "2026-01-19"), (6209410920, "2026-01-29"), (6290732514, "2026-02-23"), (6365509112, "2026-03-02"),
+              (6527218268, "2026-03-27"), (6557028920, "2026-04-02"), (6630741268, "2026-04-16"),
+              (6646618654, "2026-04-20"), (6756032596, "2026-05-11"), (6858090042, "2026-05-28"), (6896330166, "2026-06-03"),
+              (6944852660, "2026-06-11"), (7177006460, "2026-07-15"), (7238819528, "2026-07-23"), (7304418818, "2026-07-31")]
+
+
+def test_data_de_criacao_pelo_numero_do_anuncio():
+    """O ML não dá a data de criação do anúncio de outra loja ao app, mas o nº do MLB cresce com o tempo (em sequências).
+    Calibrado com os anúncios do Bruno, estima a data; os que ficaram de fora da calibração conferem."""
+    cal = [(n, date.fromisoformat(d)) for n, d in CALIB_REAL]
+    for mlb, real in (("MLB4575881755", "2026-04-01"), ("MLB6551180856", "2026-04-01"), ("MLB6636199952", "2026-04-17"),
+                      ("MLB6938013644", "2026-06-10")):                        # fora da calibração: SHAHEEN, AFEEF, MIX, KIT DOLCE
+        est, folga = meli.data_pelo_mlb(mlb, cal)
+        assert est and abs((est - date.fromisoformat(real)).days) <= folga, (mlb, est, real, folga)
+    assert meli.data_pelo_mlb("MLB5500000000", cal) == (None, None)             # entre as duas sequências: não sabe
+    est, folga = meli.data_pelo_mlb("MLB7400000000", cal)                      # depois do maior: segue o ritmo, com folga
+    assert est and date(2026, 8, 5) <= est <= date(2026, 8, 20) and folga > 3, (est, folga)
+    assert meli.data_pelo_mlb("MLB9900000000", cal) == (None, None)             # longe demais
+    assert meli._data_br("16-07-2026") == date(2026, 7, 16) and meli._data_br("x") is None
+    # 2 anúncios dele com a data de criação batendo (pelo nº) = certa, mesmo sem loja oficial e sem preço do dia
+    of = lambda mlb, sid, g, preco: {"anuncio": mlb, "vendedor_id": sid, "preco": preco, "full": True, "tipo_id": "gold_special",
+                                     "loja_oficial": None, "_tem_oficial": True, "gtin_busca": g, "produto_catalogo": "P" + g}
+    ofertas = [of("MLB4575881755", 11, "1", 150.0), of("MLB4906000000", 22, "1", 151.0),       # 11: criado ~01/04
+               of("MLB6636199952", 11, "2", 200.0), of("MLB6290732514", 22, "2", 199.0)]       # 11: ~17/04; 22: 23/02
+    refs = [{"gtins": ["1"], "preco": 150.0, "full": True, "exato": False, "loja_oficial": 0, "criado": date(2026, 4, 1)},
+            {"gtins": ["2"], "preco": 200.0, "full": True, "exato": False, "loja_oficial": 0, "criado": date(2026, 4, 17)}]
+    cands, n = meli.casar(refs, ofertas, cal)
+    assert cands[0]["id"] == "11" and cands[0]["idade"] == 2 and meli.decidir(cands, n) == "certa", cands
+    assert meli.decidir(meli.casar(refs, ofertas)[0], 2) is None                # sem a calibração: dois iguais, não decide
+    assert "data de criação batendo em 2" in meli._prova(cands[0], n)
+
+
+def test_calibracao_com_os_anuncios_do_bruno():
+    os.environ.setdefault("OLLAMA_API_KEY", "x")
+    os.environ.setdefault("ANTHROPIC_API_KEY", "x")
+    import nubi_web as w
+    vendas = {"linhas": [{"sku": f"SKU-{i:02d}", "loja": "ESSENCE PRIME[Mercado Libre BR]", "anuncio": f"MLB{6181824276 + i * 10000000}"}
+                         for i in range(8)] + [{"sku": "SKU-DUPLO", "loja": "X", "anuncio": "MLB1111111"},
+                                               {"sku": "SKU-DUPLO", "loja": "X", "anuncio": "MLB2222222"}]}
+
+    class R(Repo):
+        pedidos = 0
+
+        def _todos(self, t, q=None):
+            assert t == "anuncios" and q["sku"].startswith("in.(")
+            R.pedidos += 1
+            meus = [{"vendedor_id": "p" * 64, "sku": f"SKU{i:02d}", "bruto": {"Data de criação": f"{19 + i:02d}-01-2026"}} for i in range(8)]
+            outro = [{"vendedor_id": "o" * 64, "sku": "SKU00", "bruto": {"Data de criação": "01-01-2020"}}]    # outro vendedor, mesmo SKU
+            return meus + outro
+    r = R()
+    r.resumos[w.VENDAS_CHAVE] = json.dumps(vendas)
+    pts = w._calibracao_mlb(r)
+    assert len(pts) == 8 and pts[0] == (6181824276, date(2026, 1, 19)) and pts[-1][1] == date(2026, 1, 26), pts
+    assert json.loads(r.resumos[w.CALIBRA])["lojas"] == ["p" * 64]              # a loja do Bruno: 5+ SKUs dele
+    assert w._calibracao_mlb(r) == pts and R.pedidos == 1                      # 1 vez por dia
+    _preparar()
+    t = w.rota_meli(r, "GET", "meli_teste", {}, b"")                             # o botão 🔌 mostra a calibração
+    assert t["passos"][-1]["ok"] and "8 anúncios seus, de 19/01/2026 a 26/01/2026" in t["passos"][-1]["detalhe"], t["passos"][-1]
+
 
 if __name__ == "__main__":
     for n, f in list(globals().items()):
