@@ -1,0 +1,29 @@
+body{--az:#1f3a7a;--az2:#2f5bd3;--tx:#1d2b4f;--fr:#6b7a99;--ln:#e6ebf4;--fd:#f6f8fc;--bg:#fff;width:340px;margin:0;padding:14px 16px;
+  font:13px/1.4 -apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tx);background:var(--bg)}
+body.escuro{--tx:#e6ebf4;--fr:#9aa7c2;--ln:#2a3553;--fd:#18213a;--bg:#0f172a}
+header{display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--ln)}
+header b{flex:1;font-size:20px;font-weight:800;color:var(--az2)}header b span{background:linear-gradient(90deg,#6366f1,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent}
+header button{border:0;background:none;font-size:18px;color:var(--fr);cursor:pointer}
+.logo{position:relative;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:conic-gradient(from 0deg,#22d3ee,#6366f1,#ec4899,#f59e0b,#22d3ee);animation:gira 6s linear infinite}
+.logo i{display:grid;place-items:center;width:23px;height:23px;border-radius:7px;background:#fff;color:#1f3a7a;font:900 17px/1 -apple-system,sans-serif;font-style:normal;animation:gira 6s linear infinite reverse}
+.logo::after{content:"";position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 2px #fff;animation:pulso 1.6s ease-in-out infinite}
+@keyframes gira{to{transform:rotate(360deg)}}@keyframes pulso{50%{transform:scale(1.35);opacity:.6}}
+.aviso{margin-top:10px;padding:10px 12px;border-radius:10px;background:linear-gradient(100deg,var(--az),var(--az2));color:#fff;font-weight:600}
+.perfil{display:flex;align-items:center;gap:12px;margin:14px 0}
+.avatar{display:grid;place-items:center;width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,var(--az2),#7c3aed);color:#fff;font-weight:800;font-size:16px}
+.perfil b{font-size:15px}.perfil em{font-style:normal;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#e5edff;color:var(--az2)}
+.perfil small{display:block;color:var(--fr)}
+.grande{width:100%;padding:12px;border:0;border-radius:10px;background:linear-gradient(100deg,var(--az),var(--az2));color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+.grande:disabled{opacity:.5;cursor:default}
+.status{display:flex;align-items:center;gap:8px;margin:10px 0 4px}.status small{color:var(--fr)}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border:1px solid var(--ln);border-radius:9px;font-weight:600;background:var(--fd)}
+h6{margin:14px 0 6px;font-size:11px;letter-spacing:.8px;color:var(--fr)}
+.atalhos{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.atalhos button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 2px;border:1px solid var(--ln);border-radius:10px;background:var(--fd);color:var(--tx);font-size:11px;font-weight:600;cursor:pointer}
+.atalhos button i{color:var(--az2)}.atalhos button:hover{border-color:var(--az2)}
+.conta{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--ln);border-radius:10px;color:var(--tx);text-decoration:none}
+.conta div{flex:1}.conta small{display:block;color:var(--fr)}.conta em{font-style:normal;color:var(--fr)}
+footer{display:grid;grid-template-columns:repeat(4,1fr);margin-top:14px;padding-top:10px;border-top:1px solid var(--ln)}
+footer a,footer button{font-family:inherit;padding:0;display:flex;flex-direction:column;align-items:center;gap:2px;border:0;background:none;color:var(--fr);text-decoration:none;font-size:16px;cursor:pointer}
+footer small{font-size:11px}
+@media (prefers-reduced-motion:reduce){.logo,.logo i,.logo::after{animation:none}}

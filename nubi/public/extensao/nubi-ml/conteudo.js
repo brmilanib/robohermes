@@ -55,6 +55,13 @@
     document.documentElement.classList.add("nubi-ml-com-painel");
     mandarPainel(aba);
   }
+  // 29/09 (Bruno: "quando dou um clique na extensão quero esse menu igual"): o menu do ícone abre o painel nesta aba
+  if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((m, _de, responder) => {
+      if (m && m.tipo === "abrir_painel") { abrirPainel(m.aba || "inicio"); responder({ok: true}); }
+      if (m && m.tipo === "oi") responder({ok: true, anuncio: ATUAL ? {titulo: ATUAL.titulo, preco: ATUAL.preco} : null});
+    });
+  }
   function fecharPainel() {
     if (PAINEL) PAINEL.classList.remove("aberto");
     document.documentElement.classList.remove("nubi-ml-com-painel");
@@ -145,7 +152,7 @@
     const nivel = +(l.nivel || 0);
     const cidade = l.cidade ? `${esc(l.cidade)}${l.uf ? " - BR-" + esc(l.uf) : ""}` : "";
     q.innerHTML = `
-      <div class="nubi-spy-cab"><span class="nubi-spy-logo">n</span><b>nubi Spy</b>
+      <div class="nubi-spy-cab"><span class="nubi-spy-logo"><i>n</i></span><b>nubi <span>Spy</span></b>
         <span class="nubi-spy-chips">${a.full ? `<i class="full">${ic("raio", 10)}FULL</i>` : ""}<i>${catalogo ? "CATÁLOGO" : "NORMAL"}</i>${TIPO[a.tipo] ? `<i class="on">${esc(TIPO[a.tipo]).toUpperCase()}</i>` : ""}</span></div>
       ${n && n.erro ? `<div class="nubi-spy-aviso">nubi: ${esc(n.erro)}</div>` : ""}
       <div class="nubi-spy-3">
@@ -153,39 +160,34 @@
         <div><small>${ic("pct", 12)} Comissão</small><b>${ld || brl(comissao)}</b>${tf && tf.pct ? `<em>${dec(tf.pct)}%</em>` : ""}</div>
         <div class="verde"><small>${ic("carteira", 12)} Valor recebido</small><b>${ld || brl(recebido)}</b></div>
       </div>
-      ${linha("subindo", "laranja", "Conversão", conv != null ? `${(100 * conv).toLocaleString("pt-BR", {maximumFractionDigits: 1})}%` : ld || "—", "",
-        conv != null ? `Vende a cada ${nf(Math.round(1 / conv))} visitas` + (vendas30 != null && v.anuncio ? ` · 30 dias: ≈${nf(Math.round(vendas30))} vendas ÷ ${nf(v.anuncio)} visitas` : "")
-          : "precisa das visitas de 30 dias",
-        `<div class="nubi-spy-barra"><i style="width:${conv != null ? Math.min(100, conv / 0.05 * 100) : 0}%"></i></div>`)}
-      ${linha("olho", "azul", "Visitas", ld || dec(v.anuncio != null ? v.anuncio / 30 : null), "/dia",
-        [total != null ? `${nf(total)} no total` : h.total_janela != null ? `${nf(h.total_janela)} em ${h.dias_lidos} dias` : "",
-         v.anuncio != null ? `${nf(v.anuncio)} em 30 dias` : ""].filter(Boolean).join(" · ") +
-        (v.catalogo != null ? `<br>Catálogo: <b>${dec(v.catalogo / 30)}/dia</b>${v.parte != null ? ` · <b>${v.parte}%</b> deste anúncio` : ""}` : ""))}
+      ${linha("olho", "azul", v.catalogo != null ? "Visitas do catálogo" : "Visitas", ld || dec((v.catalogo != null ? v.catalogo : v.anuncio) != null ? (v.catalogo != null ? v.catalogo : v.anuncio) / 30 : null), "/dia",
+        `<div class="nubi-spy-l"><span>${v.anuncio != null ? `${nf(v.catalogo != null ? v.catalogo : v.anuncio)} nos últimos 30 dias` : ""}</span>
+          <b>${v.parte != null ? `${v.parte}% deste anúncio` : ""}</b></div>` +
+        (conv != null ? `<div class="nubi-spy-l"><span>Conversão (30 dias)</span><b>${(100 * conv).toLocaleString("pt-BR", {maximumFractionDigits: 1})}% · 1 a cada ${nf(Math.round(1 / conv))}</b></div>` : ""))}
       ${linha("carrinho", "verde", `Vendas <small class="nubi-spy-fraco">${a.vendidos != null ? (a.vendidosExato ? "" : "+") + nf(a.vendidos) + " total" : "sem o total"}</small>`,
-        dec(vendasDia), "/dia", a.estoque != null ? `Estoque: <b>${nf(a.estoque)} un.</b>${vendasDia ? ` · dura ≈ ${nf(Math.round(a.estoque / vendasDia))} dias` : ""}` : "",
-        `<div class="nubi-spy-l nubi-spy-sep"><span class="nubi-spy-tit"><i class="nubi-spy-bola roxo">${ic("cifrao", 13)}</i>Faturamento previsto</span>
-          <b>R$ ${a.vendidos != null && a.preco ? mil(a.vendidos * a.preco) : "—"}</b></div>`)}
-      ${nt ? `<div class="nubi-spy-nota"><div class="nubi-spy-l"><span class="nubi-spy-tit">${ic("estrela", 13)} Nota nubi</span>
-          <span><i class="${nt.rotulo}">${nt.rotulo}</i> <b>${nt.v}</b><small>/100</small></span></div>
+        dec(vendasDia), "/dia", "",
+        `<div class="nubi-spy-l nubi-spy-sep"><span class="nubi-spy-tit"><i class="nubi-spy-bola roxo">${ic("cifrao", 12)}</i>Faturamento previsto</span>
+          <b>R$ ${a.vendidos != null && a.preco ? mil(a.vendidos * a.preco) : "—"}</b></div>
+        ${proj != null ? `<div class="nubi-spy-sub nubi-spy-l"><span>Projeção 30 dias</span><b>≈ ${nf(Math.round(proj))} vendas · R$ ${mil(proj * (a.preco || 0))}</b></div>` : ""}
+        ${a.estoque != null ? `<div class="nubi-spy-sub nubi-spy-l"><span>Estoque</span><b>${nf(a.estoque)} un.${vendasDia ? ` · dura ≈ ${nf(Math.round(a.estoque / vendasDia))} dias` : ""}</b></div>` : ""}`)}
+      ${nt ? `<div class="nubi-spy-nota"><div class="nubi-spy-l"><span class="nubi-spy-tit">${ic("estrela", 12)} Pontuação nubi</span>
+          <span><i class="${nt.rotulo}">${ic("subindo", 10)} ${nt.rotulo}</i> <b>${nt.v}</b><small>/100</small></span></div>
         <div class="nubi-spy-barra"><i style="width:${nt.v}%"></i></div><small>${esc(nt.txt)}</small></div>` : ""}
       <div class="nubi-spy-2">
-        <div><small>${ic("estrela", 12)} Avaliações</small><b>${a.nota != null ? `${dec(a.nota)} ★` : "—"}</b><small>${a.avaliacoes != null ? `${nf(a.avaliacoes)} no total` : ""}</small></div>
-        <div><small>${ic("relogio", 12)} Tempo ativo</small><b class="${dias != null && dias > 180 ? "velho" : ""}">${dias != null ? `${(est && fonte.startsWith("estimado")) || (h.precisao && h.precisao !== "dia" && !a.criado) ? "≈" : ""}${nf(dias)} dias` :
+        <div><small>${ic("estrela", 11)} Avaliações</small><b>${a.nota != null ? `${dec(a.nota)} ★` : "—"}</b><small>${a.avaliacoes != null ? `${nf(a.avaliacoes)} no total` : ""}</small></div>
+        <div><small>${ic("relogio", 11)} Tempo ativo</small><b class="${dias != null && dias > 180 ? "velho" : ""}">${dias != null ? `${nf(dias)} dias` :
           maisDe != null ? `+${nf(maisDe)} dias` : ld || "—"}</b>
-          <small>${criado ? `desde ${esc(dia(criado))}${fonte ? ` · ${esc(fonte)}` : ""}` : maisDe != null ? "mais velho que o histórico de visitas" : a.item ? esc(a.item) : ""}</small></div>
+          <small>${criado ? `desde ${esc(dia(criado))}` : maisDe != null ? "mais velho que o histórico" : ""}</small></div>
       </div>
-      ${conc.length ? `<button class="nubi-spy-conc" data-nubi="conc">${ic("pessoas", 14)} Ver ${nf(n.total_concorrentes || conc.length)} concorrentes${menor ? ` · menor ${brl(menor)}` : ""} ›</button>
+      ${conc.length ? `<button class="nubi-spy-conc" data-nubi="conc">${ic("pessoas", 13)} Ver ${nf(n.total_concorrentes || conc.length)} concorrentes${menor ? ` · menor ${brl(menor)}` : ""} ›</button>
         <div class="nubi-spy-lista" hidden>${conc.slice(0, 60).map(c => `<div class="${c.eu ? "eu" : ""}">
           <a href="${esc(c.link)}" target="_blank" rel="noopener">${esc(c.loja || "loja " + c.vendedor_id)}</a>
           <span>${c.full ? `<em class="full">${ic("raio", 11)}FULL</em>` : ""}${c.loja_oficial ? "✔" : ""} ${esc(c.tipo || "")}</span><b>${brl(c.preco)}</b></div>`).join("")}</div>` : ""}
       <div class="nubi-spy-2 bts">
-        <button class="nubi-spy-bt escuro" data-nubi="proj" ${proj != null ? "" : "disabled"}>${ic("subindo", 13)} Projeção de vendas</button>
-        <button class="nubi-spy-bt" data-nubi="midias" ${a.fotos && a.fotos.length ? "" : "disabled"}>${ic("baixar", 13)} Baixar mídias${a.fotos && a.fotos.length ? ` (${a.fotos.length})` : ""}</button>
+        ${a.item ? `<a class="nubi-spy-bt" href="${NUBI}/#/ml/anuncio/${esc(a.item)}" target="_blank" rel="noopener">${ic("abrir", 12)} Ver mais dados</a>` : "<span></span>"}
+        <button class="nubi-spy-bt" data-nubi="midias" ${a.fotos && a.fotos.length ? "" : "disabled"}>${ic("baixar", 12)} Baixar mídias${a.fotos && a.fotos.length ? ` (${a.fotos.length})` : ""}</button>
       </div>
-      ${proj != null ? `<div class="nubi-spy-proj" hidden>${[7, 30, 90].map(d => `<div><small>${d} dias</small><b>≈ ${nf(Math.round(proj / 30 * d))}</b><small>R$ ${mil(proj / 30 * d * (a.preco || 0))}</small></div>`).join("")}
-        <p>${conv != null ? "visitas dos últimos 30 dias × conversão" : "ritmo de vendas desde a entrada"}${pos ? ` · você está em ${pos}º de ${conc.length} no preço` : ""}</p></div>` : ""}
-      <button class="nubi-spy-bt cheio" data-nubi="calc">${ic("calc", 13)} Abrir na calculadora</button>
-      ${a.item ? `<a class="nubi-spy-mais" href="${NUBI}/#/ml/anuncio/${esc(a.item)}" target="_blank" rel="noopener">${ic("abrir", 12)} Ver mais dados no nubi</a>` : ""}
+      <button class="nubi-spy-bt cheio" data-nubi="calc">${ic("calc", 12)} Abrir na calculadora</button>
 `;
     // perfil do vendedor: cartão próprio na coluna da direita, embaixo do "Comprar agora" (como o do Hunter)
     const vend = `<div class="nubi-spy-vcab">${ic("loja", 14)} Perfil do vendedor</div>
@@ -221,7 +223,7 @@
     const ancora = document.querySelector(".ui-pdp-container__row--price") || (document.querySelector(".ui-pdp-price") || {}).parentElement ||
       document.querySelector(".ui-pdp-header");
     if (ancora && ancora.parentElement) ancora.insertAdjacentElement("afterend", q); else { q.classList.add("solto"); document.body.appendChild(q); }
-    q.innerHTML = `<div class="nubi-spy-cab"><b>nubi Spy</b></div><div class="nubi-ml-fraco" style="padding:10px">lendo o anúncio…</div>`;
+    q.innerHTML = `<div class="nubi-spy-cab"><span class="nubi-spy-logo"><i>n</i></span><b>nubi <span>Spy</span></b></div><div class="nubi-ml-fraco" style="padding:10px">lendo o anúncio…</div>`;
     q.addEventListener("click", e => {
       const b = e.target.closest("[data-nubi]"); if (!b) return;
       if (b.dataset.nubi === "conc") { const l = q.querySelector(".nubi-spy-lista"); if (l) l.hidden = !l.hidden; }

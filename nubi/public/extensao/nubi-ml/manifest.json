@@ -1,20 +1,56 @@
 {
   "manifest_version": 3,
   "name": "nubi · Mercado Livre",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "A loja real de cada anúncio do Mercado Livre, o quadro nubi Spy (comissão, frete, visitas, vendas, concorrentes) e o painel com calculadora, histórico, tendências e gerador EAN.",
-  "icons": {"128": "icone.png"},
-  "permissions": ["storage", "downloads"],
-  "host_permissions": ["https://*.mercadolivre.com.br/*", "https://api.mercadolibre.com/*", "https://nubi-explorador.vercel.app/*"],
-  "background": {"service_worker": "fundo.js"},
-  "content_scripts": [{
-    "matches": ["https://*.mercadolivre.com.br/*"],
-    "js": ["icones.js", "conteudo.js"],
-    "css": ["estilo.css"],
-    "run_at": "document_idle"
-  }],
-  "web_accessible_resources": [{
-    "resources": ["painel.html", "painel.js", "painel.css", "icones.js"],
-    "matches": ["https://*.mercadolivre.com.br/*"]
-  }]
+  "icons": {
+    "128": "icone.png"
+  },
+  "permissions": [
+    "storage",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.mercadolivre.com.br/*",
+    "https://api.mercadolibre.com/*",
+    "https://nubi-explorador.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "fundo.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.mercadolivre.com.br/*"
+      ],
+      "js": [
+        "icones.js",
+        "conteudo.js"
+      ],
+      "css": [
+        "estilo.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "painel.html",
+        "painel.js",
+        "painel.css",
+        "icones.js"
+      ],
+      "matches": [
+        "https://*.mercadolivre.com.br/*"
+      ]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "nubi · Mercado Livre",
+    "default_icon": {
+      "128": "icone.png"
+    }
+  }
 }

@@ -17,7 +17,8 @@ with zipfile.ZipFile(RAIZ / "public" / "extensao" / "nubi-ml.zip") as z:
         assert z.read(f"nubi-ml/{f.name}") == f.read_bytes(), f"zip desatualizado: rode python3 testes/gerar_extensao.py ({f.name})"
 man = json.loads((EXT / "manifest.json").read_text())
 assert man["manifest_version"] == 3 and "https://*.mercadolivre.com.br/*" in man["host_permissions"]
-assert man["version"] == "0.6.1", man["version"]
+assert man["version"] == "0.6.2", man["version"]
+assert man["action"]["default_popup"] == "popup.html"
 
 # 2) leitor da página do anúncio
 js = """global.chrome={runtime:{onMessage:{addListener(){}}}};const {lerAnuncio}=require(process.argv[1]);
@@ -232,19 +233,17 @@ with sync_playwright() as p:
     # 29/09 (Bruno): conversão pelos últimos 30 dias = vendas/dia × 30 ÷ visitas de 30 dias (142)
     v30 = 100 / max(dias, 1) * 30
     conv_txt = f"{100 * v30 / 142:.1f}%".replace(".", ",")
-    for x in ("nubi Spy", "CATÁLOGO", "PREMIUM", "R$ 24,45", "R$ 41,99", "17%", "R$ 180,54", "Conversão", conv_txt,
-              f"Vende a cada {round(142 / v30)} visitas", f"30 dias: ≈{round(v30)} vendas ÷ 142 visitas",
-              "Visitas", "4,7/dia", "19.651 no total", "142 em 30 dias", "Catálogo: 31/dia", "15% deste anúncio",
-              "+100 total", "Faturamento previsto", "R$ 24,7 mil", "Projeção de vendas", "desde 19/01/2026 · 1ª visita",
-              "menor R$ 239,90", "FULL", "Estoque: 2 un. · dura ≈ 5 dias", "Avaliações", "5 ★", "2 no total", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
-              "Curitiba - BR-PR", "Vendas totais", "Baixar mídias (1)", "Abrir na calculadora", "Nota nubi", "Ver página", "No nubi"):
+    for x in ("nubi Spy", "CATÁLOGO", "PREMIUM", "R$ 24,45", "R$ 41,99", "17%", "R$ 180,54",
+              "Visitas do catálogo", "/dia", "944 nos últimos 30 dias", "15% deste anúncio",
+              "Conversão (30 dias)", conv_txt, f"1 a cada {round(142 / v30)}",
+              "+100 total", "Faturamento previsto", "R$ 24,7 mil", "Projeção 30 dias", f"≈ {round(v30)} vendas", "desde 19/01/2026",
+              "menor R$ 239,90", "FULL", "2 un. · dura ≈ 5 dias", "Avaliações", "5 ★", "2 no total", "Ver 21 concorrentes", "PEREIRAELOISA20220126003352",
+              "Curitiba - BR-PR", "Vendas totais", "Baixar mídias (1)", "Abrir na calculadora", "Pontuação nubi", "Ver mais dados", "Ver página", "No nubi"):
         assert x in t, (x, t)
     assert f"{dias} dias" in t or f"{dias - 1} dias" in t, t                    # fuso: conta dias inteiros
-    assert "estimado" not in t and "7 dias" not in t                             # projeção fechada até clicar
-    pg.click("[data-nubi=proj]")
-    pj = pg.inner_text(".nubi-spy-proj").replace("\xa0", " ")
-    assert "30 dias" in pj and f"≈ {round(v30)}" in pj and "você está em 2º de 2 no preço" in pj, pj
+    assert "estimado" not in t and "1ª visita" not in t and "≈2" not in t        # 29/09: tempo ativo sem "estimado"
     assert "ML /items" not in t                                                  # a linha de diagnóstico saiu do quadro
+    pg.locator("#nubi-ml-quadro").screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "spy_quadro.png"))
     # o perfil do vendedor fica num cartão próprio (na página de verdade, embaixo do "Comprar agora")
     assert "PEREIRAELOISA20220126003352" in pg.inner_text("#nubi-ml-vendedor")                               # com a 1ª visita não precisa estimar
     assert pg.evaluate("document.querySelectorAll('#nubi-ml-quadro svg.nubi-ic').length") >= 15      # ícones de linha, não emoji
@@ -309,4 +308,23 @@ with sync_playwright() as p:
     assert "extensão sem conexão" in pp.inner_text("#pn-corpo")                 # sem o chrome.runtime: avisa, não quebra
     assert not erros, erros
     b.close()
+# 29/09 (Bruno: "quando dou um clique na extensão quero esse menu igual [ao do Hunter]"): o menu abre o painel na aba do ML
+with sync_playwright() as p2:
+    exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+    b2 = p2.chromium.launch(executable_path=exe) if os.path.exists(exe) else p2.chromium.launch()
+    pm = b2.new_page(viewport={"width": 360, "height": 700})
+    erros = []; pm.on("pageerror", lambda e: erros.append(str(e)))
+    pm.add_init_script("""window.ENVIADOS=[];window.chrome={runtime:{lastError:null},storage:{local:{get:(k,cb)=>cb({ajustes:{nome:'Bruno Milani'}})}},
+      tabs:{query:(q,cb)=>cb([{id:7,url:'https://www.mercadolivre.com.br/x/p/MLB1'}]),
+            sendMessage:(id,m,cb)=>{window.ENVIADOS.push(m);cb(m.tipo==='oi'?{ok:true,anuncio:{titulo:'x'}}:{ok:true});}}};window.close=()=>{};""")
+    pm.goto((EXT / "popup.html").as_uri())
+    pm.wait_for_selector("text=Painel disponível")
+    tp = pm.inner_text("body")
+    for x in ("nubi", "Abrir painel nesta página", "Mercado Livre", "ATALHOS", "Calculadora", "Histórico", "Tendências", "Gerador EAN", "BM", "Dashboard"):
+        assert x in tp, (x, tp)
+    pm.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "spy_menu.png"))
+    pm.click("[data-aba=calc]")
+    assert pm.evaluate("ENVIADOS.map(m => m.tipo + ':' + (m.aba || ''))") == ["oi:", "abrir_painel:calc"]
+    assert not erros, erros
+    b2.close()
 print("ok extensão do Chrome (leitor, busca, quadro nubi Spy, painel e zip)")
