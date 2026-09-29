@@ -542,7 +542,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 4: marca escrita errado (Nomes de marcas + grafia parecida) é a própria marca"   # 29/09 (Lataffa)
+REGRA_ATUAL = "regra 4.1: marca escrita errado é a própria marca; variação sem repetir a linha"   # 29/09 (Lataffa, Fakhar)
 
 
 def aplicar_regra_nova(repo):

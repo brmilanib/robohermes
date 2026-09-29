@@ -489,7 +489,7 @@ def _completar_linha(titulo_norm, linha, palavras_marca, cortado=False):
             break
         pedaco_marca = len(tok) >= 3 and any(p.startswith(tok) for p in palavras_marca)
         volume = re.fullmatch(r"\d+(ml|g)?", tok) and (tok.endswith(("ml", "g")) or (j + 1 < len(resto) and resto[j + 1] in ("ml", "g")))
-        if tok in PARA_VARIACAO or tok in palavras_marca or pedaco_marca:
+        if tok in PARA_VARIACAO or tok in palavras_marca or pedaco_marca or (not extra and tok in k.split()):   # "Fakhar Fakhar Black"
             if extra:                              # "Fakhar Extrait Gold", "Fakhar Lattafa Rose": pula antes da variação
                 break
             continue
