@@ -37,12 +37,14 @@ function lerAnuncio(html, url) {
   const avaliacoes = um(/"reviews"\s*:\s*\{[^{}]*?"amount"\s*:\s*(\d+)/) || um(/"reviews"\s*:\s*\{\s*"count"\s*:\s*(\d+)/);
   const logistica = um(/"logistic_type"\s*:\s*"([a-z_]+)"/);
   const nomeLoja = um(/"seller_name"\s*:\s*"([^"]{2,80})"/);
+  // 29/09 (busca igual ao Hunter): marca do anúncio (atributo BRAND/Marca) e o tipo de envio (Full, Flex, Agência)
+  const marca = um(/"(?:id|attribute_id)"\s*:\s*"BRAND"[^{}]*?"value_name"\s*:\s*"([^"]{1,60})"/) || um(/"Marca"\s*,\s*"value"\s*:\s*"([^"]{1,60})"/);
   const up = u.match(/\/up\/(MLBU\d{5,})/i);
   return {vendedor, item, produto, criado, apelido: apelido ? decodeURIComponent(apelido) : null,
     vendidos: vendidos != null ? +vendidos : null, oficial: oficial ? +oficial : null, categoria, tipo,
     preco: preco != null ? +preco : null, titulo: titulo ? titulo.trim() : null, fotos,
     estoque: estoque != null ? +estoque : null, nota: nota != null ? +nota : null, avaliacoes: avaliacoes != null ? +avaliacoes : null,
-    full: logistica ? logistica === "fulfillment" : null, nome_loja: nomeLoja, produto_usuario: up ? up[1].toUpperCase() : null};
+    full: logistica ? logistica === "fulfillment" : null, logistica, marca, nome_loja: nomeLoja, produto_usuario: up ? up[1].toUpperCase() : null};
 }
 
 // 30/09 (card #120, "igual ao Hunter em todos os cards"): a página de BUSCA já traz os resultados no estado dela

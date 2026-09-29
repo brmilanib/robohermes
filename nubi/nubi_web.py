@@ -4720,6 +4720,8 @@ def rota_extensao(rota, q):
         if not (p["mlb"] or p["pid"] or p["vendedor"]):
             raise ErroNuvem("Informe o anúncio, o produto ou o vendedor.")
         return meli.painel_extensao(p, calib=_ext_calib() if p["mlb"] else None)
+    if rota == "ext_lista":
+        return {"itens": meli.ext_lista(str(q.get("mlbs") or "").split(","), calib=_ext_calib())}
     if rota == "ext_vencedores":
         return {"produtos": meli.ext_vencedores(str(q.get("pids") or "").split(","))}   # "pid" ou "pid:anúncio"
     if rota == "ext_categorias":
@@ -5519,7 +5521,7 @@ COMANDOS_MAC = {
     "ferreiro_conversa": "Ferreiro responder a conversa direta com o Bruno",
     "navegador_status": "Navegador: conferir se está pronto (chave e gasto do dia)",
     "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
-    "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora",
+    "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora", "ml_pagina": "Mercado Livre: salvar uma página (busca ou anúncio) no nubi para análise, só lê",
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
@@ -5823,6 +5825,17 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
              "fim": d.get("fim"), "em": datetime.now(timezone.utc).isoformat(), "itens": itens}, ensure_ascii=False)}],
             prefer="resolution=merge-duplicates,return=minimal")
         return {"ok": True, "itens": len(itens)}
+    if rota == "ml_pagina_salvar" and metodo == "POST":
+        # 29/09: página do ML salva pelo coletor (comando ml_pagina) para o Chefe ver a estrutura real; só dado público
+        url = str(d.get("url") or "")[:500]
+        chave = f"ml|pagina|{hashlib.md5(url.encode()).hexdigest()[:10]}"
+        corpo_ = json.dumps({"url": url, "final": str(d.get("final") or "")[:500], "em": datetime.now(timezone.utc).isoformat(),
+                             "cards": [str(c)[:30000] for c in (d.get("cards") or [])[:6]], "html": str(d.get("html") or "")[:6_000_000]},
+                            ensure_ascii=False)
+        repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": "coletor", "texto": corpo_},
+                                               {"chave": "ml|pagina|ultima", "ia": "coletor", "texto": corpo_}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True, "chave": chave}
     if rota == "ml_posicoes_gravar" and metodo == "POST":
         termo = str(d.get("termo") or "").strip()
         meus = {a["id"] for a in repo._todos("meus_anuncios", {"select": "id"})}

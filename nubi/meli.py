@@ -1508,6 +1508,30 @@ def ext_tendencias(categoria=None):
     return _mem(f"ext|tend|{cat or ''}", 3 * 3600, ler)
 
 
+def ext_lista(mlbs, calib=None):
+    """Busca do ML na extensão (29/09, prints do Hunter: "como os produtos aparecem na listagem, precisamos fazer igual"):
+    para até 60 anúncios da página, as visitas dos últimos 30 dias (1 pedido para 50, API de visitas) e a data de criação
+    estimada pelo nº do MLB (calibração). {MLB: {visitas30, criado, folga}}; cache de 30 min por anúncio."""
+    ids = [m for m in dict.fromkeys(str(x).strip().upper() for x in mlbs or []) if re.fullmatch(r"MLB\d{6,14}", m)][:60]
+    falta = [m for m in ids if f"ext|vis30|{m}" not in _CACHE or time.time() - _CACHE[f"ext|vis30|{m}"][0] > 1800]
+    if falta:
+        _ext_limite()
+        try:
+            vs = visitas(falta, 30)
+        except ErroLogin:
+            raise
+        except ErroMeli:
+            vs = {}
+        for m in falta:
+            _CACHE[f"ext|vis30|{m}"] = (time.time(), vs.get(m))
+    out = {}
+    for m in ids:
+        d, folga = data_pelo_mlb(m, calib) if calib else (None, None)
+        out[m] = {"visitas30": (_CACHE.get(f"ext|vis30|{m}") or (0, None))[1],
+                  "criado": d.isoformat() if d else None, "folga": round(folga) if folga else None}
+    return out
+
+
 def ext_vencedores(pares):
     """Busca do ML na extensão (29/09, print do Bruno: "não achei a loja" em todos os cards): cada card de catálogo
     (/p/MLB…, com o anúncio do card em "wid" quando o link traz) -> o vendedor DESSE anúncio entre as ofertas do produto;

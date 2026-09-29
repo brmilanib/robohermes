@@ -17,7 +17,7 @@ with zipfile.ZipFile(RAIZ / "public" / "extensao" / "nubi-ml.zip") as z:
         assert z.read(f"nubi-ml/{f.name}") == f.read_bytes(), f"zip desatualizado: rode python3 testes/gerar_extensao.py ({f.name})"
 man = json.loads((EXT / "manifest.json").read_text())
 assert man["manifest_version"] == 3 and "https://*.mercadolivre.com.br/*" in man["host_permissions"]
-assert man["version"] == "0.6.2", man["version"]
+assert man["version"] == "0.7.0", man["version"]
 assert man["action"]["default_popup"] == "popup.html"
 
 # 2) leitor da página do anúncio
@@ -28,7 +28,7 @@ console.log(JSON.stringify(lerAnuncio(h,'https://produto.mercadolivre.com.br/MLB
 a = json.loads(subprocess.run(["node", "-e", js, str(EXT / "fundo.js")], capture_output=True, text=True, check=True).stdout)
 assert a == {"vendedor": "2540338692", "item": "MLB4350649763", "produto": None, "criado": "2025-12-07T10:06:52.463Z",
              "apelido": None, "vendidos": 10000, "oficial": None, "categoria": None, "tipo": None, "preco": None,
-             "titulo": None, "fotos": [], "estoque": None, "nota": None, "avaliacoes": None, "full": None, "nome_loja": None,
+             "titulo": None, "fotos": [], "estoque": None, "nota": None, "avaliacoes": None, "full": None, "logistica": None, "marca": None, "nome_loja": None,
              "produto_usuario": None}, a
 # página de catálogo (/p/MLB…): produto do link, anúncio, categoria, tipo, preço e as fotos grandes
 js2 = """global.chrome={runtime:{onMessage:{addListener(){}}}};const {lerAnuncio}=require(process.argv[1]);
@@ -74,11 +74,15 @@ with sync_playwright() as p:
         pg.set_content(f"<html><body>{BUSCA}</body></html>")
         pg.add_style_tag(content=(EXT / "estilo.css").read_text())
         pg.add_script_tag(content=STUB); pg.add_script_tag(content=(EXT / "conteudo.js").read_text())
-        pg.wait_for_function("document.querySelectorAll('.nubi-ml-linha b').length === 3", timeout=5000)
-        t = pg.inner_text("li")
-        assert "KAIDOXSTOREE" in t and "São Paulo-SP" in t and "rep 5/5" in t and "180.000 vendas" in t and "criado 07/12/2025" in t, t
-        assert pg.get_attribute(".nubi-ml-bt", "href") == "https://nubi-explorador.vercel.app/#/ml/loja/2540338692"
-        assert len(pg.evaluate("PEDIDOS")) == 3 and pg.evaluate("PEDIDOS[0].tipo") == "anuncio"          # o link de ajuda não conta
+        pg.wait_for_function("document.querySelectorAll('.nubi-ml-linha').length === 3 && [...document.querySelectorAll('.nubi-ml-linha')]"
+                             ".every(x => !x.innerText.includes('lendo'))", timeout=5000)
+        t = pg.inner_text("li").replace("\xa0", " ")
+        # 29/09 (prints do Hunter): blocos Vendas/Estoque, Faturamento, Visitas 30 dias, Participação, loja, Anúncio criado
+        for x in ("Vendas", "Estoque", "Faturamento", "Visitas · 30 dias", "Participação na busca", "KAIDOXSTOREE",
+                  "São Paulo, SP", "Platinum", "5/5", "Anúncio criado", "07/12/2025", "Abrir análise"):
+            assert x in t, (x, t)
+        assert pg.get_attribute(".nb-abrir", "href") == "https://nubi-explorador.vercel.app/#/ml/anuncio/MLB4350649763"
+        assert sum(m["tipo"] == "anuncio" for m in pg.evaluate("PEDIDOS")) == 3                          # o link de ajuda não conta
         assert not erros, erros
 
     # 3b) busca com cards de catálogo (/p/MLB…, o do print do Bruno): o nubi diz a loja; o que ele não achar lê a página,
@@ -100,9 +104,9 @@ with sync_playwright() as p:
     ls = pg.eval_on_selector_all(".nubi-ml-linha", "xs => xs.map(x => x.innerText)")
     assert "KAIDOXSTOREE" in ls[0] and "quem ganha" not in ls[0], ls
     assert "PEREIRAELOISA" in ls[1] and "quem ganha o produto agora" in ls[1], ls
-    assert "não achei a loja" in ls[2] and "página 403, 2 KB" in ls[2] and "não achei a loja" in ls[3], ls
+    assert "loja não encontrada" in ls[2] and "página 403, 2 KB" in ls[2] and "loja não encontrada" in ls[3], ls
     ped = pg.evaluate("PEDIDOS")
-    assert [m["params"]["pids"] for m in ped if m["tipo"] == "nubi"] == ["MLB67389993:MLB4350649763,MLB11111111,MLB22222222"], ped
+    assert [m["params"]["pids"] for m in ped if m.get("rota") == "ext_vencedores"] == ["MLB67389993:MLB4350649763,MLB11111111,MLB22222222"], ped
     assert sorted(m["url"] for m in ped if m["tipo"] == "anuncio") == ["https://produto.mercadolivre.com.br/MLB-4999999999-x",
                                                                        "https://www.mercadolivre.com.br/x/p/MLB22222222"], ped
     assert not erros, erros
@@ -144,7 +148,7 @@ with sync_playwright() as p:
                                   f'<h2><a href="{href}">{t}</a></h2></div></li>')
     item_grade = lambda href, t: (f'<li class="ui-search-layout__item"><div class="poly-card poly-card--grid"><a href="{href}"><img alt="{t}"></a>'
                                   f'<h3 class="poly-component__title-wrapper"><a href="{href}">{t}</a></h3></div></li>')
-    PAG_LISTA = ('<script>window._n={ctx:{}}</script>' + ul("ui-search-layout--stack", [
+    PAG_LISTA = ('<script>window._n={ctx:{}}</script><aside class="ui-search-sidebar"><div>filtros</div></aside>' + ul("ui-search-layout--stack", [
         item_lista("https://produto.mercadolivre.com.br/MLB-4350649701-asad-_JM#position=1", "A1"),
         item_lista(CLICK_A, "A2 patrocinado"),
         item_lista("https://www.mercadolivre.com.br/asad/p/MLB67389993#wid=MLB4350649703&sid=search", "A3 catálogo"),
@@ -164,16 +168,17 @@ with sync_playwright() as p:
                {"vendedor": "2540338692", "item": "MLB5000000002", "criado": "2026-02-10T00:00:00Z", "loja": K}}
     STUB4 = ("window.chrome={runtime:{sendMessage:(m,cb)=>{window.PEDIDOS=(window.PEDIDOS||[]).concat([m]);setTimeout(()=>cb("
              "m.tipo==='busca'?{resultados:lerBusca(m.html).map(a=>({...a,loja:%s[a.vendedor]||null}))}:"
-             "m.tipo==='nubi'?%s:%s[m.url]||{motivo:'página 404'}),10);}}};" % (json.dumps(LOJAS), json.dumps(VENC2), json.dumps(PAGINAS)))
+             "m.tipo==='nubi'?(m.rota==='ext_lista'?{itens:{MLB4350649701:{visitas30:900},MLB4350649702:{visitas30:100}}}:%s):"
+             "%s[m.url]||{motivo:'página 404'}),10);}}};" % (json.dumps(LOJAS), json.dumps(VENC2), json.dumps(PAGINAS)))
     esperado = {
-        "lista": (PAG_LISTA, [("KAIDOXSTOREE", "R$ 199,90", "500 vendidos", "FULL", "criado 07/12/2025"),
-                              ("PEREIRAELOISA", "R$ 149,90", "50 vendidos"),
-                              ("KAIDOXSTOREE", "R$ 246,98", "1.000 vendidos"),
-                              ("PEREIRAELOISA", "R$ 99,90", "criado 01/03/2026")],
+        "lista": (PAG_LISTA, [("KAIDOXSTOREE", "+500", "R$ 100k", "07/12/2025", "~900", "30/dia", "90%"),
+                              ("PEREIRAELOISA", "+50"),
+                              ("KAIDOXSTOREE", "+1.000", "R$ 247k"),
+                              ("PEREIRAELOISA", "01/03/2026")],
                   ["https://produto.mercadolivre.com.br/MLB-4350649704-x#position=4"], "MLB67389993:MLB4350649703"),
-        "grade": (PAG_GRADE, [("ESSENCEPRIME", "R$ 189,90", "+1.000 vendidos", "FULL"),
-                              ("KAIDOXSTOREE", "R$ 139,50", "+50 vendidos", "criado 10/02/2026"),
-                              ("ESSENCEPRIME", "R$ 210,00", "FULL")],
+        "grade": (PAG_GRADE, [("ESSENCEPRIME", "+1.000", "R$ 190k"),
+                              ("KAIDOXSTOREE", "+50", "10/02/2026"),
+                              ("ESSENCEPRIME",)],
                   ["https://produto.mercadolivre.com.br/MLB-5000000002"], "MLB77777777:MLB5000000003")}
     for nome, (html, linhas, abertas, pids) in esperado.items():
         pg = b.new_page(viewport={"width": 1440, "height": 900})
@@ -184,13 +189,24 @@ with sync_playwright() as p:
         pg.add_script_tag(content=STUB4); pg.add_script_tag(content=(EXT / "conteudo.js").read_text())
         pg.wait_for_function("document.querySelectorAll('.nubi-ml-linha').length === %d && [...document.querySelectorAll('.nubi-ml-linha')]"
                              ".every(x => !x.innerText.includes('lendo'))" % len(linhas), timeout=5000)
+        if nome == "lista":                                                                           # visitas chegam em lote
+            pg.wait_for_function("document.body.innerText.includes('~900')", timeout=5000)
         ls = [x.replace("\xa0", " ") for x in pg.eval_on_selector_all(".nubi-ml-linha", "xs => xs.map(x => x.innerText)")]
         for texto, quer in zip(ls, linhas):
-            assert all(q in texto for q in quer) and "não achei" not in texto, (nome, quer, texto)
-        assert "FULL" not in ls[1], (nome, ls)
+            assert all(q in texto for q in quer) and "não encontrada" not in texto, (nome, quer, texto)
         ped = pg.evaluate("PEDIDOS")
         assert [m["url"] for m in ped if m["tipo"] == "anuncio"] == abertas, (nome, ped)            # só quem não tem vendedor
-        assert [m["params"]["pids"] for m in ped if m["tipo"] == "nubi"] == [pids], (nome, ped)     # catálogo em lote
+        assert [m["params"]["pids"] for m in ped if m.get("rota") == "ext_vencedores"] == [pids], (nome, ped)   # catálogo em lote
+        pg.wait_for_function("(window.PEDIDOS||[]).some(m => m.rota === 'ext_lista')", timeout=5000)   # visitas de 30 dias em lote
+        if nome == "lista":
+            pg.set_viewport_size({"width": 1300, "height": 1100})
+            pg.add_style_tag(content="aside{float:left;width:260px;margin-right:16px}ol{display:grid;grid-template-columns:repeat(4,240px);gap:12px;list-style:none}")
+            pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "busca_hunter.png"), full_page=True)
+        if nome == "lista":                                                                           # resumo do mercado na lateral
+            r = pg.inner_text("#nubi-ml-resumo").replace("\xa0", " ")
+            for x in ("RESUMO DO MERCADO", "Faturamento estimado", "Anúncios", "Lojas", "Maturidade dos anúncios", "Logística",
+                      "Full", "Vendedores", "REPUTAÇÃO", "MERCADOLÍDER", "dominam"):
+                assert x in r, (x, r)
         assert sum(m["tipo"] == "busca" for m in ped) == 1 and not any("click1" in json.dumps(m) for m in ped if m["tipo"] != "busca"), ped
         assert pg.get_attribute(".nubi-ml-linha b a", "href").startswith("https://perfil.mercadolivre.com.br/"), nome
         # rolagem infinita: card novo sem nada no estado ganha a linha pelo observador

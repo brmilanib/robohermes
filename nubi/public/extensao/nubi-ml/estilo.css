@@ -102,3 +102,32 @@ html.nubi-ml-com-painel .nubi-ml-aba{right:420px}
 .nubi-spy-conc{width:calc(100% - 16px)!important;margin:6px 8px 0!important;padding:6px!important;font-size:10.5px!important;background:#fff7ed!important;border-color:#fed7aa!important;color:#c2410c!important}
 @media (prefers-reduced-motion:reduce){.nubi-spy-cab,.nubi-spy-logo,.nubi-spy-logo i,.nubi-spy-logo::after{animation:none}}
 .nubi-spy-sub .nubi-spy-l>b{font-size:9.5px;font-weight:600;color:var(--tx)}.nubi-spy-sub .nubi-spy-l+.nubi-spy-l{margin-top:2px}
+/* 29/09 (prints do Hunter): blocos em cada card da busca e o "Resumo do mercado" na lateral */
+.nubi-ml-linha.nb-card{display:block;margin:6px 8px 10px;padding:0;border:0;background:none;box-shadow:none;font-size:11px}
+.nb-card .nb-g2,.nb-resumo .nb-g3,.nb-card .nb-g3{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:5px}.nb-resumo .nb-g3{grid-template-columns:repeat(3,1fr)}
+.nb-g2>div,.nb-g3>div{border:1px solid var(--ln);border-radius:8px;padding:5px 7px;background:#fff}
+.nb-g2 small,.nb-g3 small{display:flex;align-items:center;gap:3px;color:var(--fr);font-size:9.5px}.nb-g2 b,.nb-g3 b{display:block;font-size:13px}
+.nb-b{border:1px solid var(--ln);border-radius:8px;padding:5px 7px;margin-bottom:5px;background:#fff}
+.nb-b>small{display:flex;align-items:center;gap:3px;color:var(--fr);font-size:9.5px}
+.nb-l{display:flex;justify-content:space-between;align-items:center;gap:6px}.nb-l>span{color:var(--fr);font-size:9.5px}
+.nb-b b{font-size:13px}.nb-b b.verde{color:#15803d;font-size:14px}.nb-b b.azul{color:#1d4ed8;font-size:14px}
+.nb-barra{height:4px;border-radius:3px;background:#eef1f7;margin:4px 0 2px;overflow:hidden}.nb-barra i{display:block;height:100%;background:linear-gradient(90deg,#6366f1,#2f5bd3)}
+.nb-barra.laranja i{background:linear-gradient(90deg,#f97316,#ea580c)}
+.nb-loja b{display:flex;align-items:center;gap:4px;font-size:11.5px}.nb-loja a{color:var(--tx)!important;font-weight:800}
+.nb-loja em{font-style:normal;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;background:#e0e7ff;color:#3730a3}
+.nb-loja em.gold{background:#fef3c7;color:#92400e}.nb-loja em.silver{background:#f1f5f9;color:#475569}.nb-loja em.oficial{background:#dcfce7;color:#166534}
+.nb-termo{display:flex;gap:2px;flex:1;margin:0 6px}.nb-termo i{flex:1;height:4px;border-radius:2px;background:#e5e7eb}
+.nb-termo i.on.r5,.nb-termo i.on.r4{background:#22c55e}.nb-termo i.on.r3{background:#facc15}.nb-termo i.on.r2,.nb-termo i.on.r1{background:#ef4444}
+.nb-b em.novo,.nb-b em.medio,.nb-b em.velho{font-style:normal;font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:8px;background:#dcfce7;color:#15803d}
+.nb-b em.medio{background:#fef3c7;color:#b45309}.nb-b em.velho{background:#fee2e2;color:#b91c1c}
+.nb-bts{display:flex;gap:5px}.nb-abrir{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:8px;border-radius:8px;color:#fff!important;font-weight:700;
+  font-size:11.5px;text-decoration:none!important;background:linear-gradient(100deg,#1f3a7a,#2f5bd3 60%,#7c3aed);background-size:200% 100%;transition:background-position .4s}
+.nb-abrir:hover{background-position:100% 0}
+.nb-calc{width:36px;border:1px solid var(--ln);border-radius:8px;background:#fff;color:var(--az2);cursor:pointer;display:grid;place-items:center}
+.nb-obs{display:block;color:var(--fr);font-size:9.5px;margin:0 0 5px}
+.nb-resumo{margin:0 0 12px;padding:0 0 8px}.nb-resumo h6{margin:8px 10px 6px;font-size:9.5px;letter-spacing:.8px;color:var(--fr)}
+.nb-resumo>.nb-b,.nb-resumo>.nb-g3,.nb-resumo>small{margin-left:8px;margin-right:8px}
+.nb-fat b{font-size:17px;color:#1f3a7a}.nb-sub{display:block;margin:6px 0 3px;font-size:9px;letter-spacing:.6px;color:var(--fr)}
+.nb-pilha{display:flex;height:6px;border-radius:4px;overflow:hidden;margin:4px 0;background:#eef1f7}.nb-pilha i.novo{background:#22c55e}.nb-pilha i.medio{background:#f59e0b}.nb-pilha i.velho{background:#ef4444}
+.nb-aviso{margin-top:4px;padding:5px 7px;border-radius:6px;background:#fff7ed;color:#9a3412;font-size:10px}
+.nb-g3.cores .v{background:#f0fdf4}.nb-g3.cores .a{background:#fffbeb}.nb-g3.cores .r{background:#fef2f2}

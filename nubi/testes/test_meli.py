@@ -944,3 +944,21 @@ if __name__ == "__main__":
         if n.startswith("test_"):
             f()
             print("ok", n)
+
+
+def test_ext_lista_visitas_em_lote_e_data_pelo_mlb():
+    """29/09 (busca igual ao Hunter): visitas de 30 dias de vários anúncios num pedido só + data pelo nº do MLB."""
+    from datetime import date
+    velho = meli.visitas
+    pedidos = []
+    meli.visitas = lambda ids, dias=30: pedidos.append((list(ids), dias)) or {i: 100 * (n + 1) for n, i in enumerate(ids)}
+    try:
+        meli._CACHE.clear()
+        calib = [(4350000000, date(2025, 12, 1)), (4360000000, date(2025, 12, 31))]
+        r = meli.ext_lista(["MLB4355000000", "mlb4355000000", "MLB9", "x", "MLB4370000000"], calib=calib)
+        assert set(r) == {"MLB4355000000", "MLB4370000000"} and pedidos == [(["MLB4355000000", "MLB4370000000"], 30)]
+        assert r["MLB4355000000"]["visitas30"] == 100 and r["MLB4355000000"]["criado"] == "2025-12-16"
+        meli.ext_lista(["MLB4355000000"], calib=calib)
+        assert len(pedidos) == 1                                                    # cache de 30 min
+    finally:
+        meli.visitas = velho

@@ -2111,6 +2111,37 @@ def _ml_navegador(p, cfg):
     return abrir_navegador(p, cfg, visivel=cfg.get("ml_ver", True))
 
 
+ML_PAGINA_OK = re.compile(r"^https://(?:lista|www|produto)\.mercadolivre\.com\.br/[^\s]{1,400}$")
+
+
+def coletar_ml_pagina(p, cfg, token, url):
+    """29/09 (busca da extensão "horrível" no ML de verdade): abre UMA página do ML no Chrome do coletor (só lê), rola para
+    carregar os cards e manda a página (HTML e os 6 primeiros cards) ao nubi para o Chefe ver onde o ML guarda vendedor,
+    vendas e preço. Só páginas do mercadolivre.com.br; nada é clicado."""
+    if not ML_PAGINA_OK.match(url or ""):
+        return 0, 0, 1, "endereço fora do Mercado Livre"
+    ctx = _ml_navegador(p, cfg)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    try:
+        pg.goto(url, wait_until="domcontentloaded", timeout=60000)
+        devagar(4)
+        if _ml_bloqueado(pg):
+            raise Falha("o Mercado Livre pediu verificação de robô: rode entrar-ml no Mac")
+        for _ in range(6):
+            pg.mouse.wheel(0, 1400)
+            devagar(1)
+        cards = pg.evaluate("""() => { const cs = [...document.querySelectorAll('li.ui-search-layout__item, div.poly-card')];
+          return cs.filter(c => !cs.some(o => o !== c && o.contains(c))).slice(0, 6).map(c => c.outerHTML.slice(0, 30000)); }""")
+        html = pg.content()
+        r = api(token, "ml_pagina_salvar", corpo={"url": url, "final": pg.url, "html": html[:6_000_000], "cards": cards}, timeout=120)
+        return 1, 1, 0, f"página do ML salva no nubi ({len(html) // 1024} KB, {len(cards)} cards): {r.get('chave')}"
+    finally:
+        try:
+            ctx.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def cmd_entrar_ml(args, cfg):
     """Abre o Mercado Livre no Chrome do coletor para o Bruno passar pela verificação (e entrar, se quiser); guarda a sessão."""
     from playwright.sync_api import sync_playwright
@@ -2723,7 +2754,7 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  # 27/09 (Mac com malware, reinstalação): coletas e logins também no servidor (gamdias)
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
-                 "ml_lojas", "ml_posicoes", "entrar_ml", "atender_tiktok", "vend_fotos")
+                 "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -2829,6 +2860,8 @@ def comando_mac(chave, arg=""):
         return [*c, "importar-sac"]
     if chave == "programar_astra":
         return [*c, "programar-astra", arg] if str(arg).isdigit() else None
+    if chave == "ml_pagina":
+        return [*c, "ml-pagina", arg] if ML_PAGINA_OK.match(str(arg or "")) else None
     if chave == "programar_deepseek":
         return [*c, "programar-deepseek", arg] if str(arg).isdigit() else None
     return tabela.get(chave)
@@ -6786,6 +6819,8 @@ def main():
     sub.add_parser("entrar-ml", help="Mercado Livre: abre a janela para passar pela verificação (sessão fica salva)")
     sub.add_parser("ml-lojas", help="Mercado Livre: acha os anúncios das minhas lojas")
     sub.add_parser("ml-posicoes", help="Mercado Livre: posição dos meus anúncios na busca")
+    mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
+    mlp.add_argument("url")
     fv = sub.add_parser("fotos-vendedores", help="Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML)")
     fv.add_argument("--so", default=None, help="só este vendedor (nome como aparece no Nubimetrics)")
     gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
@@ -6902,6 +6937,8 @@ def main():
         return executar("ml_lojas", coletar_ml_lojas)
     if args.cmd == "ml-posicoes":
         return executar("ml_posicoes", coletar_ml_posicoes)
+    if args.cmd == "ml-pagina":
+        return executar("ml_pagina", lambda p, cfg, token: coletar_ml_pagina(p, cfg, token, args.url))
     if args.cmd == "fotos-vendedores":
         return executar("vend_fotos", lambda p, cfg, token: coletar_fotos_vendedores(p, cfg, token, args.so))
     if args.cmd == "atualizar":

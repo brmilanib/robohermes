@@ -36,6 +36,104 @@
       ${a.item ? `<span class="nubi-ml-fraco">${esc(a.item)}</span>` : ""}`;
   }
 
+  // ---------------- busca no formato do Hunter (29/09, prints do Bruno): blocos por card + "Resumo do mercado" na lateral
+  const REG = new Map();                      // caixa do card -> dados do anúncio (para o resumo e as visitas em lote)
+  const kf = n => n == null ? "—" : n >= 1000 ? (n / 1000).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + "k" : nf(Math.round(n));
+  const rsk = n => n == null ? "—" : "R$ " + (n >= 1000 ? (n / 1000).toLocaleString("pt-BR", {maximumFractionDigits: 0}) + "k" : nf(Math.round(n)));
+  const MEDALHA = {platinum: "Platinum", gold: "Gold", silver: "Silver"};
+  const idade = a => diasDesde(a.criado || a.criadoEst);
+  function totalVisitas() { let t = 0; REG.forEach(a => { t += a.vis30 || 0; }); return t; }
+  function cartaoBusca(a) {
+    const l = a.loja || {}, d = idade(a), nome = l.nome || a.apelido || (a.vendedor ? "loja " + a.vendedor : "");
+    const fat = a.vendidos != null && a.preco ? a.vendidos * a.preco : null;
+    const tv = totalVisitas(), part = a.vis30 != null && tv ? a.vis30 / tv : null;
+    const nivel = +(l.nivel || 0), med = MEDALHA[String(l.medalha || "").toLowerCase()] || "";
+    const criado = a.criado || a.criadoEst;
+    return `
+      <div class="nb-g2"><div><small>${ic("carrinho", 11)} Vendas</small><b>${a.vendidos != null ? (a.vendidosExato ? "" : "+") + nf(a.vendidos) : "—"}</b></div>
+        <div><small>${ic("caixa", 11)} Estoque</small><b>${a.estoque != null ? nf(a.estoque) : "—"}</b></div></div>
+      <div class="nb-b"><small>${ic("subindo", 11)} Faturamento</small><div class="nb-l"><b class="verde">${rsk(fat)}</b>
+        <span>${fat != null && d ? brl(fat / Math.max(d, 1)) + "/dia" : ""}</span></div></div>
+      <div class="nb-b"><small>${ic("olho", 11)} Visitas · 30 dias</small><div class="nb-l"><b class="azul">${a.vis30 != null ? "~" + kf(a.vis30) : a.pedindo ? `<span class="nubi-spy-ld"></span>` : "—"}</b>
+        <span>${a.vis30 != null ? dec(a.vis30 / 30) + "/dia" : ""}</span></div></div>
+      <div class="nb-b"><div class="nb-l"><small>${ic("relogio", 11)} Participação na busca</small><b>${part != null ? (100 * part).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + "%" : "—"}</b></div>
+        <div class="nb-barra"><i style="width:${part != null ? Math.min(100, part * 100 * 3) : 0}%"></i></div><small>das visitas da pesquisa</small></div>
+      ${a.marca ? `<div class="nb-b"><small>${ic("etiqueta", 11)} Marca</small><b>${esc(a.marca)}</b></div>` : ""}
+      <div class="nb-b nb-loja">${nome ? `<div class="nb-l"><b>${ic("loja", 12)} ${l.link ? `<a href="${esc(l.link)}" target="_blank" rel="noopener">${esc(nome)}</a>` : esc(nome)}</b>
+          ${med ? `<em class="${med.toLowerCase()}">${med}</em>` : a.oficial ? `<em class="oficial">Oficial</em>` : ""}</div>
+        ${l.cidade ? `<small>${ic("local", 10)} ${esc(l.cidade)}${l.uf ? ", " + esc(l.uf) : ""}</small>` : ""}
+        ${nivel ? `<div class="nb-l"><small>Reputação</small><span class="nb-termo">${[1, 2, 3, 4, 5].map(i => `<i class="${i <= nivel ? "on r" + nivel : ""}"></i>`).join("")}</span><b>${nivel}/5</b></div>` : ""}`
+        : `<small>${a.lendo ? "lendo a loja…" : "loja não encontrada" + (a.motivo ? ` — ${esc(a.motivo)}` : "")}</small>`}</div>
+      <div class="nb-b"><small>${ic("calendario", 11)} Anúncio criado</small><div class="nb-l"><b ${a.criado ? "" : `title="pelo nº do anúncio"`}>${criado ? esc(dia(criado)) : "—"}</b>
+        ${d != null ? `<em class="${d < 180 ? "novo" : d < 365 ? "medio" : "velho"}">${nf(d)} dias</em>` : ""}</div></div>
+      ${a.nota_card ? `<small class="nb-obs">${esc(a.nota_card)}</small>` : ""}
+      <div class="nb-bts"><a class="nb-abrir" href="${a.item ? `${NUBI}/#/ml/anuncio/${esc(a.item)}` : "#"}" target="_blank" rel="noopener">${ic("grafico", 12)} Abrir análise</a>
+        <button class="nb-calc" data-nubi-calc title="Abrir na calculadora">${ic("calc", 13)}</button></div>`;
+  }
+  function desenharCartao(box) {
+    const a = REG.get(box); if (!a) return;
+    box.innerHTML = cartaoBusca(a);
+    const bc = box.querySelector("[data-nubi-calc]");
+    if (bc) bc.onclick = ev => { ev.preventDefault(); ev.stopPropagation();
+      ATUAL = {item: a.item, titulo: a.titulo, preco: a.preco, tipo: a.tipo, foto: "", link: a.link || ""}; abrirPainel("calc"); };
+    box.onclick = ev => { if (!ev.target.closest("a")) ev.stopPropagation(); };   // clicar nos blocos não abre o anúncio
+  }
+  function mostrar(box, a) {
+    REG.set(box, {...(REG.get(box) || {}), ...a, lendo: false});
+    desenharCartao(box);
+    clearTimeout(mostrar.t); mostrar.t = setTimeout(emLote, 500);
+  }
+  // visitas de 30 dias e data de criação de todos os cards num pedido só (até 60); depois redesenha tudo e o resumo
+  async function emLote() {
+    const faltam = [...REG.values()].filter(a => a.item && a.vis30 === undefined && !a.pedindo);
+    if (faltam.length) {
+      faltam.forEach(a => { a.pedindo = true; });
+      const r = await pedir({tipo: "nubi", rota: "ext_lista", params: {mlbs: [...new Set(faltam.map(a => a.item))].slice(0, 60).join(",")}});
+      faltam.forEach(a => { const x = (r.itens || {})[a.item] || {}; a.pedindo = false; a.vis30 = x.visitas30 ?? null; if (!a.criado && x.criado) a.criadoEst = x.criado; });
+    }
+    REG.forEach((_, box) => desenharCartao(box));
+    resumo();
+  }
+  function resumo() {
+    const lado = document.querySelector("aside.ui-search-sidebar, .ui-search-sidebar, section.ui-search-sidebar");
+    if (!lado || !REG.size) return;
+    let el = document.getElementById("nubi-ml-resumo");
+    if (!el) { el = document.createElement("div"); el.id = "nubi-ml-resumo"; el.className = "nubi-spy nb-resumo"; lado.prepend(el); }
+    const xs = [...new Map([...REG.values()].map(a => [a.item || Math.random(), a])).values()];
+    const lojas = new Set(xs.map(a => a.vendedor).filter(Boolean));
+    let fatMes = 0, vendas = 0, idades = [], vis = {}, rep = [0, 0, 0], ml = {platinum: 0, gold: 0, comum: 0}, log = {flex: 0, full: 0, agencia: 0};
+    xs.forEach(a => {
+      const d = idade(a);
+      if (a.vendidos != null) vendas += a.vendidos;
+      if (a.vendidos != null && a.preco && d) fatMes += a.vendidos / Math.max(d, 1) * 30 * a.preco;
+      if (d != null) idades.push(d);
+      if (a.vendedor && a.vis30) vis[a.vendedor] = (vis[a.vendedor] || 0) + a.vis30;
+      if (a.full || a.logistica === "fulfillment") log.full++; else if (a.logistica === "self_service") log.flex++; else log.agencia++;
+    });
+    const porLoja = new Map(); xs.forEach(a => { if (a.vendedor && a.loja) porLoja.set(a.vendedor, a.loja); });
+    porLoja.forEach(l => { const n = +(l.nivel || 0); if (n >= 4) rep[0]++; else if (n === 3) rep[1]++; else if (n) rep[2]++;
+      const m = String(l.medalha || "").toLowerCase(); if (m === "platinum") ml.platinum++; else if (m === "gold") ml.gold++; else ml.comum++; });
+    const faixa = [idades.filter(d => d < 180).length, idades.filter(d => d >= 180 && d < 365).length, idades.filter(d => d >= 365).length];
+    const media = idades.length ? Math.round(idades.reduce((s, x) => s + x, 0) / idades.length) : null;
+    const tv = Object.values(vis).reduce((s, x) => s + x, 0), top2 = Object.values(vis).sort((x, y) => y - x).slice(0, 2).reduce((s, x) => s + x, 0);
+    const pct = (x, t) => t ? Math.round(100 * x / t) : 0, ti = faixa[0] + faixa[1] + faixa[2];
+    el.innerHTML = `
+      <div class="nubi-spy-cab"><span class="nubi-spy-logo"><i>n</i></span><b>nubi <span>Spy</span></b></div>
+      <h6>RESUMO DO MERCADO</h6>
+      <div class="nb-b nb-fat"><small>${ic("subindo", 11)} Faturamento estimado / mês</small><b>R$ ${mil(fatMes)}</b></div>
+      <div class="nb-g3"><div><small>Vendas</small><b>${kf(vendas)}</b></div><div><small>Anúncios</small><b>${nf(xs.length)}</b></div><div><small>Lojas</small><b>${nf(lojas.size)}</b></div></div>
+      <div class="nb-b"><small>${ic("calendario", 11)} Maturidade dos anúncios</small>
+        <div class="nb-pilha"><i class="novo" style="width:${pct(faixa[0], ti)}%"></i><i class="medio" style="width:${pct(faixa[1], ti)}%"></i><i class="velho" style="width:${pct(faixa[2], ti)}%"></i></div>
+        <small>● &lt;180d · ${faixa[0]} &nbsp; ● ≤365d · ${faixa[1]} &nbsp; ● +365d · ${faixa[2]}</small>
+        ${media != null ? `<div class="nb-aviso">Idade média ${nf(media)} dias · concorrência ${media < 180 ? "nova" : media < 365 ? "média" : "antiga"}</div>` : ""}</div>
+      <div class="nb-b"><small>${ic("frete", 11)} Logística</small><div class="nb-g3"><div><small>Flex</small><b>${log.flex}</b></div><div><small>Full</small><b>${log.full}</b></div><div><small>Agência/Coleta</small><b>${log.agencia}</b></div></div></div>
+      <div class="nb-b"><div class="nb-l"><small>${ic("loja", 11)} Vendedores</small><b>${lojas.size}</b></div>
+        ${tv ? `<div class="nb-barra laranja"><i style="width:${pct(top2, tv)}%"></i></div><small><b>2 vendedores</b> dominam <b>${pct(top2, tv)}%</b> do tráfego${pct(top2, tv) > 70 ? ", lista competitiva" : ""}.</small>` : ""}
+        <small class="nb-sub">REPUTAÇÃO</small><div class="nb-g3 cores"><div class="v"><small>Verde</small><b>${rep[0]}</b></div><div class="a"><small>Amarela</small><b>${rep[1]}</b></div><div class="r"><small>Vermelha</small><b>${rep[2]}</b></div></div>
+        <small class="nb-sub">MERCADOLÍDER</small><div class="nb-g3"><div><small>Platinum</small><b>${ml.platinum}</b></div><div><small>Gold</small><b>${ml.gold}</b></div><div><small>Comum</small><b>${ml.comum}</b></div></div></div>
+      <small class="nb-obs">Dos ${nf(xs.length)} anúncios lidos nesta página. Datas pelo nº do anúncio quando a página não traz.</small>`;
+  }
+
   // ---------------- painel lateral (iframe da própria extensão, como o do Hunter)
   let ATUAL = null, PAINEL = null;
   const origemExt = () => { try { const o = new URL(chrome.runtime.getURL("")).origin; return o && o !== "null" ? o : null; } catch (e) { return null; } };
@@ -295,7 +393,7 @@
   const junta = (r, a) => ({...r, ...Object.fromEntries(Object.entries(a || {}).filter(([, v]) => v != null && v !== ""))});
   function caixa(c) {
     const box = document.createElement("div");
-    box.className = "nubi-ml-linha"; box.innerHTML = `<span class="nubi-ml-fraco">nubi: lendo a loja…</span>`;
+    box.className = "nubi-ml-linha nubi-spy nb-card"; REG.set(box, {lendo: true}); desenharCartao(box);
     c.appendChild(box);
     return box;
   }
@@ -303,7 +401,7 @@
     while (rodando < 3 && fila.length) {
       const [box, url, r] = fila.shift();
       rodando++;
-      pedir({tipo: "anuncio", url}).then(a => { box.innerHTML = linhaLoja(junta(r, a)); }).finally(() => { rodando--; andar(); });
+      pedir({tipo: "anuncio", url}).then(a => { mostrar(box, junta(r, a)); }).finally(() => { rodando--; andar(); });
     }
   }
   // cards de catálogo (/p/MLB…): o nubi diz de quem é o anúncio do card (ou quem ganha o produto), 40 por pedido;
@@ -316,8 +414,8 @@
       parte.forEach(([box, url, e]) => {
         const v = (r.produtos || {})[chave([box, url])];
         if (v && v.vendedor) {
-          box.innerHTML = linhaLoja({...e, vendedor: v.vendedor, item: v.item, oficial: v.oficial, loja: v.loja}) +
-            (v.do_card ? "" : `<span class="nubi-ml-fraco" title="o link do card não diz qual anúncio é">· quem ganha o produto agora</span>`);
+          mostrar(box, {...e, vendedor: v.vendedor, item: v.item || e.item, oficial: v.oficial, loja: v.loja, preco: e.preco || v.preco, full: e.full ?? v.full,
+            nota_card: v.do_card ? "" : "catálogo: quem ganha o produto agora"});
         } else fila.push([box, url, e]);
       });
       andar();
@@ -335,9 +433,9 @@
       const url = urls.find(u => !CLIQUE.test(u)) || (e.link && !CLIQUE.test(e.link) ? e.link : null) ||
         (e.item ? `https://produto.mercadolivre.com.br/MLB-${e.item.slice(3)}` : null);
       if (url && pidDe(url)) cat.push([box, url, e]);
-      else if (e.vendedor) box.innerHTML = linhaLoja(e);
+      else if (e.vendedor) mostrar(box, e);
       else if (url) fila.push([box, url, e]);
-      else box.innerHTML = linhaLoja({...e, motivo: "patrocinado sem o anúncio no estado da página"});
+      else mostrar(box, {...e, motivo: "patrocinado sem o anúncio no estado da página"});
     });
     andar();
     if (cat.length) porCatalogo(cat);
