@@ -85,6 +85,7 @@ CONF_PESQ = "Pesquisado (GTIN)"
 CONF_GTIN = "Confirmado por GTIN"
 CONF_TITULO = "Só título"
 CONF_LINHA_TITULO = "Linha pelo título (GTIN)"
+CONF_LINHA_CONHECIDA = "Linha conhecida pelo título"   # 29/09: sem GTIN, casou com uma linha que a marca já tem pelo GTIN
 DUV_DIVERG = "Dúvida: títulos divergentes"
 DUV_LINHA = "Dúvida: linha não identificada"
 
@@ -94,7 +95,10 @@ INFO_GTIN = {}
 # Prefixos GS1 plausíveis para achar um GTIN dentro de uma string de dígitos colados.
 PREFIXOS_GS1 = ("789", "332", "542", "629", "608", "500", "871", "400", "301", "760", "335")
 
-NEUTROS = {"-", "Outros", "EDT?"}   # valores que não votam na etapa 2 da consolidação
+NEUTROS = {"-", "Outros", "EDT?"}
+# Palavras de anúncio que às vezes viram "linha" pelo título e não podem servir de dicionário (etapa 2b).
+LINHA_NAO_E = {"decant", "decants", "set", "join", "nicho", "agua", "amostra", "miniatura", "compartilhado",
+               "compartilhada", "edicao", "tester", "kit", "vidro", "frasco", "refil", "travel"}   # valores que não votam na etapa 2 da consolidação
 
 NOTA_FAT = ("Faturamento (Vendas em $) vem arredondado em faixas pela plataforma de origem: "
             "preços médios calculados por faturamento ÷ unidades são aproximados.")
@@ -745,6 +749,35 @@ def consolidar(df, marca, cfg, info=None):
             else:
                 conf = DUV_LINHA
         df.loc[grupo.index, "confianca"] = conf
+
+    # Etapa 2b (29/09, print do Bruno: "Xerjoff Outros EDP 100 ml" com 106 anúncios) — as linhas que a própria marca
+    # já tem pelos GTINs servem de dicionário para os anúncios SEM GTIN que ficaram em "Outros":
+    # "Perfume Xerjoff 1861 Naxos Eau De Parfum 100ml" -> "Naxos 1861"; "Erba Pura", "Torino 21"...
+    # - a mesma linha escrita em ordem diferente ("1861 Naxos" / "Naxos 1861") vira uma só, a que mais vende;
+    # - palavras de anúncio ("Decant", "Set", "Nicho") não viram linha;
+    # - se o título casar com várias, ganha a linha que mais vende pelos GTINs ("Decant Erba Pura" -> "Erba Pura").
+    base = df[(df["gtin"] != "") & ~fora & ~df["linha"].isin(NEUTROS)]
+    un_linha = base.groupby("linha")["un"].sum().to_dict() if len(base) else {}
+    grupos = {}
+    for l in un_linha:
+        palavras = frozenset(normalizar(l).split())
+        if len(normalizar(l)) >= 4 and not palavras <= palavras_marca and not palavras & LINHA_NAO_E:
+            grupos.setdefault(palavras, []).append(l)
+    canonica, chaves = {}, []
+    for variantes in grupos.values():
+        melhor = max(variantes, key=lambda l: (un_linha.get(l, 0), l))
+        for l in variantes:
+            canonica[l] = melhor
+            chaves.append((normalizar(l), melhor))
+    trocar = df["linha"].isin([l for l, c in canonica.items() if l != c]) & ~fora
+    df.loc[trocar, "linha"] = df.loc[trocar, "linha"].map(canonica)
+    if chaves:
+        for i in df.index[(df["gtin"] == "") & ~fora & (df["linha"] == "Outros")]:
+            alvo = f" {normalizar(df.at[i, 'titulo'])} "
+            casou = [c for k, c in chaves if f" {k} " in alvo]
+            if casou:
+                df.at[i, "linha"] = max(casou, key=lambda c: (un_linha.get(c, 0), len(c)))
+                df.at[i, "confianca"] = CONF_LINHA_CONHECIDA
 
     # Etapa 3 — preencher o que sobrou vazio.
     # 3a. Tipo não escrito no título e sem GTIN que resolva ("EDT?"): recebe o tipo

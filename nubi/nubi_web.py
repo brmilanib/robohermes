@@ -530,7 +530,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 2: mesmo GTIN = mesmo produto; linha lida do título"
+REGRA_ATUAL = "regra 3: sem GTIN usa as linhas que a marca já tem pelos GTINs"   # 29/09 (Xerjoff Outros)
 
 
 def aplicar_regra_nova(repo):
@@ -672,7 +672,7 @@ def atender(metodo, rota, q, corpo, token):
             return _json(rodar_agente(repo, q.get("origem") or "manual", q.get("marca") or None, seg))
         if rota == "agente_status":
             ult = repo._req("GET", "agente_execucoes", {"select": "*", "order": "id.desc", "limit": 15,
-                                                        "origem": "neq." + REGRA_ATUAL}) or []
+                                                        "origem": "not.like.regra*"}) or []
             for u in ult:
                 u["log"] = (u.get("log") or "")[-4000:]
             return _json({"execucoes": ult, "agendado": bool(CRON_SECRET and AGENTE_EMAIL)})
@@ -2321,9 +2321,17 @@ def _tokens_produto(titulo):
     """Palavras que identificam o produto (sem acento, sem as genéricas) + o volume em ml."""
     t = unicodedata.normalize("NFKD", str(titulo or "").lower()).encode("ascii", "ignore").decode()
     vol = re.search(r"(\d{2,4})\s*ml", t)
-    pal = {p for p in re.findall(r"[a-z0-9]+", t) if len(p) >= 3 and p not in _PALAVRAS_VAZIAS and not p.isdigit()
-           and not re.fullmatch(r"\d+ml", p)}                       # volume não conta como palavra do produto
-    return pal, (vol.group(1) if vol else None)
+    v = vol.group(1) if vol else None
+    # número do nome conta ("Torino 21" ≠ "Torino 25", "212"); volume não conta como palavra do produto
+    pal = {p for p in re.findall(r"[a-z0-9]+", t) if p not in _PALAVRAS_VAZIAS and not re.fullmatch(r"\d+ml", p)
+           and (len(p) >= 3 and not p.isdigit() or p.isdigit() and len(p) >= 2 and p != v)}
+    return pal, v
+
+
+def _numeros_batem(a, b):
+    """Os dois títulos têm número no nome e nenhum é igual (Torino 21 × Torino 25): não é o mesmo produto."""
+    na, nb = {p for p in a if p.isdigit()}, {p for p in b if p.isdigit()}
+    return not (na and nb) or bool(na & nb)
 
 
 def casar_estoque(titulo, estoque):
@@ -2335,13 +2343,91 @@ def casar_estoque(titulo, estoque):
     melhor, nota_m = None, 0.0
     for it in estoque:
         p2, v2 = it["_tok"]
-        if vol and v2 and vol != v2:
+        if vol and v2 and vol != v2 or not _numeros_batem(pal, p2):
             continue
         comum = len(pal & p2)
         nota = comum / len(pal)
         if comum >= 2 and nota >= 0.6 and nota > nota_m:
             melhor, nota_m = it, nota
     return melhor
+
+
+def _casar_varios(titulo, itens, n=3):
+    """Como casar_estoque, mas devolve os n melhores (o mesmo perfume pode ter mais de um SKU)."""
+    pal, vol = _tokens_produto(titulo)
+    if len(pal) < 2:
+        return []
+    notas = []
+    for it in itens:
+        p2, v2 = it["_tok"]
+        if vol and v2 and vol != v2 or not _numeros_batem(pal, p2):
+            continue
+        comum = len(pal & p2)
+        if comum >= 2 and comum / len(pal) >= 0.6:
+            notas.append((comum / len(pal), comum, it))
+    notas.sort(key=lambda x: (-x[0], -x[1], -(x[2].get("disponivel") or 0)))
+    return [it for _, _, it in notas[:n]]
+
+
+def produto_meu(repo, produto, gtins=(), titulos=()):
+    """30/09 (Bruno): ao clicar num produto do Explorador, o cabeçalho mostra o MEU lado — se eu vendo, a que preço médio
+    (vendas por anúncio do UpSeller, 30 dias), quanto tenho no estoque (disponível, trânsito, mínimo, custo) e meus anúncios
+    no Mercado Livre. Casa pelo GTIN (SKU = GTIN) e, de reserva, pelo nome do produto e pelos títulos que mais vendem."""
+    ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": 1}) or [None])[0]
+    itens = _num_itens(_estoque_itens(repo, ult["id"])) if ult else []
+    gs = {re.sub(r"\D", "", str(g)) for g in gtins if g}
+    achados, por = [it for it in itens if re.sub(r"\D", "", str(it["sku"])) in gs and len(str(it["sku"]).strip()) >= 8], "gtin"
+    candidatos = [produto] + ([] if "outros" in str(produto).lower().split() else list(titulos)[:3])
+    if not achados:
+        por = "titulo"
+        for it in itens:
+            it["_tok"] = _tokens_produto(it.get("titulo"))
+        for t in candidatos:
+            achados = _casar_varios(t, itens)
+            if achados:
+                break
+    skus = {estoque._chave(it["sku"]) for it in achados}
+    v = _vendas_atuais(repo) or {}
+    linhas = [x for x in v.get("linhas") or [] if estoque._chave(x.get("sku")) in skus]
+    if not linhas and v.get("linhas"):             # vendo com um SKU que não está no estoque de hoje: casa pelo título
+        vs = [dict(x, titulo=x.get("produto"), _tok=_tokens_produto(x.get("produto"))) for x in v["linhas"]]
+        for t in candidatos:
+            um = _casar_varios(t, vs, 1)
+            if um:
+                linhas = [x for x in vs if estoque._chave(x["sku"]) == estoque._chave(um[0]["sku"])]
+                break
+    lojas = {}
+    for x in linhas:
+        lj = lojas.setdefault(x.get("loja") or "?", {"loja": x.get("loja") or "?", "unidades": 0.0, "valor": 0.0, "anuncios": 0})
+        lj["unidades"] += x.get("unidades") or 0
+        lj["valor"] += x.get("valor") or 0
+        lj["anuncios"] += 1
+    un, val = sum(l["unidades"] for l in lojas.values()), sum(l["valor"] for l in lojas.values())
+    for l in lojas.values():
+        l["preco_medio"] = round(l["valor"] / l["unidades"], 2) if l["unidades"] else None
+    ml = []
+    try:
+        an = repo._todos("meus_anuncios", {"select": "id,loja,titulo,preco", "ativo": "is.true"})
+        for a in an:
+            a["_tok"] = _tokens_produto(a.get("titulo"))
+        for t in candidatos:
+            ml = _casar_varios(t, an, 5)
+            if ml:
+                break
+        ml = [{k: a.get(k) for k in ("id", "loja", "titulo", "preco")} for a in ml]
+    except Exception:  # noqa: BLE001  (extra: sem a tabela, o quadro sai sem os anúncios)
+        ml = []
+    try:
+        minhas = [l["nome"] for l in repo._todos("ml_lojas", {"select": "nome", "ativo": "is.true"})]
+    except Exception:  # noqa: BLE001
+        minhas = []
+    campos = ("sku", "titulo", "disponivel", "atual", "transito_compra", "estoque_min", "custo_medio")
+    return {"estoque_em": (ult or {}).get("criado_em"), "casado_por": por if achados else None,
+            "estoque": [{k: it.get(k) for k in campos} for it in achados],
+            "vendas": {"unidades": un, "valor": round(val, 2), "preco_medio": round(val / un, 2) if un else None,
+                       "dias": v.get("dias") or 30, "inicio": v.get("inicio"), "fim": v.get("fim"),
+                       "lojas": sorted(lojas.values(), key=lambda l: -l["unidades"])} if v else None,
+            "anuncios_ml": ml, "minhas_lojas": minhas}
 
 
 def dados_foco(repo, limite=30):
@@ -3686,6 +3772,10 @@ def rota_estoque(repo, metodo, rota, q, corpo):
                                "manual" if q.get("origem") == "manual" else "coletor")
     if rota == "estoque_compras":
         return estoque_compras(repo)
+    if rota == "estoque_produto":
+        # 30/09 (Bruno): o meu lado do produto no quadro do Explorador
+        sep = lambda k: [x for x in str(q.get(k) or "").split("|") if x][:40]
+        return produto_meu(repo, str(q.get("produto") or "")[:200], sep("gtins"), sep("titulos"))
     if rota.startswith("estoque_perseguir"):
         # 28/09 (Bruno): anúncios perseguidos no Mercado Livre pelo Apify (1 vez por semana e quando ele pede)
         try:

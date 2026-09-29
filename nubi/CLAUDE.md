@@ -87,6 +87,20 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Listas do Estoque (entraram/saíram/zeraram/voltaram) trazem custo médio com a variação em % e, em saíram/zeraram, o que
   está em trânsito e o mínimo (verde se o trânsito cobre o mínimo): `_enriquecer_diff` na rota `estoque`.
 
+## Anúncio sem GTIN no produto certo (29/09, "Xerjoff Outros") — `consolidar`, etapa 2b em `nubi.py`
+- As linhas que a marca já tem pelos GTINs viram dicionário para os anúncios SEM GTIN que ficaram em "Outros"
+  (confiança "Linha conhecida pelo título"). Mesma linha em outra ordem ("1861 Naxos"/"Naxos 1861") vira uma só,
+  a que mais vende; palavras de anúncio (`LINHA_NAO_E`: decant, set, nicho…) não viram linha; se casar com várias,
+  ganha a que mais vende. Mudou a regra → suba `REGRA_ATUAL` em `nubi_web.py` (reprocessa tudo uma vez no agente).
+
+## Quadro do produto no Explorador (30/09, pedido do Bruno) — `abrirVendedoresProduto` + rota `estoque_produto`
+- Quadro largo (`.modal.larga.pq`): cabeçalho com o mercado (un., faturamento, preço médio e faixa, vendedores, líder) e
+  o MEU lado vindo de `produto_meu`: vendo? (vendas por anúncio do UpSeller, 30 dias, por loja), meu preço médio vs.
+  mercado, estoque (disponível, trânsito, mínimo, quantos dias dura), custo e margem antes das taxas, minha posição
+  (nome das `ml_lojas` na lista de vendedores) e meus anúncios no ML. Casa pelo GTIN (SKU = GTIN), senão pelo nome do
+  produto e títulos (`_casar_varios`; produto "Outros" só pelo nome). Número do nome conta: Torino 21 ≠ Torino 25.
+  Teste de tela: `test_produto_quadro_real.py`.
+
 ## Mini-benchmark de modelos (#15, 27/09) — `nubi_benchmark.py`, migração `supabase/benchmark.sql`
 
 - **Nenhum modelo novo entra em produção sem passar por ele.** Casos fixos e versionados no código (`VERSAO`, `CASOS`:

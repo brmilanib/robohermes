@@ -177,6 +177,15 @@ aside.side{background:var(--card);border-right:1px solid var(--line);padding:14p
 a.plink{color:inherit;text-decoration:none;border-bottom:1px dashed var(--muted);cursor:pointer}
 a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .modal.larga{max-width:1080px}
+.modal.larga.pq{max-width:min(1440px,100%)}
+.pq-sec{font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:14px 0 0}
+.pq .kpis.pq-kpis{grid-template-columns:repeat(5,minmax(0,1fr));margin:6px 0 0}
+.pq .kpi .v{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pq .kpi .o{-webkit-line-clamp:4}
+.pq-det{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.5}
+.pq tr.pq-eu td{background:var(--info-bg);font-weight:600}
+@media (max-width:900px){.pq .kpis.pq-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .pq .kpi .v{font-size:15px;white-space:normal;overflow-wrap:anywhere}}
 /* ---- Gráficos do B.I. (paleta categórica validada p/ daltonismo; escuro tem os próprios tons) ---- */
 :root{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;
   --dv-pos:#2a78d6;--dv-neg:#e34948;--dv-mid:#f0efec;--dv-outro:#b8bcc6}
@@ -5602,19 +5611,43 @@ function celula(r, k, f, i) {
 function abrirVendedoresProduto(prod) {
   const lista = (S.rel.vendedores_produto || {})[prod] || [];
   const tot = lista.reduce((a, v) => ({un: a.un + v.un, fat: a.fat + v.fat, an: a.an + v.anuncios}), {un: 0, fat: 0, an: 0});
-  const comVenda = lista.filter(v => v.un > 0).length;
+  const comVenda = lista.filter(v => v.un > 0);
+  // 30/09 (Bruno): quadro maior e, no cabeçalho, o mercado deste produto + o MEU lado (vendo? preço, estoque, custo)
+  const row = ((S.rel.tabelas || {}).produtos || []).find(r => r.produto === prod) || {};
+  const gtins = ((S.rel.tabelas || {}).gtins || []).filter(g => g.produto === prod).map(g => g.gtin);
+  const cols = S.rel.colunas_arquivo || [], ct = cols.findIndex(c => /^t[ií]tulo/i.test(c));
+  const titulos = ct < 0 ? [] : ((S.rel.tabelas || {}).anuncios || []).filter(x => x.produto === prod).slice(0, 3).map(x => x["c" + ct]).filter(Boolean);
+  const pm = tot.un ? tot.fat / tot.un : null;
+  const precos = comVenda.map(v => v.ultimo_preco).filter(x => x > 0).sort((a, b) => a - b);
+  const med = precos.length ? precos[Math.floor(precos.length / 2)] : null;
+  const lider = comVenda[0];
+  const dias = (S.rel.resumo || {}).dias || 30, mes30 = tot.un / dias * 30;
+  const R = x => x == null ? "—" : "R$ " + nf2.format(x);
+  const kpi = (l, v, o = "", cls = "") => `<div class="card kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
   const bg = modal(`
     <div style="display:flex;align-items:flex-start;gap:12px">
-      <div style="flex:1"><h2 style="margin-bottom:2px">${esc(prod)}</h2>
-        <div class="muted">${nf0.format(lista.length)} vendedores (${nf0.format(comVenda)} com venda) · ${nf0.format(tot.an)} anúncios ·
-          ${nf0.format(tot.un)} un. · R$ ${nf0.format(tot.fat)} · período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)}</div></div>
+      <div style="flex:1;min-width:0"><h2 style="margin-bottom:2px;font-size:18px">${esc(prod)}</h2>
+        <div class="muted">${[row.linha && row.linha !== "-" ? "Linha " + esc(row.linha) : "", row.tipo && row.tipo !== "-" ? esc(row.tipo) : "", row.volume && row.volume !== "-" ? esc(row.volume) : "",
+          gtins.length ? `${gtins.length} GTIN${gtins.length > 1 ? "s" : ""}: ${gtins.slice(0, 4).map(esc).join(", ")}${gtins.length > 4 ? "…" : ""}` : "sem GTIN",
+          row.abc ? "curva " + esc(row.abc) : ""].filter(Boolean).join(" · ")}</div>
+        <div class="muted">período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)} (${dias} dias)</div></div>
       <button class="btn small" data-fechar>Fechar</button>
     </div>
-    <div class="tw" style="margin-top:12px;max-height:62vh"><table class="t"><thead><tr>
+    <div class="pq-sec">Mercado (Nubimetrics)</div>
+    <div class="kpis pq-kpis">
+      ${kpi("Unidades vendidas", nf0.format(tot.un), `≈ ${nf0.format(mes30)} por 30 dias`)}
+      ${kpi("Faturamento", "R$ " + nf0.format(tot.fat), "aproximado (faixas)")}
+      ${kpi("Preço médio", R(pm), precos.length ? `preço atual de ${R(precos[0])} a ${R(precos[precos.length - 1])} · mediana ${R(med)}` : "")}
+      ${kpi("Vendedores", `${nf0.format(comVenda.length)} <small class="muted">de ${nf0.format(lista.length)}</small>`, `${nf0.format(tot.an)} anúncios · ${FMT.pct(row.pct_full)} FULL · ${FMT.pct(row.pct_catalogo)} catálogo`)}
+      ${kpi("Líder", lider ? esc(lider.vendedor) : "—", lider ? `${FMT.pct(lider.share)} das vendas · ${R(lider.preco_medio)}` : "")}
+    </div>
+    <div class="pq-sec">Eu <span class="muted" id="pq-fonte" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
+    <div id="pq-meu"><div class="kpis pq-kpis">${kpi("Eu vendo?", "…", "carregando meu estoque e minhas vendas")}</div></div>
+    <div class="tw" style="margin-top:12px;max-height:48vh"><table class="t"><thead><tr>
       <th class="num">#</th><th>Código</th><th>Vendedor</th><th class="num">Un. vendidas</th><th class="num">Faturamento</th>
       <th class="num">Share</th><th class="num" title="Faturamento ÷ unidades">Preço médio</th><th class="num" title="Mediana do último preço dos anúncios do vendedor">Preço atual</th>
       <th class="num">Anúncios</th><th class="num" title="Anúncios em FULL">FULL</th><th class="num" title="Anúncios em catálogo">Catál.</th><th>Loja of.</th></tr></thead><tbody>
-      ${lista.map((v, i) => `<tr>
+      ${lista.map((v, i) => `<tr data-vnome="${esc(normNome(v.vendedor))}">
         <td class="num">${i + 1}</td><td>${esc(v.codigo)}</td><td class="first">${vendLink(v.codigo, v.vendedor)}</td>
         <td class="num">${nf0.format(v.un)}</td><td class="num">R$ ${nf0.format(v.fat)}</td>
         <td class="num"><div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
@@ -5626,7 +5659,47 @@ function abrirVendedoresProduto(prod) {
         || `<tr><td colspan="12" class="empty">Nenhum vendedor.</td></tr>`}
     </tbody></table></div>
     <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).</p>`);
-  $(".modal", bg).classList.add("larga");
+  $(".modal", bg).classList.add("larga", "pq");
+  api("estoque_produto", {produto: prod, gtins: gtins.join("|"), titulos: titulos.join("|")})
+    .then(m => { if (document.body.contains(bg)) $("#pq-meu", bg).innerHTML = meuLadoProduto(m, {pm, med, mes30, lista, kpi, R, bg}); })
+    .catch(e => { $("#pq-meu", bg).innerHTML = `<div class="muted" style="font-size:13px">Não consegui ler meus dados: ${esc(e.message)}</div>`; });
+}
+const normNome = s => String(s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+function meuLadoProduto(m, {pm, med, mes30, lista, kpi, R, bg}) {
+  const v = m.vendas, est = m.estoque || [];
+  const disp = est.reduce((a, it) => a + (+it.disponivel || 0), 0), trans = est.reduce((a, it) => a + (+it.transito_compra || 0), 0);
+  const minimo = est.reduce((a, it) => a + (+it.estoque_min || 0), 0);
+  const custos = est.filter(it => +it.custo_medio > 0), custo = custos.length ? custos.reduce((a, it) => a + +it.custo_medio, 0) / custos.length : null;
+  const vendo = v && v.unidades > 0, dias = (v && v.dias) || 30, porDia = vendo ? v.unidades / dias : 0;
+  const cob = porDia ? (disp + trans) / porDia : null;
+  const dif = vendo && pm ? v.preco_medio / pm - 1 : null;
+  const margem = vendo && custo ? v.preco_medio - custo : null, margemMerc = pm && custo ? pm - custo : null;
+  // minha posição na lista do Nubimetrics (quando o nome da minha loja no ML aparece entre os vendedores)
+  const minhas = (m.minhas_lojas || []).map(normNome).filter(Boolean);
+  const pos = lista.findIndex(x => minhas.includes(normNome(x.vendedor)));
+  if (pos >= 0) { const tr = $(`tr[data-vnome="${CSS.escape(normNome(lista[pos].vendedor))}"]`, bg); tr && tr.classList.add("pq-eu"); }
+  const fonte = $("#pq-fonte", bg);
+  if (fonte) fonte.textContent = `· estoque do UpSeller${m.estoque_em ? " de " + atQuando(m.estoque_em) : ""}` +
+    (v && v.fim ? ` · minhas vendas de ${dataBR(v.inicio)} a ${dataBR(v.fim)}` : "") + (m.casado_por ? ` · achado pelo ${m.casado_por === "gtin" ? "GTIN" : "título"}` : "");
+  const pct = x => (x > 0 ? "+" : "") + nf1.format(x * 100) + "%";
+  const ok = est.length && minimo > 0 && disp + trans >= minimo;
+  const kp = `<div class="kpis pq-kpis">
+    ${kpi("Eu vendo?", vendo ? `<span class="pos">Sim</span> · ${nf0.format(v.unidades)} un.` : est.length ? "Não vendi" : "Não tenho",
+          vendo ? `em ${dias} dias · R$ ${nf0.format(v.valor)}` + (mes30 ? ` · ${FMT.pct(v.unidades / dias * 30 / mes30)} do mercado` : "")
+                : est.length ? `nos últimos ${dias} dias` : "nenhum SKU do estoque casou com este produto")}
+    ${kpi("Meu preço médio", vendo ? R(v.preco_medio) : "—",
+          dif == null ? "" : `<span class="${dif > 0.001 ? "neg" : dif < -0.001 ? "pos" : ""}">${pct(dif)}</span> vs. mercado ${R(pm)}${med ? ` · mediana ${R(med)}` : ""}`)}
+    ${kpi("Meu estoque", est.length ? `<span class="${ok ? "pos" : disp ? "" : "neg"}">${nf0.format(disp)} un.</span>` : "—",
+          est.length ? `trânsito ${nf0.format(trans)} · mínimo ${nf0.format(minimo)}` + (cob != null ? ` · dura ≈ ${nf0.format(cob)} dias` : "") : "")}
+    ${kpi("Custo médio", R(custo), margem != null ? `margem antes das taxas ${R(margem)} (${FMT.pct(margem / v.preco_medio)})`
+          : margemMerc != null ? `no preço médio do mercado sobraria ${R(margemMerc)} antes das taxas` : "")}
+    ${kpi("Minha posição", pos >= 0 ? `${pos + 1}º de ${lista.length}` : "—", pos >= 0 ? esc(lista[pos].vendedor) + " no Nubimetrics" : "minha loja não aparece entre os vendedores deste período")}
+  </div>`;
+  const det = [];
+  if (est.length) det.push(`<b>SKUs:</b> ${est.map(it => `${esc(it.sku)} — ${esc(String(it.titulo || "").slice(0, 70))} (${nf0.format(+it.disponivel || 0)} disp.)`).join(" · ")}`);
+  if (vendo && v.lojas.length) det.push(`<b>Por loja:</b> ${v.lojas.map(l => `${esc(l.loja)} ${nf0.format(l.unidades)} un. a ${R(l.preco_medio)}`).join(" · ")}`);
+  if ((m.anuncios_ml || []).length) det.push(`<b>Meus anúncios no ML:</b> ${m.anuncios_ml.map(a => `${esc(a.loja || "")} ${esc(a.id)}${a.preco ? " " + R(+a.preco) : ""}`).join(" · ")}`);
+  return kp + (det.length ? `<div class="pq-det">${det.join("<br>")}</div>` : "");
 }
 // ---------- Produtos de um vendedor ----------
 function abrirProdutosVendedor(cod) {
