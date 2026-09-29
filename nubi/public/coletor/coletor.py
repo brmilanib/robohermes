@@ -5719,6 +5719,13 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                                            f"RECUSADO: conversa antiga ({ent.get('data_ultima')}, mais de {DIAS_RESPONDER} dias). "
                                            "Não é trabalho seu: siga para a próxima conversa recente."})
                         continue
+                    if not sac and not cli.strip():
+                        # 29/09: sem nome de cliente não há como conferir o cabeçalho; antes passava direto e gravava
+                        estado["recusadas_outra"] = estado.get("recusadas_outra", 0) + 1
+                        resultados.append({"type": "tool_result", "tool_use_id": b["id"], "content":
+                                           "RECUSADO: registrar exige o nome da cliente exatamente como aparece no cabeçalho do "
+                                           "chat aberto. Abra a conversa, leia e registre de novo com o nome."})
+                        continue
                     if not sac and cli and not _conversa_aberta_e_de(pg, cli):
                         # 28/09 (print do Bruno): a IA registrava a cliente X com o chat da cliente Y aberto e o nubi
                         # gravava foto, produto, pedido e mensagens da Y na conversa da X. Só grava com o nome no cabeçalho.

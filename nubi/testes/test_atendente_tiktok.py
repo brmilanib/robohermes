@@ -625,6 +625,22 @@ def test_so_registra_com_o_chat_da_propria_cliente_aberto():
         ctx.close()
 
 
+def test_registrar_recusa_chat_de_outra_cliente_e_nome_vazio():
+    # 29/09 (card #118): com o chat de outra cliente aberto, ou sem nome, nada vai para o nubi
+    hist = [{"de": "cliente", "texto": "Oi"}, {"de": "cliente", "texto": "Tem tester?"}]
+    ch = _preparar([("ler", {}), ("registrar", {"cliente": "", "historico": hist}),
+                    ("registrar", {"cliente": "simonefa22", "historico": hist}), ("terminar", {"resumo": "x"})])
+    c._conversa_aberta_e_de = lambda pg, cli: False        # o chat aberto é de outra pessoa
+    try:
+        c.cmd_atender_tiktok(None, c.ler_config())
+    finally:
+        c._conversa_aberta_e_de = lambda pg, cli: True
+    assert not any(r == "atendimento_receber" for r, _ in ch["api"])
+    ch2 = _preparar([("ler", {}), ("registrar", {"cliente": "simonefa22", "historico": hist}), ("terminar", {"resumo": "x"})])
+    c.cmd_atender_tiktok(None, c.ler_config())              # cliente certa: grava normal
+    assert any(r == "atendimento_receber" for r, _ in ch2["api"])
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):
