@@ -388,6 +388,10 @@
     const v = t.match(/(\+)?\s*(\d+(?:[.,]\d+)?)\s*(mil)?\s*vendidos?/i);
     if (v) { out.vendidos = Math.round(parseFloat(v[2].replace(/\./g, "").replace(",", ".")) * (v[3] ? 1000 : 1)); out.vendidosMais = !!v[1]; }
     if (c.querySelector("[aria-label*='FULL' i], svg[class*='full' i], .poly-component__shipped-from, [class*='fulfillment']") || /\bFULL\b/.test(t)) { out.full = true; out.envio = "full"; }
+    // nome da loja que o próprio card mostra ("CHINAINK ✓", "Vendido por X"): vale quando a API não diz o vendedor
+    const sv = c.querySelector(".poly-component__seller, .ui-search-official-store-label, .ui-search-item__group__element--seller");
+    const nomeSv = sv && sv.textContent.replace(/\s+/g, " ").replace(/^(vendido\s+)?por\s+/i, "").trim();
+    if (nomeSv && nomeSv.length < 60) out.apelido = nomeSv;
     const mc = c.querySelector(".poly-component__brand, .ui-search-item__brand-discoverability");
     if (mc && mc.textContent.trim()) out.marca = mc.textContent.trim();
     const pr = c.querySelector(".poly-price__current .andes-money-amount, .ui-search-price__second-line .andes-money-amount");

@@ -17,7 +17,7 @@ with zipfile.ZipFile(RAIZ / "public" / "extensao" / "nubi-ml.zip") as z:
         assert z.read(f"nubi-ml/{f.name}") == f.read_bytes(), f"zip desatualizado: rode python3 testes/gerar_extensao.py ({f.name})"
 man = json.loads((EXT / "manifest.json").read_text())
 assert man["manifest_version"] == 3 and "https://*.mercadolivre.com.br/*" in man["host_permissions"]
-assert man["version"] == "0.7.2", man["version"]
+assert man["version"] == "0.7.3", man["version"]
 assert man["action"]["default_popup"] == "popup.html"
 
 # 2) leitor da página do anúncio
@@ -254,11 +254,11 @@ with sync_playwright() as p3:
     # sem estado nenhum (script apagado antes da extensão): vendidos lidos no próprio card ("+5mil vendidos")
     SEM = re.sub(r'<script id="__NORDIC_RENDERING_CTX__">.*?</script>', "", REAL, flags=re.S)
     SEM = SEM.replace('<li class="ui-search-layout__item" style="height: 443.094px;"><div class="ui-search-result__wrapper ui-search-result__wrapper--large"><div class="andes-card poly-card poly-card--grid-card poly-card--xlarge poly-card--CORE andes-card--flat andes-card--primary andes-card--padding-0" id="_R_85kqcla_" data-andes-card="true" data-andes-card-hierarchy="primary">',                  # o card como no Chrome do Bruno
-                      '<li class="ui-search-layout__item" style="height: 443.094px;"><div class="ui-search-result__wrapper ui-search-result__wrapper--large"><div class="andes-card poly-card poly-card--grid-card poly-card--xlarge poly-card--CORE andes-card--flat andes-card--primary andes-card--padding-0" id="_R_85kqcla_" data-andes-card="true" data-andes-card-hierarchy="primary"><span class="poly-reviews__total">| +5mil vendidos</span>', 1)
+                      '<li class="ui-search-layout__item" style="height: 443.094px;"><div class="ui-search-result__wrapper ui-search-result__wrapper--large"><div class="andes-card poly-card poly-card--grid-card poly-card--xlarge poly-card--CORE andes-card--flat andes-card--primary andes-card--padding-0" id="_R_85kqcla_" data-andes-card="true" data-andes-card-hierarchy="primary"><span class="poly-component__seller">CHINAINK</span><span class="poly-reviews__total">| +5mil vendidos</span>', 1)
     assert "printed_result" not in SEM
     ps, errs = pagina(f"<html><body>{SEM}</body></html>", com_cedo=False)
     cs = [x.replace("\xa0", " ") for x in ps.eval_on_selector_all(".nubi-ml-linha", "xs => xs.map(x => x.innerText)")]
-    assert "+5.000" in cs[0], cs[0]
+    assert "+5.000" in cs[0] and "CHINAINK" in cs[0], cs[0]                                 # loja pelo nome do card
     assert not errs, errs
     b3.close()
 
