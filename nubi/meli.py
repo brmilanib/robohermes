@@ -250,6 +250,11 @@ def normalizar_loja(u):
             "loja_oficial": bool((u.get("tags") or []) and "brand" in (u.get("tags") or []))}
 
 
+def _itens_bloqueados():
+    x = _CACHE.get("items|bloqueado")
+    return bool(x and time.time() - x[0] < 30 * 60)
+
+
 def itens(ids):
     """{MLB: anúncio}; o que o ML não acha vem {"anuncio": MLB, "sumiu": True}. 20 por chamada, em paralelo."""
     ids = [i for i in dict.fromkeys(str(x).upper() for x in ids if x)]
@@ -260,6 +265,11 @@ def itens(ids):
             out[i] = x[1]
         else:
             faltam.append(i)
+    if faltam and _itens_bloqueados():
+        # 29/09 (produção): o ML não dá /items de outras lojas para o token do app; não repete 40 pedidos a cada tela
+        for i in faltam:
+            out[i] = {"anuncio": i, "bloqueado": True, "link": link_do_item(i)}
+        faltam = []
 
     def lote(grupo):
         try:
@@ -291,12 +301,15 @@ def itens(ids):
             raise
         except ErroMeli:
             return i, "bloqueado"
-    for i, m in _em_paralelo(um, faltando[:40]):
+    res = _em_paralelo(um, faltando[:40])
+    for i, m in res:
         if isinstance(m, dict) and m.get("anuncio"):
             out[i] = m
             _CACHE["item|" + i] = (time.time(), m)
         elif m == "bloqueado":
             out[i] = {"anuncio": i, "bloqueado": True, "link": link_do_item(i)}
+    if len(res) >= 3 and len(faltando) == len(faltam) and not any(isinstance(m, dict) for _, m in res):
+        _CACHE["items|bloqueado"] = (time.time(), True)      # nenhum veio, nem de vários nem um por um
     for i in ids:
         out.setdefault(i, {"anuncio": i, "sumiu": True})
     return out
@@ -589,7 +602,7 @@ def produtos_da_loja(vendedor_id, limite=MAX_PRODUTOS_LOJA, gtins_fn=None):
         gtins = list(gtins_fn(vendedor_id) or []) if gtins_fn else []
         if not gtins:
             return [], None, "bloqueada"
-        prods = [m for m in por_gtin(gtins, max_gtins=8) if str(m.get("vendedor_id")) == str(vendedor_id)]
+        prods = por_gtin(gtins, max_gtins=8, maximo=MAX_OFERTAS, vendedor=vendedor_id)    # todas as páginas do catálogo
         return _com_visitas(prods), None, "catálogo"
     total = int((primeiro.get("paging") or {}).get("total") or 0)
     ids = [r.get("id") for r in primeiro.get("results") or []]
@@ -670,52 +683,112 @@ def _produto_catalogo(pid):
     return _mem("prod|" + pid, 6 * 3600, ler)
 
 
-def por_gtin(gtins, limite_produtos=2, max_gtins=4):
-    """Quem vende o produto agora: catálogo do ML pelo GTIN. [{anúncio + loja}] do mais barato para o mais caro."""
-    achados = []
-    for g in [str(x).strip() for x in gtins if str(x or "").strip()][:max_gtins]:
-        def buscar(g=g):
-            r = _get("/products/search", {"status": "active", "site_id": SITE, "product_identifier": g}) or {}
-            return [p.get("id") for p in r.get("results") or [] if p.get("id")][:limite_produtos]
-        for pid in _mem("gtin|" + g, 30 * 60, buscar):
-            def itens_do_produto(pid=pid):
-                return (_get(f"/products/{pid}/items", {"limit": 50}) or {}).get("results") or []
-            for x in _mem("prodit|" + pid, 20 * 60, itens_do_produto):
-                if x.get("item_id"):
-                    achados.append((pid, g, x))
-    ids = list(dict.fromkeys(x["item_id"] for _, _, x in achados))
-    its = itens(ids)
-    lj = lojas([m.get("vendedor_id") for m in its.values() if m.get("vendedor_id")] + [x.get("seller_id") for _, _, x in achados])
+MAX_OFERTAS = 300                       # ofertas lidas por produto de catálogo (o ML devolve 50 por página)
+
+
+def loja_oficial_do_texto(txt):
+    """Explorador do Nubimetrics, coluna "Loja oficial": "LOJA.OFICIAL.23829" -> 23829, o official_store_id do ML (o
+    Nubimetrics embaralha o vendedor e o anúncio, mas não o número da loja oficial)."""
+    m = re.search(r"OFICIAL\D*(\d+)\s*$", str(txt or ""), re.I)
+    return int(m.group(1)) if m else None
+
+
+def _produtos_do_gtin(g, limite_produtos=2):
+    def buscar():
+        r = _get("/products/search", {"status": "active", "site_id": SITE, "product_identifier": g}) or {}
+        return [p.get("id") for p in r.get("results") or [] if p.get("id")]
+    return _mem("gtin|" + g, 30 * 60, buscar)[:limite_produtos]
+
+
+def ofertas_do_produto(pid, maximo=MAX_OFERTAS):
+    """As ofertas (anúncios de catálogo) de um produto do ML, 50 por página, até `maximo`. 29/09: a 1ª versão lia só a
+    1ª página, e a loja certa (ICARBONXX) podia estar depois das 50 primeiras."""
+    def ler():
+        out, vistos = [], set()
+        for off in range(0, maximo, 50):
+            try:
+                r = _get(f"/products/{pid}/items", {"limit": 50, "offset": off}) or {}
+            except NaoAchou:
+                break                          # produto sem oferta ativa agora
+            except ErroLogin:
+                raise
+            except ErroMeli:
+                if off == 0:
+                    raise
+                break                          # o ML recusou a página seguinte: fica com o que veio
+            pagina = r.get("results") or []
+            novos = [x for x in pagina if x.get("item_id") and x["item_id"] not in vistos]
+            vistos.update(x["item_id"] for x in novos)
+            out += novos
+            total = (r.get("paging") or {}).get("total")
+            if len(pagina) < 50 or not novos or (total is not None and off + 50 >= int(total)):
+                break
+        return out
+    return _mem(f"prodit|{pid}|{maximo}", 20 * 60, ler)
+
+
+def _oferta(pid, g, x):
+    """Oferta do catálogo no formato das telas, sem pedir o anúncio (o ML não libera /items de outra loja para o app)."""
+    sh = x.get("shipping") or {}
+    preco, cheio = _num(x.get("price")), _num(x.get("original_price"))
+    return {"anuncio": x["item_id"], "link": link_do_item(x["item_id"]), "vendedor_id": x.get("seller_id"), "preco": preco,
+            "preco_cheio": cheio if cheio and preco and cheio > preco else None,
+            "full": sh.get("logistic_type") == "fulfillment", "frete_gratis": bool(sh.get("free_shipping")),
+            "tipo_id": x.get("listing_type_id"), "tipo": TIPOS.get(x.get("listing_type_id"), x.get("listing_type_id") or ""),
+            "condicao": x.get("condition") or "", "catalogo": True, "produto_catalogo": pid, "gtin_busca": g,
+            "loja_oficial": x.get("official_store_id"), "_tem_oficial": "official_store_id" in x}
+
+
+def ofertas_por_gtin(gtins, limite_produtos=2, max_gtins=8, maximo=MAX_OFERTAS):
+    """Todas as ofertas dos produtos de catálogo desses GTINs agora (leve: sem pedir anúncio nem loja)."""
+    gs = list(dict.fromkeys(str(x).strip() for x in gtins if str(x or "").strip()))[:max_gtins]
+    pares = [(pid, g) for ps in _em_paralelo(lambda g: [(pid, g) for pid in _produtos_do_gtin(g, limite_produtos)], gs, 4)
+             for pid, g in ps]
     out = []
-    for pid, g, x in achados:
-        m = dict(its.get(str(x["item_id"]).upper()) or {"anuncio": x["item_id"]})
-        if m.get("sumiu") or m.get("bloqueado") or not m.get("titulo"):
-            # o ML não deu o anúncio para o app: título, foto e tipo vêm do catálogo e do próprio item do catálogo
-            pc = _produto_catalogo(pid)
-            m = {"anuncio": x["item_id"], "link": link_do_item(x["item_id"]), "titulo": pc.get("nome") or "",
-                 "foto": pc.get("foto") or "", "tipo": TIPOS.get(x.get("listing_type_id"), x.get("listing_type_id") or ""),
-                 "tipo_id": x.get("listing_type_id"), "catalogo": True, "condicao": x.get("condition") or "",
-                 "vendedor_id": x.get("seller_id")}
-        m.setdefault("preco", _num(x.get("price")))
-        m.setdefault("vendedor_id", x.get("seller_id"))
-        m["preco"] = _num(x.get("price")) or m.get("preco")          # o preço do catálogo é o de agora
-        if x.get("original_price") and _num(x["original_price"]) and m["preco"] and _num(x["original_price"]) > m["preco"]:
-            m["preco_cheio"] = _num(x["original_price"])
-        sh = x.get("shipping") or {}
-        if sh:
-            m["full"] = sh.get("logistic_type") == "fulfillment" or m.get("full", False)
-            m["frete_gratis"] = bool(sh.get("free_shipping")) or m.get("frete_gratis", False)
-        m.update(produto_catalogo=pid, gtin_busca=g, loja=lj.get(str(m.get("vendedor_id"))) or {})
-        out.append(m)
-    uniq = {}
-    for m in out:
-        uniq.setdefault(m["anuncio"], m)
-    return sorted(uniq.values(), key=lambda m: (m.get("preco") is None, m.get("preco") or 0))
+    for (pid, g), xs in zip(pares, _em_paralelo(lambda pg: ofertas_do_produto(pg[0], maximo), pares, 4)):
+        out += [_oferta(pid, g, x) for x in xs]
+    return out
+
+
+def _enriquecer(ofs):
+    """Título, foto e a loja real de cada oferta: o anúncio quando o ML libera; senão o produto de catálogo."""
+    its = itens([o["anuncio"] for o in ofs]) if ofs else {}
+    lj = lojas([o.get("vendedor_id") for o in ofs if o.get("vendedor_id")])
+    out = {}
+    for o in ofs:
+        it = its.get(str(o["anuncio"]).upper()) or {}
+        if it.get("titulo") and not it.get("sumiu") and not it.get("bloqueado"):
+            m = dict(it, preco=o["preco"] or it.get("preco"), produto_catalogo=o["produto_catalogo"], gtin_busca=o["gtin_busca"],
+                     loja_oficial=o["loja_oficial"], _tem_oficial=o["_tem_oficial"])
+            m["preco_cheio"] = o["preco_cheio"] or it.get("preco_cheio")
+            m["full"] = o["full"] or bool(it.get("full"))
+            m["frete_gratis"] = o["frete_gratis"] or bool(it.get("frete_gratis"))
+        else:
+            pc = _produto_catalogo(o["produto_catalogo"])
+            m = dict(o, titulo=pc.get("nome") or "", foto=pc.get("foto") or "")
+        m["loja"] = lj.get(str(m.get("vendedor_id"))) or {}
+        out.setdefault(m["anuncio"], m)
+    return sorted(out.values(), key=lambda m: (m.get("preco") is None, m.get("preco") or 0))
+
+
+def por_gtin(gtins, limite_produtos=2, max_gtins=4, maximo=50, vendedor=None):
+    """Quem vende o produto agora: catálogo do ML pelo GTIN. [{anúncio + loja}] do mais barato para o mais caro.
+    `vendedor`: só as ofertas dessa loja (com maximo=MAX_OFERTAS lê todas as páginas)."""
+    ofs = ofertas_por_gtin(gtins, limite_produtos, max_gtins, maximo)
+    if vendedor is not None:
+        ofs = [o for o in ofs if str(o.get("vendedor_id")) == str(vendedor)]
+    return _enriquecer(ofs)
 
 
 # ---------------------------------------------------------------------------
-# Vendedor embaralhado do Nubimetrics (hash) -> loja real
+# Vendedor do Nubimetrics (hash do Explorador ou vendedor seguido) -> loja real
 # ---------------------------------------------------------------------------
+# 29/09 (ICARBONXX casou com uma loja nada a ver): o hash do Nubimetrics é feito com chave secreta (testado com 200
+# anúncios da PUREHOME: nenhum formato bate), então a loja sai do catálogo do ML, com provas:
+# - o nº da loja oficial ("LOJA.OFICIAL.23829" no Explorador) = official_store_id da oferta: prova forte;
+# - Full e tipo (Clássico/Premium) iguais são obrigatórios; preço do dia do export (±1%) ou médio do mês (perto);
+# - a mesma loja em vários produtos dele; o nome que o Bruno deu ao seguido só desempata.
+# Sem prova suficiente não grava nada: devolve as candidatas para o Bruno escolher.
 SEGUIDOS = "meli|seguidos"              # vendedor seguido no Nubimetrics (nome) -> loja real + anúncios dela
 
 
@@ -727,63 +800,189 @@ def ler_hash_lojas(repo, chave=HASH_LOJAS):
         return {}
 
 
-def gravar_hash_lojas(repo, novos, chave=HASH_LOJAS):
+def gravar_hash_lojas(repo, novos, chave=HASH_LOJAS, tirar=()):
+    """Grava o de-para; `tirar`: chaves cujo de-para automático não se confirmou (o manual do Bruno nunca sai)."""
     atual = ler_hash_lojas(repo, chave)
     for h, x in novos.items():
         velho = atual.get(h)
         if not velho or velho.get("confianca") != "manual":       # o que o Bruno confirmou à mão não é trocado
             atual[h] = x
+    for h in tirar:
+        if h in atual and atual[h].get("confianca") != "manual":
+            atual.pop(h)
     repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": "Mercado Livre (API)",
                                             "texto": json.dumps(atual, ensure_ascii=False)}],
               prefer="resolution=merge-duplicates,return=minimal")
     return atual
 
 
+def _tipo_ml(txt):
+    """'Clássico'/'Clássica'/gold_special -> gold_special; 'Premium'/gold_pro/gold_premium -> gold_pro."""
+    t = str(txt or "").strip().lower()
+    if t.startswith("cl") or t == "gold_special":
+        return "gold_special"
+    if t.startswith("pr") or t in ("gold_pro", "gold_premium"):
+        return "gold_pro"
+    return None
+
+
+def _pontos_preco(po, pr, exato):
+    """Preço de agora (ML) x o do Nubimetrics. exato: o 'Último preço' do dia do export do Explorador (±1% ou R$ 1 é
+    'exato'); senão o preço médio do mês do vendedor seguido (no máximo 'perto')."""
+    if not po or not pr:
+        return 0.0, ""
+    if exato and abs(po - pr) <= max(1.0, 0.01 * pr):
+        return 3.0, "exato"
+    d = abs(po - pr) / pr
+    teto, lim, perto = (1.5, 0.15, 0.05) if exato else (2.0, 0.20, 0.10)
+    if d > lim:
+        return 0.0, ""
+    return round(teto * (1 - d / lim), 3), ("perto" if d <= perto else "")      # quanto mais perto, mais ponto
+
+
+def _data(v):
+    if not v:
+        return None
+    if hasattr(v, "year") and not isinstance(v, datetime):
+        return v
+    try:
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def ref_explorador(l, hoje=None, data_ref=None):
+    """Linha do Explorador -> o que ela diz do anúncio (ver casar)."""
+    hoje = hoje or datetime.now(timezone.utc).date()
+    d = _data(l.get("data_ref")) or _data(data_ref)
+    dl = l.get("dias_pub")
+    try:
+        dl = int(dl) if dl is not None and dl == dl else None           # NaN do pandas vira None
+    except (TypeError, ValueError):
+        dl = None
+    cat, un = l.get("catalogo"), _num(l.get("un"))
+    return {"gtins": [str(l.get("gtin") or "")], "preco": _num(l.get("preco")), "full": bool(l.get("full")),
+            "exato": bool(d and 0 <= (hoje - d).days <= 5), "loja_oficial": l.get("loja_oficial_id"),
+            "tipo": l.get("exposicao") or None, "catalogo": None if cat is None or cat != cat else bool(cat),
+            "dias_pub": dl, "data_ref": d, "peso": un if un and un == un else 0.0}
+
+
+def casar(refs, ofertas):
+    """
+    refs: o que o Nubimetrics diz dos anúncios de UM vendedor [{gtins, preco, full, exato, loja_oficial (nº; 0 = sabido
+    que não é; None = não se sabe), tipo, catalogo, dias_pub, data_ref}]; ofertas: ofertas_por_gtin (catálogo agora).
+    Obrigatórios: Full igual, tipo igual e, quando o Explorador traz, o nº da loja oficial igual. Anúncio fora do
+    catálogo não entra (não aparece nas ofertas do produto). Cada produto conta uma vez por loja.
+    Devolve (candidatas da mais forte para a mais fraca, nº de produtos sondados).
+    """
+    por_g = {}
+    for o in ofertas:
+        por_g.setdefault(str(o.get("gtin_busca") or ""), []).append(o)
+    grupos = {}
+    for r in refs:
+        if r.get("catalogo") is False or not _num(r.get("preco")):
+            continue
+        gs = [str(g) for g in r.get("gtins") or [] if str(g) in por_g]
+        if gs:
+            grupos.setdefault(gs[0], []).append((r, gs))
+    cand = {}
+    for rs in grupos.values():
+        melhor = {}
+        for r, gs in rs:
+            pr, lo_r, tipo_r = _num(r.get("preco")), r.get("loja_oficial"), _tipo_ml(r.get("tipo"))
+            dl, dref = r.get("dias_pub"), _data(r.get("data_ref"))
+            for g in gs:
+                for o in por_g[g]:
+                    sid = str(o.get("vendedor_id") or "")
+                    if not sid or bool(o.get("full")) != bool(r.get("full")):
+                        continue
+                    tipo_o = _tipo_ml(o.get("tipo_id"))
+                    if tipo_r and tipo_o and tipo_r != tipo_o:
+                        continue
+                    oficial = None
+                    if o.get("_tem_oficial") and lo_r is not None:
+                        if int(o.get("loja_oficial") or 0) != int(lo_r or 0):
+                            continue
+                        oficial = int(lo_r) or None
+                    idade_ok = False
+                    criado = _data(o.get("criado_em"))
+                    if dl is not None and dref and criado:            # só quando o ML dá o anúncio (hoje não dá ao app)
+                        idade = (dref - criado).days
+                        if abs(idade - int(dl)) > 3:
+                            continue
+                        idade_ok = abs(idade - int(dl)) <= 1
+                    pp, como = _pontos_preco(_num(o.get("preco")), pr, r.get("exato"))
+                    pts = 1.0 + pp + (4.0 if oficial else 0.0) + (3.0 if idade_ok else 0.0)
+                    if pts > melhor.get(sid, (0.0,))[0]:
+                        melhor[sid] = (pts, como, oficial, idade_ok)
+        for sid, (pts, como, oficial, idade_ok) in melhor.items():
+            c = cand.setdefault(sid, {"id": sid, "pontos": 0.0, "produtos": 0, "exato": 0, "perto": 0, "idade": 0, "oficial": []})
+            c["pontos"] += pts
+            c["produtos"] += 1
+            c["exato"] += como == "exato"
+            c["perto"] += como == "perto"
+            c["idade"] += idade_ok
+            if oficial and oficial not in c["oficial"]:
+                c["oficial"].append(oficial)
+    return sorted(cand.values(), key=lambda c: (-c["pontos"], -c["produtos"])), len(grupos)
+
+
+def decidir(cands, sondados):
+    """'certa' | 'provável' | None (sem prova suficiente: não grava, mostra as candidatas)."""
+    if not cands:
+        return None
+    c1, outros = cands[0], cands[1:]
+    c2 = outros[0] if outros else None
+    rivais = set().union(*[set(c["oficial"]) for c in outros]) if outros else set()
+    if set(c1["oficial"]) - rivais and (c1["produtos"] >= 2 or c1["exato"] or c1["idade"]):
+        return "certa"                          # o nº da loja oficial do Explorador é o desta loja, e só dela
+    if c1["exato"] >= 3 and not (c2 and c2["exato"] >= 2):
+        return "certa"                          # o preço do dia do export bate exato em 3+ produtos
+    if c1["exato"] and c1["idade"] and not any(c["exato"] and c["idade"] for c in outros):
+        return "provável"                       # preço do dia e idade do anúncio batem (vale para 1 produto só)
+    minimo = max(2, -(-sondados // 2))          # em pelo menos metade dos produtos sondados (e 2), mais que qualquer rival
+    if (c1["produtos"] >= minimo and c1["produtos"] > (c2["produtos"] if c2 else 0) and c1["exato"] + c1["perto"] >= 2
+            and c1["pontos"] - (c2["pontos"] if c2 else 0.0) >= 2):
+        return "provável"
+    return None
+
+
+def _prova(c, sondados):
+    p = [f"em {c['produtos']} de {sondados} produto(s) dele no catálogo"]
+    if c.get("oficial"):
+        p.append("loja oficial nº " + ", ".join(str(x) for x in c["oficial"]))
+    if c.get("exato"):
+        p.append(f"preço do dia exato em {c['exato']}")
+    if c.get("perto"):
+        p.append(f"preço perto em {c['perto']}")
+    if c.get("idade"):
+        p.append(f"idade do anúncio igual em {c['idade']}")
+    if c.get("nome_bate"):
+        p.append("nome parecido")
+    return "; ".join(p) + "; Full e tipo iguais"
+
+
 def casar_vendedores(linhas, ml, data_ref=None):
     """
-    linhas: anúncios do Nubimetrics [{vendedor_id (hash), gtin, preco, full, dias_pub}] de um período que termina em
-    `data_ref`; ml: anúncios do ML do mesmo GTIN (por_gtin). O anúncio do ML casa quando o preço bate (±1% ou R$ 1),
-    o Full é o mesmo e a idade bate (dias publicados na data do export, ±3). Cada hash vota na loja; ganha a loja com
-    mais votos, e 2 votos (ou 1 com a idade exata) viram 'provável'. Devolve {hash: {id, nome, link, votos, confianca}}.
+    Quadro do produto: os vendedores embaralhados do Explorador x ofertas do catálogo agora -> {hash: loja}, só com
+    prova (loja oficial, ou preço do dia + idade do anúncio). linhas: [{vendedor_id (hash), gtin, preco, full,
+    loja_oficial_id, exposicao, catalogo, dias_pub, data_ref}] do período que termina em `data_ref`.
     """
-    data_ref = data_ref or datetime.now(timezone.utc).date()
-    votos = {}
+    hoje = datetime.now(timezone.utc).date()
+    lj = {str(m.get("vendedor_id")): m.get("loja") or {} for m in ml if m.get("vendedor_id")}
+    por_h = {}
     for l in linhas:
-        pl, dl = _num(l.get("preco")), l.get("dias_pub")
-        ref = l.get("data_ref") or data_ref
-        if not pl:
-            continue
-        for m in ml:
-            if str(m.get("gtin_busca") or m.get("gtin") or "") and str(l.get("gtin") or "") not in (str(m.get("gtin_busca") or ""), str(m.get("gtin") or "")):
-                continue
-            pm = _num(m.get("preco"))
-            if not pm or abs(pm - pl) > max(1.0, 0.01 * pl) or bool(m.get("full")) != bool(l.get("full")):
-                continue
-            exato = False
-            if dl is not None and m.get("criado_em"):
-                try:
-                    criado = datetime.fromisoformat(str(m["criado_em"]).replace("Z", "+00:00")).date()
-                except ValueError:
-                    criado = None
-                if criado:
-                    idade = (ref - criado).days
-                    if abs(idade - int(dl)) > 3:
-                        continue
-                    exato = abs(idade - int(dl)) <= 1
-            sid = str(m.get("vendedor_id") or "")
-            if not sid:
-                continue
-            v = votos.setdefault(l["vendedor_id"], {}).setdefault(sid, {"votos": 0, "exato": 0, "loja": m.get("loja") or {}})
-            v["votos"] += 1
-            v["exato"] += 1 if exato else 0
+        if l.get("vendedor_id") and l.get("gtin") and _num(l.get("preco")):
+            por_h.setdefault(l["vendedor_id"], []).append(ref_explorador(l, hoje, data_ref))
     out = {}
-    for h, cands in votos.items():
-        sid, v = max(cands.items(), key=lambda kv: (kv[1]["exato"], kv[1]["votos"]))
-        outros = sum(x["votos"] for s, x in cands.items() if s != sid)
-        if v["votos"] >= 2 or v["exato"] >= 1:
-            lj = v["loja"]
-            out[h] = {"id": sid, "nome": lj.get("nome") or "", "link": lj.get("link") or "", "votos": v["votos"],
-                      "confianca": "provável" if outros == 0 else "dúvida", "em": datetime.now(timezone.utc).isoformat()}
+    for h, refs in por_h.items():
+        cands, sondados = casar(refs, ml)
+        conf = decidir(cands, sondados)
+        if conf:
+            c, loja = cands[0], lj.get(cands[0]["id"]) or {}
+            out[h] = {"id": c["id"], "nome": loja.get("nome") or "", "link": loja.get("link") or "", "votos": c["produtos"],
+                      "oficial": c["oficial"], "confianca": conf, "prova": _prova(c, sondados),
+                      "em": datetime.now(timezone.utc).isoformat()}
     return out
 
 
@@ -804,54 +1003,50 @@ def _base_nome(nome):
     return re.sub(r"[^A-Z0-9]", "", unicodedata.normalize("NFKD", n).encode("ascii", "ignore").decode().upper())
 
 
-def casar_seguido(nome, linhas, ml):
+def achar_loja(nome, refs, ofertas, un_mes=None):
     """
-    Vendedor SEGUIDO no Nubimetrics (o export dele não tem ID de anúncio; preço é o MÉDIO do mês) -> loja real.
-    linhas: [{gtins, preco (médio), full, catalogo}]; ml: por_gtin dos GTINs dele. Cada loja do ML ganha ponto por produto
-    dele em que aparece, por preço perto do médio (±8%), por Full igual e, forte, pelo nome parecido ("ICARBONXX P3" x
-    ICARBONXX). Devolve a loja + os anúncios dela achados ({anuncio, link, titulo, preco}) ou None.
+    Vendedor do Nubimetrics (refs do Explorador + do relatório do seguido) x ofertas do catálogo -> (loja escolhida ou
+    None, candidatas). nome: o que o Bruno deu ao seguido ("ICARBONXX P3"); é rótulo dele, então só desempata.
+    un_mes: unidades dele no mês no Nubimetrics. Trava (ideia do Cowork, 29/09): loja com menos vendas NA VIDA do que
+    metade disso não pode ser ele (a LUH… que entrou errado no ICARBONXX tinha 230 vendas; ele vende 25 mil/mês).
+    A escolhida traz os anúncios dela achados no catálogo (ID, link, preço de agora).
     """
+    cands, sondados = casar(refs, ofertas)
+    top = cands[:6]
+    lj = lojas([c["id"] for c in top]) if top else {}
     base = _base_nome(nome)
-    por_g = {}
-    for m in ml:
-        por_g.setdefault(str(m.get("gtin_busca") or ""), []).append(m)
-    cand = {}
-    for l in linhas:
-        for g in l.get("gtins") or []:
-            for m in por_g.get(g, []):
-                sid = str(m.get("vendedor_id") or "")
-                if not sid:
-                    continue
-                c = cand.setdefault(sid, {"presenca": set(), "preco": 0, "full": 0, "loja": m.get("loja") or {}, "anuncios": {}})
-                if g in c["presenca"]:
-                    continue
-                c["presenca"].add(g)
-                pm, pl = _num(m.get("preco")), _num(l.get("preco"))
-                if pm and pl and abs(pm - pl) <= 0.08 * pl:
-                    c["preco"] += 1
-                if bool(m.get("full")) == bool(l.get("full")):
-                    c["full"] += 1
-                c["anuncios"][m["anuncio"]] = {"anuncio": m["anuncio"], "link": m.get("link") or link_do_item(m["anuncio"]),
-                                               "titulo": m.get("titulo") or "", "preco": m.get("preco"), "full": bool(m.get("full"))}
-    if not cand:
-        return None
-    for c in cand.values():
-        nick = _base_nome((c["loja"] or {}).get("nome"))
-        c["nome_bate"] = bool(base and nick and len(min(base, nick, key=len)) >= 4 and (base == nick or base in nick or nick in base))
-        c["pontos"] = len(c["presenca"]) + c["preco"] + 0.5 * c["full"] + (6 if c["nome_bate"] else 0)
-    ordem = sorted(cand.items(), key=lambda kv: -kv[1]["pontos"])
-    sid, c = ordem[0]
-    seg = ordem[1][1]["pontos"] if len(ordem) > 1 else 0
-    if c["nome_bate"] or (len(c["presenca"]) >= 3 and c["preco"] >= 2 and c["pontos"] - seg >= 2):
-        conf = "provável"
-    elif c["pontos"] >= 3 and c["pontos"] > seg:
-        conf = "dúvida"
-    else:
-        return None
-    lj = c["loja"] or {}
-    return {"id": sid, "nome": lj.get("nome") or "", "link": lj.get("link") or "", "votos": len(c["presenca"]),
-            "preco_bate": c["preco"], "nome_bate": c["nome_bate"], "confianca": conf, "em": datetime.now(timezone.utc).isoformat(),
-            "anuncios": sorted(c["anuncios"].values(), key=lambda a: a.get("titulo") or "")[:40]}
+    for c in top:
+        loja = lj.get(c["id"]) or {}
+        c.update(nome=loja.get("nome") or "", link=loja.get("link") or "", vendas_vida=loja.get("vendas"))
+        nick = _base_nome(c["nome"])
+        c["nome_bate"] = bool(base and nick and len(min(base, nick, key=len)) >= 4 and (base in nick or nick in base))
+        c["pontos"] += 1.0 if c["nome_bate"] else 0.0
+    if un_mes:
+        top = [c for c in top if c.get("vendas_vida") is None or c["vendas_vida"] >= un_mes / 2]
+        if not top:                            # todas pequenas demais: nenhuma é ele
+            return None, []
+    cands = sorted(top, key=lambda c: (-c["pontos"], -c["produtos"])) + cands[6:]
+    conf = decidir(cands, sondados)
+    mostrar = [{"id": c["id"], "nome": c.get("nome") or "", "link": c.get("link") or "", "produtos": c["produtos"],
+                "sondados": sondados, "exato": c["exato"], "perto": c["perto"], "oficial": c["oficial"],
+                "prova": _prova(c, sondados)} for c in cands[:3]]
+    if not conf:
+        return None, mostrar
+    c = cands[0]
+    anuncios, nomes = {}, {}
+    for o in ofertas:
+        if str(o.get("vendedor_id")) == c["id"] and o["anuncio"] not in anuncios:
+            pid = o.get("produto_catalogo")
+            if pid and pid not in nomes:
+                nomes[pid] = _produto_catalogo(pid).get("nome") or ""
+            anuncios[o["anuncio"]] = {"anuncio": o["anuncio"], "link": o.get("link") or link_do_item(o["anuncio"]),
+                                      "titulo": nomes.get(pid, ""), "preco": o.get("preco"), "full": bool(o.get("full")),
+                                      "produto_catalogo": pid or ""}
+    x = {"id": c["id"], "nome": c["nome"], "link": c["link"], "votos": c["produtos"], "sondados": sondados,
+         "preco_bate": c["exato"] + c["perto"], "exato": c["exato"], "oficial": c["oficial"], "nome_bate": c["nome_bate"],
+         "confianca": conf, "prova": _prova(c, sondados), "em": datetime.now(timezone.utc).isoformat(),
+         "anuncios": sorted(anuncios.values(), key=lambda a: a.get("titulo") or "")[:60]}
+    return x, mostrar
 
 
 # ---------------------------------------------------------------------------
@@ -885,8 +1080,12 @@ def testar(mlb="MLB4577439527", gtin="6290362346548"):
     def catalogo():
         xs = por_gtin([gtin])
         cat["xs"] = xs
-        return f"{len(xs)} anúncio(s); {sum(1 for x in xs if x.get('titulo'))} com título; {sum(1 for x in xs if (x.get('loja') or {}).get('nome'))} com a loja"
+        oficial = (f"{sum(1 for x in xs if x.get('loja_oficial'))} de loja oficial (com o nº)" if any(x.get("_tem_oficial") for x in xs)
+                   else "o ML não mandou o nº da loja oficial")
+        return (f"{len(xs)} anúncio(s); {sum(1 for x in xs if x.get('titulo'))} com título; "
+                f"{sum(1 for x in xs if (x.get('loja') or {}).get('nome'))} com a loja; {oficial}")
     passo("catálogo pelo GTIN (/products)", catalogo)
+    passo("todas as páginas do catálogo", lambda: f"{len(ofertas_por_gtin([gtin], max_gtins=1))} ofertas lidas (50 por página)")
     sid = next((x.get("vendedor_id") for x in cat.get("xs") or [] if x.get("vendedor_id")), None)
     passo("loja (/users/ID)", lambda: (_get(f"/users/{sid}") or {}).get("nickname") if sid else "sem vendedor para testar")
     passo("visitas (/items/visits)", lambda: visitas([mlb]).get(mlb))

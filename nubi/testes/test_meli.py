@@ -46,6 +46,35 @@ USUARIOS = {
          "seller_reputation": {"level_id": "5_green", "power_seller_status": "platinum", "transactions": {"total": 25957, "completed": 25000}}},
 }
 VISITAS = {"MLB1000100": 2260, "MLB2000200": 3000, "MLB3000300": 22, "MLB4000400": 12100}
+USUARIOS[2540338692] = {"id": 2540338692, "nickname": "KAIDOXSTOREE", "permalink": "https://perfil.mercadolivre.com.br/KAIDOXSTOREE",
+                       "registration_date": ISO(1500), "address": {"city": "São Paulo", "state": "BR-SP"}, "tags": ["brand"],
+                       "seller_reputation": {"level_id": "5_green", "power_seller_status": "platinum", "transactions": {"total": 180000, "completed": 179000}}}
+USUARIOS[1395403852] = {"id": 1395403852, "nickname": "LUH20230609125415", "permalink": "http://perfil.mercadolivre.com.br/LUH20230609125415",
+                       "registration_date": ISO(800), "address": {"city": "Curitiba", "state": "BR-PR"},
+                       "seller_reputation": {"level_id": "4_light_green", "transactions": {"total": 230, "completed": 225}}}
+
+
+def _of(mlb, vendedor, preco, full, oficial=None, tipo="gold_special", cheio=None):
+    return {"item_id": mlb, "seller_id": vendedor, "price": preco, "original_price": cheio, "listing_type_id": tipo,
+            "official_store_id": oficial, "condition": "new",
+            "shipping": {"free_shipping": True, "logistic_type": "fulfillment" if full else "drop_off"}}
+
+
+# catálogo: produto -> ofertas. 29/09 (ICARBONXX): a loja certa (2540338692, loja oficial 23829, Full) fica DEPOIS das 50
+# primeiras ofertas; a LUH (1395403852, sem Full) aparece em todos os produtos dele, com preço parecido
+PRODUTOS = {"6290362346548": "MLB9990999", "7899463112978": "MLB8880888", "6290360598352": "MLB7770777"}
+OFERTAS = {
+    "MLB9990999": [_of("MLB2000200", 222222222, 279.0, True, oficial=555),
+                   _of("MLB1000100", 111111111, 265.28, False, cheio=389.93)],
+    "MLB8880888": ([_of("MLB5000001", 1395403852, 148.0, False)]
+                   + [_of(f"MLB59{i:05d}", 900000 + i, 120.0 + i, i % 3 == 0) for i in range(80)]
+                   + [_of("MLB5000002", 2540338692, 142.9, True, oficial=23829)]
+                   + [_of(f"MLB58{i:05d}", 800000 + i, 150.0 + i, i % 2 == 0) for i in range(40)]),
+    "MLB7770777": ([_of("MLB6000001", 1395403852, 190.0, False)] + [_of(f"MLB69{i:05d}", 700000 + i, 180.0 + i, True) for i in range(60)]
+                   + [_of("MLB6000002", 2540338692, 216.9, True, oficial=23829)]),
+}
+NOMES_PRODUTO = {"MLB9990999": "Lattafa Asad Elixir Eau de Parfum 100 ml", "MLB8880888": "Sabah Al Ward Sugar 100 ml",
+                 "MLB7770777": "Lattafa The Kingdom Eau de Parfum 100 ml"}
 
 
 class Resp(io.BytesIO):
@@ -111,16 +140,17 @@ class DubleML:
             off, lim = int(q.get("offset", 0)), int(q.get("limit", 50))
             return self._json({"paging": {"total": len(res)}, "results": res[off:off + lim]})
         if p == "/products/search":
-            return self._json({"results": [{"id": "MLB9990999"}]} if q.get("product_identifier") == "6290362346548" else {"results": []})
-        if p == "/products/MLB9990999/items":
-            return self._json({"results": [
-                {"item_id": "MLB2000200", "seller_id": 222222222, "price": 279.0, "shipping": {"free_shipping": True, "logistic_type": "fulfillment"}},
-                {"item_id": "MLB1000100", "seller_id": 111111111, "price": 265.28, "original_price": 389.93,
-                 "shipping": {"free_shipping": True, "logistic_type": "drop_off"}}]})
-        if p == "/products/MLB9990999":
-            return self._json({"id": "MLB9990999", "name": "Lattafa Asad Elixir Eau de Parfum 100 ml",
-                               "pictures": [{"url": "http://x/prod.jpg"}], "permalink": "https://www.mercadolivre.com.br/p/MLB9990999",
-                               "buy_box_winner": {"item_id": "MLB1000100"}})
+            pid = PRODUTOS.get(q.get("product_identifier"))
+            return self._json({"results": [{"id": pid}] if pid else []})
+        if len(m) == 4 and m[1] == "products" and m[3] == "items" and m[2] in OFERTAS:
+            xs = OFERTAS[m[2]]
+            off, lim = int(q.get("offset", 0)), int(q.get("limit", 50))
+            assert lim <= 50, "o ML devolve no máximo 50 por página"
+            return self._json({"paging": {"total": len(xs), "offset": off, "limit": lim}, "results": xs[off:off + lim]})
+        if len(m) == 3 and m[1] == "products" and m[2] in NOMES_PRODUTO:
+            return self._json({"id": m[2], "name": NOMES_PRODUTO[m[2]],
+                               "pictures": [{"url": "http://x/prod.jpg"}], "permalink": f"https://www.mercadolivre.com.br/p/{m[2]}",
+                               "buy_box_winner": {"item_id": "MLB1000100"} if m[2] == "MLB9990999" else {}})
         if p == "/sites/MLB/listing_prices":
             return self._json([{"sale_fee_amount": round(float(q["price"]) * 0.14 + 6.25, 2),
                                 "sale_fee_details": {"percentage_fee": 14, "fixed_fee": 6.25}}])
@@ -257,18 +287,93 @@ def test_vendedor_embaralhado_do_nubimetrics_vira_a_loja_real():
     linhas = [
         {"vendedor_id": "hashA", "gtin": "6290362346548", "preco": 265.28, "full": False, "dias_pub": 322},   # FINKE, idade exata
         {"vendedor_id": "hashB", "gtin": "6290362346548", "preco": 279.00, "full": True, "dias_pub": None},
-        {"vendedor_id": "hashB", "gtin": "6290362346548", "preco": 279.50, "full": True, "dias_pub": None},   # 2 votos
+        {"vendedor_id": "hashB", "gtin": "6290362346548", "preco": 279.50, "full": True, "dias_pub": None},   # só preço: não basta
         {"vendedor_id": "hashC", "gtin": "6290362346548", "preco": 279.00, "full": False, "dias_pub": None},  # Full não bate
-        {"vendedor_id": "hashD", "gtin": "6290362346548", "preco": 265.28, "full": False, "dias_pub": 200}]   # idade não bate
+        {"vendedor_id": "hashD", "gtin": "6290362346548", "preco": 265.28, "full": False, "dias_pub": 200},   # idade não bate
+        {"vendedor_id": "hashE", "gtin": "6290362346548", "preco": 279.50, "full": True, "loja_oficial_id": 555},  # loja oficial + preço
+        {"vendedor_id": "hashG", "gtin": "6290362346548", "preco": 289.00, "full": True, "loja_oficial_id": 555},  # só a loja oficial
+        {"vendedor_id": "hashF", "gtin": "6290362346548", "preco": 279.00, "full": True, "loja_oficial_id": 0}]    # não é loja oficial
     m = meli.casar_vendedores(linhas, ml, ref)
     assert m["hashA"]["nome"] == "FINKE" and m["hashA"]["confianca"] == "provável"
-    assert m["hashB"]["nome"] == "ESSENCEPRIMEBR" and m["hashB"]["votos"] == 2
-    assert "hashC" not in m and "hashD" not in m, m
+    assert m["hashE"]["nome"] == "ESSENCEPRIMEBR" and m["hashE"]["confianca"] == "certa" and "loja oficial nº 555" in m["hashE"]["prova"]
+    # 29/09 (ICARBONXX): preço parecido num produto só não prova nada (várias lojas cobram o mesmo) -> não liga
+    # o nº da loja oficial pode ser de mais de um vendedor (20309 aparece em 5 no Explorador): num produto só precisa do preço
+    assert "hashB" not in m and "hashC" not in m and "hashD" not in m and "hashF" not in m and "hashG" not in m, m
     r = Repo()
     meli.gravar_hash_lojas(r, {"hashA": dict(m["hashA"], confianca="manual")})
-    meli.gravar_hash_lojas(r, {"hashA": {"id": "99", "nome": "OUTRA", "confianca": "provável"}, "hashB": m["hashB"]})
+    meli.gravar_hash_lojas(r, {"hashA": {"id": "99", "nome": "OUTRA", "confianca": "provável"}, "hashE": m["hashE"]})
     lido = meli.ler_hash_lojas(r)
-    assert lido["hashA"]["nome"] == "FINKE" and lido["hashB"]["nome"] == "ESSENCEPRIMEBR"      # o manual não é trocado
+    assert lido["hashA"]["nome"] == "FINKE" and lido["hashE"]["nome"] == "ESSENCEPRIMEBR"      # o manual não é trocado
+    meli.gravar_hash_lojas(r, {}, tirar=["hashA", "hashE"])                                     # o automático sai, o manual fica
+    assert set(meli.ler_hash_lojas(r)) == {"hashA"}
+    assert meli.loja_oficial_do_texto("LOJA.OFICIAL.23829") == 23829 and meli.loja_oficial_do_texto("") is None
+
+
+def test_hash_do_nubimetrics_tem_chave_secreta():
+    # 29/09: PUREHOME (loja do Bruno) no Explorador x os MLB dela no relatório do UpSeller. Nenhum formato comum de hash
+    # (sha256/sha512/md5/sha3/blake2 do MLB ou do número) bate: por isso a loja real sai do catálogo, não do hash.
+    import hashlib
+    mlb, hash_nubimetrics = "MLB6365511140", "125825609286136e13e4beb32c28adbb2236c09bde4c8ef873a98082bbaf1bf3"
+    for v in (mlb, mlb[3:], mlb.lower(), "MLB-" + mlb[3:]):
+        for a in ("sha256", "sha3_256", "blake2s", "sha512", "md5"):
+            assert hashlib.new(a, v.encode()).hexdigest()[:64] != hash_nubimetrics
+
+
+def test_catalogo_le_todas_as_paginas_e_o_numero_da_loja_oficial():
+    d = _preparar()
+    xs = meli.ofertas_do_produto("MLB8880888")
+    assert len(xs) == 122 and d.pedidos.count("/products/MLB8880888/items") == 3             # 50 + 50 + 22
+    o = [meli._oferta("MLB8880888", "7899463112978", x) for x in xs if x["seller_id"] == 2540338692][0]
+    assert o["loja_oficial"] == 23829 and o["_tem_oficial"] and o["full"] and o["link"] == "https://produto.mercadolivre.com.br/MLB-5000002"
+    antes = len(d.pedidos)
+    meli.ofertas_do_produto("MLB8880888")
+    assert len(d.pedidos) == antes                                                           # 20 min de cache
+    assert len(meli.ofertas_por_gtin(["7899463112978"], maximo=50)) == 50                   # a tela do produto lê só a 1ª página
+    assert meli.ofertas_do_produto("MLB0000000") == []                                       # produto sem oferta: vazio, sem erro
+
+
+def test_loja_oficial_acha_a_loja_certa_e_nao_a_parecida():
+    """29/09 (Bruno): 'o teste com icarbonx não rolou, trouxe uma loja nada a ver'. A LUH (sem Full) aparecia nos produtos
+    dele com preço parecido; a certa está depois da 1ª página. Com o nº da loja oficial do Explorador sai a certa."""
+    _preparar()
+    hoje = HOJE.date()
+    exp = [{"vendedor_id": "b" * 64, "gtin": "7899463112978", "preco": 142.9, "full": 1, "catalogo": 1, "loja_oficial_id": 23829,
+            "exposicao": "Clássica", "un": 8600, "data_ref": hoje - timedelta(days=1)},
+           {"vendedor_id": "b" * 64, "gtin": "6290360598352", "preco": 219.9, "full": 1, "catalogo": 1, "loja_oficial_id": 23829,
+            "exposicao": "Clássica", "un": 2600, "data_ref": hoje - timedelta(days=1)}]
+    refs = [meli.ref_explorador(l, hoje) for l in exp]
+    ofs = meli.ofertas_por_gtin(["7899463112978", "6290360598352"])
+    x, cands = meli.achar_loja("ICARBONXX P3", refs, ofs)
+    assert x["id"] == "2540338692" and x["nome"] == "KAIDOXSTOREE" and x["confianca"] == "certa", (x, cands)
+    assert x["oficial"] == [23829] and "loja oficial nº 23829" in x["prova"] and x["votos"] == 2 and x["sondados"] == 2
+    assert {a["anuncio"] for a in x["anuncios"]} == {"MLB5000002", "MLB6000002"}
+    assert x["anuncios"][0]["titulo"] and x["anuncios"][0]["link"].startswith("https://produto.mercadolivre.com.br/MLB-")
+    assert all(c["id"] != "1395403852" for c in cands)                                        # a LUH não tem Full: fora
+    # só o relatório do seguido (preço MÉDIO do mês, sem loja oficial): Full e preço perto nos 2 produtos -> provável
+    seg = [{"gtins": ["7899463112978", "5055810099459"], "preco": 142.9, "full": True, "catalogo": True, "tipo": "Clássico"},
+           {"gtins": ["6290360598352"], "preco": 216.86, "full": True, "catalogo": True, "tipo": "Clássico"}]
+    x2, _ = meli.achar_loja("ICARBONXX P3", seg, ofs)
+    assert x2 and x2["id"] == "2540338692" and x2["confianca"] == "provável", x2
+    # um produto só e preço médio: não dá certeza -> não escolhe, mostra as candidatas
+    x3, c3 = meli.achar_loja("ICARBONXX P3", seg[:1], ofs)
+    assert x3 is None and c3 and c3[0]["id"] == "2540338692" and "em 1 de 1 produto" in c3[0]["prova"], c3
+    # trava do Cowork: ele vende 25,7 mil un./mês; loja com menos de metade disso em vendas NA VIDA não pode ser ele
+    x4, _ = meli.achar_loja("ICARBONXX P3", refs, ofs, un_mes=25708)
+    assert x4["id"] == "2540338692"                                                          # 180 mil vendas na vida: passa
+    assert meli.achar_loja("ICARBONXX P3", refs, ofs, un_mes=400000) == (None, [])           # ninguém tem 200 mil: nenhuma
+    luh = [dict(r, full=False, loja_oficial=0) for r in refs]                                # o que casaria com a LUH
+    x5, c5 = meli.achar_loja("X", luh, ofs, un_mes=25708)
+    assert x5 is None and all(c["id"] != "1395403852" for c in c5), (x5, c5)                  # 230 vendas na vida: fora
+
+
+def test_sem_o_anuncio_o_nubi_para_de_pedir():
+    # 29/09 (produção): /items de outra loja não vem para o token do app; depois de 3 falhas seguidas não repete 40 pedidos
+    d = _preparar()
+    d.bloq_varios = d.bloq_um = True
+    r = meli.itens(["MLB1000100", "MLB2000200", "MLB4000400"])
+    assert all(v.get("bloqueado") for v in r.values())
+    antes = len(d.pedidos)
+    assert meli.itens(["MLB3000300"])["MLB3000300"]["bloqueado"] and len(d.pedidos) == antes
 
 
 def test_diagnostico_com_chaves():
@@ -295,16 +400,23 @@ def test_rotas_do_servidor_ligam_o_vendedor_do_nubimetrics_a_loja():
             return df[df["marca"] == marca] if marca else df
 
         def _todos(self, t, q=None):
-            assert t == "anuncios"
+            if t != "anuncios":
+                return []                                        # não é vendedor seguido
+            nada = {"Loja oficial": "", "Exposição": "Clássica"}
+            oficial = {"Loja oficial": "LOJA.OFICIAL.555", "Exposição": "Clássica"}
             linhas = [
                 {"vendedor_id": "a" * 64, "vendedor": "HIMALAIA.INDIGO", "gtin": "6290362346548", "sku": "X", "preco": 265.28, "full": False,
-                 "dias_pub": 322, "un": 2800, "fat": 742000, "produto": "Lattafa Asad Elixir EDP 100 ml", "titulo": "Asad Elixir", "snapshot_id": 7, "tipo": "EDP"},
+                 "dias_pub": 322, "un": 2800, "fat": 742000, "produto": "Lattafa Asad Elixir EDP 100 ml", "titulo": "Asad Elixir", "snapshot_id": 7,
+                 "tipo": "EDP", "loja_oficial": 0, "catalogo": 1, "bruto": dict(nada)},
                 {"vendedor_id": "b" * 64, "vendedor": "ICARBONXX P3", "gtin": "6290362346548", "sku": "ASADELIXIR", "preco": 279.0, "full": True,
-                 "dias_pub": 340, "un": 1300, "fat": 363000, "produto": "Lattafa Asad Elixir EDP 100 ml", "titulo": "Asad Elixir", "snapshot_id": 8, "tipo": "EDP"},
+                 "dias_pub": 340, "un": 1300, "fat": 363000, "produto": "Lattafa Asad Elixir EDP 100 ml", "titulo": "Asad Elixir", "snapshot_id": 8,
+                 "tipo": "EDP", "loja_oficial": 1, "catalogo": 1, "bruto": dict(oficial)},
                 {"vendedor_id": "b" * 64, "vendedor": "ICARBONXX P3", "gtin": "", "sku": "ASADELIXIR", "preco": 274.9, "full": True,
-                 "dias_pub": 161, "un": 740, "fat": 204000, "produto": "Lattafa Asad Elixir EDP 100 ml", "titulo": "Asad Elixir", "snapshot_id": 8, "tipo": "EDP"}]
-            ids = [int(x) for x in q["snapshot_id"][4:-1].split(",")]
-            linhas = [l for l in linhas if l["snapshot_id"] in ids]
+                 "dias_pub": 161, "un": 740, "fat": 204000, "produto": "Lattafa Asad Elixir EDP 100 ml", "titulo": "Asad Elixir", "snapshot_id": 8,
+                 "tipo": "EDP", "loja_oficial": 1, "catalogo": 1, "bruto": json.dumps(oficial)}]
+            if "snapshot_id" in q:
+                ids = [int(x) for x in q["snapshot_id"][4:-1].split(",")]
+                linhas = [l for l in linhas if l["snapshot_id"] in ids]
             if "gtin" in q:
                 linhas = [l for l in linhas if l["gtin"] in q["gtin"][4:-1].split(",")]
             if "vendedor_id" in q:
@@ -319,8 +431,11 @@ def test_rotas_do_servidor_ligam_o_vendedor_do_nubimetrics_a_loja():
     assert meli.ler_hash_lojas(r)["a" * 64]["id"] == "111111111"
     d = w.rota_meli(r, "POST", "meli_descobrir", {}, json.dumps({"vendedor_id": "b" * 64}).encode())
     assert d["achou"] and d["loja"]["nome"] == "ESSENCEPRIMEBR" and d["loja"]["medalha"] == "Platinum", d
+    assert d["loja"]["confianca"] == "certa" and d["loja"]["oficial"] == [555]      # nº da loja oficial do Explorador = do ML
     n = w.rota_meli(r, "POST", "meli_nomear", {}, json.dumps({"vendedor_id": "b" * 64, "loja": "https://produto.mercadolivre.com.br/MLB-1000100-x"}).encode())
     assert n["loja"]["nome"] == "FINKE" and meli.ler_hash_lojas(r)["b" * 64]["confianca"] == "manual"
+    hl = w.rota_meli(r, "GET", "meli_hash_lojas", {}, b"")                       # a tela #/ml mostra o nome de lá
+    assert hl["nomes"] == {"a" * 64: "HIMALAIA.INDIGO", "b" * 64: "ICARBONXX P3"} and hl["lojas"]["b" * 64]["confianca"] == "manual", hl
     p = w.rota_meli(r, "GET", "meli_loja", {"id": "111111111"}, b"")
     nb = p["nubimetrics"]
     assert set(nb["nomes"]) == {"HIMALAIA.INDIGO", "ICARBONXX P3"} and nb["un"] == 2800 + 1300 + 740, nb
@@ -364,43 +479,130 @@ def test_ml_recusa_o_pedido_de_varios_e_a_busca_por_loja():
     assert [p["ok"] for p in t["passos"]][-1] is False and all(p["ok"] for p in t["passos"][:-1]), t
 
 
-def test_vendedor_seguido_vira_a_loja_real_com_os_anuncios():
-    # 29/09 (Bruno): "pegar um vendedor que a gente segue e descobrir o link da loja e o link dos produtos"
+def test_vendedor_seguido_nome_do_bruno_so_desempata():
+    # 29/09 (Bruno): "o nome ICARBONXX foi eu que coloquei" -> o nome do seguido não prova nada sozinho
     assert meli.gtins_do_texto("78994631129785055810099459") == ["7899463112978", "5055810099459"]
     assert meli.gtins_do_texto("6290362346548") == ["6290362346548"] and meli.gtins_do_texto("123") == []
     assert meli._base_nome("ICARBONXX P3") == "ICARBONXX" and meli._base_nome("MAMS ECOMMERCE TOP14") == "MAMSECOMMERCE"
     _preparar()
-    ml = meli.por_gtin(["6290362346548"])
-    # preço médio perto do de agora + Full igual; o nome não bate: ESSENCEPRIMEBR vence pela presença e pelo preço?
-    linhas = [{"gtins": ["6290362346548"], "preco": 281.0, "full": True, "catalogo": True}]
-    x = meli.casar_seguido("ESSENCE PRIME P9", linhas, ml)                        # nome parecido -> provável
-    assert x["nome"] == "ESSENCEPRIMEBR" and x["confianca"] == "provável" and x["nome_bate"]
-    assert x["anuncios"][0]["anuncio"] == "MLB2000200" and x["anuncios"][0]["link"].startswith("https://")
-    assert meli.casar_seguido("XYZ", [{"gtins": ["000"], "preco": 1, "full": False}], ml) is None
+    ofs = meli.ofertas_por_gtin(["6290362346548"])
+    refs = [{"gtins": ["6290362346548"], "preco": 281.0, "full": True, "catalogo": True}]
+    x, cands = meli.achar_loja("ESSENCE PRIME P9", refs, ofs)                       # nome parecido, 1 produto, preço médio
+    assert x is None and cands[0]["nome"] == "ESSENCEPRIMEBR" and "nome parecido" in cands[0]["prova"], cands
+    assert meli.achar_loja("XYZ", [{"gtins": ["000"], "preco": 1, "full": False}], ofs) == (None, [])
 
 
 def test_rota_do_vendedor_seguido():
+    """O seguido é achado no Explorador pelo nome que o Bruno deu (lá aparece igual) e o nº da loja oficial de lá prova a
+    loja. Sem prova: não grava, tira o de-para automático antigo e mostra as candidatas. O manual do Bruno nunca muda."""
     os.environ.setdefault("OLLAMA_API_KEY", "x")
     os.environ.setdefault("ANTHROPIC_API_KEY", "x")
+    import pandas as pd
+    import nubi_web as w
+    _preparar()
+    exp = (HOJE - timedelta(days=1)).isoformat()
+    linha_exp = {"vendedor_id": "e" * 64, "vendedor": "ESSENCE PRIME P9", "gtin": "6290362346548", "sku": "ASADX", "preco": 279.0,
+                 "full": 1, "dias_pub": 300, "un": 900, "fat": 251100, "produto": "Lattafa Asad Elixir EDP 100 ml", "titulo": "Asad Elixir",
+                 "snapshot_id": 8, "tipo": "EDP", "loja_oficial": 1, "catalogo": 1,
+                 "bruto": {"Loja oficial": "LOJA.OFICIAL.555", "Exposição": "Clássica"}}
+
+    class R(Repo):
+        def snapshots(self, marca=None):
+            df = pd.DataFrame([{"id": 8, "marca": "LATTAFA", "inicio": "2026-09-01", "fim": "2026-09-27", "importado_em": exp}])
+            return df[df["marca"] == marca] if marca else df
+
+        def _todos(self, t, q=None):
+            q = q or {}
+            if t == "vend_relatorios":
+                rels = [{"id": 5, "vendedor": "ESSENCE PRIME P9", "mes": "2026-09-01", "ate": "2026-09-27", "arquivo": "x",
+                         "importado_em": "x", "seller_hash": "H" * 128, "nome_exibido": "ESSENCE PRIME P9"},
+                        {"id": 6, "vendedor": "SEM PROVA P1", "mes": "2026-09-01", "ate": None, "arquivo": "y",
+                         "importado_em": "y", "seller_hash": "J" * 128, "nome_exibido": "SEM PROVA P1"}]
+                return [r for r in rels if not q.get("vendedor") or q["vendedor"] == "eq." + r["vendedor"]]
+            if t == "vend_anuncios":
+                preco = 280.0 if q["relatorio_id"] == "eq.5" else 281.0
+                return [{"titulo": "Asad Elixir", "marca": "LATTAFA", "marca_chave": "LATTAFA", "gtin": "62903623465486290362346548",
+                         "sku": "A", "vendas": 30000, "unidades": 100, "preco": preco, "tipo_pub": "Clássico", "fulfillment": True,
+                         "catalogo": True, "frete_gratis": True, "desconto": False, "estado": "active"}]
+            if t == "anuncios":
+                v, vid = q.get("vendedor", ""), q.get("vendedor_id", "")
+                if v == "eq.ESSENCE PRIME P9" or ("e" * 64) in vid:
+                    return [json.loads(json.dumps(linha_exp))]
+            return []
+    r = R()
+    assert w.rota_meli(r, "GET", "meli_seguido", {"vendedor": "ESSENCE PRIME P9"}, b"")["loja"] is None
+    d = w.rota_meli(r, "POST", "meli_seguido_descobrir", {}, json.dumps({"vendedor": "ESSENCE PRIME P9"}).encode())
+    assert d["achou"] and d["loja"]["nome"] == "ESSENCEPRIMEBR" and d["loja"]["confianca"] == "certa", d
+    assert d["loja"]["anuncios"][0]["anuncio"] == "MLB2000200" and d["loja"]["anuncios"][0]["titulo"].startswith("Lattafa Asad")
+    assert d["explorador"] == {"hashes": ["e" * 64], "como": "nome", "oficial": [555]}, d["explorador"]
+    assert w.rota_meli(r, "GET", "meli_seguido", {"vendedor": "ESSENCE PRIME P9"}, b"")["loja"]["id"] == "222222222"
+    assert meli.ler_hash_lojas(r)["e" * 64]["id"] == "222222222"                    # o hash do Explorador ficou ligado também
+    assert "anuncios" not in meli.ler_hash_lojas(r)["e" * 64]
+    assert w._gtins_da_loja(r, "222222222") == ["6290362346548"]
+    # sem prova: o de-para automático errado (como o da LUH) sai e aparecem as candidatas
+    meli.gravar_hash_lojas(r, {"SEM PROVA P1": {"id": "1395403852", "nome": "LUH20230609125415", "confianca": "dúvida"}}, meli.SEGUIDOS)
+    d2 = w.rota_meli(r, "POST", "meli_seguido_descobrir", {}, json.dumps({"vendedor": "SEM PROVA P1"}).encode())
+    assert not d2["achou"] and d2["candidatas"][0]["id"] == "222222222" and "candidatas" in d2["motivo"], d2
+    assert "SEM PROVA P1" not in meli.ler_hash_lojas(r, meli.SEGUIDOS)
+    # o Bruno escolhe a candidata ("É esta"): vira manual e a busca não troca mais
+    n = w.rota_meli(r, "POST", "meli_seguido_nomear", {}, json.dumps({"vendedor": "SEM PROVA P1", "loja": "222222222"}).encode())
+    assert n["loja"]["nome"] == "ESSENCEPRIMEBR" and meli.ler_hash_lojas(r, meli.SEGUIDOS)["SEM PROVA P1"]["confianca"] == "manual"
+    d3 = w.rota_meli(r, "POST", "meli_seguido_descobrir", {}, json.dumps({"vendedor": "SEM PROVA P1"}).encode())
+    assert d3["confirmada"]["id"] == "222222222" and d3["confere"] is False
+    assert meli.ler_hash_lojas(r, meli.SEGUIDOS)["SEM PROVA P1"]["confianca"] == "manual"
+
+
+def test_painel_dos_vendedores_seguidos():
+    # 29/09 (Bruno): todos os seguidos, dados técnicos do último relatório e a loja no ML quando achada
+    os.environ.setdefault("OLLAMA_API_KEY", "x")
+    os.environ.setdefault("ANTHROPIC_API_KEY", "x")
+    import pandas as pd
     import nubi_web as w
     _preparar()
 
     class R(Repo):
         def _todos(self, t, q=None):
             if t == "vend_relatorios":
-                return [{"id": 5, "vendedor": "ESSENCE PRIME P9", "mes": "2026-09-01", "ate": "2026-09-27", "arquivo": "x",
-                         "importado_em": "x", "seller_hash": "H" * 128, "nome_exibido": "ESSENCE PRIME P9"}]
+                return [{"id": 4, "vendedor": "ICARBONXX P3", "mes": "2026-08-01", "ate": None, "arquivo": "a", "importado_em": "x",
+                         "seller_hash": "A" * 128, "nome_exibido": "ICARBONXX P3"},
+                        {"id": 9, "vendedor": "ICARBONXX P3", "mes": "2026-09-01", "ate": "2026-09-27", "arquivo": "b", "importado_em": "y",
+                         "seller_hash": "A" * 128, "nome_exibido": "ICARBONXX P3"},
+                        {"id": 7, "vendedor": "AIRON-AMBAR", "mes": "2026-09-01", "ate": None, "arquivo": "c", "importado_em": "z",
+                         "seller_hash": "B" * 128, "nome_exibido": "AIRON-AMBAR"}]
             if t == "vend_anuncios":
-                return [{"titulo": "Asad Elixir", "marca": "LATTAFA", "marca_chave": "LATTAFA", "gtin": "62903623465486290362346548",
-                         "sku": "A", "vendas": 30000, "unidades": 100, "preco": 280.0, "tipo_pub": "Clássico", "fulfillment": True,
-                         "catalogo": True, "frete_gratis": True, "desconto": False, "estado": "active"}]
+                rid = int(q["relatorio_id"][3:])
+                if rid == 9:
+                    return [{"marca_chave": "LATTAFA", "gtin": "62903623465486290362346548", "vendas": 30000, "unidades": 100, "catalogo": True,
+                             "fulfillment": True, "frete_gratis": True, "tipo_pub": "Clássico", "estado": "active"},
+                            {"marca_chave": "LIPX", "gtin": "", "vendas": 1000, "unidades": 5, "catalogo": False,
+                             "fulfillment": False, "frete_gratis": True, "tipo_pub": "Premium", "estado": "paused"}]
+                return [{"marca_chave": "X", "gtin": "", "vendas": 10, "unidades": 1, "catalogo": False, "fulfillment": False,
+                         "frete_gratis": False, "tipo_pub": "Clássico", "estado": "active"}]
+            if t == "anuncios" and q.get("vendedor") == "eq.ICARBONXX P3":       # no Explorador ele aparece com o mesmo nome
+                return [{"vendedor_id": "c" * 64, "loja_oficial": 1}, {"vendedor_id": "c" * 64, "loja_oficial": 0}]
             return []
+
+        def snapshots(self, marca=None):
+            return pd.DataFrame([{"id": 8, "marca": "LIPX", "inicio": "2026-09-01", "fim": "2026-09-27", "importado_em": "2026-09-28"}])
+
+        def _req(self, metodo, tabela, q=None, corpo=None, **k):
+            if tabela == "anuncios":                                            # nº da loja oficial (linha original)
+                assert q["loja_oficial"] == "eq.1" and q["vendedor"] == "eq.ICARBONXX P3" and q["snapshot_id"] == "in.(8)"
+                return [{"bruto": {"Loja oficial": "LOJA.OFICIAL.23829"}}, {"bruto": json.dumps({"Loja oficial": "LOJA.OFICIAL.23829"})}]
+            return super()._req(metodo, tabela, q, corpo, **k)
     r = R()
-    assert w.rota_meli(r, "GET", "meli_seguido", {"vendedor": "ESSENCE PRIME P9"}, b"")["loja"] is None
-    d = w.rota_meli(r, "POST", "meli_seguido_descobrir", {}, json.dumps({"vendedor": "ESSENCE PRIME P9"}).encode())
-    assert d["achou"] and d["loja"]["nome"] == "ESSENCEPRIMEBR" and d["loja"]["anuncios"][0]["anuncio"] == "MLB2000200", d
-    assert w.rota_meli(r, "GET", "meli_seguido", {"vendedor": "ESSENCE PRIME P9"}, b"")["loja"]["id"] == "222222222"
-    assert w._gtins_da_loja(r, "222222222") == ["6290362346548"]
+    meli.gravar_hash_lojas(r, {"ICARBONXX P3": {"id": "222222222", "nome": "ICARBONXX", "link": "https://perfil.mercadolivre.com.br/ICARBONXX",
+                                                "confianca": "provável", "votos": 6, "anuncios": [{"anuncio": "MLB1"}, {"anuncio": "MLB2"}]}},
+                           meli.SEGUIDOS)
+    xs = w.rota_meli(r, "GET", "meli_seguidos_lista", {}, b"")["vendedores"]
+    assert [x["vendedor"] for x in xs] == ["ICARBONXX P3", "AIRON-AMBAR"]                   # quem mais fatura primeiro
+    a = xs[0]
+    assert a["relatorio_id"] == 9 and a["mes"] == "2026-09" and a["meses"] == 2 and a["hash"] == "A" * 128
+    assert (a["anuncios"], a["ativos"], a["com_gtin"], a["catalogo"], a["full"], a["premium"]) == (2, 1, 1, 1, 1, 1)
+    assert a["vendas"] == 31000 and a["unidades"] == 105 and a["marcas"] == 2 and a["top_marca"] == "Lattafa"
+    assert a["ml"]["nome"] == "ICARBONXX" and a["ml"]["anuncios"] == 2 and xs[1]["ml"] is None
+    assert a["ml"]["confianca"] == "a conferir"                   # feito antes da prova nova (sem "prova"): a conferir
+    assert a["explorador"] == {"hashes": ["c" * 64], "anuncios": 2, "oficial": [23829]} and xs[1]["explorador"] is None
 
 if __name__ == "__main__":
     for n, f in list(globals().items()):

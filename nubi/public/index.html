@@ -246,6 +246,12 @@ a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .ml-item img{width:48px;height:48px;object-fit:contain;background:#fff;border-radius:6px}
 .ml-item.eu{outline:2px solid var(--accent)}
 .ml-real{font-size:12px;margin-top:2px}
+#sml-tab td{white-space:normal}#sml-tab td.num{white-space:nowrap}#sml-tab td.sml-loja{min-width:190px}#sml-tab td code{white-space:nowrap}
+.ml-cands{display:grid;gap:6px;margin-top:6px}
+.ml-cand{display:flex;gap:10px;align-items:center;justify-content:space-between;border:1px dashed var(--line);border-radius:8px;padding:6px 8px;background:var(--card)}
+.ml-cand .btn{flex:none}
+#sml-tab .btn.ghost,#vml-loja .btn.ghost,#pv-ml .btn.ghost{background:var(--card);border-color:var(--line);color:var(--ink)}
+#sml-tab .btn.ghost:hover,#vml-loja .btn.ghost:hover,#pv-ml .btn.ghost:hover{background:var(--soft)}
 .calc-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}@media (max-width:600px){.calc-g{grid-template-columns:1fr}}
 @media (max-width:760px){.ml-score{grid-template-columns:1fr;gap:14px}.ml-ins{grid-template-columns:1fr}.ml-cab .ml-foto{width:72px;height:72px}
   .ml-preco{font-size:22px}.ml-grade{grid-template-columns:repeat(2,minmax(0,1fr))}.ml-card img{height:110px}.ml-sep{display:none}
@@ -1400,6 +1406,7 @@ function desenharMenu() {
     ${it((S.vendLista || []).length ? "#/vendedores/" + encodeURIComponent((S.vendLista.find(v => h.startsWith("#/vendedores/" + v.vendedor)) || S.vendLista[0]).vendedor) : "#/vendedores", "🏪", "Vendedores", vendOn,
       cont((S.vendLista || []).length) + seta("vendedores", (S.vendLista || []).length > 0))}
     ${ab.vendedores ? `<div class="subnav" id="sub-vend"></div>` : ""}
+    ${it("#/vendedores-ml", "🔗", "Vendedores × ML", h.startsWith("#/vendedores-ml"))}
     <div class="grupo">Minhas Lojas</div>
     ${it("#/estoque", "📦", "Estoque", h.startsWith("#/estoque"))}
     ${it("#/sac/tiktok", "💬", "SAC", h.startsWith("#/sac"), seta("sac", true, sacAberto))}
@@ -1484,6 +1491,7 @@ async function rotear() {
   if (sec === "vendedores") {
     if (!S.vendLista) await carregarVendLista();
     if (location.hash.startsWith("#/ml")) return telaML();
+    if (location.hash.startsWith("#/vendedores-ml")) return telaSeguidosML();
     if (location.hash.startsWith("#/nomes-vendedores")) return telaNomesVendedores();
     if (location.hash.startsWith("#/alertas")) return telaAlertas();
     if (location.hash.startsWith("#/vendas-dia")) return telaVendasDia();
@@ -5846,13 +5854,22 @@ async function telaMLInicio() {
     } catch (e) { el.innerHTML = mlAviso(e); }
   };
   try {
-    const r = await api("meli_hash_lojas"), por = {};
-    Object.entries(r.lojas || {}).forEach(([h, x]) => { const a = por[x.id] || (por[x.id] = {...x, hashes: 0}); a.hashes++; });
+    // 29/09 (Bruno): a coluna do Nubimetrics mostra os NOMES de lá (o do Explorador e o do vendedor seguido), não só quantos
+    const r = await api("meli_hash_lojas"), por = {}, nomes = r.nomes || {};
+    const add = (x, nome, tipo) => { const a = por[x.id] || (por[x.id] = {...x, nb: []});
+      if (x.confianca === "manual" || (x.prova && !a.prova)) Object.assign(a, {confianca: x.confianca, prova: x.prova});
+      if (nome && !a.nb.some(n => n.nome === nome)) a.nb.push({nome, tipo}); };
+    Object.entries(r.lojas || {}).forEach(([h, x]) => add(x, nomes[h] || h.slice(0, 10) + "…", "Explorador"));
+    Object.entries(r.seguidos || {}).forEach(([v, x]) => add(x, v, "seguido"));
     const xs = Object.values(por).sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-    $("#ml-lojas").innerHTML = xs.length ? `<div class="tw"><table class="t"><thead><tr><th>Loja real</th><th>Confiança</th><th class="num">Vendedores do Nubimetrics</th><th></th></tr></thead><tbody>
-      ${xs.map(x => `<tr><td class="first"><a href="#/ml/loja/${esc(x.id)}"><b>${esc(x.nome)}</b></a></td><td>${esc(x.confianca || "")}</td><td class="num">${x.hashes}</td>
+    const vend = n => n.tipo === "seguido" ? `<a href="#/vendedores/${encodeURIComponent(n.nome)}">${esc(n.nome)}</a> <span class="muted" style="font-size:11.5px">(seguido)</span>`
+      : `<span>${esc(n.nome)}</span>`;
+    $("#ml-lojas").innerHTML = xs.length ? `<div class="tw"><table class="t" data-rot="1"><thead><tr><th>Loja real</th><th>No Nubimetrics aparece como</th><th>Confiança</th><th></th></tr></thead><tbody>
+      ${xs.map(x => `<tr><td class="first" data-l="Loja real"><a href="#/ml/loja/${esc(x.id)}"><b>${esc(x.nome)}</b></a></td>
+        <td data-l="No Nubimetrics" style="white-space:normal">${x.nb.map(vend).join("<br>")}</td>
+        <td data-l="Confiança" style="white-space:normal" title="${esc(x.prova || "")}">${esc(x.confianca || "")}${x.prova ? `<div class="muted" style="font-size:11.5px;max-width:420px">${esc(x.prova)}</div>` : ""}</td>
         <td>${x.link ? `<a href="${esc(urlML(x.link))}" target="_blank" rel="noopener">abrir no ML ↗</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`
-      : `Nenhuma ainda. Abra um produto no Explorador: a seção "No Mercado Livre agora" liga os vendedores do Nubimetrics às lojas reais.`;
+      : `Nenhuma ainda. Em Concorrentes → 🔗 Vendedores × ML, "Descobrir" acha a loja real de cada vendedor seguido.`;
   } catch (e) { $("#ml-lojas").innerHTML = mlAviso(e); }
 }
 async function telaMLAnuncio(id) {
@@ -6009,7 +6026,17 @@ function exportarCSVML() {
 function realML(vid) {
   const x = ((S.rel || {}).lojas_ml || {})[vid];
   if (!x) return "";
-  return `🏪 <a href="#/ml/loja/${esc(x.id)}" title="Página da loja">${esc(x.nome)}</a>${x.link ? ` <a href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir a loja no Mercado Livre">↗</a>` : ""}${x.confianca && x.confianca !== "manual" ? ` <span class="muted">(${esc(x.confianca)})</span>` : ""}`;
+  return `🏪 <a href="#/ml/loja/${esc(x.id)}" title="Página da loja">${esc(x.nome)}</a>${x.link ? ` <a href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir a loja no Mercado Livre">↗</a>` : ""}${x.confianca && x.confianca !== "manual" ? ` <span class="muted" title="${esc(x.prova || "")}">(${esc(x.confianca)})</span>` : ""}`;
+}
+// Prova da ligação com a loja real (29/09): o que bateu — nº da loja oficial, preço do dia, em quantos produtos
+const provaML = x => x ? `${esc(x.confianca || "")}${x.prova ? ": " + esc(x.prova) : x.votos ? `, em ${x.votos} produto(s)` : ""}` : "";
+// Sem prova suficiente o nubi não grava: mostra as lojas que mais bateram e o Bruno confirma a certa
+function candidatasML(cs) {
+  if (!(cs || []).length) return "";
+  return `<div class="ml-cands"><div class="muted" style="font-size:12.5px">Sem certeza. Lojas que mais bateram (abra o link, confira e confirme):</div>
+    ${cs.map(c => `<div class="ml-cand"><div style="min-width:0">${c.link ? `<a class="ml-loja" href="${esc(urlML(c.link))}" target="_blank" rel="noopener">${esc(c.nome || c.id)} ↗</a>` : `<b>${esc(c.nome || c.id)}</b>`}
+      <div class="muted" style="font-size:11.5px">ID ${esc(c.id)} · ${esc(c.prova || "")}</div></div>
+      <button class="btn small" data-escolher="${esc(c.id)}" data-nome="${esc(c.nome || c.id)}">✔ É esta</button></div>`).join("")}</div>`;
 }
 // Quadro do vendedor (Explorador): a loja real do vendedor embaralhado — a que o nubi já achou, "Descobrir" pelo catálogo do
 // GTIN (preço, Full e idade) ou o Bruno informa o link (fica marcado como manual e não é trocado)
@@ -6021,31 +6048,36 @@ function lojaRealVendedor(bg, v) {
       <button class="btn small" id="pv-ml-salvar">Salvar</button></div></div>`;
   el.innerHTML = x ? `<div class="card pad" style="padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center">
       <span>🏪 Loja real no Mercado Livre: ${x.link ? `<a class="ml-loja" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${esc(x.nome)} ↗</a>` : `<b>${esc(x.nome)}</b>`}
-        <span class="muted">(${esc(x.confianca || "")}${x.votos ? `, ${x.votos} anúncio(s) bateram` : ""})</span></span>
+        <span class="muted">(${provaML(x)})</span></span>
       <a class="btn small" href="#/ml/loja/${esc(x.id)}">Página da loja</a>
       ${x.confianca !== "manual" ? `<button class="btn small ghost" id="pv-ml-corrigir">Não é essa?</button>` : ""}</div>${form}`
     : `<div class="card pad" style="padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center">
       <span class="muted">No Nubimetrics este vendedor vem embaralhado.</span>
       <button class="btn small ml-laranja" id="pv-ml-desc">🔎 Descobrir a loja real</button>
-      <button class="btn small ghost" id="pv-ml-sei">Já sei qual é</button><span id="pv-ml-msg" class="muted" style="font-size:12.5px"></span></div>${form}`;
+      <button class="btn small ghost" id="pv-ml-sei">Já sei qual é</button><span id="pv-ml-msg" class="muted" style="font-size:12.5px"></span>
+      <div id="pv-ml-cands" style="flex-basis:100%"></div></div>${form}`;
   const abrirForm = () => { $("#pv-ml-form", bg).style.display = ""; $("#pv-ml-link", bg).focus(); };
-  if ($("#pv-ml-corrigir", bg)) $("#pv-ml-corrigir", bg).onclick = abrirForm;
-  if ($("#pv-ml-sei", bg)) $("#pv-ml-sei", bg).onclick = abrirForm;
-  if ($("#pv-ml-desc", bg)) $("#pv-ml-desc", bg).onclick = async e => {
-    e.target.disabled = true; $("#pv-ml-msg", bg).textContent = "procurando os produtos dele no catálogo do Mercado Livre…";
+  const salvar = async loja => {
     try {
-      const r = await api("meli_descobrir", {}, {method: "POST", body: JSON.stringify({vendedor_id: v.vid})});
-      if (r.achou) { S.rel.lojas_ml = Object.assign(S.rel.lojas_ml || {}, {[v.vid]: r.loja}); lojaRealVendedor(bg, v); }
-      else { $("#pv-ml-msg", bg).textContent = "Não achei: " + (r.motivo || ""); e.target.disabled = false; }
-    } catch (err) { $("#pv-ml-msg", bg).innerHTML = mlAviso(err); e.target.disabled = false; }
-  };
-  $("#pv-ml-salvar", bg).onclick = async () => {
-    const link = $("#pv-ml-link", bg).value.trim(); if (!link) return;
-    try {
-      const r = await api("meli_nomear", {}, {method: "POST", body: JSON.stringify({vendedor_id: v.vid, loja: link})});
+      const r = await api("meli_nomear", {}, {method: "POST", body: JSON.stringify({vendedor_id: v.vid, loja})});
       S.rel.lojas_ml = Object.assign(S.rel.lojas_ml || {}, {[v.vid]: r.loja}); lojaRealVendedor(bg, v); toast("Loja real salva: " + r.loja.nome);
     } catch (err) { toast(err.message, 6000); }
   };
+  if ($("#pv-ml-corrigir", bg)) $("#pv-ml-corrigir", bg).onclick = abrirForm;
+  if ($("#pv-ml-sei", bg)) $("#pv-ml-sei", bg).onclick = abrirForm;
+  if ($("#pv-ml-desc", bg)) $("#pv-ml-desc", bg).onclick = async e => {
+    e.target.disabled = true; $("#pv-ml-msg", bg).textContent = "procurando os produtos dele no catálogo do Mercado Livre (todas as páginas)…";
+    try {
+      const r = await api("meli_descobrir", {}, {method: "POST", body: JSON.stringify({vendedor_id: v.vid})});
+      if (r.achou) { S.rel.lojas_ml = Object.assign(S.rel.lojas_ml || {}, {[v.vid]: r.loja}); lojaRealVendedor(bg, v); }
+      else {
+        $("#pv-ml-msg", bg).textContent = "Não achei com certeza: " + (r.motivo || ""); e.target.disabled = false;
+        $("#pv-ml-cands", bg).innerHTML = candidatasML(r.candidatas);
+        bg.querySelectorAll("#pv-ml-cands [data-escolher]").forEach(b => b.onclick = () => salvar(b.dataset.escolher));
+      }
+    } catch (err) { $("#pv-ml-msg", bg).innerHTML = mlAviso(err); e.target.disabled = false; }
+  };
+  $("#pv-ml-salvar", bg).onclick = () => { const link = $("#pv-ml-link", bg).value.trim(); if (link) salvar(link); };
 }
 // Vendedor SEGUIDO (Concorrentes → Vendedores): a loja real no ML, o link dela e os IDs/links dos anúncios achados no
 // catálogo (o export do Nubimetrics dele não tem ID de anúncio). "Descobrir" casa pelos GTINs que mais vendem.
@@ -6058,7 +6090,7 @@ async function lojaMLSeguido(nomeV) {
     if (!$("#vml-loja")) return;
     el.innerHTML = x ? `<div class="card pad"><div style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center">
         <span>🏪 Loja no Mercado Livre: ${x.link ? `<a class="ml-loja" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${esc(x.nome)} ↗</a>` : `<b>${esc(x.nome)}</b>`}
-          <span class="muted">(${esc(x.confianca || "")}${x.votos ? `, em ${x.votos} produto(s) dele` : ""})</span></span>
+          <span class="muted">(${provaML(x)})</span></span>
         <a class="btn small" href="#/ml/loja/${esc(x.id)}">Página da loja</a>
         ${x.confianca !== "manual" ? `<button class="btn small ghost" id="vml-corrigir">Não é essa?</button>` : ""}</div>
       ${(x.anuncios || []).length ? `<details style="margin-top:8px"><summary class="muted">${x.anuncios.length} anúncio(s) dele achados no catálogo (ID e link)</summary>
@@ -6068,36 +6100,123 @@ async function lojaMLSeguido(nomeV) {
       : `<div class="card pad" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center">
         <span class="muted">🏪 Loja no Mercado Livre: ainda não identificada.</span>
         <button class="btn small ml-laranja" id="vml-desc">🔎 Descobrir a loja no Mercado Livre</button>
-        <button class="btn small ghost" id="vml-sei">Já sei qual é</button><span id="vml-msg" class="muted" style="font-size:12.5px"></span>${form}</div>`;
+        <button class="btn small ghost" id="vml-sei">Já sei qual é</button><span id="vml-msg" class="muted" style="font-size:12.5px"></span>
+        <div id="vml-cands" style="flex-basis:100%"></div>${form}</div>`;
     const abrir = () => { $("#vml-form").style.display = ""; $("#vml-link").focus(); };
-    if ($("#vml-corrigir")) $("#vml-corrigir").onclick = abrir;
-    if ($("#vml-sei")) $("#vml-sei").onclick = abrir;
-    if ($("#vml-desc")) $("#vml-desc").onclick = async e => {
-      e.target.disabled = true; $("#vml-msg").textContent = "procurando os produtos dele no catálogo do Mercado Livre…";
+    const salvar = async loja => {
       try {
-        const r = await api("meli_seguido_descobrir", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV})});
-        if (r.achou) desenhar(r.loja); else { $("#vml-msg").textContent = "Não achei: " + (r.motivo || ""); e.target.disabled = false; }
-      } catch (err) { $("#vml-msg").innerHTML = mlAviso(err); e.target.disabled = false; }
-    };
-    $("#vml-salvar").onclick = async () => {
-      const link = $("#vml-link").value.trim(); if (!link) return;
-      try {
-        const r = await api("meli_seguido_nomear", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV, loja: link})});
+        const r = await api("meli_seguido_nomear", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV, loja})});
         desenhar(r.loja); toast("Loja salva: " + r.loja.nome);
       } catch (err) { toast(err.message, 6000); }
     };
+    if ($("#vml-corrigir")) $("#vml-corrigir").onclick = abrir;
+    if ($("#vml-sei")) $("#vml-sei").onclick = abrir;
+    if ($("#vml-desc")) $("#vml-desc").onclick = async e => {
+      e.target.disabled = true; $("#vml-msg").textContent = "procurando os produtos dele no catálogo do Mercado Livre (todas as páginas)…";
+      try {
+        const r = await api("meli_seguido_descobrir", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV})});
+        if (r.achou) desenhar(r.loja);
+        else {
+          $("#vml-msg").textContent = "Não achei com certeza: " + (r.motivo || ""); e.target.disabled = false;
+          $("#vml-cands").innerHTML = candidatasML(r.candidatas);
+          el.querySelectorAll("#vml-cands [data-escolher]").forEach(b => b.onclick = () => salvar(b.dataset.escolher));
+        }
+      } catch (err) { $("#vml-msg").innerHTML = mlAviso(err); e.target.disabled = false; }
+    };
+    $("#vml-salvar").onclick = () => { const link = $("#vml-link").value.trim(); if (link) salvar(link); };
   };
   try { desenhar((await api("meli_seguido", {vendedor: nomeV})).loja); }
   catch (e) { el.innerHTML = mlAviso(e); }
 }
+// Painel "Vendedores × ML" (29/09, pedido do Bruno): todos os vendedores seguidos com os dados técnicos do último relatório
+// (hash, anúncios, GTIN, catálogo, Full, faturamento…) e o botão "Descobrir loja no ML" em cada um
+async function telaSeguidosML() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo os vendedores seguidos</div></div>`;
+  let r;
+  try { r = await api("meli_seguidos_lista"); } catch (e) { main.innerHTML = mlAviso(e); return; }
+  if (!location.hash.startsWith("#/vendedores-ml")) return;
+  S.seguidosML = r.vendedores || [];
+  const achadas = S.seguidosML.filter(v => v.ml).length;
+  main.innerHTML = `<div class="es-cab"><h1>🔗 Vendedores seguidos × Mercado Livre</h1>
+      <span class="muted">${nf0.format(S.seguidosML.length)} vendedores · ${nf0.format(achadas)} com a loja real achada</span>
+      <div class="acoes"><button class="btn small ml-laranja" id="sml-todas">🔎 Descobrir as que faltam</button></div></div>
+    <p class="muted" style="margin:4px 0 12px;font-size:13px">Dados do último relatório de cada vendedor no Nubimetrics. O Nubimetrics embaralha o ID do vendedor e do anúncio
+      (com chave secreta: não dá para desfazer), mas no Explorador mostra o nº da <b>loja oficial</b>, que é o mesmo do Mercado Livre. "Descobrir" procura os produtos
+      dele no catálogo do ML (todas as páginas) e só liga a loja com prova: loja oficial igual, Full e tipo iguais, preço batendo em vários produtos.
+      Sem prova, mostra as lojas que mais bateram para você confirmar.</p>
+    <div class="card pad"><div class="tw" style="max-height:72vh"><table class="t" id="sml-tab" data-rot="1"><thead><tr>
+      <th>Vendedor (Nubimetrics)</th><th title="identificador do vendedor no relatório de vendedores do Nubimetrics (embaralhado)">Hash</th>
+      <th title="o mesmo vendedor no Explorador: o hash de lá e o nº da loja oficial no Mercado Livre">No Explorador</th>
+      <th class="num">Anúncios</th><th class="num">Com GTIN</th><th class="num">Catálogo</th><th class="num">Full</th>
+      <th class="num">Faturamento</th><th class="num">Unidades</th><th>Marcas</th><th>Loja no Mercado Livre</th></tr></thead><tbody></tbody></table></div></div>`;
+  const mesBR = m => m ? `${m.slice(5, 7)}/${m.slice(0, 4)}` : "";
+  const linha = v => `<tr data-sml="${esc(v.vendedor)}">
+      <td class="first"><a href="#/vendedores/${encodeURIComponent(v.vendedor)}"><b>${esc(v.vendedor)}</b></a>
+        ${v.nome_exibido && v.nome_exibido !== v.vendedor ? `<div class="muted" style="font-size:12px">${esc(v.nome_exibido)}</div>` : ""}
+        <div class="muted" style="font-size:11.5px;font-weight:400">${esc(mesBR(v.mes))}${v.ate ? ` até ${esc(dataBR(String(v.ate).slice(0, 10)).slice(0, 5))}` : ""} · ${nf0.format(v.meses)} ${v.meses === 1 ? "mês" : "meses"}</div></td>
+      <td data-l="Hash"><code title="${esc(v.hash)}" style="font-size:11.5px">${esc((v.hash || "").slice(0, 12))}${v.hash ? "…" : "—"}</code>
+        ${v.hash ? `<button class="btn small ghost" data-copiar="${esc(v.hash)}" title="Copiar o hash inteiro" style="padding:0 6px">⧉</button>` : ""}</td>
+      <td data-l="No Explorador">${v.explorador ? `${v.explorador.hashes.map(h => `<code title="${esc(h)}" style="font-size:11.5px">${esc(h.slice(0, 10))}…</code>`).join(" ")}
+          <div class="muted" style="font-size:11.5px">${nf0.format(v.explorador.anuncios)} anúncio(s)${v.explorador.oficial.length ? ` · <b style="color:var(--ink)">loja oficial nº ${v.explorador.oficial.map(esc).join(", ")}</b>` : ""}</div>`
+        : `<span class="muted" style="font-size:12px">—</span>`}</td>
+      <td class="num" data-l="Anúncios">${nf0.format(v.anuncios)}<div class="muted" style="font-size:11.5px">${nf0.format(v.ativos)} ativos</div></td>
+      <td class="num" data-l="Com GTIN">${nf0.format(v.com_gtin)}</td><td class="num" data-l="Catálogo">${nf0.format(v.catalogo)}</td>
+      <td class="num" data-l="Full">${nf0.format(v.full)}</td>
+      <td class="num" data-l="Faturamento (mês)">${rsES(v.vendas)}</td><td class="num" data-l="Unidades">${nf0.format(v.unidades)}</td>
+      <td data-l="Marcas">${nf0.format(v.marcas)}${v.top_marca ? `<div class="muted" style="font-size:11.5px">+ vende: ${esc(v.top_marca)}</div>` : ""}</td>
+      <td class="sml-loja" data-l="Loja no ML">${v.ml ? `<div>${v.ml.link ? `<a class="ml-loja" href="${esc(urlML(v.ml.link))}" target="_blank" rel="noopener">${esc(v.ml.nome)} ↗</a>` : `<b>${esc(v.ml.nome)}</b>`}
+          <div class="muted" style="font-size:11.5px">ID ${esc(v.ml.id)} · ${provaML(v.ml)}${v.ml.anuncios ? ` · ${v.ml.anuncios} anúncio(s)` : ""}</div></div>`
+        : v.candidatas ? candidatasML(v.candidatas) : v.motivo ? `<div class="muted" style="font-size:11.5px">${esc(v.motivo)}</div>` : ""}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${v.ml ? `<a class="btn small" href="#/ml/loja/${esc(v.ml.id)}">Página da loja</a>` : ""}
+        <button class="btn small ${v.ml ? "ghost" : "ml-laranja"}" data-desc="${esc(v.vendedor)}">${v.ml ? "↻ Refazer" : "🔎 Descobrir loja no ML"}</button></div></td></tr>`;
+  const resumoML = l => ({id: l.id, nome: l.nome, link: l.link, confianca: l.confianca, votos: l.votos, prova: l.prova, anuncios: (l.anuncios || []).length});
+  const desenhar = () => {
+    $("#sml-tab tbody").innerHTML = S.seguidosML.map(linha).join("") || `<tr><td colspan="11" class="empty">Nenhum vendedor seguido importado.</td></tr>`;
+    main.querySelectorAll("[data-copiar]").forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copiar); toast("Hash copiado."); } catch { toast(b.dataset.copiar, 8000); } });
+    main.querySelectorAll("[data-desc]").forEach(b => b.onclick = () => descobrir(b.dataset.desc, b));
+    main.querySelectorAll("#sml-tab [data-escolher]").forEach(b => b.onclick = async () => {
+      const nomeV = b.closest("tr").dataset.sml, v = S.seguidosML.find(x => x.vendedor === nomeV);
+      try {
+        const r = await api("meli_seguido_nomear", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV, loja: b.dataset.escolher})});
+        v.ml = resumoML(r.loja); v.candidatas = null; toast(`${nomeV} = ${r.loja.nome}`); desenhar();
+      } catch (e) { toast(e.message, 6000); }
+    });
+  };
+  const descobrir = async (nomeV, b) => {
+    if (b) { b.disabled = true; b.textContent = "procurando…"; }
+    const v = S.seguidosML.find(x => x.vendedor === nomeV);
+    try {
+      const r2 = await api("meli_seguido_descobrir", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV})});
+      if (r2.confirmada) {                          // você já confirmou a loja: ela fica; a busca só confere
+        v.ml = Object.assign(resumoML(r2.confirmada), {anuncios: v.ml ? v.ml.anuncios : 0}); v.candidatas = null; v.motivo = "";
+        toast(r2.confere ? `${nomeV}: a busca achou a mesma loja que você confirmou (${r2.confirmada.nome}).`
+          : `${nomeV}: você confirmou ${r2.confirmada.nome}; a busca ${r2.achou ? "achou " + r2.loja.nome : "não teve certeza"}. Fica a sua.`, 8000);
+      } else if (r2.achou) { v.ml = resumoML(r2.loja); v.candidatas = null; v.motivo = ""; }
+      else { v.ml = null; v.candidatas = (r2.candidatas || []).length ? r2.candidatas : null; v.motivo = "Não achei com certeza: " + (r2.motivo || ""); }
+    } catch (e) { toast(`${nomeV}: ${e.message}`, 7000); }
+    desenhar();
+    return v && v.ml;
+  };
+  desenhar();
+  $("#sml-todas").onclick = async e => {
+    e.target.disabled = true;
+    const faltam = S.seguidosML.filter(v => !v.ml);
+    let n = 0;
+    for (const v of faltam) { e.target.textContent = `procurando ${++n}/${faltam.length}…`; await descobrir(v.vendedor); }
+    e.target.textContent = "🔎 Descobrir as que faltam"; e.target.disabled = false;
+    toast(`Pronto: ${S.seguidosML.filter(v => v.ml).length} de ${S.seguidosML.length} com a loja real.`, 6000);
+  };
+}
 // "No Mercado Livre agora" (quadro do produto): quem vende pelo catálogo do GTIN, com a loja real, o link e o preço de agora
-function listaML(xs, lista) {
-  const cod = {};                                 // loja real -> código V.. do Nubimetrics (quando já ligados)
-  (lista || []).forEach(v => { const x = ((S.rel || {}).lojas_ml || {})[v.vid]; if (x) (cod[x.id] = cod[x.id] || []).push(v.codigo); });
-  return `<div class="ml-lista">${xs.slice(0, 15).map(m => { const lj = m.loja || {}, cs = cod[String(m.vendedor_id)] || [];
-    return `<div class="ml-item${cs.length ? " eu" : ""}">${m.foto ? `<img src="${esc(urlML(m.foto))}" alt="" loading="lazy">` : "<span></span>"}
+function listaML(xs, lista, n = 15) {
+  const cod = {}, conferir = {};                  // loja real -> código V.. do Nubimetrics (quando já ligados)
+  (lista || []).forEach(v => { const x = ((S.rel || {}).lojas_ml || {})[v.vid];
+    if (x) { (cod[x.id] = cod[x.id] || []).push(v.codigo); if (x.confianca === "a conferir") conferir[x.id] = true; } });
+  return `<div class="ml-lista">${xs.slice(0, n).map(m => { const lj = m.loja || {}, cs = cod[String(m.vendedor_id)] || [], ac = conferir[String(m.vendedor_id)];
+    return `<div class="ml-item${cs.length && !ac ? " eu" : ""}">${m.foto ? `<img src="${esc(urlML(m.foto))}" alt="" loading="lazy">` : "<span></span>"}
       <div style="min-width:0"><div class="ml-linha" style="gap:4px 8px">${lojaML(lj) || `<b>${esc(String(m.vendedor_id || ""))}</b>`}
-        ${cs.length ? `<span class="pill good" title="o mesmo vendedor no Nubimetrics">= ${cs.map(esc).join(", ")} no Nubimetrics</span>` : ""}
+        ${cs.length ? `<span class="pill ${ac ? "warn" : "good"}" title="${ac ? "ligado antes da prova nova: confira" : "o mesmo vendedor no Nubimetrics"}">= ${cs.map(esc).join(", ")} no Nubimetrics${ac ? " (a conferir)" : ""}</span>` : ""}
         ${m.vendedor_id ? `<a class="muted" href="#/ml/loja/${esc(m.vendedor_id)}" style="font-size:12px">página da loja</a>` : ""}</div>
         <a href="${esc(urlML(m.link))}" target="_blank" rel="noopener" style="font-size:12.5px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.titulo || m.anuncio)} ↗</a>
         <div class="ml-chips" style="margin:4px 0 0">${chipsML(m)}${m.vendidos != null ? `<span class="ml-chip">🛒 ${vendidosML(m.vendidos)}</span>` : ""}</div></div>
@@ -6140,7 +6259,8 @@ function abrirVendedoresProduto(prod) {
     <div class="pq-sec">Eu <span class="muted" id="pq-fonte" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
     <div id="pq-meu"><div class="kpis pq-kpis">${kpi("Eu vendo?", "…", "carregando meu estoque e minhas vendas")}</div></div>
     <div class="pq-sec">No Mercado Livre agora <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">· quem vende pelo catálogo (GTIN), com a loja real, o link e o preço de agora</span></div>
-    <div id="pq-ml"><div class="muted" style="font-size:13px">${gtins.length ? "Buscando no Mercado Livre…" : "Este produto não tem GTIN nos anúncios: não dá para achar no catálogo do Mercado Livre."}</div></div>
+    <div id="pq-ml">${gtins.length ? `<button class="btn small ml-laranja" id="pq-ml-abrir">🛰️ Ver quem vende agora no Mercado Livre</button>`
+      : `<div class="muted" style="font-size:13px">Este produto não tem GTIN nos anúncios: não dá para achar no catálogo do Mercado Livre.</div>`}</div>
     <div class="tw" style="margin-top:12px;max-height:48vh"><table class="t"><thead><tr>
       <th class="num">#</th><th>Código</th><th>Vendedor</th><th class="num">Un. vendidas</th><th class="num">Faturamento</th>
       <th class="num">Share</th><th class="num" title="Faturamento ÷ unidades">Preço médio</th><th class="num" title="Mediana do último preço dos anúncios do vendedor">Preço atual</th>
@@ -6162,16 +6282,31 @@ function abrirVendedoresProduto(prod) {
     .then(m => { if (document.body.contains(bg)) $("#pq-meu", bg).innerHTML = meuLadoProduto(m, {pm, med, mes30, lista, kpi, R, bg}); })
     .catch(e => { $("#pq-meu", bg).innerHTML = `<div class="muted" style="font-size:13px">Não consegui ler meus dados: ${esc(e.message)}</div>`; });
   // 29/09 (Bruno): a loja real, o link do anúncio e o preço de agora pela API oficial do ML (catálogo do GTIN); os vendedores
-  // do Nubimetrics que batem (preço, Full e idade) ganham o nome real na tabela abaixo
-  if (gtins.length) api("meli_gtin", {marca: S.rel.marca || S.marca || "", gtins: gtins.join("|")})
-    .then(r => {
-      if (!document.body.contains(bg)) return;
-      S.rel.lojas_ml = Object.assign(S.rel.lojas_ml || {}, r.casados || {});
-      bg.querySelectorAll("[data-mlvid]").forEach(el => { el.innerHTML = realML(el.dataset.mlvid); });
-      $("#pq-ml", bg).innerHTML = (r.anuncios || []).length ? listaML(r.anuncios, lista)
-        : `<div class="muted" style="font-size:13px">O catálogo do Mercado Livre não tem este GTIN agora (os anúncios podem estar fora do catálogo).</div>`;
-    })
-    .catch(e => { if (document.body.contains(bg)) $("#pq-ml", bg).innerHTML = mlAviso(e); });
+  // do Nubimetrics que batem com prova ganham o nome real na tabela abaixo. "Tá abrindo sozinho bagunçando": só no clique,
+  // e a lista vem curta (8) com "mostrar todos"
+  const abrirML = () => {
+    $("#pq-ml", bg).innerHTML = `<div class="muted" style="font-size:13px">Buscando no Mercado Livre…</div>`;
+    api("meli_gtin", {marca: S.rel.marca || S.marca || "", gtins: gtins.join("|")})
+      .then(r => {
+        if (!document.body.contains(bg)) return;
+        S.rel.lojas_ml = Object.assign(S.rel.lojas_ml || {}, r.casados || {});
+        bg.querySelectorAll("[data-mlvid]").forEach(el => { el.innerHTML = realML(el.dataset.mlvid); });
+        const xs = r.anuncios || [], desenhar = n => {
+          $("#pq-ml", bg).innerHTML = xs.length ? listaML(xs, lista, n)
+            + `<div style="display:flex;gap:8px;margin-top:8px">${xs.length > n ? `<button class="btn small" id="pq-ml-mais">Mostrar todos (${nf0.format(xs.length)})</button>` : ""}
+              <button class="btn small" id="pq-ml-fechar">Fechar a lista</button></div>`
+            : `<div class="muted" style="font-size:13px">O catálogo do Mercado Livre não tem este GTIN agora (os anúncios podem estar fora do catálogo).</div>`;
+          if ($("#pq-ml-mais", bg)) $("#pq-ml-mais", bg).onclick = () => desenhar(xs.length);
+          if ($("#pq-ml-fechar", bg)) $("#pq-ml-fechar", bg).onclick = () => {
+            $("#pq-ml", bg).innerHTML = `<button class="btn small ml-laranja" id="pq-ml-abrir">🛰️ Ver quem vende agora no Mercado Livre (${nf0.format(xs.length)})</button>`;
+            $("#pq-ml-abrir", bg).onclick = () => desenhar(8);
+          };
+        };
+        desenhar(8);
+      })
+      .catch(e => { if (document.body.contains(bg)) $("#pq-ml", bg).innerHTML = mlAviso(e); });
+  };
+  if ($("#pq-ml-abrir", bg)) $("#pq-ml-abrir", bg).onclick = abrirML;
 }
 const normNome = s => String(s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 function meuLadoProduto(m, {pm, med, mes30, lista, kpi, R, bg}) {

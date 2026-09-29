@@ -123,15 +123,37 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (`_ean_valido`). Só para agrupar (confiança "GTIN pelo SKU do vendedor"); o GTIN gravado continua o do arquivo.
 
 ## API oficial do Mercado Livre (29/09, pedido do Bruno) — `meli.py`, rotas `meli_*`, menu Concorrentes → 🛰️ Mercado Livre
-- Objetivo: a loja VERDADEIRA (o Nubimetrics embaralha vendedor e anúncio: `ID do anúncio`/`ID do vendedor` são SHA-256,
-  conferido em 14.406 linhas e no botão copiar da tela deles), o link da loja e do anúncio, a foto e o preço de agora.
+- Objetivo: a loja VERDADEIRA (o Nubimetrics embaralha vendedor e anúncio: `ID do anúncio`/`ID do vendedor` são hashes de
+  64, com chave secreta, conferido em 14.406 linhas e no botão copiar da tela deles), o link da loja e do anúncio, a foto e o preço de agora.
   Camada só de leitura POR CIMA do Nubimetrics: agrupamento, produtos e números continuam os nossos. Visual do HunterHub.
 - Chaves `ML_CLIENT_ID`/`ML_CLIENT_SECRET` na Vercel (o Bruno coloca; nunca no código/banco/log/chat). Token do app
   (client_credentials) só na memória do servidor; erro nunca mostra segredo nem token. Sem as chaves: só um aviso 🔑.
-- Hash -> loja: pelo GTIN no catálogo do ML (`/products/search` -> `/products/{id}/items`), `meli.casar_vendedores` casa
-  cada anúncio do Nubimetrics com o do ML por preço (±1% ou R$ 1), Full e idade (dias publicados na data do export, ±3);
-  2 votos ou 1 com idade exata = "provável". De-para em `ia_resumos` `meli|hash_lojas` (o que o Bruno confirma à mão fica
-  "manual" e não é trocado). O relatório da marca traz `lojas_ml` e o `vid` (hash) de cada vendedor.
+- Hash -> loja (refeito 29/09, depois que o ICARBONXX P3 casou com a LUH20230609125415, loja sem Full e de 230 vendas):
+  - o hash do Nubimetrics tem CHAVE SECRETA: 200 MLB da PUREHOME (loja do Bruno, relatório do UpSeller) x os 67 hashes
+    dela no Explorador, em sha256/sha512/md5/sha3/blake2 e variações: nada bate. Não tentar desfazer;
+  - o Explorador NÃO embaralha a coluna "Loja oficial" (`LOJA.OFICIAL.23829` = official_store_id do ML; 150 dos 1.603
+    vendedores têm) e mostra, na coluna Vendedor, o NOME QUE O BRUNO DEU aos vendedores seguidos ("ICARBONXX P3") e o da
+    loja dele (PUREHOME). `_linhas_nubi(..., com_bruto=True)` traz `loja_oficial_id` e `exposicao` da linha original;
+  - `meli.ofertas_por_gtin` lê TODAS as páginas de `/products/{id}/items` (50 por vez, até 300; a 1ª versão lia 50 e a loja
+    certa ficava depois); `meli.casar` pontua cada loja: Full e tipo (Clássico/Premium) iguais e o nº da loja oficial
+    igual são obrigatórios; preço do dia do export ("Último preço", export de até 5 dias) ±1% = exato; preço médio do mês
+    do seguido só "perto"; cada produto conta 1 vez; idade do anúncio só quando o ML dá `/items` (hoje não dá ao app);
+  - `meli.decidir`: "certa" = nº da loja oficial só desta loja + (2 produtos ou preço exato), ou preço exato em 3+
+    produtos; "provável" = preço do dia + idade num produto, ou mais produtos que qualquer rival (≥ metade dos sondados e
+    2) com preço batendo em 2 e 2 pontos de folga. Senão NÃO grava: devolve até 3 candidatas (link + prova) e o Bruno
+    escolhe ("✔ É esta" = manual). Trava do Cowork: loja com menos vendas NA VIDA que metade das unidades do mês dele no
+    Nubimetrics é descartada. O nome do seguido é rótulo do Bruno: só desempata (+1);
+  - `meli.achar_loja` (vendedor inteiro: até 8 GTINs de catálogo, loja oficial e preço do dia primeiro) e
+    `meli.casar_vendedores` (quadro do produto, 1 produto: só com loja oficial + preço, ou preço + idade);
+  - De-para em `ia_resumos` `meli|hash_lojas` (hash) e `meli|seguidos` (nome do seguido), com `confianca`, `prova`,
+    `oficial`, `votos`/`sondados`. Achar o seguido grava também o hash dele no Explorador (e vice-versa). Refazer sem prova
+    tira o automático antigo; o "manual" nunca muda (a resposta diz se a busca "confere"). Feito antes da prova nova (sem
+    `prova`) aparece "a conferir" (`_a_conferir`); "dúvida" não aparece. O relatório da marca traz `lojas_ml` e o `vid`.
+  - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a
+    vitrine): ICARBONXX P3 = KAIDOXSTOREE (2540338692), loja oficial nº 23829 (LIPX), gravado como manual.
+  - A solução do Cowork (`meli_cruzar.py`: busca por palavra + mesma foto + data) NÃO roda com o token do app:
+    `/sites/MLB/search` dá 403 e `/items` não devolve o anúncio. A foto do anúncio não vem no export do Nubimetrics (só
+    na tela). Se um dia o ML liberar a busca para o app (DevCenter), a foto vira mais uma prova.
 - Onde aparece: quadro do produto → "No Mercado Livre agora" (quem vende pelo catálogo, loja real, link, preço de agora) e
   o nome real embaixo do vendedor; quadro do vendedor → "🔎 Descobrir a loja real" / "Já sei qual é" (`meli_descobrir`,
   `meli_nomear`); `#/ml` (colar link, lojas identificadas, 🔌 testar conexão = `meli_teste`); `#/ml/anuncio/<link|MLB>`
@@ -144,11 +166,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   devolveu o anúncio (cai para `/items/{id}` um por um; se o ML recusar, título/foto vêm do produto de catálogo) e
   `/sites/MLB/search` (busca por loja) dá 403 para o app — a página da loja usa os anúncios dela no catálogo dos GTINs que
   ela vende no Nubimetrics (`_gtins_da_loja`). Erro de login do app (`ErroLogin`) nunca vira "bloqueado" em silêncio.
-- Vendedores SEGUIDOS (Concorrentes → Vendedores): o export não tem ID de anúncio e o preço é o médio do mês; o
-  `seller_hash` (128) não é o hash do Explorador (64). `meli.casar_seguido` pontua cada loja do catálogo por presença nos
-  GTINs que ele mais vende, preço perto do médio (±8%), Full e nome ("ICARBONXX P3" x ICARBONXX, sufixo P/TOP é rótulo).
-  De-para em `meli|seguidos` (com os IDs e links dos anúncios achados); rotas `meli_seguido`, `meli_seguido_descobrir`,
+- Vendedores SEGUIDOS (Concorrentes → Vendedores): o export não tem ID de anúncio nem loja oficial e o preço é o médio
+  do mês; o `seller_hash` (128) não é o hash do Explorador (64). `_descobrir_seguido` junta o Explorador dele (achado pelo
+  nome; se não achar, 3+ SKUs iguais, `_explorador_do_seguido`) com o relatório do mês e chama `meli.achar_loja`. Rotas
+  `meli_seguido`, `meli_seguido_descobrir` (achou/loja ou candidatas + `explorador` {hashes, como, oficial}),
   `meli_seguido_nomear`; quadro "🏪 Loja no Mercado Livre" na página do vendedor. GTIN colado (13+13) é separado.
+- Painel "🔗 Vendedores × ML" (`#/vendedores-ml`, rota `meli_seguidos_lista`, `_painel_seguidos`): todos os seguidos com
+  hash, o mesmo vendedor no Explorador (hash + nº da loja oficial), anúncios/ativos/GTIN/catálogo/Full, faturamento,
+  unidades, marcas, a loja real com a prova e "🔎 Descobrir"/"↻ Refazer" (e "Descobrir as que faltam"); sem prova mostra
+  as candidatas com "✔ É esta". Diagnóstico 🔌 mostra se o ML manda o nº da loja oficial e quantas ofertas leu.
+- `/items` de outras lojas não vem para o token do app: depois de 3 falhas seguidas o nubi para de pedir por 30 min.
 
 ## Quadro do produto no Explorador (30/09, pedido do Bruno) — `abrirVendedoresProduto` + rota `estoque_produto`
 - Quadro largo (`.modal.larga.pq`): cabeçalho com o mercado (un., faturamento, preço médio e faixa, vendedores, líder) e
