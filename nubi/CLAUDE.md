@@ -118,6 +118,19 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   PROGRAMADOR.md 1c). Cards com `responsavel='deepseek_mac'` (o id `deepseek` continua sendo o agente de texto da Sala);
   fila `ferreiro_proximo(quem="deepseek")` depois do Astra; os três dividem o clone (`_CLONE`, `PROGRAMADORES_PID`).
 
+- **Estoque por categoria (30/09, pedido do Bruno: "igual ao ranking de marcas")**: aba 🏷️ Por categoria (`#/estoque/categorias`,
+  rota `estoque_categorias`, `categorias.estoque_por_categoria`). O UpSeller não tem marca: `categorias.marca_do_titulo` pega a
+  marca conhecida mais longa do título (lista do ranking `SEMENTE`, marcas do Explorador, `marca_categorias` e o último ranking de
+  cada categoria); a categoria é a do ranking (`classificar`, a escolha manual vence). Também por tipo de produto
+  (`tipo_produto`: Casa, Body splash, Skincare, Perfume) e por marca, com valor pelo custo e vendas de 30 dias do UpSeller
+  (cobertura = unidades ÷ venda/dia). Itens com estoque sem marca no título aparecem numa lista. Teste: `test_estoque_categorias.py`.
+- **Explorador: período analisado (30/09, "últimos 30 e 7 dias")**: o export é por período (sem venda por dia); cada período
+  importado da marca vira um botão na página da marca (`periodosMarca`, rota `relatorio&periodo=<id>`, `escolher_periodo`:
+  padrão = termina por último e mais longo; anterior = termina antes do escolhido começar). 7 e 30 dias aparecem quando o
+  export desse período é importado. A Visão geral dos vendedores já tem 7/15/30 dias.
+- **Scuderia (30/09)**: palavra que a coluna Marca põe ANTES da marca em 2+ anúncios ("SCUDERIA FERRARI") não vira linha
+  (`nubi.prefixos_da_marca`, fim da etapa 3); `REGRA_ATUAL` = regra 8.
+
 ## Perseguir anúncios pelo Apify (28/09, pedido do Bruno) — Estoque → 🎯 Perseguir anúncios (`#/estoque/perseguir`), `perseguir.py`
 
 - O Bruno cadastra anúncio (MLB… ou link) + palavra de busca (+ CEP e apelido opcionais), até `MAX_ANUNCIOS`=40. O robô do

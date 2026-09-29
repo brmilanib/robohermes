@@ -193,3 +193,89 @@ def relatorio(meses, linhas_por_mes, manuais=None):
         m["share_cat"] = (u or 0) / serie[m["categoria"]]["vendas"][-1] if serie[m["categoria"]]["vendas"][-1] else 0
     return {"meses": [m[:7] for m in meses], "categorias": cats, "serie": serie, "total": total, "marcas": lista,
             "sem_categoria": [m for m in lista if m["categoria"] == SEM]}
+
+
+# ---------------------------------------------------------------------------
+# 30/09 (Bruno: "no meu estoque, uma aba com o estoque por categoria, igual ao ranking de marcas"): a marca de cada item do
+# estoque sai do título (o UpSeller não tem coluna de marca) e a categoria é a mesma do ranking (classificar).
+TIPOS_PRODUTO = [
+    ("Casa", ("home spray", "difusor", "interiores", "aromatizador", "vela aromatica", "agua perfumada para tecidos")),
+    ("Body splash", ("body splash", "perfume mist", "body mist", "hair mist", "desodorante colonia", "splash")),
+    ("Skincare", ("serum", "protetor solar", "vitamina c", "skincare", "facial", "hidratante", "creme", "tonico", "sabonete")),
+    ("Perfume", ("perfume", "eau de parfum", "eau de toilette", "parfum", "extrait", "edp", "edt", "colonia")),
+]
+
+
+def tipo_produto(titulo):
+    t = " " + " ".join(nubi.normalizar(titulo or "").split()) + " "
+    for tipo, palavras in TIPOS_PRODUTO:
+        if any(f" {p} " in t for p in palavras):
+            return tipo
+    return "Outros"
+
+
+def marca_do_titulo(titulo, conhecidas):
+    """A marca conhecida mais longa que aparece no título (1 a 4 palavras seguidas, comparando sem espaço/acento):
+    "Perfume Asad Elixir Lattafa" -> LATTAFA (ganha de ASAD, que é mais curto). conhecidas: {chave compacta: nome}."""
+    pal = nubi.normalizar(titulo or "").split()
+    melhor = None
+    for n in (4, 3, 2, 1):
+        for i in range(len(pal) - n + 1):
+            k = nubi.compacta(" ".join(pal[i:i + n]))
+            if len(k) >= 4 and k in conhecidas and (melhor is None or len(k) > len(melhor)):
+                melhor = k
+    return conhecidas[melhor] if melhor else None
+
+
+def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None):
+    """itens do estoque (sku, titulo, atual, custo_medio) -> totais por categoria de marca, por tipo de produto e por marca.
+    vendas_sku: {sku compactado: {"unidades", "valor"}} dos últimos 30 dias (relatório do UpSeller)."""
+    vendas_sku = vendas_sku or {}
+    cats, tipos, marcas = {}, {}, {}
+    total = {"skus": 0, "unidades": 0.0, "valor": 0.0, "vend_un": 0.0, "vend_valor": 0.0}
+    sem = []
+    for it in itens:
+        atual = float(it.get("atual") or 0)
+        custo = it.get("custo_medio")
+        valor = atual * float(custo) if custo not in (None, "") else 0.0
+        marca = marca_do_titulo(it.get("titulo"), conhecidas)
+        cat = classificar(marca, manuais)[0] if marca else SEM
+        tipo = tipo_produto(it.get("titulo"))
+        v = vendas_sku.get(nubi.compacta(it.get("sku") or ""), {})
+        vu, vv = float(v.get("unidades") or 0), float(v.get("valor") or 0)
+        for grupo, chave in ((cats, cat), (tipos, tipo), (marcas, marca or "(marca não identificada)")):
+            g = grupo.setdefault(chave, {"skus": 0, "com_estoque": 0, "zerados": 0, "unidades": 0.0, "valor": 0.0,
+                                         "vend_un": 0.0, "vend_valor": 0.0})
+            g["skus"] += 1
+            g["com_estoque" if atual > 0 else "zerados"] += 1
+            g["unidades"] += atual
+            g["valor"] += valor
+            g["vend_un"] += vu
+            g["vend_valor"] += vv
+        m = marcas[marca or "(marca não identificada)"]
+        m.setdefault("categoria", cat)
+        m.setdefault("tipos", {})
+        m["tipos"][tipo] = m["tipos"].get(tipo, 0) + 1
+        if not marca and atual > 0:
+            sem.append({"sku": it.get("sku"), "titulo": it.get("titulo"), "atual": atual, "valor": round(valor, 2)})
+        total["skus"] += 1
+        total["unidades"] += atual
+        total["valor"] += valor
+        total["vend_un"] += vu
+        total["vend_valor"] += vv
+
+    def fechar(d, nome):
+        out = []
+        for k, g in d.items():
+            x = {nome: k, **{c: (round(v, 2) if isinstance(v, float) else v) for c, v in g.items() if c != "tipos"}}
+            x["pct_valor"] = round(g["valor"] / total["valor"], 4) if total["valor"] else 0
+            x["pct_vendas"] = round(g["vend_valor"] / total["vend_valor"], 4) if total["vend_valor"] else 0
+            x["cobertura_dias"] = round(g["unidades"] / (g["vend_un"] / 30), 1) if g["vend_un"] else None
+            if "tipos" in g:
+                x["tipo"] = max(g["tipos"], key=g["tipos"].get)
+            out.append(x)
+        return sorted(out, key=lambda x: -x["valor"])
+    sem.sort(key=lambda x: -x["valor"])
+    return {"total": {k: round(v, 2) if isinstance(v, float) else v for k, v in total.items()},
+            "categorias": fechar(cats, "categoria"), "tipos": fechar(tipos, "tipo"), "marcas": fechar(marcas, "marca"),
+            "sem_marca": sem[:60], "ordem": CATEGORIAS + [SEM]}

@@ -4033,6 +4033,47 @@ def estoque_compras(repo, com_plano=True):
     return out
 
 
+def estoque_categorias(repo):
+    """30/09 (Bruno): o estoque por categoria de marca (a mesma do Ranking de marcas), por tipo de produto e por marca,
+    com o valor pelo custo e as vendas dos últimos 30 dias (relatório do UpSeller)."""
+    ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": 1}) or [None])[0]
+    if not ult:
+        return {"vazio": True}
+    itens = _estoque_itens(repo, ult["id"])
+    manuais = {r["marca_chave"]: r["categoria"] for r in repo._todos("marca_categorias", {"select": "marca_chave,categoria"})}
+    conhecidas = {}
+    for m in categorias.SEMENTE.values():                     # nomes conhecidos da lista do ranking
+        for nome in m.split(","):
+            if nome.strip():
+                conhecidas.setdefault(nubi.compacta(nome), nubi.nome_bonito(nome.strip()))
+    try:                                                       # marcas do Explorador e as escolhidas na tela do ranking
+        for r in repo._todos("snapshots", {"select": "marca"}):
+            conhecidas.setdefault(nubi.compacta(r["marca"]), nubi.nome_bonito(r["marca"]))
+    except ErroNuvem:
+        pass
+    for k in manuais:
+        conhecidas.setdefault(k, k.title())
+    rels = _relatorios(repo)
+    if rels:                                                   # marcas do último ranking de cada categoria do ML
+        ult_rel = {}
+        for r in rels:
+            ult_rel[r["categoria"]] = r["id"]
+        ids = ",".join(str(i) for i in ult_rel.values())
+        for l in repo._todos("ranking_linhas", {"select": "marca", "relatorio_id": f"in.({ids})"}):
+            if l.get("marca"):
+                conhecidas.setdefault(nubi.compacta(l["marca"]), nubi.nome_bonito(l["marca"]))
+    v = _vendas_atuais(repo) or {}
+    vendas_sku = {}
+    for x in v.get("linhas") or []:
+        k = nubi.compacta(x.get("sku") or "")
+        d = vendas_sku.setdefault(k, {"unidades": 0.0, "valor": 0.0})
+        d["unidades"] += float(x.get("unidades") or 0)
+        d["valor"] += float(x.get("valor") or 0)
+    r = categorias.estoque_por_categoria(itens, conhecidas, manuais, vendas_sku)
+    r.update({"estoque_em": ult["criado_em"], "vendas": {k: x for k, x in v.items() if k != "linhas"} or None})
+    return r
+
+
 def analise_estoque(repo):
     """28/09 (Bruno): 1 análise do estoque por dia, com o DeepSeek (v4-pro), em cima das listas calculadas em código.
     29/09: a mesma chamada acha o equilíbrio da reposição semanal e devolve a lista de compra (LISTA_JSON)."""
@@ -4994,6 +5035,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
                                       "manual" if q.get("origem") == "manual" else "coletor")
     if rota == "estoque_compras":
         return estoque_compras(repo)
+    if rota == "estoque_categorias":
+        return estoque_categorias(repo)
     if rota == "estoque_chat" and metodo == "POST":
         return conversar_compras(repo, json.loads(corpo or b"{}").get("texto"))
     if rota == "estoque_lista" and metodo == "POST":

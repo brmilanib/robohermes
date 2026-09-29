@@ -1023,6 +1023,10 @@ header.top{padding:7px 16px}
 .per-chip small{color:var(--muted)}
 .per-chip.on{background:var(--accent);border-color:var(--accent);color:#fff}.per-chip.on small{color:#e8efff}
 .per-chip.falta{border-style:dashed;color:var(--muted);cursor:help}
+.ec-barra{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--soft);margin-top:6px}
+.ec-barra i{display:block;height:100%}
+.ec-leg{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:12px;color:var(--muted)}
+.ec-leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 /* telas grandes: aumenta menos (antes 1.2/1.4/1.6 deixava tudo enorme) */
 @media (min-width:2200px){body{zoom:1.05}}
 @media (min-width:2800px){body{zoom:1.2}}
@@ -1572,7 +1576,7 @@ async function rotear() {
     history.replaceState(null, "", location.hash.replace("#/estoque/", "#/sac/")); return rotear(); }
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
     return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
-  if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : telaEstoque();
+  if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/categorias") ? telaEstoqueCategorias() : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -2946,11 +2950,55 @@ function esFiltrar(k) {
   const alvo = $("#es-itens"); if (alvo) alvo.scrollIntoView({behavior: "smooth", block: "start"});
 }
 const esAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px"><button class="${ativa === "estoque" ? "on" : ""}" onclick="location.hash='#/estoque'">📦 Estoque</button>
+  <button class="${ativa === "categorias" ? "on" : ""}" onclick="location.hash='#/estoque/categorias'">🏷️ Por categoria</button>
   <button class="${ativa === "compras" ? "on" : ""}" onclick="location.hash='#/estoque/compras'">🛒 Compras e vendas</button>
   <button class="${ativa === "gestor" ? "on" : ""}" onclick="location.hash='#/estoque/gestor'">🧾 Planilha do Gestor Seller</button>
   <button class="${ativa === "posicoes" ? "on" : ""}" onclick="location.hash='#/estoque/posicoes'">📈 Posição do anúncio</button>
   <button class="${ativa === "perseguir" ? "on" : ""}" onclick="location.hash='#/estoque/perseguir'">🎯 Perseguir anúncios</button>
   <button class="${ativa === "rank" ? "on" : ""}" onclick="location.hash='#/estoque/rankeamento'">🧪 Rankeamento</button></div>`;
+// 30/09 (Bruno: "meu estoque por categoria, igual ao ranking de marcas"): marca tirada do título, categoria do ranking
+async function telaEstoqueCategorias() {
+  const main = $("#main");
+  main.innerHTML = `<div class="es-pg">${esAbas("categorias")}<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Separando o estoque por categoria</div></div></div>`;
+  let r;
+  try { r = await api("estoque_categorias"); } catch (e) { main.innerHTML = `<div class="es-pg">${esAbas("categorias")}<div class="card empty">${esc(e.message)}</div></div>`; return; }
+  if (!location.hash.startsWith("#/estoque/categorias")) return;
+  if (r.vazio) { main.innerHTML = `<div class="es-pg">${esAbas("categorias")}<div class="card empty">Nenhuma atualização do estoque ainda.</div></div>`; return; }
+  const t = r.total, temV = !!r.vendas;
+  const cor = c => COR_CAT[c] || "var(--dv-outro)";
+  const cats = r.categorias.filter(c => c.skus);
+  const barra = (xs, k, rot) => `<div class="ec-barra">${xs.filter(x => x[k] > 0).map(x => `<i style="width:${(100 * x[k]).toFixed(2)}%;background:${cor(x.categoria)}" title="${esc(x.categoria)} · ${FMT.pct(x[k])}"></i>`).join("")}</div><small class="muted">${rot}</small>`;
+  const linhaResumo = (x, nome, ico) => `<tr><td class="first">${ico || ""} ${esc(nome)}</td><td class="num">${nf0.format(x.skus)}</td><td class="num">${nf0.format(x.com_estoque)}</td>
+    <td class="num ${x.zerados ? "neg" : ""}">${nf0.format(x.zerados)}</td><td class="num">${nf0.format(x.unidades)}</td><td class="num"><b>${rsES(x.valor)}</b></td><td class="num">${FMT.pct(x.pct_valor)}</td>
+    ${temV ? `<td class="num">${nf0.format(x.vend_un)}</td><td class="num">${FMT.moeda(x.vend_valor)}</td><td class="num">${FMT.pct(x.pct_vendas)}</td><td class="num">${x.cobertura_dias == null ? "—" : nf0.format(x.cobertura_dias) + " d"}</td>` : ""}</tr>`;
+  const cab = `<tr><th></th><th class="num">SKUs</th><th class="num">Com estoque</th><th class="num">Zerados</th><th class="num">Unidades</th><th class="num">Valor (custo)</th><th class="num">% do valor</th>
+    ${temV ? `<th class="num">Vendas 30d (un.)</th><th class="num">Vendas 30d (R$)</th><th class="num">% das vendas</th><th class="num">Cobertura</th>` : ""}</tr>`;
+  main.innerHTML = `<div class="es-pg">${esAbas("categorias")}
+    <div class="es-cab"><h1>🏷️ Estoque por categoria</h1><span class="muted">estoque de ${esc(quandoES(r.estoque_em))}${temV ? ` · vendas de ${nf0.format(r.vendas.dias || 30)} dias do UpSeller` : " · sem relatório de vendas"}</span></div>
+    <p class="aviso">A marca vem do título do anúncio e a categoria é a mesma do Ranking de marcas (Designer, Nicho, Árabe…). Trocou a categoria de uma marca no Ranking → Categorias, muda aqui também.</p>
+    <div class="kpis">${cats.filter(c => c.categoria !== "Sem categoria").map(c => `<div class="card kpi" style="border-top:3px solid ${cor(c.categoria)}">
+      <div class="l">${ICO_CAT[c.categoria] || ""} ${esc(c.categoria)}</div><div class="v">${abrev(c.valor)}</div>
+      <div class="o"><b>${FMT.pct(c.pct_valor)}</b> do estoque · ${nf0.format(c.unidades)} un.${temV ? ` · vende ${FMT.pct(c.pct_vendas)}` : ""}</div></div>`).join("")}</div>
+    <div class="card pad"><h2>Onde está o dinheiro × de onde vêm as vendas</h2>
+      ${barra(cats, "pct_valor", `Estoque pelo custo: ${rsES(t.valor)}`)}
+      ${temV ? `<div style="height:8px"></div>${barra(cats, "pct_vendas", `Vendas dos últimos 30 dias: ${FMT.moeda(t.vend_valor)}`)}` : ""}
+      <div class="ec-leg">${cats.map(c => `<span><i style="background:${cor(c.categoria)}"></i>${esc(c.categoria)}</span>`).join("")}</div></div>
+    <div class="card pad" style="margin-top:10px"><h2>Por categoria de marca</h2><div class="rolar"><table class="t">${cab}
+      ${cats.map(c => linhaResumo(c, c.categoria, ICO_CAT[c.categoria])).join("")}</table></div></div>
+    <div class="card pad" style="margin-top:10px"><h2>Por tipo de produto</h2><div class="rolar"><table class="t">${cab}
+      ${r.tipos.map(x => linhaResumo(x, x.tipo, {"Perfume": "🧴", "Body splash": "💦", "Skincare": "🧖", "Casa": "🏠"}[x.tipo] || "📦")).join("")}</table></div></div>
+    <h2 style="margin:14px 0 4px">Por marca</h2><div id="ec-marcas"></div>
+    ${r.sem_marca.length ? `<details class="card pad" style="margin-top:10px"><summary><b>❔ ${nf0.format(r.sem_marca.length)} item(ns) com estoque sem marca no título</b> <span class="muted">(ficam em "Sem categoria")</span></summary>
+      <table class="t" style="margin-top:6px"><tr><th>SKU</th><th>Título</th><th class="num">Atual</th><th class="num">Valor</th></tr>
+      ${r.sem_marca.map(x => `<tr><td>${esc(x.sku)}</td><td class="wrap">${esc(x.titulo)}</td><td class="num">${nf0.format(x.atual)}</td><td class="num">${rsES(x.valor)}</td></tr>`).join("")}</table></details>` : ""}</div>`;
+  S.tabelas = S.tabelas || {};
+  tabela($("#ec-marcas"), "estoque_marcas", r.marcas.map(m => ({...m, cob: m.cobertura_dias})),
+    [["marca", "Marca", "txt", "txt"], ["categoria", "Categoria", "txt", "sel"], ["tipo", "Tipo", "txt", "sel"], ["skus", "SKUs", "int"], ["zerados", "Zerados", "int"],
+     ["unidades", "Unidades", "int"], ["valor", "Valor (custo)", "moeda"], ["pct_valor", "% do valor", "pct"],
+     ...(temV ? [["vend_un", "Vendas 30d (un.)", "int"], ["vend_valor", "Vendas 30d (R$)", "moeda"], ["pct_vendas", "% das vendas", "pct"], ["cob", "Cobertura (dias)", "int"]] : [])],
+    {ordem: ["valor", -1]});
+  desenharMenu();
+}
 // SAC (27/09, pedido do Bruno): menu próprio com as lojas e a base de conhecimento do SAC
 const SAC_MENU = [["painel", "📊 Painel"], ["tiktok", "🎵 TikTok Shop"], ["shopee", "🛍️ Shopee"], ["ml", "🤝 Mercado Livre"], ["base", "📚 Base de conhecimento SAC"]];
 const sacAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px">${SAC_MENU.map(([r, n]) =>
