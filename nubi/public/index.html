@@ -3449,7 +3449,8 @@ async function telaEstoque() {
         ${r.analise_dia ? `<div class="md es-analise">${mdSimples(r.analise_dia.texto)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">DeepSeek · análise de ${esc(r.analise_dia.dia.split("-").reverse().join("/"))} (1 por dia) · lista de compra e chat em <a href="#/estoque/compras">🛒 Compras e vendas</a></p>`
           : a.analise ? `<div class="md">${mdSimples(a.analise)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">${esc(a.analise_por || "")}</p>`
           : `<p class="muted">A análise do DeepSeek sai uma vez por dia, depois que o estoque e o relatório de vendas entram.</p>`}
-        ${r.analise_dia ? "" : `<button class="btn small ghost" id="es-analisar" style="margin-top:8px">${a.analise ? "↻ Refazer a leitura rápida" : "Pedir a leitura rápida agora"}</button>`}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><a class="btn small primary" href="#/estoque/compras?chat=1">💬 Conversar com o DeepSeek</a>
+        ${r.analise_dia ? "" : `<button class="btn small ghost" id="es-analisar">${a.analise ? "↻ Refazer a leitura rápida" : "Pedir a leitura rápida agora"}</button>`}</div></div>
     </div>
     ${d.tem_anterior ? `<div class="es-mud-cab"><h2>Mudanças ${d.base ? `desde ${esc(quandoES(d.base.criado_em))}` : "desde a atualização anterior"}</h2>
       <span class="muted">clique num quadro para ver a lista completa</span></div>
@@ -3553,7 +3554,7 @@ async function telaCompras() {
       ${aba === "comprar" ? `<td class="num"><b>${nf0.format(x.sugerido)}</b></td><td class="muted">${esc(x.motivo)}</td>` : ""}</tr>`).join("");
   main.innerHTML = esAbas("compras") + `<div class="es-cab"><h1>🛒 Compras e vendas</h1>
       <span class="muted">${v ? `vendas de ${esc(v.inicio ? v.inicio.split("-").reverse().join("/") : "?")} a ${esc(v.fim ? v.fim.split("-").reverse().join("/") : "?")} (${v.dias} dias) · importado ${esc(quandoES(v.importado_em))}` : "ainda sem o relatório de vendas"} · estoque de ${esc(quandoES(r.estoque_em))}</span>
-      <div class="acoes"><label class="btn small" title="Importar à mão o relatório do UpSeller: Análises → Vendas por Anúncio → últimos 30 dias → Exportar">⬆ Importar vendas por anúncio<input type="file" id="cp-arq" accept=".xlsx" hidden></label></div></div>
+      <div class="acoes"><a class="btn small primary" href="#/estoque/compras?chat=1" onclick="setTimeout(() => { const f = $('#cp-form'); if (f) { f.scrollIntoView({block: 'center'}); $('#cp-texto').focus(); } }, 50)">💬 DeepSeek</a><label class="btn small" title="Importar à mão o relatório do UpSeller: Análises → Vendas por Anúncio → últimos 30 dias → Exportar">⬆ Importar vendas por anúncio<input type="file" id="cp-arq" accept=".xlsx" hidden></label></div></div>
     <div class="kpis">${kpi("Preciso comprar", `<span class="${r.comprar.length ? "neg" : ""}">${nf0.format(r.comprar.length)}</span>`, `estoque + trânsito dura menos de ${r.alerta_dias} dias`)}
       ${kpi("Zerados", nf0.format(r.zerados.length), `${nf0.format(r.zerados_com_venda)} deles venderam nos últimos ${r.dias} dias`)}
       ${kpi("SKUs com venda", nf0.format(r.mais_vendidos.length), v ? `${nf0.format(v.unidades)} un · ${rsES(v.valor)}` : "")}
@@ -3573,6 +3574,8 @@ async function telaCompras() {
   const bb = $("#cp-busca"); if (bb) bb.onchange = () => { S.cpBusca = bb.value; telaCompras(); };
   const bm = $("#cp-mais"); if (bm) bm.onclick = () => { S.cpMax = (S.cpMax || 80) + 200; telaCompras(); };
   ligarCpLista(r); ligarCpChat(r);
+  // 29/09 (Bruno: "não achei o chat com o DeepSeek"): botão no Estoque e no topo da Compras levam direto para ele
+  if (/[?&]chat=1/.test(location.hash)) { const f = $("#cp-form"); if (f) { f.scrollIntoView({block: "center"}); const t = $("#cp-texto"); if (t) t.focus(); } }
   const fa = $("#cp-arq");
   if (fa) fa.onchange = async () => { const f = fa.files[0]; if (!f) return;
     toast("Importando " + f.name + "…", 20000);
