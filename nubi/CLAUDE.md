@@ -284,6 +284,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   - TESTE COM A AURASCENT (29/09, botão 🔌): mesmo com a conta de VENDEDOR, `/items/{id}`, `/items?ids=` e
     `/sites/MLB/search` dão 403; funcionam /users/me, anúncios da própria conta, descrição, catálogo, visitas, tarifa. O
     bloqueio é do APP no ML (DevCenter), não da conta. Vendedor de anúncio fora de catálogo segue sem fonte oficial.
+  - PEDIDO AO ML (29/09 à noite): o Bruno abriu o caso **ODDS-22684** no DevCenter (App_id 1895184323212907, assunto
+    "Solicitações usuários de teste" / Desbloqueio) pedindo leitura de /items, /items?ids=, /sites/MLB/search e
+    /user-products. Resposta vem no e-mail do Bruno. Liberou -> rodar o 🔌 e ligar o multiget /items em `ext_lista`
+    (vendedor, estoque, vendidos exatos, date_created, marca em todos os cards).
   - CONTA DO ML CONECTADA (29/09, autorizado): `#/ml` → 🔐 Conectar conta do ML (`meli_conectar` grava o `state` de uso
     único e manda para `auth.mercadolivre.com.br/authorization`); a volta `meli_retorno` é PÚBLICA (antes do login em
     `atender`, confere o state em 15 min, troca o código, `meli.conectar_conta`) e mostra uma página simples. Redirect URI
