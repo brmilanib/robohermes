@@ -1,4 +1,5 @@
 """Posição do anúncio (card #78): lê a busca do Mercado Livre na ordem da tela, separa patrocinados e calcula posição e página."""
+import json
 import os
 import sys
 import urllib.parse
@@ -155,6 +156,29 @@ def test_anuncio_colado_da_vitrine_nao_para_no_login_do_ml():
         b.close()
     assert not enviados                                   # não gravou nada (não achou vendedor: ficou bloqueado)
     assert fotos and "verificação" in fotos[0]
+
+
+def test_gravar_anuncios_da_loja_sem_id_repetido():
+    """Card #129: o mesmo MLB duas vezes na página da loja quebrava o upsert (ON CONFLICT ... second time)."""
+    envios = []
+
+    class Repo:
+        def _todos(self, t, q=None):
+            return []
+
+        def _eq(self, v):
+            return "eq." + v
+
+        def _req(self, metodo, tabela, *a, **k):
+            if metodo == "POST":
+                envios.append(k["corpo"])
+            return []
+    an = [{"id": "MLB-1234567", "titulo": "A", "preco": 10}, {"id": "MLB1234567", "titulo": "A2", "preco": 11},
+          {"id": "MLB7654321", "titulo": "B"}, {"id": "lixo"}]
+    r = w.rota_posicoes(Repo(), "POST", "ml_anuncios_gravar", {}, json.dumps({"loja": "Aurascent", "anuncios": an}))
+    ids = [x["id"] for lote in envios for x in lote]
+    assert sorted(ids) == ["MLB1234567", "MLB7654321"] and r["gravados"] == 2
+    assert [x for lote in envios for x in lote if x["id"] == "MLB1234567"][0]["titulo"] == "A2"
 
 
 def test_termo_padrao():
