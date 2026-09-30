@@ -6166,6 +6166,9 @@ function celula(r, k, f, i) {
 // da loja e do anúncio, a foto e o preço de agora. Visual do HunterHub. Só leitura: o agrupamento não muda.
 // link/foto da API: só https (nunca javascript:). 29/09: o ML devolve o perfil da loja em http:// -> vira https:// (antes ficava
 // vazio e "abrir no ML" abria o próprio nubi)
+// 30/09 (Bruno: o link da SIENO. não abria): a loja abre pela VITRINE por id (_CustId_), que sempre existe e mostra todos
+// os anúncios; o perfil pelo apelido (com ponto no fim, por ex.) falha. Sem id, cai no link que veio do ML.
+const urlLojaML = x => x && String(x.id || "").match(/^\d+$/) ? `https://lista.mercadolivre.com.br/_CustId_${x.id}` : urlML(x && x.link);
 const urlML = u => { const x = String(u || "").trim().replace(/^http:\/\//i, "https://"); return /^https:\/\/[^\s"'<>]+$/i.test(x) ? x : ""; };
 function mlAviso(e) {
   const msg = (e && e.message) || String(e || "");
@@ -6527,7 +6530,7 @@ function exportarCSVML() {
 function realML(vid) {
   const x = ((S.rel || {}).lojas_ml || {})[vid];
   if (!x) return "";
-  return `🏪 <a href="#/ml/loja/${esc(x.id)}" title="Página da loja">${esc(x.nome)}</a>${x.link ? ` <a href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir a loja no Mercado Livre">↗</a>` : ""}${x.confianca && x.confianca !== "manual" ? ` <span class="muted" title="${esc(x.prova || "")}">(${esc(x.confianca)})</span>` : ""}`;
+  return `🏪 <a href="#/ml/loja/${esc(x.id)}" title="Página da loja">${esc(x.nome)}</a>${x.link ? ` <a href="${esc(urlLojaML(x))}" target="_blank" rel="noopener" title="Abrir a loja no Mercado Livre">↗</a>` : ""}${x.confianca && x.confianca !== "manual" ? ` <span class="muted" title="${esc(x.prova || "")}">(${esc(x.confianca)})</span>` : ""}`;
 }
 // Prova da ligação com a loja real (29/09): o que bateu — nº da loja oficial, preço do dia, em quantos produtos
 const provaML = x => x ? `${esc(x.confianca || "")}${x.prova ? ": " + esc(x.prova) : x.votos ? `, em ${x.votos} produto(s)` : ""}` : "";
@@ -6548,7 +6551,7 @@ function lojaRealVendedor(bg, v) {
       <input id="pv-ml-link" type="search" placeholder="Link da loja ou de um anúncio dela no Mercado Livre" style="flex:1;min-width:200px">
       <button class="btn small" id="pv-ml-salvar">Salvar</button></div></div>`;
   el.innerHTML = x ? `<div class="card pad" style="padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center">
-      <span>🏪 Loja real no Mercado Livre: ${x.link ? `<a class="ml-loja" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${esc(x.nome)} ↗</a>` : `<b>${esc(x.nome)}</b>`}
+      <span>🏪 Loja real no Mercado Livre: ${x.link || x.id ? `<a class="ml-loja" href="${esc(urlLojaML(x))}" target="_blank" rel="noopener">${esc(x.nome)} ↗</a>` : `<b>${esc(x.nome)}</b>`}
         <span class="muted">(${provaML(x)})</span></span>
       <a class="btn small" href="#/ml/loja/${esc(x.id)}">Página da loja</a>
       ${x.confianca !== "manual" ? `<button class="btn small ghost" id="pv-ml-corrigir">Não é essa?</button>` : ""}</div>${form}`
@@ -6590,7 +6593,7 @@ async function lojaMLSeguido(nomeV) {
   const desenhar = x => {
     if (!$("#vml-loja")) return;
     el.innerHTML = x ? `<div class="card pad"><div style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center">
-        <span>🏪 Loja no Mercado Livre: ${x.link ? `<a class="ml-loja" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${esc(x.nome)} ↗</a>` : `<b>${esc(x.nome)}</b>`}
+        <span>🏪 Loja no Mercado Livre: ${x.link || x.id ? `<a class="ml-loja" href="${esc(urlLojaML(x))}" target="_blank" rel="noopener">${esc(x.nome)} ↗</a>` : `<b>${esc(x.nome)}</b>`}
           <span class="muted">(${provaML(x)})</span></span>
         <a class="btn small" href="#/ml/loja/${esc(x.id)}">Página da loja</a>
         ${x.confianca !== "manual" ? `<button class="btn small ghost" id="vml-corrigir">Não é essa?</button>` : ""}</div>
@@ -6678,7 +6681,7 @@ async function telaDesafio(silencioso) {
       ${mdCodigo(e.texto)}<span class="tf-hr">${esc(hora(e.criado_em))}</span></div>`; };
   const vend = (r.vendedores || []).slice().sort((a, b) => (a.ml ? 0 : 1) - (b.ml ? 0 : 1) || b.vendas - a.vendas);
   const linhaV = v => `<tr><td class="first"><a href="#/vendedores/${encodeURIComponent(v.vendedor)}"><b>${esc(v.vendedor)}</b></a></td>
-      <td data-l="Loja real">${v.ml ? (v.ml.link ? `<a class="ml-loja" href="${esc(urlML(v.ml.link))}" target="_blank" rel="noopener">${esc(v.ml.nome)} ↗</a>` : `<b>${esc(v.ml.nome)}</b>`)
+      <td data-l="Loja real">${v.ml ? (v.ml.link ? `<a class="ml-loja" href="${esc(urlLojaML(v.ml))}" target="_blank" rel="noopener">${esc(v.ml.nome)} ↗</a>` : `<b>${esc(v.ml.nome)}</b>`)
         : `<span class="st bad">sem loja</span>`}</td>
       <td data-l="Cidade">${v.ml && v.ml.cidade ? `📍 ${esc(v.ml.cidade)}${v.ml.uf ? ` - ${esc(v.ml.uf)}` : ""}` : `<span class="muted">—</span>`}</td>
       <td data-l="Confiança">${v.ml ? `<span class="st ${v.ml.confianca === "manual" ? "good" : v.ml.confianca === "certa" ? "good" : "warn"}">${esc(v.ml.confianca === "manual" ? "confirmada por você" : v.ml.confianca || "a conferir")}</span>` : ""}</td>
@@ -6762,7 +6765,7 @@ async function telaSeguidosML() {
       <td class="num" data-l="Full">${nf0.format(v.full)}</td>
       <td class="num" data-l="Faturamento (mês)">${rsES(v.vendas)}</td><td class="num" data-l="Unidades">${nf0.format(v.unidades)}</td>
       <td data-l="Marcas">${nf0.format(v.marcas)}${v.top_marca ? `<div class="muted" style="font-size:11.5px">+ vende: ${esc(v.top_marca)}</div>` : ""}</td>
-      <td class="sml-loja" data-l="Loja no ML">${v.ml ? `<div>${v.ml.link ? `<a class="ml-loja" href="${esc(urlML(v.ml.link))}" target="_blank" rel="noopener">${esc(v.ml.nome)} ↗</a>` : `<b>${esc(v.ml.nome)}</b>`}
+      <td class="sml-loja" data-l="Loja no ML">${v.ml ? `<div>${v.ml.link ? `<a class="ml-loja" href="${esc(urlLojaML(v.ml))}" target="_blank" rel="noopener">${esc(v.ml.nome)} ↗</a>` : `<b>${esc(v.ml.nome)}</b>`}
           ${v.ml.cidade ? `<div style="font-size:12px">📍 ${esc(v.ml.cidade)}${v.ml.uf ? ` - ${esc(v.ml.uf)}` : ""}</div>` : ""}
           <div class="muted" style="font-size:11.5px">ID ${esc(v.ml.id)} · ${provaML(v.ml)}${v.ml.anuncios ? ` · ${v.ml.anuncios} anúncio(s)` : ""}</div></div>`
         : v.candidatas ? candidatasML(v.candidatas) : v.motivo ? `<div class="muted" style="font-size:11.5px">${esc(v.motivo)}</div>` : ""}
