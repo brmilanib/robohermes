@@ -7043,7 +7043,10 @@ def main():
                     raise
                 except Exception as ex:  # noqa: BLE001
                     a, i, e = 0, 0, 1
-                    log(f"  MARCAS {rot_cat} {per['mes']}: ERRO {ex}")
+                    # 30/09 (card #133): o erro saía só como um número; agora vai o tipo e a linha onde ocorreu
+                    quadro = traceback.extract_tb(ex.__traceback__)[-1:] or [None]
+                    onde = f" [{Path(quadro[0].filename).name} {quadro[0].name}, linha {quadro[0].lineno}]" if quadro[0] else ""
+                    log(f"  MARCAS {rot_cat} {per['mes']}: ERRO {type(ex).__name__}: {str(ex)[:300]!r}{onde}")
                     partes.append(f"MARCAS {rot_cat} {per['mes']} falhou")
                 A, I, E = A + a, I + i, E + e
                 AO_VIVO["feito"] += 1
