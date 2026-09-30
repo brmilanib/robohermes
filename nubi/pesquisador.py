@@ -47,6 +47,28 @@ _ULTIMA = {"t": 0.0}
 PELO_ASTRA = os.environ.get("NUBI_PESQUISA_ASTRA", "1") != "0"
 TENTATIVAS_ASTRA = 2
 HERMES_PESQUISA = os.environ.get("NUBI_PESQUISA_HERMES", "1") != "0"     # 30/09: o Hermes pesquisa junto, grátis
+# 30/09: a pesquisa do card #126 morreu com "read operation timed out" (busca na web + relatório longo passa dos 90 s
+# padrão da OpenAI). O Astra espera até TIMEOUT_ASTRA; se ele demorou mais que HERMES_DEPOIS_S, o Hermes fica para a
+# próxima passada do conferir (a função da Vercel tem 300 s no total).
+TIMEOUT_ASTRA = 200
+HERMES_DEPOIS_S = 100
+
+
+def _card_da_origem(origem):
+    """Pesquisa pedida de dentro de um card (origem "card #126"): o relatório também entra no card como passo."""
+    m = re.search(r"card\s*#(\d+)", str(origem or ""))
+    return int(m.group(1)) if m else None
+
+
+def _passo_card(repo, origem, autor, texto):
+    tid = _card_da_origem(origem)
+    if not tid:
+        return
+    try:
+        repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": tid, "autor": autor, "tipo": "passo", "texto": texto[:8000],
+                                                    "criado_em": _agora().isoformat()}], prefer="return=minimal")
+    except Exception:  # noqa: BLE001 — o passo no card nunca derruba a pesquisa
+        pass
 
 
 class ErroPesquisa(Exception):
@@ -149,7 +171,8 @@ def _pelo_astra(repo, p):
     _atualizar(repo, p["chave"], d)
     ia.USO["origem"] = f"pesquisa {d.get('origem') or ''}"[:60]
     try:
-        txt, links, _ = ia.perguntar(CONTEXTO + d["pergunta"], web=True, max_tokens=6000, qual="chatgpt", modelo=modelo)
+        txt, links, _ = ia.perguntar(CONTEXTO + d["pergunta"], web=True, max_tokens=6000, qual="chatgpt", modelo=modelo,
+                                     timeout=TIMEOUT_ASTRA)
     except Exception as e:  # noqa: BLE001 — sem crédito, fora do ar: tenta de novo depois
         txt, links = "", []
         d["erro"] = str(e)[:300]
@@ -161,6 +184,8 @@ def _pelo_astra(repo, p):
         _atualizar(repo, p["chave"], d)
         if d["status"] == "erro":
             _sala(repo, f"🔎 O Astra não conseguiu fazer a pesquisa \"{d['pergunta'][:200]}\" ({d.get('erro') or 'sem resposta'}).")
+            _passo_card(repo, d.get("origem"), "astra", f"🔎 Não consegui fazer a pesquisa ({d.get('erro') or 'sem resposta'}). "
+                                                        "Peça de novo com /pesquisar na Sala ou reduza a pergunta.")
         return p["chave"]
     _gravar(repo, p["chave"], d, rel, None, p["chave"])
     return p["chave"]
@@ -195,6 +220,7 @@ def pesquisa_hermes(repo, chave, pergunta):
     _atualizar(repo, chave, d)
     if not rel:
         _sala_como(repo, "Hermes", f"🦉 Não consegui fazer a pesquisa grátis de \"{pergunta[:200]}\" agora ({erro}).")
+        _passo_card(repo, d.get("origem"), "hermes", f"🦉 Não consegui fazer a pesquisa grátis agora ({erro}).")
         return ""
     links = _links(rel)
     repo._req("POST", "saber", corpo=[{
@@ -204,6 +230,7 @@ def pesquisa_hermes(repo, chave, pergunta):
         "tags": ["pesquisa_profunda", "hermes"] + _plataformas(rel), "criado_em": _agora().isoformat()}], prefer="return=minimal")
     _sala_como(repo, "Hermes", f"🦉 **Pesquisa do Hermes (grátis)** — {pergunta[:200]}\n\n{rel[:5500]}"
                                + ("\n\n…(relatório completo na busca da Sala)" if len(rel) > 5500 else ""))
+    _passo_card(repo, d.get("origem"), "hermes", f"🦉 **Pesquisa do Hermes (grátis)** — {pergunta[:200]}\n\n{rel[:7500]}")
     return rel
 
 
@@ -214,10 +241,17 @@ def _sala_como(repo, autor, texto):
 
 def _iniciar(repo, p):
     if PELO_ASTRA:
+        t0 = time.monotonic()
         chave = _pelo_astra(repo, p)
         d = p.get("dados") or {}
         if not (d.get("hermes") or {}).get("status") and HERMES_PESQUISA:
-            pesquisa_hermes(repo, p["chave"], d["pergunta"])
+            if time.monotonic() - t0 > HERMES_DEPOIS_S:      # o Astra demorou: o Hermes fica para a próxima passada
+                reg = (repo._req("GET", "ia_resumos", {"select": "dados", "chave": repo._eq(p["chave"])}) or [{}])[0]
+                dd = dict(reg.get("dados") or {})
+                dd["hermes"] = {"status": "pendente"}
+                _atualizar(repo, p["chave"], dd)
+            else:
+                pesquisa_hermes(repo, p["chave"], d["pergunta"])
         return chave
     d = dict(p.get("dados") or {})
     if gasto_hoje(repo) + TETO_SESSAO_CENTS / 100 > TETO_DIA_USD:
@@ -292,6 +326,8 @@ def _gravar(repo, chave, d, rel, custo, fonte_id):
     _sala(repo, f"🔎 **Pesquisa pronta**{' (Astra)' if d.get('motor') == 'astra' else ''} — {d['pergunta'][:200]}\n\n{rel[:5500]}"
                 + ("\n\n…(relatório completo na busca da Sala)" if len(rel) > 5500 else "")
                 + (f"\n\n_custo: US$ {custo:.2f}_" if custo is not None else ""))
+    _passo_card(repo, d.get("origem"), "astra" if d.get("motor") == "astra" else "claude",
+                f"🔎 **Pesquisa pronta** — {d['pergunta'][:200]}\n\n{rel[:7500]}")
 
 
 def _concluir(repo, p, s):
@@ -335,6 +371,11 @@ def conferir(repo, forcar=False):
             feitos.append("iniciada")
         except ErroPesquisa as e:
             feitos.append(f"erro ao iniciar: {e}")
+    for p in _pesquisas(repo, "feita", 10):    # o Hermes que ficou para depois (o Astra demorou na passada anterior)
+        d = p.get("dados") or {}
+        if (d.get("hermes") or {}).get("status") == "pendente" and HERMES_PESQUISA:
+            pesquisa_hermes(repo, p["chave"], d["pergunta"])
+            feitos.append("hermes")
     for p in _pesquisas(repo, "rodando", 10):
         d = p.get("dados") or {}
         if d.get("motor") == "astra":           # travou no meio (a função caiu): volta para a fila depois de 10 min

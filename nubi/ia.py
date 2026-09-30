@@ -354,14 +354,15 @@ def _post_json(url, corpo, cab, timeout=90):
     return r
 
 
-def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sistema=None, imagens=None):
+def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sistema=None, imagens=None, timeout=None):
     """
     qual: 'chatgpt', 'claude', 'deepseek' ou 'codex' (ChatGPT com o modelo de código) — padrão: disponivel();
     modelo: troca o modelo só nesta pergunta ('pro' no DeepSeek = o modelo maior); sistema: instruções fixas do agente.
+    timeout: segundos de espera na OpenAI (padrão 90; a pesquisa na web do Astra usa mais).
     Teto do provedor estourado (card #10): texto/triagem responde no modelo local ('local'); o resto fica em espera.
     """
     try:
-        return _perguntar(pergunta, web, max_tokens, qual, modelo, sistema, imagens)
+        return _perguntar(pergunta, web, max_tokens, qual, modelo, sistema, imagens, timeout)
     except EmEspera as e:
         if USO.get("nivel") not in NIVEL_DEGRADA or not tem("ollama"):
             if USO.get("espera"):
@@ -377,7 +378,7 @@ def perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, siste
             USO["local"] = False
 
 
-def _perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sistema=None, imagens=None):
+def _perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sistema=None, imagens=None, timeout=None):
     ia = qual or disponivel()
     if ia == "codex":
         if not tem("chatgpt"):
@@ -438,7 +439,7 @@ def _perguntar(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, sist
         if web:
             corpo["tools"] = [{"type": "web_search_preview"}]
         r = _post_json("https://api.openai.com/v1/responses", corpo,
-                       {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"})
+                       {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}, timeout=timeout or 90)
         partes = [c for o in r.get("output", []) if o.get("type") == "message" for c in o.get("content", [])]
         texto = " ".join(c.get("text", "") for c in partes)
         links = [a.get("url") for c in partes for a in (c.get("annotations") or []) if a.get("url")]

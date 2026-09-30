@@ -41,6 +41,8 @@ class Repo:
             self.sala += corpo
         elif t == "agentes_uso":
             self.uso += corpo
+        elif t == "tarefa_eventos":
+            self.__dict__.setdefault("passos", []).extend(corpo)
         return []
 
 
@@ -160,6 +162,45 @@ def test_pesquisa_pelo_astra():
     finally:
         ia.perguntar = velho
         ia.ollama_web = velho_web
+        p.PELO_ASTRA = False
+
+
+def test_pesquisa_de_um_card_entra_no_card_e_hermes_espera_se_o_astra_demorou():
+    """30/09 (Bruno, card #126): pedida de dentro de um card, a pesquisa do Astra e a do Hermes viram passos do card; o
+    Astra espera até TIMEOUT_ASTRA e, se demorou, o Hermes fica para a próxima passada do conferir."""
+    import ia
+    p.PELO_ASTRA = True
+    velho, velho_web, velho_tempo = ia.perguntar, ia.ollama_web, p.HERMES_DEPOIS_S
+    vistos = []
+
+    def falso(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, **k):
+        vistos.append(k.get("timeout"))
+        if qual == "ollama":
+            return "## Hermes\nAchei [1] https://a.b/c", [], "ollama"
+        return "## Astra\nConectores: Apify.", ["https://apify.com/x"], "chatgpt"
+    ia.perguntar = falso
+    ia.ollama_web = lambda pergunta, max_resultados=5: [{"titulo": "t", "url": "https://a.b/c", "texto": "x"}]
+    try:
+        r = Repo()
+        p.HERMES_DEPOIS_S = -1                                 # qualquer demora conta como "demorou"
+        chave = p.pedir(r, "Quais conectores trazem os anúncios de um vendedor?", origem="card #126")
+        d = r.resumos[chave]["dados"]
+        assert vistos[0] == p.TIMEOUT_ASTRA and d["status"] == "feita" and d["hermes"] == {"status": "pendente"}, (vistos, d)
+        assert [x["autor"] for x in r.passos] == ["astra"] and r.passos[0]["tarefa_id"] == 126 and "Apify" in r.passos[0]["texto"]
+        p._ULTIMA["t"] = 0
+        assert "hermes" in p.conferir(r, forcar=True)
+        assert r.resumos[chave]["dados"]["hermes"]["status"] == "feita"
+        assert [x["autor"] for x in r.passos] == ["astra", "hermes"] and "grátis" in r.passos[1]["texto"]
+        p._ULTIMA["t"] = 0
+        p.conferir(r, forcar=True)
+        assert len(r.passos) == 2                              # não repete o Hermes
+        # pesquisa da Sala (sem card): nenhum passo em card
+        p.HERMES_DEPOIS_S = 100
+        r2 = Repo()
+        p.pedir(r2, "Pergunta comum da Sala sem card")
+        assert not getattr(r2, "passos", []) and r2.resumos[list(r2.resumos)[0]]["dados"]["hermes"]["status"] == "feita"
+    finally:
+        ia.perguntar, ia.ollama_web, p.HERMES_DEPOIS_S = velho, velho_web, velho_tempo
         p.PELO_ASTRA = False
 
 
