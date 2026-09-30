@@ -4703,7 +4703,7 @@ def lojas_seguidos(repo, lojas=None):
                   "nome": x.get("nome") or p.get("nome") or "", "cidade": p.get("cidade") or None, "uf": p.get("uf") or None,
                   "link": p.get("link") or x.get("link") or "", "confianca": x.get("confianca"), "prova": x.get("prova") or "",
                   "atualizado_em": agora}
-    if out:
+    if out and perfis:  # ML fora do ar: não sobrescreve a cidade já gravada com None
         try:
             repo._req("POST", "vend_lojas_ml", {"on_conflict": "vendedor"}, corpo=list(out.values()),
                       prefer="resolution=merge-duplicates,return=minimal")
