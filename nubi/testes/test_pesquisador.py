@@ -129,15 +129,25 @@ def test_pesquisa_pelo_astra():
 
     def falso(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, **k):
         pedidos.append((web, qual, modelo))
+        if qual == "ollama":                                  # o Hermes resume as páginas da busca grátis
+            assert "FONTES:" in pergunta and "https://blog.exemplo.com/full" in pergunta
+            return "## Resumo\nO Full ajuda [1] https://blog.exemplo.com/full", [], "ollama"
         return "## Resumo\nNo Mercado Livre o Full pesa no ranking.", ["https://vendedores.mercadolivre.com.br/x"], "chatgpt"
     ia.perguntar = falso
+    velho_web = ia.ollama_web
+    ia.ollama_web = lambda pergunta, max_resultados=5: [{"titulo": "Full no ML", "url": "https://blog.exemplo.com/full", "texto": "O Full…"}]
     try:
         r = Repo()
         chave = p.pedir(r, "Como o Full afeta o ranking no Mercado Livre?")
         d = r.resumos[chave]["dados"]
-        assert d["status"] == "feita" and d["motor"] == "astra" and pedidos == [(True, "chatgpt", "gpt-6-astra")], (d, pedidos)
+        d = r.resumos[chave]["dados"]
+        assert d["status"] == "feita" and d["motor"] == "astra" and pedidos[0] == (True, "chatgpt", "gpt-6-astra"), (d, pedidos)
+        # 30/09 (Bruno): o Hermes pesquisa junto, grátis (busca do Ollama + gpt-oss), e posta como Hermes
+        assert pedidos[1] == (False, "ollama", None) and d["hermes"]["status"] == "feita", (d, pedidos)
+        assert [m["autor"] for m in r.sala][-2:] == ["Pesquisador nubi", "Hermes"] and "grátis" in r.sala[-1]["texto"]
+        assert len(r.saber) == 2 and r.saber[1]["autor"] == "Hermes"
         assert "Fontes" in r.resumos[chave]["texto"] and "vendedores.mercadolivre.com.br" in r.resumos[chave]["texto"]
-        assert r.saber and r.saber[0]["fonte_tabela"] == "pesquisa_profunda" and "(Astra)" in r.sala[-1]["texto"]
+        assert r.saber[0]["fonte_tabela"] == "pesquisa_profunda" and "(Astra)" in r.sala[-2]["texto"]
         # sem crédito / fora do ar: fica na fila e, na 2ª falha, vira erro com aviso na Sala
         ia.perguntar = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("HTTP 429"))
         r2 = Repo()
@@ -145,9 +155,11 @@ def test_pesquisa_pelo_astra():
         assert r2.resumos[ch2]["dados"]["status"] == "pedida"
         p._ULTIMA["t"] = 0
         p.conferir(r2, forcar=True)
-        assert r2.resumos[ch2]["dados"]["status"] == "erro" and "não conseguiu" in r2.sala[-1]["texto"]
+        assert r2.resumos[ch2]["dados"]["status"] == "erro" and any("não conseguiu" in m["texto"] for m in r2.sala if m["autor"] == "Pesquisador nubi")
+        assert sum(1 for m in r2.sala if m["autor"] == "Hermes") == 1           # o Hermes não repete na nova tentativa
     finally:
         ia.perguntar = velho
+        ia.ollama_web = velho_web
         p.PELO_ASTRA = False
 
 

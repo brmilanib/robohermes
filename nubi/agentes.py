@@ -126,7 +126,8 @@ PERFIS = {
                  "Pedir ao Mac um comando da lista fechada", "Juntar nomes de marcas com confiança alta"],
         "nao_pode": ["Escrever ou publicar código", "Aprovar risco alto (vai para o Bruno)", "Mexer em senhas ou chaves"]},
     "pesquisador": {
-        "funcao": "30/09 (Bruno): a pesquisa agora é feita pelo ASTRA (modelo dele na OpenAI com busca na web), na hora do pedido; "
+        "funcao": "30/09 (Bruno): a pesquisa agora é feita pelo ASTRA (modelo dele na OpenAI com busca na web), na hora do pedido, "
+                  "e o HERMES faz uma 2ª pesquisa grátis junto (busca do Ollama + gpt-oss); "
                   "o agente da Anthropic fica de reserva (NUBI_PESQUISA_ASTRA=0). Pesquisador do time: pesquisa profunda na internet (várias etapas, lê as páginas inteiras, compara as fontes) e "
                   "entrega um relatório em português com os links, a data de cada fonte e \"o que aplicar nos anúncios do Bruno\". "
                   "Foco: Mercado Livre, Shopee, Amazon e TikTok Shop Brasil (algoritmo, rankeamento, regras, taxas, concorrentes).",
@@ -227,7 +228,7 @@ PERFIS = {
         "como": "Opina na Sala e faz cards de texto quando é o responsável.",
         "pode": ["Opinar e entregar textos"], "nao_pode": ["Mexer no código", "Publicar"]},
     "hermes": {
-        "funcao": "Vigia de erros 24 h, memória e documentação: conserta o simples no Mac, abre card 🩺 urgente no que não consegue e "
+        "funcao": "30/09: também pesquisa na internet, grátis, junto com o Astra em todo /pesquisar. "Vigia de erros 24 h, memória e documentação: conserta o simples no Mac, abre card 🩺 urgente no que não consegue e "
                   "guarda as soluções na caixa de conhecimento.",
         "modelo": "hermes3:8b no Ollama do Mac mini (grátis)",
         "como": "O vigia do Mac chama ele no minuto seguinte a qualquer falha; roda de novo o que falhou quando sai versão nova; "
