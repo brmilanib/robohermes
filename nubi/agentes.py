@@ -184,7 +184,7 @@ PERFIS = {
         "pode": ["Propor a correção exata no código", "Entregar análises e documentação"],
         "nao_pode": ["Mexer direto no código ou no banco", "Publicar"]},
     "deepseek": {
-        "funcao": "⏸ PAUSADO (30/09, time enxuto: as análises e o chat de Compras passaram para o Astra). Analista do estoque e das compras (28–29/09, pedido do Bruno): análise do dia dos dados coletados (onde focar) e "
+        "funcao": "🎯 30/09: FOCADO NO DESAFIO #126 (pedido do Bruno) — auditor lógico do casamento anúncio real x Nubimetrics (cards do tipo desafio de que ele é o responsável; fora disso segue pausado). ⏸ PAUSADO (30/09, time enxuto: as análises e o chat de Compras passaram para o Astra). Analista do estoque e das compras (28–29/09, pedido do Bruno): análise do dia dos dados coletados (onde focar) e "
                   "do estoque × vendas por anúncio (o que comprar, zerados que vendem, preços, margem, encalhados), a lista de compra "
                   "da semana e o chat de Compras. Também programa a parte do estoque no Mac (DeepSeek programador).",
         "modelo": "deepseek-v4-pro pela API da DeepSeek (flash só de reserva); no Mac, o Aider com o mesmo modelo",

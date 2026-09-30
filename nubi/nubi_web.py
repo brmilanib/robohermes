@@ -1311,6 +1311,8 @@ def atender(metodo, rota, q, corpo, token):
             except reuniao.ErroDuvida as e:
                 raise ErroNuvem(str(e))
             return _json({"ok": True, "decisao": decisao})
+        if rota == "desafio":
+            return _json(painel_desafio(repo))
         if rota == "reuniao_tarefas":
             ts = repo._todos("reuniao_tarefas", {"select": "*", "order": "id.desc"})
             try:
@@ -4712,6 +4714,75 @@ def lojas_seguidos(repo, lojas=None):
     return out
 
 
+# 30/09 (Bruno: "abre uma página só para esse card desafio"): tela #/desafio — os cards do tipo "desafio" (#126 e os
+# cards-filhos de cada agente), a equipe, as 5 etapas, os 17 seguidos com a loja real e a cidade, as pesquisas pedidas de
+# dentro dos cards e a linha do tempo de todos os passos. Escrever na página vai para o card principal (tarefa_responder).
+DESAFIO_PRINCIPAL = 126
+ETAPAS_DESAFIO = [
+    (1, "Cidade/UF dos seguidos ligados + tabela vend_lojas_ml", "claude_mac"),
+    (2, "Vitrine completa de cada loja por _CustId_ (regras da extensão) → vend_anuncios_ml", "claude_mac"),
+    (3, "Casamento anúncio real ↔ Nubimetrics/Explorador + página do vendedor", "astra"),
+    (4, "Histórico diário de preço, posição, vendidos e estoque + alertas", "claude_mac"),
+    (5, "Os 4 seguidos sem loja (prova pelas fotos do Nubimetrics)", "claude_mac"),
+]
+
+
+def _etapas_desafio(eventos, cards):
+    """Situação de cada etapa a partir dos passos: relatório com "etapa N ... publicada" = feita; passo recente citando a
+    etapa (24 h) ou card do responsável em execução = em andamento; senão pendente."""
+    agora = datetime.now(timezone.utc)
+    em_exec = {c.get("responsavel") for c in cards if c.get("status") in ("em_desenvolvimento", "em_teste")}
+    out = []
+    for n, titulo, resp in ETAPAS_DESAFIO:
+        pad = re.compile(rf"etapa\s*{n}\b", re.I)
+        feita = any(e.get("tipo") == "relatorio" and pad.search(e.get("texto") or "") and "publicad" in (e.get("texto") or "").lower()
+                    for e in eventos)
+        recente = any(pad.search(e.get("texto") or "") and e.get("tipo") in ("passo", "relatorio")
+                      and (agora - _dt_utc(e.get("criado_em"))).total_seconds() < 86400 for e in eventos if _dt_utc(e.get("criado_em")))
+        out.append({"n": n, "titulo": titulo, "responsavel": resp,
+                    "situacao": "feita" if feita else "em_andamento" if (recente or resp in em_exec) else "pendente"})
+    return out
+
+
+def painel_desafio(repo):
+    cards = repo._req("GET", "reuniao_tarefas", {"select": "*", "tipo": "eq.desafio", "order": "id"}) or []
+    if not any(int(c["id"]) == DESAFIO_PRINCIPAL for c in cards):
+        cards = (repo._req("GET", "reuniao_tarefas", {"select": "*", "id": repo._eq(DESAFIO_PRINCIPAL)}) or []) + cards
+    ids = [int(c["id"]) for c in cards]
+    eventos = repo._todos("tarefa_eventos", {"select": "*", "tarefa_id": f"in.({','.join(map(str, ids))})", "order": "id"}) if ids else []
+    agora = datetime.now(timezone.utc)
+    ult = {}
+    for e in eventos:
+        ult[e["tarefa_id"]] = e
+    for c in cards:
+        c["ultimo_evento"] = ult.get(c["id"])
+        c["n_eventos"] = sum(1 for e in eventos if e["tarefa_id"] == c["id"])
+        c["situacao"], c["situacao_motivo"], c["proxima_rodada"] = _situacao_card(c, agora)
+    try:
+        vendedores = _painel_seguidos(repo)
+    except Exception as e:  # noqa: BLE001 — sem o Nubimetrics/ML a página sai sem a tabela
+        vendedores, erro_vend = [], str(e)[:160]
+    else:
+        erro_vend = None
+    pesquisas = []
+    for p in repo._req("GET", "ia_resumos", {"select": "chave,texto,dados,criado_em", "chave": "like.pesquisa|*",
+                                              "order": "criado_em.desc", "limit": 40}) or []:
+        d = p.get("dados") or {}
+        m = re.search(r"card\s*#(\d+)", str(d.get("origem") or ""))
+        if m and int(m.group(1)) in ids:
+            pesquisas.append({"chave": p["chave"], "pergunta": d.get("pergunta"), "status": d.get("status"), "motor": d.get("motor"),
+                              "hermes": (d.get("hermes") or {}).get("status"), "erro": d.get("erro"), "pedida_em": d.get("pedida_em"),
+                              "relatorio": (p.get("texto") or "")[:20000]})
+    com_loja = [v for v in vendedores if v.get("ml")]
+    return {"principal": DESAFIO_PRINCIPAL, "cards": cards, "eventos": eventos[-150:], "etapas": _etapas_desafio(eventos, cards),
+            "vendedores": vendedores, "erro_vendedores": erro_vend, "pesquisas": pesquisas,
+            "resumo": {"vendedores": len(vendedores), "com_loja": len(com_loja),
+                       "confirmadas": sum(1 for v in com_loja if (v["ml"] or {}).get("confianca") == "manual"),
+                       "com_cidade": sum(1 for v in com_loja if (v["ml"] or {}).get("cidade")),
+                       "anuncios_ligados": sum(int((v["ml"] or {}).get("anuncios") or 0) for v in com_loja),
+                       "anuncios_nubimetrics": sum(int(v.get("anuncios") or 0) for v in vendedores)}}
+
+
 def _painel_seguidos(repo):
     """29/09 (Bruno): todos os vendedores seguidos, com os dados técnicos do último relatório de cada um e a loja real no
     Mercado Livre quando já achada (meli|seguidos)."""
@@ -5756,7 +5827,13 @@ def trabalhar_agentes(repo, limite=2):
         ia.USO["origem"] = f"card #{tid} ({resp})"
         try:
             chave = resp if resp in agentes.AGENTES else "chatgpt"
-            txt = agentes.perguntar(chave, _pedido_card(t, evs, caixa), max_tokens=6000)
+            # 30/09 (Bruno: "coloca o DeepSeek focado no card desafio"): o DeepSeek, pausado fora das 2 análises do dia,
+            # só é liberado para os cards do tipo "desafio" de que ele é o responsável
+            if chave == "deepseek" and (t.get("tipo") or "") == "desafio":
+                with ia.deepseek_liberado():
+                    txt = agentes.perguntar(chave, _pedido_card(t, evs, caixa), max_tokens=6000)
+            else:
+                txt = agentes.perguntar(chave, _pedido_card(t, evs, caixa), max_tokens=6000)
         except Exception as e:  # noqa: BLE001
             _evento(repo, tid, "sistema", f"{resp} não respondeu ({str(e)[:150]}); tenta na próxima hora.", tipo="status")
             repo._req("PATCH", "reuniao_tarefas", {"id": repo._eq(tid)}, corpo={"status": "aprovada"}, prefer="return=minimal")

@@ -447,6 +447,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `vend_anuncios_ml`, `vend_anuncios_ml_dia`, autorizadas no card). Estratégias no card: API do ML, vitrine
   `lista.mercadolivre.com.br/_CustId_<id>` lida com as regras da extensão (`doCartao`/`cedo.js`), Apify, fotos do Nubimetrics,
   pesquisa do Astra + Hermes (origem "card #126"), Hunter só como conferência no navegador. Ferreiro implementa por etapas.
+- Página **🎯 Desafio** (`#/desafio`, rota `desafio` → `painel_desafio`): cards `tipo='desafio'` (#126 Ferreiro, #127 Astra,
+  #128 DeepSeek), `ETAPAS_DESAFIO` (situação pelos passos: relatório "etapa N … publicada" = feita), os 17 seguidos com loja
+  real/cidade (`_painel_seguidos`), pesquisas cuja origem é "card #N" e a linha do tempo de todos os cards; escrever na página
+  = `tarefa_responder` no #126. Teste `test_desafio.py`.
+- Pesquisa pedida de dentro de um card (origem "card #N", `pesquisador._passo_card`): os relatórios do Astra e do Hermes (e os
+  erros) entram no card como passos. O Astra espera até `TIMEOUT_ASTRA`=200 s (`ia.perguntar(timeout=)`); se demorou mais que
+  `HERMES_DEPOIS_S`, o Hermes fica `pendente` e roda na próxima passada do `conferir`.
+- DeepSeek (pausado fora das 2 análises) é liberado em `trabalhar_agentes` só para cards `tipo='desafio'` de que é o
+  responsável (`ia.deepseek_liberado()`); entrega texto, que o Chefe confere.
   - Etapa 1 (30/09): `nubi_web.lojas_seguidos` pega cada seguido ligado de `meli|seguidos` (sem "dúvida"), lê a cidade/UF
     do perfil público (`meli.lojas` = `/users/{id}`, cache 7 dias) e faz upsert em `vend_lojas_ml` (migração
     `supabase/vend_lojas_ml.sql`, o Chefe aplica; sem a tabela, a tela mostra assim mesmo). Roda ao abrir `#/vendedores-ml`

@@ -1176,7 +1176,7 @@ const SECOES = [
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
   {id: "lojas", nome: "Minhas Lojas", desc: "Estoque e lojas do dono", icone: "📦"},
 ];
-function secaoAtual() { return /^#\/inicio/.test(location.hash) ? "inicio" : /^#\/(estoque|sac)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -1497,7 +1497,8 @@ function desenharMenu() {
   const rkAberto = ab.ranking ?? sec === "ranking";
   const sacAberto = ab.sac ?? h.startsWith("#/sac");
   $("#side").innerHTML = `
-    ${it("#/inicio", "🏠", "Início", sec === "inicio")}
+    ${it("#/inicio", "🏠", "Início", h.startsWith("#/inicio") || (sec === "inicio" && !h.startsWith("#/desafio")))}
+    ${it("#/desafio", "🎯", "Desafio", h.startsWith("#/desafio"))}
     ${it("#/ranking", "🏆", "Ranking de marcas", sec === "ranking", seta("ranking", cats.length > 0, rkAberto))}
     ${rkAberto && cats.length ? sub(cats) : ""}
     ${it("#/", "🔎", "Explorador", sec === "explorador", cont(S.painel.length) + seta("explorador", S.painel.length > 0))}
@@ -1573,6 +1574,7 @@ async function rotear() {
   const sec = secaoAtual();
   if (sec !== secaoDesenhada || !$("#side")) { secaoDesenhada = sec; moldura(); } else desenharMenu();
   desenharBarraBaixo();
+  if (location.hash.startsWith("#/desafio")) return telaDesafio();
   if (sec === "inicio") return telaInicio();
   if (/^#\/estoque\/(tiktok|shopee)/.test(location.hash)) {       // endereço antigo: o atendimento mudou para o menu SAC
     history.replaceState(null, "", location.hash.replace("#/estoque/", "#/sac/")); return rotear(); }
@@ -6647,6 +6649,82 @@ async function fotosNubiSeguido(nomeV) {
     : `<span class="muted" style="font-size:13px">📷 Fotos dos anúncios no Nubimetrics: ainda não lidas. Na Central, peça ao coletor
       "Nubimetrics: fotos dos anúncios dos vendedores seguidos".</span>`;
 }
+// ---------- 🎯 Desafio (30/09, pedido do Bruno: "abre uma página só para esse card desafio") ----------
+// Tudo do card #126 num lugar: etapas, equipe (cards do tipo desafio), os 17 seguidos com a loja real e a cidade, as
+// pesquisas pedidas de dentro dos cards e a linha do tempo de todos os passos. Escrever aqui vai para o card principal.
+const ETAPA_ST = {feita: ["✅ feita", "good"], em_andamento: ["⏳ em andamento", "warn"], pendente: ["○ pendente", ""]};
+async function telaDesafio(silencioso) {
+  const main = $("#main");
+  if (!silencioso) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o desafio</div></div>`;
+  let r;
+  try { r = await api("desafio"); } catch (e) { if (!silencioso) main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/desafio")) return;
+  if (silencioso && document.activeElement === $("#df-txt")) return;     // não apaga o que você está escrevendo
+  const P = r.principal, cards = r.cards || [], principal = cards.find(c => c.id === P) || cards[0] || {}, res = r.resumo || {};
+  const hora = t => t ? new Date(t).toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "";
+  const cardMini = c => { const ex = execInfo(c), sit = situacaoInfo(c), ev = c.ultimo_evento, vivo = devAtivo(c);
+    return `<div class="dev-card ${vivo ? "vivo" : ""}" data-abrir="${c.id}" tabindex="0" role="button">
+      <div class="dc-top"><span class="dc-id">#${c.id}</span><span class="st ${DEV_ST[c.status] ? DEV_ST[c.status][1] : ""}">${esc((DEV_ST[c.status] || [c.status])[0])}</span>
+        ${c.n_eventos ? `<span class="dc-n">💬 ${c.n_eventos}</span>` : ""}</div>
+      <h4>${esc(c.titulo)}</h4>
+      <div class="dc-exec"><span class="dc-av" style="--c:${ex.cor}">${ex.icone}</span><b>${esc(ex.nome)}</b>${vivo ? ` <span class="dc-dig"><i></i><i></i><i></i></span>` : ""}</div>
+      ${sit ? `<div class="dc-sit"><span class="st ${sit.classe}">${esc(sit.texto)}</span>${sit.motivo ? `<span class="dc-sit-mot">${esc(sit.motivo)}</span>` : ""}</div>` : ""}
+      ${c.aguardando ? `<div class="dc-pede">🙋 precisa de você: ${esc(c.aguardando.slice(0, 140))}</div>` : ""}
+      ${ev ? `<div class="dc-ev muted" style="font-size:11.5px">${esc(ev.texto.slice(0, 120))} · ${esc(desde(ev.criado_em))}</div>` : ""}</div>`; };
+  const bolha = e => { if (e.tipo === "status") return `<div class="tf-sis">#${e.tarefa_id} · ${esc(e.texto)} · ${esc(desde(e.criado_em))}</div>`;
+    const a = agInfo(e.autor), eu = e.autor === "voce";
+    return `<div class="tf-b ${eu ? "eu" : ""} ${e.tipo === "pergunta" ? "perg" : ""} ${e.tipo === "erro_teste" ? "erro" : ""} ${e.tipo === "relatorio" || e.tipo === "teste_ok" ? "rel" : ""}">
+      ${eu ? "" : `<div class="tf-nm" style="color:${a[2]}">${a[0]} ${esc(a[1])}${e.tipo === "erro_teste" ? " · ❌" : e.tipo === "teste_ok" ? " · ✅ teste" : e.tipo === "relatorio" ? " · 📄 relatório" : e.tipo === "pergunta" ? " · pergunta" : ""} <span class="muted" style="font-weight:400">· card #${e.tarefa_id}</span></div>`}
+      ${mdCodigo(e.texto)}<span class="tf-hr">${esc(hora(e.criado_em))}</span></div>`; };
+  const vend = (r.vendedores || []).slice().sort((a, b) => (a.ml ? 0 : 1) - (b.ml ? 0 : 1) || b.vendas - a.vendas);
+  const linhaV = v => `<tr><td class="first"><a href="#/vendedores/${encodeURIComponent(v.vendedor)}"><b>${esc(v.vendedor)}</b></a></td>
+      <td data-l="Loja real">${v.ml ? (v.ml.link ? `<a class="ml-loja" href="${esc(urlML(v.ml.link))}" target="_blank" rel="noopener">${esc(v.ml.nome)} ↗</a>` : `<b>${esc(v.ml.nome)}</b>`)
+        : `<span class="st bad">sem loja</span>`}</td>
+      <td data-l="Cidade">${v.ml && v.ml.cidade ? `📍 ${esc(v.ml.cidade)}${v.ml.uf ? ` - ${esc(v.ml.uf)}` : ""}` : `<span class="muted">—</span>`}</td>
+      <td data-l="Confiança">${v.ml ? `<span class="st ${v.ml.confianca === "manual" ? "good" : v.ml.confianca === "certa" ? "good" : "warn"}">${esc(v.ml.confianca === "manual" ? "confirmada por você" : v.ml.confianca || "a conferir")}</span>` : ""}</td>
+      <td class="num" data-l="Anúncios ligados">${v.ml ? nf0.format(v.ml.anuncios || 0) : "0"} / ${nf0.format(v.anuncios || 0)}</td>
+      <td class="num" data-l="Faturamento (mês)">${rsES(v.vendas)}</td>
+      <td data-l="">${v.ml ? `<a class="btn small ghost" href="#/ml/loja/${esc(v.ml.id)}">Loja</a>` : `<a class="btn small ml-laranja" href="#/vendedores-ml">🔎 Descobrir</a>`}</td></tr>`;
+  const pesq = p => `<details class="card pad" style="margin:6px 0"><summary><b>${p.motor === "astra" ? "🎨 Astra" : "🔎 Pesquisa"}</b> · <span class="st ${p.status === "feita" ? "good" : p.status === "erro" ? "bad" : "warn"}">${esc(p.status || "")}</span>
+      ${p.hermes ? ` · Hermes <span class="st ${p.hermes === "feita" ? "good" : p.hermes === "erro" ? "bad" : "warn"}">${esc(p.hermes)}</span>` : ""}
+      <span class="muted" style="font-size:12px">· ${esc(hora(p.pedida_em))}</span><div class="muted" style="font-size:12.5px;font-weight:400">${esc((p.pergunta || "").slice(0, 220))}…</div></summary>
+      ${p.erro ? `<p class="st bad">${esc(p.erro)}</p>` : ""}${p.relatorio ? mdCodigo(p.relatorio) : `<p class="muted">Sem relatório ainda. O relatório do Hermes aparece na linha do tempo, como passo do card.</p>`}</details>`;
+  const eventos = (r.eventos || []).slice().reverse();
+  main.innerHTML = `<div class="es-cab"><h1>🎯 Desafio: lojas reais e anúncios dos ${nf0.format(res.vendedores || 17)} vendedores seguidos</h1>
+      <span class="muted">card #${P} · prioridade total · todos os outros cards pausados</span><div style="flex:1"></div>
+      <a class="btn small" href="#" data-abrir="${P}">Abrir o card #${P}</a></div>
+    <div class="kpis">${kpi("Vendedores seguidos", nf0.format(res.vendedores || 0))}${kpi("Com loja real", nf0.format(res.com_loja || 0), `${nf0.format(res.confirmadas || 0)} confirmadas por você`)}
+      ${kpi("Com cidade", nf0.format(res.com_cidade || 0))}${kpi("Anúncios ligados", nf0.format(res.anuncios_ligados || 0), `de ${nf0.format(res.anuncios_nubimetrics || 0)} no Nubimetrics`)}
+      ${kpi("Etapas feitas", `${(r.etapas || []).filter(e => e.situacao === "feita").length} / ${(r.etapas || []).length}`)}${kpi("Cards do desafio", nf0.format(cards.length), `${cards.filter(c => ["em_desenvolvimento", "em_teste"].includes(c.status)).length} em execução`)}</div>
+    <div class="dev-col" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+      <section class="card pad"><h2 style="margin:0 0 8px">🪜 Etapas</h2>
+        ${(r.etapas || []).map(e => { const ex = execInfo({responsavel: e.responsavel}); return `<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-top:1px solid var(--line)">
+          <span class="st ${ETAPA_ST[e.situacao][1]}" style="flex:none">${ETAPA_ST[e.situacao][0]}</span><div style="flex:1;min-width:0"><b>${e.n}.</b> ${esc(e.titulo)}<div class="muted" style="font-size:11.5px">${ex.icone} ${esc(ex.nome)}</div></div></div>`; }).join("")}</section>
+      <section class="card pad"><h2 style="margin:0 0 8px">👥 Equipe e cards</h2><div style="display:grid;gap:8px">${cards.map(cardMini).join("")}</div>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Ferreiro executa em branch · Astra no código/design e na pesquisa · Hermes pesquisa grátis · DeepSeek audita as regras · Chefe revisa e publica.</p></section>
+    </div>
+    <div class="card pad" style="margin-top:12px"><h2 style="margin:0 0 6px">🏪 Os ${nf0.format(vend.length)} vendedores seguidos</h2>
+      ${r.erro_vendedores ? `<p class="st warn">${esc(r.erro_vendedores)}</p>` : ""}
+      <div class="tw" style="max-height:60vh"><table class="t" data-rot="1"><thead><tr><th>Vendedor (Nubimetrics)</th><th>Loja real no ML</th><th>Cidade</th><th>Confiança</th><th class="num">Anúncios ligados / Nubimetrics</th><th class="num">Faturamento (mês)</th><th></th></tr></thead>
+      <tbody>${vend.map(linhaV).join("") || `<tr><td colspan="7" class="empty">Nenhum vendedor seguido importado.</td></tr>`}</tbody></table></div></div>
+    <div class="card pad" style="margin-top:12px"><h2 style="margin:0 0 6px">🔎 Pesquisas (Astra + Hermes)</h2>
+      ${(r.pesquisas || []).map(pesq).join("") || `<p class="muted">Nenhuma pesquisa pedida de dentro dos cards do desafio ainda.</p>`}</div>
+    <div class="card pad" style="margin-top:12px"><h2 style="margin:0 0 6px">🕒 Linha do tempo (todos os cards do desafio)</h2>
+      <div class="tf-in" style="padding:0 0 10px"><textarea id="df-txt" rows="2" placeholder="Escreva para a equipe do desafio (vai para o card #${P}; o agente responde na hora)…"></textarea><button class="btn primary" id="df-env" title="Enviar">➤</button></div>
+      <div class="tf-lin" style="border-radius:12px;max-height:70vh;overflow:auto">${eventos.map(bolha).join("") || `<div class="tf-sis">Ainda sem passos.</div>`}</div></div>`;
+  main.querySelectorAll("[data-abrir]").forEach(el => el.onclick = e => { e.preventDefault(); abrirTarefa(+el.dataset.abrir); });
+  $("#df-env").onclick = async () => {
+    const texto = $("#df-txt").value.trim(); if (!texto) return;
+    $("#df-env").disabled = true;
+    try { await api("tarefa_responder", {}, {method: "POST", body: JSON.stringify({id: P, texto})}); $("#df-txt").value = ""; toast("Enviado para o card #" + P); telaDesafio(true); }
+    catch (e) { toast(e.message, 6000); }
+    finally { $("#df-env").disabled = false; }
+  };
+  $("#df-txt").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#df-env").onclick(); } };
+  clearInterval(S.desafioT);
+  S.desafioT = setInterval(() => { if (!location.hash.startsWith("#/desafio")) return clearInterval(S.desafioT); if (!document.querySelector(".modal-bg")) telaDesafio(true); }, 30000);
+}
+
 // Painel "Vendedores × ML" (29/09, pedido do Bruno): todos os vendedores seguidos com os dados técnicos do último relatório
 // (hash, anúncios, GTIN, catálogo, Full, faturamento…) e o botão "Descobrir loja no ML" em cada um
 async function telaSeguidosML() {
