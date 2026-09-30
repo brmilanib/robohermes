@@ -435,6 +435,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - "Em execução" só mostra "trabalhando" se houve passo nos últimos 20 min; senão o card aparece como ⏸ parado.
   Tarefa de código parada volta para `aprovada`, não fica fingindo execução.
 
+## Regra do Bruno (30/09): o nubi não depende de concorrente
+
+- O nubi é o software de ponta do Bruno: **não usa nem assina** JoomPulse, Real Trends, Hunter Hub, Mercado Radar, SellerRadar
+  ou similares (o Hunter só serve de referência visual, no Chrome do Bruno). Fontes: API oficial do ML, a nossa extensão /
+  Playwright (páginas públicas) e o **Nubimetrics** (assinado; sócio do ML; números tidos como os mais exatos). Apify e proxy
+  só como infraestrutura de coleta bruta, nunca como produto. Pesquisas e cards que sugiram assinar concorrente estão errados.
+- A "Pesquisa de mercado" do próprio ML (Seller Center) serve para conferir os números do Nubimetrics.
+
 ## Pausar e excluir cards (30/09, pedido do Bruno)
 
 - Status `pausada` (`reuniao.STATUS`): card guardado fora da fila — nenhum agente pega (as filas só leem `aprovada`),
