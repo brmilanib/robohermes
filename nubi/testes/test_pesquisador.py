@@ -210,6 +210,42 @@ def test_pesquisa_de_um_card_entra_no_card_e_hermes_espera_se_o_astra_demorou():
         p.PELO_ASTRA = False
 
 
+def test_astra_falhou_hermes_deepseek_e_gemini_ainda_entregam():
+    """30/09 (Bruno: "solicite mais buscas ao DeepSeek, ao Hermes e talvez ao Gemini"): as pesquisas do card #126 morreram
+    no Astra (tempo) e ficaram sem as outras visões. Agora status "erro" também recebe Hermes, DeepSeek e Gemini."""
+    import ia
+    velho = (ia.perguntar, ia.ollama_web, ia.gemini_texto, ia.tem)
+    ia.ollama_web = lambda pergunta, max_resultados=5: [{"titulo": "t", "url": "https://a.b/c", "texto": "x"}]
+
+    def falso(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, **k):
+        if qual == "ollama":
+            return "## Hermes\nAchei [1] https://a.b/c", [], "ollama"
+        if qual == "deepseek":
+            assert "(o Astra ainda não entregou)" in pergunta
+            return "## DeepSeek\n1. Testar X [hipótese]", [], "deepseek"
+        raise AssertionError("o Astra não devia rodar aqui")
+    ia.perguntar = falso
+    ia.tem = lambda q: q in ("deepseek", "ollama", "gemini") and (q != "deepseek" or ia.USO.get("deepseek_ok"))
+    ia.gemini_texto = lambda pergunta, **k: ("## Gemini\nFerramenta Y faz Z.", ["https://g.com/1"])
+    try:
+        r = Repo()
+        r.resumos["pesquisa|x"] = {"chave": "pesquisa|x", "texto": "", "criado_em": datetime.now(timezone.utc).isoformat(),
+                                   "dados": {"status": "erro", "pergunta": "Quais ferramentas acham a loja real?", "origem": "card #126",
+                                             "motor": "astra", "hermes": {"status": "pendente"}}}
+        p._ULTIMA["t"] = 0
+        res = p.conferir(r, forcar=True)
+        assert "hermes" in res and "deepseek" in res and "gemini" in res, res
+        d = r.resumos["pesquisa|x"]["dados"]
+        assert d["hermes"]["status"] == "feita" and d["deepseek"]["status"] == "feita" and d["gemini"]["status"] == "feita", d
+        assert [x["autor"] for x in r.passos] == ["hermes", "deepseek", "gemini"] and "g.com/1" in r.passos[2]["texto"]
+        assert any(s["autor"] == "Gemini" for s in r.sala) and any(s["autor"] == "Gemini" for s in r.saber)
+        p._ULTIMA["t"] = 0
+        p.conferir(r, forcar=True)
+        assert len(r.passos) == 3                              # 1 vez cada
+    finally:
+        ia.perguntar, ia.ollama_web, ia.gemini_texto, ia.tem = velho
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

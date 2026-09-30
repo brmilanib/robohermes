@@ -571,6 +571,33 @@ def gemini_gerar_imagem(prompt, modelo=None):
     return imagem_b64, texto.strip(), modelo
 
 
+def gemini_texto(pergunta, web=True, max_tokens=4000, modelo=None, sistema=None, timeout=150):
+    """30/09 (Bruno: "talvez o Gemini do Google"): texto com a busca do Google (grounding) — o 4º pesquisador. Devolve
+    (texto, links). Sem GEMINI_API_KEY: SemIA. Chave só no cabeçalho, nunca na URL."""
+    if not tem("gemini"):
+        raise SemIA(f"falta a chave {CHAVES['gemini']}")
+    modelo = modelo or os.environ.get("NUBI_IA_MODELO_GEMINI_TEXTO", "gemini-2.5-flash")
+    corpo = {"contents": [{"role": "user", "parts": [{"text": pergunta}]}],
+             "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}}
+    if sistema:
+        corpo["systemInstruction"] = {"parts": [{"text": sistema}]}
+    if web:
+        corpo["tools"] = [{"google_search": {}}]
+    cab = {"x-goog-api-key": os.environ["GEMINI_API_KEY"], "Content-Type": "application/json"}
+    r = _post_json(f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent", corpo, cab, timeout=timeout)
+    cands = r.get("candidates") or []
+    partes = [p for c in cands for p in (c.get("content", {}).get("parts") or [])]
+    texto = "\n".join(p.get("text", "") for p in partes if p.get("text")).strip()
+    links = []
+    for ch in (cands[0].get("groundingMetadata", {}).get("groundingChunks") or []) if cands else []:
+        u = (ch.get("web") or {}).get("uri")
+        if u and u not in links:
+            links.append(u)
+    if not texto:
+        raise SemIA(f"Gemini não devolveu texto ({(cands[0].get('finishReason') if cands else 'sem candidatos')})")
+    return texto, links[:30]
+
+
 _TIPOS_SCHEMA = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float)}
 
 

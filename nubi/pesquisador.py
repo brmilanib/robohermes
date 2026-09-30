@@ -282,6 +282,64 @@ def pesquisa_deepseek(repo, chave, pergunta, relatorio_astra=""):
     return rel
 
 
+GEMINI_PESQUISA = os.environ.get("NUBI_PESQUISA_GEMINI", "1") != "0"   # 30/09: 4ª visão, com a busca do Google (precisa da chave)
+
+
+def pesquisa_gemini(repo, chave, pergunta):
+    """30/09 (Bruno: "talvez o Gemini do Google"): 4ª pesquisa, com a busca do Google (grounding). Só quando há
+    GEMINI_API_KEY na Vercel; sem a chave, não faz nada (nem avisa toda hora). Sala e card como Gemini."""
+    import ia
+    if not ia.tem("gemini"):
+        return ""
+    ia.USO["origem"] = "pesquisa gemini"
+    rel, links, erro = "", [], ""
+    try:
+        rel, links = ia.gemini_texto(CONTEXTO.replace(ECONOMIA_3_FONTES, ECONOMIA_ASTRA) + pergunta, web=True, max_tokens=5000)
+        rel = rel.strip()
+    except Exception as e:  # noqa: BLE001
+        erro = str(e)[:150]
+    reg = (repo._req("GET", "ia_resumos", {"select": "dados", "chave": repo._eq(chave)}) or [{}])[0]
+    d = dict(reg.get("dados") or {})
+    d["gemini"] = {"status": "feita" if rel else "erro", "em": _agora().isoformat(), **({} if rel else {"erro": erro})}
+    _atualizar(repo, chave, d)
+    if not rel:
+        _passo_card(repo, d.get("origem"), "gemini", f"✨ Não consegui pesquisar no Google agora ({erro}).")
+        return ""
+    if links and not any(u in rel for u in links[:3]):
+        rel += "\n\n**Fontes (busca do Google)**\n" + "\n".join(f"- {u}" for u in links[:12])
+    repo._req("POST", "saber", corpo=[{
+        "tipo": "pesquisa_web", "titulo": ("Pesquisa (Gemini, busca do Google): " + pergunta)[:160],
+        "texto": f"PERGUNTA:\n{pergunta}\n\nRELATÓRIO DO GEMINI:\n{rel[:30000]}",
+        "autor": "Gemini", "fonte_tabela": "pesquisa_profunda", "fonte_id": chave + "|gemini", "links": _links(rel),
+        "tags": ["pesquisa_profunda", "gemini"] + _plataformas(rel), "criado_em": _agora().isoformat()}], prefer="return=minimal")
+    _sala_como(repo, "Gemini", f"✨ **Pesquisa do Gemini (busca do Google)** — {pergunta[:200]}\n\n{rel[:5500]}"
+                               + ("\n\n…(completo na busca da Sala)" if len(rel) > 5500 else ""))
+    _passo_card(repo, d.get("origem"), "gemini", f"✨ **Pesquisa do Gemini (busca do Google)** — {pergunta[:200]}\n\n{rel[:7500]}")
+    return rel
+
+
+def _complementos(repo, p):
+    """Depois do Astra (deu certo ou não): o Hermes que ficou pendente, o DeepSeek (3ª visão) e o Gemini (4ª), 1 vez cada,
+    nas pesquisas pedidas de dentro de um card. 30/09: antes só rodavam com status "feita" — as do card #126 que morreram
+    por tempo no Astra ficaram sem o Hermes e sem o DeepSeek."""
+    d = p.get("dados") or {}
+    feitos = []
+    if (d.get("hermes") or {}).get("status") == "pendente" and HERMES_PESQUISA:
+        pesquisa_hermes(repo, p["chave"], d["pergunta"])
+        feitos.append("hermes")
+    if _card_da_origem(d.get("origem")):
+        d = (repo._req("GET", "ia_resumos", {"select": "dados", "chave": repo._eq(p["chave"])}) or [{}])[0].get("dados") or d
+        if DEEPSEEK_PESQUISA and not (d.get("deepseek") or {}).get("status"):
+            pesquisa_deepseek(repo, p["chave"], d["pergunta"], p.get("texto") or "")
+            feitos.append("deepseek")
+        if GEMINI_PESQUISA and not (d.get("gemini") or {}).get("status"):
+            import ia
+            if ia.tem("gemini"):
+                pesquisa_gemini(repo, p["chave"], d["pergunta"])
+                feitos.append("gemini")
+    return feitos
+
+
 def _sala_como(repo, autor, texto):
     repo._req("POST", "reuniao_mensagens", corpo=[{"autor": autor, "texto": texto[:8000], "criado_em": _agora().isoformat()}],
               prefer="return=minimal")
@@ -419,15 +477,9 @@ def conferir(repo, forcar=False):
             feitos.append("iniciada")
         except ErroPesquisa as e:
             feitos.append(f"erro ao iniciar: {e}")
-    for p in _pesquisas(repo, "feita", 10):    # o Hermes que ficou para depois (o Astra demorou na passada anterior)
-        d = p.get("dados") or {}
-        if (d.get("hermes") or {}).get("status") == "pendente" and HERMES_PESQUISA:
-            pesquisa_hermes(repo, p["chave"], d["pergunta"])
-            feitos.append("hermes")
-        # 30/09: o DeepSeek dá a 3ª visão só nas pesquisas pedidas de dentro de um card (o desafio), 1 vez, depois do Astra
-        if DEEPSEEK_PESQUISA and _card_da_origem(d.get("origem")) and not (d.get("deepseek") or {}).get("status"):
-            pesquisa_deepseek(repo, p["chave"], d["pergunta"], p.get("texto") or "")
-            feitos.append("deepseek")
+    # o Hermes que ficou para depois, o DeepSeek e o Gemini: também nas que o Astra não conseguiu (status "erro")
+    for p in _pesquisas(repo, "feita", 10) + _pesquisas(repo, "erro", 10):
+        feitos += _complementos(repo, p)
     for p in _pesquisas(repo, "rodando", 10):
         d = p.get("dados") or {}
         if d.get("motor") == "astra":           # travou no meio (a função caiu): volta para a fila depois de 10 min
