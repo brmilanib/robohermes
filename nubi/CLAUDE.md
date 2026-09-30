@@ -78,6 +78,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Rotinas desligadas: `design` (time de hora em hora), `reuniao`, `auditoria` (IA), `rankeamento`, `memoria` (Hermes+Qwen).
   O coordenador só responde quando o Bruno escreve num card. Seguem: Hermes (vigia), Banguela (SAC), rotinas do ChatGPT
   (resumos, produtos iguais, marcas) e o Pesquisador sob pedido. Nada foi apagado: religar = `rotinas.ativo=true`.
+- Pesquisador = **Astra** (30/09): `/pesquisar` roda na hora com o modelo do Astra + busca na web da OpenAI
+  (`pesquisador._pelo_astra`, até 2 tentativas; relatório na Sala e em `saber`). `NUBI_PESQUISA_ASTRA=0` volta ao agente da Anthropic.
 
 ## Compras e vendas do estoque (28/09, pedido do Bruno) — Estoque → 🛒 Compras e vendas (`#/estoque/compras`)
 

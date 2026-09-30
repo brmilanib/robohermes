@@ -42,6 +42,10 @@ PERGUNTA DO BRUNO/TIME:
 """
 
 _ULTIMA = {"t": 0.0}
+# 30/09 (Bruno: "o Pesquisador deixaria com o Astra também, é o que mais tem banco de dados da internet hoje"): a pesquisa
+# é feita pelo Astra (modelo dele na OpenAI + busca na web), na hora. NUBI_PESQUISA_ASTRA=0 volta ao agente da Anthropic.
+PELO_ASTRA = os.environ.get("NUBI_PESQUISA_ASTRA", "1") != "0"
+TENTATIVAS_ASTRA = 2
 
 
 class ErroPesquisa(Exception):
@@ -131,7 +135,39 @@ def _atualizar(repo, chave, dados, texto=None):
     repo._req("PATCH", "ia_resumos", {"chave": repo._eq(chave)}, corpo=corpo, prefer="return=minimal")
 
 
+def _pelo_astra(repo, p):
+    """Pesquisa na hora com o Astra (busca na web da OpenAI). Falhou: volta para "pedida" e o conferir tenta de novo
+    (até TENTATIVAS_ASTRA vezes)."""
+    import agentes
+    import ia
+    d = dict(p.get("dados") or {})
+    d.update({"status": "rodando", "motor": "astra", "iniciada_em": _agora().isoformat(),
+              "tentativas": int(d.get("tentativas") or 0) + 1})
+    modelo = (agentes.AGENTES.get("astra") or {}).get("modelo")
+    d["modelo"] = modelo
+    _atualizar(repo, p["chave"], d)
+    ia.USO["origem"] = f"pesquisa {d.get('origem') or ''}"[:60]
+    try:
+        txt, links, _ = ia.perguntar(CONTEXTO + d["pergunta"], web=True, max_tokens=6000, qual="chatgpt", modelo=modelo)
+    except Exception as e:  # noqa: BLE001 — sem crédito, fora do ar: tenta de novo depois
+        txt, links = "", []
+        d["erro"] = str(e)[:300]
+    rel = (txt or "").strip()
+    if rel and links and not any(u in rel for u in links[:3]):
+        rel += "\n\n**Fontes**\n" + "\n".join(f"- {u}" for u in links[:15])
+    if not rel:
+        d["status"] = "erro" if d["tentativas"] >= TENTATIVAS_ASTRA else "pedida"
+        _atualizar(repo, p["chave"], d)
+        if d["status"] == "erro":
+            _sala(repo, f"🔎 O Astra não conseguiu fazer a pesquisa \"{d['pergunta'][:200]}\" ({d.get('erro') or 'sem resposta'}).")
+        return p["chave"]
+    _gravar(repo, p["chave"], d, rel, None, p["chave"])
+    return p["chave"]
+
+
 def _iniciar(repo, p):
+    if PELO_ASTRA:
+        return _pelo_astra(repo, p)
     d = dict(p.get("dados") or {})
     if gasto_hoje(repo) + TETO_SESSAO_CENTS / 100 > TETO_DIA_USD:
         _sala(repo, f"🔎 Pesquisa na fila (teto do dia de US$ {TETO_DIA_USD:.2f} atingido): {d['pergunta'][:200]}. "
@@ -191,17 +227,34 @@ def _plataformas(texto):
                             ("tiktok", "tiktok")) if ch in t]
 
 
+def _gravar(repo, chave, d, rel, custo, fonte_id):
+    """Relatório pronto: guarda no pedido, na base de conhecimento e posta na Sala (Astra e agente da Anthropic)."""
+    d.update({"status": "feita", "concluida_em": _agora().isoformat(), "custo_usd": custo, "links": _links(rel)})
+    d.pop("erro", None)
+    _atualizar(repo, chave, d, texto=rel[:60000])
+    repo._req("POST", "saber", corpo=[{
+        "tipo": "pesquisa_web", "titulo": ("Pesquisa profunda: " + d["pergunta"])[:160],
+        "texto": f"PERGUNTA:\n{d['pergunta']}\n\nRELATÓRIO DO PESQUISADOR NUBI:\n{rel[:30000]}",
+        "autor": AUTOR, "fonte_tabela": "pesquisa_profunda", "fonte_id": fonte_id, "links": d["links"],
+        "tags": ["pesquisa_profunda", str(d.get("origem") or "")[:60]] + _plataformas(rel),
+        "criado_em": d["concluida_em"]}], prefer="return=minimal")
+    _sala(repo, f"🔎 **Pesquisa pronta**{' (Astra)' if d.get('motor') == 'astra' else ''} — {d['pergunta'][:200]}\n\n{rel[:5500]}"
+                + ("\n\n…(relatório completo na busca da Sala)" if len(rel) > 5500 else "")
+                + (f"\n\n_custo: US$ {custo:.2f}_" if custo is not None else ""))
+
+
 def _concluir(repo, p, s):
     d = dict(p.get("dados") or {})
     sid = d["sessao"]
     rel = _relatorio(sid)
     cents = ((s.get("usage") or {}).get("list_cost") or {}).get("amount")
     custo = round(int(cents) / 100, 2) if cents not in (None, "") else None
-    d.update({"status": "feita" if rel else "erro", "concluida_em": _agora().isoformat(), "custo_usd": custo,
-              "links": _links(rel)})
-    if not rel:
-        d["erro"] = f"sessão terminou sem relatório (status {s.get('status')})"
-    _atualizar(repo, p["chave"], d, texto=rel[:60000])
+    if rel:
+        _gravar(repo, p["chave"], d, rel, custo, sid)
+    else:
+        d.update({"status": "erro", "concluida_em": _agora().isoformat(), "custo_usd": custo,
+                  "erro": f"sessão terminou sem relatório (status {s.get('status')})"})
+        _atualizar(repo, p["chave"], d, texto="")
     u = s.get("usage") or {}
     try:
         repo._req("POST", "agentes_uso", corpo=[{
@@ -211,17 +264,7 @@ def _concluir(repo, p, s):
             "custo_usd": custo, "erro": d.get("erro")}], prefer="return=minimal")
     except Exception:  # noqa: BLE001
         pass
-    if rel:
-        repo._req("POST", "saber", corpo=[{
-            "tipo": "pesquisa_web", "titulo": ("Pesquisa profunda: " + d["pergunta"])[:160],
-            "texto": f"PERGUNTA:\n{d['pergunta']}\n\nRELATÓRIO DO PESQUISADOR NUBI:\n{rel[:30000]}",
-            "autor": AUTOR, "fonte_tabela": "pesquisa_profunda", "fonte_id": sid, "links": d["links"],
-            "tags": ["pesquisa_profunda", str(d.get("origem") or "")[:60]] + _plataformas(rel),
-            "criado_em": d["concluida_em"]}], prefer="return=minimal")
-        _sala(repo, f"🔎 **Pesquisa pronta** — {d['pergunta'][:200]}\n\n{rel[:5500]}"
-                    + ("\n\n…(relatório completo na busca da Sala)" if len(rel) > 5500 else "")
-                    + (f"\n\n_custo: US$ {custo:.2f}_" if custo is not None else ""))
-    else:
+    if not rel:
         _sala(repo, f"🔎 A pesquisa \"{d['pergunta'][:200]}\" terminou sem relatório. O Chefe vai olhar.")
     try:
         _api("POST", f"sessions/{sid}/archive", {})
@@ -243,6 +286,11 @@ def conferir(repo, forcar=False):
             feitos.append(f"erro ao iniciar: {e}")
     for p in _pesquisas(repo, "rodando", 10):
         d = p.get("dados") or {}
+        if d.get("motor") == "astra":           # travou no meio (a função caiu): volta para a fila depois de 10 min
+            if _agora() - _dt(d.get("iniciada_em") or p["criado_em"]) > timedelta(minutes=10):
+                d["status"] = "pedida" if int(d.get("tentativas") or 0) < TENTATIVAS_ASTRA else "erro"
+                _atualizar(repo, p["chave"], d)
+            continue
         try:
             s = _api("GET", f"sessions/{d['sessao']}")
         except ErroPesquisa as e:

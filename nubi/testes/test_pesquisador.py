@@ -8,6 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("ANTHROPIC_API_KEY", "x")
 import pesquisador as p  # noqa: E402
 
+p.PELO_ASTRA = False        # os testes abaixo são do agente da Anthropic; o do Astra está em test_pesquisa_pelo_astra
+
 
 class Repo:
     def __init__(self):
@@ -116,6 +118,37 @@ def test_nao_fecha_sessao_recem_criada_nem_rodando():
     p._api = _api_falsa(ch, status="idle")                                  # idle logo após criar (< 60 s) ainda não fecha
     p.conferir(r, forcar=True)
     assert r.resumos[chave]["dados"]["status"] == "rodando"
+
+
+def test_pesquisa_pelo_astra():
+    """30/09 (Bruno): o Pesquisador é o Astra (busca na web da OpenAI), na hora; falhou, volta para a fila e tenta 2 vezes."""
+    import ia
+    p.PELO_ASTRA = True
+    velho = ia.perguntar
+    pedidos = []
+
+    def falso(pergunta, web=True, max_tokens=1500, qual=None, modelo=None, **k):
+        pedidos.append((web, qual, modelo))
+        return "## Resumo\nNo Mercado Livre o Full pesa no ranking.", ["https://vendedores.mercadolivre.com.br/x"], "chatgpt"
+    ia.perguntar = falso
+    try:
+        r = Repo()
+        chave = p.pedir(r, "Como o Full afeta o ranking no Mercado Livre?")
+        d = r.resumos[chave]["dados"]
+        assert d["status"] == "feita" and d["motor"] == "astra" and pedidos == [(True, "chatgpt", "gpt-6-astra")], (d, pedidos)
+        assert "Fontes" in r.resumos[chave]["texto"] and "vendedores.mercadolivre.com.br" in r.resumos[chave]["texto"]
+        assert r.saber and r.saber[0]["fonte_tabela"] == "pesquisa_profunda" and "(Astra)" in r.sala[-1]["texto"]
+        # sem crédito / fora do ar: fica na fila e, na 2ª falha, vira erro com aviso na Sala
+        ia.perguntar = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("HTTP 429"))
+        r2 = Repo()
+        ch2 = p.pedir(r2, "Outra pergunta sobre a Shopee")
+        assert r2.resumos[ch2]["dados"]["status"] == "pedida"
+        p._ULTIMA["t"] = 0
+        p.conferir(r2, forcar=True)
+        assert r2.resumos[ch2]["dados"]["status"] == "erro" and "não conseguiu" in r2.sala[-1]["texto"]
+    finally:
+        ia.perguntar = velho
+        p.PELO_ASTRA = False
 
 
 if __name__ == "__main__":
