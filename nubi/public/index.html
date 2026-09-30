@@ -254,6 +254,7 @@ a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .ml-foto{border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--card);min-width:0}
 .ml-foto img{width:100%;aspect-ratio:1;object-fit:contain;background:#fff;border-radius:6px}
 .ml-foto .t{font-size:11.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ml-foto.tem-link{border-color:rgba(52,131,250,.45)}.ml-foto.tem-link a img:hover{outline:2px solid var(--s1);cursor:pointer}
 .ml-foto .p{font-size:12px;font-weight:700}
 #sml-tab .btn.ghost,#vml-loja .btn.ghost,#pv-ml .btn.ghost{background:var(--card);border-color:var(--line);color:var(--ink)}
 #sml-tab .btn.ghost:hover,#vml-loja .btn.ghost:hover,#pv-ml .btn.ghost:hover{background:var(--soft)}
@@ -1186,7 +1187,7 @@ const SECOES = [
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
   {id: "lojas", nome: "Minhas Lojas", desc: "Estoque e lojas do dono", icone: "📦"},
 ];
-function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml|precos)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -1519,6 +1520,7 @@ function desenharMenu() {
       cont((S.vendLista || []).length) + seta("vendedores", (S.vendLista || []).length > 0))}
     ${ab.vendedores ? `<div class="subnav" id="sub-vend"></div>` : ""}
     ${it("#/vendedores-ml", "🔗", "Vendedores × ML", h.startsWith("#/vendedores-ml"))}
+    ${it("#/precos", "📈", "Monitor de preços", h.startsWith("#/precos"))}
     <div class="grupo">Minhas Lojas</div>
     ${it("#/estoque", "📦", "Estoque", h.startsWith("#/estoque"))}
     ${it("#/sac/tiktok", "💬", "SAC", h.startsWith("#/sac"), seta("sac", true, sacAberto))}
@@ -1605,6 +1607,7 @@ async function rotear() {
     if (!S.vendLista) await carregarVendLista();
     if (location.hash.startsWith("#/ml")) return telaML();
     if (location.hash.startsWith("#/vendedores-ml")) return telaSeguidosML();
+    if (location.hash.startsWith("#/precos")) return telaPrecos();
     if (location.hash.startsWith("#/nomes-vendedores")) return telaNomesVendedores();
     if (location.hash.startsWith("#/alertas")) return telaAlertas();
     if (location.hash.startsWith("#/vendas-dia")) return telaVendasDia();
@@ -6653,14 +6656,71 @@ async function fotosNubiSeguido(nomeV) {
   if (!box) { box = document.createElement("div"); box.id = "vml-fotos"; el.insertAdjacentElement("afterend", box); }
   box.className = "card pad"; box.style.marginTop = "10px";
   const campo = (x, re) => { const k = Object.keys(x).find(k => re.test(k)); return k ? x[k] : null; };
+  // 30/09 (Bruno, VANVIC): foto com o MLB casado pela vitrine vira link para o anúncio no ML e ganha "📈 Monitorar preço"
+  const comLink = xs.filter(x => x.mlb).length;
   box.innerHTML = xs.length ? `<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>📷 Fotos dos anúncios no Nubimetrics</b>
-      <span class="muted" style="font-size:12.5px">${nf0.format(xs.length)} anúncio(s) · ${esc(dataBR(String(r.ini || "")))} a ${esc(dataBR(String(r.fim || "")))} · lidas em ${esc(atQuando(r.em))}</span></div>
-    <div class="ml-fotos">${xs.slice(0, 60).map(x => { const t = campo(x, /title|titul|name|nome/i), pr = campo(x, /price|preco|preço/i);
-      return `<div class="ml-foto"><img src="${esc(urlML(x.foto))}" alt="" loading="lazy"><div class="t" title="${esc(t || "")}">${esc(t || "")}</div>
-        ${pr != null && !isNaN(+pr) ? `<div class="p">${rsES(+pr)}</div>` : ""}<div class="muted" style="font-size:10.5px;overflow-wrap:anywhere">${esc((String(x.foto).match(/\d+-ML[AB]\d+/) || [""])[0])}</div></div>`; }).join("")}</div>
+      <span class="muted" style="font-size:12.5px">${nf0.format(xs.length)} anúncio(s) · ${esc(dataBR(String(r.ini || "")))} a ${esc(dataBR(String(r.fim || "")))} · lidas em ${esc(atQuando(r.em))}
+      · ${comLink ? `${nf0.format(comLink)} com link no ML (pela foto da vitrine)` : `sem link ainda: peça na Central "Mercado Livre: ler a vitrine" da loja`}</span>
+      ${comLink ? `<a class="btn small ghost" href="#/precos">📈 Monitor de preços</a>` : ""}</div>
+    <div class="ml-fotos">${xs.slice(0, 500).map(x => { const t = campo(x, /title|titul|name|nome/i), pr = campo(x, /price|preco|preço/i), lt = campo(x, /ListingTypeName/i);
+      const img = `<img src="${esc(urlML(x.foto))}" alt="" loading="lazy">`;
+      return `<div class="ml-foto${x.mlb ? " tem-link" : ""}">${x.mlb ? `<a href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir o anúncio no Mercado Livre">${img}</a>` : img}
+        <div class="t" title="${esc(t || "")}">${esc(t || "")}</div>
+        <div class="muted" style="font-size:11px">${esc(lt || "")}${pr != null && !isNaN(+pr) ? ` <b class="p" style="color:var(--ink)">${rsES(+pr)}</b>` : ""}</div>
+        ${x.mlb ? `<div style="display:flex;gap:4px;align-items:center;margin-top:3px"><a class="muted" style="font-size:10.5px" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${esc(x.mlb)} ↗</a>
+          <button class="btn small ${x.monitorando ? "ghost" : "ml-laranja"}" data-mon="${esc(x.mlb)}" data-t="${esc(t || "")}" data-p="${pr != null ? +pr : ""}" data-f="${esc(x.foto)}" data-l="${esc(x.link)}" style="margin-left:auto">${x.monitorando ? "✓ monitorando" : "📈 Monitorar"}</button></div>`
+        : `<div class="muted" style="font-size:10.5px;overflow-wrap:anywhere">${esc((String(x.foto).match(/\d+-ML[AB]\d+/) || [""])[0])}</div>`}</div>`; }).join("")}</div>
     <details class="muted" style="font-size:11.5px;margin-top:6px"><summary>campos que o Nubimetrics manda</summary>${esc(Object.keys(xs[0]).join(", "))}</details>`
     : `<span class="muted" style="font-size:13px">📷 Fotos dos anúncios no Nubimetrics: ainda não lidas. Na Central, peça ao coletor
       "Nubimetrics: fotos dos anúncios dos vendedores seguidos".</span>`;
+  box.querySelectorAll("button[data-mon]").forEach(b => b.onclick = async () => {
+    const loja = r.loja || {};
+    b.disabled = true;
+    try {
+      await api("ml_precos_seguir", {}, {method: "POST", body: JSON.stringify({mlb: b.dataset.mon, titulo: b.dataset.t, preco: b.dataset.p || null, foto: b.dataset.f,
+        link: b.dataset.l, loja: loja.nome || "", seller_id: loja.id || "", vendedor: nomeV})});
+      b.textContent = "✓ monitorando"; b.className = "btn small ghost";
+    } catch (e) { b.disabled = false; alert(e.message); }
+  });
+}
+
+// ---------- 📈 Monitor de preços (30/09, pedido do Bruno) ----------
+// Os anúncios marcados com "Monitorar" na página do vendedor (fotos da vitrine): loja, link, preço de agora, variação,
+// mínimo/máximo e o histórico (1 ponto por dia, lido pelo coletor de madrugada, rotina "precos").
+async function telaPrecos() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o monitor de preços</div></div>`;
+  let r;
+  try { r = await api("ml_precos_lista"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/precos")) return;
+  const xs = r.itens || [];
+  const varTxt = v => v == null ? `<span class="muted">—</span>` : `<span class="${v > 0.001 ? "neg" : v < -0.001 ? "pos" : ""}">${FMT.var(v)}</span>`;
+  const lojaLink = x => x.seller_id ? `https://lista.mercadolivre.com.br/_CustId_${esc(x.seller_id)}` : "";
+  const lidosHoje = xs.filter(x => x.ultimo_dia === new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10)).length;
+  main.innerHTML = `<div class="es-cab"><h1>📈 Monitor de preços</h1>
+      <span class="muted">${nf0.format(xs.length)} anúncio(s) monitorado(s) (máx. ${r.max}) · ${nf0.format(lidosHoje)} lido(s) hoje</span></div>
+    <p class="muted" style="margin:4px 0 12px;font-size:13px">Todo dia de madrugada (rotina <b>Monitor de preços</b>, Coletor e agente → Tarefas de rotina) o coletor abre cada anúncio
+      no Chrome do Mac e anota preço, preço original, situação e estoque. Para adicionar: Concorrentes → Vendedores → página do vendedor → fotos dos anúncios → "📈 Monitorar".
+      Para ler agora: Central → comando "Mercado Livre: ler agora o preço dos anúncios do monitor de preços".</p>
+    ${xs.length ? `<div class="card"><table class="tab" id="pm-tab"><thead><tr><th></th><th>Anúncio</th><th>Loja</th><th class="num">Preço agora</th><th class="num">Variação</th>
+      <th class="num">Mín · Máx (60 d)</th><th>Histórico</th><th>Situação</th><th>Lido em</th><th></th></tr></thead><tbody>
+      ${xs.map(x => `<tr data-mlb="${esc(x.mlb)}">
+        <td>${x.foto ? `<a href="${esc(urlML(x.link))}" target="_blank" rel="noopener"><img src="${esc(urlML(x.foto))}" alt="" loading="lazy" style="width:48px;height:48px;object-fit:contain;background:#fff;border-radius:6px;border:1px solid var(--line)"></a>` : ""}</td>
+        <td data-l="Anúncio"><a href="${esc(urlML(x.link))}" target="_blank" rel="noopener"><b>${esc(x.titulo || x.mlb)}</b> ↗</a><div class="muted" style="font-size:11.5px">${esc(x.mlb)}${x.preco_inicial ? ` · começou em ${rsES(x.preco_inicial)}` : ""}</div></td>
+        <td data-l="Loja">${lojaLink(x) ? `<a href="${lojaLink(x)}" target="_blank" rel="noopener">${esc(x.loja || x.seller_id)} ↗</a>` : esc(x.loja || "")}${x.vendedor ? `<div class="muted" style="font-size:11.5px">${esc(x.vendedor)}</div>` : ""}</td>
+        <td class="num" data-l="Preço agora">${x.atual ? `<b>${rsES(x.atual)}</b>` : `<span class="muted">ainda não lido</span>`}${x.historico?.length && x.historico[x.historico.length - 1].preco_original ? `<div class="muted" style="font-size:11px;text-decoration:line-through">${rsES(x.historico[x.historico.length - 1].preco_original)}</div>` : ""}</td>
+        <td class="num" data-l="Variação">${varTxt(x.var)}${x.anterior ? `<div class="muted" style="font-size:11px">antes ${rsES(x.anterior)}</div>` : ""}</td>
+        <td class="num" data-l="Mín · Máx">${x.minimo ? `${rsES(x.minimo)} · ${rsES(x.maximo)}` : "—"}</td>
+        <td data-l="Histórico">${x.historico?.length > 1 ? sparkSerie(x.historico.map(p => p.preco)) : `<span class="muted" style="font-size:11.5px">${x.pontos || 0} dia(s)</span>`}</td>
+        <td data-l="Situação">${x.status ? `<span class="st ${x.status === "ativo" ? "good" : "bad"}">${esc(x.status)}</span>` : ""}${x.estoque != null ? `<div class="muted" style="font-size:11.5px">estoque ${nf0.format(x.estoque)}</div>` : ""}</td>
+        <td data-l="Lido em" class="muted" style="font-size:12px">${x.ultimo_dia ? esc(dataBR(x.ultimo_dia)) : "—"}</td>
+        <td><button class="btn small ghost" data-parar="${esc(x.mlb)}" title="Parar de monitorar (o histórico fica guardado)">✕</button></td></tr>`).join("")}
+      </tbody></table></div>`
+    : `<div class="card empty"><h2>Nenhum anúncio monitorado</h2><p>Abra um vendedor seguido (Concorrentes → Vendedores), vá às fotos dos anúncios e clique em "📈 Monitorar" nos que quiser acompanhar.</p></div>`}`;
+  main.querySelectorAll("button[data-parar]").forEach(b => b.onclick = async () => {
+    if (!confirm("Parar de monitorar este anúncio?")) return;
+    try { await api("ml_precos_parar", {}, {method: "POST", body: JSON.stringify({mlb: b.dataset.parar})}); telaPrecos(); } catch (e) { alert(e.message); }
+  });
 }
 // ---------- 🎯 Desafio (30/09, pedido do Bruno: "abre uma página só para esse card desafio") ----------
 // Tudo do card #126 num lugar: etapas, equipe (cards do tipo desafio), os 17 seguidos com a loja real e a cidade, as

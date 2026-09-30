@@ -13,7 +13,7 @@ create table if not exists public.vend_anuncios_ml (
   foto text,                                   -- mlstatic, tamanho grande (-O.)
   preco numeric,                               -- null = o card não mostrou
   vendidos integer,                            -- "+5mil vendidos" = 5000 (faixa do ML)
-  full boolean,
+  "full" boolean,                              -- "full" é palavra reservada no Postgres (30/09)
   tipo_pub text,
   produto_catalogo text,                       -- MLB… do /p/ (produto pai) quando o anúncio é de catálogo
   gtin text,

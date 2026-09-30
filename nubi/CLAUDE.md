@@ -508,6 +508,20 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     em `vend_anuncios_ml` (on_conflict mlb; migração `supabase/vend_anuncios_ml.sql`, o Chefe aplica), só para o seller_id
     ligado ao seguido; os anúncios de prova de `meli|seguidos` entram primeiro (fonte "prova"). Rota `meli_seguido_anuncios`
     (?vendedor=) lista os anúncios; `#/vendedores-ml` mostra "🛒 N na vitrine". Casamento com `vend_anuncios` = etapa 3.
+    Migração aplicada pelo Chefe em 30/09 (autorizado no card; a coluna `"full"` vai entre aspas: palavra reservada).
+  - **Foto → anúncio no ML + Monitor de preços (30/09, Bruno na VANVIC: "quando eu clicar no anúncio com foto tem que ir
+    pro anúncio no ML… atualizar todo dia de madrugada os preços dos que eu marcar… um menu de monitoramento")**:
+    `nubi_web.fotos_com_anuncio` (rota `meli_fotos_seguido`) casa o ID da foto do Nubimetrics (`\d+-ML[AB]\d+`) com
+    `vend_anuncios_ml.foto` da vitrine e cada foto ganha `mlb`, `link` e `monitorando`; na página do vendedor a foto vira
+    link e tem "📈 Monitorar" (rota `ml_precos_seguir`). Módulo `precos.py`: lista em `ia_resumos` `precos|monitor|lista`
+    (até `MAX_ANUNCIOS`=300), histórico `precos|hist|<MLB>` (1 ponto por dia de Brasília), `painel` (atual, anterior,
+    variação, mín/máx 60 d, série), `pendente` (rotina `precos`, 04:10, Coletor Mac), `ler_pagina` (preço fraction+cents,
+    preço original, status pausado/finalizado/esgotado, estoque "(N disponíveis)"). Coletor `ml-precos` (comando da Central
+    `ml_precos`, vigia `_na_hora(... "ml_precos_pendente")`): abre `produto.mercadolivre.com.br/MLB-<n>` no Chrome visível,
+    como um humano, `JS_ML_PRECO`, manda a `ml_precos_gravar` em lotes de 20. Tela Concorrentes → **📈 Monitor de preços**
+    (`#/precos`, `telaPrecos`): loja com link da vitrine, link do anúncio, preço agora, variação, mín/máx, sparkline,
+    situação/estoque, ✕ para parar (histórico fica). Rotas `ml_precos_lista/hist/seguir/parar/pendente/gravar` em
+    `rota_posicoes`. Teste `test_precos_monitor.py`.
 
 ## Quadro com teste e relatório (25/09)
 

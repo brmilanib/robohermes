@@ -2360,6 +2360,68 @@ def coletar_ml_posicoes(p, cfg, token, paginas=3):
     return feitos, meus, erros, f"{feitos} busca(s), {meus} posição(ões) dos meus anúncios anotada(s)"
 
 
+# 30/09 (Bruno): monitor de preços — a página do anúncio, lida como um humano (Chrome visível, pausas), só o que a tela
+# mostra: preço (fraction + cents), preço original riscado, texto da página (status/estoque), título e vendedor.
+JS_ML_PRECO = r"""() => {
+  const q = s => document.querySelector(s);
+  const bloco = q('.ui-pdp-price__second-line') || q('.ui-pdp-price') || document;
+  const fr = bloco.querySelector('.andes-money-amount__fraction'), ct = bloco.querySelector('.andes-money-amount__cents');
+  const orig = q('.ui-pdp-price__original-value, s.andes-money-amount--previous, .ui-pdp-price__part--medium s');
+  const h1 = q('h1');
+  const cab = q('.ui-pdp-seller__header__title, .ui-seller-data-header__title, .ui-pdp-seller__link-trigger, [data-testid="seller-info"] h2');
+  const cx = q('.ui-pdp-buybox') || q('.ui-pdp-container__col--sticky') || document.body;
+  return {fracao: fr ? fr.textContent : null, centavos: ct ? ct.textContent : null, original: orig ? orig.textContent : null,
+          titulo: h1 ? h1.textContent.trim() : '', vendedor: cab ? cab.textContent.trim() : '',
+          texto: ((cx.innerText || '') + '\n' + (document.body.innerText || '').slice(0, 4000)).slice(0, 12000)};
+}"""
+
+
+def coletar_ml_precos(p, cfg, token, so=None):
+    """Lê o preço de agora de cada anúncio do monitor (ml_precos_pendente) e manda a ml_precos_gravar. Só lê; nada é
+    clicado. Página com verificação do ML: para e avisa (rode entrar-ml)."""
+    pend = api(token, "ml_precos_pendente", timeout=30)
+    itens = [i for i in (pend.get("itens") or []) if re.fullmatch(r"MLB\d{6,14}", str(i.get("mlb") or ""))]
+    if so:
+        itens = [i for i in itens if i["mlb"] == so.upper().replace("-", "")]
+    if not itens:
+        return 0, 0, 0, f"nenhum anúncio para ler ({pend.get('total', 0)} no monitor, todos lidos hoje)"
+    ctx = _ml_navegador(p, cfg)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    lidos, erros, lote = 0, 0, []
+    ao_vivo(True, total=len(itens))
+    try:
+        for it in itens:
+            ao_vivo(True, atual=f"preço · {it['mlb']}")
+            try:
+                pg.goto(f"https://produto.mercadolivre.com.br/MLB-{it['mlb'][3:]}", wait_until="domcontentloaded", timeout=45000)
+                devagar(2.5)
+                if _ml_bloqueado(pg):
+                    raise Falha("o Mercado Livre pediu verificação de robô: rode entrar-ml no Mac")
+                pg.mouse.wheel(0, 600)
+                devagar(0.8)
+                x = pg.evaluate(JS_ML_PRECO)
+                lote.append(dict(x, mlb=it["mlb"]))
+                lidos += 1
+            except Falha:
+                raise
+            except Exception as e:  # noqa: BLE001
+                erros += 1
+                log(f"  {it['mlb']}: ERRO {str(e)[:120]}")
+            if len(lote) >= 20:
+                api(token, "ml_precos_gravar", corpo={"itens": lote}, timeout=60)
+                lote = []
+            AO_VIVO["feito"] += 1
+            devagar(3)
+        if lote:
+            api(token, "ml_precos_gravar", corpo={"itens": lote}, timeout=60)
+    finally:
+        try:
+            ctx.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return lidos, lidos, erros, f"monitor de preços: {lidos} anúncio(s) lido(s), {erros} erro(s)"
+
+
 def fotos_do_json(dados, maximo=500):
     """29/09 (Bruno: "a foto do anúncio no Nubimetrics é a mesma do anúncio no ML"): a resposta 'analysisitems' que a tela
     do vendedor carrega -> os anúncios que têm foto do Mercado Livre (mlstatic), com os campos simples de cada um (título,
@@ -2866,7 +2928,7 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  # 27/09 (Mac com malware, reinstalação): coletas e logins também no servidor (gamdias)
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
-                 "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos")
+                 "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -2921,7 +2983,7 @@ def comando_mac(chave, arg=""):
         "ferreiro_status": [*c, "programar", "0"], "astra_status": [*c, "programar-astra", "0"], "deepseek_status": [*c, "programar-deepseek", "0"],
         "navegador_status": [*c, "navegar", "0"],
         "ml_lojas": [*c, "ml-lojas"], "ml_posicoes": [*c, "ml-posicoes"], "entrar_ml": [*c, "entrar-ml"],
-        "vend_fotos": [*c, "fotos-vendedores"], "vitrine_seguidos": [*c, "vitrine-seguidos"],
+        "vend_fotos": [*c, "fotos-vendedores"], "vitrine_seguidos": [*c, "vitrine-seguidos"], "ml_precos": [*c, "ml-precos"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -3283,6 +3345,9 @@ def cmd_vigiar():
         if not motivo and _fora_da_janela_coleta() and _na_hora(cfg, token, "ml_posicoes_pendente", "posicoes_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora da posição dos anúncios no Mercado Livre", flush=True)
             return _soltar("ml-posicoes")
+        if not motivo and not _outra_rodando() and _na_hora(cfg, token, "ml_precos_pendente", "precos_tentativas"):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: hora do monitor de preços do Mercado Livre", flush=True)
+            return _soltar("ml-precos")
         if (not motivo and _fora_da_janela_coleta() and not _outra_rodando() and not _pid_vivo(PASTA / "memoria.pid")
                 and _na_hora(cfg, token, "memoria_pendente", "memoria_tentativas")):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora da memória (Hermes documenta, Qwen revisa)", flush=True)
@@ -6951,6 +7016,8 @@ def main():
     sub.add_parser("entrar-ml", help="Mercado Livre: abre a janela para passar pela verificação (sessão fica salva)")
     sub.add_parser("ml-lojas", help="Mercado Livre: acha os anúncios das minhas lojas")
     sub.add_parser("ml-posicoes", help="Mercado Livre: posição dos meus anúncios na busca")
+    mp = sub.add_parser("ml-precos", help="Mercado Livre: preço de agora dos anúncios do monitor de preços, só lê")
+    mp.add_argument("--so", default=None, help="só este anúncio (MLB…)")
     mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
     mlp.add_argument("url")
     fv = sub.add_parser("fotos-vendedores", help="Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML)")
@@ -7071,6 +7138,8 @@ def main():
         return executar("ml_lojas", coletar_ml_lojas)
     if args.cmd == "ml-posicoes":
         return executar("ml_posicoes", coletar_ml_posicoes)
+    if args.cmd == "ml-precos":
+        return executar("ml_precos", lambda p, cfg, token: coletar_ml_precos(p, cfg, token, args.so))
     if args.cmd == "ml-pagina":
         return executar("ml_pagina", lambda p, cfg, token: coletar_ml_pagina(p, cfg, token, args.url))
     if args.cmd == "fotos-vendedores":

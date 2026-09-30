@@ -40,6 +40,7 @@ import saber
 import estoque
 import meli
 import perseguir
+import precos
 import reuniao
 import vend_bi
 import vendedores
@@ -4799,6 +4800,39 @@ def _num_ou_none(v):
         return None
 
 
+ID_FOTO = re.compile(r"\d+-ML[AB]\d+")
+
+
+def fotos_com_anuncio(repo, vendedor, dados):
+    """30/09 (Bruno, VANVIC: "quando eu clicar no anúncio com foto tem que ir para o anúncio no ML"): o ID da foto do
+    Nubimetrics (mlstatic D_<id>-I.jpg) é o mesmo da foto do card na vitrine (vend_anuncios_ml.foto): junta e cada foto
+    ganha o MLB, o link e se já está no monitor de preços."""
+    itens = dados.get("itens") or []
+    if not itens:
+        return dados
+    por_foto = {}
+    try:
+        for a in repo._todos("vend_anuncios_ml", {"select": "mlb,link,foto,preco,titulo,seller_id", "vendedor": repo._eq(vendedor)}):
+            m = ID_FOTO.search(str(a.get("foto") or ""))
+            if m:
+                por_foto[m.group(0)] = a
+    except Exception:  # noqa: BLE001  (tabela ainda não aplicada)
+        pass
+    monitor = {x.get("mlb") for x in precos.lista(repo)}
+    loja = _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor)) or {}
+    achados = 0
+    for it in itens:
+        m = ID_FOTO.search(str(it.get("foto") or ""))
+        a = por_foto.get(m.group(0)) if m else None
+        if a:
+            it["mlb"], it["link"] = a["mlb"], a.get("link") or precos.link_de(a["mlb"])
+            it["monitorando"] = a["mlb"] in monitor
+            achados += 1
+    dados["com_link"] = achados
+    dados["loja"] = {"id": loja.get("id"), "nome": loja.get("nome"), "link": loja.get("link")} if loja else None
+    return dados
+
+
 # 30/09 (Bruno: "abre uma página só para esse card desafio"): tela #/desafio — os cards do tipo "desafio" (#126 e os
 # cards-filhos de cada agente), a equipe, as 5 etapas, os 17 seguidos com a loja real e a cidade, as pesquisas pedidas de
 # dentro dos cards e a linha do tempo de todos os passos. Escrever na página vai para o card principal (tarefa_responder).
@@ -5316,9 +5350,10 @@ def rota_meli(repo, metodo, rota, q, corpo):
     if rota == "meli_fotos_seguido":
         r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(f"vend_fotos|{q.get('vendedor') or ''}")}) or [None])[0]
         try:
-            return json.loads(r["texto"]) if r else {"itens": []}
+            out = json.loads(r["texto"]) if r else {"itens": []}
         except (TypeError, ValueError):
-            return {"itens": []}
+            out = {"itens": []}
+        return fotos_com_anuncio(repo, str(q.get("vendedor") or ""), out)
     if rota == "meli_preco_catalogo":
         # card #121: preço de agora pelo catálogo. GET ?gtin= o gravado; POST {gtin} lê esse agora; POST {} os GTINs das marcas
         g = re.sub(r"\D", "", str(d.get("gtin") or q.get("gtin") or ""))
@@ -6045,6 +6080,7 @@ COMANDOS_MAC = {
     "explorador_quinzena": "Nubimetrics: exportar o Explorador da última quinzena de todas as marcas e importar no nubi",
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
     "vitrine_seguidos": "Mercado Livre: ler a vitrine (_CustId_) das lojas dos vendedores seguidos e gravar todos os anúncios, só lê",
+    "ml_precos": "Mercado Livre: ler agora o preço dos anúncios do monitor de preços, só lê",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 VETOR_LOCAL_DESDE = "2026-09-27T00:00:00+00:00"   # card #29: só itens novos da caixa ganham vetor (os antigos ficam de fora)
@@ -6380,6 +6416,31 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
             repo._req("DELETE", "anuncio_posicoes", {"termo": repo._eq(termo), "data": repo._eq(linhas[0]["data"])})
             repo._req("POST", "anuncio_posicoes", corpo=linhas, prefer="return=minimal")
         return {"ok": True, "linhas": len(linhas), "meus": sum(1 for x in linhas if x["meu"])}
+    if rota.startswith("ml_precos_"):
+        # 30/09 (Bruno): monitor de preços — anúncios marcados na página do vendedor; o coletor lê o preço de madrugada
+        if rota == "ml_precos_lista":
+            return {"itens": precos.painel(repo), "max": precos.MAX_ANUNCIOS}
+        if rota == "ml_precos_hist":
+            return {"mlb": precos.normalizar_mlb(q.get("mlb")), "historico": precos.historico(repo, q.get("mlb"))}
+        if rota == "ml_precos_seguir" and metodo == "POST":
+            try:
+                return {"ok": True, "item": precos.seguir(repo, d), "total": len(precos.lista(repo))}
+            except precos.ErroPrecos as e:
+                raise ErroNuvem(str(e))
+        if rota == "ml_precos_parar" and metodo == "POST":
+            return {"ok": True, "tirou": precos.parar(repo, d.get("mlb"))}
+        if rota == "ml_precos_pendente":
+            rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.precos"}) or [None])[0]
+            agora = _agora_br()
+            r = precos.pendente(repo, rot, agora)
+            if rot and not rotina_no_dia(rot, agora):
+                r["rodar"] = False
+            return r
+        if rota == "ml_precos_gravar" and metodo == "POST":
+            lidos = [precos.ler_pagina(x) | {"mlb": x.get("mlb")} if x.get("fracao") is not None or x.get("texto") else x
+                     for x in (d.get("itens") or [])[:400]]
+            return {"ok": True, "gravados": precos.gravar_leitura(repo, lidos)}
+        raise ErroNuvem("Rota desconhecida.", 404)
     if rota == "ml_posicoes_pendente":
         rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.posicoes"}) or [None])[0]
         agora = _agora_br()
