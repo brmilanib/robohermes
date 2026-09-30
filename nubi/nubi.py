@@ -816,29 +816,67 @@ def prefixos_da_marca(declaradas, marca, minimo=2):
     return {w for w, n in conta.items() if n >= minimo}
 
 
+PALAVRAS_PERFUME = re.compile(r"perfum|parfum|\beau\b|\bedp\b|\bedt\b|\bedc\b|toilette|cologne|colonia|fragr|spray|"
+                              r"body|\bdeo|desodor|\bkit\b|\bml\b|extrait|elixir|attar|\boud\b|splash|hidrat|creme|"
+                              r"cosm|beleza|beauty|skin|cabelo|hair|maquiag|makeup|batom|lip", re.I)
+
+
+def parece_perfume(nome):
+    """30/09 (GTIN 634240397363 = "Boho Gray Leaves Floral Switch Cover, JXUMSYJN" na UPCitemdb): resposta de base pública
+    que não tem cara de perfume/cosmético não vale como nome do produto — o código foi reaproveitado ou a base errou."""
+    return bool(PALAVRAS_PERFUME.search(sem_acento(str(nome or ""))))
+
+
+def cita_marca(df, marca):
+    """
+    30/09 (6+ casos do Bruno na semana: Maktub La Vie da Bidaya como "Outra marca: Jxumsyjn"): o que o PRÓPRIO anúncio diz
+    sobre a marca, anúncio por anúncio — True quando a coluna Marca bate, ou o título cita a marca (palavras inteiras) e
+    NÃO cita a marca declarada (contratipo "New Brand ... (Montblanc Legend)" continua New Brand), ou o SKU traz a marca.
+    """
+    alvo = compacta(marca)
+    declarada = df.get("marca_anuncio", pd.Series("", index=df.index)).fillna("").astype(str).str.strip()
+    bate = declarada.map(lambda v: marca_bate(v, alvo))
+    palavras = palavras_da_marca(marca)
+    inteira = " ".join(w for w in normalizar(marca).split())
+
+    def _no_titulo(t, d):
+        t = f" {normalizar(t)} "
+        if not (f" {inteira} " in t or (len(alvo) >= 5 and alvo.lower() in t.replace(" ", ""))
+                or (len(palavras) > 1 and all(f" {w} " in t for w in normalizar(marca).split()))):
+            return False
+        dn = normalizar(d)
+        return not (dn and dn not in ("", inteira) and not marca_bate(d, alvo) and f" {dn} " in t)
+
+    titulo = pd.Series([_no_titulo(t, d) for t, d in zip(df["titulo"].fillna(""), declarada)], index=df.index)
+    sku = df.get("sku", pd.Series("", index=df.index)).fillna("").astype(str).map(
+        lambda s: len(alvo) >= 4 and alvo in compacta(s))
+    return bate | titulo | sku
+
+
 def dono_do_anuncio(df, marca, pesquisados=None):
     """
     Confirma, anúncio por anúncio, se ele é mesmo da marca do export — cruzando a
     coluna Marca com o GTIN. Devolve uma Série: "" = é da marca; senão o nome da
     outra marca (ex.: "J. SERRANO" num export da Montblanc = contratipo).
-    - GTIN pesquisado (gtins.json) com marca preenchida manda: é a fonte mais confiável.
-    - GTIN que aparece em pelo menos um anúncio com a Marca certa é da marca: os
-      outros anúncios desse GTIN também são, mesmo que o vendedor tenha posto a
-      marca da loja dele na coluna Marca (ex.: "ERIAN" vendendo Montblanc Explorer).
+    - O que o próprio anúncio diz manda (`cita_marca`: coluna Marca, título ou SKU com a marca): é da marca.
+    - GTIN pesquisado (gtins.json) com marca preenchida vale quando NENHUM anúncio do GTIN cita a marca; se algum cita,
+      a pesquisa não confere (código reaproveitado na base pública, 30/09) e o GTIN é da marca.
+    - GTIN que aparece em pelo menos um anúncio da marca é da marca: os outros anúncios desse GTIN também são, mesmo
+      que o vendedor tenha posto a marca da loja dele na coluna Marca (ex.: "ERIAN" vendendo Montblanc Explorer).
     - GTIN que só aparece com outra marca declarada é daquela outra marca, inclusive
       nos anúncios desse GTIN com a coluna Marca vazia.
     - Sem GTIN: vale a coluna Marca; vazia conta como da marca.
     """
     alvo = compacta(marca)
     declarada = df["marca_anuncio"].fillna("").str.strip()
-    bate = declarada.map(lambda v: marca_bate(v, alvo))
-    dono = declarada.where(~bate & (declarada != ""), "")
+    cita = cita_marca(df, marca)
+    dono = declarada.where(~cita & (declarada != ""), "")
     for gtin, g in df[df["gtin"] != ""].groupby("gtin"):
         marca_pesq = (pesquisados or {}).get(gtin, {}).get("marca", "")
-        if marca_pesq:
-            dono[g.index] = "" if marca_bate(marca_pesq, alvo) else marca_pesq
-        elif bate[g.index].any():
+        if cita[g.index].any():
             dono[g.index] = ""
+        elif marca_pesq:
+            dono[g.index] = "" if marca_bate(marca_pesq, alvo) else marca_pesq
         else:
             outras = g[declarada[g.index] != ""]
             if not outras.empty:
@@ -997,6 +1035,12 @@ def consolidar(df, marca, cfg, info=None):
     # continuam no total, mas viram referências próprias e não votam nas etapas 2 e 3.
     dono = dono_do_anuncio(df, marca, pesquisados)
     outra = dono != ""
+    # 30/09: pesquisa do GTIN que diz outra marca, mas os anúncios do GTIN são da marca (coluna Marca, título ou SKU) —
+    # a base pública errou; o nome pesquisado ("Boho Gray Leaves Floral Switch Cover") não vota na linha nem no volume
+    for g in list(pesquisados):
+        m = pesquisados[g].get("marca", "")
+        if m and not marca_bate(m, alvo_marca) and (dono[df["gtin"] == g] == "").any():
+            del pesquisados[g]
     df.loc[outra, "linha"] = dono[outra].map(nome_bonito)
     df.loc[outra, "tipo"] = TIPO_OUTRA
     nao_perf = (df["categoria"].fillna("") != "") & ~outra
@@ -1060,7 +1104,7 @@ def consolidar(df, marca, cfg, info=None):
             return _completar_linha(t, linha, palavras_marca | outras_marcas, cortado=len(str(texto)) in range(38, 42))
         for gtin, grupo in df[(df["gtin"] != "") & ~fora & df["linha"].isin(base_de)].groupby("gtin"):
             linha = df.at[grupo.index[0], "linha"]
-            nome_pesq = (info.get(gtin) or {}).get("nome", "")
+            nome_pesq = (info.get(gtin) or {}).get("nome", "") if gtin in pesquisados else ""
             nova = _variacao(nome_pesq, linha) if nome_pesq else linha
             if nova == linha:
                 votos = {}
@@ -1468,6 +1512,11 @@ def consultar_gtin(gtin, token=""):
             continue
         except SemConexao as e:
             falhas.append(f"{nome}: sem resposta ({e})")
+            continue
+        if r and f is not fonte_ia and not parece_perfume(r.get("nome", "")):
+            # 30/09 (634240397363 = "Boho Gray Leaves Floral Switch Cover" na UPCitemdb, Maktub La Vie da Bidaya virou
+            # "Outra marca: Jxumsyjn"): base pública com resposta que não é perfume/cosmético não vale; a IA pesquisa
+            avisar(f"    {gtin}  {nome} respondeu algo que não é perfume ({r.get('nome', '')[:50]}); ignorado")
             continue
         if r:
             r["fonte"] = nome

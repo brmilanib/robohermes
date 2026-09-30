@@ -156,6 +156,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Comando da Central `explorador_quinzena`. Comparação = período anterior (`escolher_periodo`). Teste: `test_explorador_quinzena.py`.
 - **Scuderia (30/09)**: palavra que a coluna Marca põe ANTES da marca em 2+ anúncios ("SCUDERIA FERRARI") não vira linha
   (`nubi.prefixos_da_marca`, fim da etapa 3); `REGRA_ATUAL` = regra 8.
+- **Pesquisa errada do GTIN (30/09, Bruno: "mais de 6 casos na semana", Maktub La Vie da Bidaya = "Outra marca: Jxumsyjn")**:
+  a UPCitemdb devolveu para o 634240397363 um espelho de tomada ("Boho Gray Leaves…", marca JXUMSYJN) e a marca pesquisada
+  mandava sobre tudo. Agora (`REGRA_ATUAL` = regra 9): (1) `nubi.cita_marca` = o que o PRÓPRIO anúncio diz (coluna Marca
+  bate, ou título cita a marca sem citar a marca declarada — contratipo "New Brand (Lattafa Yara)" continua New Brand —,
+  ou o SKU traz a marca); em `dono_do_anuncio` qualquer anúncio do GTIN citando a marca vence a pesquisa, e o nome
+  pesquisado sai de `pesquisados` (não vota linha/volume). (2) `consultar_gtin` ignora resposta de base pública que não
+  parece perfume/cosmético (`parece_perfume`) e deixa a IA pesquisar (`fonte_ia`, web). Teste `test_gtin_pesquisa_errada.py`.
 
 ## Perseguir anúncios pelo Apify (28/09, pedido do Bruno) — Estoque → 🎯 Perseguir anúncios (`#/estoque/perseguir`), `perseguir.py`
 
