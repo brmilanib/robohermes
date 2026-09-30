@@ -6197,15 +6197,16 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         # o coletor achou os anúncios de uma loja: grava (sem apagar o termo que o Bruno editou)
         loja = str(d.get("loja") or "").strip().lower()
         ja = {a["id"]: a for a in repo._todos("meus_anuncios", {"select": "id,termo"})}
-        regs = []
+        regs = {}                                    # por id: o mesmo anúncio duas vezes na página quebrava o upsert (card #129)
         for x in d.get("anuncios") or []:
             aid = str(x.get("id") or "").upper().replace("-", "")
             if not re.fullmatch(r"MLB\d{6,}", aid):
                 continue
-            regs.append({"id": aid, "loja": loja, "titulo": str(x.get("titulo") or "")[:200],
+            regs[aid] = ({"id": aid, "loja": loja, "titulo": str(x.get("titulo") or "")[:200],
                          "preco": x.get("preco") if isinstance(x.get("preco"), (int, float)) else None,
                          "link": str(x.get("link") or "")[:500], "foto": str(x.get("foto") or "")[:500],
                          "termo": (ja.get(aid) or {}).get("termo") or termo_padrao(x.get("titulo")), "visto_em": agora_})
+        regs = list(regs.values())
         for i in range(0, len(regs), 200):
             repo._req("POST", "meus_anuncios", corpo=regs[i:i + 200], prefer="resolution=merge-duplicates,return=minimal")
         if loja:
