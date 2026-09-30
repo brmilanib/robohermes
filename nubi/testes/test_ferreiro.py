@@ -125,6 +125,11 @@ def test_astra_programa_no_branch_dele():
     ramos = subprocess.run(["git", "branch", "-a"], cwd=c.REPO_GIT, capture_output=True, text=True).stdout
     assert "astra/card-90" in ramos
     assert c._cards_astra_hoje(c.ler_config()) == 1 and sala[-1]["autor"] == "Astra (design)"
+    # 30/09 (3 recargas de US$ 7 no mesmo card): o Astra não tenta o MESMO card 2x no dia; o teto padrão caiu para 2 cards
+    assert c._astra_ja_tentou_hoje(c.ler_config(), 90) and not c._astra_ja_tentou_hoje(c.ler_config(), 91)
+    assert c.cmd_programar(type("A", (), {"id": "90"})(), c.ler_config(), quem="astra") == 1
+    assert passos[-1]["status"] == "aprovada" and "já tentou o card #90 hoje" in passos[-1]["texto"]
+    assert c._cards_astra_hoje(c.ler_config()) == 1 and c.ASTRA_CARDS_DIA == 2
 
 
 def test_astra_sem_codex_devolve_para_a_fila():

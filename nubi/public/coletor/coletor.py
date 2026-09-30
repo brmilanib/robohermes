@@ -3833,7 +3833,9 @@ def _gasto_ferreiro(cfg, somar=0.0):
 # organização, com o Codex da OpenAI no Mac rodando o modelo do Astra; mesmas regras do Ferreiro: branch astra/card-N,
 # testes do projeto, nunca publica (o Chefe revisa e publica), até ASTRA_CARDS_DIA cards por dia.
 ASTRA_MODELO = os.environ.get("NUBI_ASTRA_MODELO", "gpt-6-astra")
-ASTRA_CARDS_DIA = int(os.environ.get("NUBI_ASTRA_CARDS_DIA", "4"))
+# 30/09 (Bruno: 3 recargas de ~US$ 7 na OpenAI em 1 dia = 3 tentativas do Astra no MESMO card #127, nenhuma passou):
+# no máximo 2 cards por dia e 1 tentativa por card por dia (a repetição vai para o Ferreiro/Chefe, não para o Codex)
+ASTRA_CARDS_DIA = int(os.environ.get("NUBI_ASTRA_CARDS_DIA", "2"))
 ASTRA_AUTOR = "Astra (design)"
 
 
@@ -3894,14 +3896,21 @@ def _cards_hoje(cfg, campo, somar=0):
     return g.get(hoje, 0)
 
 
-def _cards_astra_hoje(cfg, somar=0):
+def _cards_astra_hoje(cfg, somar=0, tid=None):
+    """Cards que o Astra começou hoje; com `tid`, também marca este card como tentado hoje (1 tentativa por card por dia)."""
     hoje = date.today().isoformat()
     g = {k: v for k, v in (cfg.get("astra_cards") or {}).items() if k == hoje}
     if somar:
         g[hoje] = g.get(hoje, 0) + somar
         cfg["astra_cards"] = g
+        if tid:
+            cfg["astra_tentados"] = {hoje: sorted(set((cfg.get("astra_tentados") or {}).get(hoje, []) + [int(tid)]))}
         salvar_config(cfg)
     return g.get(hoje, 0)
+
+
+def _astra_ja_tentou_hoje(cfg, tid):
+    return int(tid) in ((cfg.get("astra_tentados") or {}).get(date.today().isoformat(), []))
 
 
 def _python_novo():
@@ -4018,6 +4027,8 @@ def cmd_programar(args, cfg, quem="ferreiro"):
         return 0 if ok else 1
     token = token_nubi(cfg)
     tid = int(args.id)
+    if ok and astra and not ds and _astra_ja_tentou_hoje(cfg, tid):
+        ok, motivo = False, f"já tentou o card #{tid} hoje e não fechou; a nova tentativa fica com o Ferreiro/Chefe (1 tentativa do Codex por card por dia)"
     if not ok or gasto >= teto:
         porque = f"indisponível: {motivo}" if not ok else f"limite do dia atingido ({limite})"
         print(f"{nome} {porque}")
@@ -4101,7 +4112,7 @@ def cmd_programar(args, cfg, quem="ferreiro"):
                 # 29/09: o card só mostrava o eco do pedido; o erro de verdade (modelo, chave, cota) vem no stderr
                 relatorio = f"## Erro do {ferr}\n\n```\n" + r.stderr.strip()[-1500:] + "\n```\n\n" + relatorio
             custo = 0.0                                   # o Codex não informa o custo; aparece no uso da OpenAI/DeepSeek
-            _cards_hoje(cfg, "deepseek_cards", 1) if ds else _cards_astra_hoje(cfg, 1)
+            _cards_hoje(cfg, "deepseek_cards", 1) if ds else _cards_astra_hoje(cfg, 1, tid)
         else:
             r = subprocess.run([_claude_bin(), "-p", pedido, "--output-format", "json", "--model", FERREIRO_MODELO,
                                 "--max-turns", "60", "--permission-mode", "acceptEdits",
