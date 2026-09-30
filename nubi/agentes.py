@@ -228,7 +228,7 @@ PERFIS = {
         "como": "Opina na Sala e faz cards de texto quando é o responsável.",
         "pode": ["Opinar e entregar textos"], "nao_pode": ["Mexer no código", "Publicar"]},
     "hermes": {
-        "funcao": "30/09: também pesquisa na internet, grátis, junto com o Astra em todo /pesquisar. Vigia de erros 24 h, memória e documentação: conserta o simples no Mac, abre card 🩺 urgente no que não consegue e "
+        "funcao": "30/09: também pesquisa na internet, grátis, junto com o Astra em todo /pesquisar; e confere todo dia as propostas do gpt-oss na revisão do agrupamento do Explorador (rotina revisao: só o que os dois concordam é aplicado). Vigia de erros 24 h, memória e documentação: conserta o simples no Mac, abre card 🩺 urgente no que não consegue e "
                   "guarda as soluções na caixa de conhecimento.",
         "modelo": "hermes3:8b no Ollama do Mac mini (grátis)",
         "como": "O vigia do Mac chama ele no minuto seguinte a qualquer falha; roda de novo o que falhou quando sai versão nova; "

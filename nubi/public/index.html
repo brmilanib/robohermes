@@ -6982,7 +6982,9 @@ function abrirVendedoresProduto(prod) {
 const normNome = s => String(s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 function meuLadoProduto(m, {pm, med, mes30, lista, kpi, R, bg}) {
   const v = m.vendas, est = m.estoque || [];
+  // 30/09 (Bruno): o número do estoque é o "Agora" do UpSeller (atual); o disponível (fora o reservado) vai embaixo
   const disp = est.reduce((a, it) => a + (+it.disponivel || 0), 0), trans = est.reduce((a, it) => a + (+it.transito_compra || 0), 0);
+  const atual = est.reduce((a, it) => a + (+(it.atual ?? it.disponivel) || 0), 0);
   const minimo = est.reduce((a, it) => a + (+it.estoque_min || 0), 0);
   const custos = est.filter(it => +it.custo_medio > 0), custo = custos.length ? custos.reduce((a, it) => a + +it.custo_medio, 0) / custos.length : null;
   const vendo = v && v.unidades > 0, dias = (v && v.dias) || 30, porDia = vendo ? v.unidades / dias : 0;
@@ -7004,8 +7006,8 @@ function meuLadoProduto(m, {pm, med, mes30, lista, kpi, R, bg}) {
                 : est.length ? `nos últimos ${dias} dias` : "nenhum SKU do estoque casou com este produto")}
     ${kpi("Meu preço médio", vendo ? R(v.preco_medio) : "—",
           dif == null ? "" : `<span class="${dif > 0.001 ? "neg" : dif < -0.001 ? "pos" : ""}">${pct(dif)}</span> vs. mercado ${R(pm)}${med ? ` · mediana ${R(med)}` : ""}`)}
-    ${kpi("Meu estoque", est.length ? `<span class="${ok ? "pos" : disp ? "" : "neg"}">${nf0.format(disp)} un.</span>` : "—",
-          est.length ? `trânsito ${nf0.format(trans)} · mínimo ${nf0.format(minimo)}` + (cob != null ? ` · dura ≈ ${nf0.format(cob)} dias` : "") : "")}
+    ${kpi("Meu estoque", est.length ? `<span class="${ok ? "pos" : disp ? "" : "neg"}">${nf0.format(atual)} un.</span>` : "—",
+          est.length ? (atual !== disp ? `${nf0.format(disp)} disponível · ` : "") + `trânsito ${nf0.format(trans)} · mínimo ${nf0.format(minimo)}` + (cob != null ? ` · dura ≈ ${nf0.format(cob)} dias` : "") : "")}
     ${kpi("Custo médio", R(custo), margem != null ? `margem antes das taxas ${R(margem)} (${FMT.pct(margem / v.preco_medio)})`
           : margemMerc != null ? `no preço médio do mercado sobraria ${R(margemMerc)} antes das taxas` : "")}
     ${kpi("Minha posição", pos >= 0 ? `${pos + 1}º de ${lista.length}` : "—", pos >= 0 ? esc(lista[pos].vendedor) + " no Nubimetrics" : "minha loja não aparece entre os vendedores deste período")}

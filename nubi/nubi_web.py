@@ -41,6 +41,7 @@ import estoque
 import meli
 import perseguir
 import precos
+import revisao
 import reuniao
 import vend_bi
 import vendedores
@@ -750,6 +751,104 @@ def auditar_explorador(repo, forcar=False):
     return resumo
 
 
+def revisar_agrupamento(repo, forcar=False):
+    """Rotina `revisao` (30/09, Bruno): o gpt-oss propõe as correções do agrupamento a partir da conferência do dia e o
+    Hermes (Mac) confere; só o que os dois concordam é aplicado (`aplicar_revisao`)."""
+    hoje = _agora_br().date().isoformat()
+    chave = revisao.CHAVE + hoje
+    if not forcar and repo._req("GET", "ia_resumos", {"select": "chave", "chave": repo._eq(chave), "limit": 1}):
+        return "já feita hoje"
+    if not ia.tem("ollama"):
+        return "sem a chave do Ollama (gpt-oss)"
+    aud = auditoria_explorador_ultima(repo)
+    if not aud or aud.get("dia") != hoje:
+        _preparar(repo)
+        auditar_explorador(repo, forcar=True)
+        aud = auditoria_explorador_ultima(repo)
+    cfg = repo.carregar_config()
+    itens = revisao.itens_da_auditoria(aud, cfg)
+    propostas = []
+    if itens:
+        try:
+            j, _, _ = ia.perguntar_json(revisao.pedido(itens), web=False, qual="ollama", sistema=revisao.PAPEL, max_tokens=2500)
+        except Exception as e:  # noqa: BLE001
+            return f"gpt-oss não respondeu ({str(e)[:120]})"
+        propostas = revisao.propostas_de(itens, j)
+    estado = "aguardando_hermes" if propostas else "nada"
+    _gravar_revisao(repo, chave, revisao.registro(hoje, itens, propostas, estado))
+    if propostas:
+        ja = repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.hermes_revisao", "status": "in.(pendente,rodando)", "limit": 1}) or []
+        if not ja:
+            repo._req("POST", "mac_comandos", corpo=[{"comando": "hermes_revisao", "arg": hoje, "pedido_por": "rotina revisao",
+                                                      "status": "pendente"}], prefer="return=minimal")
+    return f"{len(itens)} item(ns) conferido(s), {len(propostas)} proposta(s) do gpt-oss" + (" esperando o Hermes" if propostas else "")
+
+
+def _gravar_revisao(repo, chave, dados):
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": "gpt-oss + Hermes", "criado_em": datetime.now(timezone.utc).isoformat(),
+                                            "texto": json.dumps(dados, ensure_ascii=False, default=float)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+
+
+def revisao_pendente(repo, dia=None):
+    """Para o Hermes (Mac): as propostas do dia que ainda esperam veredito."""
+    dia = dia or _agora_br().date().isoformat()
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(revisao.CHAVE + dia)}) or [None])[0]
+    try:
+        d = json.loads(r["texto"]) if r else None
+    except (TypeError, ValueError):
+        d = None
+    if not d or d.get("estado") != "aguardando_hermes":
+        return {"dia": dia, "propostas": []}
+    return {"dia": dia, "propostas": [dict(p, pedido=revisao.pedido_hermes(p)) for p in d.get("propostas") or []]}
+
+
+def aplicar_revisao(repo, dia, vereditos):
+    """Vereditos do Hermes [{id, concordo, motivo}] -> aplica o que ele concordou, reprocessa as marcas e posta na Sala."""
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(revisao.CHAVE + dia)}) or [None])[0]
+    try:
+        d = json.loads(r["texto"]) if r else None
+    except (TypeError, ValueError):
+        d = None
+    if not d or d.get("estado") != "aguardando_hermes":
+        raise ErroNuvem("Não há revisão esperando o Hermes nesse dia.")
+    ver = {}
+    for v in vereditos or []:
+        try:
+            ver[int(v.get("id"))] = {"concordo": bool(v.get("concordo")), "motivo": str(v.get("motivo") or "")[:200]}
+        except (TypeError, ValueError):
+            continue
+    cfg = repo.carregar_config()
+    aplicadas, recusadas, marcas = [], [], set()
+    for p in d.get("propostas") or []:
+        v = ver.get(int(p["id"]))
+        p["hermes"] = v
+        if not v or not v["concordo"]:
+            if v:
+                recusadas.append(f'{revisao.descrever(p)} — Hermes: {v["motivo"]}')
+            continue
+        if p["acao"] in ("mesma_marca", "linha_da_marca"):
+            juntar_apelido(repo, p["nome"], p["marca"])
+        if revisao.aplicar_no_config(cfg, p):
+            repo.salvar_config(cfg, nubi.chave_marca(p["marca"]))
+        marcas.add(p["marca"])
+        p["aplicada"] = True
+        aplicadas.append(revisao.descrever(p))
+    if marcas:
+        _preparar(repo)
+        nubi.reconsolidar(repo, repo.carregar_config(), sorted(marcas))
+    d["estado"] = "aplicada" if ver else "aguardando_hermes"
+    d["aplicadas"], d["recusadas"] = aplicadas, recusadas
+    _gravar_revisao(repo, revisao.CHAVE + dia, d)
+    if ver:
+        try:
+            repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "Hermes", "texto": revisao.resumo_sala(dia, aplicadas, recusadas, d.get("propostas") or [])}],
+                      prefer="return=minimal")
+        except ErroNuvem:
+            pass
+    return {"aplicadas": aplicadas, "recusadas": recusadas, "marcas": sorted(marcas)}
+
+
 def auditoria_explorador_ultima(repo):
     r = (repo._req("GET", "ia_resumos", {"select": "texto,criado_em", "chave": f"like.{AUDITORIA_CHAVE}*",
                                          "order": "chave.desc", "limit": 1}) or [None])[0]
@@ -890,6 +989,14 @@ def atender(metodo, rota, q, corpo, token):
                 _preparar(repo)
                 auditar_explorador(repo, forcar=True)
             return _json({"auditoria": auditoria_explorador_ultima(repo)})
+        if rota == "revisao_rodar" and metodo == "POST":
+            # 30/09: revisão diária do agrupamento (gpt-oss propõe, Hermes confere) agora
+            return _json({"resultado": revisar_agrupamento(repo, forcar=True)})
+        if rota == "revisao_pendente":
+            return _json(revisao_pendente(repo, q.get("dia")))
+        if rota == "revisao_hermes" and metodo == "POST":
+            d = json.loads(corpo or b"{}")
+            return _json(aplicar_revisao(repo, str(d.get("dia") or _agora_br().date().isoformat()), d.get("vereditos") or []))
         if rota == "agente_status":
             ult = repo._req("GET", "agente_execucoes", {"select": "*", "order": "id.desc", "limit": 15,
                                                         "origem": "not.like.regra*"}) or []
@@ -2601,12 +2708,25 @@ _PALAVRAS_VAZIAS = {"perfume", "perfumes", "masculino", "feminino", "unissex", "
 def _tokens_produto(titulo):
     """Palavras que identificam o produto (sem acento, sem as genéricas) + o volume em ml."""
     t = unicodedata.normalize("NFKD", str(titulo or "").lower()).encode("ascii", "ignore").decode()
-    vol = re.search(r"(\d{2,4})\s*ml", t)
+    # 30/09 (Bruno: "meu Vibrato tem 26", o quadro mostrava 63): "Decant(3ml)" tem 1 dígito e não era lido como volume,
+    # então os decants de 3/5/10 ml somavam no produto de 100 ml. Volume de 1 dígito conta, e decant/amostra/miniatura
+    # vira a palavra "decant", que só casa com outro decant.
+    vol = re.search(r"(?<!\d)(\d{1,4})\s*ml\b", t)
     v = vol.group(1) if vol else None
-    # número do nome conta ("Torino 21" ≠ "Torino 25", "212"); volume não conta como palavra do produto
+    if re.search(r"\b(decant|decants|amostra|amostras|miniatura|miniaturas|mini)\b", t):
+        t += " decant"
     pal = {p for p in re.findall(r"[a-z0-9]+", t) if p not in _PALAVRAS_VAZIAS and not re.fullmatch(r"\d+ml", p)
            and (len(p) >= 3 and not p.isdigit() or p.isdigit() and len(p) >= 2 and p != v)}
+    if "decant" in pal:
+        pal = {p for p in pal if p not in ("decants", "amostra", "amostras", "miniatura", "miniaturas", "mini")}
     return pal, v
+
+
+def _mesmo_formato(pal, p2, vol, v2):
+    """Mesmo volume quando os dois têm; decant só casa com decant (e o inteiro nunca com decant)."""
+    if vol and v2 and vol != v2:
+        return False
+    return ("decant" in pal) == ("decant" in p2)
 
 
 def _numeros_batem(a, b):
@@ -2624,7 +2744,7 @@ def casar_estoque(titulo, estoque):
     melhor, nota_m = None, 0.0
     for it in estoque:
         p2, v2 = it["_tok"]
-        if vol and v2 and vol != v2 or not _numeros_batem(pal, p2):
+        if not _mesmo_formato(pal, p2, vol, v2) or not _numeros_batem(pal, p2):
             continue
         comum = len(pal & p2)
         nota = comum / len(pal)
@@ -2641,7 +2761,7 @@ def _casar_varios(titulo, itens, n=3):
     notas = []
     for it in itens:
         p2, v2 = it["_tok"]
-        if vol and v2 and vol != v2 or not _numeros_batem(pal, p2):
+        if not _mesmo_formato(pal, p2, vol, v2) or not _numeros_batem(pal, p2):
             continue
         comum = len(pal & p2)
         if comum >= 2 and comum / len(pal) >= 0.6:
@@ -3146,7 +3266,7 @@ def resumos_marcas_pendentes(repo):
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
 NO_SERVIDOR = ("rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "perseguir", "resumo_semana", "resumo_marcas", "nomes_marcas",
-               "noticias", "auditoria", "reuniao", "design", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
+               "noticias", "auditoria", "reuniao", "design", "revisao", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 ROTINAS_TEXTO = ("resumo_dia", "resumo_semana", "resumo_marcas", "nomes_marcas", "noticias")   # texto sem conferência de número
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
 
@@ -3446,6 +3566,8 @@ def rodar_rotinas(repo, so=None):
                 res = perseguir.semanal(repo)
             elif rid == "nomes_marcas":
                 res = conferir_nomes_marcas(repo)
+            elif rid == "revisao":
+                res = revisar_agrupamento(repo, forcar=bool(so))
             elif rid == "resumo_marcas":
                 x = resumos_marcas_pendentes(repo)
                 res = "; ".join(f"{k.split('|')[1]} {k.split('|')[2]}: {v}" for k, v in x.items()) or "nada novo (análises do mês já feitas)"
@@ -6081,6 +6203,7 @@ COMANDOS_MAC = {
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
     "vitrine_seguidos": "Mercado Livre: ler a vitrine (_CustId_) das lojas dos vendedores seguidos e gravar todos os anúncios, só lê",
     "ml_precos": "Mercado Livre: ler agora o preço dos anúncios do monitor de preços, só lê",
+    "hermes_revisao": "Hermes conferir as propostas do dia da revisão do agrupamento (Explorador)",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 VETOR_LOCAL_DESDE = "2026-09-27T00:00:00+00:00"   # card #29: só itens novos da caixa ganham vetor (os antigos ficam de fora)

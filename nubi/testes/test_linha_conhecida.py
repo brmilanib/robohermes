@@ -87,6 +87,15 @@ def test_quadro_do_produto_traz_o_meu_lado():
     assert w.produto_meu(r, "Xerjoff Outros EDP 100 ml", titulos=["Xerjoff Naxos 1861 100ml"])["estoque"] == []
     m = w.produto_meu(r, "Xerjoff Torino 21 EDP 100 ml")
     assert m["estoque"] == [] and m["vendas"]["unidades"] == 0 and m["casado_por"] is None
+    # 30/09 (Bruno: "meu Vibrato tem 26", o quadro dizia 63): decant de 3/5/10 ml não soma no produto de 100 ml
+    itens2 = [{"sku": "SOS-VIB-100", "titulo": "Perfume Vibrato Sospiro Edp 100ml Importado Original", "disponivel": 25, "atual": 26,
+               "transito_compra": 1, "estoque_min": 21, "custo_medio": 988},
+              {"sku": "SV-DEC-03", "titulo": "Vibrato Sospiro Extrait de Parfum Decant(3ml)", "disponivel": 19, "atual": 20, "transito_compra": 0, "estoque_min": 0, "custo_medio": 30},
+              {"sku": "SV-DEC-10", "titulo": "Vibrato Sospiro Extrait de Parfum Decant(10ml)", "disponivel": 20, "atual": 20, "transito_compra": 0, "estoque_min": 0, "custo_medio": 90}]
+    m = w.produto_meu(_Repo(itens2, {"dias": 30, "linhas": []}), "Sospiro Vibrato EDP 100 ml")
+    assert [x["sku"] for x in m["estoque"]] == ["SOS-VIB-100"], m["estoque"]
+    m = w.produto_meu(_Repo(itens2, {"dias": 30, "linhas": []}), "Sospiro Vibrato Decant 10 ml")
+    assert [x["sku"] for x in m["estoque"]] == ["SV-DEC-10"], m["estoque"]
     print("ok test_quadro_do_produto_traz_o_meu_lado")
 
 

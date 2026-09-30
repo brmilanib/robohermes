@@ -1145,11 +1145,15 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
         textos = " | ".join(botoes.all_inner_texts())
         if not all(n.lower() in textos.lower() for n in nomes_cat):
             log(f"  Categoria na tela: {textos!r}; escolhendo {cat}")
-            botoes.nth(0).click()
-            pg.locator(f'a[data-id="{nivel1}"]').first.click()
-            time.sleep(2)
+            # 30/09 (Maquiagem, card #133): o 1º nível já era "Beleza e Cuidado Pessoal" e o clique no item já escolhido
+            # ficava esperando 30 s (TimeoutError); só mexe no nível que está diferente
+            n1 = (nomes_cat[0] if nomes_cat else "").lower()
+            if not n1 or n1 not in botoes.nth(0).inner_text().lower():
+                botoes.nth(0).click()
+                pg.locator(f'a[data-id="{nivel1}"]').first.click(timeout=15000)
+                time.sleep(2)
             botoes.nth(1).click()
-            pg.locator(f'a[data-id="{nivel2}"][data-parent="{nivel1}"]').first.click()
+            pg.locator(f'a[data-id="{nivel2}"][data-parent="{nivel1}"]').first.click(timeout=15000)
             time.sleep(2)
             textos = " | ".join(botoes.all_inner_texts())
             if not all(n.lower() in textos.lower() for n in nomes_cat):
@@ -3029,6 +3033,8 @@ def comando_mac(chave, arg=""):
         return [ol, "pull", arg] if arg in MODELOS_OK else None
     if chave == "hermes_card":
         return [*c, "hermes-card", arg] if str(arg).isdigit() else None
+    if chave == "hermes_revisao":
+        return [*c, "hermes-revisao", *([arg] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(arg or "")) else [])]
     if chave == "programar_card":
         return [*c, "programar", arg] if str(arg).isdigit() else None
     if chave == "ferreiro_conversa":
@@ -3796,6 +3802,54 @@ def cmd_hermes_card(args, cfg):
         return 1
     r = api(token, "tarefa_agente_entregar", corpo={"id": t["id"], "autor": "hermes", "texto": texto}, metodo="POST")
     print(f"Entregue. Teste do coordenador: {r.get('resultado')}")
+    return 0
+
+
+PAPEL_HERMES_REVISAO = (PAPEL_HERMES.split(" Responda à última")[0] +
+                        "\n\nAgora você é o REVISOR do agrupamento do Explorador (marcas e linhas de perfume no Mercado Livre). O gpt-oss "
+                        "propôs uma correção; você confere. Regras: GTIN não erra; título, SKU e marca digitada erram. 'Linha' é o "
+                        "nome do perfume dentro da marca (sem EDP/EDT, volume, gênero ou palavras de anúncio). Nome de LOJA ou de outra "
+                        "marca de verdade NÃO vira apelido nem linha. Concorde só quando tiver certeza. Responda SOMENTE com JSON.")
+
+
+def _json_obj(bruto):
+    """Primeiro objeto JSON dentro do texto do modelo."""
+    dec = json.JSONDecoder()
+    i = str(bruto or "").find("{")
+    while i != -1:
+        try:
+            obj, _ = dec.raw_decode(bruto, i)
+            if isinstance(obj, dict):
+                return obj
+        except ValueError:
+            pass
+        i = bruto.find("{", i + 1)
+    return {}
+
+
+def cmd_hermes_revisao(args, cfg):
+    """30/09 (Bruno): o Hermes (Ollama do Mac, grátis) confere cada proposta do gpt-oss da revisão diária do agrupamento e
+    devolve o veredito ao nubi (revisao_hermes), que aplica só o que os dois concordam."""
+    token = token_nubi(cfg)
+    dia = getattr(args, "dia", None)
+    pend = api(token, "revisao_pendente", {"dia": dia} if dia else None, timeout=30)
+    props = pend.get("propostas") or []
+    if not props:
+        print(f"Nenhuma proposta esperando o Hermes ({pend.get('dia')}).")
+        return 0
+    vereditos = []
+    for p in props:
+        try:
+            txt = _chamar_ollama("hermes3:8b", PAPEL_HERMES_REVISAO, p.get("pedido") or "", timeout=300)
+            j = _json_obj(txt)
+            concordo = bool(j.get("concordo")) if "concordo" in j else False
+            motivo = str(j.get("motivo") or ("sem resposta clara" if not j else ""))[:200]
+        except Exception as e:  # noqa: BLE001
+            concordo, motivo = False, f"Hermes não respondeu ({str(e)[:80]})"
+        vereditos.append({"id": p["id"], "concordo": concordo, "motivo": motivo})
+        print(f"  #{p['id']} {p.get('marca')}: {'concordo' if concordo else 'discordo'} — {motivo}", flush=True)
+    r = api(token, "revisao_hermes", corpo={"dia": pend.get("dia"), "vereditos": vereditos}, metodo="POST", timeout=280)
+    print(f"Aplicadas: {len(r.get('aplicadas') or [])}; recusadas: {len(r.get('recusadas') or [])}; marcas reprocessadas: {', '.join(r.get('marcas') or []) or '-'}")
     return 0
 
 
@@ -6987,6 +7041,8 @@ def main():
     hc = sub.add_parser("hermes-card", help="o Hermes faz um card do quadro de Desenvolvimento e entrega no nubi")
     hc.add_argument("id")
     hc.add_argument("--modelo", default=None)
+    hr = sub.add_parser("hermes-revisao", help="o Hermes confere as propostas do dia da revisão do agrupamento do Explorador")
+    hr.add_argument("dia", nargs="?", default=None)
     sub.add_parser("entrar-gestor", help="login no Gestor Seller (uma vez), para importar a planilha sozinho")
     sub.add_parser("hermes-vigia", help="(automático) o Hermes trata as falhas novas: diagnostica, conserta e tenta de novo")
     sub.add_parser("hermes-memoria", help="(automático) o Hermes documenta a Sala e os cards na caixa de conhecimento; o Qwen revisa")
@@ -7058,6 +7114,8 @@ def main():
         return cmd_entrar_upseller(args, cfg)
     if args.cmd == "hermes-card":
         return cmd_hermes_card(args, cfg)
+    if args.cmd == "hermes-revisao":
+        return cmd_hermes_revisao(args, cfg)
     if args.cmd == "entrar-gestor":
         return cmd_entrar_gestor(args, cfg)
     if args.cmd == "hermes-vigia":

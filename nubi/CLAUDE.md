@@ -230,6 +230,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   diferentes só ficam no mesmo produto quando o título lê a mesma marca/linha/tipo/volume. A afirmação final vem quando a
   técnica achar a loja e o anúncio no ML (card #126). Próximo passo combinado: no quadro do produto, unidades por GTIN,
   "GTIN suspeito" (prefixo de outro país / só em 1–2 anúncios contra um dominante) e o GTIN dominante como o oficial.
+- **Revisão diária do agrupamento (30/09, Bruno: "o Hermes e o gpt-oss têm que revisar e otimizar todo dia, tarefa simples e
+  robótica")** — rotina `revisao` (06:45, `NO_SERVIDOR`), módulo `revisao.py`: `itens_da_auditoria` pega da conferência do dia
+  (`auditar_explorador`) outra marca grande, linhas parecidas e o que mais vende em Outros (≥ 5 un., até `MAX_ITENS`=25);
+  `revisar_agrupamento` pede ao gpt-oss (`ia.perguntar_json(qual="ollama")`, 1 chamada em lote) uma ação por item
+  (mesma_marca / linha_da_marca / mesma_linha / linha_nova; só confiança alta e valor válido: `valor_ok`) e grava em
+  `ia_resumos` `revisao|<dia>` (estado `aguardando_hermes`) + `mac_comandos` `hermes_revisao`. No Mac, `coletor
+  hermes-revisao` (hermes3 local, `PAPEL_HERMES_REVISAO`) responde concordo/discordo por proposta (`revisao_pendente` →
+  `revisao_hermes`); `aplicar_revisao` executa só o que os dois concordam (apelido em `marca_apelidos`, linha na
+  `marcas_config`: `aplicar_no_config`), reprocessa as marcas e posta na Sala como Hermes (recusadas listadas para o Bruno).
+  POST `revisao_rodar` roda agora. Teste `test_revisao_agrupamento.py`.
 - **Decisão do Bruno (30/09, Sospiro Vibrato +324 un.)**: "se for o mesmo produto tem que somar e agrupar sim". O anúncio
   da BLESSCOSMETICOS cadastrado como ERIAN com o GTIN do Vibrato (310 un., só no export da ERIAN) SOMA no produto da Sospiro
   e no ranking de vendedores dela (`_com_marca_trocada`); não separar em campo à parte.
