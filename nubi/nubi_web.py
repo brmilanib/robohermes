@@ -4763,6 +4763,42 @@ def lojas_seguidos(repo, lojas=None):
     return out
 
 
+def gravar_vitrine(repo, vendedor, seller_id, cards, scripts=(), pagina=0):
+    """Card #126, etapa 2: uma página da vitrine da loja (_CustId_, lida pelo coletor) -> vend_anuncios_ml, 1 linha por
+    MLB (upsert), ligada ao seguido de meli|seguidos. Só loja já ligada (a do seller_id dela); na 1ª página os anúncios
+    de prova já gravados em meli|seguidos entram primeiro (a vitrine completa por cima). Devolve os MLB lidos."""
+    loja = _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor))
+    if not loja or str(loja.get("id")) != str(seller_id):
+        raise ErroNuvem("Vendedor seguido sem essa loja ligada.")
+    agora = datetime.now(timezone.utc).isoformat()
+    base = {"vendedor": vendedor, "seller_id": str(seller_id), "visto_em": agora}
+    linhas = {}
+    if not pagina:
+        for a in loja.get("anuncios") or []:
+            mlb = re.sub(r"[^A-Z0-9]", "", str(a.get("anuncio") or "").upper())
+            if re.fullmatch(r"MLB\d{6,14}", mlb):
+                linhas[mlb] = base | {"mlb": mlb, "link": a.get("link") or f"https://produto.mercadolivre.com.br/MLB-{mlb[3:]}",
+                                      "titulo": (a.get("titulo") or "")[:200], "foto": "", "preco": _num_ou_none(a.get("preco")),
+                                      "full": bool(a.get("full")), "vendidos": None,
+                                      "produto_catalogo": a.get("produto") or None, "fonte": "prova"}
+    for a in meli.vitrine_cartoes(cards, scripts):
+        linhas[a["mlb"]] = base | {"mlb": a["mlb"], "link": a["link"][:500], "titulo": a["titulo"], "foto": a["foto"][:500],
+                                   "preco": a["preco"], "full": a["full"], "vendidos": a["vendidos"],
+                                   "produto_catalogo": a["catalogo"] or (linhas.get(a["mlb"]) or {}).get("produto_catalogo"),
+                                   "fonte": "vitrine"}
+    if linhas:
+        repo._req("POST", "vend_anuncios_ml", {"on_conflict": "mlb"}, corpo=list(linhas.values()),
+                  prefer="resolution=merge-duplicates,return=minimal")
+    return [m for m, x in linhas.items() if x["fonte"] == "vitrine"]
+
+
+def _num_ou_none(v):
+    try:
+        return float(v) if v is not None and float(v) > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
 # 30/09 (Bruno: "abre uma página só para esse card desafio"): tela #/desafio — os cards do tipo "desafio" (#126 e os
 # cards-filhos de cada agente), a equipe, as 5 etapas, os 17 seguidos com a loja real e a cidade, as pesquisas pedidas de
 # dentro dos cards e a linha do tempo de todos os passos. Escrever na página vai para o card principal (tarefa_responder).
@@ -4843,6 +4879,12 @@ def _painel_seguidos(repo):
             ult[v] = r
     lojas = meli.ler_hash_lojas(repo, meli.SEGUIDOS)
     cidades = lojas_seguidos(repo, lojas)
+    vitrine = {}
+    try:                                  # card #126, etapa 2: quantos anúncios da vitrine de cada loja já estão gravados
+        for x in repo._todos("vend_anuncios_ml", {"select": "vendedor"}):
+            vitrine[x["vendedor"]] = vitrine.get(x["vendedor"], 0) + 1
+    except Exception:  # noqa: BLE001  (tabela ainda não aplicada no banco)
+        pass
     try:
         snaps = _ultimos_snapshots(repo)
         ids_snap = ",".join(str(int(i)) for i in snaps["id"]) if not snaps.empty else ""
@@ -4890,7 +4932,7 @@ def _painel_seguidos(repo):
                 "vendas": round(sum(float(l.get("vendas") or 0) for l in ls), 2), "unidades": int(sum(int(l.get("unidades") or 0) for l in ls)),
                 "marcas": len(por_marca), "top_marca": nubi.nome_bonito(top) if top and top != "?" else "",
                 "ml": ({k: ml.get(k) for k in ("id", "nome", "link", "confianca", "votos", "sondados", "oficial", "prova", "em")}
-                       | {"anuncios": len(ml.get("anuncios") or [])}
+                       | {"anuncios": len(ml.get("anuncios") or []), "vitrine": vitrine.get(r["vendedor"], 0)}
                        | {k: (cidades.get(r["vendedor"]) or {}).get(k) for k in ("cidade", "uf")}) if ml else None}
 
     def resumo_com_explorador(r):
@@ -5259,6 +5301,15 @@ def rota_meli(repo, metodo, rota, q, corpo):
     if rota == "meli_seguidos_lojas":
         # card #126: loja real + cidade/UF de cada seguido ligado (e grava vend_lojas_ml)
         return {"lojas": list(lojas_seguidos(repo).values())}
+    if rota == "meli_seguido_anuncios":
+        # card #126, etapa 2: os anúncios da vitrine da loja real do seguido (vend_anuncios_ml), os mais vendidos primeiro
+        v = str(q.get("vendedor") or "")
+        try:
+            xs = repo._todos("vend_anuncios_ml", {"select": "*", "vendedor": repo._eq(v)})
+        except Exception:  # noqa: BLE001  (tabela ainda não aplicada no banco)
+            xs = []
+        xs.sort(key=lambda x: (-(x.get("vendidos") or 0), x.get("mlb") or ""))
+        return {"vendedor": v, "loja": _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(v)), "anuncios": xs}
     if rota == "meli_seguido":
         # vendedor SEGUIDO (Concorrentes -> Vendedores): a loja real já achada, se houver
         return {"loja": _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(str(q.get("vendedor") or "")))}
@@ -5993,6 +6044,7 @@ COMANDOS_MAC = {
     "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora", "ml_pagina": "Mercado Livre: salvar uma página (busca ou anúncio) no nubi para análise, só lê",
     "explorador_quinzena": "Nubimetrics: exportar o Explorador da última quinzena de todas as marcas e importar no nubi",
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
+    "vitrine_seguidos": "Mercado Livre: ler a vitrine (_CustId_) das lojas dos vendedores seguidos e gravar todos os anúncios, só lê",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 VETOR_LOCAL_DESDE = "2026-09-27T00:00:00+00:00"   # card #29: só itens novos da caixa ganham vetor (os antigos ficam de fora)
@@ -6296,6 +6348,19 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
              "fim": d.get("fim"), "em": datetime.now(timezone.utc).isoformat(), "itens": itens}, ensure_ascii=False)}],
             prefer="resolution=merge-duplicates,return=minimal")
         return {"ok": True, "itens": len(itens)}
+    if rota == "ml_vitrine_pendente":
+        # card #126, etapa 2: para o coletor (vitrine-seguidos), as lojas reais ligadas aos seguidos (só o seller_id)
+        lojas = meli.ler_hash_lojas(repo, meli.SEGUIDOS)
+        return {"lojas": [{"vendedor": v, "seller_id": str(x["id"]), "nome": x.get("nome") or ""}
+                          for v, x in ((v, _a_conferir(x)) for v, x in lojas.items())
+                          if x and re.fullmatch(r"\d{3,15}", str(x.get("id") or ""))]}
+    if rota == "ml_vitrine_salvar" and metodo == "POST":
+        # card #126, etapa 2: uma página da vitrine _CustId_ lida pelo coletor -> vend_anuncios_ml
+        cards = [str(c)[:30000] for c in (d.get("cards") or [])[:100]]
+        scripts = [str(s)[:3_000_000] for s in (d.get("scripts") or [])[:10]]
+        mlbs = gravar_vitrine(repo, str(d.get("vendedor") or ""), str(d.get("seller_id") or ""), cards, scripts,
+                              int(d.get("pagina") or 0))
+        return {"ok": True, "anuncios": len(mlbs), "mlbs": mlbs}
     if rota == "ml_pagina_salvar" and metodo == "POST":
         # 29/09: página do ML salva pelo coletor (comando ml_pagina) para o Chefe ver a estrutura real; só dado público
         url = str(d.get("url") or "")[:500]

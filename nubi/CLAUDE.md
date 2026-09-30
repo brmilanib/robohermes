@@ -499,6 +499,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     `supabase/vend_lojas_ml.sql`, o Chefe aplica; sem a tabela, a tela mostra assim mesmo). Roda ao abrir `#/vendedores-ml`
     (`meli_seguidos_lista`, "📍 cidade - UF" na coluna da loja) e na rota `meli_seguidos_lojas`. Sem resposta do ML: cidade
     None. Teste `test_seguidos_lojas.py`.
+  - Etapa 2 (30/09): `coletor vitrine-seguidos [--so NOME]` (comando da Central `vitrine_seguidos`) pega as lojas ligadas
+    (`ml_vitrine_pendente`), abre `lista.mercadolivre.com.br/_CustId_<id>` e as páginas seguintes (`_Desde_49_CustId_…`,
+    `vitrine_url`, até `VITRINE_PAGINAS`=40; para quando não vem MLB novo ou a página é curta), guarda os scripts com
+    `printed_result` no começo da página (`JS_CEDO`, como o cedo.js) e manda os cards a `ml_vitrine_salvar`. O servidor lê
+    cada card com as regras do `doCartao` (`meli.cartao_vitrine`/`vitrine_cartoes`: MLB do link/item_id/wid/clique, /p/ =
+    produto pai, preço fraction+cents, FULL, "+5mil vendidos", foto -I.→-O., rótulo do vendedor) e `gravar_vitrine` faz upsert
+    em `vend_anuncios_ml` (on_conflict mlb; migração `supabase/vend_anuncios_ml.sql`, o Chefe aplica), só para o seller_id
+    ligado ao seguido; os anúncios de prova de `meli|seguidos` entram primeiro (fonte "prova"). Rota `meli_seguido_anuncios`
+    (?vendedor=) lista os anúncios; `#/vendedores-ml` mostra "🛒 N na vitrine". Casamento com `vend_anuncios` = etapa 3.
 
 ## Quadro com teste e relatório (25/09)
 

@@ -1736,3 +1736,163 @@ def vendas_entre_fotos(antes, depois):
                 desceu += 1
     return {"un": sum(por.values()), "por_anuncio": por, "novos": sum(1 for i in d if i not in a),
             "sumiram": sum(1 for i in a if i not in d), "desceu": desceu}
+
+
+# Card #126, etapa 2 (30/09): a vitrine da loja (lista.mercadolivre.com.br/_CustId_<seller_id>) dá TODOS os anúncios dela
+# sem /items (403 ao app). O coletor abre as páginas e manda os cards (HTML) e os scripts com "printed_result" guardados no
+# começo da página (o ML apaga depois); aqui cada card é lido com AS MESMAS REGRAS do doCartao da extensão (conteudo.js).
+def vitrine_url(seller_id, pagina=0, por_pagina=48):
+    sid = re.sub(r"\D", "", str(seller_id or ""))
+    return f"https://lista.mercadolivre.com.br/_CustId_{sid}" if not pagina else \
+        f"https://lista.mercadolivre.com.br/_Desde_{pagina * por_pagina + 1}_CustId_{sid}_NoIndex_True"
+
+
+_VAZIOS = {"img", "br", "input", "meta", "link", "source", "hr", "wbr", "area", "col", "embed", "param", "track"}
+
+
+def _arvore(html_):
+    """HTML de um card -> árvore simples [tag, attrs, filhos] (texto = str), sem biblioteca de fora."""
+    from html.parser import HTMLParser
+    raiz = ["#", {}, []]
+    pilha = [raiz]
+
+    class P(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            no = [tag, {k: v or "" for k, v in attrs}, []]
+            pilha[-1][2].append(no)
+            if tag not in _VAZIOS:
+                pilha.append(no)
+
+        def handle_endtag(self, tag):
+            for i in range(len(pilha) - 1, 0, -1):
+                if pilha[i][0] == tag:
+                    del pilha[i:]
+                    break
+
+        def handle_data(self, d):
+            pilha[-1][2].append(d)
+    p = P()
+    p.feed(str(html_ or ""))
+    p.close()
+    return raiz
+
+
+def _nos(no):
+    for f in no[2]:
+        if isinstance(f, list):
+            yield f
+            yield from _nos(f)
+
+
+def _texto(no):
+    return re.sub(r"\s+", " ", " ".join(f if isinstance(f, str) else _texto(f) for f in no[2]
+                                        if not (isinstance(f, list) and f[0] in ("script", "style")))).strip()
+
+
+def _tem_classe(no, *cls):
+    cs = no[1].get("class", "").split()
+    return any(c in cs for c in cls)
+
+
+def _um(raiz, *cls, dentro=None):
+    base = next((n for n in _nos(raiz) if _tem_classe(n, *dentro)), None) if dentro else raiz
+    return next((n for n in _nos(base) if _tem_classe(n, *cls)), None) if base else None
+
+
+def _preco_do_no(pr):
+    fr = _um(pr, "andes-money-amount__fraction")
+    ct = _um(pr, "andes-money-amount__cents")
+    fr_ = re.sub(r"\D", "", _texto(fr) if fr else "")
+    ct_ = re.sub(r"\D", "", _texto(ct) if ct else "") or "0"
+    try:
+        x = float(fr_ + "." + ct_.ljust(2, "0"))
+    except ValueError:
+        return None
+    return x if x > 0 else None
+
+
+def cartao_vitrine(html_):
+    """Um card da busca/vitrine -> {mlb, link, titulo, foto, preco, full, vendidos, vendidos_mais, catalogo, apelido,
+    marca}. Regras do doCartao (conteudo.js); o que o card não mostra fica None."""
+    r = _arvore(html_)
+    t = _texto(r)
+    out = {"mlb": None, "link": "", "titulo": "", "foto": "", "preco": None, "full": False, "vendidos": None,
+           "vendidos_mais": False, "catalogo": None, "apelido": "", "marca": ""}
+    v = re.search(r"(\+)?\s*(\d+(?:[.,]\d+)?)\s*(mil)?\s*vendidos?", t, re.I)
+    if v:
+        out["vendidos"] = round(float(v.group(2).replace(".", "").replace(",", ".")) * (1000 if v.group(3) else 1))
+        out["vendidos_mais"] = bool(v.group(1))
+    nos = list(_nos(r))
+    if any("full" in n[1].get("aria-label", "").lower() or (n[0] == "svg" and "full" in n[1].get("class", "").lower())
+           or _tem_classe(n, "poly-component__shipped-from") or "fulfillment" in n[1].get("class", "") for n in nos) \
+            or re.search(r"\bFULL\b", t):
+        out["full"] = True
+    sv = next((n for n in nos if _tem_classe(n, "poly-component__seller", "ui-search-official-store-label",
+                                             "ui-search-item__group__element--seller")), None)
+    nome_sv = re.sub(r"^(vendido\s+)?por\s+", "", _texto(sv), flags=re.I).strip() if sv else ""
+    if nome_sv and len(nome_sv) < 60:
+        out["apelido"] = nome_sv
+    mc = next((n for n in nos if _tem_classe(n, "poly-component__brand", "ui-search-item__brand-discoverability")), None)
+    if mc and _texto(mc):
+        out["marca"] = _texto(mc)
+    pr = _um(r, "andes-money-amount", dentro=("poly-price__current",)) or \
+        _um(r, "andes-money-amount", dentro=("ui-search-price__second-line",))
+    if pr:
+        out["preco"] = _preco_do_no(pr)
+    tt = next((n for n in nos if _tem_classe(n, "poly-component__title", "ui-search-item__title")), None) or \
+        next((n for n in nos if n[0] in ("h2", "h3")), None)
+    out["titulo"] = _texto(tt)[:200] if tt else ""
+    links = [n[1]["href"] for n in nos if n[0] == "a" and n[1].get("href")]
+    for h in links:
+        u = urllib.parse.unquote(urllib.parse.unquote(h))
+        cat = re.search(r"/p/(MLB\d{5,})", u, re.I)
+        if cat and not out["catalogo"]:
+            out["catalogo"] = cat.group(1).upper()
+        m = re.search(r"(?:[?&#]wid=|item_id[:=])(MLB-?\d{6,})", u, re.I) or (None if cat else re.search(r"/MLB-?(\d{6,})", u, re.I))
+        if m and not out["mlb"]:
+            out["mlb"] = "MLB" + re.sub(r"\D", "", m.group(1))
+    out["link"] = next((h for h in links if "mercadolivre.com.br" in h and not re.search(r"click\d?\.mercadolivre", h)), "") or \
+        (f"https://produto.mercadolivre.com.br/MLB-{out['mlb'][3:]}" if out["mlb"] else "")
+    for n in nos:
+        if n[0] == "img":
+            f = next((x for x in (n[1].get("data-src"), n[1].get("src")) if x and "mlstatic" in x), "")
+            if f:
+                out["foto"] = f.replace("-I.", "-O.")
+                if not out["titulo"]:
+                    out["titulo"] = (n[1].get("alt") or "")[:200]
+                break
+    return out
+
+
+def vitrine_cartoes(cards, scripts=()):
+    """Todos os cards de uma página da vitrine (sem repetir o MLB) + a lista "printed_result" dos scripts guardados
+    (lerImpressos do fundo.js: vendidos, Full e preço completam o card; anúncio que só a lista tem entra com o link)."""
+    out, por = [], {}
+    for c in cards or []:
+        a = cartao_vitrine(c)
+        if a["mlb"] and a["mlb"] not in por:
+            por[a["mlb"]] = a
+            out.append(a)
+    t = re.sub(r"\\u002[fF]", "/", re.sub(r'\\+"', '"', " ".join(str(s) for s in scripts or [])))
+    for m in re.finditer(r'\{"item_id":"MLB\d{6,}"[^{}]*\}', t):
+        try:
+            x = json.loads(m.group(0))
+        except ValueError:
+            continue
+        lg = x.get("first_shipping_logistic_type")
+        a = por.get(x["item_id"])
+        if not a:
+            a = por[x["item_id"]] = {"mlb": x["item_id"], "link": f"https://produto.mercadolivre.com.br/MLB-{x['item_id'][3:]}",
+                                     "titulo": "", "foto": "", "preco": None, "full": False, "vendidos": None,
+                                     "vendidos_mais": False, "catalogo": None, "apelido": "", "marca": ""}
+            out.append(a)
+        if a["vendidos"] is None and x.get("sold_quantity") is not None:
+            a["vendidos"] = int(x["sold_quantity"])
+        if lg:
+            a["full"] = lg == "fulfillment"
+        if a["preco"] is None and x.get("price") is not None:
+            a["preco"] = float(x["price"])
+        pid = str(x.get("pid") or "").upper()
+        if not a["catalogo"] and pid.startswith("MLBP"):
+            a["catalogo"] = "MLB" + pid[4:]
+    return out

@@ -2161,6 +2161,80 @@ def coletar_ml_pagina(p, cfg, token, url):
             pass
 
 
+# Card #126, etapa 2 (30/09): a vitrine da loja de cada vendedor seguido (lista.mercadolivre.com.br/_CustId_<id>, todas
+# as páginas) dá todos os anúncios dela sem /items. O ML tira da página o script com "printed_result" depois de montar:
+# como o cedo.js da extensão, guardamos a cópia no começo da página. O nubi lê os cards com as regras do doCartao.
+JS_CEDO = r"""(() => {
+  const util = t => t && t.length > 200 && /printed_result|polycard/.test(t);
+  const guardados = window.__nubiScripts = [];
+  const pegar = s => { if (s && s.tagName === "SCRIPT" && util(s.textContent || "") && !guardados.includes(s.textContent)) guardados.push(s.textContent); };
+  try { new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if (n.tagName === "SCRIPT") { pegar(n); setTimeout(() => pegar(n), 0); } })))
+    .observe(document.documentElement || document, {childList: true, subtree: true}); } catch (e) {}
+  document.addEventListener("DOMContentLoaded", () => document.querySelectorAll("script").forEach(pegar));
+})();"""
+JS_VITRINE = r"""() => { const cs = [...document.querySelectorAll('li.ui-search-layout__item, div.poly-card')];
+  document.querySelectorAll("script").forEach(s => { const t = s.textContent || ""; if (t.length > 200 && /printed_result|polycard/.test(t) && !(window.__nubiScripts || []).includes(t)) (window.__nubiScripts = window.__nubiScripts || []).push(t); });
+  return {cards: cs.filter(c => !cs.some(o => o !== c && o.contains(c))).map(c => c.outerHTML.slice(0, 30000)),
+          scripts: (window.__nubiScripts || []).slice(0, 10)}; }"""
+VITRINE_PAGINAS = 40                    # 40 × 48 = 1.920 anúncios por loja, no máximo
+
+
+def vitrine_url(seller_id, pagina=0):
+    """Igual a meli.vitrine_url: 1ª página _CustId_<id>, as outras _Desde_49, _Desde_97…"""
+    sid = re.sub(r"\D", "", str(seller_id or ""))
+    return f"{ML_LISTA}/_CustId_{sid}" if not pagina else f"{ML_LISTA}/_Desde_{pagina * ML_POR_PAGINA + 1}_CustId_{sid}_NoIndex_True"
+
+
+def coletar_vitrine_seguidos(p, cfg, token, so=None):
+    """Para cada seguido com loja ligada (ml_vitrine_pendente): passa as páginas da vitrine e manda os cards ao nubi
+    (ml_vitrine_salvar -> vend_anuncios_ml). Só lê; nada é clicado. Para quando a página não traz MLB novo."""
+    lojas = [l for l in api(token, "ml_vitrine_pendente").get("lojas") or []
+             if re.fullmatch(r"\d{3,15}", str(l.get("seller_id") or "")) and (not so or so.upper() == str(l.get("vendedor")).upper())]
+    if not lojas:
+        return 0, 0, 0, "nenhum vendedor seguido com loja ligada"
+    ctx = _ml_navegador(p, cfg)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    pg.add_init_script(JS_CEDO)
+    feitos, total, erros, partes = 0, 0, 0, []
+    try:
+        for l in lojas:
+            vistos = set()
+            try:
+                for pag in range(VITRINE_PAGINAS):
+                    pg.goto(vitrine_url(l["seller_id"], pag), wait_until="domcontentloaded", timeout=60000)
+                    devagar(3)
+                    if _ml_bloqueado(pg):
+                        raise Falha("o Mercado Livre pediu verificação de robô: rode entrar-ml no Mac")
+                    for _ in range(6):
+                        pg.mouse.wheel(0, 1400)
+                        devagar(0.8)
+                    x = pg.evaluate(JS_VITRINE)
+                    if not x.get("cards"):
+                        break
+                    r = api(token, "ml_vitrine_salvar", corpo={"vendedor": l["vendedor"], "seller_id": l["seller_id"],
+                                                               "pagina": pag, "cards": x["cards"], "scripts": x.get("scripts") or []}, timeout=120)
+                    novos = set(r.get("mlbs") or []) - vistos
+                    vistos |= novos
+                    if not novos or len(x["cards"]) < ML_POR_PAGINA:
+                        break
+                feitos += 1
+                total += len(vistos)
+                partes.append(f"{l['vendedor']}: {len(vistos)}")
+                log(f"  {l['vendedor']} ({l.get('nome')}): {len(vistos)} anúncio(s) na vitrine")
+            except Falha:
+                raise
+            except Exception as e:  # noqa: BLE001
+                erros += 1
+                log(f"  {l['vendedor']}: ERRO {str(e)[:150]}")
+            devagar(3)
+    finally:
+        try:
+            ctx.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return feitos, total, erros, f"vitrine de {feitos} loja(s): {total} anúncio(s) — " + ", ".join(partes)[:300]
+
+
 def cmd_entrar_ml(args, cfg):
     """Abre o Mercado Livre no Chrome do coletor para o Bruno passar pela verificação (e entrar, se quiser); guarda a sessão."""
     from playwright.sync_api import sync_playwright
@@ -2792,7 +2866,7 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  # 27/09 (Mac com malware, reinstalação): coletas e logins também no servidor (gamdias)
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
-                 "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos")
+                 "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -2847,7 +2921,7 @@ def comando_mac(chave, arg=""):
         "ferreiro_status": [*c, "programar", "0"], "astra_status": [*c, "programar-astra", "0"], "deepseek_status": [*c, "programar-deepseek", "0"],
         "navegador_status": [*c, "navegar", "0"],
         "ml_lojas": [*c, "ml-lojas"], "ml_posicoes": [*c, "ml-posicoes"], "entrar_ml": [*c, "entrar-ml"],
-        "vend_fotos": [*c, "fotos-vendedores"],
+        "vend_fotos": [*c, "fotos-vendedores"], "vitrine_seguidos": [*c, "vitrine-seguidos"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -6881,6 +6955,8 @@ def main():
     mlp.add_argument("url")
     fv = sub.add_parser("fotos-vendedores", help="Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML)")
     fv.add_argument("--so", default=None, help="só este vendedor (nome como aparece no Nubimetrics)")
+    vs = sub.add_parser("vitrine-seguidos", help="Mercado Livre: todos os anúncios da vitrine (_CustId_) das lojas dos seguidos, só lê")
+    vs.add_argument("--so", default=None, help="só este vendedor seguido (ex.: \"SIENO P13\")")
     gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
     gs.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     es = sub.add_parser("estoque", help="exporta a Lista de Estoque do UpSeller e manda para o nubi")
@@ -6999,6 +7075,8 @@ def main():
         return executar("ml_pagina", lambda p, cfg, token: coletar_ml_pagina(p, cfg, token, args.url))
     if args.cmd == "fotos-vendedores":
         return executar("vend_fotos", lambda p, cfg, token: coletar_fotos_vendedores(p, cfg, token, args.so))
+    if args.cmd == "vitrine-seguidos":
+        return executar("vitrine_seguidos", lambda p, cfg, token: coletar_vitrine_seguidos(p, cfg, token, args.so))
     if args.cmd == "atualizar":
         novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro
