@@ -154,6 +154,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `explorador_quinzena_pedir`) devolve até `EXPLORADOR_LOTE`=25 marcas sem o export da quinzena (busca = nome da marca,
   arquivo `MARCA__ini_fim.csv`); o coletor exporta no Explorador e manda para `importar` com `marca`, `inicio`, `fim`.
   Comando da Central `explorador_quinzena`. Comparação = período anterior (`escolher_periodo`). Teste: `test_explorador_quinzena.py`.
+  Coletor (card #125): `coletor explorador-quinzena` (`coletar_explorador_quinzena`/`baixar_explorador`) abre o Explorador
+  pelo link do menu (ou `NUBI_EXPLORADOR_URL`), busca, põe o período (`aplicar_periodo`), EXPORTAR (e CSV se abrir menu),
+  salva com o `arquivo` do nubi; lotes até `rodar`=false, pausa `EXPLORADOR_PAUSA`; marca que falha não para as outras.
+  Vigia: `_na_hora(explorador_quinzena_pendente)` depois da coleta diária. Teste: `test_coletor_explorador_quinzena.py`.
 - **Scuderia (30/09)**: palavra que a coluna Marca põe ANTES da marca em 2+ anúncios ("SCUDERIA FERRARI") não vira linha
   (`nubi.prefixos_da_marca`, fim da etapa 3); `REGRA_ATUAL` = regra 8.
 

@@ -1172,6 +1172,149 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True):
 
 
 # ---------------------------------------------------------------------------
+# Fluxo 3 — Explorador de anúncios por quinzena (card #125: dias 2 e 17, todas as marcas)
+# ---------------------------------------------------------------------------
+
+EXPLORADOR_URL = os.environ.get("NUBI_EXPLORADOR_URL", "")     # vazio: abre pelo menu do Nubimetrics (link "Explorador")
+EXPLORADOR_PAUSA = float(os.environ.get("NUBI_EXPLORADOR_PAUSA", "6"))    # segundos entre uma marca e outra
+FEITO_EXPLORADOR = {}                                          # "url": onde o Explorador abriu (as outras marcas vão direto)
+# o campo de busca do Explorador (o visível com cara de busca; senão o 1º campo de texto visível)
+JS_BUSCA = r"""() => { document.querySelectorAll('[data-nubi-busca]').forEach(e => e.removeAttribute('data-nubi-busca'));
+  const vis = [...document.querySelectorAll('input')].filter(i => i.offsetParent && ['', 'text', 'search'].includes(i.type));
+  const c = vis.find(i => /busc|pesquis|search|palavra|produto|marca|termo/i.test([i.placeholder, i.name, i.id,
+    i.getAttribute('aria-label')].join(' '))) || vis[0];
+  if (c) c.setAttribute('data-nubi-busca', '1'); return !!c; }"""
+
+
+def abrir_explorador(pg):
+    """Explorador de anúncios pela URL guardada (ou NUBI_EXPLORADOR_URL); na 1ª vez, pelo link do menu."""
+    url = EXPLORADOR_URL or FEITO_EXPLORADOR.get("url")
+    if not url:
+        pg.goto(f"{BASE}/market/sellerranking", wait_until="domcontentloaded", timeout=90000)
+        link = pg.locator("a, [role=menuitem], [role=link]", has_text=re.compile(r"explorador", re.I))
+        try:
+            link.first.wait_for(timeout=60000)
+        except Exception:  # noqa: BLE001
+            conferir_sessao(pg)
+            raise Falha("não achei o link do Explorador de anúncios no menu " + diagnostico(pg))
+        link.first.click()
+    else:
+        pg.goto(url, wait_until="domcontentloaded", timeout=90000)
+    fim_t = time.time() + 60
+    while not pg.evaluate(JS_BUSCA) and time.time() < fim_t:
+        pg.wait_for_timeout(700)
+    if re.search(r"login|signin|account", urllib.parse.urlparse(pg.url).path, re.I):
+        raise SessaoExpirada(f"O Nubimetrics pediu login de novo. Rode {_onde_rodar('entrar')} " + diagnostico(pg))
+    if not pg.evaluate(JS_BUSCA):
+        enviar_foto(pg, "Explorador sem campo de busca", resumo_tela(pg))
+        raise Falha("o Explorador de anúncios não mostrou o campo de busca " + diagnostico(pg))
+    FEITO_EXPLORADOR["url"] = pg.url
+    try:
+        pg.add_style_tag(content=ESCONDER)
+    except Exception:  # noqa: BLE001
+        pass
+    devagar(2)
+
+
+def baixar_explorador(pg, busca, ini, fim, destino, arquivo):
+    """Busca a marca no Explorador, põe o período e clica em EXPORTAR (só exporta: nada é salvo na conta)."""
+    abrir_explorador(pg)
+    linhas = lambda: pg.evaluate("() => document.querySelectorAll('table tbody tr, [role=row]').length")
+    campo = pg.locator("[data-nubi-busca]").first
+    campo.click(click_count=3)
+    campo.fill(busca)
+    campo.press("Enter")
+    buscar = pg.locator("button:visible, [role=button]:visible", has_text=re.compile(r"^\s*(BUSCAR|PESQUISAR)\s*$", re.I))
+    if buscar.count():
+        buscar.first.click()
+    devagar(2)
+    alvo = ((int(ini[8:10]), int(ini[5:7])), (int(fim[8:10]), int(fim[5:7])))
+    if periodo_na_tela(pg) != alvo:
+        aplicar_periodo(pg, ini, fim)
+        fim_t = time.time() + 30
+        while periodo_na_tela(pg) != alvo and time.time() < fim_t:
+            pg.wait_for_timeout(700)
+        if periodo_na_tela(pg) != alvo:
+            enviar_foto(pg, f"Explorador {busca}: período não ficou {ini} a {fim}", resumo_tela(pg))
+            raise Falha(f"o período na tela ficou {periodo_na_tela(pg)} (queria {ini} a {fim}) " + diagnostico(pg))
+    fim_t = time.time() + 90
+    while linhas() == 0 and time.time() < fim_t:
+        if VAZIO.search(pg.evaluate("() => (document.querySelector('main') || document.body).innerText")):
+            raise SemDados()
+        pg.wait_for_timeout(700)
+    if linhas() == 0:
+        raise Falha("a tabela do Explorador não carregou " + diagnostico(pg))
+    devagar(3)                                         # a tabela termina de desenhar
+    botoes = botao_exportar(pg)
+    if not botoes.count():
+        enviar_foto(pg, f"Explorador {busca}: sem EXPORTAR", resumo_tela(pg))
+        raise Falha("não achei o botão EXPORTAR do Explorador " + diagnostico(pg))
+    with pg.expect_download(timeout=120000) as d:
+        exportar_alcancavel(botoes).click()
+        pg.wait_for_timeout(1500)
+        csv = pg.locator("li:visible, [role=menuitem]:visible, button:visible", has_text=re.compile(r"^\s*CSV\s*$", re.I))
+        if csv.count():                                # EXPORTAR que abre o menu de formato
+            csv.first.click()
+    arq = destino / arquivo                            # nome MARCA__AAAA-MM-DD_AAAA-MM-DD.csv (o nubi lê marca e período dele)
+    d.value.save_as(str(arq))
+    devagar(2)
+    if len(arq.read_bytes().splitlines()) < 2:
+        raise Falha(f"o export veio sem linhas ({d.value.suggested_filename})")
+    return arq
+
+
+def coletar_explorador_quinzena(p, cfg, token):
+    """Pergunta ao nubi as marcas sem o export da quinzena (lotes de 25) e exporta uma a uma; a que falha não para as outras."""
+    ok, erros, tentadas, per = 0, [], set(), ""
+    ctx = None
+    try:
+        while True:
+            r = api(token, "explorador_quinzena_pendente", timeout=60)
+            marcas = [m for m in r.get("marcas") or [] if m["marca"] not in tentadas]
+            if not r.get("rodar") or not marcas:       # acabou (ou só sobraram as que já falharam nesta rodada)
+                break
+            ini, fim = r["inicio"], r["fim"]
+            per = f"{ini[8:10]}/{ini[5:7]} a {fim[8:10]}/{fim[5:7]}"
+            destino = PASTA / "arquivos" / "explorador" / f"{ini}_{fim}"
+            destino.mkdir(parents=True, exist_ok=True)
+            if ctx is None:
+                ctx = abrir_navegador(p, cfg)
+                pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+            log(f"Explorador {per}: {r.get('feitas', 0)} de {r.get('total', 0)} marcas já têm; agora {len(marcas)}")
+            AO_VIVO["total"] += len(marcas)
+            for m in marcas:
+                tentadas.add(m["marca"])
+                ao_vivo(atual=f"Explorador {m['marca']}")
+                try:
+                    arq = baixar_explorador(pg, m["busca"], ini, fim, destino, m["arquivo"])
+                    res = api(token, "importar", {"arquivo": m["arquivo"], "marca": m["marca"], "inicio": ini, "fim": fim},
+                              arq.read_bytes())
+                    ok += 1
+                    log(f"  {m['marca']}: importado ({arq.stat().st_size // 1024} KB) " + " ".join(res.get("log", []))[:200])
+                except SessaoExpirada:
+                    raise
+                except SemDados:
+                    erros.append(f"{m['marca']}: sem anúncios no período")
+                    log(f"  {erros[-1]}")
+                except Exception as e:  # noqa: BLE001
+                    erros.append(f"{m['marca']}: {str(e)[:160]}")
+                    log(f"  {m['marca']}: FALHOU {e}")
+                AO_VIVO["feito"] += 1
+                ao_vivo()
+                devagar(EXPLORADOR_PAUSA)
+    finally:
+        if ctx is not None:
+            guardar_sessao(ctx)
+            ctx.close()
+    if not tentadas:
+        return 0, 0, 0, "Explorador por quinzena: nada pendente"
+    msg = f"Explorador {per}: {ok} de {len(tentadas)} marca(s) importada(s)"
+    if erros:
+        msg += f"; falharam {len(erros)}: " + "; ".join(erros)
+    return len(tentadas), ok, len(erros), msg[:1500]
+
+
+# ---------------------------------------------------------------------------
 # Comandos
 # ---------------------------------------------------------------------------
 
@@ -2809,7 +2952,7 @@ def comando_mac(chave, arg=""):
         "ferreiro_status": [*c, "programar", "0"], "astra_status": [*c, "programar-astra", "0"], "deepseek_status": [*c, "programar-deepseek", "0"],
         "navegador_status": [*c, "navegar", "0"],
         "ml_lojas": [*c, "ml-lojas"], "ml_posicoes": [*c, "ml-posicoes"], "entrar_ml": [*c, "entrar-ml"],
-        "vend_fotos": [*c, "fotos-vendedores"],
+        "vend_fotos": [*c, "fotos-vendedores"], "explorador_quinzena": [*c, "explorador-quinzena"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -3168,6 +3311,10 @@ def cmd_vigiar():
         if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Gestor Seller -> importando a planilha", flush=True)
             return _soltar("gestor")
+        if not motivo and _na_hora(cfg, token, "explorador_quinzena_pendente", "explorador_tentativas"):
+            # card #125: dias 2–6 e 17–21 (ou pedido de período na Central), depois da coleta diária da madrugada
+            print(f"{datetime.now():%d/%m %H:%M} vigia: Explorador da quinzena pendente -> exportando as marcas", flush=True)
+            return _soltar("explorador-quinzena")
         if not motivo and _fora_da_janela_coleta() and _na_hora(cfg, token, "ml_posicoes_pendente", "posicoes_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora da posição dos anúncios no Mercado Livre", flush=True)
             return _soltar("ml-posicoes")
@@ -6825,6 +6972,7 @@ def main():
     ea.add_argument("site", choices=["nubimetrics", "upseller", "gestor"])
     sub.add_parser("entrar-ml", help="Mercado Livre: abre a janela para passar pela verificação (sessão fica salva)")
     sub.add_parser("ml-lojas", help="Mercado Livre: acha os anúncios das minhas lojas")
+    sub.add_parser("explorador-quinzena", help="Nubimetrics: exporta o Explorador da quinzena das marcas que faltam e importa")
     sub.add_parser("ml-posicoes", help="Mercado Livre: posição dos meus anúncios na busca")
     mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
     mlp.add_argument("url")
@@ -6942,6 +7090,8 @@ def main():
         return cmd_entrar_ml(args, cfg)
     if args.cmd == "ml-lojas":
         return executar("ml_lojas", coletar_ml_lojas)
+    if args.cmd == "explorador-quinzena":
+        return executar("explorador_quinzena", coletar_explorador_quinzena)
     if args.cmd == "ml-posicoes":
         return executar("ml_posicoes", coletar_ml_posicoes)
     if args.cmd == "ml-pagina":
