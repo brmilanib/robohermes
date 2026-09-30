@@ -6830,10 +6830,12 @@ def rota_ranking(repo, metodo, rota, q, corpo):
         cats = {}
         for r in rels:
             cats.setdefault(r["categoria"], []).append(r)
+        # 30/09 (Bruno importou Maquiagem e "sumiu" Perfumes): a categoria com mais meses vem primeiro e é a padrão da
+        # tela; o código MLB1246-MLB1248 ficava na frente de MLB1246-MLB6284 só pela ordem alfabética
         return [{"categoria": c, "nome": ranking.nome_categoria(c),
                  "meses": [{"id": r["id"], "mes": r["mes"], "nome": ranking.nome_mes(r["mes"]),
                             "arquivo": r["arquivo"]} for r in reversed(rs)]}
-                for c, rs in cats.items()]
+                for c, rs in sorted(cats.items(), key=lambda kv: (-len(kv[1]), kv[0]))]
 
     if rota == "ranking_analisar" and metodo == "POST":
         try:
