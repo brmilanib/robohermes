@@ -515,7 +515,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Hermes pendente, o DeepSeek e o **Gemini** (`pesquisa_gemini`, `ia.gemini_texto` com a busca do Google; só com
   `GEMINI_API_KEY` na Vercel, senão pula em silêncio) também nas pesquisas com status `erro` (o Astra morreu por tempo nas
   c126c/d e as outras visões nunca vinham). Pesquisas c126e (achar o vendedor real/todos os anúncios da loja) e c126f
-  (casar anúncio por foto/GTIN e acompanhar preço/estoque por dia) pedidas por SQL em 30/09.
+  (casar anúncio por foto/GTIN e acompanhar preço/estoque por dia) pedidas por SQL em 30/09. O DeepSeek não tem busca na
+  API: `pesquisa_deepseek` busca por ele (`ia.ollama_web`, 8 páginas) e manda as páginas junto com o relatório do Astra.
 - DeepSeek (pausado fora das 2 análises) é liberado em `trabalhar_agentes` só para cards `tipo='desafio'` de que é o
   responsável (`ia.deepseek_liberado()`); entrega texto, que o Chefe confere.
   - Etapa 1 (30/09): `nubi_web.lojas_seguidos` pega cada seguido ligado de `meli|seguidos` (sem "dúvida"), lê a cidade/UF
