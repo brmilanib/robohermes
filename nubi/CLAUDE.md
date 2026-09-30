@@ -168,6 +168,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `RE_VOLUME` lê 1 dígito: "5ml") e `TIPO_CONTRATIPO` (contratipo/inspirado/similar/genérico no título, ou anúncio de OUTRA
   marca cujo título cita a marca do export) — `nubi.tipo_low_price`, decidido por anúncio logo depois de `dono_do_anuncio`.
   (Ranking: `ranking_lista` põe primeiro a categoria com mais meses — Perfumes antes de Maquiagem, 30/09, "sumiu os de perfume".)
+- **Categoria nova no Ranking (30/09, Bruno: "toda vez que eu importar uma categoria nova, coletar desde janeiro até o último
+  mês fechado e criar o submenu")**: o submenu já nasce sozinho (`ranking_lista`). `ranking_importar` calcula
+  `meses_faltando_ranking` (meses fechados desde `RANKING_DESDE`=2026-01, Brasília) e, se falta algum, `pedir_coleta` grava um
+  pedido `diario` em `coletor_pedidos` (o vigia do Mac pega em até 15 min). `coletor_pendencias` manda `ranking_nomes`; no
+  coletor, `categorias_marcas(cfg, pend)` junta às categorias do config toda categoria já importada no Ranking, então a
+  coleta mensal baixa os meses que faltam de cada uma. Teste em `test_ranking_maquiagem.py`.
+  Menu (Bruno: "não tem necessidade de três menus de perfume"): um item por categoria em `desenharMenu`; Mês a mês / B.I. /
+  Categorias de marca são as abas `.seg` no topo das três telas.
   Categoria `CAT_LOW`="Low price" (vence a "Categoria final" do arquivo), confiança `CONF_LOW`, produto "Marca Linha Decant
   10 ml"/"Marca Linha Contratipo 100 ml". Não votam no GTIN (entram em `fora`), não entram no `mapa_gtin_global` nem na
   etapa 4; pegam a linha pelo dicionário da etapa 2b. Resumo da marca: `un_low_price`. `REGRA_ATUAL` = regra 10. Teste `test_low_price.py`.

@@ -1016,11 +1016,14 @@ def atender(metodo, rota, q, corpo, token):
             rk = {}
             for r in _relatorios(repo):
                 rk.setdefault(r["categoria"], []).append(r["mes"][:7])
+            # 30/09: toda categoria já importada no Ranking entra na coleta mensal (o coletor junta com as do config dele);
+            # os nomes servem para conferir os botões de categoria na tela do Nubimetrics
+            rk_nomes = {c: ranking.nome_categoria(c).split(" > ") for c in rk}
             try:
                 rot = (repo._req("GET", "rotinas", {"select": "ativo,dias_semana,dia_mes", "id": "eq.coleta"}) or [None])[0]
             except ErroNuvem:
                 rot = None
-            return _json({"vendedores": vend, "hashes": por_hash, "ranking": rk, "rotina": rot})
+            return _json({"vendedores": vend, "hashes": por_hash, "ranking": rk, "ranking_nomes": rk_nomes, "rotina": rot})
 
         if rota == "apelido_ia" and metodo == "POST":
             d = json.loads(corpo or b"{}")
@@ -1721,6 +1724,40 @@ def _relatorios(repo, categoria=None):
 def _linhas(repo, rid):
     return unificar_marcas(repo, repo._todos("ranking_linhas", {"select": "*", "relatorio_id": repo._eq(int(rid)),
                                                                  "order": "posicao"}), somar=True)
+
+
+RANKING_DESDE = "2026-01"
+
+
+def meses_fechados(hoje=None):
+    """Meses fechados desde RANKING_DESDE até o mês anterior ao de hoje (Brasília): ['2026-01', …]."""
+    hoje = hoje or datetime.now(timezone(timedelta(hours=-3))).date()
+    a, m = map(int, RANKING_DESDE.split("-"))
+    out = []
+    while (a, m) < (hoje.year, hoje.month):
+        out.append(f"{a}-{m:02d}")
+        a, m = (a + 1, 1) if m == 12 else (a, m + 1)
+    return out
+
+
+def meses_faltando_ranking(repo, categoria, hoje=None):
+    """30/09 (Bruno: "toda vez que eu importar uma categoria nova, coletar desde janeiro até o último mês fechado"):
+    meses fechados que a categoria ainda não tem no Ranking."""
+    tem = {r["mes"][:7] for r in _relatorios(repo, categoria)}
+    return [m for m in meses_fechados(hoje) if m not in tem]
+
+
+def pedir_coleta(repo, motivo, tarefa="diario"):
+    """Pede ao vigia do Mac uma rodada da coleta (mesmo pedido do botão "Rodar coleta agora"). False se já havia um aberto."""
+    try:
+        aberto = repo._req("GET", "coletor_pedidos", {"select": "id", "atendido_em": "is.null", "tarefa": repo._eq(tarefa),
+                                                      "limit": 1}) or []
+        if aberto:
+            return False
+        repo._req("POST", "coletor_pedidos", corpo=[{"motivo": str(motivo)[:200], "tarefa": tarefa}], prefer="return=minimal")
+        return True
+    except ErroNuvem:
+        return False
 
 
 def _guardar_resumo(repo, chave, texto, qual, dados=None):
@@ -6877,7 +6914,10 @@ def rota_ranking(repo, metodo, rota, q, corpo):
         log = [f"OK: {ranking.nome_categoria(cat)} · {ranking.nome_mes(mes)} · {len(linhas)} marcas"]
         if antigos:
             log.append("(substituiu o relatório anterior do mesmo mês)")
-        return {"ok": True, "log": log, "categoria": cat, "mes": mes[:7]}
+        faltam = meses_faltando_ranking(repo, cat)
+        if faltam and pedir_coleta(repo, f"Ranking {ranking.nome_categoria(cat)}: baixar {', '.join(faltam)}"):
+            log.append(f"O coletor vai baixar os meses que faltam desta categoria ({', '.join(faltam)}) em até 15 min.")
+        return {"ok": True, "log": log, "categoria": cat, "mes": mes[:7], "faltam": faltam}
 
     if rota == "ranking_relatorio":
         cat = q["categoria"]

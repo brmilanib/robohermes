@@ -1484,15 +1484,11 @@ function desenharMenu() {
   const it = (href, ic, txt, on, extra = "") => `<a class="navi ${on ? "on" : ""}" href="${href}"><span class="ic">${ic}</span><span>${esc(txt)}</span>${extra}</a>`;
   const sub = itens => itens.length ? `<div class="subnav">${itens.map(i => i.mais ? `<a class="mais" id="mtodas">${esc(i.nome)}</a>`
     : `<a class="${i.on ? "on" : ""}" href="${i.href}" title="${esc(i.nome)}">${esc(i.nome)}</a>`).join("")}</div>` : "";
-  // Ranking: para cada categoria do Mercado Livre, as três visões (mês, B.I., categorias de marca)
-  const um = (S.rankLista || []).length === 1;
-  const cats = (S.rankLista || []).flatMap(c => {
-    const b = `#/ranking/${encodeURIComponent(c.categoria)}`, pref = um ? "" : c.nome.split(" > ").pop() + " · ";
-    const naCat = h.startsWith(`#/ranking/${c.categoria}`) || (um && (h === "#/ranking" || h === "#/ranking/"));
-    return [{href: b, nome: pref + "📅 Mês a mês", on: naCat && !/\/(bi|categorias)$/.test(h)},
-            {href: b + "/bi", nome: pref + "📊 B.I. (todos os meses)", on: naCat && h.endsWith("/bi")},
-            {href: b + "/categorias", nome: pref + "🏷️ Categorias de marca", on: naCat && h.endsWith("/categorias")}];
-  });
+  // Ranking (30/09, Bruno: "não tem necessidade de ter três menus de perfume, três de maquiagem"): um item por categoria
+  // do Mercado Livre; as três visões (Mês a mês, B.I., Categorias de marca) são as abas no topo da tela
+  const cats = (S.rankLista || []).map((c, i) => ({
+    href: `#/ranking/${encodeURIComponent(c.categoria)}`, nome: c.nome.split(" > ").pop(),
+    on: h.startsWith(`#/ranking/${c.categoria}`) || (i === 0 && (h === "#/ranking" || h === "#/ranking/"))}));
   const ordenadas = [...S.painel].sort((a, b) => b.fat - a.fat);
   const atualM = ordenadas.find(p => h === "#/" + p.marca);
   const visiveis = S.marcasTodas ? ordenadas : ordenadas.slice(0, 10).concat(atualM && !ordenadas.slice(0, 10).includes(atualM) ? [atualM] : []);

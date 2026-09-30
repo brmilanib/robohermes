@@ -1105,12 +1105,18 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
 # Fluxo 2 — relatório MARCAS mensal
 # ---------------------------------------------------------------------------
 
-def categorias_marcas(cfg):
-    """Categorias do relatório MARCAS mensal: a principal (Perfumes) + as extras (ex.: Maquiagem). [(código, nomes)]."""
+def categorias_marcas(cfg, pend=None):
+    """Categorias do relatório MARCAS mensal: a principal (Perfumes) + as extras do config (ex.: Maquiagem) + toda categoria
+    que já existe no Ranking do nubi (`pend["ranking"]`, 30/09: "toda vez que eu importar uma categoria nova, coletar desde
+    janeiro"). [(código, nomes)]; os nomes de uma categoria nova vêm do nubi (`ranking_nomes`)."""
     out = [(cfg["categoria"], cfg.get("categoria_nomes") or [])]
     for x in cfg.get("categorias_extra") or []:
         if isinstance(x, dict) and x.get("categoria") and x["categoria"] not in [c for c, _ in out]:
             out.append((x["categoria"], x.get("nomes") or []))
+    nomes = (pend or {}).get("ranking_nomes") or {}
+    for c in sorted((pend or {}).get("ranking") or {}):
+        if re.fullmatch(r"MLB\d+-MLB\d+", c or "") and c not in [k for k, _ in out]:
+            out.append((c, [n for n in nomes.get(c) or [] if n and not n.startswith("MLB")]))
     return out
 
 
@@ -7030,7 +7036,7 @@ def main():
             partes = [f"dados até {d:%d/%m}"]
             # MARCAS: todo mês fechado (último dia já liberado) que ainda não está no nubi
             # (30/09) em cada categoria do relatório: Perfumes e as extras (Maquiagem)
-            faltam = [(cat_, nomes_, per) for cat_, nomes_ in categorias_marcas(cfg) for per in pers
+            faltam = [(cat_, nomes_, per) for cat_, nomes_ in categorias_marcas(cfg, pend) for per in pers
                       if not per["ate"] and per["mes"] not in set(pend["ranking"].get(cat_, []))]
             ao_vivo(True, total=len(faltam))
             for cat_, nomes_, per in faltam:
