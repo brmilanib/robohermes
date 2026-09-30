@@ -3650,10 +3650,10 @@ async function telaEstoque() {
       <div class="card pad"><h2>📋 Log da atualização</h2><ul class="es-log">${(a.resumo || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
         <p class="muted" style="font-size:12px;margin:8px 0 0">Arquivo: ${esc(a.arquivo || "—")}</p></div>
       <div class="card pad"><h2>📦 Análise do Estoquista</h2>
-        ${r.analise_dia ? `<div class="md es-analise">${mdSimples(r.analise_dia.texto)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">DeepSeek · análise de ${esc(r.analise_dia.dia.split("-").reverse().join("/"))} (1 por dia) · lista de compra e chat em <a href="#/estoque/compras">🛒 Compras e vendas</a></p>`
+        ${r.analise_dia ? `<div class="md es-analise">${mdSimples(r.analise_dia.texto)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">Astra · análise de ${esc(r.analise_dia.dia.split("-").reverse().join("/"))} (1 por dia) · lista de compra e chat em <a href="#/estoque/compras">🛒 Compras e vendas</a></p>`
           : a.analise ? `<div class="md">${mdSimples(a.analise)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">${esc(a.analise_por || "")}</p>`
-          : `<p class="muted">A análise do DeepSeek sai uma vez por dia, depois que o estoque e o relatório de vendas entram.</p>`}
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><a class="btn small primary" href="#/estoque/compras?chat=1">💬 Conversar com o DeepSeek</a>
+          : `<p class="muted">A análise do Astra sai uma vez por dia, depois que o estoque e o relatório de vendas entram.</p>`}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><a class="btn small primary" href="#/estoque/compras?chat=1">💬 Conversar com o Astra</a>
         ${r.analise_dia ? "" : `<button class="btn small ghost" id="es-analisar">${a.analise ? "↻ Refazer a leitura rápida" : "Pedir a leitura rápida agora"}</button>`}</div></div>
     </div>
     ${d.tem_anterior ? `<div class="es-mud-cab"><h2>Mudanças ${d.base ? `desde ${esc(quandoES(d.base.criado_em))}` : "desde a atualização anterior"}</h2>
@@ -3792,12 +3792,12 @@ async function telaCompras() {
       ${aba === "comprar" ? `<td class="num"><b>${nf0.format(x.sugerido)}</b></td><td class="muted">${esc(x.motivo)}</td>` : ""}</tr>`).join("");
   main.innerHTML = esAbas("compras") + `<div class="es-cab"><h1>🛒 Compras e vendas</h1>
       <span class="muted">${v ? `vendas de ${esc(v.inicio ? v.inicio.split("-").reverse().join("/") : "?")} a ${esc(v.fim ? v.fim.split("-").reverse().join("/") : "?")} (${v.dias} dias) · importado ${esc(quandoES(v.importado_em))}` : "ainda sem o relatório de vendas"} · estoque de ${esc(quandoES(r.estoque_em))}</span>
-      <div class="acoes"><a class="btn small primary" href="#/estoque/compras?chat=1" onclick="setTimeout(() => { const f = $('#cp-form'); if (f) { f.scrollIntoView({block: 'center'}); $('#cp-texto').focus(); } }, 50)">💬 DeepSeek</a><label class="btn small" title="Importar à mão o relatório do UpSeller: Análises → Vendas por Anúncio → últimos 30 dias → Exportar">⬆ Importar vendas por anúncio<input type="file" id="cp-arq" accept=".xlsx" hidden></label></div></div>
+      <div class="acoes"><a class="btn small primary" href="#/estoque/compras?chat=1" onclick="setTimeout(() => { const f = $('#cp-form'); if (f) { f.scrollIntoView({block: 'center'}); $('#cp-texto').focus(); } }, 50)">💬 Astra</a><label class="btn small" title="Importar à mão o relatório do UpSeller: Análises → Vendas por Anúncio → últimos 30 dias → Exportar">⬆ Importar vendas por anúncio<input type="file" id="cp-arq" accept=".xlsx" hidden></label></div></div>
     <div class="kpis">${kpi("Preciso comprar", `<span class="${r.comprar.length ? "neg" : ""}">${nf0.format(r.comprar.length)}</span>`, `estoque + trânsito dura menos de ${r.alerta_dias} dias`)}
       ${kpi("Zerados", nf0.format(r.zerados.length), `${nf0.format(r.zerados_com_venda)} deles venderam nos últimos ${r.dias} dias`)}
       ${kpi("SKUs com venda", nf0.format(r.mais_vendidos.length), v ? `${nf0.format(v.unidades)} un · ${rsES(v.valor)}` : "")}
       ${kpi("Vendidos fora do estoque", `<span class="${r.vendas_sem_estoque ? "neg" : ""}">${nf0.format(r.vendas_sem_estoque)}</span>`, "SKU vendido que não está no My Warehouse")}</div>
-    <div class="card pad" style="margin-bottom:14px"><h2>🧮 Análise do estoque (DeepSeek, 1 por dia)</h2>
+    <div class="card pad" style="margin-bottom:14px"><h2>🧮 Análise do estoque (Astra, 1 por dia)</h2>
       ${an ? `<div class="md">${mdSimples(an.texto)}</div><p class="muted" style="font-size:12px;margin:8px 0 0">${an.hoje ? "de hoje" : "de " + esc(an.dia.split("-").reverse().join("/"))} · ${esc(an.por || "")}</p>`
         : `<p class="muted">Sai uma vez por dia, depois que o relatório de vendas e o estoque entram.</p>`}</div>
     ${cpLista(r)}${cpChat(r)}
@@ -3880,9 +3880,9 @@ function cpChat(r) {
   const c = r.chat;
   const msgs = (c.mensagens || []).map(m => `<div class="cp-msg ${m.de === "voce" ? "eu" : "ia"}"><div class="cp-bal">${m.de === "voce" ? esc(m.texto) : mdSimples(m.texto)}
       ${m.mudou_lista ? `<div class="muted" style="font-size:11px;margin-top:4px">📋 atualizou a lista de compra</div>` : ""}</div></div>`).join("");
-  return `<div class="card pad" style="margin-bottom:14px"><h2>💬 Conversar com o DeepSeek sobre as compras</h2>
+  return `<div class="card pad" style="margin-bottom:14px"><h2>💬 Conversar com o Astra sobre as compras</h2>
     <div class="cp-chat" id="cp-msgs">${msgs || `<p class="muted">Pergunte, por exemplo: “quais itens posso segurar esta semana?”, “tenho R$ 5.000, o que priorizo?” ou “aumenta o Asad para 30”. Se ele mudar a lista, ela atualiza aqui em cima.</p>`}</div>
-    <form id="cp-form" class="es-filtros" style="margin-top:10px;gap:8px"><textarea id="cp-texto" rows="2" style="flex:1" placeholder="Escreva para o DeepSeek…" ${c.usadas >= c.max ? "disabled" : ""}></textarea>
+    <form id="cp-form" class="es-filtros" style="margin-top:10px;gap:8px"><textarea id="cp-texto" rows="2" style="flex:1" placeholder="Escreva para o Astra…" ${c.usadas >= c.max ? "disabled" : ""}></textarea>
       <button class="btn small primary" ${c.usadas >= c.max ? "disabled" : ""}>Enviar</button></form>
     <p class="muted" style="font-size:12px;margin:6px 0 0">${nf0.format(c.usadas)} de ${nf0.format(c.max)} mensagens hoje · a conversa recomeça todo dia</p></div>`;
 }
@@ -3892,10 +3892,10 @@ function ligarCpChat(r) {
   f.onsubmit = async e => { e.preventDefault();
     const t = $("#cp-texto"), texto = t.value.trim(); if (!texto) return;
     const bt = f.querySelector("button"); bt.disabled = true; t.disabled = true;
-    box.insertAdjacentHTML("beforeend", `<div class="cp-msg eu"><div class="cp-bal">${esc(texto)}</div></div><div class="cp-msg ia" id="cp-pensando"><div class="cp-bal muted">DeepSeek pensando…</div></div>`);
+    box.insertAdjacentHTML("beforeend", `<div class="cp-msg eu"><div class="cp-bal">${esc(texto)}</div></div><div class="cp-msg ia" id="cp-pensando"><div class="cp-bal muted">Astra pensando…</div></div>`);
     box.scrollTop = box.scrollHeight;
     try { const x = await api("estoque_chat", {}, {method: "POST", body: JSON.stringify({texto})});
-      r.chat = x.chat; if (x.lista) { r.lista = x.lista; toast("O DeepSeek atualizou a lista de compra."); }
+      r.chat = x.chat; if (x.lista) { r.lista = x.lista; toast("O Astra atualizou a lista de compra."); }
       const y = window.scrollY; await telaCompras(); window.scrollTo(0, y);
     } catch (er) { const p = $("#cp-pensando"); if (p) p.remove(); toast(er.message, 8000); bt.disabled = false; t.disabled = false; } };
   const t = $("#cp-texto"); if (t) t.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); f.requestSubmit(); } };

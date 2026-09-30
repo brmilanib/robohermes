@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_compras_estoque import _xlsx, VENDAS  # noqa: E402
 AQUI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "servidor_teste")
 PORTA = os.environ.get("PORTA_COMPRAS", "8797")
-env = dict(os.environ, IA_FALSA="1", OLLAMA_API_KEY="x", DEEPSEEK_API_KEY="x", PORTA=PORTA)
+env = dict(os.environ, IA_FALSA="1", OLLAMA_API_KEY="x", DEEPSEEK_API_KEY="x", OPENAI_API_KEY="x", PORTA=PORTA)
 srv = subprocess.Popen([sys.executable, "-W", "ignore", os.path.join(AQUI, "servidor.py")], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 STUB = """window.supabase = { createClient: () => { const sess = {access_token: "TOKEN", user: {id: "u1", email: "brmilani@gmail.com"}};
   return { auth: { getSession: async () => ({data: {session: sess}}), signOut: async () => {}, updateUser: async () => ({}),

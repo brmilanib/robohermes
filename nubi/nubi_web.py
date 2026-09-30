@@ -2703,6 +2703,14 @@ def dados_foco(repo, limite=30):
     return {"mes": mes, "vendedores": len(ult), "estoque_de": at["criado_em"] if at else None, "produtos": linhas}
 
 
+def _astra(pedido, max_tokens):
+    """30/09 (Bruno: "as análises pode pausar o DeepSeek e deixar só pro Astra, que vai cuidar do estoque"): as análises do
+    dia, a do estoque e o chat de Compras usam o modelo do Astra (OpenAI). Devolve (texto, qual)."""
+    modelo = (agentes.AGENTES.get("astra") or {}).get("modelo")
+    txt, _, qual = ia.perguntar(pedido, web=False, max_tokens=max_tokens, qual="chatgpt", modelo=modelo, sistema=agentes.SISTEMA)
+    return txt, qual
+
+
 def analise_foco(repo, forcar=False, semanal=False):
     """Rotina diária 'analise_foco' (DeepSeek): onde o Bruno deve focar, com os números de dados_foco. Uma por dia.
     semanal=True (rotina 'analise_semana', sábado): o plano da semana seguinte, para começar a segunda a todo vapor."""
@@ -2736,10 +2744,9 @@ def analise_foco(repo, forcar=False, semanal=False):
         "## Repor ou comprar\no que vende bem e eu tenho zerado ou não tenho.\n"
         "## Atenção\n1 ou 2 riscos (produto com muitos vendedores e preço caindo, margem apertada)."))
     ia.USO["origem"] = f"rotina {'analise_semana' if semanal else 'analise_foco'}"
-    with ia.deepseek_liberado():
-        txt, _, qual = ia.perguntar(pedido, web=False, max_tokens=2500, qual="deepseek", modelo="pro", sistema=agentes.SISTEMA)
+    txt, qual = _astra(pedido, 2500)
     if not (txt or "").strip():
-        return "o DeepSeek não respondeu"
+        return "o Astra não respondeu"
     repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": txt.strip(), "ia": ia.nome(qual), "dados": d}],
               prefer="resolution=merge-duplicates,return=minimal")
     return f"{'plano da semana gravado' if semanal else 'análise do dia gravada'} ({len(d['produtos'])} produtos, {d['vendedores']} concorrentes)"
@@ -3932,6 +3939,8 @@ def estoque_analisar(repo, aid, d=None, itens=None):
         for it in itens:
             for c in estoque.NUMEROS:
                 it[c] = None if it.get(c) is None else float(it[c])
+    if not os.environ.get("NUBI_ESTOQUISTA"):
+        return ""          # 30/09 (Bruno, time enxuto): leitura rápida do Estoquista pausada; a análise do dia é do Astra
     ia.USO["origem"] = "estoque"
     texto, quem = estoque.analisar_ia(d, itens, agentes.SISTEMA)
     if texto:
@@ -4215,15 +4224,13 @@ def analise_estoque(repo):
         return "sem estoque importado"
     plano = c.get("plano") or []
     ia.USO["origem"] = "rotina analise_estoque"
-    with ia.deepseek_liberado():
-        txt, _, qual = ia.perguntar(estoque.pedido_analise(c) + estoque.pedido_plano(plano), web=False, max_tokens=6500,
-                                    qual="deepseek", modelo="pro", sistema=agentes.SISTEMA)
+    txt, qual = _astra(estoque.pedido_analise(c) + estoque.pedido_plano(plano), 6500)
     if not (txt or "").strip():
-        return "o DeepSeek não respondeu"
+        return "o Astra não respondeu"
     texto, lista, veio = estoque.lista_da_resposta(txt, plano)
     repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": texto, "ia": ia.nome(qual)}],
               prefer="resolution=merge-duplicates,return=minimal")
-    _gravar_lista(repo, lista, ia.nome(qual) if veio else "plano do sistema (o DeepSeek não mandou a lista)")
+    _gravar_lista(repo, lista, ia.nome(qual) if veio else "plano do sistema (o Astra não mandou a lista)")
     return f"análise do estoque gravada ({len(c['comprar'])} para comprar, {len(lista)} na lista da semana)"
 
 
@@ -4231,7 +4238,7 @@ def analise_estoque(repo):
 # Chat com o DeepSeek sobre as compras (29/09, pedido do Bruno: "abra um chat com ele ali dentro pra eu falar sobre as
 # compras"). Exceção autorizada à regra "DeepSeek só 2 análises por dia": até COMPRAS_CHAT_MAX mensagens por dia.
 # ---------------------------------------------------------------------------
-PAPEL_CHAT_COMPRAS = ("Você é o DeepSeek, comprador do nubi, conversando com o Bruno na aba Compras. Use SÓ os números dos "
+PAPEL_CHAT_COMPRAS = ("Você é o Astra, comprador do nubi, conversando com o Bruno na aba Compras. Use SÓ os números dos "
                       "dados abaixo (estoque do UpSeller, vendas de 30 dias, plano base e a lista de compra atual); não invente "
                       "preço nem venda. Responda em português do Brasil, curto e prático. Se o Bruno pedir para mudar a lista "
                       "(tirar, pôr, mudar quantidade, caber num orçamento), faça e escreva na ÚLTIMA linha exatamente:\n"
@@ -4256,7 +4263,7 @@ def conversar_compras(repo, texto):
     dia = _agora_br().date().isoformat()
     ch = _chat_compras(repo, dia)
     if ch["usadas"] >= COMPRAS_CHAT_MAX:
-        raise ErroNuvem(f"Chegou ao limite de {COMPRAS_CHAT_MAX} mensagens com o DeepSeek hoje. Amanhã libera de novo.", 429)
+        raise ErroNuvem(f"Chegou ao limite de {COMPRAS_CHAT_MAX} mensagens com o Astra hoje. Amanhã libera de novo.", 429)
     c = estoque_compras(repo)
     plano = c.get("plano") or []
     lista = (c.get("lista") or {}).get("itens") or []
@@ -4268,19 +4275,18 @@ def conversar_compras(repo, texto):
     conversa = "\n".join(f"{'BRUNO' if m['de'] == 'voce' else 'VOCÊ'}: {m['texto']}" for m in ch["mensagens"][-12:])
     pedido = f"{PAPEL_CHAT_COMPRAS}\n\nDADOS:\n{dados}\n\nCONVERSA ATÉ AGORA:\n{conversa or '(começo)'}\n\nBRUNO: {texto}\nVOCÊ:"
     ia.USO["origem"] = "chat compras"
-    with ia.deepseek_liberado():
-        txt, _, qual = ia.perguntar(pedido, web=False, max_tokens=3000, qual="deepseek", modelo="pro", sistema=agentes.SISTEMA)
+    txt, qual = _astra(pedido, 3000)
     if not (txt or "").strip():
-        raise ErroNuvem("O DeepSeek não respondeu agora. Tente de novo em instantes.", 503)
+        raise ErroNuvem("O Astra não respondeu agora. Tente de novo em instantes.", 503)
     resposta, nova, veio = estoque.lista_da_resposta(txt, plano)
     agora = datetime.now(timezone.utc).isoformat()
     ms = ch["mensagens"] + [{"de": "voce", "texto": texto, "em": agora},
-                            {"de": "deepseek", "texto": resposta, "em": agora, "mudou_lista": veio}]
+                            {"de": "astra", "texto": resposta, "em": agora, "mudou_lista": veio}]
     repo._req("POST", "ia_resumos", corpo=[{"chave": f"compras|chat|{dia}", "ia": ia.nome(qual), "texto": json.dumps(ms, ensure_ascii=False)}],
               prefer="resolution=merge-duplicates,return=minimal")
     out = {"chat": {"mensagens": ms, "usadas": ch["usadas"] + 1, "max": COMPRAS_CHAT_MAX}}
     if veio:
-        out["lista"] = _gravar_lista(repo, nova, "DeepSeek (chat)")
+        out["lista"] = _gravar_lista(repo, nova, "Astra (chat)")
     return out
 
 
@@ -6512,10 +6518,10 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             return {"pendentes": [], "sala": [], "vetorizar": [], "reserva": True, "pausado": True, "libera": mac_libera(repo)}
         if (maq == "mac" and not pausado) or (maq == "servidor" and (pausado or not _mac_vivo(repo))):
             if not pausado:     # Ferreiro, Astra e Navegador rodam no Mac: parados junto com ele
-                # design primeiro (Astra), depois o estoque (DeepSeek); ninguém pegou, o Ferreiro (os três usam o mesmo clone)
-                if not any("pegou" in (ferreiro_proximo(repo, a_cada_min=0, quem=q) or "") for q in ("astra", "deepseek")):
+                # 30/09 (Bruno, time enxuto): só o Astra (telas, design, estoque) e o Ferreiro (coletor, Mac, sites, servidor)
+                # programam no Mac; DeepSeek programador e Navegador pausados. Os dois usam o mesmo clone: um de cada vez.
+                if "pegou" not in (ferreiro_proximo(repo, a_cada_min=0, quem="astra") or ""):
                     ferreiro_proximo(repo, a_cada_min=0)
-                ferreiro_proximo(repo, a_cada_min=0, quem="navegador")   # o Navegador tem fila própria (usa o Chrome, não o clone)
             atendimento.atendente_proximo(repo)     # atendente da TikTok Shop ligado: a cada 5 min ou na hora, se há resposta aprovada
             atendimento.sac_proximo(repo)           # importação do SAC do UpSeller pedida: uma rodada a cada 10 min até acabar
             atendimento.reinterpretar_pendentes(repo)   # a cada 2 min: dúvidas antigas refeitas com a conversa inteira interpretada

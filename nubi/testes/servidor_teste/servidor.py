@@ -41,6 +41,10 @@ if os.environ.get("IA_FALSA"):
                     "prompt_eval_count": 50, "eval_count": 12}
         if "ollama.com" in url:
             return {"model": corpo["model"], "message": {"content": "gpt-oss: OK, modelo " + corpo["model"]}, "prompt_eval_count": 50, "eval_count": 12}
+        if "openai.com" in url and "comprador do nubi" in txt:     # 30/09: o chat de Compras passou para o Astra
+            c = "Dá para segurar o C esta semana; aumentei o A.\nLISTA_JSON: [{\"sku\": \"A-100\", \"quantidade\": 20, \"motivo\": \"campeão de vendas\"}]"
+            return {"output": [{"type": "message", "content": [{"type": "output_text", "text": c, "annotations": []}]}],
+                    "usage": {"input_tokens": 1200, "output_tokens": 80}}
         if "deepseek.com" in url and "comprador do nubi" in txt:
             c = "Dá para segurar o C esta semana; aumentei o A.\nLISTA_JSON: [{\"sku\": \"A-100\", \"quantidade\": 20, \"motivo\": \"campeão de vendas\"}]"
             return {"model": corpo["model"], "usage": {"prompt_tokens": 1200, "completion_tokens": 80}, "choices": [{"message": {"content": c}}]}

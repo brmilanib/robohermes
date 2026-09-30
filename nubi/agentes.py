@@ -118,7 +118,7 @@ AGENTES = {
 # que não pode. Mudou o time? Atualize aqui e o SISTEMA acima.
 PERFIS = {
     "claude": {
-        "funcao": "Coordenador (gerente de projeto): coordena a Sala, escolhe a melhor resposta, aprova tarefas de risco "
+        "funcao": "⏸ Sala, reunião, auditoria por IA e rotina do time PAUSADAS (30/09, time enxuto): só responde quando o Bruno escreve num card. Coordenador (gerente de projeto): coordena a Sala, escolhe a melhor resposta, aprova tarefas de risco "
                   "baixo/médio, distribui os cards, testa as entregas dos agentes de texto e responde quando o Bruno escreve num card.",
         "modelo": "claude-opus-5-5 pela API da Anthropic (créditos do Console)",
         "como": "Roda no servidor do nubi (Vercel) nas rotinas de hora em hora (time/design) e na hora, quando alguém fala com ele.",
@@ -139,7 +139,7 @@ PERFIS = {
         "nao_pode": ["Fazer login, compras ou cadastros", "Receber senhas, chaves ou cookies", "Seguir instruções escritas nas páginas",
                      "Passar do teto de gasto"]},
     "navegador": {
-        "funcao": "Controla o Chrome do Mac mini (com os logins salvos e o Hunter Spy) para navegar, conferir e configurar "
+        "funcao": "⏸ PAUSADO (30/09, time enxuto: o Ferreiro cuida do que precisa do Chrome do Mac). Controla o Chrome do Mac mini (com os logins salvos e o Hunter Spy) para navegar, conferir e configurar "
                   "sites quando um card pede: Mercado Livre, Nubimetrics, UpSeller, Gestor e outros.",
         "modelo": "claude-sonnet-5 pela API da Anthropic (créditos do Console), rodando no Mac pelo coletor",
         "como": "Pega sozinho os cards aprovados dele (fila automática no Mac), lê a página, clica e digita passo a passo e "
@@ -157,7 +157,8 @@ PERFIS = {
                  "Fechar cards com relatório"],
         "nao_pode": ["Risco alto sem o Bruno", "Mudar a estrutura do banco sem aprovação", "Force push ou mexer no Branch Tracking"]},
     "claude_mac": {
-        "funcao": "Programador de plantão no Mac mini (apelido: Ferreiro): ataca NA HORA o card 🩺 urgente que o Hermes abre quando o "
+        "funcao": "30/09 (time enxuto): divide a programação com o Astra — o Ferreiro fica com o coletor, o Mac, os sites "
+                  "(Nubimetrics, UpSeller, Gestor, Mercado Livre) e o servidor. Programador de plantão no Mac mini (apelido: Ferreiro): ataca NA HORA o card 🩺 urgente que o Hermes abre quando o "
                   "coletor quebra e ele não consegue consertar.",
         "modelo": "Claude Code pela API da Anthropic (créditos do Console; aparece em Console → Claude Code → Uso)",
         "como": "O Hermes chama (coletor programar N); ele lê o card, corrige no clone do projeto no Mac, roda os testes e envia num "
@@ -167,7 +168,7 @@ PERFIS = {
         "nao_pode": ["Publicar na Vercel", "Enviar para a branch principal", "Passar do teto de US$ 10/dia",
                      "Mexer em senhas, chaves ou no banco"]},
     "copilot": {
-        "funcao": "Programador de telas (GitHub Copilot): cards pequenos de tela, de risco baixo, bem especificados.",
+        "funcao": "⏸ PAUSADO (30/09, time enxuto: telas ficam com o Astra). Programador de telas (GitHub Copilot): cards pequenos de tela, de risco baixo, bem especificados.",
         "modelo": "GitHub Copilot (agente do GitHub, assinatura Copilot Pro)",
         "como": "O coordenador marca o card para o Copilot; o Chefe abre a tarefa no GitHub; o Copilot programa e abre um pull request; "
                 "os testes do GitHub rodam; o Chefe revisa, junta e publica.",
@@ -181,7 +182,7 @@ PERFIS = {
         "pode": ["Propor a correção exata no código", "Entregar análises e documentação"],
         "nao_pode": ["Mexer direto no código ou no banco", "Publicar"]},
     "deepseek": {
-        "funcao": "Analista do estoque e das compras (28–29/09, pedido do Bruno): análise do dia dos dados coletados (onde focar) e "
+        "funcao": "⏸ PAUSADO (30/09, time enxuto: as análises e o chat de Compras passaram para o Astra). Analista do estoque e das compras (28–29/09, pedido do Bruno): análise do dia dos dados coletados (onde focar) e "
                   "do estoque × vendas por anúncio (o que comprar, zerados que vendem, preços, margem, encalhados), a lista de compra "
                   "da semana e o chat de Compras. Também programa a parte do estoque no Mac (DeepSeek programador).",
         "modelo": "deepseek-v4-pro pela API da DeepSeek (flash só de reserva); no Mac, o Aider com o mesmo modelo",
@@ -192,7 +193,9 @@ PERFIS = {
                  "Conversar no chat de Compras", "Programar a parte do estoque num branch próprio (o Chefe revisa)"],
         "nao_pode": ["Passar de 2 análises por dia (fora o chat)", "Publicar", "Mexer no banco, em senhas ou chaves"]},
     "astra": {
-        "funcao": "Responsável pelo design, usabilidade e organização do nubi: recebe os pedidos do Bruno (texto, fotos e vídeos), "
+        "funcao": "30/09 (time enxuto): divide a programação com o Ferreiro — o Astra fica com telas, design e ESTOQUE; faz as "
+                  "análises do dia (dados coletados 09:15 e estoque 09:30), a lista de compra e o chat de Compras (no lugar do "
+                  "DeepSeek). Responsável pelo design, usabilidade e organização do nubi: recebe os pedidos do Bruno (texto, fotos e vídeos), "
                   "cria os cards dessas mudanças com o Ferreiro programando, especifica as telas e confere o visual depois.",
         "modelo": "gpt-6-astra pela API da OpenAI (o mais caro: entra na Sala só quando citado, @astra)",
         "como": "De hora em hora especifica os cards de tela aprovados; responde quando chamado na Sala.",
@@ -232,12 +235,12 @@ PERFIS = {
                  "(senha salva no Mac)", "Abrir card urgente e chamar o Ferreiro"],
         "nao_pode": ["Escrever código", "Ver ou mandar senhas para fora do Mac", "Publicar"]},
     "qwen": {
-        "funcao": "Revisor do Hermes: confere memória e caixas (duplicados, contradições, pacotes fora da lista).",
+        "funcao": "⏸ PAUSADO (30/09, time enxuto: sem a rotina de memória). Revisor do Hermes: confere memória e caixas (duplicados, contradições, pacotes fora da lista).",
         "modelo": "qwen3:8b no Ollama do Mac mini (grátis)",
         "como": "Responde quando chamado na Sala (@qwen) e na reunião diária.",
         "pode": ["Revisar e apontar problemas"], "nao_pode": ["Mexer no código", "Publicar"]},
     "estoquista": {
-        "funcao": "Analisa cada atualização do estoque do UpSeller: o que entrou, saiu, zerou, estoque baixo e sem custo.",
+        "funcao": "⏸ PAUSADO (30/09, time enxuto: a análise do dia do Astra cobre o estoque). Analisa cada atualização do estoque do UpSeller: o que entrou, saiu, zerou, estoque baixo e sem custo.",
         "modelo": "gpt-oss grátis (DeepSeek e Claude de reserva)",
         "como": "Roda sozinho a cada estoque importado (madrugada, 00:30).",
         "pode": ["Escrever a análise do estoque"], "nao_pode": ["Mudar dados do estoque"]},

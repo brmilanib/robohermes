@@ -70,6 +70,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   e não tenta de novo por 10 min. Em 28/09 o DeepSeek de reserva fazia ~40 chamadas/h das MESMAS frases, comia o tempo dos
   vetores ("tempo esgotado antes de terminar todos os lotes") e nada era salvo (588 itens parados).
 
+## Time enxuto (30/09, pedido do Bruno: "temos agente demais")
+- Programam no Mac só o **Astra** (telas, design, estoque) e o **Ferreiro** (coletor, Mac, sites, servidor), um de cada vez no
+  mesmo clone (`ferreiro_proximo` só com "astra" e depois o Ferreiro). DeepSeek programador, Navegador e Copilot pausados.
+- As análises do dia (`analise_foco`, `analise_estoque`), a lista de compra e o chat de Compras usam o **Astra** (`_astra`, modelo
+  do Astra na OpenAI) no lugar do DeepSeek. Leitura rápida do Estoquista pausada (env `NUBI_ESTOQUISTA` religa).
+- Rotinas desligadas: `design` (time de hora em hora), `reuniao`, `auditoria` (IA), `rankeamento`, `memoria` (Hermes+Qwen).
+  O coordenador só responde quando o Bruno escreve num card. Seguem: Hermes (vigia), Banguela (SAC), rotinas do ChatGPT
+  (resumos, produtos iguais, marcas) e o Pesquisador sob pedido. Nada foi apagado: religar = `rotinas.ativo=true`.
+
 ## Compras e vendas do estoque (28/09, pedido do Bruno) — Estoque → 🛒 Compras e vendas (`#/estoque/compras`)
 
 - Relatório do UpSeller **Análises → Vendas por Anúncio, últimos 30 dias** ("Vendas_por_Produtos_AAAAMMDD-AAAAMMDD_….xlsx":
