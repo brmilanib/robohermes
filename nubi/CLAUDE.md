@@ -440,6 +440,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - **Visão do desafio #126 (palavras do Bruno):** decifrar o Nubimetrics — o vendedor vem com nome fictício e já temos vendas,
   anúncios e histórico dele; achar o vendedor de verdade no ML e LINKAR lojas e anúncios no nubi, para a aba do vendedor
   trazer a loja inteira (vitrine, vendas, o máximo de informação real). Depois, o mesmo nas outras plataformas.
+  Duas coisas distintas, um motor só: (A) vendedor seguido → aba do vendedor com a loja inteira; (B) anúncio perseguido
+  (Estoque → 🎯 Perseguir anúncios) → todo dia preço, estoque, ativo/inativo e posição, lado a lado com o anúncio do Bruno do
+  mesmo produto, com alerta quando mexer. Depois: Amazon e Shopee pela mesma cadeia.
 
 - O nubi é o software de ponta do Bruno: **não usa nem assina** JoomPulse, Real Trends, Hunter Hub, Mercado Radar, SellerRadar
   ou similares (o Hunter só serve de referência visual, no Chrome do Bruno). Fontes: API oficial do ML, a nossa extensão /
