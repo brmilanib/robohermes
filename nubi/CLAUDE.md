@@ -224,6 +224,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   confiança "Mesmo GTIN de outra marca". No relatório da dona, `_com_marca_trocada` traz esses anúncios (mesmo período)
   para o produto certo (`resumo.un_marca_trocada`, nota nas abas). O mapa é refeito na conferência diária e as marcas cujos
   GTINs mudaram são reagrupadas. "Arabe" não é nome de linha. Produtos: `titulo_top` = título que mais aparece.
+- **Decisão do Bruno (30/09, Sospiro Vibrato +324 un.)**: "se for o mesmo produto tem que somar e agrupar sim". O anúncio
+  da BLESSCOSMETICOS cadastrado como ERIAN com o GTIN do Vibrato (310 un., só no export da ERIAN) SOMA no produto da Sospiro
+  e no ranking de vendedores dela (`_com_marca_trocada`); não separar em campo à parte.
 - GTIN efetivo (29/09, ICARBONXX com o mesmo SKU, um anúncio sem GTIN): `nubi.gtin_efetivo` — sem GTIN, vale o do outro
   anúncio do MESMO vendedor com o MESMO SKU (se for um só); sem nada, o SKU quando é código de barras válido
   (`_ean_valido`). Só para agrupar (confiança "GTIN pelo SKU do vendedor"); o GTIN gravado continua o do arquivo.
