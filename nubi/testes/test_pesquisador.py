@@ -6,6 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("ANTHROPIC_API_KEY", "x")
+os.environ.setdefault("DEEPSEEK_API_KEY", "x")
 import pesquisador as p  # noqa: E402
 
 p.PELO_ASTRA = False        # os testes abaixo são do agente da Anthropic; o do Astra está em test_pesquisa_pelo_astra
@@ -177,6 +178,10 @@ def test_pesquisa_de_um_card_entra_no_card_e_hermes_espera_se_o_astra_demorou():
         vistos.append(k.get("timeout"))
         if qual == "ollama":
             return "## Hermes\nAchei [1] https://a.b/c", [], "ollama"
+        if qual == "deepseek":
+            assert ia.tem("deepseek") and "RELATÓRIO DO ASTRA:\n## Astra" in pergunta   # liberado só aqui, com o relatório
+            return "## DeepSeek\n1. Testar o Actor da Apify [a confirmar]", [], "deepseek"
+        assert "até 12" in pergunta and "NO MÁXIMO 3 fontes" not in pergunta            # o Astra lê mais fontes
         return "## Astra\nConectores: Apify.", ["https://apify.com/x"], "chatgpt"
     ia.perguntar = falso
     ia.ollama_web = lambda pergunta, max_resultados=5: [{"titulo": "t", "url": "https://a.b/c", "texto": "x"}]
@@ -190,10 +195,11 @@ def test_pesquisa_de_um_card_entra_no_card_e_hermes_espera_se_o_astra_demorou():
         p._ULTIMA["t"] = 0
         assert "hermes" in p.conferir(r, forcar=True)
         assert r.resumos[chave]["dados"]["hermes"]["status"] == "feita"
-        assert [x["autor"] for x in r.passos] == ["astra", "hermes"] and "grátis" in r.passos[1]["texto"]
+        assert [x["autor"] for x in r.passos] == ["astra", "hermes", "deepseek"] and "grátis" in r.passos[1]["texto"]
+        assert "Visão do DeepSeek" in r.passos[2]["texto"] and r.resumos[chave]["dados"]["deepseek"]["status"] == "feita"
         p._ULTIMA["t"] = 0
         p.conferir(r, forcar=True)
-        assert len(r.passos) == 2                              # não repete o Hermes
+        assert len(r.passos) == 3                              # não repete o Hermes nem o DeepSeek
         # pesquisa da Sala (sem card): nenhum passo em card
         p.HERMES_DEPOIS_S = 100
         r2 = Repo()

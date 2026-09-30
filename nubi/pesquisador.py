@@ -40,6 +40,12 @@ Bruno"; confiança e lacunas; lista de fontes com link.
 
 PERGUNTA DO BRUNO/TIME:
 """
+ECONOMIA_3_FONTES = ("Economia: use NO MÁXIMO 3 fontes e leia só o necessário, a não ser que a pergunta peça \"investigação completa\".\n"
+                     "Se chegar ao teto de gasto, entregue o que já tem.\n")
+ECONOMIA_ASTRA = ("Profundidade: leia quantas fontes precisar (até 12), incluindo páginas de preço, documentação e fóruns de "
+                  "desenvolvedores; o Bruno precisa de SOLUÇÕES CONCRETAS (nome, o que entrega, como se integra, preço), não de "
+                  "\"não encontrei\". Quando uma ferramenta não comprovar algo, diga o que ela comprova e o que falta testar.\n")
+DEEPSEEK_PESQUISA = os.environ.get("NUBI_PESQUISA_DEEPSEEK", "1") != "0"   # 30/09: o DeepSeek dá a 3ª visão (sem web: raciocina)
 
 _ULTIMA = {"t": 0.0}
 # 30/09 (Bruno: "o Pesquisador deixaria com o Astra também, é o que mais tem banco de dados da internet hoje"): a pesquisa
@@ -170,8 +176,11 @@ def _pelo_astra(repo, p):
     d["modelo"] = modelo
     _atualizar(repo, p["chave"], d)
     ia.USO["origem"] = f"pesquisa {d.get('origem') or ''}"[:60]
+    # 30/09 (Bruno: "preciso das pesquisas de ferramentas"): a economia de 3 fontes era do agente pago por sessão; a busca
+    # do Astra custa por resposta, então ele lê quantas fontes precisar (até 12) e entrega soluções concretas
+    contexto = CONTEXTO.replace(ECONOMIA_3_FONTES, ECONOMIA_ASTRA)
     try:
-        txt, links, _ = ia.perguntar(CONTEXTO + d["pergunta"], web=True, max_tokens=6000, qual="chatgpt", modelo=modelo,
+        txt, links, _ = ia.perguntar(contexto + d["pergunta"], web=True, max_tokens=7000, qual="chatgpt", modelo=modelo,
                                      timeout=TIMEOUT_ASTRA)
     except Exception as e:  # noqa: BLE001 — sem crédito, fora do ar: tenta de novo depois
         txt, links = "", []
@@ -231,6 +240,45 @@ def pesquisa_hermes(repo, chave, pergunta):
     _sala_como(repo, "Hermes", f"🦉 **Pesquisa do Hermes (grátis)** — {pergunta[:200]}\n\n{rel[:5500]}"
                                + ("\n\n…(relatório completo na busca da Sala)" if len(rel) > 5500 else ""))
     _passo_card(repo, d.get("origem"), "hermes", f"🦉 **Pesquisa do Hermes (grátis)** — {pergunta[:200]}\n\n{rel[:7500]}")
+    return rel
+
+
+def pesquisa_deepseek(repo, chave, pergunta, relatorio_astra=""):
+    """30/09 (Bruno: "coloca o DeepSeek para procurar soluções também no card desafio"): 3ª visão. O DeepSeek não tem busca na
+    web; ele recebe a pergunta e o relatório do Astra, critica, completa com o que sabe (marcando o que é "a confirmar") e
+    entrega SOLUÇÕES numeradas. Só roda dentro de ia.deepseek_liberado (fora disso o DeepSeek segue pausado)."""
+    import ia
+    pedido = (CONTEXTO.replace(ECONOMIA_3_FONTES, "") + pergunta
+              + "\n\nVocê é o DeepSeek, o cético dos números do time. Você NÃO tem acesso à internet agora. Abaixo está o "
+                "relatório do Astra (que pesquisou na web). Sua tarefa: (1) apontar o que nele é fraco ou não comprovado; "
+                "(2) completar com soluções que você conhece (ferramentas, endpoints públicos, técnicas, estratégias), marcando "
+                "cada item como [comprovado no relatório], [conheço, a confirmar] ou [hipótese]; (3) terminar com uma lista "
+                "numerada 'SOLUÇÕES PARA TESTAR AMANHÃ', em ordem de custo-benefício, com o passo concreto de cada uma. "
+                "Nunca invente preços ou nomes de produtos; se não tiver certeza, diga.\n\nRELATÓRIO DO ASTRA:\n"
+              + (relatorio_astra or "(o Astra ainda não entregou)")[:20000])
+    ia.USO["origem"] = "pesquisa deepseek"
+    rel, erro = "", ""
+    try:
+        with ia.deepseek_liberado():
+            rel = (ia.perguntar(pedido, web=False, max_tokens=5000, qual="deepseek", modelo="pro")[0] or "").strip()
+    except Exception as e:  # noqa: BLE001
+        erro = str(e)[:150]
+    reg = (repo._req("GET", "ia_resumos", {"select": "dados", "chave": repo._eq(chave)}) or [{}])[0]
+    d = dict(reg.get("dados") or {})
+    d["deepseek"] = {"status": "feita" if rel else "erro", "em": _agora().isoformat(), **({} if rel else {"erro": erro})}
+    _atualizar(repo, chave, d)
+    if not rel:
+        _sala_como(repo, "DeepSeek", f"🐋 Não consegui dar a minha visão sobre \"{pergunta[:200]}\" agora ({erro}).")
+        _passo_card(repo, d.get("origem"), "deepseek", f"🐋 Não consegui dar a minha visão agora ({erro}).")
+        return ""
+    repo._req("POST", "saber", corpo=[{
+        "tipo": "pesquisa_web", "titulo": ("Pesquisa (DeepSeek, 3ª visão): " + pergunta)[:160],
+        "texto": f"PERGUNTA:\n{pergunta}\n\nVISÃO DO DEEPSEEK (sobre o relatório do Astra):\n{rel[:30000]}",
+        "autor": "DeepSeek", "fonte_tabela": "pesquisa_profunda", "fonte_id": chave + "|deepseek", "links": _links(rel),
+        "tags": ["pesquisa_profunda", "deepseek"] + _plataformas(rel), "criado_em": _agora().isoformat()}], prefer="return=minimal")
+    _sala_como(repo, "DeepSeek", f"🐋 **Visão do DeepSeek** — {pergunta[:200]}\n\n{rel[:5500]}"
+                                 + ("\n\n…(completo na busca da Sala)" if len(rel) > 5500 else ""))
+    _passo_card(repo, d.get("origem"), "deepseek", f"🐋 **Visão do DeepSeek (soluções para testar)** — {pergunta[:200]}\n\n{rel[:7500]}")
     return rel
 
 
@@ -376,6 +424,10 @@ def conferir(repo, forcar=False):
         if (d.get("hermes") or {}).get("status") == "pendente" and HERMES_PESQUISA:
             pesquisa_hermes(repo, p["chave"], d["pergunta"])
             feitos.append("hermes")
+        # 30/09: o DeepSeek dá a 3ª visão só nas pesquisas pedidas de dentro de um card (o desafio), 1 vez, depois do Astra
+        if DEEPSEEK_PESQUISA and _card_da_origem(d.get("origem")) and not (d.get("deepseek") or {}).get("status"):
+            pesquisa_deepseek(repo, p["chave"], d["pergunta"], p.get("texto") or "")
+            feitos.append("deepseek")
     for p in _pesquisas(repo, "rodando", 10):
         d = p.get("dados") or {}
         if d.get("motor") == "astra":           # travou no meio (a função caiu): volta para a fila depois de 10 min
