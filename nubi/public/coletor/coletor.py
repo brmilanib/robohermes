@@ -4751,11 +4751,18 @@ def _claude_ferramentas(chave, mensagens, sistema, ferramentas=None, modelo=None
     req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=json.dumps(corpo).encode(), method="POST",
                                  headers={"x-api-key": chave, "anthropic-version": "2023-06-01",
                                           "content-type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=180) as r:
-            return json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        raise Falha(f"API do Claude respondeu {e.code}: {e.read().decode(errors='replace')[:200]}")
+    # card #123 (29/09): um "[Errno 60] Operation timed out" ou "[Errno 54] Connection reset by peer" na rede derrubava
+    # o card inteiro no meio; falha de rede tenta de novo (3 vezes, com pausa) antes de desistir
+    for tentativa in (1, 2, 3):
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raise Falha(f"API do Claude respondeu {e.code}: {e.read().decode(errors='replace')[:200]}")
+        except OSError:   # URLError, TimeoutError, ConnectionResetError
+            if tentativa == 3:
+                raise
+            time.sleep(10 * tentativa)
 
 
 def _nav_ler(pg, estado):
