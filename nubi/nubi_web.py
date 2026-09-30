@@ -6510,7 +6510,14 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
     if rota == "ml_vitrine_pendente":
         # card #126, etapa 2: para o coletor (vitrine-seguidos), as lojas reais ligadas aos seguidos (só o seller_id)
         lojas = meli.ler_hash_lojas(repo, meli.SEGUIDOS)
-        return {"lojas": [{"vendedor": v, "seller_id": str(x["id"]), "nome": x.get("nome") or ""}
+        visto = {}
+        try:                                  # 30/09: quando cada vitrine foi lida por último (o coletor pula as de hoje)
+            for a in repo._todos("vend_anuncios_ml", {"select": "vendedor,visto_em"}):
+                if str(a.get("visto_em") or "") > str(visto.get(a["vendedor"]) or ""):
+                    visto[a["vendedor"]] = a["visto_em"]
+        except Exception:  # noqa: BLE001
+            pass
+        return {"lojas": [{"vendedor": v, "seller_id": str(x["id"]), "nome": x.get("nome") or "", "visto_em": visto.get(v)}
                           for v, x in ((v, _a_conferir(x)) for v, x in lojas.items())
                           if x and re.fullmatch(r"\d{3,15}", str(x.get("id") or ""))]}
     if rota == "ml_vitrine_salvar" and metodo == "POST":

@@ -1163,8 +1163,18 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
             u = urllib.parse.unquote(r.url)
             return ("ranking/tree" in u and "Topic=brands" in u and f"Date={mes}-01" in u
                     and f"CategoryPath={cat}" in u and (limite is None or f"Limit={limite}" in u))
-        with pg.expect_response(lambda r: e_ranking(r), timeout=120000):
-            pg.click("button#simple-tab-3")
+        # 30/09 (Maquiagem, card #133): a aba MARCAS já fica aberta de uma rodada anterior; trocar a categoria dispara a
+        # consulta ANTES do clique, e o clique na aba já aberta não dispara nada (esperava 120 s à toa). Se a aba já está
+        # selecionada, segue pela tabela.
+        from playwright.sync_api import TimeoutError as _TO
+        ja_aberta = bool(pg.locator('button#simple-tab-3[aria-selected="true"]').count())
+        try:
+            with pg.expect_response(lambda r: e_ranking(r), timeout=20000 if ja_aberta else 120000):
+                pg.click("button#simple-tab-3")
+        except _TO:
+            if not ja_aberta:
+                raise
+            log("  aba MARCAS já estava aberta; sigo pela tabela")
         # 100 linhas por página (o export sai da tabela carregada)
         seletor = pg.locator('[role="combobox"], [aria-haspopup="listbox"]').filter(has_text=re.compile(r"^\s*10\s*$")).first
         if seletor.count():
@@ -2192,10 +2202,16 @@ def vitrine_url(seller_id, pagina=0):
 def coletar_vitrine_seguidos(p, cfg, token, so=None):
     """Para cada seguido com loja ligada (ml_vitrine_pendente): passa as páginas da vitrine e manda os cards ao nubi
     (ml_vitrine_salvar -> vend_anuncios_ml). Só lê; nada é clicado. Para quando a página não traz MLB novo."""
+    hoje = datetime.now(timezone.utc).date().isoformat()
     lojas = [l for l in api(token, "ml_vitrine_pendente").get("lojas") or []
              if re.fullmatch(r"\d{3,15}", str(l.get("seller_id") or "")) and (not so or so.upper() == str(l.get("vendedor")).upper())]
+    # 30/09: a rodada parou em 7 das 13 lojas; quem já foi lida hoje não é lida de novo (menos tempo, menos cara de robô)
+    ja = [l["vendedor"] for l in lojas if not so and str(l.get("visto_em") or "")[:10] == hoje]
+    lojas = [l for l in lojas if l["vendedor"] not in ja]
+    if ja:
+        log(f"  já lidas hoje: {', '.join(ja)}")
     if not lojas:
-        return 0, 0, 0, "nenhum vendedor seguido com loja ligada"
+        return 0, 0, 0, "nenhum vendedor seguido com loja ligada" if not ja else f"todas as {len(ja)} lojas já foram lidas hoje"
     ctx = _ml_navegador(p, cfg)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
     pg.add_init_script(JS_CEDO)
