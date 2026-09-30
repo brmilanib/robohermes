@@ -4077,12 +4077,15 @@ def estoque_compras(repo, com_plano=True):
 
 
 MARCA_SKU_CHAVE = "estoque|marca_sku"
+MARCA_IA_CHAVE = "estoque|marca_sku_ia"
+ASTRA_LOTE = 150
 
 
-def _marca_sku(repo):
-    """{sku compactado: marca} que o Bruno corrigiu na aba Por categoria (o título não tinha a marca ou tinha errado)."""
+def _marca_sku(repo, chave=MARCA_SKU_CHAVE):
+    """{sku compactado: marca} que o Bruno corrigiu na aba Por categoria (o título não tinha a marca ou tinha errado);
+    com MARCA_IA_CHAVE, a marca que o Astra leu no título."""
     try:
-        reg = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(MARCA_SKU_CHAVE)}) or [None])[0]
+        reg = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(chave)}) or [None])[0]
         return json.loads(reg["texto"]) if reg and reg.get("texto") else {}
     except (ErroNuvem, ValueError, TypeError):
         return {}
@@ -4103,6 +4106,58 @@ def estoque_marca_salvar(repo, sku, marca):
                                             "criado_em": datetime.now(timezone.utc).isoformat()}],
               prefer="resolution=merge-duplicates,return=minimal")
     return {"ok": True, "sku": sku, "marca": marca}
+
+
+def estoque_marcas_astra(repo):
+    """30/09 (Bruno: "o Astra já está com crédito; o título já fala qual marca é"): os itens em "Sem categoria" vão para o
+    Astra (título -> marca oficial + categoria do ranking). A marca fica em estoque|marca_sku_ia (a do Bruno e a do título
+    vencem); a categoria só é gravada em marca_categorias para marca que ainda não tem nenhuma (nunca troca a do Bruno)."""
+    r = estoque_categorias(repo)
+    if r.get("vazio"):
+        return {"ok": False, "log": ["Sem estoque importado."]}
+    faltam = [x for x in r["itens"] if x["categoria"] == categorias.SEM][:ASTRA_LOTE]
+    if not faltam:
+        return {"ok": True, "marcas": 0, "categorias": 0, "log": ["Nenhum item em Sem categoria."]}
+    opcoes = categorias.CATEGORIAS
+    schema = {"type": "object", "additionalProperties": False, "required": ["itens"], "properties": {"itens": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["sku", "marca", "categoria"],
+        "properties": {"sku": {"type": "string"}, "marca": {"type": "string"}, "categoria": {"type": "string", "enum": opcoes + [""]}}}}}}
+    pedido = ("Você cuida do estoque de uma loja brasileira de perfumes e cosméticos. Para cada produto abaixo, diga a MARCA "
+              "(o fabricante, escrito como a marca oficial: 'Lattafa', 'Dolce & Gabbana', 'Barbour's'; NÃO a linha do produto, "
+              "ex.: 'Yara' é linha da Lattafa) e a CATEGORIA da marca, uma de: " + ", ".join(opcoes) + ". Designer = grifes de moda "
+              "(Dior, Dolce & Gabbana, Ferrari); Nicho = casas de perfumaria autoral; Árabe = marcas dos Emirados/Arábia; "
+              "Nacional = marcas brasileiras (Natura, Boticário, Barbour's); Importados low ticket = importados baratos que não são "
+              "grife; Outros = cosméticos e o que não é perfume. Se o título não permitir saber a marca, marca vazia. Não invente.\n\n"
+              + "\n".join(f"{x['sku']} | {x['titulo']}" for x in faltam))
+    modelo = (agentes.AGENTES.get("astra") or {}).get("modelo")
+    try:
+        j, quem = ia.perguntar_estruturado(pedido, schema, nome="marcas_estoque", max_tokens=12000, qual="chatgpt", modelo=modelo)
+    except ia.SemIA as e:
+        raise ErroNuvem(f"O Astra não respondeu agora: {e}")
+    skus = {nubi.compacta(x["sku"]): x for x in faltam}
+    novas = _marca_sku(repo, MARCA_IA_CHAVE)
+    manuais = {x["marca_chave"] for x in repo._todos("marca_categorias", {"select": "marca_chave"})}
+    n_m, cats = 0, {}
+    for x in j.get("itens") or []:
+        k = nubi.compacta(x.get("sku") or "")
+        marca = re.sub(r"\s+", " ", str(x.get("marca") or "")).strip()[:80]
+        if k not in skus or not marca:
+            continue
+        if not skus[k]["marca"]:
+            novas[k] = marca
+            n_m += 1
+        c = x.get("categoria") or ""
+        mk = nubi.compacta(skus[k]["marca"] or marca)
+        if c in opcoes and mk not in manuais and categorias.classificar(skus[k]["marca"] or marca)[1] == "sem":
+            cats[mk] = (skus[k]["marca"] or marca, c)
+    agora = datetime.now(timezone.utc).isoformat()
+    repo._req("POST", "ia_resumos", corpo=[{"chave": MARCA_IA_CHAVE, "ia": quem, "criado_em": agora,
+                                            "texto": json.dumps(novas, ensure_ascii=False)}], prefer="resolution=merge-duplicates,return=minimal")
+    if cats:
+        repo._req("POST", "marca_categorias", corpo=[{"marca_chave": k, "marca": m, "categoria": c, "atualizado_em": agora}
+                                                     for k, (m, c) in cats.items()], prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True, "marcas": n_m, "categorias": len(cats), "lidos": len(faltam), "por": quem,
+            "log": [f"Astra leu {len(faltam)} título(s): {n_m} marca(s) nova(s) e {len(cats)} categoria(s) de marca."]}
 
 
 def estoque_categorias(repo):
@@ -4141,7 +4196,7 @@ def estoque_categorias(repo):
         d = vendas_sku.setdefault(k, {"unidades": 0.0, "valor": 0.0})
         d["unidades"] += float(x.get("unidades") or 0)
         d["valor"] += float(x.get("valor") or 0)
-    r = categorias.estoque_por_categoria(itens, conhecidas, manuais, vendas_sku, _marca_sku(repo))
+    r = categorias.estoque_por_categoria(itens, conhecidas, manuais, vendas_sku, _marca_sku(repo), _marca_sku(repo, MARCA_IA_CHAVE))
     r.update({"estoque_em": ult["criado_em"], "vendas": {k: x for k, x in v.items() if k != "linhas"} or None})
     return r
 
@@ -5109,6 +5164,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         return estoque_compras(repo)
     if rota == "estoque_categorias":
         return estoque_categorias(repo)
+    if rota == "estoque_marcas_astra" and metodo == "POST":
+        return estoque_marcas_astra(repo)
     if rota == "estoque_marca_salvar" and metodo == "POST":
         d = json.loads(corpo or b"{}")
         return estoque_marca_salvar(repo, d.get("sku"), d.get("marca"))

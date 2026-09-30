@@ -127,6 +127,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Cards e linhas clicáveis (`abrirEcLista`): lista dos produtos com a MARCA editável por SKU (`estoque_marca_salvar`, em
   `ia_resumos` `estoque|marca_sku`; vazia = volta ao título) e a CATEGORIA editável por marca (`ranking_categoria_salvar`,
   vale também no Ranking).
+  30/09 (print: 343 SKUs em "Sem categoria"): `classificar` também olha a 1ª palavra ("Lattafa Yara" -> Lattafa = Árabe);
+  `marca_do_titulo` ignora o conectivo ("Dolce and Gabbana" = Dolce & Gabbana). Botão "🤖 Pedir ao Astra" (rota
+  `estoque_marcas_astra`, modelo do Astra, até `ASTRA_LOTE`=150 títulos): marca em `estoque|marca_sku_ia` (a do Bruno e a do
+  título vencem) e categoria em `marca_categorias` só para marca que ainda não tem nenhuma.
 - **Explorador: período analisado (30/09, "últimos 30 e 7 dias")**: o export é por período (sem venda por dia); cada período
   importado da marca vira um botão na página da marca (`periodosMarca`, rota `relatorio&periodo=<id>`, `escolher_periodo`:
   padrão = termina por último e mais longo; anterior = termina antes do escolhido começar). 7 e 30 dias aparecem quando o

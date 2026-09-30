@@ -2978,6 +2978,10 @@ async function telaEstoqueCategorias() {
   main.innerHTML = `<div class="es-pg">${esAbas("categorias")}
     <div class="es-cab"><h1>🏷️ Estoque por categoria</h1><span class="muted">estoque de ${esc(quandoES(r.estoque_em))}${temV ? ` · vendas de ${nf0.format(r.vendas.dias || 30)} dias do UpSeller` : " · sem relatório de vendas"}</span></div>
     <p class="aviso">A marca vem do título do anúncio e a categoria é a mesma do Ranking de marcas (Designer, Nicho, Árabe…). Trocou a categoria de uma marca no Ranking → Categorias, muda aqui também.</p>
+    ${(() => { const n = r.itens.filter(x => x.categoria === "Sem categoria").length;
+      return n ? `<div class="card pad" style="margin:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:240px"><b>❔ ${nf0.format(n)} produto(s) sem categoria</b>
+        <div class="muted" style="font-size:12px">O Astra lê o título de cada um, diz a marca e a categoria da marca. Não muda nada que você já escolheu.</div></div>
+        <button class="btn primary small" id="ec-astra">🤖 Pedir ao Astra</button></div>` : ""; })()}
     <div class="kpis">${cats.map(c => `<div class="card kpi kpi-link ec-clica" data-ec="categoria" data-ev="${esc(c.categoria)}" role="button" tabindex="0" title="Ver os produtos" style="border-top:3px solid ${cor(c.categoria)}">
       <div class="l">${ICO_CAT[c.categoria] || ""} ${esc(c.categoria)}</div><div class="v">${abrev(c.valor)}</div>
       <div class="o"><b>${FMT.pct(c.pct_valor)}</b> do estoque · ${nf0.format(c.unidades)} un.${temV ? ` · vende ${FMT.pct(c.pct_vendas)}` : ""}</div></div>`).join("")}</div>
@@ -2994,6 +2998,11 @@ async function telaEstoqueCategorias() {
       <table class="t" style="margin-top:6px"><tr><th>SKU</th><th>Título</th><th class="num">Atual</th><th class="num">Valor</th></tr>
       ${r.sem_marca.map(x => `<tr><td>${esc(x.sku)}</td><td class="wrap">${esc(x.titulo)}</td><td class="num">${nf0.format(x.atual)}</td><td class="num">${rsES(x.valor)}</td></tr>`).join("")}</table></details>` : ""}</div>`;
   main.querySelectorAll(".ec-clica").forEach(el => el.onclick = () => abrirEcLista(el.dataset.ec, el.dataset.ev));
+  if ($("#ec-astra")) $("#ec-astra").onclick = async () => {
+    const c = carregando("O Astra está lendo os títulos");
+    try { const x = await api("estoque_marcas_astra", {}, {method: "POST"}); c.ok((x.log || []).join(" ")); telaEstoqueCategorias(); }
+    catch (e) { c.erro(e.message); }
+  };
   S.tabelas = S.tabelas || {};
   tabela($("#ec-marcas"), "estoque_marcas", r.marcas.map(m => ({...m, cob: m.cobertura_dias})),
     [["marca", "Marca (clique)", "ecmarca", "txt"], ["categoria", "Categoria", "txt", "sel"], ["tipo", "Tipo", "txt", "sel"], ["skus", "SKUs", "int"], ["zerados", "Zerados", "int"],

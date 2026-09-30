@@ -66,6 +66,15 @@ if os.environ.get("IA_FALSA"):
         if "auditor de dados" in txt:
             r = "## Achados\n- SIENO: dia faltando = falha de coleta.\n```python\ndef f():\n    return 1\n```\n## Ações\n1. Reenviar."
             return {"output": [{"type": "message", "content": [{"type": "output_text", "text": r, "annotations": []}]}]}
+        if corpo.get("text", {}).get("format", {}).get("name") == "marcas_estoque":
+            # Astra falso (30/09): lê "SKU | título" e devolve a marca e a categoria
+            itens = []
+            for l in corpo.get("input", "").splitlines():
+                if " | " in l:
+                    sku, tit = l.split(" | ", 1)
+                    m = "Creamy" if "Creamy" in tit else ("Dolce & Gabbana" if "Dolce" in tit else "")
+                    itens.append({"sku": sku, "marca": m, "categoria": "Outros" if m == "Creamy" else ("Designer" if m else "")})
+            return {"output": [{"type": "message", "content": [{"type": "output_text", "text": json.dumps({"itens": itens}), "annotations": []}]}]}
         if corpo.get("text", {}).get("format", {}).get("type") == "json_schema":
             tipos = corpo["text"]["format"]["schema"]["properties"]["secoes"]["items"]["properties"]["tipo"]["enum"]
             j = {"secoes": [{"tipo": t, "itens": [

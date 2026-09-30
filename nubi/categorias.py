@@ -132,7 +132,8 @@ def classificar(marca, manuais=None):
     if k in INDICE:
         return INDICE[k], "auto"
     # linhas/sub-marcas: "LATTAFA PRIDE", "ISABELLE LA BELLE ASAD..." -> começa com uma marca conhecida
-    for tam in (3, 2):
+    # 30/09 (estoque: "Lattafa Yara" ficava Sem categoria): a 1ª palavra também, se for marca conhecida de 5+ letras
+    for tam in (3, 2, 1):
         pref = " ".join(nubi.sem_acento(marca or "").upper().split()[:tam])
         if nubi.compacta(pref) in INDICE and len(nubi.compacta(pref)) >= 5:
             return INDICE[nubi.compacta(pref)], "auto"
@@ -219,19 +220,22 @@ def marca_do_titulo(titulo, conhecidas):
     "Perfume Asad Elixir Lattafa" -> LATTAFA (ganha de ASAD, que é mais curto). conhecidas: {chave compacta: nome}."""
     pal = nubi.normalizar(titulo or "").split()
     melhor = None
-    for n in (4, 3, 2, 1):
+    for n in (5, 4, 3, 2, 1):
         for i in range(len(pal) - n + 1):
-            k = nubi.compacta(" ".join(pal[i:i + n]))
-            if len(k) >= 4 and k in conhecidas and (melhor is None or len(k) > len(melhor)):
-                melhor = k
+            jan = pal[i:i + n]
+            # "Dolce and Gabbana" = "DOLCE & GABBANA": o conectivo não conta (nem na 1ª/última palavra)
+            sem_con = [w for w in jan if w not in ("and", "e", "y", "et")] if jan[0] not in ("and", "e") and jan[-1] not in ("and", "e") else jan
+            for k in {nubi.compacta(" ".join(jan)), nubi.compacta(" ".join(sem_con))}:
+                if len(k) >= 4 and k in conhecidas and (melhor is None or len(k) > len(melhor)):
+                    melhor = k
     return conhecidas[melhor] if melhor else None
 
 
-def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marca_sku=None):
+def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marca_sku=None, marca_ia=None):
     """itens do estoque (sku, titulo, atual, custo_medio) -> totais por categoria de marca, por tipo de produto e por marca.
     vendas_sku: {sku compactado: {"unidades", "valor"}} dos últimos 30 dias (relatório do UpSeller).
     marca_sku: {sku compactado: marca} escolhida pelo Bruno na tela (vence a marca achada no título)."""
-    vendas_sku, marca_sku = vendas_sku or {}, marca_sku or {}
+    vendas_sku, marca_sku, marca_ia = vendas_sku or {}, marca_sku or {}, marca_ia or {}
     lista = []
     cats, tipos, marcas = {}, {}, {}
     total = {"skus": 0, "unidades": 0.0, "valor": 0.0, "vend_un": 0.0, "vend_valor": 0.0}
@@ -241,7 +245,8 @@ def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marc
         custo = it.get("custo_medio")
         valor = atual * float(custo) if custo not in (None, "") else 0.0
         manual = marca_sku.get(nubi.compacta(it.get("sku") or ""))
-        marca = manual or marca_do_titulo(it.get("titulo"), conhecidas)
+        # ordem: a que o Bruno escolheu > a achada no título > a que o Astra leu no título (30/09)
+        marca = manual or marca_do_titulo(it.get("titulo"), conhecidas) or marca_ia.get(nubi.compacta(it.get("sku") or ""))
         cat, fonte_cat = classificar(marca, manuais) if marca else (SEM, "sem")
         tipo = tipo_produto(it.get("titulo"))
         v = vendas_sku.get(nubi.compacta(it.get("sku") or ""), {})

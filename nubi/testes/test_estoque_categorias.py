@@ -27,6 +27,8 @@ itens = [{"sku": "ASAD-100", "titulo": "Perfume Asad Elixir Lattafa 100 Ml", "at
          {"sku": "FERRARI-125", "titulo": "Perfume Ferrari Black 125ml Eau De Toilette", "atual": 5, "custo_medio": 120},
          {"sku": "CREAMY-1", "titulo": "Protetor Solar Facial Creamy", "atual": 2, "custo_medio": 40},
          {"sku": "ZERO-1", "titulo": "Perfume Salvo Maison Alhambra Edp", "atual": 0, "custo_medio": 90}]
+itens_tela = itens + [{"sku": "KIT-DOLCE", "titulo": "Q by Dolce and Gabbana Conjunto EDP", "atual": 3, "custo_medio": 200},
+                      {"sku": "SERUM-X", "titulo": "Serum Facial Vitamina Zeta 30ml", "atual": 4, "custo_medio": 30}]
 r = categorias.estoque_por_categoria(itens, con, {}, {"ASAD100": {"unidades": 30, "valor": 6000}})
 c = {x["categoria"]: x for x in r["categorias"]}
 assert c["Árabe"]["valor"] == 1000 and c["Árabe"]["skus"] == 2 and c["Árabe"]["zerados"] == 1, c["Árabe"]
@@ -34,12 +36,19 @@ assert c["Designer"]["valor"] == 600 and c["Sem categoria"]["valor"] == 80, c
 assert c["Árabe"]["cobertura_dias"] == 10.0 and c["Árabe"]["pct_vendas"] == 1.0, c["Árabe"]      # 10 un. ÷ 1/dia
 assert r["sem_marca"] == [{"sku": "CREAMY-1", "titulo": "Protetor Solar Facial Creamy", "atual": 2.0, "valor": 80.0}]
 assert {x["tipo"] for x in r["tipos"]} == {"Perfume", "Skincare"}
+# 30/09 (print do Bruno): "Lattafa Yara" (marca+linha) é Árabe; "Dolce and Gabbana" = Dolce & Gabbana
+assert categorias.classificar("LATTAFA YARA")[0] == "Árabe"
+con2 = {nubi.compacta(x): x for x in ["DOLCE & GABBANA", "LATTAFA"]}
+assert categorias.marca_do_titulo("Q by Dolce and Gabbana para mulheres EDP 100 ml", con2) == "DOLCE & GABBANA"
+# ordem: a do Bruno > a do título > a do Astra
+r2 = categorias.estoque_por_categoria(itens, con, {}, {}, {}, {"CREAMY1": "Creamy", "ASAD100": "Outra"})
+assert {x["sku"]: x["marca"] for x in r2["itens"]}["CREAMY-1"] == "Creamy" and {x["sku"]: x["marca"] for x in r2["itens"]}["ASAD-100"] == "LATTAFA"
 print("ok estoque por categoria (unidade)")
 
 # ---- tela
 AQUI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "servidor_teste")
 PORTA = os.environ.get("PORTA_EC", "8813")
-env = dict(os.environ, IA_FALSA="1", OLLAMA_API_KEY="x", PORTA=PORTA)
+env = dict(os.environ, IA_FALSA="1", OLLAMA_API_KEY="x", OPENAI_API_KEY="x", PORTA=PORTA)
 srv = subprocess.Popen([sys.executable, "-W", "ignore", os.path.join(AQUI, "servidor.py")], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -47,7 +56,7 @@ def _xlsx():
     import openpyxl
     wb = openpyxl.Workbook(); ws = wb.active
     ws.append(["SKU", "Título", "Armazém", "Estoque Baixo", "Em Trânsito(Compra)", "Disponível", "Estoque Atual", "Custo Médio", "Subtotal"])
-    for it in itens:
+    for it in itens_tela:
         ws.append([it["sku"], it["titulo"], "My Warehouse", 0, 0, it["atual"], it["atual"], it["custo_medio"], it["atual"] * it["custo_medio"]])
     b = io.BytesIO(); wb.save(b); return b.getvalue()
 
@@ -78,20 +87,26 @@ try:
                 assert "Nacional" in txt, txt[:1500]                                    # a categoria escolhida no pc valeu
             sem_rolagem(pg, nome, "estoque por categoria")
             if nome == "pc":
+                # 30/09 (Bruno: "o Astra já tem crédito; o título já fala a marca"): o Astra completa marca e categoria
+                pg.click("#ec-astra"); pg.wait_for_function("() => !document.querySelector('#ec-astra') || document.body.innerText.includes('Astra leu')", timeout=15000)
+                pg.wait_for_timeout(1500)
+                pg.click(".kpi.ec-clica[data-ev='Designer']"); pg.wait_for_selector(".modal .ec-marca", timeout=8000)
+                assert "KIT-DOLCE" in pg.inner_text(".modal"), pg.inner_text(".modal")[:800]      # Dolce & Gabbana pelo nome
+                pg.click(".modal [data-fechar]")
                 # 30/09 (Bruno): clicar na categoria abre os produtos dela; marca por SKU e categoria da marca editáveis
                 pg.click(".kpi.ec-clica[data-ev='Sem categoria']"); pg.wait_for_selector(".modal .ec-marca", timeout=8000)
                 m = pg.inner_text(".modal")
-                assert "CREAMY-1" in m and "ASAD-100" not in m, m[:800]
-                pg.fill(".modal .ec-marca[data-sku='CREAMY-1']", "Creamy"); pg.press(".modal .ec-marca[data-sku='CREAMY-1']", "Enter")
-                pg.wait_for_selector(".modal [data-eccat='Creamy']", timeout=10000)     # reabriu já com a marca nova
+                assert "SERUM-X" in m and "ASAD-100" not in m, m[:800]
+                pg.fill(".modal .ec-marca[data-sku='SERUM-X']", "Zeta"); pg.press(".modal .ec-marca[data-sku='SERUM-X']", "Enter")
+                pg.wait_for_selector(".modal [data-eccat='Zeta']", timeout=10000)     # reabriu já com a marca nova
                 pg.once("dialog", lambda d: d.accept())
-                pg.select_option(".modal [data-eccat='Creamy']", "Nacional")
-                pg.wait_for_function("() => !document.querySelector('.modal') || !document.querySelector('.modal').innerText.includes('CREAMY-1')", timeout=10000)
+                pg.select_option(".modal [data-eccat='Zeta']", "Nacional")
+                pg.wait_for_function("() => !document.querySelector('.modal') || !document.querySelector('.modal').innerText.includes('SERUM-X')", timeout=10000)
                 pg.wait_for_selector(".modal", timeout=8000); pg.click(".modal [data-fechar]")
                 pg.click(".kpi.ec-clica[data-ev='Nacional']")
                 pg.wait_for_selector(".modal .ec-marca", timeout=8000)
                 m = pg.inner_text(".modal")
-                assert "Nacional" in m and "CREAMY-1" in m, m[:800]
+                assert "Nacional" in m and "SERUM-X" in m, m[:800]
                 pg.click(".modal [data-fechar]")
             assert not erros, erros
             pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"estoque_categorias_{nome}.png"), full_page=True)
