@@ -2504,10 +2504,17 @@ def coletar_fotos_vendedores(p, cfg, token, so=None):
         per = (periodos(cfg) or [None])[-1]
         if not per:
             return 0, 0, 0, "sem período liberado"
+        hoje = datetime.now(timezone.utc).date().isoformat()
         for h, nome in lista:
             if so and so.upper() != nome.upper():
                 continue
             try:
+                # 30/09: a rodada parou depois de 10 dos 17 (tempo); quem já foi lido hoje não é lido de novo
+                if not so:
+                    ja = api(token, "meli_fotos_seguido", {"vendedor": nome}, timeout=30)
+                    if str(ja.get("em") or "")[:10] == hoje and ja.get("itens"):
+                        log(f"  {nome}: já lido hoje ({len(ja['itens'])} anúncio(s)), pulo")
+                        continue
                 itens = capturar_fotos_vendedor(pg, h, per, nome)
                 api(token, "ml_vend_fotos", corpo={"seller_hash": h, "nome": nome, "mes": per["mes"], "ini": per["ini"],
                                                  "fim": per["fim"], "itens": itens}, timeout=60)
