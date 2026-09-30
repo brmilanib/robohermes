@@ -435,6 +435,19 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - "Em execução" só mostra "trabalhando" se houve passo nos últimos 20 min; senão o card aparece como ⏸ parado.
   Tarefa de código parada volta para `aprovada`, não fica fingindo execução.
 
+## Pausar e excluir cards (30/09, pedido do Bruno)
+
+- Status `pausada` (`reuniao.STATUS`): card guardado fora da fila — nenhum agente pega (as filas só leem `aprovada`),
+  `_situacao_card` devolve nada, e no quadro aparece dobrado em "⏸ Pausadas". Volta pelo seletor de status do card.
+- Botão "🗑 Excluir card" no detalhe (rota `reuniao_tarefa_excluir`, POST `{id}`): apaga `tarefa_eventos` e o card; card em
+  execução/teste não sai (mude o status antes). Só pelo login do dono; agente nenhum chama. Teste `test_cards_pausar_excluir.py`.
+- 30/09: o Bruno pausou os 21 cards abertos para revisar; ficaram só o #125 e o **#126 (DESAFIO prioritário)**: ligar os 17
+  vendedores seguidos à loja real do ML (nome, cidade/UF via `/users/{id}`, link) e trazer TODOS os anúncios deles ligados a
+  `vend_anuncios`, com foto, preço, posição, vendidos, estoque e histórico diário (tabelas novas `vend_lojas_ml`,
+  `vend_anuncios_ml`, `vend_anuncios_ml_dia`, autorizadas no card). Estratégias no card: API do ML, vitrine
+  `lista.mercadolivre.com.br/_CustId_<id>` lida com as regras da extensão (`doCartao`/`cedo.js`), Apify, fotos do Nubimetrics,
+  pesquisa do Astra + Hermes (origem "card #126"), Hunter só como conferência no navegador. Ferreiro implementa por etapas.
+
 ## Quadro com teste e relatório (25/09)
 
 - Colunas: Propostas → Aprovadas → Em execução → **Em teste** → Feitas. Em teste: `status='em_teste'` + `testador`
