@@ -840,6 +840,17 @@ def _situacao_card(tarefa, agora=None):
     return None, None, None
 
 
+def corpo_recebido(gzip_flag, corpo):
+    """Corpo da chamada como a página mandou: com X-Nubi-Gzip=1 vem compactado (CSV grande) e volta ao original."""
+    if str(gzip_flag or "") == "1" and corpo:
+        import gzip
+        try:
+            return gzip.decompress(corpo)
+        except (OSError, EOFError):
+            return corpo
+    return corpo
+
+
 def atender(metodo, rota, q, corpo, token):
     """Devolve (status, tipo de conteúdo, bytes, cabeçalhos extras)."""
     t0 = time.monotonic()

@@ -18,6 +18,9 @@ class handler(BaseHTTPRequestHandler):
         rota = q.pop("r", "")
         n = int(self.headers.get("Content-Length") or 0)
         corpo = self.rfile.read(n) if n else b""
+        # 30/09 (413 no CSV de 4,7 MB da "Oriente"): a Vercel recusa corpo acima de 4,5 MB; a página manda o CSV
+        # compactado (gzip) com este cabeçalho e aqui volta ao original, para o hash e a leitura ficarem iguais
+        corpo = nubi_web.corpo_recebido(self.headers.get("X-Nubi-Gzip"), corpo)
         auth = self.headers.get("Authorization", "")
         token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
         status, tipo, dados, extra = nubi_web.atender(metodo, rota, q, corpo, token)

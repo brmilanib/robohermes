@@ -326,7 +326,10 @@ def ler_csv(fonte):
     repetidos = out["anuncio"].str.startswith("ID:") & out["anuncio"].duplicated()
     if repetidos.any():
         avisar(f"    {int(repetidos.sum())} linha(s) repetida(s) (mesmo ID do anúncio) contadas uma vez só.")
-        out = out[~repetidos]
+        # 30/09 (CSV da Oriente, 10.000 linhas com 2 repetidas): o arquivo original tem que encolher junto, senão as
+        # colunas Gtin/Sku lidas dele abaixo ficam com o tamanho antigo ("Length of values does not match")
+        manter = ~repetidos.values
+        out, df = out[manter], df[manter]
     # GTIN: coluna Gtin; se não der nada, tenta a coluna Sku (às vezes o GTIN está lá).
     # 1ª passada só com GTINs limpos, para saber qual prefixo de empresa é o da marca.
     unidades = out["un"].values

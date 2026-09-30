@@ -1065,6 +1065,15 @@ const dataBR = s => s ? s.split("-").reverse().join("/") : "";
 let S = { sessao: null, painel: [], marca: null, rel: null, aba: "oportunidades", tabelas: {} };
 
 // ---------- API ----------
+// 30/09 (413 no CSV de 4,7 MB): CSV acima de 3 MB vai compactado (gzip) com o cabeçalho X-Nubi-Gzip; o servidor volta ao original
+async function corpoCsv(f) {
+  const bruto = await f.arrayBuffer();
+  if (bruto.byteLength < 3 * 1024 * 1024 || typeof CompressionStream === "undefined") return {body: bruto, headers: {"Content-Type": "text/csv"}};
+  try {
+    const comp = await new Response(new Blob([bruto]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
+    return {body: comp, headers: {"Content-Type": "application/octet-stream", "X-Nubi-Gzip": "1"}};
+  } catch { return {body: bruto, headers: {"Content-Type": "text/csv"}}; }
+}
 async function api(rota, params = {}, opts = {}) {
   const {data} = await sb.auth.getSession();
   const token = data.session?.access_token;
@@ -7191,7 +7200,7 @@ async function abrirUpload() {
       const analisar = async it => {
         it.estado = "analisando"; desenhar();
         try {
-          const r = await api("analisar", {arquivo: it.f.name}, {method: "POST", body: await it.f.arrayBuffer(), headers: {"Content-Type": "text/csv"}});
+          const c = await corpoCsv(it.f); const r = await api("analisar", {arquivo: it.f.name}, {method: "POST", body: c.body, headers: c.headers});
           it.info = r; it.marca = r.marca || ""; it.manual = !r.marca;
           const gs = r.grupos || [], sug = gs.filter(g => g.sugerida);
           // várias marcas relevantes no mesmo arquivo (ex.: busca "Dolce" trouxe D&G e Boticário): uma por card
@@ -7302,9 +7311,23 @@ async function abrirUpload() {
           it.estado = "rodando"; it.log = ""; desenhar();
           try {
             const q = {arquivo: it.f.name, inicio: it.inicio, fim: it.fim};
-            if (it.multi) q.marcas = [...it.escolha].join(",");
-            else if (marcaManual) q.marca = marcaManual;   // sem escolha manual, o servidor usa a marca do arquivo
-            const r = await api("importar", q, {method: "POST", body: await it.f.arrayBuffer(), headers: {"Content-Type": "text/csv"}});
+            const c = await corpoCsv(it.f);
+            let r;
+            if (it.multi) {
+              // 30/09 (CSV da Oriente: 774 marcas): o servidor tem 5 min por chamada e cada marca leva uns segundos —
+              // as marcas vão em levas de LEVA por chamada, com o andamento na tela
+              const LEVA = 6, todas = [...it.escolha], logs = [], feitasM = [];
+              for (let i = 0; i < todas.length; i += LEVA) {
+                $("#up-status", m).innerHTML = `<span class="spin"></span> ${esc(it.f.name)}: marcas ${Math.min(i + LEVA, todas.length)} de ${todas.length}…`;
+                const rr = await api("importar", {...q, marcas: todas.slice(i, i + LEVA).join(",")}, {method: "POST", body: c.body, headers: c.headers});
+                logs.push(...(rr.log || [])); feitasM.push(...(rr.marcas || []));
+                it.log = logs.join("\n").trim(); desenhar();
+              }
+              r = {marca: feitasM[0] || null, marcas: feitasM, log: logs};
+            } else {
+              if (marcaManual) q.marca = marcaManual;   // sem escolha manual, o servidor usa a marca do arquivo
+              r = await api("importar", q, {method: "POST", body: c.body, headers: c.headers});
+            }
             it.log = r.log.join("\n").trim();
             it.estado = r.marca || /Já importado|já importado/.test(it.log) ? "ok" : "erro";
             for (const mm of r.marcas || (r.marca ? [r.marca] : [])) marcas = [...new Set([...marcas.filter(x => compacta(x) !== compacta(mm)), mm])].sort();
