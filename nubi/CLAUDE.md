@@ -447,6 +447,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `vend_anuncios_ml`, `vend_anuncios_ml_dia`, autorizadas no card). Estratégias no card: API do ML, vitrine
   `lista.mercadolivre.com.br/_CustId_<id>` lida com as regras da extensão (`doCartao`/`cedo.js`), Apify, fotos do Nubimetrics,
   pesquisa do Astra + Hermes (origem "card #126"), Hunter só como conferência no navegador. Ferreiro implementa por etapas.
+  - Etapa 1 (30/09): `nubi_web.lojas_seguidos` pega cada seguido ligado de `meli|seguidos` (sem "dúvida"), lê a cidade/UF
+    do perfil público (`meli.lojas` = `/users/{id}`, cache 7 dias) e faz upsert em `vend_lojas_ml` (migração
+    `supabase/vend_lojas_ml.sql`, o Chefe aplica; sem a tabela, a tela mostra assim mesmo). Roda ao abrir `#/vendedores-ml`
+    (`meli_seguidos_lista`, "📍 cidade - UF" na coluna da loja) e na rota `meli_seguidos_lojas`. Sem resposta do ML: cidade
+    None. Teste `test_seguidos_lojas.py`.
 
 ## Quadro com teste e relatório (25/09)
 

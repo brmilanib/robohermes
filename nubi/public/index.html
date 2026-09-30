@@ -6685,11 +6685,12 @@ async function telaSeguidosML() {
       <td class="num" data-l="Faturamento (mês)">${rsES(v.vendas)}</td><td class="num" data-l="Unidades">${nf0.format(v.unidades)}</td>
       <td data-l="Marcas">${nf0.format(v.marcas)}${v.top_marca ? `<div class="muted" style="font-size:11.5px">+ vende: ${esc(v.top_marca)}</div>` : ""}</td>
       <td class="sml-loja" data-l="Loja no ML">${v.ml ? `<div>${v.ml.link ? `<a class="ml-loja" href="${esc(urlML(v.ml.link))}" target="_blank" rel="noopener">${esc(v.ml.nome)} ↗</a>` : `<b>${esc(v.ml.nome)}</b>`}
+          ${v.ml.cidade ? `<div style="font-size:12px">📍 ${esc(v.ml.cidade)}${v.ml.uf ? ` - ${esc(v.ml.uf)}` : ""}</div>` : ""}
           <div class="muted" style="font-size:11.5px">ID ${esc(v.ml.id)} · ${provaML(v.ml)}${v.ml.anuncios ? ` · ${v.ml.anuncios} anúncio(s)` : ""}</div></div>`
         : v.candidatas ? candidatasML(v.candidatas) : v.motivo ? `<div class="muted" style="font-size:11.5px">${esc(v.motivo)}</div>` : ""}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${v.ml ? `<a class="btn small" href="#/ml/loja/${esc(v.ml.id)}">Página da loja</a>` : ""}
         <button class="btn small ${v.ml ? "ghost" : "ml-laranja"}" data-desc="${esc(v.vendedor)}">${v.ml ? "↻ Refazer" : "🔎 Descobrir loja no ML"}</button></div></td></tr>`;
-  const resumoML = l => ({id: l.id, nome: l.nome, link: l.link, confianca: l.confianca, votos: l.votos, prova: l.prova, anuncios: (l.anuncios || []).length});
+  const resumoML = l => ({id: l.id, nome: l.nome, link: l.link, confianca: l.confianca, votos: l.votos, prova: l.prova, anuncios: (l.anuncios || []).length, cidade: l.cidade, uf: l.uf});
   const desenhar = () => {
     $("#sml-tab tbody").innerHTML = S.seguidosML.map(linha).join("") || `<tr><td colspan="11" class="empty">Nenhum vendedor seguido importado.</td></tr>`;
     main.querySelectorAll("[data-copiar]").forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copiar); toast("Hash copiado."); } catch { toast(b.dataset.copiar, 8000); } });

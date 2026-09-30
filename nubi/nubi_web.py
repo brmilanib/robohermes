@@ -4685,6 +4685,33 @@ def _gtins_da_loja(repo, sid):
     return list(dict.fromkeys(gt))[:8]
 
 
+def lojas_seguidos(repo, lojas=None):
+    """Card #126, etapa 1: cada seguido ligado (meli|seguidos) com a cidade/UF do perfil público da loja (/users/{id},
+    funciona com o token do app) -> tabela vend_lojas_ml (1 linha por vendedor). Sem resposta do ML: cidade None, nunca
+    inventada. {vendedor: linha}."""
+    lojas = meli.ler_hash_lojas(repo, meli.SEGUIDOS) if lojas is None else lojas
+    lig = {v: _a_conferir(x) for v, x in lojas.items() if _a_conferir(x) and x.get("id")}
+    try:
+        perfis = meli.lojas([str(x["id"]) for x in lig.values()]) if lig else {}
+    except meli.ErroMeli:
+        perfis = {}
+    agora = datetime.now(timezone.utc).isoformat()
+    out = {}
+    for v, x in lig.items():
+        p = perfis.get(str(x["id"])) or {}
+        out[v] = {"vendedor": v, "seller_id": str(x["id"]), "nickname": p.get("nome") or x.get("nome") or "",
+                  "nome": x.get("nome") or p.get("nome") or "", "cidade": p.get("cidade") or None, "uf": p.get("uf") or None,
+                  "link": p.get("link") or x.get("link") or "", "confianca": x.get("confianca"), "prova": x.get("prova") or "",
+                  "atualizado_em": agora}
+    if out:
+        try:
+            repo._req("POST", "vend_lojas_ml", {"on_conflict": "vendedor"}, corpo=list(out.values()),
+                      prefer="resolution=merge-duplicates,return=minimal")
+        except Exception:  # noqa: BLE001  (tabela ainda não aplicada no banco: a tela mostra a cidade assim mesmo)
+            pass
+    return out
+
+
 def _painel_seguidos(repo):
     """29/09 (Bruno): todos os vendedores seguidos, com os dados técnicos do último relatório de cada um e a loja real no
     Mercado Livre quando já achada (meli|seguidos)."""
@@ -4695,6 +4722,7 @@ def _painel_seguidos(repo):
         if v not in ult or (str(r.get("mes")), int(r["id"])) > (str(ult[v].get("mes")), int(ult[v]["id"])):
             ult[v] = r
     lojas = meli.ler_hash_lojas(repo, meli.SEGUIDOS)
+    cidades = lojas_seguidos(repo, lojas)
     try:
         snaps = _ultimos_snapshots(repo)
         ids_snap = ",".join(str(int(i)) for i in snaps["id"]) if not snaps.empty else ""
@@ -4742,7 +4770,8 @@ def _painel_seguidos(repo):
                 "vendas": round(sum(float(l.get("vendas") or 0) for l in ls), 2), "unidades": int(sum(int(l.get("unidades") or 0) for l in ls)),
                 "marcas": len(por_marca), "top_marca": nubi.nome_bonito(top) if top and top != "?" else "",
                 "ml": ({k: ml.get(k) for k in ("id", "nome", "link", "confianca", "votos", "sondados", "oficial", "prova", "em")}
-                       | {"anuncios": len(ml.get("anuncios") or [])}) if ml else None}
+                       | {"anuncios": len(ml.get("anuncios") or [])}
+                       | {k: (cidades.get(r["vendedor"]) or {}).get(k) for k in ("cidade", "uf")}) if ml else None}
 
     def resumo_com_explorador(r):
         x = resumo(r)
@@ -5107,6 +5136,9 @@ def rota_meli(repo, metodo, rota, q, corpo):
         return p
     if rota == "meli_seguidos_lista":
         return {"vendedores": _painel_seguidos(repo)}
+    if rota == "meli_seguidos_lojas":
+        # card #126: loja real + cidade/UF de cada seguido ligado (e grava vend_lojas_ml)
+        return {"lojas": list(lojas_seguidos(repo).values())}
     if rota == "meli_seguido":
         # vendedor SEGUIDO (Concorrentes -> Vendedores): a loja real já achada, se houver
         return {"loja": _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(str(q.get("vendedor") or "")))}
