@@ -2104,6 +2104,7 @@ def ml_completar_anuncios(pg, token, sem_loja):
 
 
 ML_HOME = "https://www.mercadolivre.com.br/"
+ML_ANUNCIO_TESTE = "https://produto.mercadolivre.com.br/MLB-4440002222"   # anúncio público da AURASCENT (loja do Bruno)
 
 
 def _ml_navegador(p, cfg):
@@ -2161,12 +2162,31 @@ def cmd_entrar_ml(args, cfg):
                 pass
             time.sleep(3)
         if ok:
+            # 30/09 (Bruno rodou entrar-ml 2x e a coleta seguiu bloqueada): a verificação do ML aparece na PÁGINA DO ANÚNCIO,
+            # não na inicial. Abre um anúncio público e só guarda a sessão quando ele carrega sem a verificação.
+            print("Agora abrindo um anúncio: se aparecer a verificação de novo, resolva nele também.")
+            ok = False
+            try:
+                pg.goto(ML_ANUNCIO_TESTE, wait_until="domcontentloaded", timeout=45000)
+            except Exception:  # noqa: BLE001
+                pass
+            fim = time.time() + 600
+            while time.time() < fim:
+                try:
+                    if not _ml_bloqueado(pg) and pg.locator("h1").count():
+                        ok = True
+                        break
+                except Exception:  # noqa: BLE001
+                    pass
+                time.sleep(3)
+        if ok:
             time.sleep(4)
             guardar_sessao(ctx)
             cfg["ml_ver"] = True
             salvar_config(cfg)
         ctx.close()
-    print("OK: Mercado Livre liberado no navegador do coletor." if ok else "Tempo esgotado (10 min) sem passar pela verificação do Mercado Livre.")
+    print("OK: Mercado Livre liberado no navegador do coletor (inicial e página de anúncio)." if ok
+          else "Tempo esgotado (10 min) sem passar pela verificação do Mercado Livre.")
     return 0 if ok else 1
 
 
