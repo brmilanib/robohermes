@@ -292,3 +292,56 @@ def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marc
             "categorias": fechar(cats, "categoria"), "tipos": fechar(tipos, "tipo"), "marcas": fechar(marcas, "marca"),
             "sem_marca": sem[:60], "ordem": CATEGORIAS + [SEM], "opcoes": CATEGORIAS,
             "itens": sorted(lista, key=lambda x: (-x["valor"], -x["atual"]))}
+
+
+# Card #128 (desafio #126): liga um anúncio real do ML (formato meli.normalizar_item: titulo, gtin, full, tipo) à linha do
+# Nubimetrics (vend_anuncios: titulo, gtin, marca_chave, fulfillment, tipo_pub, unidades). Só regras, sem IA.
+# Ordem: ligação manual (intocável) > GTIN > título forte > título fraco (a conferir). A foto fica para o embedding.
+def _gtins(v):
+    import meli
+    return {g.lstrip("0") for g in meli.gtins_do_texto(v)}
+
+
+def _desempate(anuncio, cands):
+    """Mesmo produto em 2 linhas (Full e não Full, Clássico e Premium): fica a de Full e tipo iguais, depois a que mais
+    vende. -> (linha, empate); empate = ainda sobrou mais de uma com Full e tipo iguais."""
+    tipo = str(anuncio.get("tipo") or "").lower()
+    nota = lambda l: ((bool(l.get("fulfillment")) == bool(anuncio.get("full")))
+                      + bool(tipo and str(l.get("tipo_pub") or "").lower().startswith(tipo)))
+    melhor = max(nota(l) for l in cands)
+    cands = [l for l in cands if nota(l) == melhor]
+    return max(cands, key=lambda l: int(l.get("unidades") or 0)), len(cands) > 1
+
+
+def casar_anuncio_nubimetrics(anuncio, linhas, conhecidas=None, ligacao=None):
+    """-> {"linha", "metodo" (manual/gtin/titulo_forte/titulo_fraco/None), "a_conferir"}.
+    ligacao: a já gravada para este anúncio ({"metodo", "linha"}); "manual" nunca é desfeita.
+    conhecidas: {chave compacta: marca} para marca_do_titulo (marca do título diferente da marca_chave = outro produto)."""
+    import produtos_iguais as pi
+    if ligacao and ligacao.get("metodo") == "manual":
+        return {"linha": ligacao.get("linha"), "metodo": "manual", "a_conferir": False}
+    g = _gtins(anuncio.get("gtin"))
+    if g:
+        cands = [l for l in linhas if g & _gtins(l.get("gtin"))]
+        if cands:
+            linha, empate = _desempate(anuncio, cands)
+            return {"linha": linha, "metodo": "gtin", "a_conferir": empate}
+    marca = marca_do_titulo(anuncio.get("titulo"), conhecidas or {})
+    a = {"titulo": anuncio.get("titulo") or "", "marca": marca or ""}
+    fortes, fracos = [], []
+    for l in linhas:
+        if g and _gtins(l.get("gtin")):
+            continue                    # os dois têm GTIN e são diferentes: outro produto, o título não passa por cima
+        if marca and l.get("marca_chave") and nubi.compacta(marca) != nubi.compacta(l["marca_chave"]):
+            continue
+        b = {"titulo": l.get("titulo") or "", "marca": l.get("marca_chave") or ""}
+        if pi.pode_juntar_sozinho(a, b):
+            fortes.append(l)
+        elif pi.motivo_conferencia(a, b) and pi.palavras_nome(a["titulo"], a["marca"]) & pi.palavras_nome(b["titulo"], b["marca"]):
+            fracos.append(l)            # volume de um lado só, ou nome parecido ("Asad" x "Asad Bourbon"): o Bruno confere
+    if fortes:
+        linha, empate = _desempate(anuncio, fortes)
+        return {"linha": linha, "metodo": "titulo_forte", "a_conferir": empate}
+    if fracos:
+        return {"linha": _desempate(anuncio, fracos)[0], "metodo": "titulo_fraco", "a_conferir": True}
+    return {"linha": None, "metodo": None, "a_conferir": False}
