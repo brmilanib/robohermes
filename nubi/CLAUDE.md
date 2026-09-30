@@ -224,6 +224,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   confiança "Mesmo GTIN de outra marca". No relatório da dona, `_com_marca_trocada` traz esses anúncios (mesmo período)
   para o produto certo (`resumo.un_marca_trocada`, nota nas abas). O mapa é refeito na conferência diária e as marcas cujos
   GTINs mudaram são reagrupadas. "Arabe" não é nome de linha. Produtos: `titulo_top` = título que mais aparece.
+- **Princípio do Bruno (30/09): "GTIN é igual CPF"** — o GTIN não tem erro nem igual: mesmo GTIN = mesmo produto, sempre,
+  sem chute. Tudo o mais é evidência que o robô pesa (título, SKU, marca digitada, volume, foto) porque o cadastro do
+  vendedor erra (no Vibrato: 769 un. sem GTIN, 352 no GTIN certo 3700583501396 e 5 códigos inventados com 1–4 un.); GTINs
+  diferentes só ficam no mesmo produto quando o título lê a mesma marca/linha/tipo/volume. A afirmação final vem quando a
+  técnica achar a loja e o anúncio no ML (card #126). Próximo passo combinado: no quadro do produto, unidades por GTIN,
+  "GTIN suspeito" (prefixo de outro país / só em 1–2 anúncios contra um dominante) e o GTIN dominante como o oficial.
 - **Decisão do Bruno (30/09, Sospiro Vibrato +324 un.)**: "se for o mesmo produto tem que somar e agrupar sim". O anúncio
   da BLESSCOSMETICOS cadastrado como ERIAN com o GTIN do Vibrato (310 un., só no export da ERIAN) SOMA no produto da Sospiro
   e no ranking de vendedores dela (`_com_marca_trocada`); não separar em campo à parte.
