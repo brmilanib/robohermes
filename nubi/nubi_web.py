@@ -4783,6 +4783,108 @@ def painel_desafio(repo):
                        "anuncios_nubimetrics": sum(int(v.get("anuncios") or 0) for v in vendedores)}}
 
 
+def _seguido_contexto(repo, vendedor):
+    rels = _vend_rels(repo, vendedor)
+    if not rels:
+        raise ErroNuvem("Vendedor seguido não encontrado.", 404)
+    rel = max(rels, key=lambda r: (str(r.get("mes") or ""), int(r["id"])))
+    linhas = repo._todos("vend_anuncios", {"select": "*", "relatorio_id": repo._eq(rel["id"])})
+    loja = meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor) or {}
+    hashes = [h for h, l in meli.ler_hash_lojas(repo).items()
+              if str(l.get("id")) == str(loja.get("id")) and l.get("confianca") in ("manual", "certa", "provável")
+              and re.fullmatch(r"[a-f0-9]{64}", h)]
+    explorador = []
+    if hashes:
+        snaps = _ultimos_snapshots(repo)
+        if not snaps.empty:
+            explorador = repo._todos("anuncios", {"select": "*", "vendedor_id": "in.(" + ",".join(hashes) + ")",
+                "snapshot_id": "in.(" + ",".join(str(int(i)) for i in snaps["id"]) + ")"})
+    fotos = meli.ler_hash_lojas(repo, f"vend_fotos|{vendedor}").get("itens") or []
+    return loja, linhas, explorador, fotos
+
+
+def seguido_anuncios(repo, vendedor):
+    import categorias
+    loja, linhas, explorador, fotos = _seguido_contexto(repo, vendedor)
+    aviso, persistir = "", True
+    try:
+        regs = repo._todos("vend_anuncios_ml", {"select": "*", "vendedor": repo._eq(vendedor)})
+    except ErroNuvem as e:
+        if e.status != 404:
+            raise
+        regs, persistir = [], False
+        aviso = "Ligações em prévia; armazenamento ainda indisponível."
+    if not regs:
+        gtins = sorted({g for l in linhas for g in meli.gtins_do_texto(l.get("gtin"))})
+        reais, parcial = meli.anuncios_do_seguido(repo, vendedor, gtins, loja)
+        aviso = " ".join(filter(None, [aviso, parcial]))
+        novos = [{"vendedor": vendedor, "seller_id": str(loja.get("id")), "mlb": a["mlb"], "dados": a} for a in reais]
+        if novos and persistir:
+            # Não substituir os dados da coleta nem uma decisão tomada durante a consulta.
+            repo._req("POST", "vend_anuncios_ml", {"on_conflict": "vendedor,mlb"}, corpo=novos,
+                      prefer="resolution=ignore-duplicates,return=minimal")
+            regs = repo._todos("vend_anuncios_ml", {"select": "*", "vendedor": repo._eq(vendedor)})
+        else:
+            regs = novos
+    por_id = {str(l["id"]): l for l in linhas}
+    out = []
+    for reg in regs:
+        if str(reg.get("seller_id")) != str(loja.get("id")):
+            continue
+        a = dict(reg.get("dados") or {})
+        a.update({k: v for k, v in reg.items() if k != "dados"})
+        lig = categorias.casar_anuncio_nubimetrics(a, linhas, explorador, fotos)
+        if persistir and a.get("confianca_ligacao") not in ("manual", "rejeitada"):
+            repo._req("PATCH", "vend_anuncios_ml", {"vendedor": repo._eq(vendedor), "mlb": repo._eq(a["mlb"]),
+                "or": "(confianca_ligacao.is.null,confianca_ligacao.not.in.(manual,rejeitada))"},
+                corpo={"vend_anuncio_id": lig["vend_anuncio_id"], "anuncio_explorador_id": lig["anuncio_explorador_id"],
+                       "confianca_ligacao": lig["confianca"]}, prefer="return=minimal")
+        a.update(lig)
+        a["linha_nubimetrics"] = por_id.get(str(lig["vend_anuncio_id"]))
+        # Confirmação de relatório antigo continua visível e intocável.
+        if lig["vend_anuncio_id"] is not None and not a["linha_nubimetrics"]:
+            a["linha_nubimetrics"] = next(iter(repo._req("GET", "vend_anuncios", {
+                "select": "*", "id": repo._eq(lig["vend_anuncio_id"])}) or []), None)
+        a["anuncio"] = a["mlb"]
+        if "estoque" not in a:
+            a["estoque"] = a.get("disponivel")
+        a["link"] = a.get("link") or meli.link_do_item(a["mlb"])
+        anterior, preco = a.get("preco_anterior"), a.get("preco")
+        a["variacao_pct"] = round((preco / anterior - 1) * 100, 1) if preco is not None and anterior else None
+        out.append(a)
+    ligados = [a for a in out if not a["a_conferir"]]
+    return {"vendedor": vendedor, "loja": loja, "anuncios": out, "ligados": ligados,
+            "a_conferir": [a for a in out if a["a_conferir"]], "linhas": linhas, "aviso": aviso,
+            "pode_ligar": persistir, "cobertura": round(100 * len(ligados) / len(out), 1) if out else None}
+
+
+def seguido_anuncio_ligar(repo, d):
+    vendedor, mlb, decisao = str(d.get("vendedor") or ""), str(d.get("mlb") or ""), d.get("decisao")
+    if decisao not in ("confirmar", "rejeitar") or not re.fullmatch(r"MLB\d+", mlb):
+        raise ErroNuvem("Informe o anúncio e a decisão (confirmar ou rejeitar).")
+    if not vendedor:
+        rs = repo._todos("vend_anuncios_ml", {"select": "vendedor", "mlb": repo._eq(mlb)})
+        vs = {r["vendedor"] for r in rs}
+        if len(vs) != 1:
+            raise ErroNuvem("Informe o vendedor seguido deste anúncio.")
+        vendedor = vs.pop()
+    loja, linhas, _, _ = _seguido_contexto(repo, vendedor)
+    rs = repo._req("GET", "vend_anuncios_ml", {"select": "*", "vendedor": repo._eq(vendedor), "mlb": repo._eq(mlb)}) or []
+    if not rs or str(rs[0].get("seller_id")) != str(loja.get("id")):
+        raise ErroNuvem("Anúncio não encontrado neste vendedor.", 404)
+    alvo = d.get("vend_anuncio_id")
+    linha = next((l for l in linhas if str(l["id"]) == str(alvo)), None)
+    if decisao == "confirmar" and not linha:
+        raise ErroNuvem("Escolha uma linha do Nubimetrics deste vendedor.")
+    corpo = {"vend_anuncio_id": linha["id"] if decisao == "confirmar" else None,
+             "anuncio_explorador_id": rs[0].get("anuncio_explorador_id") if decisao == "confirmar"
+             and str(rs[0].get("vend_anuncio_id")) == str(alvo) else None,
+             "confianca_ligacao": "manual" if decisao == "confirmar" else "rejeitada"}
+    repo._req("PATCH", "vend_anuncios_ml", {"vendedor": repo._eq(vendedor), "mlb": repo._eq(mlb)},
+              corpo=corpo, prefer="return=minimal")
+    return {"ok": True, **corpo}
+
+
 def _painel_seguidos(repo):
     """29/09 (Bruno): todos os vendedores seguidos, com os dados técnicos do último relatório de cada um e a loja real no
     Mercado Livre quando já achada (meli|seguidos)."""
@@ -5210,6 +5312,10 @@ def rota_meli(repo, metodo, rota, q, corpo):
     if rota == "meli_seguidos_lojas":
         # card #126: loja real + cidade/UF de cada seguido ligado (e grava vend_lojas_ml)
         return {"lojas": list(lojas_seguidos(repo).values())}
+    if rota == "meli_seguido_anuncios" and metodo == "GET":
+        return seguido_anuncios(repo, str(q.get("vendedor") or ""))
+    if rota == "meli_seguido_anuncio_ligar" and metodo == "POST":
+        return seguido_anuncio_ligar(repo, d)
     if rota == "meli_seguido":
         # vendedor SEGUIDO (Concorrentes -> Vendedores): a loja real já achada, se houver
         return {"loja": _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(str(q.get("vendedor") or "")))}

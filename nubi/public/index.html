@@ -1033,6 +1033,7 @@ header.top{padding:7px 16px}
 @media (min-width:2200px){body{zoom:1.05}}
 @media (min-width:2800px){body{zoom:1.2}}
 @media (min-width:3400px){body{zoom:1.35}}
+#vml-anuncios{margin-top:16px}.vma-filtros,.vma-acoes{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.vma-filtros input{flex:1;min-width:150px}.vma-item{margin-bottom:10px;overflow-wrap:anywhere}.vma-produto{display:flex;gap:12px}.vma-produto .ml-foto,.vma-semfoto{width:76px;height:88px;object-fit:contain;flex-shrink:0}.vma-preco{font-weight:700;margin:8px 0}.vma-preco small{font-weight:400}.vma-metricas{display:flex;gap:24px;flex-wrap:wrap;margin:12px 0}.vma-metricas b{display:block}.vma-ligacao{border-top:1px solid var(--line);padding-top:10px;font-size:13px}.vma-ligacao label{display:block;margin-top:8px}.vma-alvo{display:block;width:100%;max-width:100%;margin-top:4px}.vma-acoes .btn{min-height:44px}.vma-produto .ml-tit{overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -6230,6 +6231,8 @@ function ligarMLBusca() {
   inp.onkeydown = e => { if (e.key === "Enter") ir(/perfil\.|_CustId_|^\d+$/.test(inp.value.trim()) ? "loja" : "anuncio"); };
 }
 function telaML() {
+  const seg = location.hash.split("?")[0].match(/^#\/ml\/vendedores(?:\/(.+))?$/);
+  if (seg) return seg[1] ? telaMLSeguido(decodeURIComponent(seg[1])) : telaSeguidosML();
   if (location.hash.split("?")[0].startsWith("#/ml/comparar")) return telaMLComparar();
   const m = location.hash.split("?")[0].match(/^#\/ml\/(anuncio|loja)\/(.+)$/);
   if (m) { const id = decodeURIComponent(m[2]); return m[1] === "anuncio" ? telaMLAnuncio(id) : telaMLLoja(id); }
@@ -6582,6 +6585,75 @@ function lojaRealVendedor(bg, v) {
 }
 // Vendedor SEGUIDO (Concorrentes → Vendedores): a loja real no ML, o link dela e os IDs/links dos anúncios achados no
 // catálogo (o export do Nubimetrics dele não tem ID de anúncio). "Descobrir" casa pelos GTINs que mais vendem.
+// Card #127: anúncios reais e conferência por vendedor, também na página de Concorrentes.
+async function anunciosMLSeguido(nomeV) {
+  const el = $("#vml-loja"); if (!el) return;
+  let box = $("#vml-anuncios");
+  if (!box) { box = document.createElement("section"); box.id = "vml-anuncios"; el.insertAdjacentElement("afterend", box); }
+  box.innerHTML = `<div class="card pad" role="status">Carregando anúncios reais…</div>`;
+  let r;
+  try { r = await api("meli_seguido_anuncios", {vendedor: nomeV}); }
+  catch (e) { if (box.isConnected) box.innerHTML = mlAviso(e); return; }
+  if (!box.isConnected) return;
+  const xs = r.anuncios || [], numero = x => x == null ? "sem dados" : nf0.format(x);
+  box.innerHTML = `<div class="es-cab"><h2>Anúncios reais</h2><span id="vma-resumo" class="muted" role="status"></span></div>
+    ${r.aviso ? `<p class="muted">${esc(r.aviso)}</p>` : ""}
+    <div class="vma-filtros"><input id="vma-busca" type="search" aria-label="Buscar anúncio real" placeholder="Buscar título ou MLB…">
+      <select id="vma-filtro" aria-label="Situação da ligação"><option value="todos">Todos (${xs.length})</option>
+        <option value="pendentes">A conferir</option><option value="ligados">Ligados</option></select></div>
+    <div id="vma-lista"></div>`;
+  const desenhar = () => {
+    const q = $("#vma-busca", box).value.toLocaleLowerCase(), filtro = $("#vma-filtro", box).value;
+    const ligados = xs.filter(a => !a.a_conferir).length;
+    $("#vma-resumo", box).textContent = `${ligados} ligados · ${xs.length - ligados} a conferir${xs.length ? ` · ${Math.round(ligados / xs.length * 100)}% ligados` : ""}`;
+    const vis = xs.filter(a => `${a.titulo || ""} ${a.mlb}`.toLocaleLowerCase().includes(q) &&
+      (filtro === "todos" || (filtro === "pendentes" ? a.a_conferir : !a.a_conferir)));
+    $("#vma-lista", box).innerHTML = vis.map(a => {
+      const l = a.linha_nubimetrics, delta = a.variacao_pct;
+      return `<article class="card pad vma-item" data-mlb="${esc(a.mlb)}">
+        <div class="vma-produto">${a.foto ? `<img class="ml-foto" src="${esc(urlML(a.foto))}" alt="" loading="lazy">` : `<div class="vma-semfoto muted">Sem foto</div>`}
+          <div style="min-width:0"><a class="ml-tit" href="${esc(urlML(a.link))}" target="_blank" rel="noopener">${esc(a.titulo || a.mlb)} ↗</a>
+            <div class="muted">${esc(a.mlb)} · ${a.full == null ? "Full: sem dados" : a.full ? "⚡ Full" : "Sem Full"} · ${esc(a.tipo || "Tipo: sem dados")}</div>
+            <div class="vma-preco">${a.preco == null ? "Preço: sem dados" : rsES(a.preco)} <small class="muted">${delta == null ? "variação: sem dados" : `${delta > 0 ? "+" : ""}${nf1.format(delta)}% vs. coleta anterior`}</small></div>
+            <div class="muted">${a.em ? `Coletado em ${esc(new Date(a.em).toLocaleString("pt-BR", {timeZone:"America/Sao_Paulo"}))}` : "Data da coleta: sem dados"}</div>
+          </div></div>
+        <div class="vma-metricas"><span>Vendidos <b>${a.vendidos_faixa ? "≥ " : ""}${numero(a.vendidos)}</b></span>
+          <span>Posição <b>${numero(a.posicao)}</b></span><span>Estoque <b>${numero(a.estoque)}</b></span></div>
+        <div class="vma-ligacao"><b>${a.a_conferir ? "A conferir" : "✓ Ligado"}</b> <span class="muted">${esc(a.motivo || "")}</span>
+          <div>${l ? `Nubimetrics: ${esc(l.titulo || "Linha " + l.id)}` : "Sem linha do Nubimetrics ligada"}</div>
+          ${l ? `<div class="muted">Preço médio: ${l.preco == null ? "sem dados" : rsES(l.preco)} · Unidades no relatório: ${numero(l.unidades)}</div>` : ""}
+          ${a.a_conferir && r.pode_ligar ? `<label>Linha do Nubimetrics <select class="vma-alvo" aria-label="Linha do Nubimetrics para ${esc(a.mlb)}">
+            <option value="">Escolha o anúncio correspondente</option>${(r.linhas || []).map(l => `<option value="${esc(l.id)}" ${String(l.id) === String(a.vend_anuncio_id) ? "selected" : ""}>${esc(l.titulo || l.id)} · ${l.fulfillment ? "Full" : "Sem Full"} · ${esc(l.tipo_pub || "")}</option>`).join("")}</select></label>
+            <div class="vma-acoes"><button class="btn small" data-decisao="confirmar" ${a.vend_anuncio_id == null ? "disabled" : ""}>✔ É este</button>
+              <button class="btn small" data-decisao="rejeitar" ${a.confianca === "rejeitada" ? "disabled" : ""}>✖ Não é</button><span class="vma-msg" role="status"></span></div>` : ""}
+        </div></article>`;
+    }).join("") || `<div class="card pad muted">${xs.length ? "Nenhum anúncio neste filtro." : "Nenhum anúncio real encontrado ainda. A coleta da loja preencherá esta lista."}</div>`;
+    box.querySelectorAll(".vma-alvo").forEach(s => s.onchange = () => s.closest("article").querySelector('[data-decisao="confirmar"]').disabled = !s.value);
+    box.querySelectorAll("[data-decisao]").forEach(b => b.onclick = async () => {
+      const card = b.closest("article"), a = xs.find(a => a.mlb === card.dataset.mlb), alvo = $(".vma-alvo", card).value;
+      card.querySelectorAll("button,select").forEach(e => e.disabled = true);
+      $(".vma-msg", card).textContent = "Salvando…";
+      try {
+        const res = await api("meli_seguido_anuncio_ligar", {}, {method:"POST", body:JSON.stringify({vendedor:nomeV, mlb:a.mlb,
+          vend_anuncio_id:alvo || null, decisao:b.dataset.decisao})});
+        a.vend_anuncio_id = res.vend_anuncio_id; a.confianca = res.confianca_ligacao;
+        a.a_conferir = a.confianca !== "manual"; a.motivo = a.a_conferir ? "Ligação recusada pelo Bruno" : "Confirmado pelo Bruno";
+        a.linha_nubimetrics = (r.linhas || []).find(l => String(l.id) === String(a.vend_anuncio_id));
+        desenhar(); toast(a.a_conferir ? "Ligação recusada" : "Ligação confirmada");
+      } catch (e) {
+        $(".vma-msg", card).textContent = e.message;
+        card.querySelectorAll("button,select").forEach(e => e.disabled = false);
+        $(".vma-alvo", card).onchange();
+      }
+    });
+  };
+  $("#vma-busca", box).oninput = desenhar; $("#vma-filtro", box).onchange = desenhar; desenhar();
+}
+async function telaMLSeguido(nome) {
+  $("#main").innerHTML = `<div class="es-cab"><a href="#/ml/vendedores">‹ Vendedores</a><h1>${esc(nome)}</h1></div><div id="vml-loja"></div>`;
+  await lojaMLSeguido(nome);
+}
+
 async function lojaMLSeguido(nomeV) {
   const el = $("#vml-loja"); if (!el) return;
   const form = `<div id="vml-form" style="display:none;margin-top:8px"><div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -6607,7 +6679,7 @@ async function lojaMLSeguido(nomeV) {
     const salvar = async loja => {
       try {
         const r = await api("meli_seguido_nomear", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV, loja})});
-        desenhar(r.loja); toast("Loja salva: " + r.loja.nome);
+        desenhar(r.loja); anunciosMLSeguido(nomeV); toast("Loja salva: " + r.loja.nome);
       } catch (err) { toast(err.message, 6000); }
     };
     if ($("#vml-corrigir")) $("#vml-corrigir").onclick = abrir;
@@ -6616,7 +6688,7 @@ async function lojaMLSeguido(nomeV) {
       e.target.disabled = true; $("#vml-msg").textContent = "procurando os produtos dele no catálogo do Mercado Livre (todas as páginas)…";
       try {
         const r = await api("meli_seguido_descobrir", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV})});
-        if (r.achou) desenhar(r.loja);
+        if (r.achou) { desenhar(r.loja); anunciosMLSeguido(nomeV); }
         else {
           $("#vml-msg").textContent = "Não achei com certeza: " + (r.motivo || ""); e.target.disabled = false;
           $("#vml-cands").innerHTML = candidatasML(r.candidatas);
@@ -6629,6 +6701,7 @@ async function lojaMLSeguido(nomeV) {
   try { desenhar((await api("meli_seguido", {vendedor: nomeV})).loja); }
   catch (e) { el.innerHTML = mlAviso(e); }
   fotosNubiSeguido(nomeV);
+  anunciosMLSeguido(nomeV);
 }
 // 29/09 (Bruno): as fotos dos anúncios dele na tela do Nubimetrics (coletor "fotos dos vendedores"): a mesma foto do
 // anúncio no Mercado Livre é a prova mais forte de qual é a loja
@@ -6677,7 +6750,7 @@ async function telaDesafio(silencioso) {
       ${eu ? "" : `<div class="tf-nm" style="color:${a[2]}">${a[0]} ${esc(a[1])}${e.tipo === "erro_teste" ? " · ❌" : e.tipo === "teste_ok" ? " · ✅ teste" : e.tipo === "relatorio" ? " · 📄 relatório" : e.tipo === "pergunta" ? " · pergunta" : ""} <span class="muted" style="font-weight:400">· card #${e.tarefa_id}</span></div>`}
       ${mdCodigo(e.texto)}<span class="tf-hr">${esc(hora(e.criado_em))}</span></div>`; };
   const vend = (r.vendedores || []).slice().sort((a, b) => (a.ml ? 0 : 1) - (b.ml ? 0 : 1) || b.vendas - a.vendas);
-  const linhaV = v => `<tr><td class="first"><a href="#/vendedores/${encodeURIComponent(v.vendedor)}"><b>${esc(v.vendedor)}</b></a></td>
+  const linhaV = v => `<tr><td class="first"><a href="#/ml/vendedores/${encodeURIComponent(v.vendedor)}"><b>${esc(v.vendedor)}</b></a></td>
       <td data-l="Loja real">${v.ml ? (v.ml.link ? `<a class="ml-loja" href="${esc(urlML(v.ml.link))}" target="_blank" rel="noopener">${esc(v.ml.nome)} ↗</a>` : `<b>${esc(v.ml.nome)}</b>`)
         : `<span class="st bad">sem loja</span>`}</td>
       <td data-l="Cidade">${v.ml && v.ml.cidade ? `📍 ${esc(v.ml.cidade)}${v.ml.uf ? ` - ${esc(v.ml.uf)}` : ""}` : `<span class="muted">—</span>`}</td>
@@ -6732,7 +6805,7 @@ async function telaSeguidosML() {
   main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo os vendedores seguidos</div></div>`;
   let r;
   try { r = await api("meli_seguidos_lista"); } catch (e) { main.innerHTML = mlAviso(e); return; }
-  if (!location.hash.startsWith("#/vendedores-ml")) return;
+  if (!location.hash.startsWith("#/vendedores-ml") && !location.hash.startsWith("#/ml/vendedores")) return;
   S.seguidosML = r.vendedores || [];
   const achadas = S.seguidosML.filter(v => v.ml).length;
   main.innerHTML = `<div class="es-cab"><h1>🔗 Vendedores seguidos × Mercado Livre</h1>
@@ -6749,7 +6822,7 @@ async function telaSeguidosML() {
       <th class="num">Faturamento</th><th class="num">Unidades</th><th>Marcas</th><th>Loja no Mercado Livre</th></tr></thead><tbody></tbody></table></div></div>`;
   const mesBR = m => m ? `${m.slice(5, 7)}/${m.slice(0, 4)}` : "";
   const linha = v => `<tr data-sml="${esc(v.vendedor)}">
-      <td class="first"><a href="#/vendedores/${encodeURIComponent(v.vendedor)}"><b>${esc(v.vendedor)}</b></a>
+      <td class="first"><a href="#/ml/vendedores/${encodeURIComponent(v.vendedor)}"><b>${esc(v.vendedor)}</b></a>
         ${v.nome_exibido && v.nome_exibido !== v.vendedor ? `<div class="muted" style="font-size:12px">${esc(v.nome_exibido)}</div>` : ""}
         <div class="muted" style="font-size:11.5px;font-weight:400">${esc(mesBR(v.mes))}${v.ate ? ` até ${esc(dataBR(String(v.ate).slice(0, 10)).slice(0, 5))}` : ""} · ${nf0.format(v.meses)} ${v.meses === 1 ? "mês" : "meses"}</div></td>
       <td data-l="Hash"><code title="${esc(v.hash)}" style="font-size:11.5px">${esc((v.hash || "").slice(0, 12))}${v.hash ? "…" : "—"}</code>

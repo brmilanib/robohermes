@@ -70,6 +70,22 @@ RESP = {"meli_conta": CONTA, "meli_comparar": lambda d: COMP if d.get("loja") el
              "mes": "2026-09", "ate": None, "meses": 1, "importado_em": "x", "anuncios": 11, "ativos": 11, "com_gtin": 7, "catalogo": 2, "full": 0,
              "frete_gratis": 11, "premium": 0, "vendas": 12000.0, "unidades": 60, "marcas": 3, "top_marca": "Lattafa",
              "ml": {"id": "333", "nome": "AIRONSTORE", "link": "https://perfil.mercadolivre.com.br/AIRONSTORE", "confianca": "dúvida", "votos": 2, "anuncios": 1}}]}}
+# Card #127: página falsa de anúncios reais e decisões sem banco/ML.
+LINHAS_SEG = [{"id": 1, "titulo": "Asad Lattafa EDP 100ml", "preco": 200, "unidades": 40},
+              {"id": 2, "titulo": "Yara Lattafa EDP 100ml", "preco": 150, "unidades": 0}]
+def anuncios_seguidos(d):
+    return {"vendedor": d.get("vendedor"), "pode_ligar": True, "linhas": LINHAS_SEG, "anuncios": [
+        {"mlb": "MLB101", "titulo": "Asad Lattafa EDP 100ml", "foto": "https://http2.mlstatic.com/teste.jpg",
+         "link": "https://produto.mercadolivre.com.br/MLB-101", "preco": 220, "variacao_pct": 10, "full": True,
+         "tipo": "Premium", "vendidos": 100, "estoque": 0, "posicao": 2, "em": "2026-09-30T12:00:00Z",
+         "a_conferir": False, "confianca": "gtin", "motivo": "GTIN igual", "vend_anuncio_id": 1, "linha_nubimetrics": LINHAS_SEG[0]},
+        {"mlb": "MLB102", "titulo": "Yara Lattafa EDP 100ml", "preco": None, "a_conferir": True,
+         "confianca": "titulo", "motivo": "Título semelhante", "vend_anuncio_id": 2, "linha_nubimetrics": LINHAS_SEG[1]},
+        {"mlb": "MLB103", "titulo": "Outro perfume", "a_conferir": True, "motivo": "Sem correspondência segura"}]}
+RESP["meli_seguido_anuncios"] = anuncios_seguidos
+RESP["meli_seguido_anuncio_ligar"] = lambda d: {"ok": True,
+    "vend_anuncio_id": int(d["vend_anuncio_id"]) if d["decisao"] == "confirmar" else None,
+    "confianca_ligacao": "manual" if d["decisao"] == "confirmar" else "rejeitada"}
 PROD = "Lattafa Asad Elixir EDP 100 ml"
 LISTA = [{"codigo": "V01", "vendedor": "HIMALAIA.INDIGO", "vid": HA, "un": 2800, "fat": 742000, "share": 0.68, "preco_medio": 265.0,
           "ultimo_preco": 265.28, "anuncios": 3, "full": 0, "catalogo": 1, "loja_oficial": False},
@@ -109,6 +125,7 @@ try:
             erros = []; pg.on("pageerror", lambda e: erros.append(str(e)))
             pg.route("https://cdn.jsdelivr.net/**", lambda r: r.fulfill(content_type="application/javascript", body=STUB))
             pg.route("https://fonts.**", lambda r: r.abort())
+            pg.route("https://*.mlstatic.com/**", lambda r: r.fulfill(content_type="image/svg+xml", body='<svg xmlns="http://www.w3.org/2000/svg"/>'))
             pg.route("**/api/app?r=meli_*", responder)
             larg = lambda: pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
             tmp = os.environ.get("TMPDIR", "/tmp")
@@ -206,6 +223,24 @@ try:
             assert "KAIDOXSTOREE" in pg.inner_text("[data-sml='SEM PROVA P1']")
             larg1 = larg(); assert larg1[0] <= larg1[1] + 1, (nome, "painel", larg1)
             pg.screenshot(path=f"{tmp}/ml_painel_{nome}.png")
+            # 8) anúncios reais do seguido: celular/PC, desconhecido não vira zero, confirmar/recusar.
+            pg.goto(f"http://127.0.0.1:{PORTA}/#/ml/vendedores/SIENO")
+            pg.wait_for_selector("#vma-lista .vma-item", timeout=15000)
+            assert pg.locator(".vma-item").count() == 3
+            assert "1 ligados · 2 a conferir" in pg.inner_text("#vma-resumo")
+            assert "Estoque 0" in pg.inner_text('[data-mlb="MLB101"]').replace("\n", " ")
+            assert "Preço: sem dados" in pg.inner_text('[data-mlb="MLB102"]')
+            pg.select_option("#vma-filtro", "pendentes")
+            pg.click('[data-mlb="MLB102"] [data-decisao="confirmar"]')
+            pg.wait_for_function("() => document.querySelector('#vma-resumo').textContent.includes('2 ligados')")
+            assert pg.locator(".vma-item").count() == 1
+            pg.click('[data-mlb="MLB103"] [data-decisao="rejeitar"]')
+            pg.wait_for_function("() => document.querySelector('#vma-lista').textContent.includes('Ligação recusada')")
+            pg.select_option("#vma-filtro", "todos")
+            pg.fill("#vma-busca", "MLB101")
+            assert pg.locator(".vma-item").count() == 1
+            assert larg()[0] <= larg()[1] + 1
+            pg.screenshot(path=f"{tmp}/ml_seguido_{nome}.png", full_page=True)
             assert not erros, erros
         # 6) sem as chaves na Vercel (hoje): só o aviso, nada quebra
         pg = b.new_page(viewport={"width": 1440, "height": 900})

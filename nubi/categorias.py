@@ -296,7 +296,7 @@ def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marc
 
 # Card #128 (desafio #126): liga um anúncio real do ML (formato meli.normalizar_item: titulo, gtin, full, tipo) à linha do
 # Nubimetrics (vend_anuncios: titulo, gtin, marca_chave, fulfillment, tipo_pub, unidades). Só regras, sem IA.
-# Ordem: ligação manual (intocável) > GTIN > título forte > título fraco (a conferir). A foto fica para o embedding.
+# Ordem: ligação manual (intocável) > GTIN > título (a conferir) > foto exata do mlstatic.
 def _gtins(v):
     import meli
     return {g.lstrip("0") for g in meli.gtins_do_texto(v)}
@@ -306,14 +306,15 @@ def _desempate(anuncio, cands):
     """Mesmo produto em 2 linhas (Full e não Full, Clássico e Premium): fica a de Full e tipo iguais, depois a que mais
     vende. -> (linha, empate); empate = ainda sobrou mais de uma com Full e tipo iguais."""
     tipo = str(anuncio.get("tipo") or "").lower()
-    nota = lambda l: ((bool(l.get("fulfillment")) == bool(anuncio.get("full")))
-                      + bool(tipo and str(l.get("tipo_pub") or "").lower().startswith(tipo)))
+    nota = lambda l: (int(anuncio.get("full") is not None and l.get("fulfillment") is not None
+                          and bool(l["fulfillment"]) == bool(anuncio["full"]))
+                      + int(bool(tipo and str(l.get("tipo_pub") or "").lower().startswith(tipo))))
     melhor = max(nota(l) for l in cands)
     cands = [l for l in cands if nota(l) == melhor]
     return max(cands, key=lambda l: int(l.get("unidades") or 0)), len(cands) > 1
 
 
-def casar_anuncio_nubimetrics(anuncio, linhas, conhecidas=None, ligacao=None):
+def _casar_linha(anuncio, linhas, conhecidas=None, ligacao=None):
     """-> {"linha", "metodo" (manual/gtin/titulo_forte/titulo_fraco/None), "a_conferir"}.
     ligacao: a já gravada para este anúncio ({"metodo", "linha"}); "manual" nunca é desfeita.
     conhecidas: {chave compacta: marca} para marca_do_titulo (marca do título diferente da marca_chave = outro produto)."""
@@ -341,7 +342,72 @@ def casar_anuncio_nubimetrics(anuncio, linhas, conhecidas=None, ligacao=None):
             fracos.append(l)            # volume de um lado só, ou nome parecido ("Asad" x "Asad Bourbon"): o Bruno confere
     if fortes:
         linha, empate = _desempate(anuncio, fortes)
-        return {"linha": linha, "metodo": "titulo_forte", "a_conferir": empate}
+        return {"linha": linha, "metodo": "titulo_forte", "a_conferir": True}
     if fracos:
         return {"linha": _desempate(anuncio, fracos)[0], "metodo": "titulo_fraco", "a_conferir": True}
     return {"linha": None, "metodo": None, "a_conferir": False}
+
+
+def _foto_ml(url):
+    """Mesmo arquivo do mlstatic em tamanhos distintos; nunca confundir domínio externo."""
+    import re
+    from urllib.parse import urlparse
+    u = urlparse(str(url or ""))
+    if not (u.hostname or "").endswith(".mlstatic.com"):
+        return ""
+    m = re.search(r"(\d+-ML[A-Z]\d+_\d+)", u.path, re.I)
+    return m.group(1).upper() if m else u.path
+
+
+def casar_anuncio_nubimetrics(anuncio_ml, linhas_vend, linhas_explorador=None, fotos=None):
+    """GTIN > título > foto exata; título e ambiguidades sempre aguardam o Bruno.
+    Linhas devem vir somente do vendedor seguido. Aceita o contrato antigo do #128.
+    Foto sem ID só identifica a linha se o título normalizado for único.
+    """
+    legado = isinstance(linhas_explorador, dict)
+    if legado:
+        return _casar_linha(anuncio_ml, linhas_vend, linhas_explorador, fotos)
+    linhas_explorador = [dict(l, marca_chave=l.get("marca_chave") or l.get("marca_anuncio"),
+                              fulfillment=l.get("full"), unidades=l.get("un"), tipo_pub=l.get("exposicao"))
+                         for l in linhas_explorador or []]
+    a = dict(anuncio_ml, gtin=anuncio_ml.get("gtin") or anuncio_ml.get("gtin_busca"))
+    conf = a.get("confianca_ligacao")
+    if conf in ("manual", "rejeitada"):
+        return {"vend_anuncio_id": a.get("vend_anuncio_id"),
+                "anuncio_explorador_id": a.get("anuncio_explorador_id"), "confianca": conf,
+                "a_conferir": conf == "rejeitada", "motivo": "Decisão do Bruno preservada"}
+    conhecidas = {nubi.compacta(l.get("marca_chave") or l.get("marca") or ""): l.get("marca_chave") or l.get("marca")
+                  for l in linhas_vend + (linhas_explorador or []) if l.get("marca_chave") or l.get("marca")}
+
+    def casar(ls, usar_fotos=False):
+        r = _casar_linha(a, ls, conhecidas)
+        if r["linha"]:
+            return r
+        foto = _foto_ml(a.get("foto"))
+        if not foto:
+            return r
+        ids = set()
+        for f in (fotos or []) if usar_fotos else []:
+            if _foto_ml(f.get("foto")) != foto:
+                continue
+            if f.get("vend_anuncio_id") is not None:
+                ids.add(str(f["vend_anuncio_id"]))
+            else:
+                titulo = nubi.normalizar(f.get("titulo") or f.get("title") or "")
+                iguais = [l for l in ls if titulo and nubi.normalizar(l.get("titulo") or "") == titulo]
+                if len(iguais) == 1:
+                    ids.add(str(iguais[0]["id"]))
+        cs = [l for l in ls if (str(l.get("id")) in ids or _foto_ml(l.get("foto")) == foto)
+              and not (_gtins(a.get("gtin")) and _gtins(l.get("gtin"))
+                       and not _gtins(a.get("gtin")) & _gtins(l.get("gtin")))]
+        if cs:
+            return {"linha": _desempate(a, cs)[0], "metodo": "foto", "a_conferir": len(cs) > 1}
+        return r
+    v, e = casar(linhas_vend, True), casar(linhas_explorador or [])
+    metodo = v["metodo"]
+    conf = "titulo" if metodo and metodo.startswith("titulo") else metodo
+    return {"vend_anuncio_id": (v["linha"] or {}).get("id"),
+            "anuncio_explorador_id": (e["linha"] or {}).get("id") if not e["a_conferir"] else None, "confianca": conf,
+            "a_conferir": not v["linha"] or v["a_conferir"],
+            "motivo": {"gtin": "GTIN igual", "titulo": "Título semelhante — confirme o produto",
+                       "foto": "Mesma foto do mlstatic"}.get(conf, "Sem correspondência segura")}

@@ -824,7 +824,8 @@ def _produto_catalogo(pid):
             return {}
         fotos = p.get("pictures") or []
         return {"nome": p.get("name") or "", "foto": str((fotos[0].get("url") if fotos else "") or "").replace("http://", "https://"),
-                "link": p.get("permalink") or "", "criado": str(p.get("date_created") or "")[:10] or None}
+                "link": p.get("permalink") or "", "criado": str(p.get("date_created") or "")[:10] or None,
+                "gtin": next((str(a.get("value_name") or "") for a in p.get("attributes") or [] if a.get("id") == "GTIN"), "")}
     return _mem("prod|" + pid, 6 * 3600, ler)
 
 
@@ -1736,3 +1737,38 @@ def vendas_entre_fotos(antes, depois):
                 desceu += 1
     return {"un": sum(por.values()), "por_anuncio": por, "novos": sum(1 for i in d if i not in a),
             "sumiram": sum(1 for i in a if i not in d), "desceu": desceu}
+
+
+def anuncios_do_seguido(repo, vendedor, gtins=(), loja=None):
+    """Provas já achadas + catálogo filtrado pelo seller_id ANTES de enriquecer.
+    Falha do catálogo não apaga as provas; o chamador informa a cobertura parcial.
+    """
+    loja = loja or ler_hash_lojas(repo, SEGUIDOS).get(vendedor) or {}
+    sid = str(loja.get("id") or "")
+    if not sid or loja.get("confianca") not in ("manual", "certa", "provável"):
+        return [], "Confirme a loja deste vendedor primeiro."
+    por_id = {}
+    for x in loja.get("anuncios") or []:
+        if x.get("vendedor_id") and str(x["vendedor_id"]) != sid:
+            continue
+        a = dict(x, vendedor_id=sid, em=x.get("em") or loja.get("em"))
+        mlb = str(a.get("mlb") or a.get("anuncio") or "").upper()
+        if not re.fullmatch(r"MLB\d+", mlb):
+            continue
+        a.update(mlb=mlb, anuncio=mlb, link=a.get("link") or link_do_item(mlb))
+        por_id[mlb] = a
+    aviso = "Amostra de anúncios encontrados; a vitrine completa depende da coleta."
+    try:
+        ofertas = [o for o in ofertas_por_gtin(gtins) if str(o.get("vendedor_id")) == sid] if gtins else []
+        for o in _enriquecer(ofertas):
+            mlb = o["anuncio"]
+            por_id[mlb] = dict(por_id.get(mlb) or {}, **o, mlb=mlb, em=datetime.now(timezone.utc).isoformat())
+        for a in por_id.values():
+            if a.get("produto_catalogo") and (not a.get("foto") or not (a.get("gtin") or a.get("gtin_busca"))):
+                pc = _produto_catalogo(a["produto_catalogo"])
+                a["foto"] = a.get("foto") or pc.get("foto")
+                a["gtin"] = a.get("gtin") or pc.get("gtin")
+                a["titulo"] = a.get("titulo") or pc.get("nome")
+    except ErroMeli:
+        aviso = "Catálogo indisponível agora; mostrando os anúncios já encontrados."
+    return list(por_id.values()), aviso

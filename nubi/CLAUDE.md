@@ -795,3 +795,21 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   lá e o endereço fica em `tiktok_shop_taxa_url` (config); depois é leitura fixa (`TAXA_LEITOR`). `gravar_taxa` guarda
   `extras`. No Painel do SAC os números da plataforma ficam num bloco "📶 Na plataforma" com quadradinhos (`sp-chip`),
   sem quebrar as linhas do cartão.
+
+## Card #127 — casamento e página do seguido (30/09, ainda sem publicação)
+- Etapa (a): `categorias.casar_anuncio_nubimetrics(anuncio_ml, linhas_vend, linhas_explorador, fotos)` reutiliza as
+  travas do #128 (GTIN conflitante, volume, concentração, gênero, kit e marca). GTIN primeiro; título SEMPRE a conferir;
+  foto exata do mlstatic por último. Foto sem identificador só aponta uma linha por título normalizado único.
+  `manual` e `rejeitada` nunca são recalculadas; PATCH automático condicional também protege decisões concorrentes.
+- `meli.anuncios_do_seguido`: provas de `meli|seguidos` + catálogo por GTIN filtrado por seller_id antes de enriquecer
+  foto/título. A resposta avisa que é amostra. `meli_seguido_anuncios` usa `vend_anuncios_ml` se já alimentada;
+  linhas Nubimetrics do último relatório e Explorador dos últimos snapshots, hashes da mesma loja em `meli|hash_lojas`.
+  GET devolve `ligados`, `a_conferir`, cobertura e linhas. POST `meli_seguido_anuncio_ligar` valida vendedor/MLB/linha.
+- Contrato de integração da etapa 2 em `supabase/vend_anuncios_ml.sql`, NÃO aplicado: `(vendedor, mlb)` único,
+  `seller_id`, `dados` (campos normalizados do meli), e as três colunas de ligação. Coordenar com o Ferreiro antes de
+  aplicar. A coleta deve preservar as colunas de ligação. Tabela ausente: prévia visível, confirmação indisponível.
+- Etapa (b): `#/ml/vendedores` → `#/ml/vendedores/<nome>`; mesma lista também na página antiga do vendedor.
+  Foto/título, preço e data da coleta em Brasília, variação quando há preço anterior, Full/tipo, vendidos, posição,
+  estoque, linha Nubimetrics, busca/filtro e botões de confirmação/recusa. Ausência nunca vira zero.
+- Testes: `test_seguidos_casamento.py` (regras/rotas/repos falso) e `test_ml_real.py` (página falsa, PC/celular).
+  Registro das etapas para os cards #126/#127 em `docs/card-127-etapas.md`; nenhum evento enviado ao banco nesta sessão.

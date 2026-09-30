@@ -28,6 +28,9 @@ vendem, a que preço, e transforma isso em decisões de compra, preço e anúnci
   disparam as rotinas (tabela rotinas).
 
 ## Tabelas principais
+Anúncios reais dos seguidos: vend_anuncios_ml liga MLB a vend_anuncios e anuncios (Explorador).
+GTIN, título ou foto exata; título sempre a conferir, confirmação/recusa manual nunca é refeita automaticamente.
+Tela #/ml/vendedores/<vendedor>; sem coleta de preço/estoque/posição, mostra sem dados.
 vend_vendas_dia (venda isolada por vendedor/dia/produto: unidades, vendas R$, preço médio), vend_grupo_dia (totais do
 grupo do Nubimetrics: manda nos totais por vendedor), produto_grupos (títulos sem GTIN que são o mesmo produto,
 juntados por embeddings + regras de volume/kit/concentração/gênero/nome), ia_resumos (resumos diário, semanal e
