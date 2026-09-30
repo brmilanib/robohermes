@@ -47,6 +47,7 @@ def test_csv_com_linhas_repetidas_le_ate_o_fim():
 def test_pagina_importa_marcas_em_levas():
     html = (Path(__file__).resolve().parents[1] / "public" / "index.html").read_text(encoding="utf-8")
     assert "const LEVA = 6" in html and "marcas: todas.slice(i, i + LEVA).join" in html
+    assert "faltam ~" in html and 'class="up-barra"' in html and "<b>100%</b>" in html     # barra com % e previsão
 
 
 if __name__ == "__main__":
