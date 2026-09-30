@@ -181,11 +181,16 @@ PERFIS = {
         "pode": ["Propor a correção exata no código", "Entregar análises e documentação"],
         "nao_pode": ["Mexer direto no código ou no banco", "Publicar"]},
     "deepseek": {
-        "funcao": "Matemático e revisor: contas, totais, casos de borda, desempenho e custo; escreve o Plano técnico dos cards de dados.",
-        "modelo": "deepseek-v4-pro em tudo (flash só de reserva se o pro falhar) pela API da DeepSeek",
-        "como": "De hora em hora escreve o Plano técnico dos cards de dados; opina na Sala; revisa números.",
-        "pode": ["Escrever planos e testes em texto", "Apontar riscos nos números"],
-        "nao_pode": ["Mexer no código ou no banco", "Publicar"]},
+        "funcao": "Analista do estoque e das compras (28–29/09, pedido do Bruno): análise do dia dos dados coletados (onde focar) e "
+                  "do estoque × vendas por anúncio (o que comprar, zerados que vendem, preços, margem, encalhados), a lista de compra "
+                  "da semana e o chat de Compras. Também programa a parte do estoque no Mac (DeepSeek programador).",
+        "modelo": "deepseek-v4-pro pela API da DeepSeek (flash só de reserva); no Mac, o Aider com o mesmo modelo",
+        "como": "SÓ 2 análises por dia (09:15 dados coletados, 09:30 estoque) + o chat de Compras (até 30 mensagens/dia). "
+                "Fora disso ele não é chamado (Sala, cards de texto e reservas pulam). Programador: cards responsavel=deepseek_mac, "
+                "branch deepseek/card-N, até 6 por dia.",
+        "pode": ["Escrever as 2 análises do dia e a lista de compra (só quantidade/motivo; nome e custo vêm do sistema)",
+                 "Conversar no chat de Compras", "Programar a parte do estoque num branch próprio (o Chefe revisa)"],
+        "nao_pode": ["Passar de 2 análises por dia (fora o chat)", "Publicar", "Mexer no banco, em senhas ou chaves"]},
     "astra": {
         "funcao": "Responsável pelo design, usabilidade e organização do nubi: recebe os pedidos do Bruno (texto, fotos e vídeos), "
                   "cria os cards dessas mudanças com o Ferreiro programando, especifica as telas e confere o visual depois.",
@@ -194,7 +199,9 @@ PERFIS = {
         "pode": ["Especificar telas, layout e critérios de pronto", "Receber fotos e vídeos do Bruno na conversa direta",
                  "Criar cards de design, usabilidade e organização (até 6 por dia; risco alto vira proposta para o Bruno)",
                  "Programar ele mesmo os cards de design no Mac mini (Codex com o modelo dele, branch astra/card-N, até 4 por dia; "
-                 "autorizado pelo Bruno em 26/09)", "Pedir ajuda ao Ferreiro nas correções técnicas"],
+                 "autorizado pelo Bruno em 26/09)", "Pedir ajuda ao Ferreiro nas correções técnicas",
+                 "Estoque por categoria (30/09): ler o título dos produtos sem categoria e dizer a marca e a categoria "
+                 "(botão 🤖 Pedir ao Astra; nunca troca o que o Bruno escolheu)"],
         "nao_pode": ["Publicar (só o Chefe revisa e publica)",
                      "Aprovar risco alto", "Mexer em dados, senhas ou estrutura do banco"]},
     "banguela": {
