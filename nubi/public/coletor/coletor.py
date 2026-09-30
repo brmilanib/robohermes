@@ -72,6 +72,8 @@ PADRAO_CONFIG = {
     "grupo": "460388",                       # grupo "perfumes" no Nubimetrics
     "categoria": "MLB1246-MLB6284",          # Beleza e Cuidado Pessoal > Perfumes
     "categoria_nomes": ["Beleza e Cuidado Pessoal", "Perfumes"],
+    # 30/09 (Bruno: "vou começar em Maquiagem"): outras categorias cujo relatório MARCAS também entra todo mês
+    "categorias_extra": [{"categoria": "MLB1246-MLB1248", "nomes": ["Beleza e Cuidado Pessoal", "Maquiagem"]}],
     "mes_atual": True,                       # manter o mês em andamento atualizado (parcial), todo dia
     "desde": "2026-01",                      # primeiro mês do histórico de vendedores
     "atraso_dias": 2,                        # o Nubimetrics libera os dados com 2 dias de atraso
@@ -1103,11 +1105,21 @@ def coletar_vendedores(p, cfg, token, lista_periodos, so=None, enviar=True, pula
 # Fluxo 2 — relatório MARCAS mensal
 # ---------------------------------------------------------------------------
 
-def coletar_marcas(p, cfg, token, mes=None, enviar=True):
+def categorias_marcas(cfg):
+    """Categorias do relatório MARCAS mensal: a principal (Perfumes) + as extras (ex.: Maquiagem). [(código, nomes)]."""
+    out = [(cfg["categoria"], cfg.get("categoria_nomes") or [])]
+    for x in cfg.get("categorias_extra") or []:
+        if isinstance(x, dict) and x.get("categoria") and x["categoria"] not in [c for c, _ in out]:
+            out.append((x["categoria"], x.get("nomes") or []))
+    return out
+
+
+def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=None):
     mes = mes or mes_anterior()
     a, m = map(int, mes.split("-"))
     rotulo_mes = f"{MESES[m - 1]} {a}"
-    cat = cfg["categoria"]
+    cat = categoria or cfg["categoria"]
+    nomes_cat = nomes or (cfg.get("categoria_nomes") if cat == cfg["categoria"] else None) or []
     nivel1, nivel2 = cat.split("-")[:2]
     destino = PASTA / "arquivos" / mes
     destino.mkdir(parents=True, exist_ok=True)
@@ -1125,7 +1137,7 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True):
         # categoria: os botões têm que mostrar Beleza e Cuidado Pessoal / Perfumes
         botoes = pg.locator("div.dropdown-category button.dropdown-toggle")
         textos = " | ".join(botoes.all_inner_texts())
-        if not all(n.lower() in textos.lower() for n in cfg["categoria_nomes"]):
+        if not all(n.lower() in textos.lower() for n in nomes_cat):
             log(f"  Categoria na tela: {textos!r}; escolhendo {cat}")
             botoes.nth(0).click()
             pg.locator(f'a[data-id="{nivel1}"]').first.click()
@@ -1134,7 +1146,7 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True):
             pg.locator(f'a[data-id="{nivel2}"][data-parent="{nivel1}"]').first.click()
             time.sleep(2)
             textos = " | ".join(botoes.all_inner_texts())
-            if not all(n.lower() in textos.lower() for n in cfg["categoria_nomes"]):
+            if not all(n.lower() in textos.lower() for n in nomes_cat):
                 raise Falha(f"não consegui escolher a categoria (tela mostra: {textos})")
         # aba MARCAS
         def e_ranking(r, limite=None):
@@ -1160,7 +1172,7 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True):
         arq = destino / nome
         dl.save_as(str(arq))
         devagar(2)
-        log(f"  MARCAS {mes}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
+        log(f"  MARCAS {mes} ({' > '.join(nomes_cat) or cat}): baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
         guardar_sessao(ctx)
         if enviar:
             r = api(token, "ranking_importar", {"arquivo": arq.name, "categoria": cat, "mes": mes}, arq.read_bytes())
@@ -7017,22 +7029,22 @@ def main():
             A = I = E = 0
             partes = [f"dados até {d:%d/%m}"]
             # MARCAS: todo mês fechado (último dia já liberado) que ainda não está no nubi
-            ja_rk = set(pend["ranking"].get(cfg["categoria"], []))
-            faltam = [per for per in pers if not per["ate"] and per["mes"] not in ja_rk]
+            # (30/09) em cada categoria do relatório: Perfumes e as extras (Maquiagem)
+            faltam = [(cat_, nomes_, per) for cat_, nomes_ in categorias_marcas(cfg) for per in pers
+                      if not per["ate"] and per["mes"] not in set(pend["ranking"].get(cat_, []))]
             ao_vivo(True, total=len(faltam))
-            for per in pers:
-                if per["ate"] or per["mes"] in ja_rk:
-                    continue
-                ao_vivo(True, atual=f"MARCAS · {per['mes']}")
+            for cat_, nomes_, per in faltam:
+                rot_cat = (nomes_ or [cat_])[-1]
+                ao_vivo(True, atual=f"MARCAS · {rot_cat} · {per['mes']}")
                 try:
-                    a, i, e = coletar_marcas(p, cfg, token, per["mes"])
-                    partes.append(f"MARCAS {per['mes']} importado")
+                    a, i, e = coletar_marcas(p, cfg, token, per["mes"], categoria=cat_, nomes=nomes_)
+                    partes.append(f"MARCAS {rot_cat} {per['mes']} importado")
                 except SessaoExpirada:
                     raise
                 except Exception as ex:  # noqa: BLE001
                     a, i, e = 0, 0, 1
-                    log(f"  MARCAS {per['mes']}: ERRO {ex}")
-                    partes.append(f"MARCAS {per['mes']} falhou")
+                    log(f"  MARCAS {rot_cat} {per['mes']}: ERRO {ex}")
+                    partes.append(f"MARCAS {rot_cat} {per['mes']} falhou")
                 A, I, E = A + a, I + i, E + e
                 AO_VIVO["feito"] += 1
                 devagar(5)

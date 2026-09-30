@@ -2667,7 +2667,13 @@ def importar_por_marca(repo, cfg, nome, dados, ini, fim, escolhidas, apelidos=No
             avisar(f"    {gr['nome']}: já importado deste arquivo. Pulado.")
             continue
         avisar(f"  {gr['nome']}: {fmt_int(len(sub))} anúncios · {fmt_int(sub['un'].sum())} unidades")
+        # 30/09 (Bruno, Sospiro "sumiu"): o arquivo misturado é um RECORTE (só os anúncios que a busca trouxe); se a
+        # marca já tem período com o mesmo início, ele atualiza esse período (anúncio igual pelo ID ganha os números
+        # novos, os outros continuam, o fim vai para a data nova) em vez de virar um período novo pela metade
+        sub, absorvidos = _absorver_periodo(repo, gr["marca"], ini, fim, sub)
         marca = _gravar_marca(repo, cfg, nome, hash_, sub, gr["marca"], ini, fim, existentes, feitas)
+        for sid in absorvidos:
+            repo.apagar_snapshot(sid)
         feitas.append(marca)
         existentes = sorted(set(existentes) | {marca})
     fora = [g for g in grupos.values() if g["chave"] not in escolhidas]
@@ -2676,6 +2682,46 @@ def importar_por_marca(repo, cfg, nome, dados, ini, fim, escolhidas, apelidos=No
                ", ".join(f"{g['nome']} ({g['anuncios']})" for g in fora[:12]) + (" …" if len(fora) > 12 else ""))
     return feitas
 
+
+
+def _absorver_periodo(repo, marca, ini, fim, df):
+    """Períodos da marca com o mesmo início e fim igual ou anterior: os anúncios deles que não estão no arquivo novo
+    entram no df (pelo ID do anúncio) e os períodos voltam como lista para apagar depois de gravar o novo. O período
+    completo nunca some: só cresce até a data nova."""
+    df = _ids(df)
+    try:
+        snaps = repo.snapshots(marca)
+    except Exception:  # noqa: BLE001
+        return df, []
+    if snaps is None or snaps.empty:
+        return df, []
+    ini_s, fim_s = ini.isoformat(), fim.isoformat()
+    velhos = snaps[(snaps["marca"] == marca) & (snaps["inicio"].astype(str).str[:10] == ini_s)
+                   & (snaps["fim"].astype(str).str[:10] < fim_s)]
+    if velhos.empty:
+        return df, []
+    colunas = list(df.columns)
+    vistos, absorvidos, mantidos, atualizados = set(df["anuncio"]), [], 0, 0
+    partes = [df]
+    for sid in velhos.sort_values("fim", ascending=False)["id"]:
+        antigo = _ids(repo.anuncios(sid))
+        if antigo.empty:
+            absorvidos.append(int(sid))
+            continue
+        atualizados += int(antigo["anuncio"].isin(vistos).sum())
+        resto = antigo[~antigo["anuncio"].isin(vistos)].drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in antigo.columns])
+        for c in colunas:
+            if c not in resto.columns:
+                resto = resto.assign(**{c: None})
+        partes.append(resto[colunas])
+        vistos |= set(resto["anuncio"])
+        mantidos += len(resto)
+        absorvidos.append(int(sid))
+    if mantidos or atualizados:
+        avisar(f"    Período já existente ({ini:%d/%m}–{str(velhos['fim'].max())[:10][8:10]}/{str(velhos['fim'].max())[5:7]}) "
+               f"atualizado até {fim:%d/%m}: {atualizados} anúncio(s) com números novos, {mantidos} mantido(s), "
+               f"{len(df) - atualizados} novo(s). Nenhum período pela metade foi criado.")
+    return pd.concat(partes, ignore_index=True), absorvidos
 
 
 def _ids(df):

@@ -5918,9 +5918,13 @@ async function abrirMarca(marca, manterAba = false) {
 // venda por dia), então cada período importado é uma opção; 7 e 30 dias aparecem quando o export desse período foi importado.
 const rotuloPer = p => p.dias <= 8 ? "7 dias" : p.dias >= 28 && p.dias <= 31 ? "30 dias" : p.dias <= 16 ? `${p.dias} dias` : `Completo · ${p.dias} dias`;
 function periodosMarca(r) {
-  const ps = [...(r.periodos || [])].sort((a, b) => b.fim.localeCompare(a.fim) || b.dias - a.dias).slice(0, 8);
-  const tem = n => ps.some(p => n === 7 ? p.dias <= 8 : p.dias >= 28 && p.dias <= 31);
-  const falta = [[30, "30 dias"], [7, "7 dias"]].filter(([n]) => !tem(n));
+  // 30/09 (Bruno: "coloca só o Completo, últimos 7 e últimos 30 — simples"): 1 chip por tipo, sempre o mais recente
+  // de cada um (o histórico inteiro continua na aba Períodos)
+  const todos = [...(r.periodos || [])].sort((a, b) => b.fim.localeCompare(a.fim) || b.dias - a.dias);
+  const tipo = p => p.dias <= 8 ? 7 : p.dias >= 28 && p.dias <= 31 ? 30 : 0;
+  const ps = [0, 30, 7].map(t => todos.find(p => tipo(p) === t)).filter(Boolean);
+  if (r.atual && !ps.some(p => p.id === r.atual.id)) ps.push(r.atual);    // um período antigo escolhido na aba Períodos
+  const falta = [[30, "30 dias"], [7, "7 dias"]].filter(([n]) => !ps.some(p => tipo(p) === n));
   return `<div class="per-marca"><span class="muted">Analisar:</span>
     ${ps.map(p => `<button class="per-chip ${p.id === r.atual.id ? "on" : ""}" data-per="${p.id}" title="${dataBR(p.inicio)} a ${dataBR(p.fim)} · ${esc(p.arquivo || "")}">
       <b>${rotuloPer(p)}</b> <small>${dataBR(p.inicio).slice(0, 5)}–${dataBR(p.fim).slice(0, 5)}</small></button>`).join("")}
