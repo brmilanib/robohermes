@@ -5963,7 +5963,7 @@ function telaMarca() {
       ${kpi("Referências", nf0.format(z.referencias), nf0.format(z.anuncios) + " anúncios · " + nf0.format(z.gtins) + " GTINs")}
       ${kpi("Em catálogo / FULL", FMT.pct(z.pct_catalogo) + " / " + FMT.pct(z.pct_full))}
       ${kpi("GTINs em dúvida", z.gtins_duvida ? `<span class="pill warn">${z.gtins_duvida}</span>` : "0",
-            nf0.format(z.un_sem_gtin) + " un. sem GTIN · " + nf0.format(z.un_outras_marcas) + " de outras marcas")}
+            nf0.format(z.un_sem_gtin) + " un. sem GTIN · " + nf0.format(z.un_outras_marcas) + " de outras marcas" + (z.un_low_price ? " · " + nf0.format(z.un_low_price) + " low price (decant/contratipo)" : ""))}
     </div>
     <div class="grid2">
       <div class="card pad">

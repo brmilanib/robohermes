@@ -47,7 +47,8 @@ def test_titulo_ou_sku_com_a_marca_vale_mesmo_com_coluna_marca_errada():
     ])
     out = nubi.consolidar(df, "LATTAFA", {}, info={})
     outra = out[out["tipo"] == nubi.TIPO_OUTRA]
-    assert sorted(outra["linha"]) == ["Armaf", "New Brand"], list(zip(out["titulo"], out["produto"]))
+    assert sorted(outra["linha"]) == ["Armaf"], list(zip(out["titulo"], out["produto"]))
+    assert out.at[4, "tipo"] == nubi.TIPO_CONTRATIPO, out.at[4, "produto"]     # 30/09: contratipo = Low price
     assert out.at[0, "produto"].startswith("Lattafa Asad Zanzibar"), out.at[0, "produto"]
     assert out.at[1, "produto"].startswith("Lattafa Fakhar Rose"), out.at[1, "produto"]
     assert out.at[2, "produto"].startswith("Lattafa Yara"), out.at[2, "produto"]

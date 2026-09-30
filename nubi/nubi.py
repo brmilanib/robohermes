@@ -79,6 +79,17 @@ CATEGORIA_PERFUMARIA = "beleza e cuidado pessoal"
 TIPO_FORA = "Não perfume"
 TIPO_OUTRA = "Outra marca"   # anúncio de outra marca (contratipo, erro de cadastro)
 TIPO_PADRAO = "EDT?"   # título sem tipo escrito: EDT por padrão, mas não vota na etapa 2
+# 30/09 (Bruno: "contratipo tem que entrar na categoria low price, e decant também, tudo que é decant, 10ml, poucos ml"):
+# produtos de preço baixo ficam numa categoria própria e não votam no GTIN do produto normal
+TIPO_DECANT = "Decant"
+TIPO_CONTRATIPO = "Contratipo"
+TIPOS_LOW = (TIPO_DECANT, TIPO_CONTRATIPO)
+CAT_LOW = "Low price"
+DECANT_MAX_ML = 15     # até este volume o anúncio é decant/miniatura, mesmo sem a palavra no título
+RE_DECANT = re.compile(r"\b(decant|decants|decantado|decantada|amostra|amostras|miniatura|miniaturas|mini)\b")
+RE_CONTRATIPO = re.compile(r"\b(contratipo|contratipos|inspirado|inspirada|inspiracao|inspired|inspiration|similar|"
+                           r"semelhante|generico|generica)\b")
+CONF_LOW = "Low price pelo título"
 
 # Grau de confiança do agrupamento de cada anúncio (coluna "Confiança").
 CONF_PESQ = "Pesquisado (GTIN)"
@@ -548,12 +559,26 @@ def linha_pelo_titulo(titulos, unidades, palavras_marca, outras=()):
                     w[:1].upper() + w[1:] for w in melhor.split())
 
 
-RE_VOLUME = re.compile(r"(?<!\d)(\d{2,3})\s?ml\b")
+RE_VOLUME = re.compile(r"(?<!\d)(\d{1,3})\s?ml\b")   # 30/09: 1 dígito também ("5ml", "8 ml" = decant)
 
 
 def achar_volume(t):
     m = RE_VOLUME.search(t)
     return f"{int(m.group(1))} ml" if m else "-"
+
+
+def tipo_low_price(t, volume="-", cita_marca_titulo=False, outra_marca=False):
+    """
+    30/09: Decant (decant/amostra/miniatura no título, ou volume até DECANT_MAX_ML) ou Contratipo (contratipo/inspirado/
+    similar no título; ou anúncio de OUTRA marca cujo título cita a marca do export, ex.: "New Brand ... (Lattafa Yara)").
+    Devolve o tipo ou "". `t` já normalizado.
+    """
+    if RE_CONTRATIPO.search(t) or (outra_marca and cita_marca_titulo):
+        return TIPO_CONTRATIPO
+    ml = re.fullmatch(r"(\d+) ml", str(volume or ""))
+    if RE_DECANT.search(t) or (ml and int(ml.group(1)) <= DECANT_MAX_ML):
+        return TIPO_DECANT
+    return ""
 
 
 def achar_tipo(t):
@@ -595,7 +620,7 @@ def categoria_de(tipo):
     """Categoria para filtro, a partir do tipo."""
     return {"EDT": "Perfume", "EDP": "Perfume", "EDC": "Perfume", "Body Splash": "Body Splash",
             "Deo": "Desodorante", "Banho": "Banho", "Kit": "Kit", TIPO_OUTRA: "Outra marca",
-            TIPO_FORA: "Não perfume"}.get(tipo, "Perfume")
+            TIPO_FORA: "Não perfume", TIPO_DECANT: CAT_LOW, TIPO_CONTRATIPO: CAT_LOW}.get(tipo, "Perfume")
 
 
 
@@ -606,7 +631,8 @@ def campos_do_arquivo(df, marca):
     de outra marca, o nome dela. Sem a linha original guardada, usa o tipo lido do título.
     """
     b = [x if isinstance(x, dict) else {} for x in (df["bruto"] if "bruto" in df.columns else [None] * len(df))]
-    df["cat"] = [x.get("Categoria final") or categoria_de(t) for x, t in zip(b, df["tipo"])]
+    # 30/09: decant/contratipo é "Low price" mesmo que o arquivo diga Perfumes
+    df["cat"] = [CAT_LOW if t in TIPOS_LOW else x.get("Categoria final") or categoria_de(t) for x, t in zip(b, df["tipo"])]
     df["cat_l1"] = [x.get("Categoria L1") or "-" for x in b]
     conf = df["confianca"] if "confianca" in df.columns else [""] * len(df)
     gt = df["gtin"] if "gtin" in df.columns else [""] * len(df)
@@ -709,7 +735,7 @@ def mapa_gtin_global(linhas):
         marcas = {l["marca_snap"] for l in ls}
         if len(marcas) < 2:
             continue
-        proprias = [l for l in ls if l.get("tipo") not in (TIPO_OUTRA, TIPO_FORA) and l.get("confianca") != CONF_GTIN_OUTRA]
+        proprias = [l for l in ls if l.get("tipo") not in (TIPO_OUTRA, TIPO_FORA) + TIPOS_LOW and l.get("confianca") != CONF_GTIN_OUTRA]
         if not proprias:
             continue
         # 30/09 (Ameerati da Al Wataniah preso na LIPX): o mapa é refeito com os anúncios JÁ gravados; os da marca que perdeu
@@ -1041,15 +1067,25 @@ def consolidar(df, marca, cfg, info=None):
         m = pesquisados[g].get("marca", "")
         if m and not marca_bate(m, alvo_marca) and (dono[df["gtin"] == g] == "").any():
             del pesquisados[g]
+    linha_titulo = df["linha"].copy()
     df.loc[outra, "linha"] = dono[outra].map(nome_bonito)
     df.loc[outra, "tipo"] = TIPO_OUTRA
     nao_perf = (df["categoria"].fillna("") != "") & ~outra
     df.loc[nao_perf, "linha"] = df.loc[nao_perf, "categoria"]
     df.loc[nao_perf, "tipo"] = TIPO_FORA
+    # 30/09 (Bruno): decant/poucos ml e contratipo = "Low price": produto próprio, fora da votação do GTIN
+    low = pd.Series([tipo_low_price(t, v, len(alvo_marca) >= 4 and alvo_marca in compacta(tit), o) if not np_ else ""
+                     for t, v, tit, o, np_ in zip(tn, df["volume"], df["titulo"].fillna(""), outra, nao_perf)], index=df.index)
+    e_low = low != ""
+    df.loc[e_low, "tipo"] = low[e_low]
+    # contratipo de outra marca ("New Brand (Lattafa Yara)"): a linha é a lida do título; sem linha, o nome da outra marca
+    df.loc[e_low & outra, "linha"] = linha_titulo[e_low & outra]      # "Outros" aqui ainda pega a linha na etapa 2b
     fora = outra | nao_perf
-    df.loc[fora, ["volume", "genero"]] = "-"
+    df.loc[fora & ~e_low, ["volume", "genero"]] = "-"
     df["confianca"] = CONF_TITULO
     df.loc[fora, "confianca"] = "-"
+    df.loc[e_low, "confianca"] = CONF_LOW
+    fora = fora | e_low
 
     # Etapa 2 — o GTIN corrige o título.
     # Todos os anúncios do mesmo GTIN são o mesmo produto físico. Para linha, volume,
@@ -1148,12 +1184,16 @@ def consolidar(df, marca, cfg, info=None):
     trocar = df["linha"].isin([l for l, c in canonica.items() if l != c]) & ~fora
     df.loc[trocar, "linha"] = df.loc[trocar, "linha"].map(canonica)
     if chaves:
-        for i in df.index[(df["gtin"] == "") & ~fora & (df["linha"] == "Outros")]:
+        # 30/09: os Low price (decant/contratipo) também pegam a linha pelo dicionário, com ou sem GTIN
+        for i in df.index[(((df["gtin"] == "") & ~fora) | e_low) & (df["linha"] == "Outros")]:
             alvo = f" {normalizar(df.at[i, 'titulo'])} "
             casou = [c for k, c in chaves if f" {k} " in alvo]
             if casou:
                 df.at[i, "linha"] = max(casou, key=lambda c: (un_linha.get(c, 0), len(c)))
-                df.at[i, "confianca"] = CONF_LINHA_CONHECIDA
+                if not e_low[i]:
+                    df.at[i, "confianca"] = CONF_LINHA_CONHECIDA
+    sem_linha = e_low & outra & df["linha"].isin(NEUTROS)                # contratipo de outra marca sem linha: o nome dela
+    df.loc[sem_linha, "linha"] = dono[sem_linha].map(nome_bonito)
 
     # Etapa 3 — preencher o que sobrou vazio.
     # 3a. Tipo não escrito no título e sem GTIN que resolva ("EDT?"): recebe o tipo
@@ -1205,6 +1245,7 @@ def consolidar(df, marca, cfg, info=None):
     df["produto"] = [
         f"{marca_txt} {l} (não perfume)" if t == TIPO_FORA else
         f"Outra marca: {l}" if t == TIPO_OUTRA else
+        re.sub(r"\s+", " ", f"{marca_txt} {l} {t} {v if v != '-' else ''}").strip() if t in TIPOS_LOW else
         re.sub(r"\s+", " ", f"{marca_txt} {l} {t} {v if v != '-' else ''}").strip()
         for l, t, v in zip(df["linha"], df["tipo"], df["volume"])
     ]
@@ -1214,7 +1255,7 @@ def consolidar(df, marca, cfg, info=None):
     # Lattafa) vira o produto da dona, marcado como outra marca aqui; no relatório da dona ele entra junto (mesmo GTIN).
     alvo_g = compacta(marca)
     if GTIN_GLOBAL:
-        for i in df.index[(df["gtin"] != "") & ~nao_perf]:
+        for i in df.index[(df["gtin"] != "") & ~nao_perf & ~e_low]:
             g = GTIN_GLOBAL.get(df.at[i, "gtin"])
             if not g or compacta(g["marca"]) == alvo_g or APELIDOS_MARCA.get(compacta(g["marca"])) == alvo_g:
                 continue

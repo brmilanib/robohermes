@@ -127,7 +127,7 @@ def test_marca_escrita_errado_e_da_marca():
     out = nubi.consolidar(df, "LATTAFA", {}, info={})
     assert list(out["tipo"])[:3] != [nubi.TIPO_OUTRA] * 3 and out.at[0, "linha"] == "Asad", out[["linha", "tipo"]]
     assert out.at[1, "linha"] == "Asad", out.at[1, "linha"]                 # "Lataffa" não vira nome de linha
-    assert out.at[3, "tipo"] == nubi.TIPO_OUTRA                              # contratipo continua outra marca
+    assert out.at[3, "tipo"] == nubi.TIPO_CONTRATIPO                         # 30/09: contratipo = Low price
     a = nubi.auditar_marca(out, "LATTAFA")
     assert not any(x["tipo"] == "marca_errada" for x in a["achados"]) and a["pct_outra_marca"] < 3, a
     # conferência acha a marca escrita errado no que foi gravado com a regra antiga

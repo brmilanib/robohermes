@@ -163,6 +163,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   ou o SKU traz a marca); em `dono_do_anuncio` qualquer anúncio do GTIN citando a marca vence a pesquisa, e o nome
   pesquisado sai de `pesquisados` (não vota linha/volume). (2) `consultar_gtin` ignora resposta de base pública que não
   parece perfume/cosmético (`parece_perfume`) e deixa a IA pesquisar (`fonte_ia`, web). Teste `test_gtin_pesquisa_errada.py`.
+- **Low price (30/09, Bruno: "contratipo tem que entrar na categoria low price, e decant também, tudo que é decant, 10ml,
+  poucos ml")**: tipos `TIPO_DECANT` (decant/amostra/miniatura/mini no título, ou volume até `DECANT_MAX_ML`=15 ml; o
+  `RE_VOLUME` lê 1 dígito: "5ml") e `TIPO_CONTRATIPO` (contratipo/inspirado/similar/genérico no título, ou anúncio de OUTRA
+  marca cujo título cita a marca do export) — `nubi.tipo_low_price`, decidido por anúncio logo depois de `dono_do_anuncio`.
+  Categoria `CAT_LOW`="Low price" (vence a "Categoria final" do arquivo), confiança `CONF_LOW`, produto "Marca Linha Decant
+  10 ml"/"Marca Linha Contratipo 100 ml". Não votam no GTIN (entram em `fora`), não entram no `mapa_gtin_global` nem na
+  etapa 4; pegam a linha pelo dicionário da etapa 2b. Resumo da marca: `un_low_price`. `REGRA_ATUAL` = regra 10. Teste `test_low_price.py`.
 
 ## Perseguir anúncios pelo Apify (28/09, pedido do Bruno) — Estoque → 🎯 Perseguir anúncios (`#/estoque/perseguir`), `perseguir.py`
 

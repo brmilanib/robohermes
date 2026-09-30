@@ -543,6 +543,7 @@ def relatorio(repo, marca, periodo=None):
         "pct_catalogo": _div(df["catalogo"].sum(), n), "pct_full": _div(df["full"].sum(), n),
         "un_outras_marcas": int(df.loc[df["tipo"] == nubi.TIPO_OUTRA, "un"].sum()),
         "un_nao_perfume": int(df.loc[df["tipo"] == nubi.TIPO_FORA, "un"].sum()),
+        "un_low_price": int(df.loc[df["tipo"].isin(nubi.TIPOS_LOW), "un"].sum()),
         "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada}
 
     return {
@@ -624,7 +625,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 9: o anúncio (Marca, título, SKU) vence a pesquisa errada do GTIN"   # 30/09 (Maktub La Vie da Bidaya = "Outra marca: Jxumsyjn")
+REGRA_ATUAL = "regra 10: Low price (decant até 15 ml, contratipo) + o anúncio vence a pesquisa errada do GTIN"   # 30/09 (Bidaya; pedido do Bruno)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"
