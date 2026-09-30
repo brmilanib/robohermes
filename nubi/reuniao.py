@@ -18,7 +18,8 @@ import agentes
 import ia
 
 AGENTES = {k: a["nome"] for k, a in agentes.AGENTES.items()} | {"claude": "Claude"}
-STATUS = ["proposta", "aprovada", "em_desenvolvimento", "em_teste", "feita", "recusada"]
+# "pausada" (30/09, Bruno): card guardado fora da fila; nenhum agente pega, e o Bruno revisa depois (volta para aprovada ou é excluído)
+STATUS = ["proposta", "aprovada", "em_desenvolvimento", "em_teste", "feita", "recusada", "pausada"]
 
 
 def _historico(msgs, n=30):

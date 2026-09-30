@@ -697,7 +697,8 @@ html:has(.modal-bg.tarefa){overflow:hidden}   /* quadro atrás não rola com o c
 .tf-bts .btn{flex:1;justify-content:center;min-width:0}
 .tf-in{display:flex;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);position:sticky;bottom:0;background:var(--card);z-index:2}
 .tf-in textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:18px;padding:9px 14px;font:inherit;min-height:40px;max-height:120px;background:var(--card);color:var(--ink)}
-.tf-st{padding:0 16px 12px}
+.tf-st{padding:0 16px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tf-st #tf-excluir{margin-left:auto;color:var(--bad)}
 @media (max-width:420px){.tf-bts{gap:6px}.tf-bts .btn{font-size:12px;padding:6px 8px;white-space:nowrap}}
 .au-msg{border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:10px;background:var(--card)}
 .au-msg .quem{font-weight:700;font-size:13px;margin-bottom:4px}
@@ -4639,7 +4640,7 @@ const cardFaltando = desc => { const secoes = cardSecoes(desc);
 // Só os títulos que nem aparecem no texto (nunca os que já têm placeholder) — "Inserir modelo" nunca duplica.
 const cardAusentes = desc => { const secoes = cardSecoes(desc);
   return CARD_MODELO.map(([nome]) => nome).filter(nome => !(nome in secoes)); };
-const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em execução", "warn"], em_teste: ["Em teste", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"]};
+const DEV_ST = {proposta: ["Propostas", ""], aprovada: ["Aprovadas", "good"], em_desenvolvimento: ["Em execução", "warn"], em_teste: ["Em teste", "warn"], feita: ["Feitas", "good"], recusada: ["Recusadas", "bad"], pausada: ["Pausadas", ""]};
 const DEV_COLS = [["proposta", "Propostas", "o Claude aprova as de risco baixo/médio; as de risco alto esperam você"], ["aprovada", "Aprovadas", "na fila para desenvolver"],
   ["em_desenvolvimento", "Em execução", "um agente está trabalhando"], ["em_teste", "Em teste", "outro agente testa; erro volta para execução"],
   ["feita", "Feitas", "testadas, publicadas e com relatório"]];
@@ -4778,6 +4779,8 @@ async function telaDev(silencioso) {
           : feitasFiltradas.length === 0 ? `<p class="muted" style="font-size:12.5px">Nenhum card encontrado com estes filtros.</p>`
           : feitasFiltradas.map(devCard).join("")}</section>`;
     }).join("")}</div>
+    ${n("pausada") ? `<details style="margin-top:14px"><summary class="muted">⏸ Pausadas (${n("pausada")}) — fora da fila; abra o card para voltar a aprovada ou excluir</summary>
+      <div class="dev-col" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${ts.filter(t => t.status === "pausada").map(devCard).join("")}</div></details>` : ""}
     ${n("recusada") ? `<details style="margin-top:14px"><summary class="muted">Recusadas (${n("recusada")})</summary>
       <div class="dev-col" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${ts.filter(t => t.status === "recusada").map(devCard).join("")}</div></details>` : ""}`;
   if ($("#dev-filtro-exec", main)) $("#dev-filtro-exec", main).onchange = e => { DEV_FILTRO_EXEC = e.target.value; telaDev(true); };
@@ -4868,7 +4871,8 @@ async function abrirTarefa(id) {
         ${vivo ? `<div class="tf-b trab"><span class="dc-dig"><i></i><i></i><i></i></span> ${esc(ag[1])} ${t.status === "em_teste" ? "está testando" : "está trabalhando"}…</div>` : ""}
         ${parado ? `<div class="tf-sis">⏸ Sem atividade há mais de ${DEV_ATIVO_MIN} min. ${(t.responsavel || "claude_code") === "claude_code" ? "O programador automático retoma na próxima rodada (a cada 1 h); " : ""}escreva aqui que o agente responde na hora.</div>` : ""}</div>
       <div class="tf-in"><textarea id="tf-txt" rows="1" placeholder="Escreva para o agente desta tarefa…"></textarea><button class="btn primary" id="tf-env" title="Enviar">➤</button></div>
-      <div class="tf-st"><label class="muted" style="font-size:12px">Status <select id="tf-status" class="mes">${Object.keys(DEV_ST).map(k => `<option value="${k}" ${k === t.status ? "selected" : ""}>${DEV_ST[k][0]}</option>`).join("")}</select></label></div>`;
+      <div class="tf-st"><label class="muted" style="font-size:12px">Status <select id="tf-status" class="mes">${Object.keys(DEV_ST).map(k => `<option value="${k}" ${k === t.status ? "selected" : ""}>${DEV_ST[k][0]}</option>`).join("")}</select></label>
+        ${["em_desenvolvimento", "em_teste"].includes(t.status) ? "" : `<button class="btn small ghost" id="tf-excluir" title="Apaga o card e os passos dele (não tem volta)">🗑 Excluir card</button>`}</div>`;
     if (abertos.desc !== null && $(".tf-desc", bg)) $(".tf-desc", bg).open = abertos.desc;
     if (abertos.rel !== null && $(".tf-rel", bg)) $(".tf-rel", bg).open = abertos.rel;
     bg._nEv = x.eventos.length;
@@ -4913,6 +4917,12 @@ async function abrirTarefa(id) {
     bg.querySelectorAll("[data-dec]").forEach(b => b.onclick = () => responder(b.dataset.dec));
     $("#tf-status", bg).onchange = async e => {
       try { await api("reuniao_tarefa_salvar", {}, {method: "POST", body: JSON.stringify({id: t.id, status: e.target.value})}); toast("Status atualizado"); atualizar(); }
+      catch (er) { toast(er.message, 6000); }
+    };
+    // 30/09 (Bruno): excluir o card que não faz mais sentido; pede confirmação e não tem volta
+    if ($("#tf-excluir", bg)) $("#tf-excluir", bg).onclick = async () => {
+      if (!confirm(`Excluir o card #${t.id} "${t.titulo}"? Os passos dele também somem e não tem volta.`)) return;
+      try { await api("reuniao_tarefa_excluir", {}, {method: "POST", body: JSON.stringify({id: t.id})}); toast(`Card #${t.id} excluído`); bg.remove(); telaDev(true); }
       catch (er) { toast(er.message, 6000); }
     };
   };

@@ -812,7 +812,7 @@ def _situacao_card(tarefa, agora=None):
     navegador (título, descrição ou cor da coluna) — sempre a partir de reuniao_tarefas/tarefa_eventos.
     Devolve (situacao, motivo, proxima_rodada_iso); qualquer um pode vir None."""
     status = tarefa.get("status")
-    if status in ("feita", "recusada", "proposta"):
+    if status in ("feita", "recusada", "proposta", "pausada"):
         return ("aguardando_bruno", None, None) if status == "proposta" else (None, None, None)
     if tarefa.get("aguardando"):
         return "aguardando_bruno", None, None
@@ -1468,6 +1468,19 @@ def atender(metodo, rota, q, corpo, token):
             if reg.get("status") == "aprovada" or "responsavel" in reg:   # card #89: aprovou/atribuiu, começa na hora
                 return _json({"ok": True, "assumidos": assumir_aprovados(repo, int(d["id"]))})
             return _json({"ok": True})
+        if rota == "reuniao_tarefa_excluir" and metodo == "POST":
+            # 30/09 (Bruno: "um botão excluir card caso eu ache que não faça mais sentido"): só pelo botão do quadro (login do
+            # dono); apaga o card e os passos dele. Card em execução não sai: pare-o antes (o agente ainda escreve nele).
+            d = json.loads(corpo or b"{}")
+            tid = int(d.get("id") or 0)
+            t = (repo._req("GET", "reuniao_tarefas", {"select": "id,status,titulo", "id": repo._eq(tid)}) or [None])[0] if tid else None
+            if not t:
+                raise ErroNuvem("Card não encontrado.", 404)
+            if t.get("status") in ("em_desenvolvimento", "em_teste"):
+                raise ErroNuvem("Este card está em execução: mude o status antes de excluir.")
+            repo._req("DELETE", "tarefa_eventos", {"tarefa_id": repo._eq(tid)})
+            repo._req("DELETE", "reuniao_tarefas", {"id": repo._eq(tid)})
+            return _json({"ok": True, "id": tid, "titulo": t.get("titulo")})
 
         if rota == "auditoria":
             # relatório da auditoria de dados e código (o mais recente, ou o de ?data=)
