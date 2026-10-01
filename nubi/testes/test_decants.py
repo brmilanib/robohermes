@@ -26,8 +26,9 @@ def test_conta_dos_decants():
     assert [x["sku"] for x in p["itens"]] == ["YARA100"]
     y = p["itens"][0]
     assert y["custo_ml"] == 1.5 and y["markup_usado"] == 2.3
-    # 15 ml: 22,50 + 5 + 1 + 1 = 29,50 × 2,3 = 67,85 · 10 ml: 22,00 → 50,60 · 5 ml: 14,50 → 33,35
-    assert [(d["ml"], d["custo"], d["preco"]) for d in y["decants"]] == [(15, 29.5, 67.85), (10, 22.0, 50.6), (5, 14.5, 33.35)]
+    # 15 ml: 22,50 + frasco 5 + embalagem 1 + adesivo 0,50 = 29,00 × 2,3 = 66,70 · 10 ml: 21,50 → 49,45 · 5 ml: 14,00 → 32,20
+    assert [(d["ml"], d["custo"], d["preco"]) for d in y["decants"]] == [(15, 29.0, 66.7), (10, 21.5, 49.45), (5, 14.0, 32.2)]
+    assert y["insumos"] == {"frasco": 5.0, "caixa": 1.0, "adesivo": 0.5} and y["insumos_total"] == 6.5
     assert {x["sku"] for x in p["sem_volume"]} == {"ASAD", "KIT", "MINI"}          # sem ml, kit e miniatura
     assert [x["sku"] for x in p["sem_custo"]] == ["SEMCUSTO"]
     # padrão editável e ml/markup por perfume
@@ -36,8 +37,15 @@ def test_conta_dos_decants():
     decants.salvar_item(r, {"sku": "YARA100", "markup": 3})
     p = decants.planilha(ITENS, decants.config(r), decants.itens_extra(r))
     d = {x["sku"]: x for x in p["itens"]}
-    assert d["YARA100"]["decants"][2] == {"ml": 5, "custo": 14.0, "preco": 42.0, "lucro": 28.0}
-    assert d["ASAD"]["volume_manual"] and d["ASAD"]["decants"][1]["preco"] == round((12 + 6.5) * 2, 2)
+    assert d["YARA100"]["decants"][2] == {"ml": 5, "custo": 13.5, "preco": 40.5, "lucro": 27.0}   # 7,50 + 4,50 + 1 + 0,50
+    assert d["ASAD"]["volume_manual"] and d["ASAD"]["decants"][1]["preco"] == round((12 + 6.0) * 2, 2)
+    # custo próprio de um perfume (frasco mais caro, sem adesivo); vazio volta ao padrão
+    decants.salvar_item(r, {"sku": "YARA100", "frasco": "8", "adesivo": 0})
+    y = {x["sku"]: x for x in decants.planilha(ITENS, decants.config(r), decants.itens_extra(r))["itens"]}["YARA100"]
+    assert y["insumos"] == {"frasco": 8.0, "caixa": 1.0, "adesivo": 0.0} and y["decants"][2]["custo"] == 16.5
+    decants.salvar_item(r, {"sku": "YARA100", "frasco": None, "adesivo": None})
+    y = {x["sku"]: x for x in decants.planilha(ITENS, decants.config(r), decants.itens_extra(r))["itens"]}["YARA100"]
+    assert y["insumos"] == {"frasco": 4.5, "caixa": 1.0, "adesivo": 0.5}
 
 
 def test_leva_ao_bazar_com_os_precos():
@@ -48,7 +56,7 @@ def test_leva_ao_bazar_com_os_precos():
     assert p["aba"] == "decant" and p["status"] == "DECANT" and p["foto"] == "bazar/decant/YARA100/foto-1.jpg"
     t = bazar.post(p)
     assert t.startswith("✨ DECANT NA PURE PERFUMARIA! ✨") and "❤️ Lattafa Yara EDP Feminino\n" in t   # marca não repete
-    assert "🧪 5 ml por R$ 33,35" in t and "🧪 15 ml por R$ 67,85" in t
+    assert "🧪 5 ml por R$ 32,20" in t and "🧪 15 ml por R$ 66,70" in t
     # de novo = atualiza o mesmo (não duplica)
     p2 = bazar.decant_ao_bazar(r, dict(y, decants=[{"ml": 5, "preco": 30.0}]))
     assert p2["id"] == p["id"] and len(bazar.produtos(r)) == 1 and p2["decant"] == [{"ml": 5, "preco": 30.0}]
@@ -71,7 +79,7 @@ def test_notas_e_legenda():
              fotos=["bazar/decant/Y/foto-1.jpg", "bazar/decant/Y/foto-2.jpg"], videos=["bazar/decant/Y/video-1.mp4"])
     p = bazar.decant_ao_bazar(r, y)
     t = bazar.post(p)
-    assert "Uma baunilha cremosa que abraça 🤍" in t and "🌳 Fundo: Baunilha" in t and "🧪 5 ml por R$ 33,35" in t
+    assert "Uma baunilha cremosa que abraça 🤍" in t and "🌳 Fundo: Baunilha" in t and "🧪 5 ml por R$ 32,20" in t
     assert p["foto"] == "bazar/decant/Y/foto-1.jpg" and p["video"] == "bazar/decant/Y/video-1.mp4" and len(p["fotos"]) == 2
     # até 3 fotos guardadas no cadastro do decant; caminho de fora é recusado
     decants.salvar_item(r, {"sku": "YARA100", "fotos": [f"bazar/decant/Y/f{i}.jpg" for i in range(5)]})
@@ -148,11 +156,17 @@ def test_tela():
                 pg.goto(f"http://127.0.0.1:{porta}/#/decants")
                 pg.wait_for_selector(".dc-tab tbody tr", timeout=15000)
                 txt = pg.inner_text("#main")
-                assert ("R$ 67,85" in txt and "R$ 33,35" in txt) if nome == "pc" else "R$ 59,00" in txt, txt[:600]
+                assert ("R$ 66,70" in txt and "R$ 32,20" in txt) if nome == "pc" else "R$ 57,00" in txt, txt[:600]
                 if nome == "pc":
                     pg.fill("#dc-markup", "2")
                     pg.click("#dc-salvar")
-                    pg.wait_for_function("document.querySelector('.dc-tab').innerText.includes('R$ 59,00')", timeout=8000)   # 29,50 × 2
+                    pg.wait_for_function("document.querySelector('.dc-tab').innerText.includes('R$ 58,00')", timeout=8000)   # 29,00 × 2
+                    i = pg.locator("[data-dcins='adesivo'][data-sku='YARA100']")
+                    i.fill("0")
+                    i.dispatch_event("change")
+                    pg.wait_for_function("document.querySelector('.dc-tab').innerText.includes('R$ 57,00')", timeout=8000)   # 28,50 × 2
+                    assert decants.itens_extra(r)["YARA100"]["adesivo"] == 0
+                    pg.wait_for_timeout(800)                                  # a tabela termina de redesenhar
                     pg.locator("[data-dcvol='ASAD']").fill("100")
                     pg.locator("[data-dcvol='ASAD']").dispatch_event("change")
                     pg.wait_for_function("document.querySelector('.dc-tab').innerText.includes('Asad')", timeout=8000)

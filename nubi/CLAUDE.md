@@ -1224,3 +1224,6 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   preço/ml). Não raspa o site do Fragrantica: lê pela busca do Google. O Bazar recebe fotos, vídeos, legenda e notas
   (`decant_ao_bazar`); o post do decant usa a legenda + "🍋 Topo / 🌸 Coração / 🌳 Fundo" + os tamanhos com preço do sistema;
   o Compartilhar baixa cada foto e vídeo.
+  Insumos (01/10, print do Bruno): padrão frasco (split) R$ 5, embalagem (`caixa`) R$ 1, adesivo R$ 0,50 (`decants.PADRAO`,
+  `INSUMOS`); colunas "Frasco (split) / Embalagem / Adesivo" editáveis por perfume na tabela (`decants|itens` frasco/caixa/
+  adesivo; vazio = padrão; 0 vale = "sem adesivo"); a planilha baixada traz os 3 valores usados.

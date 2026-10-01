@@ -1144,7 +1144,7 @@ header.top{padding:7px 16px}
 .dc-tam input{grid-row:span 3;width:20px;height:20px}.dc-tam b{font-size:16px}.dc-tam-p{font-size:20px;font-weight:800;color:var(--good)}
 .dc-tam small{font-size:11.5px}.dc-tam:has(input:checked){border-color:var(--accent);background:var(--soft)}
 .dc-cfg{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:end}.dc-cfg label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:3px}
-.dc-cfg input{width:96px}.dc-cfg #dc-tam{width:120px}.dc-in{width:70px;text-align:right;padding:4px 6px}.dc-foto{cursor:pointer}.dc-oc td{opacity:.5}
+.dc-cfg input{width:96px}.dc-ins{width:62px}.dc-cfg #dc-tam{width:120px}.dc-in{width:70px;text-align:right;padding:4px 6px}.dc-foto{cursor:pointer}.dc-oc td{opacity:.5}
 .bz-canc td{opacity:.5;text-decoration:line-through}.bz-canc td select{text-decoration:none}
 .bz-wa{display:grid;grid-template-columns:1fr 1fr;gap:12px}.bz-sh{display:grid;grid-template-columns:minmax(0,380px) 1fr;gap:16px}
 .bz-cv{width:100%;max-width:380px;border-radius:10px;display:block;background:#111}
@@ -3884,12 +3884,12 @@ async function telaDecants() {
   main.innerHTML = `<div class="es-cab"><h1>🧪 Decants</h1><span class="muted">Perfumes do estoque do UpSeller${r.estoque_em ? " · atualizado " + new Date(r.estoque_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : ""}</span></div>
     <div class="card dc-cfg"><b>Padrão da planilha</b>
       <label>Tamanhos (ml)<input id="dc-tam" value="${tams.join(", ")}"></label>
-      <label>Frasco R$<input id="dc-frasco" type="number" step="0.01" min="0" value="${c.frasco}"></label>
+      <label>Frasco (split) R$<input id="dc-frasco" type="number" step="0.01" min="0" value="${c.frasco}"></label>
+      <label>Embalagem R$<input id="dc-caixa" type="number" step="0.01" min="0" value="${c.caixa}"></label>
       <label>Adesivo R$<input id="dc-adesivo" type="number" step="0.01" min="0" value="${c.adesivo}"></label>
-      <label>Caixa R$<input id="dc-caixa" type="number" step="0.01" min="0" value="${c.caixa}"></label>
       <label>Markup<input id="dc-markup" type="number" step="0.1" min="1" value="${c.markup}"></label>
       <button class="btn primary" id="dc-salvar">Salvar padrão</button>
-      <span class="muted" style="font-size:12px">Custo do decant = ml × custo por ml + frasco + adesivo + caixa · Preço = custo × markup</span></div>
+      <span class="muted" style="font-size:12px">Custo do decant = ml × custo por ml + frasco (split) + embalagem + adesivo · Preço = custo × markup · Em cada perfume dá para trocar esses valores na linha (vazio = padrão)</span></div>
     <div class="kpis" style="margin:12px 0">
       <div class="kpi"><div class="l">Perfumes na planilha</div><div class="v">${nf0.format(r.itens.length)}</div></div>
       <div class="kpi"><div class="l">Com estoque</div><div class="v">${nf0.format(r.itens.filter(x => x.disponivel > 0).length)}</div></div>
@@ -3901,6 +3901,7 @@ async function telaDecants() {
       <label class="muted"><input type="checkbox" id="dc-oc" ${f.ocultos ? "checked" : ""}> mostrar ocultos</label>
       <button class="btn" id="dc-csv">⬇️ Baixar planilha</button><span class="muted" id="dc-n"></span></div>
       <div class="rolar"><table class="t dc-tab"><thead><tr><th>Perfume</th><th class="num">Disp.</th><th class="num">Custo frasco</th><th class="num">ml</th><th class="num">Custo/ml</th>
+        <th class="num" title="Custo do frasquinho (split) · vazio = padrão">Frasco (split)</th><th class="num" title="Vazio = padrão">Embalagem</th><th class="num" title="Vazio = padrão">Adesivo</th>
         <th class="num" title="Vazio = padrão">Markup</th>${tams.map(t => `<th class="num">${t} ml<div class="muted" style="font-weight:400;font-size:11px">custo · venda</div></th>`).join("")}<th></th></tr></thead><tbody></tbody></table></div></div>
     ${r.sem_volume.length ? `<div class="card" style="margin-top:12px"><h3 style="margin-top:0">Sem ml no título (ou kit)</h3>
       <p class="muted" style="margin-top:0;font-size:12.5px">Digite o ml do frasco para entrar na planilha.</p>
@@ -3917,10 +3918,11 @@ async function telaDecants() {
       <td class="num" data-l="Custo frasco">${rsES(x.custo)}</td>
       <td class="num" data-l="ml do frasco"><input class="dc-in" type="number" min="1" data-dcvol="${esc(x.sku)}" value="${x.volume_ml}" title="${x.volume_manual ? "digitado" : "lido no título"}"></td>
       <td class="num" data-l="Custo/ml">${rsES(x.custo_ml)}</td>
+      ${[["frasco", "Frasco (split)"], ["caixa", "Embalagem"], ["adesivo", "Adesivo"]].map(([k, n]) => `<td class="num" data-l="${n}"><input class="dc-in dc-ins" type="number" step="0.01" min="0" data-dcins="${k}" data-sku="${esc(x.sku)}" value="${x[k] ?? ""}" placeholder="${n2(c[k])}" title="Vazio = padrão (R$ ${n2(c[k])})"></td>`).join("")}
       <td class="num" data-l="Markup"><input class="dc-in" type="number" step="0.1" min="1" data-dcmk="${esc(x.sku)}" value="${x.markup ?? ""}" placeholder="${n2(c.markup)}"></td>
       ${x.decants.map(d => `<td class="num" data-l="${d.ml} ml"><span class="muted" style="font-size:11.5px">${rsES(d.custo)}</span><br><b>${rsES(d.preco)}</b></td>`).join("")}
       <td class="bz-ac"><button class="btn small primary" data-dcbz="${esc(x.sku)}" title="${x.bazar ? "Atualiza o Bazar com os preços e a foto de agora" : "Leva ao Bazar (aba Decants) para gerar a arte e a legenda"}">🛍️ ${x.bazar ? "Atualizar Bazar" : "Bazar"}</button><button class="btn small" data-dcoc="${esc(x.sku)}" title="${x.oculto ? "Mostrar de novo" : "Esconder da planilha"}">${x.oculto ? "👁" : "🙈"}</button></td></tr>`).join("")
-      || `<tr><td colspan="${7 + tams.length}" class="empty">Nenhum perfume com esse filtro.</td></tr>`;
+      || `<tr><td colspan="${10 + tams.length}" class="empty">Nenhum perfume com esse filtro.</td></tr>`;
     $("#dc-n").textContent = `${nf0.format(xs.length)} perfume(s)`;
     ligar(main);
   };
@@ -3928,6 +3930,7 @@ async function telaDecants() {
   const ligar = el => {
     el.querySelectorAll("[data-dcvol]").forEach(i => i.onchange = () => salvarItem({sku: i.dataset.dcvol, volume_ml: i.value || null}, "ml salvo; preços refeitos."));
     el.querySelectorAll("[data-dcmk]").forEach(i => i.onchange = () => salvarItem({sku: i.dataset.dcmk, markup: i.value || null}, "Markup salvo."));
+    el.querySelectorAll("[data-dcins]").forEach(i => i.onchange = () => salvarItem({sku: i.dataset.sku, [i.dataset.dcins]: i.value === "" ? null : i.value}, "Custo salvo; preços refeitos."));
     el.querySelectorAll("[data-dcoc]").forEach(b => b.onclick = () => { const x = r.itens.find(y => y.sku === b.dataset.dcoc); salvarItem({sku: b.dataset.dcoc, oculto: !(x && x.oculto)}); });
     el.querySelectorAll("[data-dccad]").forEach(b => b.onclick = () => dcCadastro(r.itens.find(y => y.sku === b.dataset.dccad)));
     el.querySelectorAll("[data-dcbz]").forEach(b => b.onclick = () => dcEscolherTamanhos(r.itens.find(y => y.sku === b.dataset.dcbz)));
@@ -3940,9 +3943,9 @@ async function telaDecants() {
       frasco: $("#dc-frasco").value, adesivo: $("#dc-adesivo").value, caixa: $("#dc-caixa").value, markup: $("#dc-markup").value})});
       toast("Padrão salvo; preços refeitos."); telaDecants(); } catch (e) { toast(e.message, 6000); } };
   $("#dc-csv").onclick = () => {
-    const cab = ["SKU", "Perfume", "Marca", "Disponível", "Custo frasco", "ml", "Custo por ml", "Markup", ...tams.flatMap(t => [`Custo ${t} ml`, `Preço ${t} ml`])];
+    const cab = ["SKU", "Perfume", "Marca", "Disponível", "Custo frasco", "ml", "Custo por ml", "Frasco (split)", "Embalagem", "Adesivo", "Markup", ...tams.flatMap(t => [`Custo ${t} ml`, `Preço ${t} ml`])];
     const num = v => v == null ? "" : String(v).replace(".", ",");
-    const linhas = visiveis().map(x => [x.sku, x.titulo, x.marca, x.disponivel, num(x.custo), x.volume_ml, num(x.custo_ml), num(x.markup_usado), ...x.decants.flatMap(d => [num(d.custo), num(d.preco)])]);
+    const linhas = visiveis().map(x => [x.sku, x.titulo, x.marca, x.disponivel, num(x.custo), x.volume_ml, num(x.custo_ml), num(x.insumos.frasco), num(x.insumos.caixa), num(x.insumos.adesivo), num(x.markup_usado), ...x.decants.flatMap(d => [num(d.custo), num(d.preco)])]);
     const csv = "﻿" + [cab, ...linhas].map(l => l.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"})); a.download = "decants.csv"; a.click(); };
   ligar(main);

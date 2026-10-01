@@ -20,7 +20,9 @@ import nubi
 
 CONFIG = "decants|config"
 ITENS = "decants|itens"
-PADRAO = {"tamanhos": [15, 10, 5], "frasco": 5.0, "adesivo": 1.0, "caixa": 1.0, "markup": 2.3}
+# 01/10 (2º pedido): frasco (split) R$ 5, embalagem ("caixa") R$ 1, adesivo R$ 0,50 — padrão para todos e editável por perfume
+PADRAO = {"tamanhos": [15, 10, 5], "frasco": 5.0, "adesivo": 0.5, "caixa": 1.0, "markup": 2.3}
+INSUMOS = ("frasco", "caixa", "adesivo")
 VOLUME_MIN = 20                     # frasco com menos de 20 ml já é decant/miniatura: não se fraciona
 TIPOS = ("Perfume",)
 
@@ -102,6 +104,9 @@ def salvar_item(repo, d):
         it["volume_ml"] = _num(d["volume_ml"], "ml do frasco", 1, 1000)
     if "markup" in d:
         it["markup"] = _num(d["markup"], "markup", 1, 20)
+    for k in INSUMOS:                                  # custo próprio deste perfume (vazio = o padrão)
+        if k in d:
+            it[k] = _num(d[k], k, 0, 500)
     if "oculto" in d:
         it["oculto"] = bool(d["oculto"])
     if "tamanhos_bazar" in d:                         # 01/10: quais tamanhos vão para o Bazar (árabe barato só 15 ml…)
@@ -118,7 +123,7 @@ def salvar_item(repo, d):
                 it["foto"] = cs[0] if cs else ""
     if "legenda" in d:
         it["legenda"] = str(d.get("legenda") or "").strip()[:2000]
-    xs[sku] = {k: v for k, v in it.items() if v not in (None, "", False)}
+    xs[sku] = {k: v for k, v in it.items() if v is not None and v != "" and v is not False}   # 0 (sem adesivo) vale
     _gravar(repo, ITENS, xs)
     return xs[sku]
 
@@ -163,7 +168,11 @@ def planilha(itens_cat, cfg, extras):
             continue
         mk = ex.get("markup") or cfg["markup"]
         cml = round(float(it["custo"]) / float(vol), 4)
-        base.update({"custo_ml": cml, "markup_usado": mk, "decants": precos(cml, cfg, mk),
+        cfg_it = dict(cfg, **{k: ex[k] for k in INSUMOS if ex.get(k) is not None})
+        base.update({k: ex.get(k) for k in INSUMOS})
+        base["insumos"] = {k: cfg_it[k] for k in INSUMOS}
+        base["insumos_total"] = round(sum(cfg_it[k] or 0 for k in INSUMOS), 2)
+        base.update({"custo_ml": cml, "markup_usado": mk, "decants": precos(cml, cfg_it, mk),
                      "ml_disponivel": round((it.get("disponivel") or 0) * vol, 0)})
         linhas.append(base)
     linhas.sort(key=lambda x: (x["oculto"], -(x["disponivel"] > 0), x["marca"] or "~", x["titulo"]))
