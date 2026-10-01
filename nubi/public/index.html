@@ -3255,7 +3255,7 @@ async function telaMinhasVendas() {
     const xs = r.anuncios.filter(a => (!f.loja || a.loja === f.loja) && (!f.semsku || a.sem_sku) && (!q || (a.sku + " " + a.produto + " " + a.anuncio).toLowerCase().includes(q)))
       .sort(ORD[f.ord][1]);
     $("#mv-tab tbody").innerHTML = xs.map(a => `<tr class="ec-${nivel(a)}">
-      <td data-l="Anúncio"><b>${esc(a.produto || a.sku)}</b><div class="muted" style="font-size:11.5px">${a.sem_sku ? `<span class="warn-t" title="Anúncio sem SKU Principal no UpSeller: não liga ao estoque">sem SKU</span>` : esc(a.sku)} · ${a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.anuncio)} ↗</a>` : esc(a.anuncio)}</div></td>
+      <td data-l="Anúncio"><b>${esc(a.produto || a.sku)}</b><div class="muted" style="font-size:11.5px">${a.sem_sku ? `<span class="warn-t" title="Anúncio sem SKU Principal no UpSeller: não liga ao estoque">sem SKU</span> <button class="btn small mv-copiar" type="button" data-id="${esc(a.anuncio)}" title="Copiar o ID do anúncio para colar na busca do Mapeamento">📋 copiar ID</button>` : esc(a.sku)} · ${a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.anuncio)} ↗</a>` : esc(a.anuncio)}</div></td>
       <td data-l="Loja"><span class="pill">${esc(a.loja)}</span>${a.abc ? ` <span class="abc abc-${a.abc}" title="Curva ABC pelo faturamento">${a.abc}</span>` : ""}</td>
       <td class="num" data-l="Unidades"><b>${nf0.format(a.unidades)}</b><div class="muted" style="font-size:11px">${nf0.format(a.pedidos)} pedido(s)</div></td>
       <td class="num" data-l="Média/dia">${a.media_dia ? nf1.format(a.media_dia) : "—"}${jan.length ? `<div class="muted" style="font-size:11px">${jan.map(n => `${n}d: ${nf0.format(a["un" + n] ?? 0)}`).join(" · ")}</div>` : ""}</td>
@@ -3271,6 +3271,9 @@ async function telaMinhasVendas() {
       ? ` · <a href="#" id="mv-semsku-x" class="warn-t">só sem SKU ✕</a>` : "");
     const kx = $("#mv-semsku"); if (kx) kx.classList.toggle("on", !!f.semsku);
     const sx = $("#mv-semsku-x"); if (sx) sx.onclick = e => { e.preventDefault(); f.semsku = false; desenhar(); };
+    main.querySelectorAll(".mv-copiar").forEach(b => b.onclick = async () => {
+      try { await navigator.clipboard.writeText(b.dataset.id); toast(`ID ${b.dataset.id} copiado: cole na busca do Mapeamento`); }
+      catch { prompt("Copie o ID do anúncio:", b.dataset.id); } });
     $("#mv-aviso-semsku").style.display = f.semsku ? "" : "none";
   };
   main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas · Vendas por Anúncio</h1>
@@ -3300,7 +3303,9 @@ async function telaMinhasVendas() {
       <span class="muted" id="mv-n"></span></div>
       <p id="mv-aviso-semsku" class="muted" style="display:none;font-size:12.5px;margin:0 0 8px">Estes anúncios vieram do UpSeller com a coluna
         "SKU Principal" vazia: o anúncio não está <b>vinculado</b> a um produto no UpSeller (Produtos → Vincular anúncios / mapeamento).
-        O produto pode ter SKU, mas sem o vínculo a venda não liga ao estoque e fica fora da reposição.</p>
+        O produto pode ter SKU, mas sem o vínculo a venda não liga ao estoque e fica fora da reposição.
+        <button class="btn small primary" id="mv-mapa" type="button">🔗 Abrir o Mapeamento no UpSeller</button>
+        <a href="#" id="mv-mapa-trocar" class="muted" style="font-size:12px;margin-left:6px">trocar endereço</a></p>
       <div class="rolar"><table class="t" id="mv-tab"><thead><tr><th>Anúncio</th><th>Loja</th><th class="num">Unidades</th><th class="num">Média/dia</th>
         <th class="num">Faturamento</th><th class="num">Preço médio</th><th class="num">Custo médio</th><th class="num" title="Antes das taxas; 'real' = Gestor Seller">Margem</th>
         <th class="num">Disponível</th><th class="num">Em trânsito</th><th class="num">Cobertura</th></tr></thead><tbody></tbody></table></div>
@@ -3309,6 +3314,17 @@ async function telaMinhasVendas() {
   $("#mv-q").oninput = e => { f.q = e.target.value; desenhar(); };
   $("#mv-loja").onchange = e => { f.loja = e.target.value; desenhar(); };
   $("#mv-ord").onchange = e => { f.ord = e.target.value; desenhar(); };
+  // 01/10 (Bruno: "o atalho pra arrumar no UpSeller, chama-se mapeamento"): o endereço é colado 1 vez e fica guardado
+  const pedirMapa = async () => {
+    const url = (prompt("Cole aqui o endereço da tela de Mapeamento do UpSeller (abra a tela no UpSeller e copie da barra do navegador):",
+      (r.links || {}).mapeamento || "https://app.upseller.com/pt/") || "").trim();
+    if (!url) return null;
+    try { const x = await api("estoque_upseller_links", {}, {method: "POST", body: JSON.stringify({mapeamento: url})});
+      r.links = {mapeamento: x.mapeamento}; toast("Endereço do Mapeamento guardado."); return x.mapeamento; }
+    catch (e) { toast(e.message); return null; }
+  };
+  $("#mv-mapa").onclick = async () => { const u = (r.links || {}).mapeamento || await pedirMapa(); if (u) window.open(u, "_blank", "noopener"); };
+  $("#mv-mapa-trocar").onclick = async e => { e.preventDefault(); await pedirMapa(); };
   if ($("#mv-semsku")) $("#mv-semsku").onclick = () => { f.semsku = !f.semsku; desenhar();
     $("#mv-tab").scrollIntoView({behavior: "smooth", block: "start"}); };
   main.querySelectorAll(".mv-loja").forEach(tr => tr.onclick = () => { f.loja = f.loja === tr.dataset.loja ? "" : tr.dataset.loja; $("#mv-loja").value = f.loja; desenhar(); });

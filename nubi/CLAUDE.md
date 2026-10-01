@@ -1110,3 +1110,6 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     ABC por valor, a letra do UpSeller vence a conta do nubi quando o período é o mesmo (`abc.fonte`="upseller"). Conferido no
     arquivo de 09/2026: a conta do nubi dá 59/95/166 como o UpSeller e só 2 anúncios empatados em R$ 660,00 na fronteira B/C
     trocam de lado; anúncios de valor 0 também contam em C.
+  - **Atalho do Mapeamento do UpSeller (01/10)**: na lista "sem SKU", botão "🔗 Abrir o Mapeamento no UpSeller" (o endereço é
+    colado pelo Bruno 1 vez e guardado em `upseller|links`, rota `estoque_upseller_links`; só aceita https://app.upseller.com/…;
+    "trocar endereço" muda) e "📋 copiar ID" em cada anúncio sem SKU para colar na busca do Mapeamento.

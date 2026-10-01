@@ -141,6 +141,14 @@ def test_unidade():
     assert t["unidades"] == 28 and t["valor"] == 40100 and t["skus"] == 2 and t["sem_estoque"] == 1 and t["sem_sku"] == 1, t
     lojas = {l["loja"]: l for l in r["lojas"]}
     assert lojas["PUREHOME (Mercado Livre)"]["valor"] == 33000 and lojas["PUREHOME (Shopee)"]["unidades"] == 5, lojas
+    # atalho do Mapeamento: só endereço do UpSeller
+    rr = R()
+    assert w.upseller_links(rr, {"mapeamento": "https://app.upseller.com/pt/products/mapping"})["mapeamento"].endswith("mapping")
+    try:
+        w.upseller_links(rr, {"mapeamento": "https://outro.site/x"})
+        raise AssertionError("aceitou endereço de fora do UpSeller")
+    except w.ErroNuvem:
+        pass
     print("ok análises de vendas (unidade)")
     return r
 
@@ -181,7 +189,7 @@ def test_tela(r):
                 assert "7d: 7" in pg.inner_text("#mv-tab"), pg.inner_text("#mv-tab")[:400]
                 pg.click("#mv-semsku")                                               # 01/10: lista dos sem SKU
                 assert pg.inner_text("#mv-n").startswith("1 de 4") and "Sem vínculo" in pg.inner_text("#mv-tab"), pg.inner_text("#mv-n")
-                assert pg.is_visible("#mv-aviso-semsku")
+                assert pg.is_visible("#mv-aviso-semsku") and pg.is_visible("#mv-mapa") and pg.query_selector(".mv-copiar")
                 pg.click("#mv-semsku-x")
                 pg.select_option("#mv-loja", "PUREHOME (Shopee)")
                 assert pg.inner_text("#mv-n").startswith("1 de 4"), pg.inner_text("#mv-n")

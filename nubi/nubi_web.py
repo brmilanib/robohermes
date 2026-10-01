@@ -4545,6 +4545,22 @@ VENDAS_DIAS_HIST = 30
 
 
 VENDAS_ABC_CHAVE = "vendas_abc|atual"
+UPSELLER_LINKS_CHAVE = "upseller|links"
+
+
+def upseller_links(repo, novo=None):
+    """01/10 (Bruno: "o atalho pra eu olhar os produtos e arrumar no UpSeller, chama-se mapeamento"): endereços de telas do
+    UpSeller que o Bruno cola uma vez (só https://app.upseller.com/...). -> {"mapeamento": url|None}"""
+    atual = _vendas_atuais(repo, UPSELLER_LINKS_CHAVE) or {}
+    if novo is None:
+        return {"mapeamento": atual.get("mapeamento")}
+    url = str(novo.get("mapeamento") or "").strip()
+    if url and not re.fullmatch(r"https://app\.upseller\.com/[^\s\"'<>]{0,300}", url):
+        raise ErroNuvem("Cole o endereço da tela de Mapeamento do UpSeller (começa com https://app.upseller.com/).")
+    atual["mapeamento"] = url or None
+    repo._req("POST", "ia_resumos", corpo=[{"chave": UPSELLER_LINKS_CHAVE, "ia": "bruno", "criado_em": datetime.now(timezone.utc).isoformat(),
+                                             "texto": json.dumps(atual, ensure_ascii=False)}], prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True, "mapeamento": atual["mapeamento"]}
 
 
 def abc_importar(repo, conteudo, arquivo, origem="coletor"):
@@ -4775,7 +4791,7 @@ def minhas_vendas_anuncio(repo):
                        "sem_sku": sum(1 for a in an if a.get("sem_sku")),
                        "sem_sku_valor": round(sum(a["valor"] for a in an if a.get("sem_sku")), 2)},
             "lojas": sorted(lojas.values(), key=lambda l: -l["valor"]), "anuncios": an,
-            "serie": serie, "janelas": sorted(janela), "dias_guardados": len(hist), "abc": abc}
+            "serie": serie, "janelas": sorted(janela), "dias_guardados": len(hist), "abc": abc, "links": upseller_links(repo)}
 
 
 MARCA_SKU_CHAVE = "estoque|marca_sku"
@@ -6670,6 +6686,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         data = lambda k: q.get(k) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(q.get(k) or "")) else None
         return gestor_vendas_importar(repo, corpo, (q.get("arquivo") or "relatorio_de_vendas.xlsx")[:200], data("inicio"), data("fim"),
                                       "manual" if q.get("origem") == "manual" else "coletor")
+    if rota == "estoque_upseller_links":
+        return upseller_links(repo, json.loads(corpo or b"{}") if metodo == "POST" else None)
     if rota == "estoque_vendas_dias_pendentes":
         return {"dias": vendas_dias_pendentes(repo)}
     if rota == "estoque_vendas_anuncio":
