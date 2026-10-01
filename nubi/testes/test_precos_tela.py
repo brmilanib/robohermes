@@ -63,7 +63,11 @@ def test_tela():
                 ML = {"categoria": "MLB6284", "origem_categoria": "meu anúncio", "tipo": "gold_special", "full": False,
                       "tarifas": {"gold_special": {"pct": 14, "fixa": 0, "total": 30.1}, "gold_pro": {"pct": 19, "fixa": 0, "total": 40.85}},
                       "dimensoes": "10x8x20,600", "frete": 24.45, "origem_frete": "pelas medidas do pacote, na minha conta do ML",
-                      "meu": {"mlb": "MLB999", "tipo_id": "gold_special", "full": False, "dimensoes": "10x8x20,600"}}
+                      "meu": {"mlb": "MLB999", "tipo_id": "gold_special", "full": False, "dimensoes": "10x8x20,600", "preco": 229.9},
+                      "mercado": {"top": [{"vendedor": "MAMS ECOMMERCE", "real": True, "unidades": 320, "preco_medio": 214.5},
+                                          {"vendedor": "ICARBONXX P3", "real": False, "unidades": 150, "preco_medio": 219.9}],
+                                  "vendedores": 12, "unidades": 610, "preco_medio": 217.3, "inicio": "2026-09-01", "fim": "2026-09-30"},
+                      "minhas_vendas": {"inicio": "2026-09-01", "fim": "2026-09-30", "unidades": 41, "preco_medio": 226.4, "anuncios": []}}
                 pg.route("**/api/app?r=ml_precos_calc_ml*", lambda rt: rt.fulfill(content_type="application/json", body=json.dumps(ML)))
                 pg.goto(f"http://127.0.0.1:{porta}/#/precos")
                 pg.wait_for_selector(".pm-card", timeout=15000)
@@ -78,6 +82,8 @@ def test_tela():
                 pg.wait_for_selector("#pc-res .pc-lucro", timeout=5000)
                 assert pg.input_value("#pc-pct") == "14" and pg.input_value("#pc-custo") == "150" and pg.input_value("#pc-imp") == "10"
                 pg.wait_for_selector("#pc-ml >> text=Meu anúncio", timeout=5000)
+                merc = pg.inner_text("#pc-merc")                                       # 5 maiores vendedores + o meu preço
+                assert "MAMS ECOMMERCE" in merc and "R$ 214,50" in merc and "R$ 217,30" in merc and "R$ 229,90" in merc and "R$ 226,40" in merc, merc
                 assert pg.input_value("#pc-g") == "600" and "Clássico 14%" in pg.inner_text("#pc-ml")
                 assert "R$ -11,05" in pg.inner_text("#pc-res") or "-R$ 11,05" in pg.inner_text("#pc-res"), pg.inner_text("#pc-res")
                 pg.fill("#pc-preco", "250")

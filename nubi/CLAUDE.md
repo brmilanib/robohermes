@@ -1312,6 +1312,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   tipo, Full, medidas `dimensoes_do_item` = shipping.dimensions ou SELLER_PACKAGE_*), tarifa dos 2 tipos (Clássico/Premium) pela
   minha categoria e frete por `meli.frete_por_medidas` (`/users/{id}/shipping_options/free?dimensions=AxLxC,g`). Na tela:
   botões Clássico/Premium, ⚡ Full e as medidas editáveis (recalcula no ML ao mudar). Só leitura.
+  Quadro "🏆 Quem mais vende este produto" (01/10, Bruno: "os 5 maiores vendedores dos últimos 30 dias e o preço médio; e o
+  meu preço"): `_calc_mercado` (último export do Explorador da marca do GTIN — marca por `gtin_info` ou pelo título —, busca
+  pelo snapshot_id porque `anuncios.gtin` não tem índice e leva 5 s; vendedores somados, preço = fat ÷ un, nome real pelo
+  `meli|hash_lojas` com prova) + `_minhas_vendas_sku` (Vendas por Anúncio do UpSeller, 30 dias) + o preço do meu anúncio no
+  ML; botão "usar" põe o preço na conta. Margem em destaque ao lado do lucro.
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

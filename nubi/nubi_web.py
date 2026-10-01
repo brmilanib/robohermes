@@ -6789,9 +6789,77 @@ def _calc_ml(repo, d):
                 origem_frete = "estimado pelo anúncio do concorrente (sem as medidas do meu)" if frete is not None else None
             except meli.ErroMeli:
                 pass
+    mercado = minhas = None
+    try:
+        mercado = _calc_mercado(repo, it, d.get("gtin") or it.get("gtin") or (sku if re.fullmatch(r"\d{8,14}", sku) else ""))
+        minhas = _minhas_vendas_sku(repo, sku)
+    except Exception:  # noqa: BLE001 — o quadro de vendedores nunca derruba a calculadora
+        traceback.print_exc()
     return {"categoria": cat, "origem_categoria": origem_cat, "tipo": tipo, "tarifas": tarifas, "dimensoes": dims, "full": full,
-            "frete": frete, "origem_frete": origem_frete, "aviso": aviso,
-            "meu": {k: meu.get(k) for k in ("mlb", "titulo", "categoria", "tipo_id", "preco", "full", "dimensoes")} if meu else None}
+            "frete": frete, "origem_frete": origem_frete, "aviso": aviso, "mercado": mercado, "minhas_vendas": minhas,
+            "meu": {k: meu.get(k) for k in ("mlb", "titulo", "categoria", "tipo_id", "preco", "full", "dimensoes", "status")} if meu else None}
+
+
+def _minhas_vendas_sku(repo, sku):
+    """01/10 (Bruno: "trazer o meu preço que eu estou vendendo"): minhas vendas do SKU nos 30 dias do UpSeller (Vendas por
+    Anúncio): preço médio por loja/anúncio."""
+    if not sku:
+        return None
+    v = _vendas_atuais(repo) or {}
+    ls = [x for x in v.get("linhas") or [] if estoque._chave(x.get("sku")) == estoque._chave(sku)]
+    if not ls:
+        return None
+    un = sum(x.get("unidades") or 0 for x in ls)
+    val = sum(x.get("valor") or 0 for x in ls)
+    return {"inicio": v.get("inicio"), "fim": v.get("fim"), "unidades": un, "valor": round(val, 2),
+            "preco_medio": round(val / un, 2) if un else None,
+            "anuncios": sorted([{"loja": x.get("loja"), "anuncio": x.get("anuncio"), "unidades": x.get("unidades"),
+                                 "preco": x.get("preco_medio") or (round(x["valor"] / x["unidades"], 2) if x.get("unidades") else None)}
+                                for x in ls], key=lambda x: -(x["unidades"] or 0))[:6]}
+
+
+def _calc_mercado(repo, it, gtin):
+    """01/10 (Bruno: "um box com os 5 maiores vendedores nos últimos 30 dias e o preço médio que eles vendem esse produto"):
+    pelo Explorador do Nubimetrics (último export da marca do produto): vendedores do GTIN somados, preço médio =
+    faturamento ÷ unidades. A busca vai pelo snapshot da marca (índice); a marca vem da pesquisa do GTIN ou do título."""
+    g = re.sub(r"\D", "", str(gtin or ""))
+    if not re.fullmatch(r"\d{8,14}", g):
+        return {"sem": "sem GTIN para procurar no Nubimetrics"}
+    gs = sorted({g, g.lstrip("0"), g.zfill(13), g.zfill(14)} - {""})
+    marcas = {r["marca"] for r in repo._req("GET", "gtin_info", {"select": "marca", "gtin": f"in.({','.join(gs)})"}) or [] if r.get("marca")}
+    snaps = _ultimos_snapshots(repo)
+    if snaps.empty:
+        return {"sem": "sem exports do Explorador"}
+    tit = nubi.normalizar(it.get("titulo") or "")
+    nomes = {nubi.normalizar(m): m for m in snaps["marca"]}
+    marcas |= {m for n, m in nomes.items() if n and len(n) >= 3 and re.search(rf"(^|\s){re.escape(n)}(\s|$)", tit)}
+    marcas_up = {str(m).upper() for m in marcas}
+    sel = snaps[snaps["marca"].astype(str).str.upper().isin(marcas_up)]
+    if sel.empty:
+        return {"sem": "a marca deste produto não está no Explorador"}
+    ids = [int(i) for i in sel["id"]]
+    rows = repo._todos("anuncios", {"select": "vendedor,vendedor_id,un,fat,snapshot_id", "snapshot_id": f"in.({','.join(map(str, ids))})",
+                                    "gtin": f"in.({','.join(gs)})"})
+    if not rows:
+        return {"sem": "nenhum vendedor com este GTIN no último export da marca", "marcas": sorted(marcas)}
+    lojas = meli.ler_hash_lojas(repo)
+    por = {}
+    for r in rows:
+        k = str(r.get("vendedor_id") or r.get("vendedor"))
+        v = por.setdefault(k, {"vendedor": r.get("vendedor"), "un": 0.0, "fat": 0.0, "anuncios": 0})
+        v["un"] += float(r.get("un") or 0); v["fat"] += float(r.get("fat") or 0); v["anuncios"] += 1
+    top = []
+    for k, v in sorted(por.items(), key=lambda kv: -kv[1]["un"]):
+        if v["un"] <= 0:
+            continue
+        real = (_hash_ok(lojas.get(k)) or {}) if isinstance(lojas.get(k), dict) else {}
+        top.append({"vendedor": real.get("nome") or v["vendedor"], "nubimetrics": v["vendedor"], "real": bool(real.get("nome")),
+                    "unidades": round(v["un"]), "faturamento": round(v["fat"], 2), "preco_medio": round(v["fat"] / v["un"], 2),
+                    "anuncios": v["anuncios"]})
+    s0 = sel.sort_values("fim").iloc[-1]
+    un_t = sum(v["un"] for v in por.values()); fat_t = sum(v["fat"] for v in por.values())
+    return {"top": top[:5], "vendedores": len(top), "unidades": round(un_t), "preco_medio": round(fat_t / un_t, 2) if un_t else None,
+            "inicio": str(s0.get("inicio"))[:10], "fim": str(s0.get("fim"))[:10], "marcas": sorted(marcas)}
 
 
 def _seguir_pelo_gtin(repo, d):

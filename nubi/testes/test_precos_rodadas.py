@@ -278,6 +278,38 @@ def test_calculadora_com_o_meu_anuncio_do_ml():
         meli._CACHE.clear()
 
 
+def test_cinco_maiores_vendedores_do_produto():
+    """01/10 (Bruno: "os 5 maiores vendedores dos últimos 30 dias e o preço médio deles"): pelo último export da marca no
+    Explorador (busca pelo snapshot, que tem índice), vendedores do GTIN somados, preço = faturamento ÷ unidades."""
+    import pandas as pd
+    import nubi_web as w
+    import meli
+    class R:
+        def snapshots(self, marca=None):
+            return pd.DataFrame([{"id": 1, "marca": "ARMAF", "inicio": "2026-08-01", "fim": "2026-08-31"},
+                                 {"id": 2, "marca": "ARMAF", "inicio": "2026-09-01", "fim": "2026-09-30"},
+                                 {"id": 3, "marca": "LATTAFA", "inicio": "2026-09-01", "fim": "2026-09-30"}])
+        def _req(self, metodo, tab, params=None, corpo=None, prefer=None):
+            assert tab in ("gtin_info", "ia_resumos"), tab
+            return []
+        def _todos(self, tab, params=None):
+            assert tab == "anuncios" and params["snapshot_id"] == "in.(2)", params      # só o último export da marca
+            return [{"vendedor": "MAMS", "vendedor_id": "h1", "un": 200, "fat": 43000, "snapshot_id": 2},
+                    {"vendedor": "MAMS", "vendedor_id": "h1", "un": 100, "fat": 21000, "snapshot_id": 2},
+                    {"vendedor": "OUTRA", "vendedor_id": "h2", "un": 50, "fat": 11500, "snapshot_id": 2},
+                    {"vendedor": "ZERO", "vendedor_id": "h3", "un": 0, "fat": 0, "snapshot_id": 2}]
+    antes = meli.ler_hash_lojas
+    meli.ler_hash_lojas = lambda repo, chave=None: {"h1": {"nome": "MAMS ECOMMERCE", "confianca": "manual"}}
+    try:
+        m = w._calc_mercado(R(), {"titulo": "Perfume Club De Nuit Intense Da Armaf Edt 105ml"}, "6085010044644")
+    finally:
+        meli.ler_hash_lojas = antes
+    assert [t["vendedor"] for t in m["top"]] == ["MAMS ECOMMERCE", "OUTRA"] and m["top"][0]["real"] and not m["top"][1]["real"]
+    assert m["top"][0]["unidades"] == 300 and m["top"][0]["preco_medio"] == 213.33 and m["top"][1]["preco_medio"] == 230.0
+    assert m["vendedores"] == 2 and m["unidades"] == 350 and m["preco_medio"] == 215.71 and m["fim"] == "2026-09-30"
+    assert w._calc_mercado(R(), {"titulo": "x"}, "")["sem"]
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

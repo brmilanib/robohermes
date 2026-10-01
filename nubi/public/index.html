@@ -1143,8 +1143,22 @@ header.top{padding:7px 16px}
 .pc-alvo label{font-size:12.5px;font-weight:700;display:flex;flex-direction:column}.pc-alvo label>div{width:110px}
 .pc-alvo #pc-alvo-r{font-size:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-bottom:6px}
 .pc-rod{color:#94a3b8;font-size:11.5px;text-align:center;margin:14px 0 0}
+.pc-dois{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.pc-mg{text-align:right}.pc-mg b{font-size:44px;font-weight:900;letter-spacing:-1px;line-height:1.1;color:#1d4ed8}
+.pc-lucro.neg .pc-mg b{color:#b91c1c}.pc-dois b{font-size:44px;font-weight:900;letter-spacing:-1px;line-height:1.1}
+.pc-lucro.pos .pc-dois>div:first-child b{color:#047857}.pc-lucro.neg .pc-dois>div:first-child b{color:#b91c1c}
+.pc-merc{margin-top:16px;border:1px solid #e2e8f0;border-radius:18px;padding:12px 14px;background:linear-gradient(180deg,#fff,#f8fafc)}
+.pc-merc-t{font-weight:800;font-size:15px;margin-bottom:8px}.pc-merc-t span{display:block;font-weight:400;font-size:12px;color:#64748b;margin-top:2px}
+.pc-v{display:grid;grid-template-columns:34px 1fr auto auto auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #eef2f7}
+.pc-vn{font-weight:900;color:#f59e0b;font-size:16px;text-align:center}.pc-vt{min-width:0;position:relative}
+.pc-vt b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}.pc-vt small{color:#94a3b8;font-size:11px}
+.pc-vt i{display:block;height:5px;border-radius:9px;background:linear-gradient(90deg,#2563eb,#22d3ee);margin-top:4px}
+.pc-vu{color:#64748b;font-size:13px}.pc-vp{font-weight:800;font-size:16px}
+.pc-eu{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.pc-eu>div{display:flex;align-items:center;gap:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:8px 12px}
+.pc-eu>div span{flex:1;font-size:13px;color:#1e3a8a}.pc-eu>div b{font-size:18px;color:#1d4ed8}.pc-eu small{color:#64748b;font-size:12px}
 @keyframes pcEntra{from{opacity:.4;transform:scale(.985)}to{opacity:1;transform:none}}
-@media (max-width:760px){.pc-2{grid-template-columns:1fr}.pc-lucro>b{font-size:36px}.pc-topo{padding:14px}.pc-corpo{padding:12px 14px}}
+@media (max-width:760px){.pc-2{grid-template-columns:1fr}.pc-dois b,.pc-mg b{font-size:34px}.pc-v{grid-template-columns:28px 1fr auto auto}.pc-v .btn{display:none}.pc-topo{padding:14px}.pc-corpo{padding:12px 14px}}
 .pm-calcbtn{border:0;background:linear-gradient(135deg,#2563eb,#22d3ee);color:#fff;border-radius:10px;width:34px;height:34px;margin-right:8px;cursor:pointer;
   font-size:18px;flex:none;box-shadow:0 3px 10px rgba(37,99,235,.35);display:inline-flex;align-items:center;justify-content:center;transition:transform .15s}
 .pm-calcbtn:hover{transform:scale(1.08)}
@@ -8515,6 +8529,7 @@ function pmCalc(x, cfg) {
           <div class="pc-alvo"><label>🎯 Quero margem de<div><input id="pc-alvo" inputmode="decimal" value="15"><i>%</i></div></label><div id="pc-alvo-r"></div></div>
         </div>
       </div>
+      <div id="pc-merc" class="pc-merc"><div class="pc-merc-t">🏆 Quem mais vende este produto <span>buscando no Nubimetrics…</span></div></div>
       <p class="pc-rod">Tarifa e frete pela API oficial do Mercado Livre (só leitura). A calculadora só simula: nada muda no anúncio.</p>
     </div>`, bg => {
     const $i = id => bg.querySelector(id);
@@ -8528,9 +8543,10 @@ function pmCalc(x, cfg) {
       const r = conta(p, v), cls = r.lucro < 0 ? "neg" : "pos";
       const tnome = tipo === "gold_pro" ? "Premium" : "Clássico";
       $i("#pc-res").innerHTML = `
-        <div class="pc-lucro ${cls}"><div class="pc-lt"><span>${tnome}</span><em>${pctF(r.margem)} margem</em></div>
-          <small>Lucro líquido por venda</small><b>${rsES(r.lucro)}</b>
-          <div class="pc-pills"><span>Margem <b>${pctF(r.margem)}</b></span><span>ROI <b>${v.custo ? pctF(r.roi) : "—"}</b></span><span>Recebo <b>${rsES(r.recebido)}</b></span></div></div>
+        <div class="pc-lucro ${cls}"><div class="pc-lt"><span>${tnome}</span></div>
+          <div class="pc-dois"><div><small>Lucro líquido por venda</small><b>${rsES(r.lucro)}</b></div>
+            <div class="pc-mg"><small>Margem</small><b>${pctF(r.margem)}</b></div></div>
+          <div class="pc-pills"><span>ROI <b>${v.custo ? pctF(r.roi) : "—"}</b></span><span>Recebo do ML <b>${rsES(r.recebido)}</b></span></div></div>
         <div class="pc-lista">
           <div class="pc-l"><span>Preço de venda</span><b>${rsES(p)}</b></div>
           <div class="pc-l neg"><span>Tarifa ${tnome} (${n(v.pct)}%${r.fixa ? ` + ${rsES(r.fixa)} fixo` : ""})</span><b>− ${rsES(r.taxa)}</b></div>
@@ -8566,7 +8582,19 @@ function pmCalc(x, cfg) {
         Object.entries(ml.tarifas || {}).filter(([, t]) => t && t.pct != null).map(([k, t]) => `${tnome[k]} ${n(t.pct)}%`).join(" · "),
         ml.origem_frete ? `frete ${esc(ml.origem_frete)}` : (lerN($i("#pc-preco")) >= 79 ? "frete: preencha as medidas do pacote" : ""),
         ml.aviso ? esc(ml.aviso) : ""].filter(Boolean).join(" · ");
-      desenhar(); };
+      pcMercado(); desenhar(); };
+    // 01/10 (Bruno: "um box com os 5 maiores vendedores dos últimos 30 dias e o preço médio; e o meu preço de venda")
+    const pcMercado = () => { const mc = ml.mercado || {}, mv = ml.minhas_vendas, eu = ml.meu, box = $i("#pc-merc");
+      const dt = d => d ? d.slice(8, 10) + "/" + d.slice(5, 7) : "";
+      const usar = p => p ? `<button class="btn small" data-usar="${p}">usar</button>` : "";
+      const mx = Math.max(1, ...(mc.top || []).map(t => t.unidades));
+      box.innerHTML = `<div class="pc-merc-t">🏆 Quem mais vende este produto <span>${mc.top ? `Nubimetrics · ${dt(mc.inicio)} a ${dt(mc.fim)} · ${nf0.format(mc.vendedores)} vendedores · ${nf0.format(mc.unidades)} un · preço médio do mercado <b>${rsES(mc.preco_medio)}</b>` : esc(mc.sem || "sem dados do Nubimetrics")}</span></div>
+        ${(mc.top || []).map((t, i) => `<div class="pc-v"><span class="pc-vn">${i + 1}º</span><div class="pc-vt"><b>${esc(t.vendedor)}</b>${t.real ? "" : `<small>nome no Nubimetrics</small>`}
+            <i style="width:${t.unidades / mx * 100}%"></i></div><span class="pc-vu">${nf0.format(t.unidades)} un</span><span class="pc-vp">${rsES(t.preco_medio)}</span>${usar(t.preco_medio)}</div>`).join("")}
+        <div class="pc-eu">${eu && eu.preco ? `<div><span>🙋 Meu anúncio no ML agora</span><b>${rsES(eu.preco)}</b>${usar(eu.preco)}</div>` : ""}
+          ${mv ? `<div><span>🧾 Minhas vendas (${dt(mv.inicio)} a ${dt(mv.fim)}): ${nf0.format(mv.unidades)} un · preço médio</span><b>${mv.preco_medio != null ? rsES(mv.preco_medio) : "—"}</b>${usar(mv.preco_medio)}</div>
+            ${(mv.anuncios || []).length > 1 ? `<small>${mv.anuncios.map(a => `${esc(a.loja || "")}: ${a.preco != null ? rsES(a.preco) : "—"} (${nf0.format(a.unidades || 0)} un)`).join(" · ")}</small>` : ""}` : (eu ? "" : `<small>Não achei venda minha deste SKU nos últimos 30 dias do UpSeller.</small>`)}</div>`;
+      box.querySelectorAll("[data-usar]").forEach(b => b.onclick = () => { $i("#pc-preco").value = n(+b.dataset.usar); desenhar(); depois(true); }); };
     const dims = () => { const v = ["#pc-a", "#pc-l", "#pc-c", "#pc-g"].map(id => lerP($i(id)));
       return v.every(z => z > 0) ? `${v[0]}x${v[1]}x${v[2]},${Math.round(v[3])}` : ""; };
     const buscar = async (manual) => { const meu = ++seq;
