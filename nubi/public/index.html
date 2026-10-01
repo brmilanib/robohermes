@@ -1194,7 +1194,7 @@ const SECOES = [
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
   {id: "lojas", nome: "Minhas Lojas", desc: "Estoque e lojas do dono", icone: "📦"},
 ];
-function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml|precos)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml|precos|observados)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -1527,6 +1527,7 @@ function desenharMenu() {
       cont((S.vendLista || []).length) + seta("vendedores", (S.vendLista || []).length > 0))}
     ${ab.vendedores ? `<div class="subnav" id="sub-vend"></div>` : ""}
     ${it("#/vendedores-ml", "🔗", "Vendedores × ML", h.startsWith("#/vendedores-ml"))}
+    ${it("#/observados", "👀", "Observados", h.startsWith("#/observados"))}
     ${it("#/precos", "📈", "Monitor de preços", h.startsWith("#/precos"))}
     <div class="grupo">Minhas Lojas</div>
     ${it("#/estoque", "📦", "Estoque", h.startsWith("#/estoque"))}
@@ -1616,6 +1617,8 @@ async function rotear() {
     if (location.hash.startsWith("#/ml")) return telaML();
     if (location.hash.startsWith("#/vendedores-ml")) return telaSeguidosML();
     if (location.hash.startsWith("#/precos")) return telaPrecos();
+    if (location.hash.startsWith("#/observados/")) return telaObservado(location.hash.split("/")[2].split("?")[0]);
+    if (location.hash.startsWith("#/observados")) return telaObservados();
     if (location.hash.startsWith("#/nomes-vendedores")) return telaNomesVendedores();
     if (location.hash.startsWith("#/alertas")) return telaAlertas();
     if (location.hash.startsWith("#/vendas-dia")) return telaVendasDia();
@@ -6806,6 +6809,109 @@ async function telaMonitor() {
       </tbody></table></details>`; }).join("")}`;
   if ($("#mn-agora")) $("#mn-agora").onclick = async () => { $("#mn-agora").disabled = true;
     try { const x = await api("monitor_coletar", {}, {method: "POST", body: "{}"}); alert("Foto do banco: " + x.resultado); telaMonitor(); } catch (e) { alert(e.message); $("#mn-agora").disabled = false; } };
+}
+
+// ---------- 👀 Vendedores observados (01/10, Bruno: "os vendedores que vêm nos exports do Explorador e não seguimos") ----------
+// O Nubimetrics só deixa seguir 20; todo vendedor dos exports ganha cadastro (hash = chave, nomes fictícios guardados),
+// página com os produtos que ele vende e ⭐ interessante (fila do revezamento e da busca da loja real).
+const SIT_OBS = {seguido: ["seguido", "good"], observado: ["observado", ""], plataforma: ["Mercado Livre", "warn"]};
+async function telaObservados() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo os vendedores dos exports</div></div>`;
+  let r;
+  try { r = await api("observados_lista"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/observados")) return;
+  S.obs = r; S.obsF = S.obsF || {q: "", sit: "todos", so: "un"};
+  const desenhar = () => {
+    const f = S.obsF, q = f.q.toLowerCase();
+    let xs = r.itens.filter(x => (f.sit === "todos" || (f.sit === "estrela" ? x.interesse : f.sit === "com_loja" ? x.loja : x.situacao === f.sit))
+      && (!q || x.nomes.some(n => n.toLowerCase().includes(q)) || (x.loja && (x.loja.nome || "").toLowerCase().includes(q))));
+    xs = xs.slice().sort((a, b) => f.so === "fat" ? b.fat - a.fat : f.so === "marcas" ? b.marcas - a.marcas : f.so === "anuncios" ? b.anuncios - a.anuncios : b.un - a.un);
+    const t = r.total || {};
+    main.innerHTML = `<div class="es-cab"><h1>👀 Vendedores observados</h1>
+        <span class="muted">${nf0.format(t.vendedores)} vendedores nos exports do Explorador · ${nf0.format(t.seguidos)} seguidos · ${nf0.format(t.observados)} observados · ${nf0.format(t.com_loja)} com loja real · ⭐ ${nf0.format(t.interessantes)}</span></div>
+      <p class="muted" style="margin:4px 0 10px;font-size:12.5px">Todo vendedor que aparece num export do Explorador de anúncios (último export de cada marca) entra aqui, mesmo sem ser seguido no Nubimetrics (limite de 20).
+        Clique para ver os produtos que ele vende. Marque ⭐ nos interessantes: é a fila para achar a loja real no Mercado Livre e para o revezamento dos seguidos.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+        <input type="search" id="obs-q" placeholder="Buscar nome ou loja…" value="${esc(f.q)}" style="min-width:220px">
+        <select id="obs-sit">${[["todos", "Todos"], ["observado", "Só observados"], ["seguido", "Só seguidos"], ["estrela", "⭐ interessantes"], ["com_loja", "Com loja real"]].map(([v, n]) => `<option value="${v}" ${f.sit === v ? "selected" : ""}>${n}</option>`).join("")}</select>
+        <select id="obs-so">${[["un", "Mais unidades"], ["fat", "Maior faturamento"], ["marcas", "Mais marcas"], ["anuncios", "Mais anúncios"]].map(([v, n]) => `<option value="${v}" ${f.so === v ? "selected" : ""}>${n}</option>`).join("")}</select>
+        <span class="muted">${nf0.format(xs.length)} vendedor(es)</span></div>
+      <div class="card"><table class="tab"><thead><tr><th></th><th>Vendedor (nome no Nubimetrics)</th><th>Situação</th><th>Loja real</th><th class="num">Marcas</th><th class="num">Anúncios</th><th class="num">Unidades</th><th class="num">Faturamento</th><th class="num">FULL</th><th class="num">Catálogo</th><th>Visto</th></tr></thead><tbody>
+        ${xs.slice(0, 400).map(x => `<tr>
+          <td><button class="btn small ghost" data-estrela="${esc(x.vendedor_id)}" title="${x.interesse ? "Tirar da fila de interessantes" : "Marcar como interessante"}">${x.interesse ? "⭐" : "☆"}</button></td>
+          <td data-l="Vendedor"><a href="#/observados/${esc(x.vendedor_id)}"><b>${esc(x.nome)}</b></a>${x.nomes.length > 1 ? `<div class="muted" style="font-size:11px">também: ${x.nomes.slice(1).map(esc).join(", ")}</div>` : ""}${x.loja_oficial ? ` <span class="pill">loja oficial</span>` : ""}</td>
+          <td data-l="Situação"><span class="st ${(SIT_OBS[x.situacao] || [])[1] || ""}">${esc((SIT_OBS[x.situacao] || [x.situacao])[0])}</span></td>
+          <td data-l="Loja real">${x.loja ? `<a class="ml-loja" href="${esc(urlLojaML(x.loja))}" target="_blank" rel="noopener">${esc(x.loja.nome)} ↗</a>${x.loja.cidade ? `<div class="muted" style="font-size:11px">📍 ${esc(x.loja.cidade)}${x.loja.uf ? " - " + esc(x.loja.uf) : ""}</div>` : ""}` : `<span class="muted">—</span>`}</td>
+          <td class="num" data-l="Marcas">${nf0.format(x.marcas)}</td><td class="num" data-l="Anúncios">${nf0.format(x.anuncios)}</td>
+          <td class="num" data-l="Unidades"><b>${nf0.format(x.un)}</b></td><td class="num" data-l="Faturamento">${abrev(x.fat)}</td>
+          <td class="num" data-l="FULL">${FMT.pct(x.pct_full)}</td><td class="num" data-l="Catálogo">${FMT.pct(x.pct_catalogo)}</td>
+          <td data-l="Visto" class="muted" style="font-size:12px">${x.primeiro ? dataBR(x.primeiro) : ""}${x.ultimo ? " → " + dataBR(x.ultimo) : ""}</td></tr>`).join("")}
+        ${xs.length > 400 ? `<tr><td colspan="11" class="muted">Mostrando 400 de ${nf0.format(xs.length)}; use a busca para achar os outros.</td></tr>` : ""}
+      </tbody></table></div>`;
+    $("#obs-q").oninput = e => { S.obsF.q = e.target.value; desenhar(); $("#obs-q").focus(); $("#obs-q").setSelectionRange(99, 99); };
+    $("#obs-sit").onchange = e => { S.obsF.sit = e.target.value; desenhar(); };
+    $("#obs-so").onchange = e => { S.obsF.so = e.target.value; desenhar(); };
+    main.querySelectorAll("[data-estrela]").forEach(b => b.onclick = () => alternarInteresse(b.dataset.estrela, () => { const it = r.itens.find(x => x.vendedor_id === b.dataset.estrela); if (it) { it.interesse = it.interesse ? null : {}; r.total.interessantes += it.interesse ? 1 : -1; } desenhar(); }));
+  };
+  desenhar();
+}
+async function alternarInteresse(vid, depois) {
+  const r = S.obs, it = r ? r.itens.find(x => x.vendedor_id === vid) : null;
+  const ligado = !(it ? it.interesse : (S.obsDet && S.obsDet.interesse));
+  try { await api("observados_interesse", {}, {method: "POST", body: JSON.stringify({vendedor_id: vid, ligado})}); toast(ligado ? "⭐ marcado como interessante" : "tirado dos interessantes"); if (depois) depois(ligado); }
+  catch (e) { toast(e.message); }
+}
+async function telaObservado(vid) {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o vendedor</div></div>`;
+  let r;
+  try { r = await api("observado", {vendedor_id: vid}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/observados/")) return;
+  S.obsDet = r;
+  const t = r.total || {}, kpi = (l, v, o = "") => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
+  const R = x => x == null ? "—" : "R$ " + nf2.format(x);
+  const lojaBloco = () => r.loja ? `<span>🏪 Loja real: <a class="ml-loja" href="${esc(urlLojaML(r.loja))}" target="_blank" rel="noopener">${esc(r.loja.nome)} ↗</a> <span class="muted">(${provaML(r.loja)})</span></span>
+      ${r.loja.id ? `<a class="btn small" href="#/ml/loja/${esc(r.loja.id)}">Página da loja</a>` : ""}`
+    : `<span class="muted">Loja real no Mercado Livre ainda não achada.</span><button class="btn small ml-laranja" id="ob-desc">🔎 Descobrir a loja real</button>
+      <input id="ob-link" type="search" placeholder="Já sei: link da loja ou de um anúncio dela" style="min-width:260px"><button class="btn small" id="ob-sei">Salvar</button><span id="ob-msg" class="muted" style="font-size:12px"></span><div id="ob-cands" style="flex-basis:100%"></div>`;
+  main.innerHTML = `<div class="es-cab"><h1>👀 ${esc(r.nome)}</h1>
+      <span class="st ${(SIT_OBS[r.situacao] || [])[1] || ""}">${esc((SIT_OBS[r.situacao] || [r.situacao])[0])}</span>
+      <button class="btn small ${r.interesse ? "primary" : ""}" id="ob-estrela">${r.interesse ? "⭐ interessante" : "☆ marcar interessante"}</button>
+      <a class="btn small ghost" href="#/observados">← todos os observados</a></div>
+    <div class="muted" style="margin:-4px 0 8px;font-size:12.5px">${r.nomes.length > 1 ? "nomes vistos no Nubimetrics: " + r.nomes.map(esc).join(", ") + " · " : ""}hash ${esc(vid.slice(0, 12))}…</div>
+    <div class="card pad" style="padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:10px">${lojaBloco()}</div>
+    <div class="kpis pq-kpis">
+      ${kpi("Produtos", nf0.format(t.produtos), `${nf0.format(t.anuncios)} anúncios · ${nf0.format(t.gtins)} com GTIN`)}
+      ${kpi("Unidades (último export de cada marca)", nf0.format(t.un), `${nf0.format(r.marcas.length)} marca(s)`)}
+      ${kpi("Faturamento", abrev(t.fat), "aproximado (faixas)")}
+      ${kpi("Média/dia desde a criação", t.media_dia_hist ? nf1.format(t.media_dia_hist) + "/dia" : "—", "histórico ÷ dias publicados")}
+    </div>
+    <div class="pq-sec">Marcas que ele vende</div>
+    <div class="card" style="margin-bottom:10px"><table class="tab"><thead><tr><th>Marca</th><th class="num">Produtos</th><th class="num">Unidades</th><th class="num">Faturamento</th></tr></thead><tbody>
+      ${r.marcas.map(m => `<tr><td>${esc(m.marca)}</td><td class="num">${nf0.format(m.produtos)}</td><td class="num">${nf0.format(m.un)}</td><td class="num">${abrev(m.fat)}</td></tr>`).join("")}</tbody></table></div>
+    <div class="pq-sec">Produtos <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">· agrupados pelo nubi; share = parte dele nas vendas do produto no mercado</span></div>
+    <div class="card"><table class="tab"><thead><tr><th>Produto</th><th>Categoria</th><th>GTIN</th><th class="num">Anúncios</th><th class="num">Unidades</th><th class="num">Share</th><th class="num">Faturamento</th><th class="num">Preço</th><th class="num">FULL</th><th class="num">Média/dia</th></tr></thead><tbody>
+      ${r.produtos.map(p => `<tr><td><b>${esc(p.produto)}</b><div class="muted wrap" style="font-size:11px;max-width:420px">${esc(p.titulo)}</div></td>
+        <td>${esc(p.categoria || "")}</td><td class="muted" style="font-size:12px">${esc(p.gtin || "—")}</td>
+        <td class="num">${nf0.format(p.anuncios)}</td><td class="num"><b>${nf0.format(p.un)}</b></td><td class="num">${FMT.pct(p.share)}</td>
+        <td class="num">${abrev(p.fat)}</td><td class="num">${R(p.preco)}</td><td class="num">${FMT.pct(p.pct_full)}</td>
+        <td class="num">${p.media_dia_hist != null ? nf1.format(p.media_dia_hist) : "—"}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">Sem produtos nos exports recentes.</td></tr>`}
+    </tbody></table></div>
+    <div class="pq-sec">Evolução por export</div>
+    <div class="card"><table class="tab"><thead><tr><th>Marca</th><th>Período</th><th class="num">Anúncios</th><th class="num">Unidades</th><th class="num">Un./dia</th><th class="num">Faturamento</th></tr></thead><tbody>
+      ${r.periodos.map(x => `<tr><td>${esc(x.marca)}</td><td>${dataBR(x.inicio)} → ${dataBR(x.fim)} (${x.dias} d)</td><td class="num">${nf0.format(x.anuncios)}</td><td class="num">${nf0.format(x.un)}</td><td class="num">${x.dias ? nf1.format(x.un / x.dias) : "—"}</td><td class="num">${abrev(x.fat)}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  $("#ob-estrela").onclick = () => alternarInteresse(vid, lig => { r.interesse = lig ? {} : null; telaObservado(vid); });
+  const salvar = async loja => { try { const x = await api("meli_nomear", {}, {method: "POST", body: JSON.stringify({vendedor_id: vid, loja})}); toast("Loja real salva: " + x.loja.nome); telaObservado(vid); } catch (e) { toast(e.message, 6000); } };
+  if ($("#ob-sei")) $("#ob-sei").onclick = () => { const l = $("#ob-link").value.trim(); if (l) salvar(l); };
+  if ($("#ob-desc")) $("#ob-desc").onclick = async e => {
+    e.target.disabled = true; $("#ob-msg").textContent = "procurando os produtos dele no catálogo do Mercado Livre…";
+    try { const x = await api("meli_descobrir", {}, {method: "POST", body: JSON.stringify({vendedor_id: vid})});
+      if (x.achou) telaObservado(vid); else { $("#ob-msg").textContent = "Não achei com certeza: " + (x.motivo || "") + " A busca por foto (coletor) completa à noite."; e.target.disabled = false;
+        $("#ob-cands").innerHTML = candidatasML(x.candidatas); main.querySelectorAll("#ob-cands [data-escolher]").forEach(b => b.onclick = () => salvar(b.dataset.escolher)); }
+    } catch (err) { $("#ob-msg").innerHTML = mlAviso(err); e.target.disabled = false; }
+  };
 }
 // ---------- 🎯 Desafio (30/09, pedido do Bruno: "abre uma página só para esse card desafio") ----------
 // Tudo do card #126 num lugar: etapas, equipe (cards do tipo desafio), os 17 seguidos com a loja real e a cidade, as

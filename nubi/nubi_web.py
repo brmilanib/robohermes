@@ -42,6 +42,7 @@ import estoque
 import meli
 import perseguir
 import monitor
+import observados
 import precos
 import revisao
 import reuniao
@@ -293,6 +294,46 @@ def _hash_ok(x):
     tela: o Bruno conferiu no Hunter e GLBRASIL2026 e SHOP ELETRONICO estavam errados (datas de criação e produtos)."""
     x = _a_conferir(x)
     return x if x and x.get("confianca") != "a conferir" else None
+
+
+def _hashes_seguidos(repo):
+    """Hashes do Explorador dos vendedores seguidos (vend_relatorios.seller_hash + de-para meli|seguidos pelos nomes)."""
+    hs = set()
+    try:
+        for r in _vend_rels(repo):
+            if r.get("seller_hash"):
+                hs.add(str(r["seller_hash"]))
+        nomes = {r["vendedor"] for r in _vend_rels(repo)}
+        for a in repo._req("GET", "anuncios", {"select": "vendedor_id,vendedor", "vendedor": f"in.({','.join(json.dumps(n) for n in nomes)})",
+                                                "limit": 2000}) or []:
+            if a.get("vendedor_id"):
+                hs.add(str(a["vendedor_id"]))
+    except Exception:  # noqa: BLE001
+        pass
+    return hs
+
+
+def rota_observados(repo, metodo, rota, q, corpo):
+    d = json.loads(corpo or b"{}") if metodo == "POST" else {}
+    if rota == "observados_lista":
+        try:
+            lojas = {h: _hash_ok(x) for h, x in meli.ler_hash_lojas(repo).items() if _hash_ok(x)}
+        except Exception:  # noqa: BLE001
+            lojas = {}
+        return observados.lista(repo, _hashes_seguidos(repo), lojas)
+    if rota == "observado":
+        vid = str(q.get("vendedor_id") or "")
+        try:
+            lojas = _lojas_ml_do(repo, {vid})
+            return observados.detalhe(repo, vid, _hashes_seguidos(repo), lojas)
+        except ValueError as e:
+            raise ErroNuvem(str(e))
+    if rota == "observados_interesse" and metodo == "POST":
+        try:
+            return {"ok": True, "interesses": observados.marcar_interesse(repo, d.get("vendedor_id"), bool(d.get("ligado")), d.get("nota"))}
+        except ValueError as e:
+            raise ErroNuvem(str(e))
+    raise ErroNuvem("Rota desconhecida.", 404)
 
 
 def _lojas_ml_do(repo, hashes):
@@ -1226,6 +1267,8 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"ok": True})
         if rota.startswith("mac_"):
             return _json(rota_mac(repo, metodo, rota, q, corpo, token))
+        if rota.startswith("observado"):                 # 01/10: 👀 vendedores observados (não seguidos) dos exports do Explorador
+            return _json(rota_observados(repo, metodo, rota, q, corpo))
         if rota == "monitor_painel":                    # 01/10: 📟 Monitor (banco, memória, base de conhecimento e máquinas)
             return _json(monitor.painel(repo))
         if rota == "monitor_coletar" and metodo == "POST":

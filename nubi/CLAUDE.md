@@ -215,6 +215,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   título ou a mesma marca → categoria final do ML → `categoria_de_ml`), 2º o Astra (marca + categoria do produto, pode
   criar categoria; NÃO chuta); o que ficar sem resposta volta em `nao_soube` e fica em Sem marca / Sem categoria para o
   Bruno. Rota `estoque_categoria_sku_salvar`.
+- **👀 Vendedores observados (01/10, Bruno: "todos os vendedores que vêm nos exports do Explorador devem ser cadastrados
+  como vendedores que não seguimos, com os itens que vendem; limite de 20 seguidos no Nubimetrics")**: módulo
+  `observados.py`; funções SQL `nubi_observados()` (1 linha por hash no último export de cada marca), `nubi_observado_produtos(h)`
+  (produtos agrupados pelo nubi, share no mercado, média/dia histórico ÷ dias publicados) e `nubi_observado_periodos(h)`;
+  rotas `observados_lista`, `observado?vendedor_id=`, `observados_interesse` (⭐, `observados|interesse`); telas
+  Concorrentes → 👀 Observados (`#/observados`, busca/filtro/ordem, ⭐) e `#/observados/<hash>` (loja real com
+  "Descobrir"/"Já sei", KPIs, marcas, produtos, evolução por export). Hash é a chave (nomes fictícios guardados);
+  seguidos = `_hashes_seguidos` (seller_hash + nomes dos relatórios); "MERCADO LIVRE" = situação `plataforma`, vendedor
+  normal. Próximo: busca da loja real para os ⭐ (foto na busca) e o revezamento no Nubimetrics (parar de seguir X,
+  seguir Y, histórico completo, voltar). Teste `test_observados.py`.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 
