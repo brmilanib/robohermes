@@ -1437,16 +1437,27 @@ class RepoLocal:
         salvar_gtins(info)
 
 
-CAMPOS_CONSOLIDACAO = ["produto", "linha", "volume", "tipo", "genero", "confianca"]
+CAMPOS_CONSOLIDACAO = ["produto", "linha", "volume", "tipo", "genero", "confianca", "categoria"]
 
 
 def preparar(df):
-    """Anúncios lidos do banco: troca vazios (None) pelos valores que a consolidação espera."""
+    """Anúncios lidos do banco: troca vazios (None) pelos valores que a consolidação espera.
+    01/10: a categoria ("" = perfumaria) é recalculada pela linha original do arquivo (bruto), senão uma regra nova
+    (perfumaria pela categoria final) nunca chegaria aos períodos já importados."""
     for c in ("gtin", "marca_anuncio", "categoria", "confianca", "titulo", "vendedor"):
         if c in df.columns:
             df[c] = df[c].fillna("")
     if "genero" in df.columns:
         df["genero"] = df["genero"].fillna("-")
+    if "bruto" in df.columns and "categoria" in df.columns:
+        cats = []
+        for b, c in zip(df["bruto"], df["categoria"]):
+            if isinstance(b, dict) and (b.get("Categoria L1") or b.get("Categoria final")):
+                l1, fim = str(b.get("Categoria L1") or ""), str(b.get("Categoria final") or "")
+                cats.append("" if eh_perfumaria(l1, fim) else (fim.strip() or l1.strip()))
+            else:
+                cats.append(c)
+        df["categoria"] = cats
     return df
 
 

@@ -57,7 +57,23 @@ def test_fora_de_perfume_o_produto_e_o_gtin():
     assert p2[0] != p2[1] and (("GTIN" in p2[0] and "GTIN" in p2[1]) or "Rosa" in p2[0]), p2
 
 
+
+
+def test_reprocessar_recalcula_a_categoria_pelo_arquivo():
+    """01/10: a categoria gravada na importação antiga ("" = perfume) é refeita pela linha original ao reprocessar."""
+    df = pd.DataFrame([{"titulo": "Escova Secadora Revlon", "categoria": "", "gtin": "1", "confianca": None, "marca_anuncio": None,
+                        "vendedor": "v", "genero": None, "bruto": {"Categoria L1": "Beleza e Cuidado Pessoal", "Categoria final": "Escovas Elétricas"}},
+                       {"titulo": "Perfume Revlon Charlie", "categoria": "Perfumes", "gtin": "2", "confianca": None, "marca_anuncio": None,
+                        "vendedor": "v", "genero": None, "bruto": {"Categoria L1": "Mais Categorias", "Categoria final": "Perfumes"}},
+                       {"titulo": "Sem bruto", "categoria": "Canetas", "gtin": "", "confianca": None, "marca_anuncio": None,
+                        "vendedor": "v", "genero": None, "bruto": None}])
+    out = nubi.preparar(df)
+    assert list(out["categoria"]) == ["Escovas Elétricas", "", "Canetas"], list(out["categoria"])
+    assert "categoria" in nubi.CAMPOS_CONSOLIDACAO
+
+
 if __name__ == "__main__":
     test_perfumaria_e_pela_categoria_final()
     test_fora_de_perfume_o_produto_e_o_gtin()
+    test_reprocessar_recalcula_a_categoria_pelo_arquivo()
     print("ok fora de perfume")
