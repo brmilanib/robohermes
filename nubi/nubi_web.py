@@ -6204,6 +6204,7 @@ COMANDOS_MAC = {
     "vitrine_seguidos": "Mercado Livre: ler a vitrine (_CustId_) das lojas dos vendedores seguidos e gravar todos os anúncios, só lê",
     "ml_precos": "Mercado Livre: ler agora o preço dos anúncios do monitor de preços, só lê",
     "hermes_revisao": "Hermes conferir as propostas do dia da revisão do agrupamento (Explorador)",
+    "ml_busca_foto": "Mercado Livre: achar a loja dos seguidos sem loja buscando o título e casando a foto do anúncio, só lê",
 }
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 VETOR_LOCAL_DESDE = "2026-09-27T00:00:00+00:00"   # card #29: só itens novos da caixa ganham vetor (os antigos ficam de fora)
@@ -6507,6 +6508,61 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
              "fim": d.get("fim"), "em": datetime.now(timezone.utc).isoformat(), "itens": itens}, ensure_ascii=False)}],
             prefer="resolution=merge-duplicates,return=minimal")
         return {"ok": True, "itens": len(itens)}
+    if rota == "ml_busca_foto_pendente":
+        # 01/10 (Bruno, MAMS: "tem GTIN, não entendo por que não achou"): anúncio fora de catálogo não aparece em
+        # /products/{id}/items. Caminho novo: o coletor busca o TÍTULO no ML e casa o card pelo ID da foto do Nubimetrics
+        # (único por anúncio); abre o anúncio e lê a loja. Aqui: os seguidos sem loja e as fotos mais vendidas de cada um.
+        lojas = meli.ler_hash_lojas(repo, meli.SEGUIDOS)
+        out = []
+        for r in _vend_rels(repo):
+            v = r.get("vendedor")
+            if not v or any(x["vendedor"] == v for x in out):
+                continue
+            lj = _a_conferir(lojas.get(v))
+            if lj and lj.get("confianca") in ("manual", "certa"):
+                continue
+            f = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(f"vend_fotos|{v}")}) or [None])[0]
+            try:
+                itens = (json.loads(f["texto"]) if f else {}).get("itens") or []
+            except (TypeError, ValueError):
+                itens = []
+            cands = []
+            for it in itens:
+                m = ID_FOTO.search(str(it.get("foto") or ""))
+                t = str(it.get("Title") or it.get("titulo") or "").strip()
+                if m and t:
+                    cands.append({"titulo": t[:120], "fid": m.group(0), "foto": it.get("foto"), "un": float(it.get("Si") or 0),
+                                  "preco": it.get("Price")})
+            cands.sort(key=lambda c: -c["un"])
+            if cands:
+                out.append({"vendedor": v, "itens": cands[:6], "atual": {k: lj.get(k) for k in ("id", "nome", "confianca")} if lj else None})
+        return {"vendedores": out}
+    if rota == "ml_busca_foto_achou" and metodo == "POST":
+        vend, sid = str(d.get("vendedor") or ""), re.sub(r"\D", "", str(d.get("seller_id") or ""))
+        mlb, fid = precos.normalizar_mlb(d.get("mlb")), str(d.get("fid") or "")[:40]
+        if not vend or not mlb or not (sid or d.get("nome")):
+            raise ErroNuvem("Faltou vendedor, anúncio ou loja.")
+        lj = None
+        try:
+            lj = meli.lojas([sid]).get(sid) if sid else None
+        except Exception:  # noqa: BLE001
+            lj = None
+        nome = (lj or {}).get("nome") or str(d.get("nome") or "")[:120]
+        link = (lj or {}).get("link") or str(d.get("link") or "")[:300] or (f"https://perfil.mercadolivre.com.br/{nome}" if nome else "")
+        x = {"id": sid or None, "nome": nome, "link": link, "votos": 1, "confianca": "certa" if sid else "provável",
+             "prova": f"foto do anúncio {mlb} igual à do Nubimetrics (ID {fid}), achada pela busca no ML e conferida na página do anúncio",
+             "anuncios": [{"anuncio": mlb, "link": precos.link_de(mlb), "titulo": str(d.get("titulo") or "")[:200], "foto_id": fid}],
+             "em": datetime.now(timezone.utc).isoformat()}
+        meli.gravar_hash_lojas(repo, {vend: x}, meli.SEGUIDOS)
+        hashes = _hashes_do_nome(repo, vend)
+        if hashes and sid:
+            meli.gravar_hash_lojas(repo, {h: {k: v for k, v in x.items() if k != "anuncios"} for h in hashes})
+        try:
+            repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": DESAFIO_PRINCIPAL, "autor": "mac", "tipo": "passo",
+                                                        "texto": f"📷 {vend} → {nome} ({sid or 'sem id'}): {x['prova']}"}], prefer="return=minimal")
+        except ErroNuvem:
+            pass
+        return {"ok": True, "loja": x}
     if rota == "ml_vitrine_pendente":
         # card #126, etapa 2: para o coletor (vitrine-seguidos), as lojas reais ligadas aos seguidos (só o seller_id)
         lojas = meli.ler_hash_lojas(repo, meli.SEGUIDOS)

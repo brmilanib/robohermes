@@ -2255,6 +2255,70 @@ def coletar_vitrine_seguidos(p, cfg, token, so=None):
     return feitos, total, erros, f"vitrine de {feitos} loja(s): {total} anúncio(s) — " + ", ".join(partes)[:300]
 
 
+def _casa_foto(fid, foto):
+    """O ID da foto do Nubimetrics (836103-MLA84833570173) está na URL da foto do card? O ML troca só o tamanho (-I/-O/-V)."""
+    return bool(fid) and fid in str(foto or "")
+
+
+def coletar_busca_foto(p, cfg, token, so=None):
+    """01/10 (card #126, Bruno: "achou a loja e o anúncio no ML para finalizar a afirmação"): para cada seguido SEM loja,
+    busca no ML o título dos anúncios mais vendidos dele (Nubimetrics), casa o card pelo ID da foto, abre o anúncio e lê a
+    loja (JS_ML_VENDEDOR). Uma foto igual = o anúncio dele; a loja vai ao nubi como "certa". Só lê; ritmo de gente."""
+    pend = api(token, "ml_busca_foto_pendente", timeout=60).get("vendedores") or []
+    if so:
+        pend = [v for v in pend if v["vendedor"].upper() == so.upper()]
+    if not pend:
+        return 0, 0, 0, "nenhum vendedor seguido sem loja com fotos lidas"
+    ctx = _ml_navegador(p, cfg)
+    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+    achados, erros, partes = 0, 0, []
+    ao_vivo(True, total=len(pend))
+    try:
+        for v in pend:
+            ao_vivo(True, atual=f"busca por foto · {v['vendedor']}")
+            ok = False
+            for it in v.get("itens") or []:
+                termo = " ".join(str(it["titulo"]).split()[:7])
+                try:
+                    pg.goto(f"{ML_LISTA}/{_ml_slug(termo)}", wait_until="domcontentloaded", timeout=45000)
+                    rs = ml_resultados(pg)
+                except Falha:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    log(f"  {v['vendedor']}: busca '{termo}' falhou ({str(e)[:100]})")
+                    continue
+                card = next((r for r in rs if _casa_foto(it["fid"], r.get("foto"))), None)
+                if not card:
+                    log(f"  {v['vendedor']}: '{termo}' — {len(rs)} cards, foto {it['fid']} não está entre eles")
+                    devagar(3)
+                    continue
+                pg.goto(f"https://produto.mercadolivre.com.br/MLB-{card['id'][3:]}", wait_until="domcontentloaded", timeout=45000)
+                devagar(2.5)
+                if _ml_bloqueado(pg):
+                    raise Falha("o Mercado Livre pediu verificação de robô: rode entrar-ml no Mac")
+                x = pg.evaluate(JS_ML_VENDEDOR)
+                r = api(token, "ml_busca_foto_achou", corpo={"vendedor": v["vendedor"], "seller_id": x.get("vendedor_id") or "",
+                                                            "nome": x.get("vendedor") or card.get("vendedor") or "", "mlb": card["id"],
+                                                            "fid": it["fid"], "titulo": x.get("titulo") or card.get("titulo") or ""}, timeout=60)
+                lj = r.get("loja") or {}
+                log(f"  {v['vendedor']}: foto {it['fid']} = {card['id']} → loja {lj.get('nome') or '?'} ({lj.get('id') or 'sem id'}, {lj.get('confianca')})")
+                partes.append(f"{v['vendedor']} → {lj.get('nome') or '?'}")
+                ok = True
+                break
+            if not ok:
+                erros += 1
+                partes.append(f"{v['vendedor']}: nenhuma foto achada na busca")
+            achados += int(ok)
+            AO_VIVO["feito"] += 1
+            devagar(4)
+    finally:
+        try:
+            ctx.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return achados, achados, erros, f"busca por foto: {achados} loja(s) achada(s), {erros} sem resultado — " + "; ".join(partes)[:400]
+
+
 def cmd_entrar_ml(args, cfg):
     """Abre o Mercado Livre no Chrome do coletor para o Bruno passar pela verificação (e entrar, se quiser); guarda a sessão."""
     from playwright.sync_api import sync_playwright
@@ -2955,7 +3019,8 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  # 27/09 (Mac com malware, reinstalação): coletas e logins também no servidor (gamdias)
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
-                 "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos")
+                 "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos",
+                 "ml_busca_foto")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -3011,6 +3076,7 @@ def comando_mac(chave, arg=""):
         "navegador_status": [*c, "navegar", "0"],
         "ml_lojas": [*c, "ml-lojas"], "ml_posicoes": [*c, "ml-posicoes"], "entrar_ml": [*c, "entrar-ml"],
         "vend_fotos": [*c, "fotos-vendedores"], "vitrine_seguidos": [*c, "vitrine-seguidos"], "ml_precos": [*c, "ml-precos"],
+        "ml_busca_foto": [*c, "ml-busca-foto"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -7097,6 +7163,8 @@ def main():
     sub.add_parser("ml-posicoes", help="Mercado Livre: posição dos meus anúncios na busca")
     mp = sub.add_parser("ml-precos", help="Mercado Livre: preço de agora dos anúncios do monitor de preços, só lê")
     mp.add_argument("--so", default=None, help="só este anúncio (MLB…)")
+    bf = sub.add_parser("ml-busca-foto", help="Mercado Livre: achar a loja dos seguidos sem loja pela foto do anúncio na busca, só lê")
+    bf.add_argument("--so", default=None, help="só este vendedor seguido")
     mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
     mlp.add_argument("url")
     fv = sub.add_parser("fotos-vendedores", help="Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML)")
@@ -7221,6 +7289,8 @@ def main():
         return executar("ml_posicoes", coletar_ml_posicoes)
     if args.cmd == "ml-precos":
         return executar("ml_precos", lambda p, cfg, token: coletar_ml_precos(p, cfg, token, args.so))
+    if args.cmd == "ml-busca-foto":
+        return executar("ml_busca_foto", lambda p, cfg, token: coletar_busca_foto(p, cfg, token, args.so))
     if args.cmd == "ml-pagina":
         return executar("ml_pagina", lambda p, cfg, token: coletar_ml_pagina(p, cfg, token, args.url))
     if args.cmd == "fotos-vendedores":
