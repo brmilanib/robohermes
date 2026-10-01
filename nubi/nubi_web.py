@@ -5241,6 +5241,45 @@ def gravar_candidatas(repo, vendedor, lojas):
     return atual[vendedor]
 
 
+TOTAL_LOJA = "ml|total_loja|"
+
+
+def gravar_total_loja(repo, sid, total, fonte):
+    if not re.fullmatch(r"\d{3,15}", str(sid or "")):
+        return
+    repo._req("POST", "ia_resumos", corpo=[{"chave": TOTAL_LOJA + str(sid), "ia": fonte, "criado_em": datetime.now(timezone.utc).isoformat(),
+                                            "texto": json.dumps({"total": int(total), "fonte": fonte})}],
+              prefer="resolution=merge-duplicates,return=minimal")
+
+
+def total_loja(repo, sid):
+    """Total de anúncios da loja no ML: o "N resultados" da vitrine (coletor); senão a busca da API por seller_id."""
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{TOTAL_LOJA}{sid}"}) or [None])[0]
+    try:
+        x = json.loads(r["texto"]) if r and r.get("texto") else None
+        if x and x.get("total") is not None:
+            return int(x["total"])
+    except (TypeError, ValueError):
+        pass
+    try:
+        t = ((meli._get(f"/sites/{meli.SITE}/search", {"seller_id": sid, "limit": 1}) or {}).get("paging") or {}).get("total")
+        if t is not None:
+            gravar_total_loja(repo, sid, int(t), "api")
+            return int(t)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def anuncios_do_relatorio(repo, vendedor):
+    """Anúncios do vendedor no último relatório mensal do Nubimetrics: (total, ativos). O vend_fotos só tem os 500 que mais vendem."""
+    rels = sorted(_vend_rels(repo, vendedor), key=lambda r: (str(r.get("mes")), int(r["id"])))
+    if not rels:
+        return None, None
+    ls = repo._todos("vend_anuncios", {"select": "estado", "relatorio_id": repo._eq(int(rels[-1]["id"]))})
+    return len(ls), sum(1 for l in ls if (l.get("estado") or "active") == "active")
+
+
 def _itens_nubimetrics(repo, vendedor):
     r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.vend_fotos|{vendedor}"}) or [None])[0]
     try:
@@ -5250,6 +5289,7 @@ def _itens_nubimetrics(repo, vendedor):
 
 
 PRECO_VITRINE = 0.05
+TOTAL_PERTO = 0.25           # total de anúncios da loja no ML x ativos no relatório do Nubimetrics: ±25% = bate
 
 
 def placar_lojas(repo, vendedor):
@@ -5269,7 +5309,12 @@ def placar_lojas(repo, vendedor):
     for c in candidatas(repo).get(vendedor, []):
         if c.get("id"):
             lojas.setdefault(str(c["id"]), c.get("nome") or "")
-    ativos = sum(1 for it in itens if str(it.get("Status") or "active") == "active")
+    try:
+        total_rel, ativos = anuncios_do_relatorio(repo, vendedor)
+    except Exception:  # noqa: BLE001
+        total_rel, ativos = None, None
+    if ativos is None:
+        ativos = sum(1 for it in itens if str(it.get("Status") or "active") == "active")
     out = []
     for sid, nome in lojas.items():
         vit = repo._todos("vend_anuncios_ml", {"select": "mlb,foto,preco,full,tipo_pub,visto_em", "seller_id": f"eq.{sid}"})
@@ -5295,10 +5340,12 @@ def placar_lojas(repo, vendedor):
                 full += 1
             if len(exemplos) < 3:
                 exemplos.append(a["mlb"])
+        tot = total_loja(repo, sid)
         out.append({"id": sid, "nome": nome, "lida": True, "anuncios_vitrine": len(vit), "fotos": fotos, "preco": preco, "full": full,
+                    "total_ml": tot, "total_bate": bool(tot and ativos and abs(tot - ativos) / ativos <= TOTAL_PERTO),
                     "exemplos": exemplos, "visto_em": max(str(a.get("visto_em") or "") for a in vit)})
-    out.sort(key=lambda x: (-(x.get("fotos") or 0), -(x.get("preco") or 0)))
-    return {"vendedor": vendedor, "fotos_proprias": len(proprias), "anuncios_ativos": ativos, "lojas": out}
+    out.sort(key=lambda x: (-(x.get("fotos") or 0), -(x.get("preco") or 0), not x.get("total_bate")))
+    return {"vendedor": vendedor, "fotos_proprias": len(proprias), "anuncios_ativos": ativos, "anuncios_relatorio": total_rel, "lojas": out}
 
 
 def meli_id_foto(url):
@@ -5317,11 +5364,16 @@ def decidir_pelo_placar(repo, vendedor):
     if not all(x.get("lida") for x in ls):
         faltam = [x["nome"] or x["id"] for x in ls if not x.get("lida")]
         return f"⏳ {vendedor}: placar esperando a vitrine de {', '.join(faltam)}."
-    lin = "; ".join(f"{x['nome'] or x['id']}: {x['fotos']} fotos próprias, preço em {x['preco']}, Full em {x['full']}, {x['anuncios_vitrine']} anúncios lidos"
+    lin = "; ".join(f"{x['nome'] or x['id']}: {x['fotos']} fotos próprias, preço em {x['preco']}, Full em {x['full']}, "
+                    f"{x['total_ml'] if x.get('total_ml') is not None else '?'} anúncios na loja{' (bate)' if x.get('total_bate') else ''}"
                     for x in ls)
     top, seg2 = ls[0], (ls[1] if len(ls) > 1 else {"fotos": 0, "nome": "-"})
     n = max(1, pl["fotos_proprias"])
     forte = top["fotos"] >= 5 and top["fotos"] >= 0.2 * n and top["preco"] >= 0.5 * top["fotos"] and top["fotos"] >= 3 * max(1, seg2["fotos"])
+    # 01/10 (Bruno: "o Nubimetrics traz a quantidade de anúncios"): total da loja muito diferente dos ativos no relatório = não decide
+    if forte and top.get("total_ml") is not None and pl["anuncios_ativos"] and not top.get("total_bate"):
+        forte = False
+        lin += f" — total de anúncios da 1ª ({top['total_ml']}) não bate com os {pl['anuncios_ativos']} ativos no Nubimetrics"
     atual = meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor) or {}
     base = f"📊 {vendedor} — placar das lojas ({pl['fotos_proprias']} fotos próprias e {pl['anuncios_ativos']} anúncios ativos no Nubimetrics): {lin}."
     if not forte:
@@ -5336,6 +5388,7 @@ def decidir_pelo_placar(repo, vendedor):
     nome = lj.get("nome") or top["nome"] or atual.get("nome") or top["id"]
     prova = (f"placar da vitrine (01/10): {top['fotos']} de {pl['fotos_proprias']} fotos próprias do Nubimetrics estão na vitrine "
              f"da loja, preço batendo (±5%) em {top['preco']} e Full em {top['full']} (ex.: {', '.join(top['exemplos'])}); "
+             + (f"{top['total_ml']} anúncios na loja x {pl['anuncios_ativos']} ativos no Nubimetrics; " if top.get("total_ml") is not None else "") +
              f"2ª loja {seg2.get('nome') or seg2.get('id')} com {seg2['fotos']}")
     x = {"id": top["id"], "nome": nome, "link": lj.get("link") or f"https://perfil.mercadolivre.com.br/{nome}", "confianca": "certa",
          "votos": int(atual.get("votos") or 0) + 1, "prova": prova, "anuncios": atual.get("anuncios") if str(atual.get("id")) == top["id"] else [],
@@ -7469,6 +7522,8 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         scripts = [str(s)[:3_000_000] for s in (d.get("scripts") or [])[:10]]
         mlbs = gravar_vitrine(repo, str(d.get("vendedor") or ""), str(d.get("seller_id") or ""), cards, scripts,
                               int(d.get("pagina") or 0))
+        if str(d.get("total") or "").isdigit():          # 01/10: total de anúncios da loja ("N resultados" da vitrine)
+            gravar_total_loja(repo, str(d.get("seller_id") or ""), int(d["total"]), "vitrine")
         return {"ok": True, "anuncios": len(mlbs), "mlbs": mlbs}
     if rota == "ml_pagina_salvar" and metodo == "POST":
         # 29/09: página do ML salva pelo coletor (comando ml_pagina) para o Chefe ver a estrutura real; só dado público

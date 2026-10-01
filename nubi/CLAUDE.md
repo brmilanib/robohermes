@@ -481,6 +481,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     2ª → "certa" (troca a ligada se não for manual). Rotina `placar_lojas` 06:30 (depois da vitrine 04:40 e da busca por
     foto 05:10); `ml_placar?vendedor=` mostra o placar. Nome nunca decide (Nubimetrics = nome do Bruno, extensão = razão
     social, loja = apelido). Teste: testes/test_placar_lojas.py.
+    **Total de anúncios (01/10, Bruno: "o Nubimetrics traz a quantidade de anúncios")**: o relatório mensal do seguido
+    (`anuncios_do_relatorio`: total e ativos; o `vend_fotos` tem só os 500 que mais vendem) x o total da loja no ML
+    (`total_loja`: "N resultados" lido pelo `JS_VITRINE` na 1ª página → `ml|total_loja|<sid>`; senão a busca da API por
+    seller_id). ±25% = `total_bate`; a 1ª do placar com total que não bate não vira "certa".
   - **Observados: cabeçalho com botões + ✨ Destaques (01/10)**: os números (seguidos, observados, com loja, ⭐) filtram a
     lista; "✨ quem se destaca?" chama `observados_destaques` → `observados.destaques` (SQL `nubi_observados_sinais()`:
     ritmo do período x média de vida, un. em anúncios ≤90 dias, liderança em produto; IA estruturada escolhe 6–10 com

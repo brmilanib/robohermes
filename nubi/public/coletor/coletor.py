@@ -2196,8 +2196,11 @@ JS_CEDO = r"""(() => {
 })();"""
 JS_VITRINE = r"""() => { const cs = [...document.querySelectorAll('li.ui-search-layout__item, div.poly-card')];
   document.querySelectorAll("script").forEach(s => { const t = s.textContent || ""; if (t.length > 200 && /printed_result|polycard/.test(t) && !(window.__nubiScripts || []).includes(t)) (window.__nubiScripts = window.__nubiScripts || []).push(t); });
+  // 01/10 (Bruno: "o Nubimetrics traz a quantidade de anúncios"): o total da loja ("1.234 resultados") para o placar
+  const q = document.querySelector('.ui-search-search-result__quantity-results, .ui-search-breadcrumb__title + span, [class*="quantity-results"]');
+  const m = q ? (q.textContent || "").replace(/\./g, "").match(/(\d+)\s*resultado/) : null;
   return {cards: cs.filter(c => !cs.some(o => o !== c && o.contains(c))).map(c => c.outerHTML.slice(0, 30000)),
-          scripts: (window.__nubiScripts || []).slice(0, 10)}; }"""
+          scripts: (window.__nubiScripts || []).slice(0, 10), total: m ? +m[1] : null}; }"""
 VITRINE_PAGINAS = 40                    # 40 × 48 = 1.920 anúncios por loja, no máximo
 
 
@@ -2245,7 +2248,8 @@ def coletar_vitrine_seguidos(p, cfg, token, so=None, rodizio=False):
                     if not x.get("cards"):
                         break
                     r = api(token, "ml_vitrine_salvar", corpo={"vendedor": l["vendedor"], "seller_id": l["seller_id"],
-                                                               "pagina": pag, "cards": x["cards"], "scripts": x.get("scripts") or []}, timeout=120)
+                                                               "pagina": pag, "cards": x["cards"], "scripts": x.get("scripts") or [],
+                                                               "total": x.get("total") if not pag else None}, timeout=120)
                     novos = set(r.get("mlbs") or []) - vistos
                     vistos |= novos
                     if not novos or len(x["cards"]) < ML_POR_PAGINA:

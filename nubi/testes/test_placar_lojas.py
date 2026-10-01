@@ -13,6 +13,13 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "x")
 import meli  # noqa: E402
 import nubi_web as w  # noqa: E402
 
+
+def _sem_rede(*a, **k):
+    raise RuntimeError("sem rede no teste")
+
+
+meli._get = _sem_rede
+
 V = "AUMA PERFUMARIA P2"
 
 
@@ -43,6 +50,10 @@ class Repo:
         return []
 
     def _todos(self, tabela, q=None):
+        if tabela == "vend_relatorios":
+            return [{"id": 9, "vendedor": V, "mes": "2026-09-01"}]
+        if tabela == "vend_anuncios":                       # relatório mensal: 1.751 anúncios, 1.496 ativos
+            return [{"estado": "active"}] * 1496 + [{"estado": "paused"}] * 255
         if tabela == "vend_anuncios_ml":
             sid = (q or {}).get("seller_id", "")[3:]
             return [a for a in self.vit if a["seller_id"] == sid]
@@ -60,15 +71,25 @@ def test_decide_pela_vitrine_e_ignora_foto_de_catalogo():
     # AUMAPERFUMARIA tem 30 das 40 fotos próprias com o mesmo preço; AUMAFLEX (mesmo dono) reaproveita 4 fotos e tem MUITA foto de catálogo igual
     v = vit("358625041", range(30)) + vit("777", range(4), preco_mais=30, mla=range(30)) + vit("3168346514", [1], mla=range(25))
     r = Repo(v, {"id": "3168346514", "nome": "EAMCOSMETICOS", "confianca": "provável"})
+    # total de anúncios de cada loja ("N resultados" da vitrine): AUMAPERFUMARIA 1.520 bate com os 1.496 ativos; AUMAFLEX 300 não
+    w.gravar_total_loja(r, "358625041", 1520, "vitrine"); w.gravar_total_loja(r, "777", 300, "vitrine"); w.gravar_total_loja(r, "3168346514", 957, "vitrine")
     pl = w.placar_lojas(r, V)
-    assert pl["fotos_proprias"] == 40 and pl["anuncios_ativos"] == 70
+    assert pl["fotos_proprias"] == 40 and pl["anuncios_ativos"] == 1496 and pl["anuncios_relatorio"] == 1751
     por = {x["id"]: x for x in pl["lojas"]}
     assert por["358625041"]["fotos"] == 30 and por["358625041"]["preco"] == 30 and por["777"]["fotos"] == 4 and por["777"]["preco"] == 0
     assert por["3168346514"]["fotos"] == 1                                      # foto de catálogo (MLA) não conta
+    assert por["358625041"]["total_bate"] and not por["777"]["total_bate"] and por["777"]["total_ml"] == 300
     t = w.decidir_pelo_placar(r, V)
+    assert "1520 anúncios na loja (bate)" in t, t
     assert "✅ Decidido: AUMAPERFUMARIA (358625041), no lugar de EAMCOSMETICOS" in t, t
     seg = json.loads(r.resumos["meli|seguidos"])[V]
     assert seg["id"] == "358625041" and seg["confianca"] == "certa" and "30 de 40 fotos próprias" in seg["prova"]
+    assert "1520 anúncios na loja x 1496 ativos" in seg["prova"]
+    # o mesmo placar com o total da 1ª muito diferente do relatório: não decide
+    r2 = Repo(v, {"id": "3168346514", "nome": "EAMCOSMETICOS", "confianca": "provável"})
+    w.gravar_total_loja(r2, "358625041", 400, "vitrine"); w.gravar_total_loja(r2, "777", 300, "vitrine"); w.gravar_total_loja(r2, "3168346514", 957, "vitrine")
+    t2 = w.decidir_pelo_placar(r2, V)
+    assert "Não decide" in t2 and "não bate com os 1496 ativos" in t2, t2
 
 
 def test_espera_vitrine_e_nao_decide_empate():
