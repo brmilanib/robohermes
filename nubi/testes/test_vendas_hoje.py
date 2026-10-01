@@ -225,6 +225,7 @@ def dados_tv(hoje):
     _ler(r, ontem.replace(hour=13, minute=40), 9000, 45)
     _ler(r, ontem.replace(hour=14, minute=40), 10000, 50)
     _ler(r, ontem.replace(hour=23, minute=55), 20000, 100)
+    _ler(r, hoje.replace(hour=12, minute=40), 5000, 22)
     _ler(r, hoje.replace(hour=13, minute=40), 7000, 30)
     _ler_rk(r, hoje.replace(hour=14, minute=40), 12000, 55, [("Asad", "ESSENCE", 9, 1800), ("Yara", "PURE", 6, 1200), ("Sabah", "PURE", 3, 500)],
             [("ESSENCE PRIME", "Mercado Libre BR", 30, 7000), ("PURE PERFUMARIA", "TikTok Shop BR", 3, 400)], ontem="20.000,00")
@@ -243,6 +244,34 @@ def test_tv_numeros():
     assert c["Sabah"]["pos_ontem"] is None                                            # novo no ranking
     l = {x["loja"]: x for x in t["lojas"]}
     assert l["ESSENCE PRIME"]["valor_ontem"] == 2000 and l["PURE PERFUMARIA"]["valor_ontem"] == 600
+
+
+def test_picos_por_loja_no_banco_e_melhores_horarios():
+    """01/10 (Bruno: "gravar todos os picos no banco para identificar os melhores picos de venda de cada loja"): hora sem
+    leitura antes não vira pico (o 1º dia começou às 18h e marcava 18h = R$ 15 mil); cada dia vai para vendas_hoje|picos."""
+    r = Repo()
+    d1 = datetime(2026, 10, 1, tzinfo=BR)
+    lj = lambda e, p: [("ESSENCE PRIME", "Mercado Libre BR", 10, e), ("PURE PERFUMARIA", "TikTok Shop BR", 3, p)]
+    an = [("Asad", "ESSENCE", 1, 100)]
+    _ler_rk(r, d1.replace(hour=18, minute=10), 15000, 66, an, lj(6000, 500))
+    _ler_rk(r, d1.replace(hour=18, minute=50), 15100, 66, an, lj(6050, 500))
+    _ler_rk(r, d1.replace(hour=19, minute=50), 18650, 70, an, lj(7150, 1100))
+    t = vh.painel(r, "2026-10-01", agora=d1.replace(hour=20, minute=0))
+    ph = {x["hora"]: x for x in t["por_hora"]}
+    assert ph[18]["valor"] is None and ph[18]["acumulado"] == 15100 and ph[19]["valor"] == 3550
+    assert [p["hora"] for p in t["picos"]] == ["19h"]
+    hist = json.loads(r.res[vh.PICOS])
+    lojas = hist["2026-10-01"]["lojas"]
+    assert lojas["ESSENCE PRIME · Mercado Libre BR"][19] == 1100 and lojas["ESSENCE PRIME · Mercado Libre BR"][18] is None
+    assert lojas["PURE PERFUMARIA · TikTok Shop BR"][19] == 600
+    # 2º dia: o melhor horário de cada loja sai da média dos dias guardados
+    d2 = d1 + timedelta(days=1)
+    _ler_rk(r, d2.replace(hour=18, minute=50), 3000, 10, an, lj(1000, 100))
+    _ler_rk(r, d2.replace(hour=19, minute=50), 5000, 15, an, lj(1500, 900))
+    m = vh.melhores_horarios(r, 30, "2026-10-03")
+    assert m["dias"] == 2 and m["melhores"][0]["hora"] == "19h"
+    pure = next(x for x in m["lojas"] if x["loja"] == "PURE PERFUMARIA")
+    assert pure["plataforma"] == "TikTok Shop BR" and pure["melhores"][0] == {"hora": "19h", "valor": 700.0}   # (600 + 800) ÷ 2
 
 
 def test_tv_tela():
@@ -283,7 +312,9 @@ def test_tv_tela():
                     pg.wait_for_selector(".tv-k", timeout=15000)
                 except Exception:
                     raise AssertionError((erros, pg.inner_text("body")[:1500]))
+                pg.wait_for_timeout(1900)                                            # números sobem até o valor (animação)
                 txt = pg.inner_text(".tv-tela")
+                assert pg.locator(".tv-loja .pl-ml").count() >= 1 and pg.locator(".tv-loja .pl-tt").count() >= 1   # ícone da plataforma
                 assert "AO VIVO" in txt and "12.000,00" in txt and "24.000,00" in txt and "Campeões" in txt and "Márcia" in txt, txt[:900]
                 assert pg.locator(".tv-pos.sobe").count() >= 1 and pg.locator(".tv-pos.novo").count() == 1
                 assert pg.query_selector("#tv-acum svg path") is not None and pg.locator(".tv-k.sac.alerta").count() == 1

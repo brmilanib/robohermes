@@ -1189,6 +1189,16 @@ header.top{padding:7px 16px}
 .vh-pn{color:#fff;border-radius:999px;font-size:11.5px;font-weight:700;padding:2px 8px}
 @media (max-width:600px){.vh-horas{gap:1px;height:150px}.vh-h span{font-size:8.5px}}
 /* 📺 Modo TV */
+.vh-loja{display:inline-flex;align-items:center;gap:8px}
+.vh-hb i.ac{position:absolute;inset:auto 0 0 0;height:100%;background:repeating-linear-gradient(45deg,#e5e7eb 0 4px,transparent 4px 8px);border-radius:3px}
+.vh-hb{position:relative}
+.vh-hz{display:flex;flex-direction:column;gap:4px;overflow-x:auto}
+.vh-hz-l{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:center;min-width:680px}
+.vh-hz-n{display:flex;gap:8px;align-items:center;min-width:0}.vh-hz-n span{display:flex;flex-direction:column;min-width:0}
+.vh-hz-n b{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.vh-hz-n small{color:var(--muted,#6b7280);font-size:11px}
+.vh-hz-c{display:grid;grid-template-columns:repeat(24,1fr);gap:2px}.vh-hz-c i{height:22px;border-radius:4px;display:block}.vh-hz-c i.vz{background:#f3f4f6}
+.vh-hz-cab .vh-hz-c span{font-size:10.5px;color:var(--muted,#6b7280);text-align:center}
+.vh-sem{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin-top:10px}
 .tv-tela{position:fixed;inset:0;z-index:9999;background:#0b1220;color:#e5e7eb;overflow:auto;
   --card:#111a2e;--ink:#e5e7eb;--muted:#94a3b8;--line:#1f2a44;--soft:#16213a}
 .tv{padding:18px 22px;display:flex;flex-direction:column;gap:14px;min-height:100vh;box-sizing:border-box;font-size:15px}
@@ -1201,23 +1211,39 @@ header.top{padding:7px 16px}
 .tv-sair{opacity:0;transition:opacity .3s}.tv-tela.mexeu .tv-sair{opacity:1}
 .tv-kpis{display:grid;grid-template-columns:1.6fr repeat(5,1fr);gap:12px}
 .tv-k{background:#111a2e;border:1px solid #1f2a44;border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:4px}
-.tv-k span{color:#94a3b8;font-size:14px}.tv-k b{font-size:clamp(22px,1.75vw,34px);white-space:nowrap;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
-.tv-k.grande b{font-size:clamp(34px,2.8vw,54px);color:#93c5fd}.tv-k small{color:#94a3b8;font-size:13px}
+.tv-k span{color:#94a3b8;font-size:15px}.tv-k b{font-size:clamp(24px,2vw,40px);white-space:nowrap;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.tv-k.grande b{font-size:clamp(38px,3.4vw,68px);color:#93c5fd;text-shadow:0 0 24px rgba(96,165,250,.35)}.tv-k small{color:#94a3b8;font-size:13px}
 .tv-k.sac.alerta{border-color:#ef4444;animation:tvborda 1.6s infinite}.tv-k.sac.alerta b{color:#f87171}
 @keyframes tvborda{50%{box-shadow:0 0 0 4px rgba(239,68,68,.35)}}
 .tv-v{font-weight:800;font-size:18px}.tv-v.sobe{color:#34d399}.tv-v.cai{color:#f87171}.tv-v.neutro{color:#64748b}
-.tv-meio{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.tv-meio{display:grid;grid-template-columns:1.7fr 1.3fr;gap:12px}
 .tv-baixo{display:grid;grid-template-columns:1.3fr 1.2fr 1fr;gap:12px;flex:1}
 .tv-card{background:#111a2e;border:1px solid #1f2a44;border-radius:16px;padding:14px 16px;min-width:0}
 .tv-card h3{margin:0 0 10px;font-size:17px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .tv-card h3 span{color:#94a3b8;font-weight:400;font-size:13px;display:flex;gap:6px;align-items:center}
 .tv-card h3 i{display:inline-block;width:10px;height:10px;border-radius:3px}
 .tv-tela .ch svg text{fill:#94a3b8}.tv-tela .ch .grid line{stroke:#1f2a44}
-.tv-loja{display:grid;grid-template-columns:1fr auto auto;gap:2px 10px;align-items:center;margin-bottom:9px}
-.tv-loja .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tv-loja b{font-variant-numeric:tabular-nums}
-.tv-trilho{grid-column:1/3;height:6px;background:#1f2a44;border-radius:9px;overflow:hidden}.tv-trilho i{display:block;height:100%;background:#3b82f6;border-radius:9px}
-.tv-loja small{color:#94a3b8;font-size:12px}
-.tv-camp{display:grid;grid-template-columns:28px 44px 1fr auto auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #1f2a44}
+.pl-ico{display:inline-flex;align-items:center;justify-content:center;width:var(--t);height:var(--t);min-width:var(--t);border-radius:28%;
+  font-weight:900;font-size:calc(var(--t) * .46);line-height:1;vertical-align:middle;letter-spacing:-.5px;font-family:Arial,sans-serif;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.pl-ml{background:#ffe600;color:#2d3277}.pl-sp{background:#ee4d2d;color:#fff}.pl-tt{background:#000;color:#25f4ee;text-shadow:1.5px 1.5px 0 #fe2c55}
+.pl-am{background:#232f3e;color:#ff9900}.pl-mg{background:#0086ff;color:#fff}.pl-x{background:#e5e7eb;font-size:calc(var(--t) * .6)}
+.tv-loja{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:center;margin-bottom:14px;animation:tventra .6s both}
+.tv-ln{min-width:0;display:flex;flex-direction:column}.tv-ln .n{font-size:clamp(16px,1.2vw,22px);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tv-ln small{color:#94a3b8;font-size:13px}.tv-lv{display:flex;flex-direction:column;align-items:flex-end}
+.tv-lv b{font-size:clamp(20px,1.6vw,30px);font-weight:800;font-variant-numeric:tabular-nums}
+.tv-trilho{grid-column:2/4;height:9px;background:#1f2a44;border-radius:9px;overflow:hidden}
+.tv-trilho i{display:block;height:100%;background:linear-gradient(90deg,#3b82f6,#22d3ee);border-radius:9px;animation:tvbarra 1.2s ease-out both;transform-origin:left}
+.tv-lp{grid-column:2/4;color:#cbd5e1;font-size:13px}.tv-lp b{color:#fbbf24}
+.tv-nova{position:fixed;top:90px;left:50%;transform:translateX(-50%);z-index:3;background:linear-gradient(90deg,#16a34a,#22c55e);color:#fff;
+  font-size:clamp(22px,2vw,36px);font-weight:900;padding:14px 30px;border-radius:999px;box-shadow:0 10px 40px rgba(34,197,94,.5);animation:tvnova 6s both;pointer-events:none}
+.tv-k b [data-cnt]{font-size:inherit;color:inherit;font-weight:inherit;background:none;padding:0}
+.tv-canais{display:flex;gap:10px;align-items:center;font-size:22px!important}
+@keyframes tventra{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes tvbarra{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes tvsobe{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes tvnova{0%{opacity:0;transform:translate(-50%,-20px) scale(.8)}8%{opacity:1;transform:translate(-50%,0) scale(1.06)}14%{transform:translate(-50%,0) scale(1)}85%{opacity:1}100%{opacity:0;transform:translate(-50%,-10px)}}
+.tv-camp{display:grid;grid-template-columns:30px 44px 26px 1fr auto auto;gap:9px;align-items:center;padding:7px 0;border-bottom:1px solid #1f2a44;animation:tventra .6s both}
+.tv-camp .t{font-size:clamp(14px,1vw,17px)}
 .tv-camp .p{font-weight:800;font-size:18px;color:#fbbf24;text-align:center}
 .tv-camp .t{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.tv-camp .t small{display:block;color:#94a3b8;font-size:12px}
 .tv-camp .u{color:#94a3b8;font-size:13px}.tv-camp b{font-variant-numeric:tabular-nums}
@@ -1227,7 +1253,7 @@ header.top{padding:7px 16px}
 .tv-h{display:flex;flex-direction:column;align-items:center;height:100%;font-size:10.5px;color:#64748b}
 .tv-h.agora span{color:#fbbf24;font-weight:700}
 .tv-hb{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:1px}
-.tv-hb i{display:block;width:45%;border-radius:3px 3px 0 0}.tv-hb i.a{background:#60a5fa}.tv-hb i.b{background:#34d399;opacity:.6}
+.tv-hb i{display:block;width:45%;border-radius:3px 3px 0 0;animation:tvsobe .9s ease-out both;transform-origin:bottom}.tv-hb i.a{background:#60a5fa}.tv-hb i.b{background:#34d399;opacity:.6}
 .tv-picos{margin-top:8px;color:#cbd5e1;font-size:14px}
 .tv-sac{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .tv-sac div{background:#16213a;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column}
@@ -4384,19 +4410,20 @@ async function telaVendasHoje() {
       const ph = r.por_hora, pc = r.por_hora_comparar, mx = Math.max(1, ...ph.map(x => x.valor || 0), ...pc.map(x => x.valor || 0));
       return ph.map((x, h) => { const y = pc[h] || {};
         return `<div class="vh-h" title="${String(h).padStart(2, "0")}h · ${vhDataBR(r.dia)}: ${x.valor != null ? rsES(x.valor) + " (" + (x.pedidos || 0) + " pedidos)" : "sem leitura"} · ${vhDataBR(r.comparar)}: ${y.valor != null ? rsES(y.valor) + " (" + (y.pedidos || 0) + " pedidos)" : "sem leitura"}">
-          <div class="vh-hb"><i class="a" style="height:${x.valor ? Math.max(2, x.valor / mx * 100) : 0}%"></i><i class="b" style="height:${y.valor ? Math.max(2, y.valor / mx * 100) : 0}%"></i></div>
+          <div class="vh-hb">${x.acumulado ? `<i class="ac" title="${String(h).padStart(2, "0")}h: ${rsES(x.acumulado)} acumulado de horas sem leitura (o coletor estava desligado antes) — não conta como pico"></i>` : ""}<i class="a" style="height:${x.valor ? Math.max(2, x.valor / mx * 100) : 0}%"></i><i class="b" style="height:${y.valor ? Math.max(2, y.valor / mx * 100) : 0}%"></i></div>
           <span>${String(h).padStart(2, "0")}</span></div>`; }).join(""); })()}</div>
-      <p class="muted" style="font-size:12px;margin:6px 0 0">Passe o mouse em cada hora para ver os valores. Hora sem leitura (coletor desligado) fica vazia.</p></div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Passe o mouse em cada hora para ver os valores. Hora sem leitura (coletor desligado) fica vazia; a listrada junta horas sem leitura e não conta como pico.</p></div>
+    ${vhHorarios(r.horarios)}
     <div class="vh-dois">
       <div class="card pad"><h3 style="margin-top:0">🔥 Picos de ${vhDataBR(r.dia)}</h3>${picos(r.picos, "#2563eb")}</div>
       <div class="card pad"><h3 style="margin-top:0">🔥 Picos de ${vhDataBR(r.comparar)}</h3>${picos(r.picos_comparar, "#10b981")}</div>
     </div>
     <div class="vh-dois">
       <div class="card pad"><h3 style="margin-top:0">🏆 Ranking de anúncio</h3>${linhasT(r.anuncios || [], [["#", (x, i) => i + 1],
-        ["Produto", x => `<div class="wrap">${esc(x.titulo)}</div><span class="muted" style="font-size:11.5px">${esc(x.loja)}${x.plataforma ? " [" + esc(x.plataforma) + "]" : ""}</span>`],
+        ["Produto", x => `<div class="wrap">${esc(x.titulo)}</div><span class="muted" style="font-size:11.5px">${platIco(x.plataforma, 16)} ${esc(x.loja)}${x.plataforma ? " · " + esc(x.plataforma) : ""}</span>`],
         ["Un.", x => x.unidades != null ? nf0.format(x.unidades) : "—", "num"], ["Valor", x => x.valor != null ? rsES(x.valor) : "—", "num"]])}</div>
       <div class="card pad"><h3 style="margin-top:0">🏪 Ranking de loja</h3>${linhasT(r.lojas || [], [["#", (x, i) => i + 1],
-        ["Loja", x => `${esc(x.loja)} <span class="muted" style="font-size:11.5px">${esc(x.plataforma)}</span>`],
+        ["Loja", x => `<span class="vh-loja">${platIco(x.plataforma, 26)} <b>${esc(x.loja)}</b> <span class="muted" style="font-size:11.5px">${esc(x.plataforma)}</span></span>`],
         ["Pedidos", x => x.pedidos != null ? nf0.format(x.pedidos) : "—", "num"], ["Valor", x => x.valor != null ? rsES(x.valor) : "—", "num"]])}</div>
     </div>
     <p class="muted" style="font-size:12px">Fonte: UpSeller → Análises → Visão geral (todas as lojas). O dia fecha com o "Ontem" que o UpSeller mostra no dia seguinte. Dias guardados: ${nf0.format(dias.length)}.</p>
@@ -4414,8 +4441,39 @@ async function telaVendasHoje() {
   clearTimeout(S.vhTimer);
   if (hoje) S.vhTimer = setTimeout(() => { if (location.hash.startsWith("#/analises-vendas/hoje") && !document.hidden) telaVendasHoje(); }, 5 * 60e3);
 }
+// 01/10 (Bruno: "gravar todos os picos no banco para identificar os melhores picos de venda de cada loja"): média do vendido
+// em cada hora nos dias guardados (vendas_hoje|picos), por loja, como mapa de calor
+function vhHorarios(hz) {
+  if (!hz || !hz.dias) return `<div class="card pad"><h3 style="margin-top:0">⭐ Melhores horários de cada loja</h3><p class="muted" style="margin:0">Começa a aparecer depois do 1º dia completo guardado: cada dia fica salvo no banco com o vendido de cada hora, por loja.</p></div>`;
+  const cel = (v, mx) => v == null ? `<i class="vz"></i>` : `<i style="background:rgba(37,99,235,${(0.08 + 0.92 * v / mx).toFixed(2)})" title="${rsES(v)}"></i>`;
+  const linha = (ico, nome, media, extra) => { const mx = Math.max(1, ...media.map(v => v || 0));
+    return `<div class="vh-hz-l"><div class="vh-hz-n">${ico}<span><b>${esc(nome)}</b><small>${extra}</small></span></div><div class="vh-hz-c">${media.map(v => cel(v, mx)).join("")}</div></div>`; };
+  return `<div class="card pad"><h3 style="margin-top:0">⭐ Melhores horários de cada loja <span class="muted" style="font-weight:400;font-size:13px">— média de ${hz.dias} dia${hz.dias > 1 ? "s" : ""} guardado${hz.dias > 1 ? "s" : ""}; quanto mais escuro, mais vende</span></h3>
+    <div class="vh-hz">
+      <div class="vh-hz-l vh-hz-cab"><div class="vh-hz-n"></div><div class="vh-hz-c">${Array.from({length: 24}, (_, h) => `<span>${String(h).padStart(2, "0")}</span>`).join("")}</div></div>
+      ${linha("📊", "Todas as lojas", hz.geral, hz.melhores.map(m => m.hora).join(", ") || "—")}
+      ${(hz.lojas || []).map(l => linha(platIco(l.plataforma, 24), l.loja, l.media, `${esc(l.plataforma)} · melhor: ${l.melhores.map(m => `${m.hora} (${rsES(m.valor)})`).join(", ") || "—"}`)).join("")}
+    </div>
+    ${(hz.semana || []).length ? `<div class="vh-sem">📅 Por dia da semana (média do dia): ${hz.semana.map(d => `<span><b>${d.dia}</b> ${rsES(d.media)}</span>`).join("")}</div>` : ""}</div>`;
+}
 // ---------- 📺 Modo TV (01/10, Bruno: "um modo TV para eu ficar olhando ao vivo na TV: vendas, chats, ranking dos campeões,
 // se estamos crescendo ou caindo"). Tela cheia escura por cima de tudo; vendas a cada 60 s, SAC a cada 2 min, relógio. ----------
+// 01/10 (Bruno: "o ícone do Mercado Livre na frente da loja, o da Shopee na loja da Shopee"): selo da plataforma
+function platIco(p, tam = 22) {
+  const k = /mercado/i.test(p || "") ? "ml" : /shopee/i.test(p || "") ? "sp" : /tiktok/i.test(p || "") ? "tt" : /amazon/i.test(p || "") ? "am" : /magalu|magazine/i.test(p || "") ? "mg" : "x";
+  return `<span class="pl-ico pl-${k}" style="--t:${tam}px" title="${esc(p || "loja")}">${{ml: "ML", sp: "S", tt: "♪", am: "a", mg: "M", x: "🏪"}[k]}</span>`;
+}
+// número que sobe do valor anterior até o novo (Modo TV)
+function tvContar(raiz) {
+  raiz.querySelectorAll("[data-cnt]").forEach(el => {
+    const fim = +el.dataset.cnt, ini = el.dataset.de != null && el.dataset.de !== "" ? +el.dataset.de : fim * 0.85, fmt = el.dataset.fmt === "n" ? nf0.format : rsES;
+    if (!isFinite(fim) || ini === fim) { el.textContent = fmt(fim); return; }
+    const t0 = performance.now(), dur = 1600;
+    const passo = t => { const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = fmt(ini + (fim - ini) * e); if (p < 1) requestAnimationFrame(passo); };
+    requestAnimationFrame(passo);
+  });
+}
 function tvSeta(a, b) {
   if (a == null || b == null || !b) return `<span class="tv-v neutro">—</span>`;
   const v = a / b - 1;
@@ -4453,16 +4511,24 @@ async function telaTV() {
   const ph = r.por_hora || [], po = r.por_hora_ontem || [], hmax = Math.max(1, ...ph.map(x => x.valor || 0), ...po.map(x => x.valor || 0));
   const hAgora = new Date().getHours();
   const plat = p => /mercado/i.test(p) ? "🤝" : /shopee/i.test(p) ? "🛍️" : /tiktok/i.test(p) ? "🎵" : /amazon/i.test(p) ? "📦" : "🏪";
+  const ant = S.tvAntes || {}, lh = r.lojas_hora || {}, hz = r.horarios || {};
+  const cnt = (v, k, fmt = "r") => v == null ? "—" : `<span data-cnt="${v}" data-de="${ant[k] ?? ""}" data-fmt="${fmt}">${fmt === "n" ? nf0.format(v) : rsES(v)}</span>`;
+  const novaVenda = ant.valor != null && a.valor != null && a.valor > ant.valor + 0.009 ? {v: a.valor - ant.valor, p: (a.pedidos || 0) - (ant.pedidos || 0)} : null;
+  const picoLoja = l => { const v = lh[`${l.loja} · ${l.plataforma}`] || []; let m = -1, hh = null; v.forEach((x, h) => { if (x != null && x > m) { m = x; hh = h; } });
+    return hh != null && m > 0 ? `🔥 pico hoje <b>${String(hh).padStart(2, "0")}h</b> ${rsES(m)}` : ""; };
+  const melhorLoja = l => { const x = (hz.lojas || []).find(z => z.loja === l.loja && z.plataforma === l.plataforma);
+    return x && x.melhores.length ? `⭐ melhor horário (${x.dias} d): <b>${x.melhores.map(m => m.hora).join(", ")}</b>` : ""; };
   el.innerHTML = `<div class="tv">
     <div class="tv-topo"><div class="tv-marca"><span class="tv-aovivo"></span> nubi <b>AO VIVO</b></div>
       <div class="tv-data">${new Date().toLocaleDateString("pt-BR", {weekday: "long", day: "2-digit", month: "long"})}</div>
       <div class="tv-lido ${mins != null && mins > 30 ? "velho" : ""}">${mins == null ? "sem leitura do UpSeller" : `UpSeller lido há ${mins} min`}</div>
       <div class="tv-hora" id="tv-hora"></div><button class="btn small tv-sair">✖ Sair</button></div>
+    ${novaVenda ? `<div class="tv-nova">💥 +${rsES(novaVenda.v)}${novaVenda.p > 0 ? ` · ${nf0.format(novaVenda.p)} pedido${novaVenda.p > 1 ? "s" : ""} novo${novaVenda.p > 1 ? "s" : ""}` : ""}</div>` : ""}
     <div class="tv-kpis">
-      <div class="tv-k grande"><span>💰 Vendido hoje</span><b>${a.valor != null ? rsES(a.valor) : "—"}</b>${tvSeta(a.valor, b.valor)}<small>ontem até agora ${b.valor != null ? rsES(b.valor) : "—"}</small></div>
-      <div class="tv-k"><span>🧾 Pedidos</span><b>${a.pedidos != null ? nf0.format(a.pedidos) : "—"}</b>${tvSeta(a.pedidos, b.pedidos)}<small>ontem ${b.pedidos != null ? nf0.format(b.pedidos) : "—"}</small></div>
+      <div class="tv-k grande"><span>💰 Vendido hoje</span><b>${cnt(a.valor, "valor")}</b>${tvSeta(a.valor, b.valor)}<small>ontem até agora ${b.valor != null ? rsES(b.valor) : "—"}</small></div>
+      <div class="tv-k"><span>🧾 Pedidos</span><b>${cnt(a.pedidos, "pedidos", "n")}</b>${tvSeta(a.pedidos, b.pedidos)}<small>ontem ${b.pedidos != null ? nf0.format(b.pedidos) : "—"}</small></div>
       <div class="tv-k"><span>🎯 Ticket médio</span><b>${tk(a) != null ? rsES(tk(a)) : "—"}</b>${tvSeta(tk(a), tk(b))}<small>ontem ${tk(b) != null ? rsES(tk(b)) : "—"}</small></div>
-      <div class="tv-k"><span>🔮 Projeção do dia</span><b>${r.projecao ? rsES(r.projecao.valor) : "—"}</b>${r.projecao ? tvSeta(r.projecao.valor, (r.total_ontem || {}).valor) : ""}<small>${r.projecao ? `no ritmo de ${r.projecao.base} · ontem fechou ${(r.total_ontem || {}).valor != null ? rsES(r.total_ontem.valor) : "—"}` : "precisa do dia de ontem guardado"}</small></div>
+      <div class="tv-k"><span>🔮 Projeção do dia</span><b>${r.projecao ? cnt(r.projecao.valor, "proj") : "—"}</b>${r.projecao ? tvSeta(r.projecao.valor, (r.total_ontem || {}).valor) : ""}<small>${r.projecao ? `no ritmo de ${r.projecao.base} · ontem fechou ${(r.total_ontem || {}).valor != null ? rsES(r.total_ontem.valor) : "—"}` : "precisa do dia de ontem guardado"}</small></div>
       <div class="tv-k"><span>⏱️ Última hora (${String(r.ultima_hora.hora).padStart(2, "0")}h)</span><b>${r.ultima_hora.hoje != null ? rsES(r.ultima_hora.hoje) : "—"}</b>${tvSeta(r.ultima_hora.hoje, r.ultima_hora.ontem)}<small>mesma hora ontem ${r.ultima_hora.ontem != null ? rsES(r.ultima_hora.ontem) : "—"}</small></div>
       <div class="tv-k sac ${precisam ? "alerta" : ""}"><span>💬 Chats esperando</span><b>${sac ? nf0.format(precisam) : "—"}</b><small>${sac ? `${nf0.format(t.respondidas_hoje || 0)} respondidos hoje · ${nf0.format(t.sozinho_hoje || 0)} pela IA` : "SAC sem leitura"}</small></div>
     </div>
@@ -4471,26 +4537,31 @@ async function telaTV() {
         <em class="${x.pct > 0 ? "sobe" : "cai"}">${x.pct > 0 ? "▲" : "▼"}${Math.abs(x.pct * 100).toFixed(0)}%</em>` : ""} ${(x.eventos || []).map(e => `<b>${esc(e.texto)}</b>`).join(" ")}</span>`).join("")}</div>` : ""}
     <div class="tv-meio">
       <div class="tv-card"><h3>Acumulado do dia <span><i style="background:#60a5fa"></i>hoje <i style="background:#34d399"></i>ontem <i style="background:#9ca3af"></i>semana passada</span></h3><div class="ch" id="tv-acum"></div></div>
-      <div class="tv-card"><h3>🏪 Lojas hoje <span>× ontem no mesmo horário</span></h3>${lojas.map(l => `<div class="tv-loja">
-          <span class="n">${plat(l.plataforma)} ${esc(l.loja)}</span><b>${l.valor != null ? rsES(l.valor) : "—"}</b>${tvSeta(l.valor, l.valor_ontem)}
-          <div class="tv-trilho"><i style="width:${(l.valor || 0) / lmax * 100}%"></i></div><small>${nf0.format(l.pedidos || 0)} pedidos</small></div>`).join("") || `<p class="tv-mudo">Sem leitura ainda.</p>`}</div>
+      <div class="tv-card tv-lojas"><h3>🏪 Lojas hoje <span>× ontem no mesmo horário</span></h3>${lojas.map((l, i) => `<div class="tv-loja" style="animation-delay:${i * 90}ms">
+          ${platIco(l.plataforma, 40)}<div class="tv-ln"><span class="n">${esc(l.loja)}</span><small>${esc(l.plataforma || "")} · ${nf0.format(l.pedidos || 0)} pedidos</small></div>
+          <div class="tv-lv"><b>${l.valor != null ? rsES(l.valor) : "—"}</b>${tvSeta(l.valor, l.valor_ontem)}</div>
+          <div class="tv-trilho"><i style="width:${(l.valor || 0) / lmax * 100}%"></i></div>
+          <div class="tv-lp">${[picoLoja(l), melhorLoja(l)].filter(Boolean).join(" · ")}</div></div>`).join("") || `<p class="tv-mudo">Sem leitura ainda.</p>`}</div>
     </div>
     <div class="tv-baixo">
-      <div class="tv-card"><h3>🏆 Campeões de hoje <span>posição × ontem neste horário</span></h3>${(r.campeoes || []).slice(0, 8).map(x => `<div class="tv-camp">
-          <span class="p">${x.pos}</span>${tvPos(x.pos, x.pos_ontem)}<span class="t">${esc(x.titulo)}<small>${esc(x.loja)}</small></span>
+      <div class="tv-card"><h3>🏆 Campeões de hoje <span>posição × ontem neste horário</span></h3>${(r.campeoes || []).slice(0, 8).map((x, i) => `<div class="tv-camp" style="animation-delay:${i * 70}ms">
+          <span class="p">${x.pos}</span>${tvPos(x.pos, x.pos_ontem)}${platIco(x.plataforma, 26)}<span class="t">${esc(x.titulo)}<small>${esc(x.loja)}</small></span>
           <span class="u">${x.unidades != null ? nf0.format(x.unidades) + " un" : ""}</span><b>${x.valor != null ? rsES(x.valor) : ""}</b></div>`).join("") || `<p class="tv-mudo">Sem leitura ainda.</p>`}</div>
       <div class="tv-card"><h3>Vendido por hora <span><i style="background:#60a5fa"></i>hoje <i style="background:#34d399"></i>ontem</span></h3><div class="tv-horas">${ph.map((x, h) => { const y = po[h] || {};
           return `<div class="tv-h ${h === hAgora ? "agora" : ""}"><div class="tv-hb"><i class="a" style="height:${x.valor ? Math.max(2, x.valor / hmax * 100) : 0}%"></i><i class="b" style="height:${y.valor ? Math.max(2, y.valor / hmax * 100) : 0}%"></i></div><span>${String(h).padStart(2, "0")}</span></div>`; }).join("")}</div>
-        <div class="tv-picos">🔥 Picos: ${(r.picos || []).map(p => `<b>${p.hora}</b> ${rsES(p.valor)}`).join(" · ") || "—"}</div></div>
+        <div class="tv-picos">🔥 Picos hoje: ${(r.picos || []).map(p => `<b>${p.hora}</b> ${rsES(p.valor)}`).join(" · ") || "—"}</div>
+        ${(hz.melhores || []).length ? `<div class="tv-picos">⭐ Melhores horários (média de ${hz.dias} dia${hz.dias > 1 ? "s" : ""}): ${hz.melhores.map(m => `<b>${m.hora}</b> ${rsES(m.valor)}`).join(" · ")}</div>` : ""}</div>
       <div class="tv-card"><h3>💬 Atendimento hoje</h3>${sac ? `<div class="tv-sac">
           <div class="${precisam ? "alerta" : ""}"><b>${nf0.format(precisam)}</b><span>precisam de resposta</span></div>
           <div><b>${nf0.format(t.clientes_hoje || 0)}</b><span>mensagens de clientes</span></div>
           <div><b>${nf0.format(t.respondidas_hoje || 0)}</b><span>respondidas</span></div>
           <div><b>${nf0.format(t.sozinho_hoje || 0)}</b><span>pela IA, sozinha</span></div>
           <div><b>${sac.tempo_mediano_min == null ? "—" : nf0.format(sac.tempo_mediano_min) + " min"}</b><span>tempo mediano</span></div>
-          <div><b>${["tiktok_shop", "shopee", "mercado_livre"].map(k => { const q = (sac.por_canal || {})[k] || {}; return `${{tiktok_shop: "🎵", shopee: "🛍️", mercado_livre: "🤝"}[k]}${(q.precisa_voce || 0) + (q.aprovar || 0)}`; }).join(" ")}</b><span>esperando por canal</span></div>
+          <div><b class="tv-canais">${[["tiktok_shop", "TikTok"], ["shopee", "Shopee"], ["mercado_livre", "Mercado Livre"]].map(([k, n]) => { const q = (sac.por_canal || {})[k] || {}; return `${platIco(n, 26)} ${(q.precisa_voce || 0) + (q.aprovar || 0)}`; }).join(" ")}</b><span>esperando por canal</span></div>
         </div>${(sac.agora || []).slice(0, 3).map(x => `<div class="tv-esp">⏳ ${esc(x.cliente || "cliente")} · há ${spEspera(x.desde)}</div>`).join("")}` : `<p class="tv-mudo">Sem leitura do SAC.</p>`}</div>
     </div></div>`;
+  tvContar(el);
+  S.tvAntes = {valor: a.valor, pedidos: a.pedidos, proj: r.projecao ? r.projecao.valor : null};
   const rot = (r.curva || []).length ? r.curva.map(x => x.hora) : (r.curva_ontem || []).map(x => x.hora);
   const val = (cv, h) => ((cv || []).find(x => x.hora === h) || {}).valor ?? null;
   if (rot.length) grafLinhas(el.querySelector("#tv-acum"), {rotulos: rot, fmt: rsES, fmtEixo: v => abrevEixo ? abrevEixo(v) : nf0.format(v), altura: 300, rotFim: false,
