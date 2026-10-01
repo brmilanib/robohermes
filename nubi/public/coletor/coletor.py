@@ -2207,11 +2207,16 @@ def vitrine_url(seller_id, pagina=0):
     return f"{ML_LISTA}/_CustId_{sid}" if not pagina else f"{ML_LISTA}/_Desde_{pagina * ML_POR_PAGINA + 1}_CustId_{sid}_NoIndex_True"
 
 
-def coletar_vitrine_seguidos(p, cfg, token, so=None):
+def coletar_vitrine_seguidos(p, cfg, token, so=None, rodizio=False):
     """Para cada seguido com loja ligada (ml_vitrine_pendente): passa as páginas da vitrine e manda os cards ao nubi
-    (ml_vitrine_salvar -> vend_anuncios_ml). Só lê; nada é clicado. Para quando a página não traz MLB novo."""
+    (ml_vitrine_salvar -> vend_anuncios_ml). Só lê; nada é clicado. Para quando a página não traz MLB novo.
+    rodizio (vigia, 01/10): só a parte desta máquina (Mac / Dell / gamdias)."""
     hoje = datetime.now(timezone.utc).date().isoformat()
-    lojas = [l for l in api(token, "ml_vitrine_pendente").get("lojas") or []
+    pend = api(token, "ml_vitrine_pendente", _param_maquina(cfg, rodizio=rodizio and not so), timeout=60)
+    if (pend.get("rodizio") or {}).get("rodizio"):
+        log(f"  rodízio: {pend['rodizio']['maquina']} com {len(pend.get('lojas') or [])} de {pend['rodizio'].get('de')} loja(s) "
+            f"(máquinas vivas: {', '.join(pend['rodizio'].get('maquinas') or [])})")
+    lojas = [l for l in pend.get("lojas") or []
              if re.fullmatch(r"\d{3,15}", str(l.get("seller_id") or "")) and (not so or so.upper() == str(l.get("vendedor")).upper())]
     # 30/09: a rodada parou em 7 das 13 lojas; quem já foi lida hoje não é lida de novo (menos tempo, menos cara de robô)
     ja = [l["vendedor"] for l in lojas if not so and str(l.get("visto_em") or "")[:10] == hoje]
@@ -2274,21 +2279,25 @@ def _card_de_catalogo(card):
     return "/p/MLB" in str((card or {}).get("link") or "")
 
 
-def coletar_busca_foto(p, cfg, token, so=None):
+def coletar_busca_foto(p, cfg, token, so=None, rodizio=False):
     """01/10 (card #126, Bruno: "achou a loja e o anúncio no ML para finalizar a afirmação"): para cada seguido SEM loja,
-    busca no ML o título dos anúncios mais vendidos dele (Nubimetrics), casa o card pelo ID da foto, abre o anúncio e lê a
-    loja (JS_ML_VENDEDOR). Uma foto igual = o anúncio dele; a loja vai ao nubi como "certa". Só lê; ritmo de gente."""
-    pend = api(token, "ml_busca_foto_pendente", timeout=60).get("vendedores") or []
+    busca no ML o título dos anúncios mais vendidos dele (Nubimetrics), casa o card pelo ID da foto (anúncio fora do
+    catálogo), abre o anúncio e lê a loja (JS_ML_VENDEDOR). Só lê; ritmo de gente. rodizio: só a parte desta máquina."""
+    r0 = api(token, "ml_busca_foto_pendente", _param_maquina(cfg, rodizio=rodizio and not so), timeout=60)
+    pend = r0.get("vendedores") or []
+    if (r0.get("rodizio") or {}).get("rodizio"):
+        log(f"  rodízio: {r0['rodizio']['maquina']} com {len(pend)} de {r0['rodizio'].get('de')} vendedor(es)")
     if so:
         pend = [v for v in pend if v["vendedor"].upper() == so.upper()]
     if not pend:
         return 0, 0, 0, "nenhum vendedor seguido sem loja com fotos lidas"
     ctx = _ml_navegador(p, cfg)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-    achados, erros, partes = 0, 0, []
+    achados, erros, partes, tentados = 0, 0, [], []
     ao_vivo(True, total=len(pend))
     try:
         for v in pend:
+            tentados.append(v["vendedor"])
             ao_vivo(True, atual=f"busca por foto · {v['vendedor']}")
             ok = False
             for it in v.get("itens") or []:
@@ -2332,6 +2341,10 @@ def coletar_busca_foto(p, cfg, token, so=None):
     finally:
         try:
             ctx.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:                                   # 01/10: quem já foi procurado hoje não entra de novo na rotina do dia
+            api(token, "ml_busca_foto_fim", corpo={"vendedores": tentados}, timeout=30)
         except Exception:  # noqa: BLE001
             pass
     return achados, achados, erros, f"busca por foto: {achados} loja(s) achada(s), {erros} sem resultado — " + "; ".join(partes)[:400]
@@ -2478,10 +2491,12 @@ JS_ML_PRECO = r"""() => {
 }"""
 
 
-def coletar_ml_precos(p, cfg, token, so=None):
+def coletar_ml_precos(p, cfg, token, so=None, rodizio=False):
     """Lê o preço de agora de cada anúncio do monitor (ml_precos_pendente) e manda a ml_precos_gravar. Só lê; nada é
-    clicado. Página com verificação do ML: para e avisa (rode entrar-ml)."""
-    pend = api(token, "ml_precos_pendente", timeout=30)
+    clicado. Página com verificação do ML: para e avisa (rode entrar-ml). rodizio: só a parte desta máquina (01/10)."""
+    pend = api(token, "ml_precos_pendente", _param_maquina(cfg, rodizio=rodizio and not so), timeout=30)
+    if (pend.get("rodizio") or {}).get("rodizio"):
+        log(f"  rodízio: {pend['rodizio']['maquina']} com {len(pend.get('itens') or [])} de {pend['rodizio'].get('de')} anúncio(s)")
     itens = [i for i in (pend.get("itens") or []) if re.fullmatch(r"MLB\d{6,14}", str(i.get("mlb") or ""))]
     if so:
         itens = [i for i in itens if i["mlb"] == so.upper().replace("-", "")]
@@ -3460,7 +3475,14 @@ def cmd_vigiar():
             return _soltar("ml-posicoes")
         if not motivo and not _outra_rodando() and _na_hora(cfg, token, "ml_precos_pendente", "precos_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do monitor de preços do Mercado Livre", flush=True)
-            return _soltar("ml-precos")
+            return _soltar(["ml-precos", "--rodizio"])
+        # 01/10 (Bruno): vitrine dos seguidos e busca por foto todo dia, em rodízio entre Mac, Dell e gamdias
+        if not motivo and not _outra_rodando() and _na_hora(cfg, token, "ml_vitrine_pendente", "vitrine_tentativas"):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: hora da vitrine dos vendedores seguidos (Mercado Livre)", flush=True)
+            return _soltar(["vitrine-seguidos", "--rodizio"])
+        if not motivo and not _outra_rodando() and _na_hora(cfg, token, "ml_busca_foto_pendente", "busca_foto_tentativas"):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: hora da busca por foto dos seguidos sem loja (Mercado Livre)", flush=True)
+            return _soltar(["ml-busca-foto", "--rodizio"])
         if (not motivo and _fora_da_janela_coleta() and not _outra_rodando() and not _pid_vivo(PASTA / "memoria.pid")
                 and _na_hora(cfg, token, "memoria_pendente", "memoria_tentativas")):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora da memória (Hermes documenta, Qwen revisa)", flush=True)
@@ -3734,10 +3756,18 @@ def seguranca_mac(cfg, forcar=False):
     return rel
 
 
+def _param_maquina(cfg, rodizio=False):
+    """01/10: quem está pedindo (Mac ou servidor:<nome>) e se quer só a sua parte do rodízio das leituras do ML."""
+    p = {"maquina": "servidor", "nome": _nome_maquina()} if _eh_servidor(cfg) else {}
+    if rodizio:
+        p["rodizio"] = "1"
+    return p or None
+
+
 def _na_hora(cfg, token, rota, chave):
     """Rotina do Mac com horário no nubi (estoque, gestor): está na hora e ainda não deu certo hoje? Máx. 3 tentativas/dia."""
     try:
-        r = api(token, rota, {"maquina": "servidor"} if _eh_servidor(cfg) else None, timeout=30)
+        r = api(token, rota, _param_maquina(cfg, rodizio=rota.startswith("ml_")), timeout=30)
     except Exception:  # noqa: BLE001
         return False
     if not r.get("rodar"):
@@ -7218,14 +7248,17 @@ def main():
     sub.add_parser("ml-posicoes", help="Mercado Livre: posição dos meus anúncios na busca")
     mp = sub.add_parser("ml-precos", help="Mercado Livre: preço de agora dos anúncios do monitor de preços, só lê")
     mp.add_argument("--so", default=None, help="só este anúncio (MLB…)")
+    mp.add_argument("--rodizio", action="store_true", help="só a parte desta máquina (vigia; Mac / Dell / gamdias)")
     bf = sub.add_parser("ml-busca-foto", help="Mercado Livre: achar a loja dos seguidos sem loja pela foto do anúncio na busca, só lê")
     bf.add_argument("--so", default=None, help="só este vendedor seguido")
+    bf.add_argument("--rodizio", action="store_true", help="só a parte desta máquina (vigia; Mac / Dell / gamdias)")
     mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
     mlp.add_argument("url")
     fv = sub.add_parser("fotos-vendedores", help="Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML)")
     fv.add_argument("--so", default=None, help="só este vendedor (nome como aparece no Nubimetrics)")
     vs = sub.add_parser("vitrine-seguidos", help="Mercado Livre: todos os anúncios da vitrine (_CustId_) das lojas dos seguidos, só lê")
     vs.add_argument("--so", default=None, help="só este vendedor seguido (ex.: \"SIENO P13\")")
+    vs.add_argument("--rodizio", action="store_true", help="só a parte desta máquina (vigia; Mac / Dell / gamdias)")
     gs = sub.add_parser("gestor", help="importa no Gestor Seller a planilha feita pelo nubi")
     gs.add_argument("--ver", action="store_true", help="mostrar a janela do navegador")
     es = sub.add_parser("estoque", help="exporta a Lista de Estoque do UpSeller e manda para o nubi")
@@ -7343,15 +7376,15 @@ def main():
     if args.cmd == "ml-posicoes":
         return executar("ml_posicoes", coletar_ml_posicoes)
     if args.cmd == "ml-precos":
-        return executar("ml_precos", lambda p, cfg, token: coletar_ml_precos(p, cfg, token, args.so))
+        return executar("ml_precos", lambda p, cfg, token: coletar_ml_precos(p, cfg, token, args.so, args.rodizio))
     if args.cmd == "ml-busca-foto":
-        return executar("ml_busca_foto", lambda p, cfg, token: coletar_busca_foto(p, cfg, token, args.so))
+        return executar("ml_busca_foto", lambda p, cfg, token: coletar_busca_foto(p, cfg, token, args.so, args.rodizio))
     if args.cmd == "ml-pagina":
         return executar("ml_pagina", lambda p, cfg, token: coletar_ml_pagina(p, cfg, token, args.url))
     if args.cmd == "fotos-vendedores":
         return executar("vend_fotos", lambda p, cfg, token: coletar_fotos_vendedores(p, cfg, token, args.so))
     if args.cmd == "vitrine-seguidos":
-        return executar("vitrine_seguidos", lambda p, cfg, token: coletar_vitrine_seguidos(p, cfg, token, args.so))
+        return executar("vitrine_seguidos", lambda p, cfg, token: coletar_vitrine_seguidos(p, cfg, token, args.so, args.rodizio))
     if args.cmd == "atualizar":
         novo = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=60).read()
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro

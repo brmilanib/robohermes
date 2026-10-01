@@ -408,6 +408,17 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     no card, `aviso`), confirma quando o id é o mesmo (soma anúncio/voto, confiança "certa") e anota a loja oficial
     (`loja_oficial`) na prova; `JS_ML_VENDEDOR` lê seller_id/nickname também dos scripts da página (loja oficial sem
     link _CustId_, caso MAMS). Teste: testes/test_busca_foto.py.
+  - **RODÍZIO Mac / Dell / gamdias (01/10, Bruno: "usa um pouco em cada")** das leituras públicas do ML: monitor de
+    preços (rotina `precos` 04:10), vitrine dos seguidos (rotina `vitrine` 04:40) e busca por foto (rotina `busca_foto`
+    05:10). `maquinas_ml(repo)` = Mac vivo e não pausado + servidores vivos (`fila|servidor|<nome>`) cujo `pode` tem
+    `ml_busca_foto`; `fatia_rodizio(repo, itens, chave, q)` dá a cada máquina a sua parte (crc32 da chave mod nº de
+    máquinas; máquina fora do ar = a parte dela vai para as outras). O vigia de cada máquina chama `_na_hora` com
+    `_param_maquina(cfg, rodizio=True)` (`maquina=servidor&nome=<host>&rodizio=1`) e solta `ml-precos|vitrine-seguidos|
+    ml-busca-foto --rodizio`; o comando da Central (sem `--rodizio`) e `--so` fazem tudo numa máquina só. Busca por
+    foto: `ml_busca_foto_fim` grava `busca_foto|tentou` (vendedor → dia) e a rotina não repete no mesmo dia. NUNCA proxy,
+    VPN ou troca de IP (é o padrão que o ML marca como robô; as lojas do Bruno estão no mesmo IP): são as 3 máquinas dele,
+    cada uma com a sua internet, poucas buscas por minuto, pausas e parada em qualquer verificação.
+    Teste: testes/test_rodizio.py.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

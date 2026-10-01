@@ -11,6 +11,7 @@ navegador. Este módulo tem três partes:
 
 import hashlib
 import json
+import zlib
 import math
 import os
 import re
@@ -6163,6 +6164,50 @@ def mac_pausado(repo):
     return bool((r.get("texto") or "").strip())
 
 
+# 01/10 (Bruno: "usa um pouco no Mac, um pouco no servidor Dell e um pouco no gamdias"): RODÍZIO das leituras públicas do
+# Mercado Livre (monitor de preços, vitrine dos seguidos, busca por foto). Cada máquina viva pede a sua parte da lista
+# (`rodizio=1`, enviado pelo vigia; o comando da Central, sem rodízio, faz tudo): o item vai sempre para a mesma máquina
+# (crc32 do nome) enquanto as mesmas máquinas estiverem vivas; máquina fora do ar = a parte dela se espalha nas outras.
+# Nada de proxy ou troca de IP: são as três máquinas do Bruno, cada uma com a sua internet e o seu Chrome.
+def maquinas_ml(repo):
+    ms = []
+    try:
+        if _mac_vivo(repo, 10) and not mac_pausado(repo):
+            ms.append("mac")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        for s in atendimento.servidores_vivos(repo):
+            if "ml_busca_foto" in (s.get("pode") or []):          # coletor novo o bastante para as leituras do ML
+                ms.append(f"servidor:{s['nome']}")
+    except Exception:  # noqa: BLE001
+        pass
+    return ms
+
+
+def fatia_rodizio(repo, itens, chave, q):
+    """A parte desta máquina (q: maquina/nome/rodizio). -> (itens, info). Sem rodízio, 1 máquina só ou máquina
+    desconhecida: a lista inteira."""
+    minha = f"servidor:{q.get('nome') or ''}" if q.get("maquina") == "servidor" else "mac"
+    if str(q.get("rodizio") or "") != "1":
+        return itens, {"maquina": minha, "rodizio": False}
+    ms = maquinas_ml(repo)
+    if len(ms) <= 1 or minha not in ms:
+        return itens, {"maquina": minha, "maquinas": ms, "rodizio": False}
+    i = ms.index(minha)
+    meus = [x for x in itens if zlib.crc32(str(x.get(chave) or "").encode()) % len(ms) == i]
+    return meus, {"maquina": minha, "maquinas": ms, "rodizio": True, "de": len(itens)}
+
+
+BUSCA_FOTO_TENTOU = "busca_foto|tentou"
+
+
+def _rotina_na_hora(repo, rid, agora=None):
+    rot = (repo._req("GET", "rotinas", {"select": "*", "id": f"eq.{rid}"}) or [None])[0]
+    agora = agora or _agora_br()
+    return bool(rot and rot.get("ativo", True) and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "00:00"))
+
+
 def _mac_vivo(repo, minutos=3):
     est = (repo._req("GET", "mac_estado", {"select": "visto_em", "id": "eq.1"}) or [{}])[0]
     try:
@@ -6542,7 +6587,20 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
             cands.sort(key=lambda c: -c["un"])
             if cands:
                 out.append({"vendedor": v, "itens": cands[:6], "atual": {k: lj.get(k) for k in ("id", "nome", "confianca")} if lj else None})
-        return {"vendedores": out}
+        # rodízio entre as máquinas + rotina `busca_foto` (vigia): quem já foi procurado hoje não é procurado de novo
+        out, info = fatia_rodizio(repo, out, "vendedor", q)
+        hoje = _agora_br().date().isoformat()
+        if str(q.get("rodizio") or "") == "1":
+            tentou = precos._ler(repo, BUSCA_FOTO_TENTOU, {})
+            out = [v for v in out if str(tentou.get(v["vendedor"]) or "") != hoje]
+        return {"vendedores": out, "rodizio": info, "rodar": bool(out) and _rotina_na_hora(repo, "busca_foto")}
+    if rota == "ml_busca_foto_fim" and metodo == "POST":
+        hoje = _agora_br().date().isoformat()
+        tentou = precos._ler(repo, BUSCA_FOTO_TENTOU, {})
+        for v in (d.get("vendedores") or [])[:100]:
+            tentou[str(v)[:120]] = hoje
+        precos._gravar(repo, BUSCA_FOTO_TENTOU, tentou)
+        return {"ok": True}
     if rota == "ml_busca_foto_achou" and metodo == "POST":
         vend, sid = str(d.get("vendedor") or ""), re.sub(r"\D", "", str(d.get("seller_id") or ""))
         mlb, fid = precos.normalizar_mlb(d.get("mlb")), str(d.get("fid") or "")[:40]
@@ -6598,9 +6656,13 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
                     visto[a["vendedor"]] = a["visto_em"]
         except Exception:  # noqa: BLE001
             pass
-        return {"lojas": [{"vendedor": v, "seller_id": str(x["id"]), "nome": x.get("nome") or "", "visto_em": visto.get(v)}
-                          for v, x in ((v, _a_conferir(x)) for v, x in lojas.items())
-                          if x and re.fullmatch(r"\d{3,15}", str(x.get("id") or ""))]}
+        ls = [{"vendedor": v, "seller_id": str(x["id"]), "nome": x.get("nome") or "", "visto_em": visto.get(v)}
+              for v, x in ((v, _a_conferir(x)) for v, x in lojas.items())
+              if x and re.fullmatch(r"\d{3,15}", str(x.get("id") or ""))]
+        ls, info = fatia_rodizio(repo, ls, "vendedor", q)        # 01/10: rodízio Mac / Dell / gamdias
+        hoje = _agora_br().date().isoformat()
+        faltam = [l for l in ls if str(l.get("visto_em") or "")[:10] != hoje]
+        return {"lojas": ls, "rodizio": info, "rodar": bool(faltam) and _rotina_na_hora(repo, "vitrine")}
     if rota == "ml_vitrine_salvar" and metodo == "POST":
         # card #126, etapa 2: uma página da vitrine _CustId_ lida pelo coletor -> vend_anuncios_ml
         cards = [str(c)[:30000] for c in (d.get("cards") or [])[:100]]
@@ -6646,6 +6708,8 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
             r = precos.pendente(repo, rot, agora)
             if rot and not rotina_no_dia(rot, agora):
                 r["rodar"] = False
+            r["itens"], r["rodizio"] = fatia_rodizio(repo, r["itens"], "mlb", q)     # 01/10: rodízio Mac / Dell / gamdias
+            r["rodar"] = bool(r["rodar"] and r["itens"])
             return r
         if rota == "ml_precos_gravar" and metodo == "POST":
             lidos = [precos.ler_pagina(x) | {"mlb": x.get("mlb")} if x.get("fracao") is not None or x.get("texto") else x
