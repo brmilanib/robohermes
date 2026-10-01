@@ -1161,3 +1161,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Botões também com "gastou R$ X de ADS" e o ROAS do grupo (faturamento somado ÷ ADS somado) e recontados pelo filtro atual
   (loja/curva). Filtro de loja (`#lu-loja`, contas do relatório de vendas do Gestor) e etiquetas por produto com as unidades
   em cada loja (`produtos[].lojas`, de `analise_lucro`); o ADS do Gestor é por produto, não por loja.
+- Coletor, 1ª rodada real dos relatórios (01/10 12:29): o seletor de datas do UpSeller FUNCIONOU (dia 30/09 e bloco 31–60),
+  mas o Chrome do Mac fecha sozinho depois de um download e o resto caía com "browser has been closed". Agora cada download
+  (cada dia, cada bloco, a Análise ABC do UpSeller e a Curva ABC do Gestor) roda num Chrome novo (`_em_chrome_novo`). A
+  Curva ABC do Gestor é tentada mesmo quando o relatório de vendas falha. `baixar_gestor_vendas` tenta o endereço guardado,
+  `/reports/sales`, `/reports` e o menu "Relatório" → "Vendas", procurando "Baixar/Exportar/Gerar relatório".

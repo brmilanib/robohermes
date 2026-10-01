@@ -1882,34 +1882,34 @@ def vendas_blocos(p, cfg, token):
         return f"vendas em blocos: não consultei ({str(e)[:120]})"
     if not blocos:
         return ""
-    feitos, erro, ctx = [], "", None
-    try:
-        ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
-        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-        for b in blocos[:3]:
-            try:
-                arq = baixar_vendas(pg, cfg, p, periodo=(b["inicio"], b["fim"]))
-                api(token, "estoque_vendas_importar", {"arquivo": arq.name, "bloco": b["bloco"]}, arq.read_bytes())
-                feitos.append(b["bloco"])
-                devagar(4)
-            except SessaoExpirada:
-                raise
-            except Exception as e:  # noqa: BLE001
-                erro = f"{b['bloco']} dias: {str(e)[:200]}"
-                log(f"  vendas em blocos {erro}")
-                break
-    except Exception as e:  # noqa: BLE001
-        erro = erro or str(e)[:200]
-    finally:
-        if ctx is not None:
-            try:
-                ctx.close()
-            except Exception:  # noqa: BLE001
-                pass
+    feitos, erro = [], ""
+    for b in blocos[:3]:
+        try:
+            arq = _em_chrome_novo(p, cfg, lambda pg, b=b: baixar_vendas(pg, cfg, p, periodo=(b["inicio"], b["fim"])))
+            api(token, "estoque_vendas_importar", {"arquivo": arq.name, "bloco": b["bloco"]}, arq.read_bytes())
+            feitos.append(b["bloco"])
+            devagar(4)
+        except Exception as e:  # noqa: BLE001
+            erro = f"{b['bloco']} dias: {str(e)[:200]}"
+            log(f"  vendas em blocos {erro}")
+            break
     return f"vendas em blocos: {', '.join(feitos) or 'nenhum'}" + (f" · parou em {erro}" if erro else "")
 
 
 VENDAS_DIAS_RODADA = 4          # ontem + até 3 dias que faltam dos últimos 30 (o histórico enche em ~10 dias)
+
+
+def _em_chrome_novo(p, cfg, fn, ver="upseller_ver"):
+    """01/10 (1ª rodada real: depois do 1º download o Chrome do Mac fechava sozinho e o resto caía com "browser has been
+    closed"): cada download num Chrome novo, como o estoque. fn(pg) -> resultado; o Chrome sempre fecha no fim."""
+    ctx = abrir_navegador(p, cfg, visivel=True if cfg.get(ver) else None)
+    try:
+        return fn(ctx.pages[0] if ctx.pages else ctx.new_page())
+    finally:
+        try:
+            ctx.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def vendas_por_dia(p, cfg, token):
@@ -1922,30 +1922,17 @@ def vendas_por_dia(p, cfg, token):
     dias = dias[:VENDAS_DIAS_RODADA]
     if not dias:
         return ""
-    feitos, erro, ctx = [], "", None
-    try:
-        ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
-        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-        for d in dias:
-            try:
-                arq = baixar_vendas(pg, cfg, p, dia=d)
-                api(token, "estoque_vendas_importar", {"arquivo": arq.name}, arq.read_bytes())
-                feitos.append(d)
-                devagar(4)
-            except SessaoExpirada:
-                raise
-            except Exception as e:  # noqa: BLE001
-                erro = f"{d}: {str(e)[:200]}"
-                log(f"  vendas do dia {erro}")
-                break
-    except Exception as e:  # noqa: BLE001
-        erro = erro or str(e)[:200]
-    finally:
-        if ctx is not None:
-            try:
-                ctx.close()
-            except Exception:  # noqa: BLE001
-                pass
+    feitos, erro = [], ""
+    for d in dias:
+        try:
+            arq = _em_chrome_novo(p, cfg, lambda pg, d=d: baixar_vendas(pg, cfg, p, dia=d))
+            api(token, "estoque_vendas_importar", {"arquivo": arq.name}, arq.read_bytes())
+            feitos.append(d)
+            devagar(4)
+        except Exception as e:  # noqa: BLE001
+            erro = f"{d}: {str(e)[:200]}"
+            log(f"  vendas do dia {erro}")
+            break
     nota = f"vendas por dia: {len(feitos)} dia(s) importado(s)" + (f" ({', '.join(feitos)})" if feitos else "")
     return nota + (f" · parou em {erro}" if erro else "")
 
@@ -1986,18 +1973,26 @@ def baixar_gestor_vendas(pg, cfg, p=None):
     """Baixa o 'Relatório de Vendas' do Gestor Seller (últimos 30 dias, todas as contas). -> (arquivo, início, fim)."""
     fim = date.today() - timedelta(days=1)
     ini = fim - timedelta(days=29)
-    url = cfg.get("gestor_vendas_url") or GESTOR_VENDAS or f"{GESTOR}/management/products"
-    pg.goto(url, wait_until="domcontentloaded", timeout=90000)
-    devagar(5)
-    if "/auth" in urllib.parse.urlparse(pg.url).path or pg.locator("input[type=password]:visible").count():
-        raise SessaoExpirada(f"O Gestor Seller pediu login de novo (relatório de vendas). Rode {_onde_rodar('entrar-gestor')}")
-    botao = pg.get_by_text(re.compile(r"Baixar relat[óo]rio de vendas", re.I))
-    if not botao.count():
-        # menu: "Relatório de Vendas" (às vezes dentro de "Relatórios"); nunca clica em salvar/importar/excluir
-        _clicar_texto(pg, [r"^\s*Relat[óo]rios?\s*$"], 2)
-        _clicar_texto(pg, [r"^\s*Relat[óo]rio de Vendas\s*$"], 5)
-        botao = pg.get_by_text(re.compile(r"Baixar relat[óo]rio de vendas", re.I))
-    if not botao.count():
+    # 01/10 (1ª rodada real: "não achei 'Relatório de Vendas'"; o menu do Gestor chama "Relatório" e o arquivo que o Bruno
+    # baixou é "reports_sales.csv"): tenta o endereço guardado, as páginas de relatório prováveis e o menu "Relatório"
+    rx_botao = re.compile(r"Baixar relat[óo]rio de vendas|Baixar relat[óo]rio|Exportar relat[óo]rio|Exportar vendas|Gerar relat[óo]rio", re.I)
+    botao = None
+    for url in [u for u in (cfg.get("gestor_vendas_url"), GESTOR_VENDAS, f"{GESTOR}/reports/sales", f"{GESTOR}/reports",
+                            f"{GESTOR}/management/products") if u]:
+        pg.goto(url, wait_until="domcontentloaded", timeout=90000)
+        devagar(5)
+        if "/auth" in urllib.parse.urlparse(pg.url).path or pg.locator("input[type=password]:visible").count():
+            raise SessaoExpirada(f"O Gestor Seller pediu login de novo (relatório de vendas). Rode {_onde_rodar('entrar-gestor')}")
+        botao = pg.get_by_text(rx_botao)
+        if botao.count():
+            break
+        # menu "Relatório(s)" → item de vendas; nunca clica em salvar/importar/excluir
+        if _clicar_texto(pg, [r"^\s*Relat[óo]rios?\s*$"], 2):
+            _clicar_texto(pg, [r"^\s*Relat[óo]rio de Vendas\s*$", r"^\s*Vendas\s*$"], 5)
+            botao = pg.get_by_text(rx_botao)
+            if botao.count():
+                break
+    if not botao or not botao.count():
         raise Falha("não achei 'Relatório de Vendas' → 'Baixar relatório de vendas' no Gestor Seller. Na tela: "
                     + str(pg.evaluate(JS_TEXTOS))[:600] + " " + diagnostico(pg))
     if not pg.evaluate(JS_GESTOR_PERIODO, [ini.isoformat(), fim.isoformat()]):
@@ -2099,11 +2094,6 @@ def coletar_estoque(p, cfg, token, enviar=True):
         except Exception as ev:  # noqa: BLE001
             enviar_foto(pg2, f"vendas por anúncio: {str(ev)[:150]}", str(ev)[:3000])
             raise
-        try:                                    # 01/10: a Análise ABC do próprio UpSeller (falha não derruba nada)
-            abc = baixar_vendas(pg2, cfg, p, relatorio="abc")
-        except Exception as ea:  # noqa: BLE001
-            nota_abc = f"análise ABC: não baixou ({str(ea)[:300]})"
-            log("  " + nota_abc)
     except Exception as ev:  # noqa: BLE001
         nota_vendas = f"vendas por anúncio: não baixou ({ev.__class__.__name__}: {str(ev)[:700]})"
         log("  " + nota_vendas)
@@ -2113,6 +2103,11 @@ def coletar_estoque(p, cfg, token, enviar=True):
                 ctx2.close()
             except Exception:  # noqa: BLE001
                 pass
+    try:                                        # 01/10: a Análise ABC do próprio UpSeller, num Chrome novo (falha não derruba nada)
+        abc = _em_chrome_novo(p, cfg, lambda pg: baixar_vendas(pg, cfg, p, relatorio="abc"))
+    except Exception as ea:  # noqa: BLE001
+        nota_abc = f"análise ABC: não baixou ({str(ea)[:300]})"
+        log("  " + nota_abc)
     # card #124: o Relatório de Vendas do Gestor Seller (lucro, custo, imposto) também num Chrome novo e sem derrubar o estoque
     gestor_vendas, nota_gestor, ctx3 = None, "", None
     try:
@@ -2123,11 +2118,6 @@ def coletar_estoque(p, cfg, token, enviar=True):
         except Exception as ev:  # noqa: BLE001
             enviar_foto(pg3, f"gestor vendas: {str(ev)[:150]}", str(ev)[:3000])
             raise
-        try:                                    # 01/10: Curva ABC do Gestor (ADS e lucro pós ADS), falha não derruba nada
-            gestor_abc = baixar_gestor_abc(pg3, cfg, p)
-        except Exception as ea:  # noqa: BLE001
-            nota_gestor = f"curva ABC do Gestor: não baixou ({str(ea)[:200]})"
-            log("  " + nota_gestor)
     except Exception as ev:  # noqa: BLE001
         nota_gestor = f"vendas do Gestor: não baixou ({ev.__class__.__name__}: {str(ev)[:500]})"
         log("  " + nota_gestor)
@@ -2137,6 +2127,11 @@ def coletar_estoque(p, cfg, token, enviar=True):
                 ctx3.close()
             except Exception:  # noqa: BLE001
                 pass
+    try:                                        # 01/10: Curva ABC do Gestor (ADS e lucro pós ADS), Chrome novo, sempre tentada
+        gestor_abc = _em_chrome_novo(p, cfg, lambda pg: baixar_gestor_abc(pg, cfg, p), ver="gestor_ver")
+    except Exception as ea:  # noqa: BLE001
+        nota_gestor = (nota_gestor + " · " if nota_gestor else "") + f"curva ABC do Gestor: não baixou ({str(ea)[:200]})"
+        log("  curva ABC do Gestor: não baixou")
     log(f"  baixado: {arq.name} ({arq.stat().st_size // 1024} KB)")
     if not enviar:
         return 1, 0, 0, f"estoque baixado em {arq} (sem enviar)"
