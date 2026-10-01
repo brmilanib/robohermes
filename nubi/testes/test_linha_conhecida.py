@@ -87,6 +87,16 @@ def test_quadro_do_produto_traz_o_meu_lado():
     assert w.produto_meu(r, "Xerjoff Outros EDP 100 ml", titulos=["Xerjoff Naxos 1861 100ml"])["estoque"] == []
     m = w.produto_meu(r, "Xerjoff Torino 21 EDP 100 ml")
     assert m["estoque"] == [] and m["vendas"]["unidades"] == 0 and m["casado_por"] is None
+    # 01/10 (Bruno, Light Blue): "Dolce & Gabbana Light Blue EDP 100 ml" não pode puxar o meu SKU Light Blue EDT 50 ml,
+    # nem pelo título de reserva sem volume ("Perfume Dolce & Gabbana Light Blue Feminino")
+    itens3 = [{"sku": "DOLCE-LIGHTBLUE-50", "titulo": "Light Blue Pour Homme Dolce&Gabbana Eau de Toilette Masculino 50ml", "disponivel": 0, "atual": 0,
+               "transito_compra": 0, "estoque_min": 2, "custo_medio": 179},
+              {"sku": "DG-LB-100", "titulo": "Dolce Gabbana Light Blue Eau De Parfum Intense 100ml", "disponivel": 3, "atual": 3, "transito_compra": 0, "estoque_min": 0, "custo_medio": 400}]
+    m = w.produto_meu(_Repo(itens3, {"dias": 30, "linhas": []}), "Dolce & Gabbana Light Blue EDP 100 ml",
+                      titulos=["Perfume Dolce & Gabbana Light Blue Feminino", "Dolce&gabbana Light Blue For Men Eau De Parfum 100ml"])
+    assert [x["sku"] for x in m["estoque"]] == ["DG-LB-100"], m["estoque"]
+    m = w.produto_meu(_Repo(itens3, {"dias": 30, "linhas": []}), "Dolce & Gabbana Light Blue EDT 50 ml", titulos=["Light Blue Pour Homme 50ml"])
+    assert [x["sku"] for x in m["estoque"]] == ["DOLCE-LIGHTBLUE-50"], m["estoque"]
     # 30/09 (Bruno: "meu Vibrato tem 26", o quadro dizia 63): decant de 3/5/10 ml não soma no produto de 100 ml
     itens2 = [{"sku": "SOS-VIB-100", "titulo": "Perfume Vibrato Sospiro Edp 100ml Importado Original", "disponivel": 25, "atual": 26,
                "transito_compra": 1, "estoque_min": 21, "custo_medio": 988},

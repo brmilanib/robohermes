@@ -477,6 +477,17 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     motivo + resumo; cache 12 h em `observados|destaques`, `?forcar=1` refaz). Na página do vendedor, os produtos são
     clicáveis (`abrirProdutoDeMarca`: carrega o relatório da marca e abre o quadro do produto) e o quadro ganhou a foto do
     catálogo do ML (`meli_foto`, 1º GTIN que o ML conhece).
+  - **Revisão geral das linhas pela IA (01/10, Bruno: "Light Blue 100 ml juntou feminino, masculino, Intense e Capri in
+    Love; precisa de uma revisão geral")**: `linhas_ia.py`. As linhas vinham de `detectar_linhas` (frequência de pares de
+    palavras: "blue femin", "edpi"…) e "light blue" engolia as variações. `revisar_marca(repo, marca, perguntar)` manda os
+    150 títulos que mais vendem (sem outra marca/outra categoria) e a IA devolve [chave, rótulo] do mais específico ao
+    mais curto; `validar` só aceita chave que aparece em algum título normalizado; antes/depois em `linhas_ia|<marca>`
+    (desfazer = `desfazer`); grava `marcas_config` e `nubi.reconsolidar` a marca. Rotina `linhas_ia` (05:40, 10 marcas por
+    dia, cada marca a cada 30 dias) + botões na Configuração da marca (`linhas_ia_revisar`, `linhas_ia_desfazer`).
+    Também: o quadro do produto só casa SKU do estoque com o mesmo volume E tipo do nome do produto (`_tipo_tok`: EDP ≠
+    EDT; `vol_fixo` vale para os títulos de reserva), e "No ML agora" tira anúncio cujo título diz outro volume
+    (`_ml_do_produto(volume)` → `fora_volume`, o ML junta volumes irmãos no mesmo GTIN). Testes: test_linhas_ia.py,
+    test_linha_conhecida.py.
   - **Tipo de produto (01/10, "tudo errado ainda")**: em `TIPOS_PRODUTO` body splash e perfume vêm ANTES de maquiagem
     ("Good Girl Blush EDP" é perfume), cabelo e skincare explícitos também; "blush" só decide sem sinal de perfume.
     Palavras de produto (shampoo, blush, gel…) estão em `GENERICAS` (nunca viram marca). Na lista de SKUs, marca sem

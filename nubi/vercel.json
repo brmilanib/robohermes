@@ -5,7 +5,7 @@
   "functions": {
     "api/app.py": {
       "maxDuration": 300,
-      "includeFiles": "{nubi.py,nubi_web.py,meli.py,perseguir.py,estoque.py,ranking.py,vendedores.py,vend_bi.py,categorias.py,pesquisa_marca.py,ia.py,produtos_iguais.py,auditoria.py,reuniao.py,agentes.py,pesquisador.py,saber.py}"
+      "includeFiles": "{nubi.py,nubi_web.py,meli.py,perseguir.py,estoque.py,ranking.py,vendedores.py,vend_bi.py,categorias.py,pesquisa_marca.py,ia.py,produtos_iguais.py,auditoria.py,reuniao.py,agentes.py,pesquisador.py,saber.py,monitor.py,observados.py,linhas_ia.py,revisao.py,precos.py}"
     }
   },
   "crons": [

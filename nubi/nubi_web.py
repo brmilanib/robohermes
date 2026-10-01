@@ -43,6 +43,7 @@ import meli
 import perseguir
 import monitor
 import observados
+import linhas_ia
 import precos
 import revisao
 import reuniao
@@ -311,6 +312,27 @@ def _hashes_seguidos(repo):
     except Exception:  # noqa: BLE001
         pass
     return hs
+
+
+def _perguntar_linhas(pedido, schema):
+    return ia.perguntar_estruturado(pedido, schema, nome="linhas", max_tokens=4000)
+
+
+def rota_linhas_ia(repo, metodo, rota, q, corpo):
+    """01/10: revisão das linhas de uma marca pela IA (botão na Configuração / quadro da marca) e desfazer."""
+    d = json.loads(corpo or b"{}") if metodo == "POST" else {}
+    marca = str(d.get("marca") or q.get("marca") or "")
+    if rota == "linhas_ia_revisar" and metodo == "POST":
+        if not marca:
+            raise ErroNuvem("Faltou a marca.")
+        if not ia.disponivel():
+            raise ErroNuvem("Sem IA configurada.")
+        return linhas_ia.revisar_marca(repo, marca, _perguntar_linhas)
+    if rota == "linhas_ia_desfazer" and metodo == "POST":
+        return linhas_ia.desfazer(repo, marca)
+    if rota == "linhas_ia_estado":
+        return {"revisadas": linhas_ia.revisadas(repo), "pendentes": linhas_ia.pendentes(repo)}
+    raise ErroNuvem("Rota desconhecida.", 404)
 
 
 def rota_observados(repo, metodo, rota, q, corpo):
@@ -1278,6 +1300,8 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"ok": True})
         if rota.startswith("mac_"):
             return _json(rota_mac(repo, metodo, rota, q, corpo, token))
+        if rota.startswith("linhas_ia"):
+            return _json(rota_linhas_ia(repo, metodo, rota, q, corpo))
         if rota.startswith("observado"):                 # 01/10: 👀 vendedores observados (não seguidos) dos exports do Explorador
             return _json(rota_observados(repo, metodo, rota, q, corpo))
         if rota == "monitor_painel":                    # 01/10: 📟 Monitor (banco, memória, base de conhecimento e máquinas)
@@ -2789,9 +2813,20 @@ def _tokens_produto(titulo):
     return pal, v
 
 
-def _mesmo_formato(pal, p2, vol, v2):
-    """Mesmo volume quando os dois têm; decant só casa com decant (e o inteiro nunca com decant)."""
+def _tipo_tok(titulo):
+    """'edp' / 'edt' / '' lido do título (eau de parfum, parfum, EDP x eau de toilette, EDT)."""
+    t = unicodedata.normalize("NFKD", str(titulo or "").lower()).encode("ascii", "ignore").decode()
+    edp = bool(re.search(r"\b(edp|eau de parfum|parfum|extrait)\b", t))
+    edt = bool(re.search(r"\b(edt|eau de toilette|toilette)\b", t))
+    return "edp" if edp and not edt else "edt" if edt and not edp else ""
+
+
+def _mesmo_formato(pal, p2, vol, v2, tipo="", t2=""):
+    """Mesmo volume quando os dois têm; decant só casa com decant (e o inteiro nunca com decant); EDP nunca casa com EDT
+    (01/10, Bruno: "Light Blue EDP 100 ml" puxou o meu SKU Light Blue EDT 50 ml)."""
     if vol and v2 and vol != v2:
+        return False
+    if tipo and t2 and tipo != t2:
         return False
     return ("decant" in pal) == ("decant" in p2)
 
@@ -2820,15 +2855,17 @@ def casar_estoque(titulo, estoque):
     return melhor
 
 
-def _casar_varios(titulo, itens, n=3):
-    """Como casar_estoque, mas devolve os n melhores (o mesmo perfume pode ter mais de um SKU)."""
+def _casar_varios(titulo, itens, n=3, vol_fixo=None, tipo_fixo=""):
+    """Como casar_estoque, mas devolve os n melhores (o mesmo perfume pode ter mais de um SKU).
+    vol_fixo/tipo_fixo (01/10): o volume e o tipo do PRODUTO do Explorador valem mesmo quando o título candidato não os traz."""
     pal, vol = _tokens_produto(titulo)
+    vol, tipo = vol_fixo or vol, tipo_fixo or _tipo_tok(titulo)
     if len(pal) < 2:
         return []
     notas = []
     for it in itens:
         p2, v2 = it["_tok"]
-        if not _mesmo_formato(pal, p2, vol, v2) or not _numeros_batem(pal, p2):
+        if not _mesmo_formato(pal, p2, vol, v2, tipo, it.get("_tipo") or _tipo_tok(it.get("titulo"))) or not _numeros_batem(pal, p2):
             continue
         comum = len(pal & p2)
         if comum >= 2 and comum / len(pal) >= 0.6:
@@ -2846,12 +2883,16 @@ def produto_meu(repo, produto, gtins=(), titulos=()):
     gs = {re.sub(r"\D", "", str(g)) for g in gtins if g}
     achados, por = [it for it in itens if re.sub(r"\D", "", str(it["sku"])) in gs and len(str(it["sku"]).strip()) >= 8], "gtin"
     candidatos = [produto] + ([] if "outros" in str(produto).lower().split() else list(titulos)[:3])
+    # 01/10 (Bruno, Light Blue): o volume (100 ml) e o tipo (EDP) do nome do produto valem para os títulos de reserva também
+    _, vol_prod = _tokens_produto(produto)
+    tipo_prod = _tipo_tok(produto)
     if not achados:
         por = "titulo"
         for it in itens:
             it["_tok"] = _tokens_produto(it.get("titulo"))
+            it["_tipo"] = _tipo_tok(it.get("titulo"))
         for t in candidatos:
-            achados = _casar_varios(t, itens)
+            achados = _casar_varios(t, itens, vol_fixo=vol_prod, tipo_fixo=tipo_prod)
             if achados:
                 break
     skus = {estoque._chave(it["sku"]) for it in achados}
@@ -2860,7 +2901,7 @@ def produto_meu(repo, produto, gtins=(), titulos=()):
     if not linhas and v.get("linhas"):             # vendo com um SKU que não está no estoque de hoje: casa pelo título
         vs = [dict(x, titulo=x.get("produto"), _tok=_tokens_produto(x.get("produto"))) for x in v["linhas"]]
         for t in candidatos:
-            um = _casar_varios(t, vs, 1)
+            um = _casar_varios(t, vs, 1, vol_fixo=vol_prod, tipo_fixo=tipo_prod)
             if um:
                 linhas = [x for x in vs if estoque._chave(x["sku"]) == estoque._chave(um[0]["sku"])]
                 break
@@ -2879,7 +2920,7 @@ def produto_meu(repo, produto, gtins=(), titulos=()):
         for a in an:
             a["_tok"] = _tokens_produto(a.get("titulo"))
         for t in candidatos:
-            ml = _casar_varios(t, an, 5)
+            ml = _casar_varios(t, an, 5, vol_fixo=vol_prod, tipo_fixo=tipo_prod)
             if ml:
                 break
         ml = [{k: a.get(k) for k in ("id", "loja", "titulo", "preco")} for a in ml]
@@ -3332,7 +3373,7 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("monitor", "confirmar_loja", "rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "perseguir", "resumo_semana", "resumo_marcas", "nomes_marcas",
+NO_SERVIDOR = ("monitor", "confirmar_loja", "linhas_ia", "rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "perseguir", "resumo_semana", "resumo_marcas", "nomes_marcas",
                "noticias", "auditoria", "reuniao", "design", "revisao", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 ROTINAS_TEXTO = ("resumo_dia", "resumo_semana", "resumo_marcas", "nomes_marcas", "noticias")   # texto sem conferência de número
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
@@ -3639,6 +3680,8 @@ def rodar_rotinas(repo, so=None):
                 res = monitor.coletar(repo, forcar=bool(so))
             elif rid == "confirmar_loja":
                 res = confirmar_pendentes(repo)
+            elif rid == "linhas_ia":
+                res = linhas_ia.revisar_pendentes(repo, _perguntar_linhas) if ia.disponivel() else "sem IA configurada"
             elif rid == "resumo_marcas":
                 x = resumos_marcas_pendentes(repo)
                 res = "; ".join(f"{k.split('|')[1]} {k.split('|')[2]}: {v}" for k, v in x.items()) or "nada novo (análises do mês já feitas)"
@@ -4782,19 +4825,32 @@ def _linhas_nubi(repo, snaps, filtro, com_bruto=False):
     return out
 
 
-def _ml_do_produto(repo, marca, gtins):
-    """Quem vende o produto no ML agora (catálogo pelo GTIN) + quais vendedores do Nubimetrics são essas lojas."""
+def _ml_do_produto(repo, marca, gtins, volume=None):
+    """Quem vende o produto no ML agora (catálogo pelo GTIN) + quais vendedores do Nubimetrics são essas lojas.
+    volume (01/10, Bruno: "Light Blue Fem 25ml" no meio do produto de 100 ml): o catálogo do ML devolve, para um GTIN,
+    produtos irmãos de outro volume; anúncio cujo título diz outro volume fica fora (contado em `fora_volume`)."""
     gtins = [g for g in dict.fromkeys(str(x).strip() for x in gtins or []) if re.fullmatch(r"\d{8,14}", g)][:4]
     if not gtins:
         return {"anuncios": [], "casados": {}, "sem_gtin": True}
     ml = meli.por_gtin(gtins)
+    fora = 0
+    mv = re.search(r"(\d{1,4})", str(volume or ""))
+    if mv:
+        alvo, certos = mv.group(1), []
+        for m in ml:
+            v = re.search(r"(?<!\d)(\d{1,4})\s*ml\b", str(m.get("titulo") or "").lower())
+            if v and v.group(1) != alvo:
+                fora += 1
+            else:
+                certos.append(m)
+        ml = certos
     casados = {}
     if marca and ml:
         linhas = _linhas_nubi(repo, _ultimos_snapshots(repo, marca), {"gtin": f"in.({','.join(gtins)})"}, com_bruto=True)
         casados = meli.casar_vendedores(linhas, ml, calib=_calib_ou_nada(repo), oficiais=_oficiais(repo))
         if casados:
             meli.gravar_hash_lojas(repo, casados)
-    return {"anuncios": ml, "casados": casados}
+    return {"anuncios": ml, "casados": casados, "fora_volume": fora}
 
 
 CALIBRA = "meli|calibra_mlb"
@@ -5865,7 +5921,7 @@ def rota_meli(repo, metodo, rota, q, corpo):
         return {"foto": None}
     if rota == "meli_gtin":
         sep = lambda k: [x for x in str(q.get(k) or "").split("|") if x]
-        return _ml_do_produto(repo, q.get("marca") or d.get("marca"), d.get("gtins") or sep("gtins"))
+        return _ml_do_produto(repo, q.get("marca") or d.get("marca"), d.get("gtins") or sep("gtins"), q.get("volume") or d.get("volume"))
     if rota == "meli_descobrir" and metodo == "POST":
         return _descobrir_loja(repo, d.get("vendedor_id"))
     if rota == "meli_nomear" and metodo == "POST":

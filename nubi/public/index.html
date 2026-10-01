@@ -7207,13 +7207,13 @@ function abrirVendedoresProduto(prod) {
   // e a lista vem curta (8) com "mostrar todos"
   const abrirML = () => {
     $("#pq-ml", bg).innerHTML = `<div class="muted" style="font-size:13px">Buscando no Mercado Livre…</div>`;
-    api("meli_gtin", {marca: S.rel.marca || S.marca || "", gtins: gtins.join("|")})
+    api("meli_gtin", {marca: S.rel.marca || S.marca || "", gtins: gtins.join("|"), volume: row.volume && row.volume !== "-" ? row.volume : ""})
       .then(r => {
         if (!document.body.contains(bg)) return;
         S.rel.lojas_ml = Object.assign(S.rel.lojas_ml || {}, r.casados || {});
         bg.querySelectorAll("[data-mlvid]").forEach(el => { el.innerHTML = realML(el.dataset.mlvid); });
-        const xs = r.anuncios || [], desenhar = n => {
-          $("#pq-ml", bg).innerHTML = xs.length ? listaML(xs, lista, n)
+        const xs = r.anuncios || [], fora = r.fora_volume ? `<div class="muted" style="font-size:12px;margin-top:6px">${nf0.format(r.fora_volume)} anúncio(s) do catálogo com OUTRO volume no título ficaram de fora (o ML junta volumes irmãos no mesmo GTIN).</div>` : "", desenhar = n => {
+          $("#pq-ml", bg).innerHTML = xs.length ? listaML(xs, lista, n) + fora
             + `<div style="display:flex;gap:8px;margin-top:8px">${xs.length > n ? `<button class="btn small" id="pq-ml-mais">Mostrar todos (${nf0.format(xs.length)})</button>` : ""}
               <button class="btn small" id="pq-ml-fechar">Fechar a lista</button></div>`
             : `<div class="muted" style="font-size:13px">O catálogo do Mercado Livre não tem este GTIN agora (os anúncios podem estar fora do catálogo).</div>`;
@@ -7454,12 +7454,25 @@ async function telaConfig(el) {
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
         <button class="btn" id="cfa">+ Adicionar linha</button>
         <button class="btn" id="cfr" title="Descarta esta lista e detecta de novo pelos títulos do período mais recente">↻ Detectar linhas de novo</button>
+        <button class="btn" id="cfia" title="A IA lê os títulos que mais vendem e devolve os nomes oficiais das linhas (Light Blue, Light Blue Intense, Light Blue Capri in Love…); o que havia fica guardado para desfazer">🧠 Revisar linhas com IA</button>
+        <button class="btn ghost" id="cfdesf" title="Volta a lista de antes da revisão da IA">↶ Desfazer revisão da IA</button>
         <div style="flex:1"></div>
         <button class="btn primary" id="cfs">Salvar e reprocessar</button></div>
       <div id="cflog"></div></div>`;
     el.querySelectorAll("#cfl input").forEach(i => i.oninput = () => { linhas[i.dataset.i][i.dataset.j] = i.value; });
     el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { linhas.splice(+b.dataset.del, 1); desenhar(); });
     $("#cfa", el).onclick = () => { linhas.unshift(["", ""]); desenhar(); $("#cfl input", el).focus(); };
+    // 01/10 (Bruno, "revisão geral nessas marcas e produtos"): a IA refaz as linhas e a marca é reprocessada na hora
+    $("#cfia", el).onclick = async () => { const b = $("#cfia", el); b.disabled = true; b.textContent = "🧠 lendo os títulos…";
+      try { const x = await api("linhas_ia_revisar", {}, {method: "POST", body: JSON.stringify({marca: S.marca})});
+        if (!x.ok) { toast(x.motivo || "A IA não devolveu linhas", 6000); b.disabled = false; b.textContent = "🧠 Revisar linhas com IA"; return; }
+        toast(`${x.depois.length} linha(s) pela IA (antes ${x.antes.length}); marca reprocessada`, 5000);
+        $("#cflog", el).innerHTML = `<div class="log">${esc(x.observacao || "")}${x.descartadas && x.descartadas.length ? `\nDescartadas (não aparecem nos títulos): ${esc(x.descartadas.join(", "))}` : ""}</div>`;
+        linhas.splice(0, linhas.length, ...x.depois); desenhar(); abrirMarca(S.marca, true);
+      } catch (e) { toast(e.message, 6000); b.disabled = false; b.textContent = "🧠 Revisar linhas com IA"; } };
+    $("#cfdesf", el).onclick = async () => { try { const x = await api("linhas_ia_desfazer", {}, {method: "POST", body: JSON.stringify({marca: S.marca})});
+        if (!x.ok) { toast(x.motivo, 5000); return; } toast("Linhas de antes restauradas; marca reprocessada", 4000); linhas.splice(0, linhas.length, ...x.linhas); desenhar(); abrirMarca(S.marca, true); }
+      catch (e) { toast(e.message, 6000); } };
     $("#cfr", el).onclick = async () => {
       if (!confirm("Descartar a lista atual e detectar as linhas de novo pelos títulos do período mais recente?")) return;
       const bt = $("#cfr", el); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> Detectando…';
