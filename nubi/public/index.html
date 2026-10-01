@@ -1076,6 +1076,7 @@ header.top{padding:7px 16px}
 .ec-modal tr.ec-ok td,#mv-tab tr.ec-ok td{background:rgba(22,163,74,.07)}
 .abc{display:inline-block;min-width:20px;padding:1px 6px;border-radius:6px;font-size:11.5px;font-weight:700;text-align:center}
 .abc-A{background:rgba(37,99,235,.14);color:#2563eb}.abc-B{background:rgba(217,119,6,.15);color:#b45309}.abc-C{background:rgba(220,38,38,.12);color:#dc2626}
+#mv-semsku.on{outline:2px solid var(--warn,#d97706);outline-offset:-2px}
 </style>
 </head>
 <body>
@@ -3251,7 +3252,7 @@ async function telaMinhasVendas() {
     margem: ["Margem % (menor 1º)", (a, b) => (a.margem_pct ?? 1e9) - (b.margem_pct ?? 1e9)]};
   const desenhar = () => {
     const q = f.q.toLowerCase().trim();
-    const xs = r.anuncios.filter(a => (!f.loja || a.loja === f.loja) && (!q || (a.sku + " " + a.produto + " " + a.anuncio).toLowerCase().includes(q)))
+    const xs = r.anuncios.filter(a => (!f.loja || a.loja === f.loja) && (!f.semsku || a.sem_sku) && (!q || (a.sku + " " + a.produto + " " + a.anuncio).toLowerCase().includes(q)))
       .sort(ORD[f.ord][1]);
     $("#mv-tab tbody").innerHTML = xs.map(a => `<tr class="ec-${nivel(a)}">
       <td data-l="Anúncio"><b>${esc(a.produto || a.sku)}</b><div class="muted" style="font-size:11.5px">${a.sem_sku ? `<span class="warn-t" title="Anúncio sem SKU Principal no UpSeller: não liga ao estoque">sem SKU</span>` : esc(a.sku)} · ${a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.anuncio)} ↗</a>` : esc(a.anuncio)}</div></td>
@@ -3266,7 +3267,11 @@ async function telaMinhasVendas() {
       <td class="num" data-l="Em trânsito">${a.transito ? `<b>${nf0.format(a.transito)}</b>` : `<span class="muted">—</span>`}</td>
       <td class="num" data-l="Cobertura" title="Disponível do SKU ÷ venda por dia do SKU (todos os anúncios)"><b class="${a.cobertura_dias == null ? "" : a.cobertura_dias < 15 ? "neg" : a.cobertura_dias < 30 ? "warn-t" : "pos"}">${a.cobertura_dias == null ? "—" : nf0.format(a.cobertura_dias) + " d"}</b></td></tr>`).join("")
       || `<tr><td colspan="11" class="empty">Nenhum anúncio.</td></tr>`;
-    $("#mv-n").textContent = `${nf0.format(xs.length)} de ${nf0.format(r.anuncios.length)} anúncio(s)`;
+    $("#mv-n").innerHTML = `${nf0.format(xs.length)} de ${nf0.format(r.anuncios.length)} anúncio(s)` + (f.semsku
+      ? ` · <a href="#" id="mv-semsku-x" class="warn-t">só sem SKU ✕</a>` : "");
+    const kx = $("#mv-semsku"); if (kx) kx.classList.toggle("on", !!f.semsku);
+    const sx = $("#mv-semsku-x"); if (sx) sx.onclick = e => { e.preventDefault(); f.semsku = false; desenhar(); };
+    $("#mv-aviso-semsku").style.display = f.semsku ? "" : "none";
   };
   main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas · Vendas por Anúncio</h1>
       <span class="muted">UpSeller · ${dia(v.inicio)} a ${dia(v.fim)} (${nf0.format(v.dias || 30)} dias) · importado ${dt(v.importado_em)} · estoque de ${dt(r.estoque_em)}</span></div>
@@ -3275,7 +3280,7 @@ async function telaMinhasVendas() {
       <div class="kpi"><div class="l">Unidades</div><div class="v">${nf0.format(t.unidades)}</div><div class="s">${nf1.format(t.media_dia)} por dia</div></div>
       <div class="kpi"><div class="l">Pedidos</div><div class="v">${nf0.format(t.pedidos)}</div><div class="s">ticket ${t.ticket != null ? rsES(t.ticket) : "—"}</div></div>
       <div class="kpi"><div class="l">Anúncios com venda</div><div class="v">${nf0.format(t.anuncios)}</div><div class="s">${nf0.format(t.skus)} SKU(s)</div></div>
-      ${t.sem_sku ? `<div class="kpi"><div class="l">Anúncios sem SKU</div><div class="v warn-t">${nf0.format(t.sem_sku)}</div><div class="s">${rsES(t.sem_sku_valor)} · cadastre o SKU no UpSeller</div></div>` : ""}
+      ${t.sem_sku ? `<div class="kpi" id="mv-semsku" style="cursor:pointer" title="Clique para ver só os anúncios sem SKU"><div class="l">Anúncios sem SKU ›</div><div class="v warn-t">${nf0.format(t.sem_sku)}</div><div class="s">${rsES(t.sem_sku_valor)} · clique para ver a lista</div></div>` : ""}
       <div class="kpi"><div class="l">Vendem e estão zerados</div><div class="v ${t.sem_estoque ? "neg" : ""}">${nf0.format(t.sem_estoque)}</div><div class="s">SKU(s) sem disponível</div></div>
     </div>
     <div class="card" style="margin-bottom:12px"><h3 style="margin:0 0 4px">Vendas por dia</h3>
@@ -3293,6 +3298,9 @@ async function telaMinhasVendas() {
       <select id="mv-loja"><option value="">Todas as lojas</option>${r.lojas.map(l => `<option ${f.loja === l.loja ? "selected" : ""} value="${esc(l.loja)}">${esc(l.loja)}</option>`).join("")}</select>
       <select id="mv-ord">${Object.entries(ORD).map(([k, [n]]) => `<option ${f.ord === k ? "selected" : ""} value="${k}">Ordenar: ${n}</option>`).join("")}</select>
       <span class="muted" id="mv-n"></span></div>
+      <p id="mv-aviso-semsku" class="muted" style="display:none;font-size:12.5px;margin:0 0 8px">Estes anúncios vieram do UpSeller com a coluna
+        "SKU Principal" vazia: o anúncio não está <b>vinculado</b> a um produto no UpSeller (Produtos → Vincular anúncios / mapeamento).
+        O produto pode ter SKU, mas sem o vínculo a venda não liga ao estoque e fica fora da reposição.</p>
       <div class="rolar"><table class="t" id="mv-tab"><thead><tr><th>Anúncio</th><th>Loja</th><th class="num">Unidades</th><th class="num">Média/dia</th>
         <th class="num">Faturamento</th><th class="num">Preço médio</th><th class="num">Custo médio</th><th class="num" title="Antes das taxas; 'real' = Gestor Seller">Margem</th>
         <th class="num">Disponível</th><th class="num">Em trânsito</th><th class="num">Cobertura</th></tr></thead><tbody></tbody></table></div>
@@ -3301,6 +3309,8 @@ async function telaMinhasVendas() {
   $("#mv-q").oninput = e => { f.q = e.target.value; desenhar(); };
   $("#mv-loja").onchange = e => { f.loja = e.target.value; desenhar(); };
   $("#mv-ord").onchange = e => { f.ord = e.target.value; desenhar(); };
+  if ($("#mv-semsku")) $("#mv-semsku").onclick = () => { f.semsku = !f.semsku; desenhar();
+    $("#mv-tab").scrollIntoView({behavior: "smooth", block: "start"}); };
   main.querySelectorAll(".mv-loja").forEach(tr => tr.onclick = () => { f.loja = f.loja === tr.dataset.loja ? "" : tr.dataset.loja; $("#mv-loja").value = f.loja; desenhar(); });
   desenhar();
 }

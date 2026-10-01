@@ -27,7 +27,9 @@ VENDAS = {"arquivo": "Vendas_por_Anuncio.xlsx", "inicio": "2026-09-01", "fim": "
               {"sku": "XER-NAX-100", "loja": "Purehome [Shopee]", "anuncio": "2299", "produto": "Xerjoff Naxos 100ml",
                "pedidos": 5, "unidades": 5, "valor": 7000, "preco_medio": 1400},
               {"sku": "TORINO-21", "loja": "Purehome [Mercado Livre]", "anuncio": "MLB777", "produto": "Torino 21",
-               "pedidos": 12, "unidades": 12, "valor": 18000, "preco_medio": 1500}]}
+               "pedidos": 12, "unidades": 12, "valor": 18000, "preco_medio": 1500},
+              {"sku": "", "sem_sku": True, "loja": "Pure [TikTok Shop BR]", "anuncio": "1734815535096432238", "produto": "Sem vínculo",
+               "pedidos": 1, "unidades": 1, "valor": 100, "preco_medio": 100}]}
 ESTOQUE = [{"sku": "XER-NAX-100", "titulo": "Naxos", "disponivel": 13, "atual": 14, "custo_medio": 820, "transito_compra": 2},
            {"sku": "TORINO-21", "titulo": "Torino", "disponivel": 0, "atual": 1, "custo_medio": 870}]
 
@@ -136,7 +138,7 @@ def test_unidade():
     assert nax["un7"] == 7 and "un15" not in nax and r["janelas"] == [7], (nax, r["janelas"])   # 7 dias guardados
     assert len(r["serie"]) == 7 and r["abc"]["valor"]["classes"][0]["classe"] == "A" and nax["abc"], r["abc"]["valor"]["classes"]
     t = r["totais"]
-    assert t["unidades"] == 27 and t["valor"] == 40000 and t["skus"] == 2 and t["sem_estoque"] == 1, t
+    assert t["unidades"] == 28 and t["valor"] == 40100 and t["skus"] == 2 and t["sem_estoque"] == 1 and t["sem_sku"] == 1, t
     lojas = {l["loja"]: l for l in r["lojas"]}
     assert lojas["PUREHOME (Mercado Livre)"]["valor"] == 33000 and lojas["PUREHOME (Shopee)"]["unidades"] == 5, lojas
     print("ok análises de vendas (unidade)")
@@ -177,8 +179,12 @@ def test_tela(r):
                 assert pg.query_selector("#mv-tab tr.ec-urg") is not None           # Torino zerado vendendo
                 assert "Análises de Vendas" in pg.inner_text("body")                 # item do menu
                 assert "7d: 7" in pg.inner_text("#mv-tab"), pg.inner_text("#mv-tab")[:400]
+                pg.click("#mv-semsku")                                               # 01/10: lista dos sem SKU
+                assert pg.inner_text("#mv-n").startswith("1 de 4") and "Sem vínculo" in pg.inner_text("#mv-tab"), pg.inner_text("#mv-n")
+                assert pg.is_visible("#mv-aviso-semsku")
+                pg.click("#mv-semsku-x")
                 pg.select_option("#mv-loja", "PUREHOME (Shopee)")
-                assert pg.inner_text("#mv-n").startswith("1 de 3"), pg.inner_text("#mv-n")
+                assert pg.inner_text("#mv-n").startswith("1 de 4"), pg.inner_text("#mv-n")
                 pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"analises_vendas_{nome}.png"), full_page=True)
                 pg.goto(f"http://127.0.0.1:{porta}/#/analises-vendas/abc")
                 pg.wait_for_selector("#abc-tab tbody tr", timeout=15000)
