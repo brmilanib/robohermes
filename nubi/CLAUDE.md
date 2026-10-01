@@ -967,3 +967,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   lá e o endereço fica em `tiktok_shop_taxa_url` (config); depois é leitura fixa (`TAXA_LEITOR`). `gravar_taxa` guarda
   `extras`. No Painel do SAC os números da plataforma ficam num bloco "📶 Na plataforma" com quadradinhos (`sp-chip`),
   sem quebrar as linhas do cartão.
+
+## Anúncios reais do seguido (card #127, 01/10)
+- Página do vendedor seguido: 🛒 Anúncios reais no ML (`anunciosRealSeguido`, rota `meli_seguido_anuncios`) casa cada linha de
+  `vend_anuncios_ml` com a linha do último relatório do Nubimetrics (`categorias.casar_anuncio_nubimetrics`) e grava
+  `vend_anuncio_id` + `ligacao` (gtin/titulo_forte/titulo_fraco/manual/nao). "✔ É este" / "✖ Não é" / "↺ Refazer" =
+  `meli_seguido_anuncio_ligar`; manual e "nao" nunca são regravados. Upsert sempre com `vendedor` e `seller_id` (NOT NULL).
+  Falta: ligar também à linha do Explorador (`anuncio_explorador_id`). Teste: `test_seguidos_casamento.py`.
