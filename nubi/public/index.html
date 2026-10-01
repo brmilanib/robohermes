@@ -6686,7 +6686,43 @@ async function lojaMLSeguido(nomeV) {
   };
   try { desenhar((await api("meli_seguido", {vendedor: nomeV})).loja); }
   catch (e) { el.innerHTML = mlAviso(e); }
+  anunciosRealSeguido(nomeV);
   fotosNubiSeguido(nomeV);
+}
+// Card #127: os anúncios reais da loja dele no ML (vitrine) ligados à linha do Nubimetrics; os que só casaram pelo título
+// ficam "a conferir" com ✔ É este / ✖ Não é (a decisão do Bruno nunca é desfeita pelo sistema)
+async function anunciosRealSeguido(nomeV) {
+  const el = $("#vml-loja"); if (!el) return;
+  let r; try { r = await api("meli_seguido_anuncios", {vendedor: nomeV}); } catch { return; }
+  if (!$("#vml-loja")) return;
+  let box = $("#vml-anuncios");
+  if (!box) { box = document.createElement("div"); box.id = "vml-anuncios"; el.insertAdjacentElement("afterend", box); }
+  box.className = "card pad"; box.style.marginTop = "10px";
+  if (!r.total) { box.innerHTML = `<span class="muted" style="font-size:13px">🛒 Anúncios reais no Mercado Livre: ainda não lidos. Na Central, peça "Mercado Livre: ler a vitrine" desta loja.</span>`; return; }
+  const linhaN = a => a.nubimetrics ? `<div class="wrap" style="font-size:12.5px">${esc(a.nubimetrics.titulo || "")}
+      <div class="muted" style="font-size:11.5px">${nf0.format(a.nubimetrics.unidades || 0)} un · ${rsES(a.nubimetrics.vendas || 0)} no Nubimetrics</div></div>` : `<span class="muted">sem linha no Nubimetrics</span>`;
+  const linha = (a, conferir) => `<tr>
+      <td data-l=""><a href="${esc(urlML(a.link))}" target="_blank" rel="noopener" title="Abrir no Mercado Livre"><img src="${esc(urlML(a.foto || ""))}" alt="" loading="lazy" style="width:44px;height:44px;object-fit:contain"></a></td>
+      <td class="wrap" data-l="Anúncio"><a href="${esc(urlML(a.link))}" target="_blank" rel="noopener">${esc(a.titulo || a.mlb)} ↗</a>
+        <div class="muted" style="font-size:11.5px">${esc(a.mlb)}${a.full ? " · ⚡ Full" : ""}${a.tipo_pub ? " · " + esc(a.tipo_pub) : ""}</div></td>
+      <td class="num" data-l="Preço">${a.preco != null ? rsES(a.preco) : "—"}</td>
+      <td class="num" data-l="Vendidos">${a.vendidos != null ? nf0.format(a.vendidos) : "—"}</td>
+      <td data-l="Nubimetrics">${linhaN(a)}${a.metodo && !conferir ? `<span class="muted" style="font-size:11px">(${esc({gtin: "GTIN igual", titulo_forte: "título igual", manual: "confirmado por você"}[a.metodo] || a.metodo)})</span>` : ""}</td>
+      <td data-l="">${conferir ? `<button class="btn small" data-sim="${esc(a.mlb)}">✔ É este</button> ` : ""}${a.recusado || !a.nubimetrics ? "" : `<button class="btn small ghost" data-nao="${esc(a.mlb)}">✖ Não é</button>`}${a.recusado ? `<button class="btn small ghost" data-limpar="${esc(a.mlb)}">↺ Refazer</button>` : ""}</td></tr>`;
+  const tabela = (xs, conferir) => `<div class="tw" style="margin-top:6px;max-height:60vh"><table class="t"><thead><tr><th></th><th>Anúncio no ML</th><th class="num">Preço hoje</th><th class="num">Vendidos</th><th>Linha do Nubimetrics</th><th></th></tr></thead><tbody>
+    ${xs.map(a => linha(a, conferir)).join("")}</tbody></table></div>`;
+  const sem = r.sem_ligacao || [], conf = r.a_conferir || [], lig = r.ligados || [];
+  box.innerHTML = `<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>🛒 Anúncios reais no Mercado Livre</b>
+      <span class="muted" style="font-size:12.5px">${nf0.format(r.total)} anúncio(s) · ${nf0.format(lig.length)} ligados ao Nubimetrics (${r.pct_ligados}%) · ${nf0.format(conf.length)} a conferir · ${nf0.format(sem.length)} sem ligação</span></div>
+    ${conf.length ? `<div style="margin-top:8px"><b style="font-size:13px">🔎 A conferir</b>${tabela(conf.slice(0, 300), true)}</div>` : ""}
+    ${lig.length ? `<details open style="margin-top:8px"><summary><b style="font-size:13px">✅ Ligados (${nf0.format(lig.length)})</b></summary>${tabela(lig.slice(0, 300), false)}</details>` : ""}
+    ${sem.length ? `<details style="margin-top:8px"><summary><b style="font-size:13px">Sem ligação (${nf0.format(sem.length)})</b></summary>${tabela(sem.slice(0, 300), false)}</details>` : ""}`;
+  const decidir = (attr, decisao) => box.querySelectorAll(`button[${attr}]`).forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await api("meli_seguido_anuncio_ligar", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV, mlb: b.getAttribute(attr), decisao})}); anunciosRealSeguido(nomeV); }
+    catch (e) { b.disabled = false; toast(e.message, 6000); }
+  });
+  decidir("data-sim", "sim"); decidir("data-nao", "nao"); decidir("data-limpar", "limpar");
 }
 // 29/09 (Bruno): as fotos dos anúncios dele na tela do Nubimetrics (coletor "fotos dos vendedores"): a mesma foto do
 // anúncio no Mercado Livre é a prova mais forte de qual é a loja

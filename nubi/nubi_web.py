@@ -5318,6 +5318,95 @@ def gravar_vitrine(repo, vendedor, seller_id, cards, scripts=(), pagina=0):
     return [m for m, x in linhas.items() if x["fonte"] == "vitrine"]
 
 
+def _linhas_nubi_seguido(repo, vendedor):
+    """Linhas do último relatório do Nubimetrics do seguido (vend_anuncios) + marcas conhecidas para o título."""
+    rels = _vend_rels(repo, vendedor)
+    if not rels:
+        return [], {}
+    linhas = _vend_linhas(repo, rels[-1]["id"])
+    conhecidas = {}
+    for m in categorias.SEMENTE.values():
+        for nome in m.split(","):
+            if nome.strip():
+                conhecidas.setdefault(nubi.compacta(nome), nubi.nome_bonito(nome.strip()))
+    for l in linhas:
+        if l.get("marca_chave") and l.get("marca"):
+            conhecidas.setdefault(l["marca_chave"], l["marca"])
+    return linhas, conhecidas
+
+
+def anuncios_seguido(repo, vendedor):
+    """Card #127: casa cada anúncio real do ML do seguido com a linha do Nubimetrics (categorias.casar_anuncio_nubimetrics)
+    e grava vend_anuncio_id + ligacao (gtin/titulo_forte/titulo_fraco/manual/nao). Ligação manual ("✔ É este") nunca é
+    desfeita; "✖ Não é" (ligacao 'nao') também não volta sozinha. Devolve ligados, a_conferir e sem_ligacao."""
+    try:
+        xs = repo._todos("vend_anuncios_ml", {"select": "*", "vendedor": repo._eq(vendedor)})
+    except Exception:  # noqa: BLE001  (tabela ainda não aplicada no banco)
+        xs = []
+    xs.sort(key=lambda x: (-(x.get("vendidos") or 0), x.get("mlb") or ""))
+    linhas, conhecidas = _linhas_nubi_seguido(repo, vendedor) if xs else ([], {})
+    por_id = {l["id"]: l for l in linhas}
+    gravar, ligados, conferir, sem = [], [], [], []
+    for x in xs:
+        manual = x.get("ligacao") == "manual" and x.get("vend_anuncio_id") in por_id
+        if x.get("ligacao") == "nao":
+            r = {"linha": None, "metodo": None, "a_conferir": False}
+        else:
+            r = categorias.casar_anuncio_nubimetrics(
+                {"titulo": x.get("titulo"), "gtin": x.get("gtin"), "full": x.get("full"), "tipo": x.get("tipo_pub")},
+                linhas, conhecidas, {"metodo": "manual", "linha": por_id.get(x.get("vend_anuncio_id"))} if manual else None)
+        linha = r["linha"]
+        if x.get("ligacao") not in ("nao", "manual"):     # decisão do Bruno (manual, mesmo de relatório antigo) nunca é regravada
+            novo = (linha["id"] if linha else None, r["metodo"])
+            if novo != (x.get("vend_anuncio_id"), x.get("ligacao")):
+                # vendedor e seller_id: o upsert parcial viola NOT NULL no Postgres sem eles
+                gravar.append({"mlb": x["mlb"], "vendedor": x["vendedor"], "seller_id": x["seller_id"],
+                               "vend_anuncio_id": novo[0], "ligacao": novo[1]})
+        item = {k: x.get(k) for k in ("mlb", "link", "titulo", "foto", "preco", "vendidos", "full", "tipo_pub")}
+        item["recusado"] = x.get("ligacao") == "nao"
+        item["metodo"] = r["metodo"]
+        item["nubimetrics"] = ({k: linha.get(k) for k in ("id", "titulo", "vendas", "unidades", "preco", "full", "tipo_pub")}
+                               if linha else None)
+        (sem if not linha else conferir if r["a_conferir"] else ligados).append(item)
+    if gravar:
+        try:
+            repo._req("POST", "vend_anuncios_ml", {"on_conflict": "mlb"}, corpo=gravar,
+                      prefer="resolution=merge-duplicates,return=minimal")
+        except ErroNuvem:
+            pass
+    total = len(xs)
+    return {"vendedor": vendedor, "loja": _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor)),
+            "total": total, "pct_ligados": round(100 * len(ligados) / total, 1) if total else None,
+            "ligados": ligados, "a_conferir": conferir, "sem_ligacao": sem,
+            "linhas_nubimetrics": [{"id": l["id"], "titulo": l.get("titulo")} for l in linhas] if sem or conferir else [],
+            "anuncios": xs}
+
+
+def ligar_anuncio_seguido(repo, vendedor, mlb, decisao, vend_anuncio_id=None):
+    """Card #127: decisão do Bruno. decisao 'sim' (✔ É este; vend_anuncio_id = a linha escolhida, senão a que o sistema
+    sugeriu), 'nao' (✖ Não é) ou 'limpar' (volta ao automático)."""
+    if decisao not in ("sim", "nao", "limpar"):
+        raise ErroNuvem("decisao deve ser sim, nao ou limpar.")
+    xs = repo._todos("vend_anuncios_ml", {"select": "mlb,seller_id,vend_anuncio_id", "vendedor": repo._eq(vendedor), "mlb": repo._eq(mlb)})
+    if not xs:
+        raise ErroNuvem("Anúncio não encontrado nesse vendedor.", 404)
+    if decisao == "sim":
+        try:
+            vid = int(vend_anuncio_id if vend_anuncio_id is not None else xs[0].get("vend_anuncio_id"))
+        except (TypeError, ValueError):
+            raise ErroNuvem("Sem linha do Nubimetrics para ligar.")
+        if vid not in {l["id"] for l in _linhas_nubi_seguido(repo, vendedor)[0]}:
+            raise ErroNuvem("Essa linha não é do Nubimetrics desse vendedor.")
+        reg = {"vend_anuncio_id": vid, "ligacao": "manual"}
+    elif decisao == "nao":
+        reg = {"vend_anuncio_id": None, "ligacao": "nao"}
+    else:
+        reg = {"vend_anuncio_id": None, "ligacao": None}
+    reg = {"mlb": mlb, "vendedor": vendedor, "seller_id": xs[0]["seller_id"], **reg}
+    repo._req("POST", "vend_anuncios_ml", {"on_conflict": "mlb"}, corpo=[reg], prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True, **reg}
+
+
 def _num_ou_none(v):
     try:
         return float(v) if v is not None and float(v) > 0 else None
@@ -5861,14 +5950,10 @@ def rota_meli(repo, metodo, rota, q, corpo):
         # card #126: loja real + cidade/UF de cada seguido ligado (e grava vend_lojas_ml)
         return {"lojas": list(lojas_seguidos(repo).values())}
     if rota == "meli_seguido_anuncios":
-        # card #126, etapa 2: os anúncios da vitrine da loja real do seguido (vend_anuncios_ml), os mais vendidos primeiro
-        v = str(q.get("vendedor") or "")
-        try:
-            xs = repo._todos("vend_anuncios_ml", {"select": "*", "vendedor": repo._eq(v)})
-        except Exception:  # noqa: BLE001  (tabela ainda não aplicada no banco)
-            xs = []
-        xs.sort(key=lambda x: (-(x.get("vendidos") or 0), x.get("mlb") or ""))
-        return {"vendedor": v, "loja": _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(v)), "anuncios": xs}
+        # card #127: os anúncios reais da loja do seguido (vend_anuncios_ml) ligados à linha do Nubimetrics dele
+        return anuncios_seguido(repo, str(q.get("vendedor") or ""))
+    if rota == "meli_seguido_anuncio_ligar" and metodo == "POST":
+        return ligar_anuncio_seguido(repo, str(d.get("vendedor") or ""), str(d.get("mlb") or ""), d.get("decisao"), d.get("vend_anuncio_id"))
     if rota == "meli_seguido":
         # vendedor SEGUIDO (Concorrentes -> Vendedores): a loja real já achada, se houver
         return {"loja": _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(str(q.get("vendedor") or "")))}

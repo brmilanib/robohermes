@@ -82,6 +82,110 @@ def test_10_ligacao_manual_nunca_e_desfeita():
     assert casar(ml("Asad Lattafa 100ml", "6291108735411"), ls, {"metodo": "titulo_fraco", "linha": {"id": 7}}) == (1, "gtin", False)
 
 
+# Card #127: rotas meli_seguido_anuncios / meli_seguido_anuncio_ligar (anúncio real do ML x linha do Nubimetrics)
+import json  # noqa: E402
+
+import nubi_web as w  # noqa: E402
+
+
+class RepoRota:
+    def __init__(self):
+        self.ml = {}
+        self.linhas = [
+            {"id": 1, "titulo": "Asad Lattafa 100ml Masculino", "gtin": "6291108735411", "marca_chave": "LATTAFA", "marca": "Lattafa",
+             "fulfillment": 0, "tipo_pub": "Clássico", "unidades": 30, "vendas": 3000, "preco": 100, "relatorio_id": 9},
+            {"id": 2, "titulo": "Yara Lattafa Feminino 100ml", "gtin": "", "marca_chave": "LATTAFA", "marca": "Lattafa",
+             "fulfillment": 0, "tipo_pub": "Clássico", "unidades": 9, "vendas": 900, "preco": 100, "relatorio_id": 9},
+            {"id": 3, "titulo": "Perfume Khamrah Lattafa Masculino", "gtin": "", "marca_chave": "LATTAFA", "marca": "Lattafa",
+             "fulfillment": 0, "tipo_pub": "Clássico", "unidades": 5, "vendas": 500, "preco": 100, "relatorio_id": 9}]
+        self.resumos = {"meli|seguidos": json.dumps({"SIENO": {"id": 222, "nome": "SIENO", "confianca": "manual"}})}
+        self.upserts = 0
+
+    def _eq(self, v):
+        return f"eq.{v}"
+
+    def _todos(self, t, q=None):
+        q = q or {}
+        if t == "vend_anuncios_ml":
+            return [dict(x) for x in self.ml.values() if x["vendedor"] == q["vendedor"][3:]
+                    and ("mlb" not in q or x["mlb"] == q["mlb"][3:])]
+        if t == "vend_relatorios":
+            return [{"id": 9, "vendedor": "SIENO", "mes": "2026-09-01"}]
+        if t == "vend_anuncios":
+            return [dict(l, estado="active", catalogo=0, frete_gratis=0, desconto=0, sku="", marca_chave=l["marca_chave"]) for l in self.linhas]
+        if t == "ia_resumos":
+            return []
+        return []
+
+    def _req(self, metodo, tabela, q=None, corpo=None, **k):
+        if tabela == "ia_resumos" and metodo == "GET":
+            c = (q or {}).get("chave", "")[3:]
+            return [{"texto": self.resumos[c], "criado_em": "x"}] if c in self.resumos else []
+        if tabela == "vend_anuncios_ml" and metodo == "POST":
+            self.upserts += 1
+            for x in corpo:
+                assert x.get("vendedor") and x.get("seller_id"), "NOT NULL do Postgres"
+                self.ml[x["mlb"]] = {**self.ml[x["mlb"]], **x}
+            return []
+        if tabela == "marca_apelidos" or metodo == "GET":
+            return []
+        return []
+
+
+def _anuncio(mlb, titulo, gtin=None, vendidos=1):
+    return {"mlb": mlb, "vendedor": "SIENO", "seller_id": "222", "link": "x", "titulo": titulo, "foto": "f", "preco": 99,
+            "vendidos": vendidos, "full": False, "tipo_pub": "Clássico", "gtin": gtin, "vend_anuncio_id": None, "ligacao": None}
+
+
+def test_11_rota_separa_ligados_a_conferir_e_sem_ligacao():
+    r = RepoRota()
+    for a in (_anuncio("MLB1", "Asad Lattafa 100ml Masculino Original", "6291108735411", 50),
+              _anuncio("MLB2", "Perfume Yara Lattafa Feminino", None, 20),          # título sem volume: fraco, a conferir
+              _anuncio("MLB3", "Fragrância Qualquer Outra Coisa", None, 5)):
+        r.ml[a["mlb"]] = a
+    out = w.rota_meli(r, "GET", "meli_seguido_anuncios", {"vendedor": "SIENO"}, b"")
+    assert [x["mlb"] for x in out["ligados"]] == ["MLB1"] and out["ligados"][0]["metodo"] == "gtin"
+    assert [x["mlb"] for x in out["a_conferir"]] == ["MLB2"] and out["a_conferir"][0]["nubimetrics"]["id"] == 2
+    assert [x["mlb"] for x in out["sem_ligacao"]] == ["MLB3"] and out["total"] == 3
+    assert r.ml["MLB1"]["vend_anuncio_id"] == 1 and r.ml["MLB1"]["ligacao"] == "gtin"      # gravado
+    assert out["pct_ligados"] == 33.3
+
+
+def test_12_ligacao_manual_e_recusa_nao_sao_desfeitas_por_rodada_nova():
+    r = RepoRota()
+    for a in (_anuncio("MLB1", "Asad Lattafa 100ml Masculino Original", "6291108735411", 50),
+              _anuncio("MLB2", "Perfume Yara Lattafa Feminino", None, 20)):
+        r.ml[a["mlb"]] = a
+    w.rota_meli(r, "GET", "meli_seguido_anuncios", {"vendedor": "SIENO"}, b"")
+    pedido = lambda **d: w.rota_meli(r, "POST", "meli_seguido_anuncio_ligar", {}, json.dumps(dict(vendedor="SIENO", **d)).encode())
+    pedido(mlb="MLB2", decisao="sim")                                   # ✔ É este (a sugerida, linha 2)
+    pedido(mlb="MLB1", decisao="nao")                                   # ✖ Não é (mesmo com GTIN igual)
+    for _ in range(2):                                                  # rodada nova: nada muda
+        out = w.rota_meli(r, "GET", "meli_seguido_anuncios", {"vendedor": "SIENO"}, b"")
+    assert [x["mlb"] for x in out["ligados"]] == ["MLB2"] and out["ligados"][0]["metodo"] == "manual"
+    assert out["sem_ligacao"][0]["mlb"] == "MLB1" and out["sem_ligacao"][0]["recusado"]
+    pedido(mlb="MLB1", decisao="limpar")                                # volta ao automático
+    out = w.rota_meli(r, "GET", "meli_seguido_anuncios", {"vendedor": "SIENO"}, b"")
+    assert {x["mlb"] for x in out["ligados"]} == {"MLB1", "MLB2"}
+    for ruim in (dict(mlb="MLB2", decisao="sim", vend_anuncio_id=999), dict(mlb="MLBX", decisao="sim"), dict(mlb="MLB2", decisao="oi")):
+        try:
+            pedido(**ruim)
+            raise AssertionError("devia recusar")
+        except w.ErroNuvem:
+            pass
+    assert w.rota_meli(r, "GET", "meli_seguido_anuncios", {"vendedor": "OUTRO"}, b"")["anuncios"] == []
+
+
+def test_13_manual_de_relatorio_antigo_nao_e_sobrescrita():
+    r = RepoRota()
+    a = _anuncio("MLB1", "Asad Lattafa 100ml Masculino Original", "6291108735411")
+    a.update(vend_anuncio_id=777, ligacao="manual")                 # linha 777 era de um relatório que já não é o último
+    r.ml["MLB1"] = a
+    out = w.rota_meli(r, "GET", "meli_seguido_anuncios", {"vendedor": "SIENO"}, b"")
+    assert r.ml["MLB1"]["ligacao"] == "manual" and r.ml["MLB1"]["vend_anuncio_id"] == 777 and r.upserts == 0
+    assert out["ligados"][0]["metodo"] == "gtin"                    # na tela mostra o casamento de agora
+
+
 if __name__ == "__main__":
     for nome, f in sorted(globals().items()):
         if nome.startswith("test_") and callable(f):
