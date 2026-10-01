@@ -37,8 +37,25 @@ def test_fora_da_tela_no_windows():
         assert not any("window-position" in a for a in P.chromium.abertos[-1]["args"])
     finally:
         c.sys.platform = orig
-    c.abrir_navegador(P, {}, visivel=True)                                        # Mac/Linux: como antes
-    assert not any("window-position" in a for a in P.chromium.abertos[-1]["args"])
+    minimizadas = []
+    c._janela = lambda pg, e, t, estado="normal": minimizadas.append(estado) or True
+    c.sys.platform = "darwin"
+    try:
+        P.chromium.abertos.clear()
+        c.abrir_navegador(P, {}, visivel=True)                                    # Mac: minimizada no Dock, sem freio
+        a = P.chromium.abertos[-1]["args"]
+        assert not any("window-position" in x for x in a) and "--disable-renderer-backgrounding" in a
+        assert c.mandar_para_fora(object(), {}) and minimizadas[-1] == "minimized"
+        c.abrir_navegador(P, {}, visivel=True, na_tela=True)                     # login: na tela
+        assert "--disable-renderer-backgrounding" not in P.chromium.abertos[-1]["args"]
+    finally:
+        c.sys.platform = orig
+    c.sys.platform = "linux"
+    try:
+        c.abrir_navegador(P, {}, visivel=True)                                    # Linux: como antes
+        assert not any("window-position" in a for a in P.chromium.abertos[-1]["args"])
+    finally:
+        c.sys.platform = orig
     # os comandos em que o Bruno mexe na janela abrem na tela
     fonte = Path(c.__file__).read_text(encoding="utf-8")
     for fn in ("cmd_entrar", "cmd_entrar_ml", "cmd_entrar_gestor", "cmd_navegar"):

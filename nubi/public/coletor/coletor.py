@@ -264,17 +264,27 @@ def _janela_fora(cfg, na_tela):
     coletor/atendente abre FORA da área visível do monitor. Continua um Chrome normal com janela (o modo invisível é
     detectado pelo ML e pelo TikTok), só que não aparece; vem para a tela só quando precisa do Bruno (login, verificação)
     pelo `trazer_para_tela`. `cfg["janela_na_tela"] = True` (ou NUBI_NA_TELA=1) volta ao jeito antigo."""
-    return (sys.platform.startswith("win") and not na_tela and not cfg.get("janela_na_tela")
+    return ((sys.platform.startswith("win") or sys.platform == "darwin") and not na_tela and not cfg.get("janela_na_tela")
             and not os.environ.get("NUBI_NA_TELA"))
+
+
+# 01/10 (Bruno, Mac: "essa tela abrindo toda hora e não acontece nada"): com o estoque de hora em hora o Chrome do coletor
+# subia na frente de tudo a cada rodada. No Mac a janela não pode ficar fora do monitor (o macOS puxa de volta), então ela
+# abre MINIMIZADA no Dock; continua um Chrome normal (não é o modo invisível). Sem estes flags o Chrome minimizado
+# desacelera as páginas.
+SEM_FREIO = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding",
+             "--disable-background-timer-throttling"]
 
 
 def _janela(pg, esquerda, topo, estado="normal"):
     try:
         cdp = pg.context.new_cdp_session(pg)
         wid = cdp.send("Browser.getWindowForTarget")["windowId"]
-        if estado != "normal":
-            cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "normal"}})
-        cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"left": esquerda, "top": topo, "windowState": "normal"}})
+        cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "normal"}})   # sai do minimizado
+        if estado == "minimized":
+            cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "minimized"}})
+        else:
+            cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"left": esquerda, "top": topo}})
         cdp.detach()
         return True
     except Exception:  # noqa: BLE001
@@ -293,9 +303,11 @@ def trazer_para_tela(pg):
 
 def mandar_para_fora(pg, cfg=None):
     """Depois do login resolvido, a janela volta para fora da tela (Windows)."""
-    if sys.platform.startswith("win") and not (cfg or {}).get("janela_na_tela") and not os.environ.get("NUBI_NA_TELA"):
-        return _janela(pg, *FORA_DA_TELA)
-    return False
+    if not _janela_fora(cfg or {}, False):
+        return False
+    if sys.platform == "darwin":
+        return _janela(pg, 0, 0, "minimized")
+    return _janela(pg, *FORA_DA_TELA)
 
 
 def abrir_navegador(p, cfg, visivel=None, perfil=None, na_tela=False):
@@ -310,7 +322,8 @@ def abrir_navegador(p, cfg, visivel=None, perfil=None, na_tela=False):
     opcoes = dict(user_data_dir=str(PASTA / perfil), headless=not visivel, accept_downloads=True,
                   viewport={"width": 1500, "height": 950}, locale="pt-BR", **({"user_agent": UA} if sys.platform == "darwin" else {}),
                   args=["--disable-blink-features=AutomationControlled"]
-                       + ([f"--window-position={FORA_DA_TELA[0]},{FORA_DA_TELA[1]}"] if visivel and _janela_fora(cfg, na_tela) else []),
+                       + ((SEM_FREIO + ([] if sys.platform == "darwin" else [f"--window-position={FORA_DA_TELA[0]},{FORA_DA_TELA[1]}"]))
+                          if visivel and _janela_fora(cfg, na_tela) else []),
                   # extensões ligadas (26/09): o Hunter Spy que o Bruno instala no perfil do coletor mostra loja e cidade
                   ignore_default_args=["--enable-automation", "--disable-extensions",
                                        "--disable-component-extensions-with-background-pages"])
@@ -324,6 +337,9 @@ def abrir_navegador(p, cfg, visivel=None, perfil=None, na_tela=False):
         except Exception:  # noqa: BLE001
             ctx = None
     ctx = ctx or p.chromium.launch_persistent_context(**opcoes)
+    if visivel and sys.platform == "darwin" and _janela_fora(cfg, na_tela):
+        for pg in list(getattr(ctx, "pages", []) or []):       # Mac: vai para o Dock logo que abre
+            _janela(pg, 0, 0, "minimized")
     if SESSAO.exists():                             # devolve os cookies de sessão do último login
         try:
             ctx.add_cookies(json.loads(SESSAO.read_text(encoding="utf-8")).get("cookies", []))

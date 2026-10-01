@@ -1076,3 +1076,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Modal de estoque por categoria (01/10, "essa tela está horrível"): mostra Disponível (UpSeller, não o "atual"), em pedido/
   chegando, Custo médio, Valor, Vendas 30d, Média/dia e Cobertura (colorida), ordenado pela cobertura. Editar marca e
   categoria fica atrás do botão "✎ Editar marca e categoria" (`S.ecEditar`); sem "categoria automática".
+- Mac (01/10, "essa tela abrindo toda hora aqui no mac e não acontece nada"): `_janela_fora` vale também no macOS; lá o Chrome
+  do coletor abre MINIMIZADO no Dock (CDP `windowState: minimized`, o macOS não deixa janela fora do monitor) com `SEM_FREIO`
+  (flags que impedem o Chrome minimizado de desacelerar). Login/entrar/navegar continuam na tela (`na_tela=True`);
+  `trazer_para_tela` restaura, `mandar_para_fora` minimiza de novo. Desligar: `cfg["janela_na_tela"]=True`.
