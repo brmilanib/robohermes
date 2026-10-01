@@ -294,7 +294,13 @@ def test_cinco_maiores_vendedores_do_produto():
             return []
         def _todos(self, tab, params=None):
             assert tab == "anuncios" and params["snapshot_id"] == "in.(2)", params      # só o último export da marca
-            return [{"vendedor": "MAMS", "vendedor_id": "h1", "un": 200, "fat": 43000, "snapshot_id": 2},
+            if "gtin" not in params:                                                      # sem GTIN: o export inteiro da marca
+                return [{"vendedor": "MAMS", "vendedor_id": "h1", "un": 300, "fat": 64000, "snapshot_id": 2, "produto": "Armaf Club De Nuit Intense EDT 105 ml"},
+                        {"vendedor": "X", "vendedor_id": "h9", "un": 900, "fat": 90000, "snapshot_id": 2, "produto": "Armaf Club De Nuit Intense EDT 200 ml"},
+                        {"vendedor": "Y", "vendedor_id": "h8", "un": 999, "fat": 99000, "snapshot_id": 2, "produto": "Armaf Odyssey Homme EDP 100 ml"},
+                        {"vendedor": "Z", "vendedor_id": "h7", "un": 5000, "fat": 9e5, "snapshot_id": 2, "produto": "Armaf Club De Nuit Intense Woman EDT 105 ml"},
+                        {"vendedor": "W", "vendedor_id": "h6", "un": 8000, "fat": 9e5, "snapshot_id": 2, "produto": "Armaf Club De Nuit EDT 105 ml"}]
+            return [{"vendedor": "MAMS", "vendedor_id": "h1", "un": 200, "fat": 43000, "snapshot_id": 2, "produto": "Armaf Club De Nuit Intense EDT 105 ml"},
                     {"vendedor": "MAMS", "vendedor_id": "h1", "un": 100, "fat": 21000, "snapshot_id": 2},
                     {"vendedor": "OUTRA", "vendedor_id": "h2", "un": 50, "fat": 11500, "snapshot_id": 2},
                     {"vendedor": "ZERO", "vendedor_id": "h3", "un": 0, "fat": 0, "snapshot_id": 2}]
@@ -307,6 +313,14 @@ def test_cinco_maiores_vendedores_do_produto():
     assert [t["vendedor"] for t in m["top"]] == ["MAMS ECOMMERCE", "OUTRA"] and m["top"][0]["real"] and not m["top"][1]["real"]
     assert m["top"][0]["unidades"] == 300 and m["top"][0]["preco_medio"] == 213.33 and m["top"][1]["preco_medio"] == 230.0
     assert m["vendedores"] == 2 and m["unidades"] == 350 and m["preco_medio"] == 215.71 and m["fim"] == "2026-09-30"
+    assert m["marca"] == "ARMAF" and m["produto"] == "Armaf Club De Nuit Intense EDT 105 ml"   # "ver mais" abre esse quadro
+    # sem GTIN (a maioria dos monitorados): o produto pelo nome, com o mesmo volume (105 ml, não o de 200 ml)
+    meli.ler_hash_lojas = lambda repo, chave=None: {}
+    try:
+        m2 = w._calc_mercado(R(), {"titulo": "Perfume Club De Nuit Intense Da Armaf Edt 105ml Masculino"}, "")
+    finally:
+        meli.ler_hash_lojas = antes
+    assert m2["como"] == "nome" and m2["produto"] == "Armaf Club De Nuit Intense EDT 105 ml" and m2["top"][0]["unidades"] == 300, m2
     assert w._calc_mercado(R(), {"titulo": "x"}, "")["sem"]
 
 

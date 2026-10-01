@@ -1317,6 +1317,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   pelo snapshot_id porque `anuncios.gtin` não tem índice e leva 5 s; vendedores somados, preço = fat ÷ un, nome real pelo
   `meli|hash_lojas` com prova) + `_minhas_vendas_sku` (Vendas por Anúncio do UpSeller, 30 dias) + o preço do meu anúncio no
   ML; botão "usar" põe o preço na conta. Margem em destaque ao lado do lucro.
+  Sem GTIN (a maioria dos monitorados): marca pelo título do anúncio + o do meu estoque, e o produto do nubi cujo nome bate
+  (≥75% das palavras, mesmo volume, tipo e gênero; mais palavras batendo vence: Silver Scent Intense ≠ Silver Scent). GTIN
+  também do meu anúncio no ML (atributo GTIN). "Ver todos os vendedores ›" abre a marca no Explorador com o quadro do
+  produto aberto (`S.abrirProd` em `abrirMarca`).
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

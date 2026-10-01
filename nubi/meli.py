@@ -787,7 +787,9 @@ def meu_anuncio_por_sku(sku):
             continue
         return {"mlb": b.get("id") or mlb, "titulo": b.get("title"), "categoria": b.get("category_id"),
                 "tipo_id": b.get("listing_type_id"), "preco": _num(b.get("price")), "status": b.get("status"),
-                "full": (b.get("shipping") or {}).get("logistic_type") == "fulfillment", "dimensoes": dimensoes_do_item(b)}
+                "full": (b.get("shipping") or {}).get("logistic_type") == "fulfillment", "dimensoes": dimensoes_do_item(b),
+                "gtin": next((m.group(0) for a in b.get("attributes") or [] if a.get("id") == "GTIN"
+                              for m in [re.search(r"\d{8,14}", str(a.get("value_name") or ""))] if m), None)}
     return None
 
 
