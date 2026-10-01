@@ -1069,6 +1069,11 @@ header.top{padding:7px 16px}
 @media (min-width:2200px){body{zoom:1.05}}
 @media (min-width:2800px){body{zoom:1.2}}
 @media (min-width:3400px){body{zoom:1.35}}
+/* 01/10: lista do estoque por categoria — mais larga e linha pintada pela cobertura */
+.modal.ec-modal{max-width:min(1500px,96vw);width:96vw}
+.ec-modal tr.ec-urg td{background:rgba(220,38,38,.07)}
+.ec-modal tr.ec-alerta td{background:rgba(234,179,8,.10)}
+.ec-modal tr.ec-ok td{background:rgba(22,163,74,.07)}
 </style>
 </head>
 <body>
@@ -3092,15 +3097,21 @@ function abrirEcLista(campo, valor) {
   // médio"): o modo normal mostra só os números; marca e categoria se editam no modo "✎ Editar"
   const ed = !!S.ecEditar;
   const cobCls = d => d == null ? "" : d < 15 ? "neg" : d < 30 ? "warn-t" : "pos";
-  const linhas = xs => xs.map(x => `<tr data-busca="${esc((x.sku + " " + x.titulo + " " + x.marca).toLowerCase())}">
+  // 01/10 (Bruno): linha pintada bem fraquinha — vermelho = urgência (< 15 dias ou zerado vendendo), amarelo = alerta (< 30),
+  // verde = ok; sem venda em 30 dias fica sem cor
+  const nivel = x => x.vend_un > 0 && (x.disponivel ?? x.atual) <= 0 ? "urg" : x.cobertura_dias == null ? "" :
+    x.cobertura_dias < 15 ? "urg" : x.cobertura_dias < 30 ? "alerta" : "ok";
+  const linhas = xs => xs.map(x => `<tr class="ec-${nivel(x)}" data-busca="${esc((x.sku + " " + x.titulo + " " + x.marca).toLowerCase())}">
     <td class="ec-prod"><b>${esc(x.sku)}</b><div class="muted">${esc(x.titulo)}</div>${!ed && x.marca ? `<span class="pill">${esc(x.marca)}</span>` : ""}</td>
     ${ed ? `<td><input list="ec-dl" class="ec-marca" data-sku="${esc(x.sku)}" value="${esc(x.marca)}" placeholder="marca…" style="width:150px">
       ${x.marca_manual ? `<small class="muted" title="Você escolheu esta marca">✎</small>` : ""}</td>
     <td>${opcProd(x)}</td>
     <td>${opc(catMarca(x), x.marca, x)}${x.categoria_fonte === "manual" ? ` <small class="muted" title="Categoria escolhida por você">✎</small>` : ""}</td>` : ""}
-    <td class="num"><b class="${x.disponivel > 0 ? "" : "neg"}">${nf0.format(x.disponivel ?? x.atual)}</b>${x.ocupado || x.transito ? `<div class="muted" style="font-size:11px">${x.ocupado ? nf0.format(x.ocupado) + " em pedido" : ""}${x.ocupado && x.transito ? " · " : ""}${x.transito ? nf0.format(x.transito) + " chegando" : ""}</div>` : ""}</td>
-    <td class="num">${x.custo != null ? rsES(x.custo) : "—"}</td><td class="num">${rsES(x.valor)}</td>
-    <td class="num">${nf0.format(x.vend_un)}</td><td class="num">${x.media_dia ? nf1.format(x.media_dia) : "—"}</td>
+    <td class="num"><b class="${x.disponivel > 0 ? "" : "neg"}">${nf0.format(x.disponivel ?? x.atual)}</b></td>
+    <td class="num">${x.transito ? `<b>${nf0.format(x.transito)}</b>` : `<span class="muted">—</span>`}</td>
+    <td class="num">${x.custo != null ? rsES(x.custo) : "—"}</td>
+    <td class="num">${x.preco_venda != null ? rsES(x.preco_venda) : `<span class="muted">—</span>`}</td>
+    <td class="num">${nf0.format(x.vend_un)}</td>
     <td class="num"><b class="${cobCls(x.cobertura_dias)}">${x.cobertura_dias == null ? "—" : nf0.format(x.cobertura_dias) + " d"}</b></td></tr>`).join("");
   const tot = itens.reduce((a, x) => ({v: a.v + x.valor, u: a.u + (x.disponivel ?? x.atual), vu: a.vu + x.vend_un}), {v: 0, u: 0, vu: 0});
   const bg = modal(`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">${ICO_CAT[valor] || ""} ${esc(nomeCampo)}: ${esc(valor)}</h2>
@@ -3110,10 +3121,11 @@ function abrirEcLista(campo, valor) {
     <input type="search" id="ec-busca" placeholder="Buscar SKU, título ou marca…" style="width:100%;margin-bottom:6px">
     <datalist id="ec-dl">${nomesMarca.map(m => `<option value="${esc(m)}">`).join("")}</datalist>
     <div class="rolar" style="max-height:62vh"><table class="t"><thead><tr><th>Produto</th>${ed ? "<th>Marca</th><th>Categoria do produto</th><th>Categoria da marca</th>" : ""}
-      <th class="num" title="O que dá para vender agora (sem o que já está reservado em pedido)">Disponível</th><th class="num">Custo médio</th><th class="num" title="Estoque atual × custo médio">Valor</th>
-      <th class="num">Vendas 30d</th><th class="num">Média/dia</th><th class="num" title="Disponível ÷ média de vendas por dia">Cobertura</th></tr></thead>
+      <th class="num" title="O que dá para vender agora (UpSeller)">Disponível</th><th class="num" title="Compras a caminho (UpSeller: Em trânsito)">Em trânsito</th>
+      <th class="num">Custo médio</th><th class="num" title="Preço médio das vendas dos últimos 30 dias (UpSeller, Vendas por Anúncio)">Preço de venda</th>
+      <th class="num">Vendas 30d</th><th class="num" title="Disponível ÷ média de vendas por dia">Cobertura</th></tr></thead>
     <tbody>${linhas(itens.slice().sort((a, b) => (a.cobertura_dias ?? 1e9) - (b.cobertura_dias ?? 1e9) || b.vend_un - a.vend_un)) || `<tr><td colspan="9" class="muted">Nenhum produto.</td></tr>`}</tbody></table></div>`);
-  bg.querySelector(".modal").classList.add("larga");
+  bg.querySelector(".modal").classList.add("larga", "ec-modal");
   bg.querySelector("#ec-editar").onclick = () => { S.ecEditar = !S.ecEditar; bg.remove(); abrirEcLista(campo, valor); };
   bg.querySelector("#ec-busca").oninput = e => { const q = e.target.value.toLowerCase().trim();
     bg.querySelectorAll("tbody tr[data-busca]").forEach(tr => tr.style.display = !q || tr.dataset.busca.includes(q) ? "" : "none"); };

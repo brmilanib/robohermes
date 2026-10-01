@@ -1083,3 +1083,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Regra 12e (01/10): no Sabah, o GTIN principal 5055810013110 tem nome pesquisado "Sabah Al Ward For Him / Her" e a etapa 2c
   completava a linha para "Sabah Al Ward Him Her" (31 mil un. separadas). `PARA_VARIACAO` agora tem as palavras de público
   (him, her, his, hers, feminino, masculino, unissex...). Teste: `test_titulo_cortado.py` com esse nome pesquisado.
+- Lista da categoria (01/10, 2º print): colunas Disponível, Em trânsito (compra + transferência do UpSeller), Custo médio,
+  Preço de venda (`preco_venda` = valor ÷ unidades das vendas de 30 dias, Vendas por Anúncio), Vendas 30d, Cobertura. Sem
+  "em pedido", Valor e Média/dia. Linha pintada fraquinha: `ec-urg` vermelho (< 15 d ou zerado vendendo), `ec-alerta`
+  amarelo (< 30 d), `ec-ok` verde; sem venda, sem cor. Modal `ec-modal` até 1500 px.

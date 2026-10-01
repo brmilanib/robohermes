@@ -68,6 +68,8 @@ c = {x["categoria"]: x for x in r["categorias"]}
 assert c["Árabe"]["valor"] == 1000 and c["Árabe"]["skus"] == 2 and c["Árabe"]["zerados"] == 1, c["Árabe"]
 assert c["Designer"]["valor"] == 600 and c["Skincare"]["valor"] == 80 and "Sem categoria" not in c, c   # 01/10: tipo fora de perfumaria = categoria própria
 assert c["Árabe"]["cobertura_dias"] == 10.0 and c["Árabe"]["pct_vendas"] == 1.0, c["Árabe"]      # 10 un. ÷ 1/dia
+pv = {x["sku"]: x["preco_venda"] for x in r["itens"]}
+assert pv["ASAD-100"] == 200.0 and pv["FERRARI-125"] is None, pv          # 01/10: preço médio das vendas de 30 dias
 assert r["sem_marca"] == [{"sku": "CREAMY-1", "titulo": "Protetor Solar Facial Creamy", "atual": 2.0, "valor": 80.0}]
 assert {x["tipo"] for x in r["tipos"]} == {"Perfume", "Skincare"}
 # 30/09 (print do Bruno): "Lattafa Yara" (marca+linha) é Árabe; "Dolce and Gabbana" = Dolce & Gabbana
@@ -131,6 +133,10 @@ try:
                 # 01/10 (Bruno): o modo normal mostra disponível, custo médio e cobertura; marca/categoria só no "Editar"
                 cab = pg.inner_text(".modal thead")
                 assert "Disponível" in cab and "Custo médio" in cab and "Cobertura" in cab and "Categoria do produto" not in cab, cab
+                # 01/10 (Bruno): em trânsito e preço de venda; sem "em pedido", sem Valor e Média/dia; linha pintada pela cobertura
+                assert "Em trânsito" in cab and "Preço de venda" in cab and "Média/dia" not in cab, cab
+                assert "em pedido" not in pg.inner_text(".modal tbody")
+                assert pg.evaluate("[...document.querySelectorAll('.modal tbody tr')].every(tr => /ec-(urg|alerta|ok|)/.test(tr.className))")
                 assert pg.query_selector(".modal .ec-marca") is None
                 pg.click(".modal #ec-editar"); pg.wait_for_selector(".modal .ec-marca", timeout=8000)
                 assert "KIT-DOLCE" in pg.inner_text(".modal"), pg.inner_text(".modal")[:800]      # Dolce & Gabbana pelo nome
