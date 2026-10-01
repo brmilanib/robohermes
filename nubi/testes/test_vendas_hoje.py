@@ -207,6 +207,96 @@ def test_tela():
         srv.terminate()
 
 
+def _ler_rk(r, quando, valor, pedidos, anuncios, lojas, ontem=None):
+    x = {"valor": {"nums": [f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")] + ([ontem] if ontem else [])},
+         "pedidos": {"nums": [str(pedidos)]},
+         "anuncios": [["", f"{t}\n{l} [Mercado Libre BR]", str(u), f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")] for t, l, u, v in anuncios],
+         "lojas": [["", f"{l}\n[{p}]", str(n), f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")] for l, p, n, v in lojas]}
+    return vh.salvar(r, x, agora=quando)
+
+
+def dados_tv(hoje):
+    r = Repo()
+    ontem, semana = hoje - timedelta(days=1), hoje - timedelta(days=7)
+    _ler(r, semana.replace(hour=14, minute=10), 8000, 40)
+    _ler(r, semana.replace(hour=23, minute=50), 18000, 90)
+    _ler_rk(r, ontem.replace(hour=10, minute=40), 4000, 20, [("Yara", "PURE", 4, 800), ("Asad", "ESSENCE", 3, 600), ("Club", "AURA", 2, 300)],
+            [("ESSENCE PRIME", "Mercado Libre BR", 10, 2000), ("PURE PERFUMARIA", "TikTok Shop BR", 4, 600)])
+    _ler(r, ontem.replace(hour=13, minute=40), 9000, 45)
+    _ler(r, ontem.replace(hour=14, minute=40), 10000, 50)
+    _ler(r, ontem.replace(hour=23, minute=55), 20000, 100)
+    _ler(r, hoje.replace(hour=13, minute=40), 7000, 30)
+    _ler_rk(r, hoje.replace(hour=14, minute=40), 12000, 55, [("Asad", "ESSENCE", 9, 1800), ("Yara", "PURE", 6, 1200), ("Sabah", "PURE", 3, 500)],
+            [("ESSENCE PRIME", "Mercado Libre BR", 30, 7000), ("PURE PERFUMARIA", "TikTok Shop BR", 3, 400)], ontem="20.000,00")
+    return r
+
+
+def test_tv_numeros():
+    hoje = datetime(2026, 10, 10, tzinfo=BR)
+    r = dados_tv(hoje)
+    t = vh.tv(r, agora=hoje.replace(hour=14, minute=45))
+    assert t["ate_agora"]["valor"] == 12000 and t["ate_ontem"]["valor"] == 10000 and t["ate_semana"]["valor"] == 8000
+    assert t["projecao"] == {"valor": 24000.0, "base": "ontem"}                      # 12 mil × (20 mil ÷ 10 mil)
+    assert t["ultima_hora"]["hora"] == 13 and t["ultima_hora"]["hoje"] is not None
+    c = {x["titulo"]: x for x in t["campeoes"]}
+    assert (c["Asad"]["pos"], c["Asad"]["pos_ontem"]) == (1, 2) and (c["Yara"]["pos"], c["Yara"]["pos_ontem"]) == (2, 1)
+    assert c["Sabah"]["pos_ontem"] is None                                            # novo no ranking
+    l = {x["loja"]: x for x in t["lojas"]}
+    assert l["ESSENCE PRIME"]["valor_ontem"] == 2000 and l["PURE PERFUMARIA"]["valor_ontem"] == 600
+
+
+def test_tv_tela():
+    from playwright.sync_api import sync_playwright
+    hoje = datetime.now(BR).replace(second=0, microsecond=0)
+    hoje = hoje.replace(hour=max(hoje.hour, 15))
+    r = dados_tv(hoje)
+    t = vh.tv(r, agora=hoje.replace(hour=14, minute=50))
+    t["agora"]["lido_em"] = datetime.now(timezone.utc).isoformat()
+    sac = {"total": {"precisa_voce": 2, "aprovar": 1, "respondidas_hoje": 40, "sozinho_hoje": 12, "clientes_hoje": 77},
+           "tempo_mediano_min": 6, "por_canal": {"shopee": {"precisa_voce": 2}, "tiktok_shop": {"aprovar": 1}},
+           "agora": [{"cliente": "Márcia", "desde": datetime.now(timezone.utc).isoformat(), "canal": "shopee"}]}
+    aqui = RAIZ / "testes" / "servidor_teste"
+    porta = os.environ.get("PORTA_TV", "8824")
+    srv = subprocess.Popen([sys.executable, "-W", "ignore", str(aqui / "servidor.py")],
+                           env=dict(os.environ, IA_FALSA="1", OLLAMA_API_KEY="x", OPENAI_API_KEY="x", PORTA=porta),
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(40):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{porta}/", timeout=2)
+            break
+        except OSError:
+            time.sleep(0.5)
+    try:
+        with sync_playwright() as p:
+            exe = os.environ.get("NUBI_CHROMIUM") or "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+            b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()
+            for wd, ht, nome in ((1920, 1080, "tv"), (1280, 720, "tv720")):
+                pg = b.new_page(viewport={"width": wd, "height": ht})
+                erros = []
+                pg.on("pageerror", lambda e: erros.append(str(e)))
+                pg.route("https://cdn.jsdelivr.net/**", lambda rt: rt.fulfill(content_type="application/javascript", body=STUB))
+                pg.route("https://fonts.**", lambda rt: rt.abort())
+                pg.route("**/api/app?r=vendas_tv*", lambda rt: rt.fulfill(content_type="application/json", body=json.dumps(t)))
+                pg.route("**/api/app?r=atendimento_painel*", lambda rt: rt.fulfill(content_type="application/json", body=json.dumps(sac)))
+                pg.goto(f"http://127.0.0.1:{porta}/#/analises-vendas/tv")
+                try:
+                    pg.wait_for_selector(".tv-k", timeout=15000)
+                except Exception:
+                    raise AssertionError((erros, pg.inner_text("body")[:1500]))
+                txt = pg.inner_text(".tv-tela")
+                assert "AO VIVO" in txt and "12.000,00" in txt and "24.000,00" in txt and "Campeões" in txt and "Márcia" in txt, txt[:900]
+                assert pg.locator(".tv-pos.sobe").count() >= 1 and pg.locator(".tv-pos.novo").count() == 1
+                assert pg.query_selector("#tv-acum svg path") is not None and pg.locator(".tv-k.sac.alerta").count() == 1
+                pg.screenshot(path=str(RAIZ / "testes" / f"saida_vendas_{nome}.png"))
+                pg.keyboard.press("Escape")
+                pg.wait_for_function("!document.querySelector('.tv-tela')", timeout=5000)
+                assert "#/analises-vendas/hoje" in pg.url
+                assert not erros, erros
+            b.close()
+    finally:
+        srv.terminate()
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

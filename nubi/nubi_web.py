@@ -7348,6 +7348,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
             return vendas_hoje.salvar(repo, json.loads(corpo or b"{}"))
         except vendas_hoje.ErroVendasHoje as e:
             raise ErroNuvem(str(e))
+    if rota == "vendas_tv":
+        return vendas_hoje.tv(repo)
     if rota == "vendas_hoje":
         try:
             return vendas_hoje.painel(repo, q.get("dia") or None, q.get("comparar") or None)

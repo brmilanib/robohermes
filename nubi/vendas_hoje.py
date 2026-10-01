@@ -112,6 +112,11 @@ def salvar(repo, x, agora=None):
     d["pontos"][faixa(agora)] = {"valor": valor, "pedidos": int(pedidos), "lido_em": agora.isoformat()}
     d["lojas"] = leitura["lojas"]
     d["anuncios"] = leitura["anuncios"][:10]
+    # 01/10 (modo TV): ranking de cada meia hora, para dizer quem sobe e quem cai contra ontem no mesmo horário
+    if leitura["anuncios"] or leitura["lojas"]:        # leitura sem a tabela não apaga o ranking da faixa
+        d.setdefault("ranking", {})[faixa(agora)] = {
+            "anuncios": [{k: a[k] for k in ("titulo", "loja", "unidades", "valor")} for a in leitura["anuncios"][:10]],
+            "lojas": [{k: l[k] for k in ("loja", "plataforma", "pedidos", "valor")} for l in leitura["lojas"]]}
     if leitura["series"]:
         d["series"] = leitura["series"]
     _gravar(repo, chave_dia(dia), d)
@@ -222,3 +227,53 @@ def painel(repo, dia=None, comparar=None, agora=None):
             "total_comparar": (k or {}).get("total_final") or (ck[-1] if ck and ck[-1]["valor"] is not None else None),
             "lojas": (d or {}).get("lojas") or [], "anuncios": (d or {}).get("anuncios") or [],
             "dias": dias_guardados(repo)}
+
+
+# ---------- 📺 Modo TV (01/10, Bruno: "um modo TV para eu ficar olhando ao vivo: vendas, chats, ranking dos campeões, se
+# estamos crescendo ou caindo") ----------
+def _ranking_ate(d, hora):
+    """Ranking guardado na faixa `hora` ou na última antes dela (o de ontem no mesmo horário)."""
+    rk = (d or {}).get("ranking") or {}
+    fx = [f for f in sorted(rk) if f <= hora]
+    return rk[fx[-1]] if fx else None
+
+
+def _chave(titulo, loja):
+    return re.sub(r"\W+", " ", f"{titulo} {loja}".lower()).strip()
+
+
+def tv(repo, agora=None):
+    agora = (agora or datetime.now(timezone.utc)).astimezone(BRASILIA)
+    hoje = agora.date().isoformat()
+    ontem = (agora.date() - timedelta(days=1)).isoformat()
+    semana = (agora.date() - timedelta(days=7)).isoformat()
+    p = painel(repo, hoje, ontem, agora=agora)
+    ds = _ler(repo, chave_dia(semana))
+    cs = curva(ds)
+    hora = p["hora"]
+    a, b, c = p["ate_agora"], p["ate_agora_comparar"], no_horario(cs, hora)
+    # projeção do dia: o ritmo de ontem (total ÷ até este horário) aplicado ao de hoje; senão o da semana passada
+    proj = None
+    for ate, tot in ((b, p["total_comparar"]), (c, (ds or {}).get("total_final"))):
+        if a and ate and tot and ate.get("valor") and tot.get("valor"):
+            proj = {"valor": round(a["valor"] * tot["valor"] / ate["valor"], 2), "base": "ontem" if ate is b else "semana passada"}
+            break
+    # última hora completa x a mesma hora ontem
+    h = agora.hour - 1 if agora.hour else 0
+    ultima = {"hora": h, "hoje": (p["por_hora"][h] or {}).get("valor"), "ontem": (p["por_hora_comparar"][h] or {}).get("valor")}
+    # campeões e lojas: agora x ontem no mesmo horário
+    d_ontem = _ler(repo, chave_dia(ontem))
+    rk_o = _ranking_ate(d_ontem, hora) or {}
+    pos_o = {_chave(x.get("titulo"), x.get("loja")): (i + 1, x) for i, x in enumerate(rk_o.get("anuncios") or [])}
+    campeoes = []
+    for i, x in enumerate((p["agora"] or {}).get("anuncios") or p["anuncios"] or []):
+        o = pos_o.get(_chave(x.get("titulo"), x.get("loja")))
+        campeoes.append(dict(x, pos=i + 1, pos_ontem=o[0] if o else None, valor_ontem=(o[1].get("valor") if o else None)))
+    lojas_o = {(l.get("loja"), l.get("plataforma")): l for l in rk_o.get("lojas") or []}
+    lojas = [dict(l, valor_ontem=(lojas_o.get((l.get("loja"), l.get("plataforma"))) or {}).get("valor"))
+             for l in (p["agora"] or {}).get("lojas") or p["lojas"] or []]
+    return {"hoje": hoje, "hora": hora, "agora": p["agora"], "ate_agora": a, "ate_ontem": b, "ate_semana": c,
+            "total_ontem": p["total_comparar"], "total_semana": (ds or {}).get("total_final"), "projecao": proj,
+            "ultima_hora": ultima, "curva": p["curva"], "curva_ontem": p["curva_comparar"], "curva_semana": cs,
+            "por_hora": p["por_hora"], "por_hora_ontem": p["por_hora_comparar"], "picos": p["picos"],
+            "campeoes": campeoes[:10], "lojas": lojas, "ontem": ontem, "semana": semana}

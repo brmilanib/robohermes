@@ -1241,6 +1241,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   picos, até o mesmo horário × dia comparado. Tela Minhas Lojas → Análises de Vendas → ⚡ Vendas de hoje
   (`#/analises-vendas/hoje`, `telaVendasHoje`, atalhos ontem / semana passada / mês passado / data dupla anterior, atualiza
   a cada 5 min). Teste: `testes/test_vendas_hoje.py` (página igual ao print).
+- **📺 Modo TV (01/10, Bruno: "um modo TV para eu ficar olhando ao vivo: vendas, chats, ranking dos campeões, se estamos
+  crescendo ou caindo")**: `#/analises-vendas/tv` (`telaTV`, botão em ⚡ Vendas de hoje e item no menu), tela cheia escura
+  por cima de tudo (`.tv-tela`, Esc/✖ sai; wake lock para a TV não apagar). Rota `vendas_tv` = `vendas_hoje.tv`: vendido,
+  pedidos e ticket até agora × ontem no mesmo horário, projeção do dia (hoje × total de ontem ÷ ontem até este horário;
+  senão a semana passada), última hora × mesma hora ontem, curva hoje/ontem/semana passada, lojas com ▲▼ e campeões com a
+  posição × ontem no mesmo horário (ranking guardado por meia hora em `vendas_hoje|<dia>` `ranking`). SAC pela rota
+  `atendimento_painel` a cada 2 min; vendas a cada 60 s. Teste em `test_vendas_hoje.py` (1920×1080 e 1280×720).
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama
