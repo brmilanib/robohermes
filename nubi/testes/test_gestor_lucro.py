@@ -158,6 +158,10 @@ def test_tela(lu, pr):
                 assert "Lucro e ADS" in txt and "Curva Z" in txt and "Full × não Full" in txt, txt[:600]
                 assert "Gasto total com ADS" in txt and "ROAS geral" in txt and "12,0x" in txt and "gastou sem vender" in txt, txt[:900]
                 assert pg.query_selector("#lu-tab tr.ec-urg")                       # Torino com MPA negativa / Z
+                # 01/10 (Bruno): botões por situação com a quantidade; clicar mostra só esses
+                pg.click(".lu-sit[data-sit='0']")
+                assert "1 produto(s)" in pg.inner_text("#lu-n") and "PARADO-1" in pg.inner_text("#lu-tab"), pg.inner_text("#lu-n")
+                pg.click(".lu-sit[data-sit='']")
                 pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"lucro_ads_{nome}.png"), full_page=True)
                 pg.goto(f"http://127.0.0.1:{porta}/#/analises-vendas/promocao")
                 pg.wait_for_selector("#pr-tab tbody tr", timeout=15000)

@@ -1111,6 +1111,12 @@ header.top{padding:7px 16px}
 @media (max-width:600px){.pm-lin{grid-template-columns:56px 1fr;gap:10px}.pm-preco,.pm-mm,.pm-atu,.pm-bts{grid-column:1/-1}
   .pm-mm{grid-template-columns:1fr 1fr}.pm-preco{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}.pm-hcab{grid-template-columns:1fr 1fr}
   .pm-bts{flex-direction:row;flex-wrap:wrap}}
+.lu-sits{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.lu-sit{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);cursor:pointer;text-align:left;font:inherit;color:inherit}
+.lu-sit:hover{border-color:currentColor}.lu-sit.on{outline:2px solid currentColor;outline-offset:-1px}
+.lu-sit.neg{background:rgba(220,38,38,.06);color:#b91c1c}.lu-sit.warn{background:rgba(234,179,8,.10);color:#a16207}.lu-sit.pos{background:rgba(22,163,74,.07);color:#15803d}
+.lu-sit-ic{font-size:18px}.lu-sit-tx{font-size:13px}.lu-sit-tx b{font-size:16px}.lu-sit-v{font-size:11.5px;opacity:.8;border-left:1px solid currentColor;padding-left:8px}
+.lu-sit.todos{color:inherit}
 </style>
 </head>
 <body>
@@ -3295,7 +3301,7 @@ async function telaLucroAds() {
   if (r.vazio) { main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas · Lucro e ADS</h1>${importar}</div>
     <div class="card empty">Ainda não chegaram a Curva ABC e o relatório de vendas do Gestor Seller. O coletor baixa os dois junto do Gestor (01:00, 12:00 e 19:00); ou importe os arquivos no botão acima.</div>`;
     ligarImportar(); return; }
-  const t = r.totais, f = S.luF || (S.luF = {curva: "", q: "", ord: "folga", so: "ads"});
+  const t = r.totais, f = S.luF || (S.luF = {curva: "", q: "", ord: "folga", so: "ads", sit: null});
   const pct = v => v == null ? "—" : nf1.format(v) + "%";
   const roasTx = v => v == null ? "—" : nf1.format(v) + "x";
   const mpaCls = v => v == null ? "" : v < 0 ? "neg" : v < 8 ? "warn-t" : "pos";
@@ -3309,6 +3315,8 @@ async function telaLucroAds() {
     if (x.roas_min && x.roas >= 3 * x.roas_min && (x.cobertura_dias == null || x.cobertura_dias >= 15)) return {n: 4, cls: "pos", tx: "🟢 ROAS folgado: dá para escalar"};
     return {n: 3, cls: "pos", tx: "🟢 ok"};
   };
+  const SITS = [[0, "⛔", "gastou sem vender: pausar", "neg"], [1, "🔴", "ADS maior que o lucro: baixar lance ou pausar", "neg"],
+    [2, "🟡", "ADS come mais da metade do lucro", "warn"], [4, "🟢", "ROAS folgado: dá para escalar", "pos"], [3, "🟢", "ok", "pos"]];
   const ORD = {folga: ["Piores primeiro (situação)", (a, b) => situacao(a).n - situacao(b).n || (a.roas ?? 0) - (b.roas ?? 0)],
     ads: ["Mais gasto de ADS", (a, b) => b.ads - a.ads], roas: ["Menor ROAS", (a, b) => (a.roas ?? 1e9) - (b.roas ?? 1e9)],
     roas_maior: ["Maior ROAS", (a, b) => (b.roas ?? -1) - (a.roas ?? -1)], valor: ["Faturamento", (a, b) => b.valor - a.valor],
@@ -3321,7 +3329,9 @@ async function telaLucroAds() {
   const desenhar = () => {
     const q = f.q.toLowerCase().trim();
     const xs = r.produtos.filter(x => (!f.curva || x.curva === f.curva) && (f.so !== "ads" || x.ads > 0)
+      && (f.sit == null || situacao(x).n === f.sit)
       && (!q || (x.sku + " " + x.produto).toLowerCase().includes(q))).sort(ORD[f.ord][1]);
+    main.querySelectorAll(".lu-sit").forEach(b => b.classList.toggle("on", b.dataset.sit === "" ? f.sit == null : +b.dataset.sit === f.sit));
     $("#lu-tab tbody").innerHTML = xs.map(x => { const st = situacao(x);
       return `<tr class="${st.n <= 1 ? "ec-urg" : st.n === 2 ? "ec-alerta" : ""}">
       <td data-l="Produto"><b>${esc(x.produto || x.sku)}</b><div class="muted" style="font-size:11.5px">${esc(x.sku)} · <span class="abc" style="background:${COR[x.curva]}22;color:${COR[x.curva]}">${x.curva}</span></div></td>
@@ -3354,6 +3364,10 @@ async function telaLucroAds() {
       <select id="lu-curva"><option value="">Todas as curvas</option>${["A", "B", "C", "Z"].map(k => `<option ${f.curva === k ? "selected" : ""} value="${k}">Curva ${k}</option>`).join("")}</select>
       <select id="lu-ord">${Object.entries(ORD).map(([k, [n]]) => `<option ${f.ord === k ? "selected" : ""} value="${k}">Ordenar: ${n}</option>`).join("")}</select>
       <span class="muted" id="lu-n"></span></div>
+      <div class="lu-sits">${SITS.map(([n, ic, tx, cls]) => { const ys = r.produtos.filter(x => situacao(x).n === n);
+        return ys.length ? `<button class="lu-sit ${cls}" data-sit="${n}" title="Mostrar só estes"><span class="lu-sit-ic">${ic}</span>
+          <span class="lu-sit-tx"><b>${nf0.format(ys.length)}</b> ${tx}</span><span class="lu-sit-v">ADS ${rsES(ys.reduce((a, x) => a + (x.ads || 0), 0))}</span></button>` : ""; }).join("")}
+        <button class="lu-sit todos" data-sit="" title="Mostrar todos">Todos</button></div>
       <div class="rolar"><table class="t" id="lu-tab"><thead><tr><th>Produto</th><th class="num">ADS</th><th class="num">Faturamento</th>
         <th class="num" title="Faturamento do produto ÷ ADS do produto">ROAS</th><th class="num" title="Faturamento ÷ lucro bruto: abaixo disso o ADS come todo o lucro">ROAS mínimo</th>
         <th class="num">Lucro pós ADS</th><th class="num">Disponível</th><th>Situação</th></tr></thead><tbody></tbody></table></div>
@@ -3376,6 +3390,8 @@ async function telaLucroAds() {
     $("#lu-so").onchange = e => { f.so = e.target.value; desenhar(); };
     $("#lu-curva").onchange = e => { f.curva = e.target.value; desenhar(); };
     $("#lu-ord").onchange = e => { f.ord = e.target.value; desenhar(); };
+    main.querySelectorAll(".lu-sit").forEach(b => b.onclick = () => { const n = b.dataset.sit === "" ? null : +b.dataset.sit;
+      f.sit = f.sit === n ? null : n; if (f.sit != null) { f.so = "ads"; $("#lu-so").value = "ads"; } desenhar(); });
     main.querySelectorAll(".lu-curva").forEach(b => b.onclick = () => { f.curva = f.curva === b.dataset.curva ? "" : b.dataset.curva; $("#lu-curva").value = f.curva;
       if (f.curva === "Z") { f.so = "ads"; $("#lu-so").value = "ads"; } desenhar(); $("#lu-tab").scrollIntoView({behavior: "smooth", block: "start"}); });
     desenhar();

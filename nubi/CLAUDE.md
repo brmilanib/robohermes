@@ -1155,3 +1155,6 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (`_outra_rodando` ou `_chrome_do_perfil_vivo`: Chrome com o perfil cujo pai ainda vive) espera até 15 min e tenta de
   novo; se o Chrome ficou órfão (pai = launchd/init), `_destravar_perfil(perfil)` fecha e apaga a trava e abre. Nunca fecha
   o Chrome de uma tarefa viva. Teste em `test_janela_fora.py`.
+- Lucro e ADS (01/10, Bruno: "um botão por legenda com o número de itens; clico e vem só a lista deles"): `.lu-sits` acima
+  da tabela, um botão por situação (`SITS`: ⛔ gastou sem vender, 🔴 ADS maior que o lucro, 🟡 come >50% do lucro, 🟢
+  folgado, 🟢 ok) com a quantidade e o ADS somado; clicar filtra (`S.luF.sit`), "Todos" limpa.
