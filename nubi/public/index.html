@@ -1071,9 +1071,9 @@ header.top{padding:7px 16px}
 @media (min-width:3400px){body{zoom:1.35}}
 /* 01/10: lista do estoque por categoria — mais larga e linha pintada pela cobertura */
 .modal.ec-modal{max-width:min(1500px,96vw);width:96vw}
-.ec-modal tr.ec-urg td{background:rgba(220,38,38,.07)}
-.ec-modal tr.ec-alerta td{background:rgba(234,179,8,.10)}
-.ec-modal tr.ec-ok td{background:rgba(22,163,74,.07)}
+.ec-modal tr.ec-urg td,#mv-tab tr.ec-urg td{background:rgba(220,38,38,.07)}
+.ec-modal tr.ec-alerta td,#mv-tab tr.ec-alerta td{background:rgba(234,179,8,.10)}
+.ec-modal tr.ec-ok td,#mv-tab tr.ec-ok td{background:rgba(22,163,74,.07)}
 </style>
 </head>
 <body>
@@ -1226,7 +1226,7 @@ const SECOES = [
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
   {id: "lojas", nome: "Minhas Lojas", desc: "Estoque e lojas do dono", icone: "📦"},
 ];
-function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml|precos|observados)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac|analises-vendas)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml|precos|observados)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -1544,6 +1544,7 @@ function desenharMenu() {
   const seta = (k, tem, aberto = ab[k]) => tem ? `<button class="seta" data-seta="${k}" data-aberto="${aberto ? 1 : ""}" title="${aberto ? "Esconder a lista" : "Mostrar a lista"}">${aberto ? "▾" : "▸"}</button>` : "";
   const rkAberto = ab.ranking ?? sec === "ranking";
   const sacAberto = ab.sac ?? h.startsWith("#/sac");
+  const mvAberto = ab.mv ?? h.startsWith("#/analises-vendas");
   $("#side").innerHTML = `
     ${it("#/inicio", "🏠", "Início", h.startsWith("#/inicio") || (sec === "inicio" && !h.startsWith("#/desafio")))}
     ${it("#/desafio", "🎯", "Desafio", h.startsWith("#/desafio"))}
@@ -1565,6 +1566,8 @@ function desenharMenu() {
     ${it("#/precos", "📈", "Monitor de preços", h.startsWith("#/precos"))}
     <div class="grupo">Minhas Lojas</div>
     ${it("#/estoque", "📦", "Estoque", h.startsWith("#/estoque"))}
+    ${it("#/analises-vendas/anuncio", "📊", "Análises de Vendas", h.startsWith("#/analises-vendas"), seta("mv", true, mvAberto))}
+    ${mvAberto ? sub(MV_MENU.map(([r, n]) => ({href: "#/analises-vendas/" + r, nome: n, on: h.startsWith("#/analises-vendas/" + r)}))) : ""}
     ${it("#/sac/tiktok", "💬", "SAC", h.startsWith("#/sac"), seta("sac", true, sacAberto))}
     ${sacAberto ? sub(SAC_MENU.map(([r, n]) => ({href: "#/sac/" + r, nome: n, on: h.startsWith("#/sac/" + r)}))) : ""}
     <div class="grupo">Central</div>
@@ -1628,6 +1631,7 @@ async function rotear() {
   if (sec === "inicio") return telaInicio();
   if (/^#\/estoque\/(tiktok|shopee)/.test(location.hash)) {       // endereço antigo: o atendimento mudou para o menu SAC
     history.replaceState(null, "", location.hash.replace("#/estoque/", "#/sac/")); return rotear(); }
+  if (location.hash.startsWith("#/analises-vendas")) return telaMinhasVendas();
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
     return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
   if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/categorias") ? telaEstoqueCategorias() : telaEstoque();
@@ -3160,6 +3164,74 @@ function abrirEcLista(campo, valor) {
       await recarregar(`${marca}: ${cat || "categoria automática"}`);
     } catch (e) { toast(e.message); sel.disabled = false; }
   });
+}
+// ---------- Minhas Lojas → 📊 Análises de Vendas (01/10; nome como o menu Análises do UpSeller, Bruno: "crie um menu Minhas Vendas com os dados do UpSeller Vendas por
+// Anúncio primeiro"). O coletor baixa o relatório de 30 dias junto do estoque; o servidor cruza com o estoque (só números).
+const MV_MENU = [["anuncio", "🧾 Vendas por Anúncio"]];
+async function telaMinhasVendas() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo as vendas por anúncio do UpSeller</div></div>`;
+  let r;
+  try { r = await api("estoque_vendas_anuncio"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/analises-vendas")) return;
+  if (r.vazio) { main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas</h1></div><div class="card empty">Ainda não chegou o relatório Vendas por Anúncio do UpSeller. O coletor baixa junto do estoque (00:30, 11:30 e 18:30).</div>`; return; }
+  const v = r.vendas || {}, t = r.totais || {};
+  const f = S.mvF || (S.mvF = {loja: "", q: "", ord: "valor"});
+  const dt = x => x ? new Date(x).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
+  const dia = x => x ? String(x).slice(8, 10) + "/" + String(x).slice(5, 7) : "";
+  const nivel = a => (a.estoque ?? 1) <= 0 && a.unidades > 0 ? "urg" : a.cobertura_dias == null ? "" : a.cobertura_dias < 15 ? "urg" : a.cobertura_dias < 30 ? "alerta" : "ok";
+  const ORD = {valor: ["Faturamento", (a, b) => b.valor - a.valor], unidades: ["Unidades", (a, b) => b.unidades - a.unidades],
+    cobertura: ["Cobertura (menor 1º)", (a, b) => (a.cobertura_dias ?? 1e9) - (b.cobertura_dias ?? 1e9) || b.unidades - a.unidades],
+    margem: ["Margem % (menor 1º)", (a, b) => (a.margem_pct ?? 1e9) - (b.margem_pct ?? 1e9)]};
+  const desenhar = () => {
+    const q = f.q.toLowerCase().trim();
+    const xs = r.anuncios.filter(a => (!f.loja || a.loja === f.loja) && (!q || (a.sku + " " + a.produto + " " + a.anuncio).toLowerCase().includes(q)))
+      .sort(ORD[f.ord][1]);
+    $("#mv-tab tbody").innerHTML = xs.map(a => `<tr class="ec-${nivel(a)}">
+      <td data-l="Anúncio"><b>${esc(a.produto || a.sku)}</b><div class="muted" style="font-size:11.5px">${esc(a.sku)} · ${a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.anuncio)} ↗</a>` : esc(a.anuncio)}</div></td>
+      <td data-l="Loja"><span class="pill">${esc(a.loja)}</span></td>
+      <td class="num" data-l="Unidades"><b>${nf0.format(a.unidades)}</b><div class="muted" style="font-size:11px">${nf0.format(a.pedidos)} pedido(s)</div></td>
+      <td class="num" data-l="Média/dia">${a.media_dia ? nf1.format(a.media_dia) : "—"}</td>
+      <td class="num" data-l="Faturamento">${rsES(a.valor)}</td>
+      <td class="num" data-l="Preço médio">${a.preco != null ? rsES(a.preco) : "—"}</td>
+      <td class="num" data-l="Custo médio">${a.custo != null ? rsES(a.custo) : "—"}</td>
+      <td class="num" data-l="Margem" title="Preço médio − custo médio, antes das taxas e do frete">${a.margem_pct != null ? `<span class="${a.margem_pct < 20 ? "neg" : ""}">${nf1.format(a.margem_pct)}%</span>` : "—"}${a.margem_real_pct != null ? `<div class="muted" style="font-size:11px">real ${nf1.format(a.margem_real_pct)}%</div>` : ""}</td>
+      <td class="num" data-l="Disponível"><b class="${(a.estoque ?? 0) > 0 ? "" : "neg"}">${a.estoque == null ? "—" : nf0.format(a.estoque)}</b></td>
+      <td class="num" data-l="Em trânsito">${a.transito ? `<b>${nf0.format(a.transito)}</b>` : `<span class="muted">—</span>`}</td>
+      <td class="num" data-l="Cobertura" title="Disponível do SKU ÷ venda por dia do SKU (todos os anúncios)"><b class="${a.cobertura_dias == null ? "" : a.cobertura_dias < 15 ? "neg" : a.cobertura_dias < 30 ? "warn-t" : "pos"}">${a.cobertura_dias == null ? "—" : nf0.format(a.cobertura_dias) + " d"}</b></td></tr>`).join("")
+      || `<tr><td colspan="11" class="empty">Nenhum anúncio.</td></tr>`;
+    $("#mv-n").textContent = `${nf0.format(xs.length)} de ${nf0.format(r.anuncios.length)} anúncio(s)`;
+  };
+  main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas · Vendas por Anúncio</h1>
+      <span class="muted">UpSeller · ${dia(v.inicio)} a ${dia(v.fim)} (${nf0.format(v.dias || 30)} dias) · importado ${dt(v.importado_em)} · estoque de ${dt(r.estoque_em)}</span></div>
+    <div class="kpis" style="margin:12px 0">
+      <div class="kpi"><div class="l">Faturamento</div><div class="v">${rsES(t.valor)}</div><div class="s">${nf0.format(v.dias || 30)} dias</div></div>
+      <div class="kpi"><div class="l">Unidades</div><div class="v">${nf0.format(t.unidades)}</div><div class="s">${nf1.format(t.media_dia)} por dia</div></div>
+      <div class="kpi"><div class="l">Pedidos</div><div class="v">${nf0.format(t.pedidos)}</div><div class="s">ticket ${t.ticket != null ? rsES(t.ticket) : "—"}</div></div>
+      <div class="kpi"><div class="l">Anúncios com venda</div><div class="v">${nf0.format(t.anuncios)}</div><div class="s">${nf0.format(t.skus)} SKU(s)</div></div>
+      <div class="kpi"><div class="l">Vendem e estão zerados</div><div class="v ${t.sem_estoque ? "neg" : ""}">${nf0.format(t.sem_estoque)}</div><div class="s">SKU(s) sem disponível</div></div>
+    </div>
+    <div class="card" style="margin-bottom:12px"><h3 style="margin:0 0 8px">Por loja</h3><table class="t"><thead><tr><th>Loja</th><th class="num">Anúncios</th><th class="num">Pedidos</th>
+      <th class="num">Unidades</th><th class="num">Média/dia</th><th class="num">Faturamento</th><th class="num">Ticket médio</th><th class="num">% do faturamento</th></tr></thead><tbody>
+      ${r.lojas.map(l => `<tr class="mv-loja" data-loja="${esc(l.loja)}" style="cursor:pointer" title="Filtrar por esta loja"><td data-l="Loja"><b>${esc(l.loja)}</b></td><td class="num" data-l="Anúncios">${nf0.format(l.anuncios)}</td>
+        <td class="num" data-l="Pedidos">${nf0.format(l.pedidos)}</td><td class="num" data-l="Unidades">${nf0.format(l.unidades)}</td><td class="num" data-l="Média/dia">${nf1.format(l.media_dia)}</td>
+        <td class="num" data-l="Faturamento"><b>${rsES(l.valor)}</b></td><td class="num" data-l="Ticket">${l.ticket != null ? rsES(l.ticket) : "—"}</td>
+        <td class="num" data-l="%">${t.valor ? nf1.format(l.valor / t.valor * 100) + "%" : "—"}</td></tr>`).join("")}</tbody></table></div>
+    <div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <input type="search" id="mv-q" placeholder="Buscar SKU, produto ou anúncio…" value="${esc(f.q)}" style="flex:1;min-width:200px">
+      <select id="mv-loja"><option value="">Todas as lojas</option>${r.lojas.map(l => `<option ${f.loja === l.loja ? "selected" : ""} value="${esc(l.loja)}">${esc(l.loja)}</option>`).join("")}</select>
+      <select id="mv-ord">${Object.entries(ORD).map(([k, [n]]) => `<option ${f.ord === k ? "selected" : ""} value="${k}">Ordenar: ${n}</option>`).join("")}</select>
+      <span class="muted" id="mv-n"></span></div>
+      <div class="rolar"><table class="t" id="mv-tab"><thead><tr><th>Anúncio</th><th>Loja</th><th class="num">Unidades</th><th class="num">Média/dia</th>
+        <th class="num">Faturamento</th><th class="num">Preço médio</th><th class="num">Custo médio</th><th class="num" title="Antes das taxas; 'real' = Gestor Seller">Margem</th>
+        <th class="num">Disponível</th><th class="num">Em trânsito</th><th class="num">Cobertura</th></tr></thead><tbody></tbody></table></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Linha vermelha: cobertura menor que 15 dias ou zerado vendendo · amarela: menor que 30 dias · verde: 30 dias ou mais.
+        Cobertura = disponível do SKU ÷ venda por dia do SKU somando todos os anúncios.</p></div>`;
+  $("#mv-q").oninput = e => { f.q = e.target.value; desenhar(); };
+  $("#mv-loja").onchange = e => { f.loja = e.target.value; desenhar(); };
+  $("#mv-ord").onchange = e => { f.ord = e.target.value; desenhar(); };
+  main.querySelectorAll(".mv-loja").forEach(tr => tr.onclick = () => { f.loja = f.loja === tr.dataset.loja ? "" : tr.dataset.loja; $("#mv-loja").value = f.loja; desenhar(); });
+  desenhar();
 }
 // SAC (27/09, pedido do Bruno): menu próprio com as lojas e a base de conhecimento do SAC
 const SAC_MENU = [["painel", "📊 Painel"], ["tiktok", "🎵 TikTok Shop"], ["shopee", "🛍️ Shopee"], ["ml", "🤝 Mercado Livre"], ["base", "📚 Base de conhecimento SAC"]];

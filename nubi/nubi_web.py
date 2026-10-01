@@ -4630,6 +4630,54 @@ def estoque_compras(repo, com_plano=True):
     return out
 
 
+def minhas_vendas_anuncio(repo):
+    """01/10 (Bruno: "crie um menu dentro de Minhas Lojas, Minhas Vendas, com os dados do UpSeller Vendas por Anúncio
+    primeiro"): uma linha por anúncio (relatório de 30 dias que o coletor baixa junto do estoque) com o estoque do SKU
+    (disponível, em trânsito, custo médio), margem antes das taxas, média por dia e cobertura do SKU (disponível ÷ venda
+    do SKU somando todos os anúncios). Totais por loja/canal. Só números; nada de IA."""
+    v = _vendas_atuais(repo)
+    if not v or not v.get("linhas"):
+        return {"vazio": True}
+    dias = v.get("dias") or 30
+    ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": 1}) or [None])[0]
+    itens = _num_itens(_estoque_itens(repo, ult["id"])) if ult else []
+    g = _vendas_atuais(repo, GESTOR_VENDAS_CHAVE)
+    an = estoque.por_anuncio(itens, v["linhas"], dias=dias, gestor=(g or {}).get("linhas"))
+    est = {estoque._chave(it["sku"]): it for it in itens}
+    un_sku = {}
+    for a in an:
+        k = estoque._chave(a["sku"])
+        un_sku[k] = un_sku.get(k, 0) + (a["unidades"] or 0)
+    lojas = {}
+    for a in an:
+        k = estoque._chave(a["sku"])
+        it = est.get(k) or {}
+        disp = it.get("disponivel") if it else None
+        a["transito"] = ((it.get("transito_compra") or 0) + (it.get("transito_transf") or 0)) if it else None
+        a["media_dia"] = round(a["unidades"] / dias, 2)
+        vd = un_sku.get(k, 0) / dias
+        a["cobertura_dias"] = round((disp or 0) / vd, 1) if vd and disp is not None else None
+        a["link"] = (f"https://produto.mercadolivre.com.br/MLB-{a['anuncio'][3:]}"
+                     if re.fullmatch(r"MLB\d+", str(a["anuncio"] or "")) else "")
+        l = lojas.setdefault(a["loja"] or "(sem loja)", {"loja": a["loja"] or "(sem loja)", "anuncios": 0, "pedidos": 0,
+                                                          "unidades": 0, "valor": 0.0})
+        l["anuncios"] += 1
+        l["pedidos"] += a["pedidos"]
+        l["unidades"] += a["unidades"]
+        l["valor"] = round(l["valor"] + a["valor"], 2)
+    for l in lojas.values():
+        l["ticket"] = round(l["valor"] / l["pedidos"], 2) if l["pedidos"] else None
+        l["media_dia"] = round(l["unidades"] / dias, 1)
+    tot_un = sum(a["unidades"] for a in an)
+    tot_val = round(sum(a["valor"] for a in an), 2)
+    tot_ped = sum(a["pedidos"] for a in an)
+    return {"vendas": {k: x for k, x in v.items() if k != "linhas"}, "estoque_em": (ult or {}).get("criado_em"),
+            "totais": {"anuncios": len(an), "skus": len(un_sku), "pedidos": tot_ped, "unidades": tot_un, "valor": tot_val,
+                       "ticket": round(tot_val / tot_ped, 2) if tot_ped else None, "media_dia": round(tot_un / dias, 1),
+                       "sem_estoque": sum(1 for k, u in un_sku.items() if u and (est.get(k) or {}).get("disponivel", 0) <= 0)},
+            "lojas": sorted(lojas.values(), key=lambda l: -l["valor"]), "anuncios": an}
+
+
 MARCA_SKU_CHAVE = "estoque|marca_sku"
 MARCA_IA_CHAVE = "estoque|marca_sku_ia"
 ASTRA_LOTE = 150
@@ -6522,6 +6570,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         data = lambda k: q.get(k) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(q.get(k) or "")) else None
         return gestor_vendas_importar(repo, corpo, (q.get("arquivo") or "relatorio_de_vendas.xlsx")[:200], data("inicio"), data("fim"),
                                       "manual" if q.get("origem") == "manual" else "coletor")
+    if rota == "estoque_vendas_anuncio":
+        return minhas_vendas_anuncio(repo)
     if rota == "estoque_compras":
         return estoque_compras(repo)
     if rota == "estoque_categorias":

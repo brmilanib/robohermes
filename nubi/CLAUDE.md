@@ -1073,9 +1073,6 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   30 min antes (00:30, 11:30, 18:30). `estoque_pendente` roda quando não há estoque desde o último horário passado.
   `gestor_devido`: devido = nenhuma importação ok desde o horário; `estoque_ok` = estoque desde a meia hora antes.
   Coletor: `_na_hora(..., por_hora=True)` deixa no máximo 2 tentativas por hora. Teste: `test_estoque_horarios.py`.
-- Modal de estoque por categoria (01/10, "essa tela está horrível"): mostra Disponível (UpSeller, não o "atual"), em pedido/
-  chegando, Custo médio, Valor, Vendas 30d, Média/dia e Cobertura (colorida), ordenado pela cobertura. Editar marca e
-  categoria fica atrás do botão "✎ Editar marca e categoria" (`S.ecEditar`); sem "categoria automática".
 - Mac (01/10, "essa tela abrindo toda hora aqui no mac e não acontece nada"): `_janela_fora` vale também no macOS; lá o Chrome
   do coletor abre MINIMIZADO no Dock (CDP `windowState: minimized`, o macOS não deixa janela fora do monitor) com `SEM_FREIO`
   (flags que impedem o Chrome minimizado de desacelerar). Login/entrar/navegar continuam na tela (`na_tela=True`);
@@ -1087,3 +1084,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Preço de venda (`preco_venda` = valor ÷ unidades das vendas de 30 dias, Vendas por Anúncio), Vendas 30d, Cobertura. Sem
   "em pedido", Valor e Média/dia. Linha pintada fraquinha: `ec-urg` vermelho (< 15 d ou zerado vendendo), `ec-alerta`
   amarelo (< 30 d), `ec-ok` verde; sem venda, sem cor. Modal `ec-modal` até 1500 px.
+- **📊 Análises de Vendas (01/10, Bruno: "crie um menu dentro de Minhas Lojas … Vendas por Anúncio do UpSeller primeiro";
+  nome igual ao menu Análises do UpSeller)**: Minhas Lojas → 📊 Análises de Vendas → 🧾 Vendas por Anúncio
+  (`#/analises-vendas/anuncio`, `telaMinhasVendas`, `MV_MENU` para os próximos relatórios). Rota `estoque_vendas_anuncio`
+  (`minhas_vendas_anuncio`): o relatório de 30 dias que o coletor já baixa com o estoque (`vendas_anuncio|atual`) ×
+  último estoque: por anúncio (`estoque.por_anuncio` + disponível, em trânsito, média/dia, cobertura do SKU somando todos os
+  anúncios, link do MLB), totais (faturamento, unidades, pedidos, ticket, SKUs que vendem e estão zerados) e por loja
+  (clique filtra). Mesma cor de linha da lista da categoria. Só números, sem IA. Teste: `test_analises_vendas.py`.
