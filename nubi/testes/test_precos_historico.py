@@ -47,7 +47,8 @@ def test_leitura_pela_api_de_hora_em_hora():
     assert [p["preco"] for p in h] == [100.0, 95.0] and h[0]["status"] == "ativo"
     mu = precos.mudancas(h)
     assert mu[0]["campo"] == "preco" and mu[0]["de"] == 100.0 and mu[0]["para"] == 95.0 and mu[0]["em"]
-    assert precos.pendente(None, {"ativo": True, "horario": "00:00"})["itens"] == [{"mlb": "MLB2345678", "link": precos.link_de("MLB2345678")}]
+    # 01/10: o coletor pega o que a API não leu (MLB2345678) e o de título ruim ("X"), para ler o <h1>
+    assert [i["mlb"] for i in precos.pendente(None, {"ativo": True})["itens"]] == ["MLB1234567", "MLB2345678"]
     # 01/10 (Bruno): cada leitura conta e guarda a hora; título "Clássico" (tipo do anúncio, vindo do cartão) é trocado
     x = [i for i in d[precos.LISTA] if i["mlb"] == "MLB1234567"][0]
     assert x["leituras"] == 3 and x["ultima_leitura"], x

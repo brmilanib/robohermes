@@ -3030,6 +3030,9 @@ JS_ML_PRECO = r"""() => {
   const cx = q('.ui-pdp-buybox') || q('.ui-pdp-container__col--sticky') || document.body;
   return {fracao: fr ? fr.textContent : null, centavos: ct ? ct.textContent : null, original: orig ? orig.textContent : null,
           titulo: h1 ? h1.textContent.trim() : '', vendedor: cab ? cab.textContent.trim() : '',
+          // 01/10 (Bruno: tags Catálogo e FULL): /p/MLB no endereço ou "outras opções de compra" = catálogo; ícone/texto do Full
+          catalogo: /\/p\/MLB/.test(location.pathname) || !!q('.ui-pdp-other-sellers, [class*="other-sellers"]'),
+          full: !!q('[class*="icon--full"], [class*="full-icon"], svg[class*="full"]') || /enviado pelo\s*full|\bFULL\b/.test((cx.innerText || '')),
           texto: ((cx.innerText || '') + '\n' + (document.body.innerText || '').slice(0, 4000)).slice(0, 12000)};
 }"""
 

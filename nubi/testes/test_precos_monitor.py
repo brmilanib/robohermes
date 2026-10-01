@@ -56,13 +56,16 @@ def test_seguir_gravar_e_painel():
     p = precos.painel(r)[0]
     assert p["atual"] == 309.9 and p["anterior"] == 299.9 and round(p["var"], 4) == round(309.9 / 299.9 - 1, 4)
     assert p["minimo"] == 299.9 and p["maximo"] == 329.9 and p["ultimo_dia"] == "2026-09-30" and p["estoque"] is None
-    # pendente: já lido hoje -> não roda; outro dia -> roda depois das 04:10
-    hoje = datetime(2026, 9, 30, 5, 0, tzinfo=precos.BRASILIA)
-    assert precos.pendente(r, {"ativo": True, "horario": "04:10"}, hoje)["rodar"] is False
-    amanha = datetime(2026, 10, 1, 5, 0, tzinfo=precos.BRASILIA)
-    pd_ = precos.pendente(r, {"ativo": True, "horario": "04:10"}, amanha)
+    # 01/10: rodadas ao meio-dia e às 19 h; lido nesta rodada (e com título bom) não roda; na próxima rodada roda (20 min depois)
+    precos.seguir(r, {"mlb": "MLB4350649763", "titulo": "Perfume Hugo Boss Bottled Night 100ml"})
+    precos.gravar_leitura(r, [{"mlb": "MLB4350649763", "preco": 309.9, "status": "ativo"}])
+    from datetime import timedelta as _td
+    ini = precos.rodada_atual()
+    assert precos.pendente(r, {"ativo": True}, ini + _td(minutes=25))["rodar"] is False
+    prox = precos.rodada_atual(ini + _td(hours=12))
+    pd_ = precos.pendente(r, {"ativo": True}, prox + _td(minutes=25))
     assert pd_["rodar"] is True and pd_["itens"][0]["mlb"] == "MLB4350649763"
-    assert precos.pendente(r, {"ativo": True, "horario": "04:10"}, amanha.replace(hour=3))["rodar"] is False
+    assert precos.pendente(r, {"ativo": True}, prox + _td(minutes=5))["rodar"] is False      # a API lê primeiro
     assert precos.parar(r, "MLB4350649763") and precos.lista(r) == [] and precos.historico(r, "MLB4350649763")   # histórico fica
     print("ok test_seguir_gravar_e_painel")
 

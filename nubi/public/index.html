@@ -1219,6 +1219,18 @@ header.top{padding:7px 16px}
 .tv-esp{color:#fbbf24;font-size:13px;margin-top:6px}
 .tv-mudo{color:#64748b}.tv-erro{padding:40px;font-size:20px}
 @media (max-width:1100px){.tv-kpis{grid-template-columns:repeat(2,1fr)}.tv-meio,.tv-baixo{grid-template-columns:1fr}.tv-k.grande{grid-column:1/-1}}
+/* 🔔 preço mudou */
+.navi-pisca .badge.pisca{background:#ef4444;color:#fff;animation:tvpisca 1.2s infinite}
+.navi-pisca{animation:navpisca 1.6s infinite}@keyframes navpisca{50%{background:rgba(239,68,68,.12)}}
+.pm-mudou{border:2px solid #ef4444;animation:tvborda 1.6s infinite}
+.pm-aviso{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 10px;margin:-4px 0 8px;border-radius:10px;background:rgba(239,68,68,.08);font-size:13.5px}
+.pm-alertas{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 14px;margin-bottom:10px;border-left:4px solid #ef4444}
+.vh-precos{display:block;color:inherit;text-decoration:none;border-left-color:#ef4444}
+.tv-precos{display:flex;gap:18px;align-items:center;flex-wrap:wrap;background:rgba(239,68,68,.12);border:1px solid #ef4444;border-radius:14px;padding:10px 16px;animation:tvborda 1.6s infinite}
+.tv-precos>b{color:#fca5a5}.tv-precos i{color:#94a3b8;font-style:normal;font-size:12.5px}.tv-precos em{font-style:normal;font-weight:800}
+.tv-precos em.sobe{color:#34d399}.tv-precos em.cai{color:#f87171}
+.pm-tag{font-size:11px;font-weight:800;letter-spacing:.3px;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--muted)}
+.pm-tag.cat{background:#e0ecff;color:#1d4ed8}.pm-tag.full{background:#dcfce7;color:#15803d;font-style:italic}
 </style>
 </head>
 <body>
@@ -1668,7 +1680,7 @@ document.addEventListener("click", e => {
 // Menu lateral: Início, Ranking de marcas, Explorador, Concorrentes, Minhas Lojas, Central e Ajustes (Astra, card #26).
 function desenharMenu() {
   const sec = secaoAtual(), h = decodeURIComponent(location.hash);
-  const it = (href, ic, txt, on, extra = "") => `<a class="navi ${on ? "on" : ""}" href="${href}"><span class="ic">${ic}</span><span>${esc(txt)}</span>${extra}</a>`;
+  const it = (href, ic, txt, on, extra = "") => `<a class="navi ${on ? "on" : ""}${/pisca/.test(extra) ? " navi-pisca" : ""}" href="${href}"><span class="ic">${ic}</span><span>${esc(txt)}</span>${extra}</a>`;
   const sub = itens => itens.length ? `<div class="subnav">${itens.map(i => i.mais ? `<a class="mais" id="mtodas">${esc(i.nome)}</a>`
     : `<a class="${i.on ? "on" : ""}" href="${i.href}" title="${esc(i.nome)}">${esc(i.nome)}</a>`).join("")}</div>` : "";
   // Ranking (30/09, Bruno: "não tem necessidade de ter três menus de perfume, três de maquiagem"): um item por categoria
@@ -1708,7 +1720,7 @@ function desenharMenu() {
     ${ab.vendedores ? `<div class="subnav" id="sub-vend"></div>` : ""}
     ${it("#/vendedores-ml", "🔗", "Vendedores × ML", h.startsWith("#/vendedores-ml"))}
     ${it("#/observados", "👀", "Observados", h.startsWith("#/observados"))}
-    ${it("#/precos", "📈", "Monitor de preços", h.startsWith("#/precos"))}
+    ${it("#/precos", "📈", "Monitor de preços", h.startsWith("#/precos"), (S.precosAlertas || []).length ? `<span class="badge pisca" title="preço mudou: clique para ver">${S.precosAlertas.length}</span>` : "")}
     <div class="grupo">Minhas Lojas</div>
     ${it("#/estoque", "📦", "Estoque", h.startsWith("#/estoque"))}
     ${it("#/analises-vendas/anuncio", "📊", "Análises de Vendas", h.startsWith("#/analises-vendas"), seta("mv", true, mvAberto))}
@@ -4319,6 +4331,7 @@ async function telaVendasHoje() {
     <div class="es-cab"><h1>⚡ Vendas de hoje</h1><a class="btn small primary" href="#/analises-vendas/tv" title="Tela cheia para a TV, atualiza sozinha">📺 Modo TV</a>
       <span class="muted">${quando ? `lido no UpSeller às <b>${quando}</b> · o coletor lê a cada 10 min · guarda a cada meia hora` : "ainda sem leitura do UpSeller"}</span></div>
     ${ag.erro && (!ag.lido_em || ag.erro_em > ag.lido_em) ? `<div class="card vh-aviso">⚠️ Última tentativa: ${esc(ag.erro)}${ag.login ? " — entre no UpSeller pelo Mac (Central → entrar no UpSeller)." : ""}</div>` : ""}
+    ${(S.precosAlertas || []).length ? `<a class="card vh-aviso vh-precos" href="#/precos">🔔 ${nf0.format(S.precosAlertas.length)} concorrente(s) mudaram o preço — ver no Monitor de preços ›</a>` : ""}
     ${atrasado && hoje ? `<div class="card vh-aviso">⏳ A última leitura tem mais de 30 min (o Chrome do coletor pode estar ocupado com outra tarefa).</div>` : ""}
     <div class="card pad vh-filtros">
       <label>Dia <input type="date" id="vh-dia" value="${r.dia}" max="${r.hoje}"></label>
@@ -4395,6 +4408,7 @@ async function telaTV() {
   let r, sac = S.tvSac;
   try { r = await api("vendas_tv"); } catch (e) { r = S.tvUlt; if (!r) { el.innerHTML = `<div class="tv-erro">${esc(e.message)}<button class="btn tv-sair">Sair</button></div>`; return; } }
   S.tvUlt = r;
+  try { S.tvPrecos = (await api("ml_precos_alertas")).itens || []; } catch { /* sem monitor */ }
   if (!S.tvSacEm || Date.now() - S.tvSacEm > 120e3) { try { sac = S.tvSac = await api("atendimento_painel"); S.tvSacEm = Date.now(); } catch { /* SAC fora: segue sem */ } }
   if (!document.querySelector(".tv-tela") || !location.hash.startsWith("#/analises-vendas/tv")) return;
   const ag = r.agora || {}, a = r.ate_agora || {}, b = r.ate_ontem || {}, c = r.ate_semana || {};
@@ -4418,6 +4432,9 @@ async function telaTV() {
       <div class="tv-k"><span>⏱️ Última hora (${String(r.ultima_hora.hora).padStart(2, "0")}h)</span><b>${r.ultima_hora.hoje != null ? rsES(r.ultima_hora.hoje) : "—"}</b>${tvSeta(r.ultima_hora.hoje, r.ultima_hora.ontem)}<small>mesma hora ontem ${r.ultima_hora.ontem != null ? rsES(r.ultima_hora.ontem) : "—"}</small></div>
       <div class="tv-k sac ${precisam ? "alerta" : ""}"><span>💬 Chats esperando</span><b>${sac ? nf0.format(precisam) : "—"}</b><small>${sac ? `${nf0.format(t.respondidas_hoje || 0)} respondidos hoje · ${nf0.format(t.sozinho_hoje || 0)} pela IA` : "SAC sem leitura"}</small></div>
     </div>
+    ${(S.tvPrecos || []).length ? `<div class="tv-precos"><b>🔔 Concorrentes mudaram o preço</b>${S.tvPrecos.slice(0, 5).map(x => `<span>
+        ${esc(String(x.titulo).slice(0, 38))}${String(x.titulo).length > 38 ? "…" : ""} <i>${esc(x.loja)}</i> <s>${rsES(x.de)}</s> → <b>${rsES(x.para)}</b>
+        <em class="${x.pct > 0 ? "sobe" : "cai"}">${x.pct > 0 ? "▲" : "▼"}${Math.abs(x.pct * 100).toFixed(0)}%</em></span>`).join("")}</div>` : ""}
     <div class="tv-meio">
       <div class="tv-card"><h3>Acumulado do dia <span><i style="background:#60a5fa"></i>hoje <i style="background:#34d399"></i>ontem <i style="background:#9ca3af"></i>semana passada</span></h3><div class="ch" id="tv-acum"></div></div>
       <div class="tv-card"><h3>🏪 Lojas hoje <span>× ontem no mesmo horário</span></h3>${lojas.map(l => `<div class="tv-loja">
@@ -8281,14 +8298,19 @@ async function telaPrecos() {
   const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
   const lidosHoje = xs.filter(x => x.ultimo_dia === hoje).length;
   const ultimaGeral = xs.map(x => x.ultima_em).filter(Boolean).sort().pop();
-  const cartao = x => { const ult = (x.historico || []).slice(-1)[0] || {};
-    return `<div class="card pm-card" data-mlb="${esc(x.mlb)}">
+  const alertaDe = x => (x.alerta && x.alerta.visto === false) ? x.alerta : null;
+  const cartao = x => { const ult = (x.historico || []).slice(-1)[0] || {}, al = alertaDe(x);
+    return `<div class="card pm-card ${al ? "pm-mudou" : ""}" data-mlb="${esc(x.mlb)}">
+      ${al ? `<div class="pm-aviso">🔔 O preço mudou ${quando(al.em)}: <s>${rsES(al.de)}</s> → <b>${rsES(al.para)}</b>
+        <span class="pm-var ${al.pct > 0 ? "sobe" : "desce"}">${al.pct > 0 ? "▲" : "▼"} ${FMT.var(Math.abs(al.pct))}</span>
+        <button class="btn small" data-visto="${esc(x.mlb)}">✓ vi</button></div>` : ""}
       <div class="pm-lin">
         <a class="pm-foto" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${x.foto ? `<img src="${esc(urlML(x.foto))}" alt="" loading="lazy">` : "📦"}</a>
         <div class="pm-info">
           <a class="pm-tit" href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir o anúncio no Mercado Livre">${esc(x.titulo_ok ? x.titulo : (x.titulo && x.titulo.length > 12 ? x.titulo : "Anúncio " + x.mlb))} ↗</a>
           <div class="muted pm-sub">${esc(x.mlb)}${x.titulo && !x.titulo_ok ? ` · ${esc(x.titulo)}` : ""} · loja ${lojaLink(x) ? `<a href="${lojaLink(x)}" target="_blank" rel="noopener">${esc(x.loja || x.seller_id)} ↗</a>` : esc(x.loja || "—")}${x.vendedor ? ` · <a href="#/vendedores/${encodeURIComponent(x.vendedor)}">${esc(x.vendedor)}</a>` : ""}</div>
-          <div class="pm-chips">${x.status ? `<span class="st ${x.status === "ativo" ? "good" : "bad"}">${esc(x.status)}</span>` : ""}${x.estoque != null ? `<span class="pm-chip">estoque ${nf0.format(x.estoque)}</span>` : ""}
+          <div class="pm-chips">${x.catalogo ? `<span class="pm-tag cat" title="Anúncio de catálogo (disputa o buy box)">CATÁLOGO</span>` : x.catalogo === false ? `<span class="pm-tag" title="Anúncio próprio, fora do catálogo">fora do catálogo</span>` : ""}
+            ${x.full ? `<span class="pm-tag full" title="Enviado pelo Full do Mercado Livre">⚡ FULL</span>` : ""}${x.status ? `<span class="st ${x.status === "ativo" ? "good" : "bad"}">${esc(x.status)}</span>` : ""}${x.estoque != null ? `<span class="pm-chip">estoque ${nf0.format(x.estoque)}</span>` : ""}
             ${x.mudancas_preco ? `<span class="pm-chip">${nf0.format(x.mudancas_preco)} mudança(s) de preço</span>` : `<span class="pm-chip muted">preço sem mudança</span>`}</div>
         </div>
         <div class="pm-preco">${x.atual ? `<b>${rsES(x.atual)}</b>` : `<span class="muted">ainda não lido</span>`}
@@ -8305,10 +8327,17 @@ async function telaPrecos() {
       <div class="pm-hist" id="pm-h-${esc(x.mlb)}" hidden></div></div>`; };
   main.innerHTML = `<div class="es-cab"><h1>📈 Monitor de preços</h1>
       <span class="muted">${nf0.format(xs.length)} anúncio(s) (máx. ${r.max}) · ${nf0.format(lidosHoje)} lido(s) hoje${ultimaGeral ? ` · última atualização ${quando(ultimaGeral)}` : ""}</span></div>
-    <p class="muted" style="margin:4px 0 12px;font-size:12.5px">De hora em hora o nubi lê preço, preço riscado, situação e estoque pela API oficial do Mercado Livre, sem abrir navegador.
+    ${xs.some(alertaDe) ? `<div class="card pm-alertas"><b>🔔 ${nf0.format(xs.filter(alertaDe).length)} anúncio(s) mudaram de preço</b>
+      <button class="btn small" id="pm-vi-todos">✓ marcar todos como vistos</button></div>` : ""}
+    <p class="muted" style="margin:4px 0 12px;font-size:12.5px">Ao meio-dia e às 19 h o nubi lê preço, preço riscado, situação e estoque pela API oficial do Mercado Livre;
+      o que a API não trouxer (e o título certo do anúncio) o coletor do Mac lê na página logo depois. Mudou o preço: o cartão fica em destaque e o menu pisca até você marcar "✓ vi".
       Para adicionar: Concorrentes → Vendedores → página do vendedor → fotos dos anúncios → "📈 Monitorar".</p>
-    ${xs.length ? xs.map(cartao).join("")
+    ${xs.length ? [...xs].sort((a, b) => !!alertaDe(b) - !!alertaDe(a)).map(cartao).join("")
     : `<div class="card empty"><h2>Nenhum anúncio monitorado</h2><p>Abra um vendedor seguido (Concorrentes → Vendedores), vá às fotos dos anúncios e clique em "📈 Monitorar" nos que quiser acompanhar.</p></div>`}`;
+  const visto = async mlb => { try { await api("ml_precos_visto", {}, {method: "POST", body: JSON.stringify(mlb ? {mlb} : {})}); } catch { /* tenta depois */ }
+    S.precosAlertas = mlb ? (S.precosAlertas || []).filter(a => a.mlb !== mlb) : []; desenharMenu(); telaPrecos(); };
+  main.querySelectorAll("button[data-visto]").forEach(b => b.onclick = () => visto(b.dataset.visto));
+  const vt = main.querySelector("#pm-vi-todos"); if (vt) vt.onclick = () => visto(null);
   main.querySelectorAll("button[data-hist]").forEach(b => b.onclick = () => {
     const x = xs.find(z => z.mlb === b.dataset.hist), box = $("#pm-h-" + CSS.escape(x.mlb));
     if (!box.hidden) { box.hidden = true; b.textContent = "📈 Histórico de preços"; return; }
@@ -9347,6 +9376,7 @@ async function iniciar(sessao) {
   clearTimeout(S.agenteT); S.agenteT = setTimeout(cicloAgente, 20000);
   clearTimeout(S.coletorT); S.coletorT = setTimeout(cicloColetor, 4000);
   carregarAlertasN();
+  carregarAlertasPrecos();
   verificarVersao();
 }
 // Versão nova publicada: recarrega sozinho (sem precisar de Cmd+Shift+R). Se houver uma janela aberta
@@ -9362,6 +9392,12 @@ async function verificarVersao() {
   S.versaoT = setTimeout(verificarVersao, 120000);
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden && S.sessao) verificarVersao(); });
+// 01/10 (Bruno: "quando mudar o preço, que fique piscando no menu Monitor de preços"): avisos não vistos, a cada 5 min
+async function carregarAlertasPrecos() {
+  try { const r = await api("ml_precos_alertas"); const antes = (S.precosAlertas || []).length; S.precosAlertas = r.itens || [];
+    if (antes !== S.precosAlertas.length) desenharMenu(); } catch { /* sem monitor */ }
+  clearTimeout(S.precosAlT); S.precosAlT = setTimeout(carregarAlertasPrecos, 5 * 60e3);
+}
 // Número do menu "Alertas de estoque": produtos sem estoque/parados em algum concorrente.
 async function carregarAlertasN(r) {
   try { r = r || await api("vend_alertas"); S.alertasN = r.produtos.filter(p => p.sem_estoque > 0).length; desenharMenu();

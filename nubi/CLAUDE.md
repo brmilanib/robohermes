@@ -1248,6 +1248,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   senão a semana passada), última hora × mesma hora ontem, curva hoje/ontem/semana passada, lojas com ▲▼ e campeões com a
   posição × ontem no mesmo horário (ranking guardado por meia hora em `vendas_hoje|<dia>` `ranking`). SAC pela rota
   `atendimento_painel` a cada 2 min; vendas a cada 60 s. Teste em `test_vendas_hoje.py` (1920×1080 e 1280×720).
+- **Monitor de preços 12 h e 19 h, aviso e tags (01/10, Bruno)**: `precos.HORARIOS` = 12:00 e 19:00; `rodada_atual`;
+  o cron da hora lê pela API só quando a rodada não foi feita (`api_devida`/`marcar_rodada`, `ia_resumos` `precos|rodada`);
+  `pendente` (coletor) = não lidos desde o início da rodada + os de título ruim (o coletor lê o `<h1>`), 20 min depois da
+  rodada. Preço diferente do último ponto → `alerta` {de, para, pct, em, visto:false} no item; rotas `ml_precos_alertas` e
+  `ml_precos_visto`; o menu "Monitor de preços" pisca com o número (`carregarAlertasPrecos`, a cada 5 min), o cartão fica
+  em destaque com "✓ vi", e o Modo TV e ⚡ Vendas de hoje mostram a faixa "Concorrentes mudaram o preço". Tags CATÁLOGO /
+  ⚡ FULL: `catalogo`/`full` no item (seguir pelo GTIN = catálogo; API `catalog_listing`/fulfillment; página: /p/MLB ou
+  outras opções de compra, ícone/texto do Full; senão a vitrine `vend_anuncios_ml`). Teste `test_precos_rodadas.py`.
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

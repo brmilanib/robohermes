@@ -76,12 +76,15 @@ def seguir(repo, item):
             "seller_id": re.sub(r"\D", "", str(item.get("seller_id") or ""))[:20],
             "vendedor": str(item.get("vendedor") or "")[:120],
             "gtin": re.sub(r"\D", "", str(item.get("gtin") or ""))[:14],   # 01/10: achado pelo GTIN (anúncio de catálogo)
+            # 01/10 (Bruno: "se é catálogo, a tag de catálogo; se é full, a tag do Full"); None = não sabemos
+            "catalogo": item.get("catalogo") if isinstance(item.get("catalogo"), bool) else None,
+            "full": item.get("full") if isinstance(item.get("full"), bool) else None,
             "preco_inicial": _num(item.get("preco")), "desde": datetime.now(timezone.utc).isoformat()}
     if ja:
         for k, v in novo.items():
             if k in ("desde", "preco_inicial"):
                 continue
-            if v:
+            if v or (k in ("catalogo", "full") and v is not None):
                 ja[k] = v
         novo = ja
     else:
@@ -125,6 +128,7 @@ def gravar_leitura(repo, itens, dia=None):
         # 01/10: leitura de hora em hora pela API: no mesmo dia, ponto igual ao último só atualiza a hora; se algo mudou
         # (preço, riscado, situação, estoque), entra um ponto novo com a hora (a mudança fica com a hora certa)
         h = historico(repo, mlb)
+        antes = next((p for p in reversed(h) if p.get("preco")), None)
         mesmo_dia = [p for p in h if p.get("dia") == dia]
         chave = lambda p: (p.get("preco"), p.get("preco_original"), p.get("status"), p.get("estoque"))
         if mesmo_dia and chave(mesmo_dia[-1]) == chave(ponto):
@@ -139,6 +143,13 @@ def gravar_leitura(repo, itens, dia=None):
             # 01/10 (Bruno: "data e hora da última atualização, quantas atualizações já tivemos"): conta cada leitura
             x["leituras"] = int(x.get("leituras") or 0) + 1
             x["ultima_leitura"] = agora
+            # 01/10 (Bruno: "quando mudar o preço, que fique piscando no menu para eu clicar e ver"): aviso até ele ver
+            if antes and ponto["preco"] and abs(ponto["preco"] - antes["preco"]) >= 0.01:
+                x["alerta"] = {"de": antes["preco"], "para": ponto["preco"], "pct": round(ponto["preco"] / antes["preco"] - 1, 4),
+                               "em": agora, "visto": False}
+            for k in ("catalogo", "full"):
+                if isinstance(it.get(k), bool):
+                    x[k] = it[k]
             for k in ("titulo", "vendedor"):
                 # 01/10: o cartão de foto mandava o tipo do anúncio ("Clássico") como título; a leitura corrige
                 if it.get(k) and (not x.get(k) or (k == "titulo" and titulo_ruim(x.get(k)))):
@@ -225,15 +236,74 @@ def painel(repo, dias=60):
     return out
 
 
+# 01/10 (Bruno: "atualizar os preços dos monitorados 1 vez ao meio-dia e 1 vez às 19 h"): duas rodadas por dia. A API
+# oficial lê todos (servidor, no cron da hora); o que a API não devolver o coletor do Mac lê pela página na mesma rodada.
+HORARIOS = ("12:00", "19:00")
+RODADA = "precos|rodada"
+
+
+def rodada_atual(agora=None):
+    """Início (Brasília) da última rodada que já passou: hoje 12:00/19:00, senão ontem 19:00."""
+    agora = (agora or datetime.now(BRASILIA)).astimezone(BRASILIA)
+    for h in reversed(HORARIOS):
+        ini = agora.replace(hour=int(h[:2]), minute=int(h[3:]), second=0, microsecond=0)
+        if agora >= ini:
+            return ini
+    h = HORARIOS[-1]
+    return (agora - timedelta(days=1)).replace(hour=int(h[:2]), minute=int(h[3:]), second=0, microsecond=0)
+
+
+def _lido_desde(x, ini):
+    try:
+        return bool(x.get("ultima_leitura")) and datetime.fromisoformat(x["ultima_leitura"]) >= ini
+    except ValueError:
+        return False
+
+
+def api_devida(repo, agora=None):
+    """O cron da hora pergunta: a rodada atual (12h/19h) já foi feita pela API? Devolve o início da rodada se falta."""
+    ini = rodada_atual(agora)
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{RODADA}"}) or [None])[0]
+    return None if r and r.get("texto") == ini.isoformat() else ini
+
+
+def marcar_rodada(repo, ini):
+    repo._req("POST", "ia_resumos", corpo=[{"chave": RODADA, "ia": "nubi", "criado_em": datetime.now(timezone.utc).isoformat(),
+                                            "texto": ini.isoformat()}], prefer="resolution=merge-duplicates,return=minimal")
+
+
 def pendente(repo, rotina, agora=None):
-    """Para o vigia do Mac: está na hora da rotina `precos`, há anúncios e nenhum foi lido hoje? Devolve os itens."""
+    """Para o vigia do Mac: na rodada atual (12h/19h), os anúncios que ainda não foram lidos (a API não trouxe)."""
     agora = agora or datetime.now(BRASILIA)
+    ini = rodada_atual(agora)
     xs = lista(repo)
-    hoje = agora.date().isoformat()
+    # 01/10 (Bruno: "o título certinho do produto que está no ML"): a API não dá o título de anúncio de outra loja; o
+    # coletor abre a página e lê o <h1> — também dos já lidos que ainda estão sem título de verdade
     faltam = [{"mlb": x["mlb"], "link": x.get("link") or link_de(x["mlb"])} for x in xs
-              if (x.get("ultimo") or {}).get("dia") != hoje]
-    na_hora = bool(rotina and rotina.get("ativo", True) and agora.strftime("%H:%M") >= (rotina.get("horario") or "04:00"))
-    return {"rodar": na_hora and bool(faltam), "itens": faltam, "total": len(xs), "horario": (rotina or {}).get("horario")}
+              if not _lido_desde(x, ini) or titulo_ruim(x.get("titulo")) or str(x.get("titulo") or "").startswith("Anúncio ")]
+    # dá 20 min para a API (cron da hora) ler primeiro; o coletor pega só o que sobrar
+    na_hora = bool(rotina is None or rotina.get("ativo", True)) and agora >= ini + timedelta(minutes=20)
+    return {"rodar": na_hora and bool(faltam), "itens": faltam, "total": len(xs), "horario": " e ".join(HORARIOS),
+            "rodada": ini.isoformat()}
+
+
+def alertas(repo):
+    """Anúncios cujo preço mudou e o Bruno ainda não viu."""
+    return [{"mlb": x["mlb"], "titulo": x.get("titulo") or x["mlb"], "loja": x.get("loja") or "", "foto": x.get("foto") or "",
+             **{k: x["alerta"][k] for k in ("de", "para", "pct", "em")}}
+            for x in lista(repo) if (x.get("alerta") or {}).get("visto") is False]
+
+
+def marcar_visto(repo, mlb=None):
+    xs, n = lista(repo), 0
+    alvo = normalizar_mlb(mlb) if mlb else None
+    for x in xs:
+        if (x.get("alerta") or {}).get("visto") is False and (alvo is None or x.get("mlb") == alvo):
+            x["alerta"]["visto"] = True
+            n += 1
+    if n:
+        _gravar(repo, LISTA, xs)
+    return n
 
 
 STATUS_PAGINA = (("pausad", "pausado"), ("finalizad", "finalizado"), ("esgotad", "esgotado"), ("nao esta disponivel", "indisponível"),
@@ -271,7 +341,8 @@ def ler_pagina(x):
     elif "ultimo disponivel" in texto or "último disponível" in texto:
         estoque = 1
     return {"preco": preco if preco and preco > 0 else None, "preco_original": orig if orig and orig > (preco or 0) else None,
-            "status": status, "estoque": estoque, "titulo": str(x.get("titulo") or "")[:200], "vendedor": str(x.get("vendedor") or "")[:120]}
+            "status": status, "estoque": estoque, "titulo": str(x.get("titulo") or "")[:200], "vendedor": str(x.get("vendedor") or "")[:120],
+            **{k: x[k] for k in ("catalogo", "full") if isinstance(x.get(k), bool)}}
 
 
 def ler_pela_api(repo, itens_fn):
@@ -289,7 +360,8 @@ def ler_pela_api(repo, itens_fn):
             continue
         st = {"active": "ativo", "paused": "pausado", "closed": "finalizado"}.get(str(it.get("status") or ""), str(it.get("status") or ""))
         ok.append({"mlb": x["mlb"], "preco": it.get("preco"), "preco_original": it.get("preco_cheio"), "status": st,
-                   "estoque": it.get("disponivel") if isinstance(it.get("disponivel"), int) else None, "titulo": it.get("titulo"), "fonte": "api"})
+                   "estoque": it.get("disponivel") if isinstance(it.get("disponivel"), int) else None, "titulo": it.get("titulo"), "fonte": "api",
+                   **{k: it[k] for k in ("catalogo", "full") if isinstance(it.get(k), bool)}})
     if ok:
         gravar_leitura(repo, ok)
     return len(ok), len(xs) - len(ok)

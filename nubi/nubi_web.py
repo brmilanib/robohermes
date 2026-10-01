@@ -3786,10 +3786,12 @@ def rodar_rotinas(repo, so=None):
             out["ml_fotos"] = fotos_comparar(repo)
         except Exception as e:  # noqa: BLE001
             out["ml_fotos"] = f"erro: {str(e)[:120]}"
-        try:                                            # 01/10: monitor de preços pela API oficial, de hora em hora (sem navegador)
-            if meli.tem_chave():
+        try:                                            # 01/10 (Bruno): monitor de preços pela API oficial ao meio-dia e às 19 h
+            ini = precos.api_devida(repo)
+            if ini and meli.tem_chave():
                 lidos, faltaram = precos.ler_pela_api(repo, meli.itens)
-                out["monitor_api"] = f"{lidos} lido(s) pela API" + (f", {faltaram} para o coletor" if faltaram else "")
+                precos.marcar_rodada(repo, ini)
+                out["monitor_api"] = f"rodada {ini:%H:%M}: {lidos} lido(s) pela API" + (f", {faltaram} para o coletor" if faltaram else "")
         except Exception as e:  # noqa: BLE001
             out["monitor_api"] = f"erro: {str(e)[:120]}"
         try:                                            # card #121: preço de agora dos GTINs das marcas pelo catálogo, 1x/dia
@@ -6632,7 +6634,8 @@ def _seguir_pelo_gtin(repo, d):
     o = ofs[0]
     try:
         item = precos.seguir(repo, {"mlb": o["anuncio"], "link": o["link"], "titulo": d.get("titulo"), "preco": o.get("preco") or pr,
-                                    "foto": d.get("foto"), "loja": loja.get("nome") or "", "seller_id": loja["id"], "vendedor": vend, "gtin": g})
+                                    "foto": d.get("foto"), "loja": loja.get("nome") or "", "seller_id": loja["id"], "vendedor": vend, "gtin": g,
+                                    "catalogo": True, "full": bool(o.get("full"))})
     except precos.ErroPrecos as e:
         raise ErroNuvem(str(e))
     return {"ok": True, "item": item, "mlb": o["anuncio"], "link": o["link"], "preco": o.get("preco"), "outras": len(ofs) - 1}
@@ -8454,8 +8457,28 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         return {"ok": True, "linhas": len(linhas), "meus": sum(1 for x in linhas if x["meu"])}
     if rota.startswith("ml_precos_"):
         # 30/09 (Bruno): monitor de preços — anúncios marcados na página do vendedor; o coletor lê o preço de madrugada
+        if rota == "ml_precos_alertas":
+            return {"itens": precos.alertas(repo)}
+        if rota == "ml_precos_visto" and metodo == "POST":
+            return {"ok": True, "vistos": precos.marcar_visto(repo, d.get("mlb"))}
         if rota == "ml_precos_lista":
-            return {"itens": precos.painel(repo), "max": precos.MAX_ANUNCIOS}
+            itens = precos.painel(repo)
+            # 01/10 (Bruno: tags Catálogo e FULL): o que a leitura não disse, a vitrine da loja diz (/p/ = catálogo, FULL)
+            falta = [x["mlb"] for x in itens if x.get("catalogo") is None or x.get("full") is None]
+            if falta:
+                try:
+                    vit = {a["mlb"]: a for a in repo._todos("vend_anuncios_ml", {"select": "mlb,link,full,produto_catalogo",
+                                                                                 "mlb": f"in.({','.join(falta[:300])})"})}
+                except Exception:  # noqa: BLE001
+                    vit = {}
+                for x in itens:
+                    a = vit.get(x["mlb"])
+                    if a:
+                        if x.get("catalogo") is None:
+                            x["catalogo"] = bool(a.get("produto_catalogo") or "/p/MLB" in str(a.get("link") or ""))
+                        if x.get("full") is None and a.get("full") is not None:
+                            x["full"] = bool(a["full"])
+            return {"itens": itens, "max": precos.MAX_ANUNCIOS}
         if rota == "ml_precos_hist":
             return dict(precos.detalhe(repo, q.get("mlb")), mlb=precos.normalizar_mlb(q.get("mlb")))
         if rota == "ml_precos_seguir" and metodo == "POST":
