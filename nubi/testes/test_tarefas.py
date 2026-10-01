@@ -5,6 +5,7 @@ Sem rede e sem banco: as APIs e o Supabase são simulados.
 """
 import io
 import json
+from datetime import datetime, timedelta, timezone
 import os
 import sys
 import urllib.error
@@ -377,8 +378,10 @@ def test_38_pauta_diaria_monta_4_secoes():
     if caminho not in sys.path:
         sys.path.insert(0, caminho)
 
-    ontem = "2026-09-24T11:00:00+00:00"
-    hoje_iso = "2026-09-25T09:00:00+00:00"
+    # datas relativas a agora: com data fixa o teste quebrava na virada do mês (custo é "do mês em curso")
+    _agora = datetime.now(timezone.utc)
+    ontem = (_agora - timedelta(days=1)).isoformat()
+    hoje_iso = (_agora - timedelta(minutes=1)).isoformat()
     tabelas = {
         "reuniao_tarefas": [
             {"id": 1, "titulo": "Card concluído", "notas": "publicado", "status": "feita", "atualizado_em": hoje_iso, "prioridade": "alta", "aguardando": None},
