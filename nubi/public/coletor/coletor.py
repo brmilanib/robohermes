@@ -1208,6 +1208,24 @@ def categorias_marcas(cfg, pend=None):
     return out
 
 
+def _escolher_no_menu(pg, botao, seletor):
+    """Abre o menu do botão e clica no item; se o item não ficou visível (menu não abriu), abre de novo e, por último,
+    clica pelo próprio elemento (o menu do Nubimetrics é Angular e às vezes ignora o 1º clique)."""
+    for tentativa in (1, 2):
+        botao.click()
+        item = pg.locator(seletor).first
+        try:
+            item.wait_for(state="visible", timeout=8000)
+            item.click(timeout=8000)
+            time.sleep(2)
+            return
+        except Exception:  # noqa: BLE001
+            pg.keyboard.press("Escape")
+            time.sleep(1)
+    pg.locator(seletor).first.evaluate("a => a.click()")
+    time.sleep(2)
+
+
 def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=None):
     mes = mes or mes_anterior()
     a, m = map(int, mes.split("-"))
@@ -1230,6 +1248,13 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
                                  ".includes(t)", arg=rotulo_mes.lower(), timeout=30000)
         # categoria: os botões têm que mostrar Beleza e Cuidado Pessoal / Perfumes
         botoes = pg.locator("div.dropdown-category button.dropdown-toggle")
+        # 01/10 (Maquiagem 02/2026: "Categoria na tela: '    '"): a página ainda não tinha montado os botões; o clique no
+        # item do menu (escondido) esperava 15 s e falhava. Espera os botões terem texto antes de decidir.
+        try:
+            pg.wait_for_function("() => [...document.querySelectorAll('div.dropdown-category button.dropdown-toggle')]"
+                                 ".some(b => b.innerText.trim())", timeout=20000)
+        except Exception:  # noqa: BLE001 — segue; a conferência abaixo decide
+            pass
         textos = " | ".join(botoes.all_inner_texts())
         if not all(n.lower() in textos.lower() for n in nomes_cat):
             log(f"  Categoria na tela: {textos!r}; escolhendo {cat}")
@@ -1237,12 +1262,8 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
             # ficava esperando 30 s (TimeoutError); só mexe no nível que está diferente
             n1 = (nomes_cat[0] if nomes_cat else "").lower()
             if not n1 or n1 not in botoes.nth(0).inner_text().lower():
-                botoes.nth(0).click()
-                pg.locator(f'a[data-id="{nivel1}"]').first.click(timeout=15000)
-                time.sleep(2)
-            botoes.nth(1).click()
-            pg.locator(f'a[data-id="{nivel2}"][data-parent="{nivel1}"]').first.click(timeout=15000)
-            time.sleep(2)
+                _escolher_no_menu(pg, botoes.nth(0), f'a[data-id="{nivel1}"]')
+            _escolher_no_menu(pg, botoes.nth(1), f'a[data-id="{nivel2}"][data-parent="{nivel1}"]')
             textos = " | ".join(botoes.all_inner_texts())
             if not all(n.lower() in textos.lower() for n in nomes_cat):
                 raise Falha(f"não consegui escolher a categoria (tela mostra: {textos})")
@@ -1288,14 +1309,29 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
                                 "importar o ranking pela metade")
                 log(f"  categoria com só {n} marcas no mês")
         devagar(3)
-        with pg.expect_download(timeout=120000) as d:
-            pg.locator("button", has_text="EXPORTAR").last.click()
-        dl = d.value
-        nome = dl.suggested_filename
-        if not re.search(r"MARCAS.*\d{4}-\d{2}", nome, re.I):
-            nome = f"MARCAS-{cat}-{mes}-01.xlsx"
-        arq = destino / nome
-        dl.save_as(str(arq))
+        # 01/10 (Maquiagem: "Download.save_as: Target page, context or browser has been closed" em metade dos meses): o
+        # download às vezes some antes de salvar. Confere a falha do download e tenta exportar de novo (até 3 vezes).
+        for tentativa in (1, 2, 3):
+            try:
+                with pg.expect_download(timeout=120000) as d:
+                    pg.locator("button", has_text="EXPORTAR").last.click()
+                dl = d.value
+                nome = dl.suggested_filename
+                if not re.search(r"MARCAS.*\d{4}-\d{2}", nome, re.I):
+                    nome = f"MARCAS-{cat}-{mes}-01.xlsx"
+                arq = destino / nome
+                falhou = dl.failure()
+                if falhou:
+                    raise Falha(f"o download falhou ({falhou})")
+                dl.save_as(str(arq))
+                if not arq.exists() or arq.stat().st_size < 1024:
+                    raise Falha("o arquivo baixado veio vazio")
+                break
+            except Exception as e:  # noqa: BLE001
+                if tentativa == 3 or pg.is_closed():
+                    raise
+                log(f"  exportar MARCAS {mes}: {str(e)[:120]}; tentando de novo ({tentativa + 1}/3)")
+                devagar(5)
         devagar(2)
         log(f"  MARCAS {mes} ({' > '.join(nomes_cat) or cat}): baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
         guardar_sessao(ctx)
