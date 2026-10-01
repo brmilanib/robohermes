@@ -1,0 +1,78 @@
+# -*- coding: utf-8 -*-
+"""Tela do Monitor de preços (01/10, Bruno: "mais organizada: data e hora da última atualização, quantas atualizações e um
+botão de histórico de preços com o gráfico, o maior e o menor preço"). Rodar: python3 testes/test_precos_tela.py, na pasta nubi."""
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ.setdefault("OLLAMA_API_KEY", "x")
+import precos  # noqa: E402
+
+STUB = """window.supabase = { createClient: () => { const sess = {access_token: "TOKEN", user: {id: "u1", email: "brmilani@gmail.com"}};
+  return { auth: { getSession: async () => ({data: {session: sess}}), signOut: async () => {}, updateUser: async () => ({}),
+    onAuthStateChange: cb => setTimeout(() => cb("INITIAL_SESSION", sess), 0) }, storage: {from: () => ({createSignedUrls: async () => ({data: []})})} }; } };"""
+
+
+def dados():
+    d = {precos.LISTA: [{"mlb": "MLB7440859356", "titulo": "Clássico", "loja": "MAMS ECOMMERCE", "seller_id": "1", "vendedor": "MAMS ECOMMERCE TOP14",
+                          "preco_inicial": 221.26, "desde": "2026-09-30T03:00:00+00:00", "leituras": 14, "ultima_leitura": "2026-10-01T17:05:00+00:00"}],
+         precos.HIST + "MLB7440859356": [
+             {"dia": "2026-09-30", "em": "2026-09-30T12:00:00+00:00", "preco": 221.26, "preco_original": 299.0, "status": "ativo", "estoque": 50},
+             {"dia": "2026-10-01", "em": "2026-10-01T13:00:00+00:00", "preco": 209.9, "preco_original": 299.0, "status": "ativo", "estoque": 48},
+             {"dia": "2026-10-01", "em": "2026-10-01T17:05:00+00:00", "preco": 215.0, "preco_original": 299.0, "status": "ativo", "estoque": 47}]}
+    precos._ler = lambda repo, chave, padrao: d.get(chave, padrao)
+    return {"itens": precos.painel(None), "max": 300}
+
+
+def test_tela():
+    from playwright.sync_api import sync_playwright
+    r = dados()
+    x = r["itens"][0]
+    assert x["leituras"] == 14 and not x["titulo_ok"] and x["minimo"] == 209.9 and x["maximo"] == 221.26, x
+    aqui = os.path.join(os.path.dirname(os.path.abspath(__file__)), "servidor_teste")
+    porta = os.environ.get("PORTA_PT", "8826")
+    srv = subprocess.Popen([sys.executable, "-W", "ignore", os.path.join(aqui, "servidor.py")],
+                           env=dict(os.environ, IA_FALSA="1", OPENAI_API_KEY="x", PORTA=porta), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(40):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{porta}/", timeout=2)
+            break
+        except OSError:
+            time.sleep(0.5)
+    try:
+        with sync_playwright() as p:
+            exe = os.environ.get("NUBI_CHROMIUM") or "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+            b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()
+            for wd, ht, nome in ((1440, 900, "pc"), (390, 800, "cel")):
+                pg = b.new_page(viewport={"width": wd, "height": ht})
+                erros = []
+                pg.on("pageerror", lambda e: erros.append(str(e)))
+                pg.route("https://cdn.jsdelivr.net/**", lambda rt: rt.fulfill(content_type="application/javascript", body=STUB))
+                pg.route("https://fonts.**", lambda rt: rt.abort())
+                pg.route("**/api/app?r=ml_precos_lista*", lambda rt: rt.fulfill(content_type="application/json", body=json.dumps(r)))
+                pg.goto(f"http://127.0.0.1:{porta}/#/precos")
+                pg.wait_for_selector(".pm-card", timeout=15000)
+                txt = pg.inner_text("#main")
+                assert "Última atualização" in txt and "14 atualização(ões)" in txt and "Anúncio MLB7440859356" in txt, txt[:800]
+                assert "01/10" in txt and "14:05" in txt, txt[:800]                   # 17:05 UTC = 14:05 em Brasília
+                pg.click("button[data-hist]")
+                pg.wait_for_selector(".pm-hist svg", timeout=5000)
+                h = pg.inner_text(".pm-hist")
+                assert "Menor preço" in h and "R$ 209,90" in h and "Maior preço" in h and "R$ 221,26" in h, h
+                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"precos_{nome}.png"), full_page=True)
+                larg = pg.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
+                assert larg[0] <= larg[1] + 1, (nome, larg)
+                assert not erros, erros
+            b.close()
+    finally:
+        srv.terminate()
+    print("ok monitor de preços (tela)")
+
+
+if __name__ == "__main__":
+    test_tela()

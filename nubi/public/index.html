@@ -1093,6 +1093,24 @@ header.top{padding:7px 16px}
 .abc-dica{position:absolute;top:30px;z-index:3;width:250px;background:var(--card,#fff);border:1px solid var(--line,#e5e7eb);border-radius:8px;padding:7px 9px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.12);pointer-events:none}
 #lu-tab td:first-child,#abc-tab td:first-child,#mv-tab td:first-child,#pr-tab td:first-child{white-space:normal;min-width:220px;max-width:380px}
 #lu-tab td:first-child b,#abc-tab td:first-child b,#mv-tab td:first-child b,#pr-tab td:first-child b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pm-card{padding:12px 14px;margin-bottom:10px}
+.pm-lin{display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 170px 170px auto;gap:14px;align-items:center}
+.pm-foto img,.pm-foto{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:24px}
+.pm-tit{font-weight:700;font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pm-sub{font-size:12px;margin-top:2px}.pm-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center}
+.pm-chip{font-size:11.5px;padding:2px 8px;border-radius:999px;background:rgba(127,127,127,.1)}
+.pm-preco b{font-size:20px;display:block;white-space:nowrap}.pm-preco s{font-size:12px;display:block}
+.pm-var{display:inline-block;font-size:11.5px;font-weight:700;padding:1px 7px;border-radius:999px;margin-top:3px;background:rgba(127,127,127,.12)}
+.pm-var.sobe{background:rgba(220,38,38,.12);color:#dc2626}.pm-var.desce{background:rgba(22,163,74,.12);color:#16a34a}
+.pm-mm{display:grid;gap:6px}.pm-mm div,.pm-atu{display:flex;flex-direction:column;font-size:12.5px}.pm-mm span,.pm-atu span{font-size:11px}
+.pm-atu b{font-size:13.5px}.pm-bts{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.pm-hist{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.pm-hcab{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:8px}
+.pm-hcab div{display:flex;flex-direction:column;font-size:12px}.pm-hcab b{font-size:16px}
+@media (max-width:1100px){.pm-lin{grid-template-columns:64px 1fr 1fr}.pm-bts{flex-direction:row;grid-column:1/-1}}
+@media (max-width:600px){.pm-lin{grid-template-columns:56px 1fr;gap:10px}.pm-preco,.pm-mm,.pm-atu,.pm-bts{grid-column:1/-1}
+  .pm-mm{grid-template-columns:1fr 1fr}.pm-preco{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}.pm-hcab{grid-template-columns:1fr 1fr}
+  .pm-bts{flex-direction:row;flex-wrap:wrap}}
 </style>
 </head>
 <body>
@@ -1875,7 +1893,9 @@ function grafLinhas(box, {rotulos, series, fmt, fmtEixo = fmt, inverter = false,
   series.forEach(s => {
     let d = "", aberto = false;
     s.v.forEach((v, i) => { if (v == null) { aberto = false; return; } d += `${aberto ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`; aberto = true; });
-    svgEl("path", {d, fill: "none", stroke: s.cor, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round"}, svg);
+    svgEl("path", {d, fill: "none", stroke: s.cor, "stroke-width": s.tracejado ? 1.5 : 2, "stroke-linejoin": "round", "stroke-linecap": "round",
+      ...(s.tracejado ? {"stroke-dasharray": "6 5", opacity: .8} : {})}, svg);
+    if (s.tracejado) return;                    // 01/10: linha de referência (menor/maior preço), sem pontos
     s.v.forEach((v, i) => {
       const isolado = v != null && s.v[i - 1] == null && s.v[i + 1] == null;
       if (v != null && (pontos || isolado)) svgEl("circle", {cx: X(i), cy: Y(v), r: 4, fill: s.cor, stroke: "var(--card)", "stroke-width": 2}, svg);
@@ -7215,36 +7235,69 @@ async function telaPrecoDetalhe(mlb) {
   desenharMenu();
 }
 async function telaPrecos() {
+  // 01/10 (Bruno: "tela mais organizada: data e hora da última atualização, quantas atualizações, botão mostrar histórico de
+  // preços com o gráfico de todas as atualizações e o maior e menor preço do período")
   const main = $("#main");
   main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o monitor de preços</div></div>`;
   let r;
   try { r = await api("ml_precos_lista"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/precos")) return;
   const xs = r.itens || [];
-  const varTxt = v => v == null ? `<span class="muted">—</span>` : `<span class="${v > 0.001 ? "neg" : v < -0.001 ? "pos" : ""}">${FMT.var(v)}</span>`;
+  const quando = x => x ? new Date(x.length > 10 ? x : x + "T12:00:00").toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit",
+    ...(x.length > 10 ? {hour: "2-digit", minute: "2-digit"} : {})}) : "—";
+  const varChip = v => v == null ? "" : `<span class="pm-var ${v > 0.001 ? "sobe" : v < -0.001 ? "desce" : ""}">${v > 0.001 ? "▲" : v < -0.001 ? "▼" : "="} ${FMT.var(v)}</span>`;
   const lojaLink = x => x.seller_id ? `https://lista.mercadolivre.com.br/_CustId_${esc(x.seller_id)}` : "";
-  const lidosHoje = xs.filter(x => x.ultimo_dia === new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10)).length;
+  const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  const lidosHoje = xs.filter(x => x.ultimo_dia === hoje).length;
+  const ultimaGeral = xs.map(x => x.ultima_em).filter(Boolean).sort().pop();
+  const cartao = x => { const ult = (x.historico || []).slice(-1)[0] || {};
+    return `<div class="card pm-card" data-mlb="${esc(x.mlb)}">
+      <div class="pm-lin">
+        <a class="pm-foto" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${x.foto ? `<img src="${esc(urlML(x.foto))}" alt="" loading="lazy">` : "📦"}</a>
+        <div class="pm-info">
+          <a class="pm-tit" href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir o anúncio no Mercado Livre">${esc(x.titulo_ok ? x.titulo : (x.titulo && x.titulo.length > 12 ? x.titulo : "Anúncio " + x.mlb))} ↗</a>
+          <div class="muted pm-sub">${esc(x.mlb)}${x.titulo && !x.titulo_ok ? ` · ${esc(x.titulo)}` : ""} · loja ${lojaLink(x) ? `<a href="${lojaLink(x)}" target="_blank" rel="noopener">${esc(x.loja || x.seller_id)} ↗</a>` : esc(x.loja || "—")}${x.vendedor ? ` · <a href="#/vendedores/${encodeURIComponent(x.vendedor)}">${esc(x.vendedor)}</a>` : ""}</div>
+          <div class="pm-chips">${x.status ? `<span class="st ${x.status === "ativo" ? "good" : "bad"}">${esc(x.status)}</span>` : ""}${x.estoque != null ? `<span class="pm-chip">estoque ${nf0.format(x.estoque)}</span>` : ""}
+            ${x.mudancas_preco ? `<span class="pm-chip">${nf0.format(x.mudancas_preco)} mudança(s) de preço</span>` : `<span class="pm-chip muted">preço sem mudança</span>`}</div>
+        </div>
+        <div class="pm-preco">${x.atual ? `<b>${rsES(x.atual)}</b>` : `<span class="muted">ainda não lido</span>`}
+          ${ult.preco_original ? `<s class="muted">${rsES(ult.preco_original)}</s>` : ""}${varChip(x.var)}
+          ${x.anterior && x.var ? `<div class="muted" style="font-size:11.5px">antes ${rsES(x.anterior)}</div>` : ""}</div>
+        <div class="pm-mm"><div><span class="muted">Menor (60 d)</span><b class="pos">${x.minimo ? rsES(x.minimo) : "—"}</b></div>
+          <div><span class="muted">Maior (60 d)</span><b class="neg">${x.maximo ? rsES(x.maximo) : "—"}</b></div></div>
+        <div class="pm-atu"><span class="muted">Última atualização</span><b>${quando(x.ultima_em || x.ultimo_dia)}</b>
+          <span class="muted">${nf0.format(x.leituras || 0)} atualização(ões)${x.desde ? ` desde ${esc(dataBR(String(x.desde).slice(0, 10)))}` : ""}</span></div>
+        <div class="pm-bts"><button class="btn small primary" data-hist="${esc(x.mlb)}">📈 Histórico de preços</button>
+          <a class="btn small" href="#/precos/${esc(x.mlb)}" title="Página com todas as leituras e mudanças">Detalhes</a>
+          <button class="btn small" data-parar="${esc(x.mlb)}" title="Parar de monitorar (o histórico fica guardado)">✕ parar</button></div>
+      </div>
+      <div class="pm-hist" id="pm-h-${esc(x.mlb)}" hidden></div></div>`; };
   main.innerHTML = `<div class="es-cab"><h1>📈 Monitor de preços</h1>
-      <span class="muted">${nf0.format(xs.length)} anúncio(s) monitorado(s) (máx. ${r.max}) · ${nf0.format(lidosHoje)} lido(s) hoje</span></div>
-    <p class="muted" style="margin:4px 0 12px;font-size:13px">De hora em hora o nubi lê preço, preço riscado, situação e estoque pela API oficial do Mercado Livre, sem abrir navegador;
-      o que a API não devolver o coletor lê de madrugada. Para adicionar: Concorrentes → Vendedores → página do vendedor → fotos dos anúncios → "📈 Monitorar".
-      Para ler agora: Central → comando "Mercado Livre: ler agora o preço dos anúncios do monitor de preços".</p>
-    ${xs.length ? `<div class="card"><table class="tab" id="pm-tab"><thead><tr><th></th><th>Anúncio</th><th>Loja</th><th class="num">Preço agora</th><th class="num">Variação</th>
-      <th class="num">Mín · Máx (60 d)</th><th>Histórico</th><th>Situação</th><th>Lido em</th><th></th></tr></thead><tbody>
-      ${xs.map(x => `<tr data-mlb="${esc(x.mlb)}">
-        <td>${x.foto ? `<a href="${esc(urlML(x.link))}" target="_blank" rel="noopener"><img src="${esc(urlML(x.foto))}" alt="" loading="lazy" style="width:48px;height:48px;object-fit:contain;background:#fff;border-radius:6px;border:1px solid var(--line)"></a>` : ""}</td>
-        <td data-l="Anúncio"><a href="#/precos/${esc(x.mlb)}" title="Ver o histórico de preço"><b>${esc(x.titulo || x.mlb)}</b></a> <a class="muted" href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir no Mercado Livre">↗</a>
-          <div class="muted" style="font-size:11.5px">${esc(x.mlb)}${x.preco_inicial ? ` · começou em ${rsES(x.preco_inicial)}` : ""}${x.mudancas_preco ? ` · <a href="#/precos/${esc(x.mlb)}">${nf0.format(x.mudancas_preco)} mudança(s) de preço</a>` : ""}</div></td>
-        <td data-l="Loja">${lojaLink(x) ? `<a href="${lojaLink(x)}" target="_blank" rel="noopener">${esc(x.loja || x.seller_id)} ↗</a>` : esc(x.loja || "")}${x.vendedor ? `<div class="muted" style="font-size:11.5px">${esc(x.vendedor)}</div>` : ""}</td>
-        <td class="num" data-l="Preço agora">${x.atual ? `<b>${rsES(x.atual)}</b>` : `<span class="muted">ainda não lido</span>`}${x.historico?.length && x.historico[x.historico.length - 1].preco_original ? `<div class="muted" style="font-size:11px;text-decoration:line-through">${rsES(x.historico[x.historico.length - 1].preco_original)}</div>` : ""}</td>
-        <td class="num" data-l="Variação">${varTxt(x.var)}${x.anterior ? `<div class="muted" style="font-size:11px">antes ${rsES(x.anterior)}</div>` : ""}</td>
-        <td class="num" data-l="Mín · Máx">${x.minimo ? `${rsES(x.minimo)} · ${rsES(x.maximo)}` : "—"}</td>
-        <td data-l="Histórico"><a href="#/precos/${esc(x.mlb)}" title="Ver o histórico">${x.historico?.length > 1 ? sparkSerie(x.historico.map(p => p.preco)) : `<span class="muted" style="font-size:11.5px">${x.pontos || 0} dia(s) · ver</span>`}</a></td>
-        <td data-l="Situação">${x.status ? `<span class="st ${x.status === "ativo" ? "good" : "bad"}">${esc(x.status)}</span>` : ""}${x.estoque != null ? `<div class="muted" style="font-size:11.5px">estoque ${nf0.format(x.estoque)}</div>` : ""}</td>
-        <td data-l="Lido em" class="muted" style="font-size:12px">${x.ultimo_dia ? esc(dataBR(x.ultimo_dia)) : "—"}</td>
-        <td><button class="btn small ghost" data-parar="${esc(x.mlb)}" title="Parar de monitorar (o histórico fica guardado)">✕</button></td></tr>`).join("")}
-      </tbody></table></div>`
+      <span class="muted">${nf0.format(xs.length)} anúncio(s) (máx. ${r.max}) · ${nf0.format(lidosHoje)} lido(s) hoje${ultimaGeral ? ` · última atualização ${quando(ultimaGeral)}` : ""}</span></div>
+    <p class="muted" style="margin:4px 0 12px;font-size:12.5px">De hora em hora o nubi lê preço, preço riscado, situação e estoque pela API oficial do Mercado Livre, sem abrir navegador.
+      Para adicionar: Concorrentes → Vendedores → página do vendedor → fotos dos anúncios → "📈 Monitorar".</p>
+    ${xs.length ? xs.map(cartao).join("")
     : `<div class="card empty"><h2>Nenhum anúncio monitorado</h2><p>Abra um vendedor seguido (Concorrentes → Vendedores), vá às fotos dos anúncios e clique em "📈 Monitorar" nos que quiser acompanhar.</p></div>`}`;
+  main.querySelectorAll("button[data-hist]").forEach(b => b.onclick = () => {
+    const x = xs.find(z => z.mlb === b.dataset.hist), box = $("#pm-h-" + CSS.escape(x.mlb));
+    if (!box.hidden) { box.hidden = true; b.textContent = "📈 Histórico de preços"; return; }
+    box.hidden = false; b.textContent = "Fechar histórico";
+    const pts = (x.historico || []).filter(p => p.preco);
+    const rot = p => (p.em ? quando(p.em) : dataBR(p.dia).slice(0, 5));
+    const menor = pts.reduce((a, p) => !a || p.preco < a.preco ? p : a, null), maior = pts.reduce((a, p) => !a || p.preco > a.preco ? p : a, null);
+    box.innerHTML = `<div class="pm-hcab">
+        <div><span class="muted">Menor preço</span><b class="pos">${menor ? rsES(menor.preco) : "—"}</b><span class="muted">${menor ? rot(menor) : ""}</span></div>
+        <div><span class="muted">Maior preço</span><b class="neg">${maior ? rsES(maior.preco) : "—"}</b><span class="muted">${maior ? rot(maior) : ""}</span></div>
+        <div><span class="muted">Diferença</span><b>${menor && maior ? rsES(maior.preco - menor.preco) : "—"}</b><span class="muted">${menor && maior && menor.preco ? nf1.format((maior.preco / menor.preco - 1) * 100) + "%" : ""}</span></div>
+        <div><span class="muted">Pontos no gráfico</span><b>${nf0.format(pts.length)}</b><span class="muted">${pts.length ? rot(pts[0]) + " → " + rot(pts[pts.length - 1]) : ""}</span></div></div>
+      ${pts.length > 1 ? `<div class="ch" id="pm-g-${esc(x.mlb)}"></div>` : `<div class="muted" style="padding:10px 0">O gráfico aparece a partir da 2ª leitura com preço (cada mudança de preço, riscado, situação ou estoque vira um ponto; leitura igual no mesmo dia só atualiza a hora).</div>`}
+      ${pts.length > 1 ? legenda([["Preço", "var(--s1)"], ["Menor preço", "var(--pos, #16a34a)"], ["Maior preço", "var(--neg, #dc2626)"]]) : ""}
+      <div class="muted" style="font-size:11.5px">Cada ponto é uma leitura que mudou algo. As linhas tracejadas são o menor e o maior preço do período.</div>`;
+    if (pts.length > 1) grafLinhas($("#pm-g-" + CSS.escape(x.mlb)), {rotulos: pts.map(rot), fmt: v => rsES(v), fmtEixo: v => "R$ " + nf0.format(v), pontos: true, rotFim: false, zero: false, altura: 240,
+      series: [{nome: "Preço", cor: "var(--s1)", v: pts.map(p => p.preco)},
+        {nome: "Menor", cor: "var(--pos, #16a34a)", v: pts.map(() => menor.preco), tracejado: true},
+        {nome: "Maior", cor: "var(--neg, #dc2626)", v: pts.map(() => maior.preco), tracejado: true}]});
+  });
   main.querySelectorAll("button[data-parar]").forEach(b => b.onclick = async () => {
     if (!confirm("Parar de monitorar este anúncio?")) return;
     try { await api("ml_precos_parar", {}, {method: "POST", body: JSON.stringify({mlb: b.dataset.parar})}); telaPrecos(); } catch (e) { alert(e.message); }

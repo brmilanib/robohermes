@@ -1143,3 +1143,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     dica ao passar o mouse (`#abc-graf`); barras por dia em HTML (`mvSerie`, `.mv-barras`). Coletor: o seletor de datas do
     UpSeller é achado pelo conteúdo (inputs com dd/mm/aaaa) — a 1ª rodada real não achou pelas classes; a falha da Análise
     ABC agora aparece na mensagem (`nota_abc`).
+- **Monitor de preços refeito (01/10, print do Bruno: "está feia essa tela")**: um cartão por anúncio (`.pm-card`): foto,
+  título, MLB, loja, situação/estoque/nº de mudanças; preço agora com riscado e variação; menor e maior de 60 dias; **última
+  atualização com data e hora** (`ultima_em`) e **nº de atualizações** (`leituras`, contadas em `gravar_leitura`, com
+  `ultima_leitura`); botão "📈 Histórico de preços" abre embaixo o gráfico de todas as leituras (`grafLinhas` com
+  `zero:false` e as linhas tracejadas do menor e do maior preço, opção nova `tracejado` da série) e o resumo menor/maior/
+  diferença/pontos. Título "Clássico" (tipo do anúncio vindo do cartão de foto) é trocado pelo da API (`titulo_ruim`).
+  Teste: `test_precos_tela.py`.

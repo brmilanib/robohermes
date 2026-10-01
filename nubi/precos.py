@@ -135,13 +135,26 @@ def gravar_leitura(repo, itens, dia=None):
         if mlb in por:
             x = por[mlb]
             x["ultimo"] = {k: ponto[k] for k in ("dia", "preco", "preco_original", "status", "estoque")}
+            # 01/10 (Bruno: "data e hora da última atualização, quantas atualizações já tivemos"): conta cada leitura
+            x["leituras"] = int(x.get("leituras") or 0) + 1
+            x["ultima_leitura"] = agora
             for k in ("titulo", "vendedor"):
-                if it.get(k) and not x.get(k):
+                # 01/10: o cartão de foto mandava o tipo do anúncio ("Clássico") como título; a leitura corrige
+                if it.get(k) and (not x.get(k) or (k == "titulo" and titulo_ruim(x.get(k)))):
                     x[k] = str(it[k])[:200]
         n += 1
     if n:
         _gravar(repo, LISTA, xs)
     return n
+
+
+TITULOS_RUINS = {"classico", "clássico", "premium", "gratis", "grátis", "gratuito", "full", "catalogo", "catálogo"}
+
+
+def titulo_ruim(t):
+    """Título que não é título: tipo de anúncio ("Clássico", "Premium") ou curto demais."""
+    t = str(t or "").strip()
+    return not t or t.lower() in TITULOS_RUINS or len(t) < 12
 
 
 CAMPOS_MUDANCA = (("preco", "Preço"), ("preco_original", "Preço riscado"), ("status", "Situação"), ("estoque", "Estoque"))
@@ -196,7 +209,13 @@ def painel(repo, dias=60):
         var = None
         if ult and ult.get("preco") and ant and ant.get("preco"):
             var = ult["preco"] / ant["preco"] - 1
-        out.append(dict(x, historico=h[-45:], atual=(ult or {}).get("preco"), anterior=(ant or {}).get("preco"), var=var,
+        com_p = [p for p in h if p.get("preco")]
+        menor = min(com_p, key=lambda p: p["preco"]) if com_p else None
+        maior = max(com_p, key=lambda p: p["preco"]) if com_p else None
+        out.append(dict(x, historico=h[-240:], atual=(ult or {}).get("preco"), anterior=(ant or {}).get("preco"), var=var,
+                        ultima_em=x.get("ultima_leitura") or (ult or {}).get("em"), leituras=int(x.get("leituras") or 0) or len(h),
+                        menor_em=(menor or {}).get("em") or (menor or {}).get("dia"), maior_em=(maior or {}).get("em") or (maior or {}).get("dia"),
+                        titulo_ok=not titulo_ruim(x.get("titulo")),
                         mudancas_preco=sum(1 for m in mudancas(h) if m["campo"] == "preco"),
                         minimo=min(precos) if precos else None, maximo=max(precos) if precos else None,
                         status=(ult or {}).get("status") or "", estoque=(ult or {}).get("estoque"),

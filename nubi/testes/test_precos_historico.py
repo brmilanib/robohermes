@@ -48,6 +48,15 @@ def test_leitura_pela_api_de_hora_em_hora():
     mu = precos.mudancas(h)
     assert mu[0]["campo"] == "preco" and mu[0]["de"] == 100.0 and mu[0]["para"] == 95.0 and mu[0]["em"]
     assert precos.pendente(None, {"ativo": True, "horario": "00:00"})["itens"] == [{"mlb": "MLB2345678", "link": precos.link_de("MLB2345678")}]
+    # 01/10 (Bruno): cada leitura conta e guarda a hora; título "Clássico" (tipo do anúncio, vindo do cartão) é trocado
+    x = [i for i in d[precos.LISTA] if i["mlb"] == "MLB1234567"][0]
+    assert x["leituras"] == 3 and x["ultima_leitura"], x
+    x["titulo"] = "Clássico"
+    itens["MLB1234567"]["titulo"] = "Perfume Club De Nuit Intense Man 105ml"
+    precos.ler_pela_api(None, lambda ids: itens)
+    assert x["titulo"] == "Perfume Club De Nuit Intense Man 105ml" and precos.titulo_ruim("Premium")
+    pn = [i for i in precos.painel(None) if i["mlb"] == "MLB1234567"][0]
+    assert pn["leituras"] == 4 and pn["ultima_em"] and pn["titulo_ok"] and pn["menor_em"], pn
 
 
 if __name__ == "__main__":
