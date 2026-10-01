@@ -394,6 +394,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     `meli|preco|dia` (os já lidos hoje). Sob demanda: `meli_preco_catalogo` (GET ?gtin=; POST {gtin}; POST {} as que faltam;
     POST {todos:true} relê todas). A página #/ml/loja/<id> com as fotos e o casamento pela foto ficam para o card seguinte.
     Teste: `test_ext_coleta.py`.
+  - **BUSCA POR FOTO = caminho principal (01/10, Bruno: "muitos vendedores como eu odeiam ficar em catálogos")**: a MAMS
+    ECOMMERCE TOP14 tinha título, foto e GTIN e o robô não achou porque `_descobrir_seguido` só olhava o catálogo
+    (`/products/{id}/items`); o anúncio dela (MLB7440859356, loja MAMS ECOMMERCE na loja oficial KID'S LIFE 384982) está
+    FORA do catálogo. Comando do coletor `ml-busca-foto` (Central `ml_busca_foto`, `coletar_busca_foto`): para cada seguido
+    sem loja (`ml_busca_foto_pendente`: fotos mais vendidas de `vend_fotos|<v>`), busca o título no ML, casa o card pelo ID
+    da foto (`_casa_foto`), abre o anúncio, lê a loja (`JS_ML_VENDEDOR`) e grava `ml_busca_foto_achou` ("certa", prova =
+    foto + MLB; passo no card #126). Ordem oficial de descoberta: foto na busca → vitrine inteira (`_CustId_`, todas as
+    categorias) → GTIN pelo catálogo só como confirmação. "Catálogo: Não" nunca é motivo para "não achei".
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a
