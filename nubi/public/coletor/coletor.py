@@ -1705,11 +1705,23 @@ def _periodo_upseller(pg, ini, fim):
     datas do relatório (o campo "01/09/2026 - 30/09/2026" ao lado de "Últimos 30 dias"). Digita como uma pessoa: clica na
     data inicial, apaga, digita, Enter; o mesmo na final. Confere o que ficou escrito."""
     br = lambda d: f"{d[8:10]}/{d[5:7]}/{d[:4]}"
-    campos = pg.locator(".ant-picker-range input, .el-range-input, input[placeholder*='Data' i], input[placeholder*='Início' i], "
-                        "input[placeholder*='Fim' i]")
-    vis = [campos.nth(i) for i in range(min(campos.count(), 8)) if campos.nth(i).is_visible()]
+    # 01/10 (1ª rodada real: "não achei o seletor de datas"): os campos são achados pelo CONTEÚDO — os 2 primeiros inputs
+    # visíveis com uma data dd/mm/aaaa (a tela mostra "01/09/2026 → 30/09/2026"); as classes do componente não importam
+    todos = pg.locator("input")
+    vis = []
+    for i in range(min(todos.count(), 60)):
+        c = todos.nth(i)
+        try:
+            if c.is_visible() and re.fullmatch(r"\d{2}/\d{2}/\d{4}", (c.input_value() or "").strip()):
+                vis.append(c)
+        except Exception:  # noqa: BLE001
+            continue
+        if len(vis) == 2:
+            break
     if len(vis) < 2:
-        raise Falha("não achei o seletor de datas do relatório de vendas. Na tela: " + str(pg.evaluate(JS_TEXTOS))[:500])
+        campos = pg.evaluate("""() => [...document.querySelectorAll('input')].filter(e => e.offsetParent).slice(0, 15).map(e =>
+          `${e.type}|${e.className.slice(0, 40)}|ph=${e.placeholder}|v=${e.value}|ro=${e.readOnly}`).join(' ; ')""")
+        raise Falha("não achei o seletor de datas do relatório de vendas. Campos na tela: " + str(campos)[:700])
     for campo, valor in ((vis[0], br(ini)), (vis[1], br(fim))):
         campo.click(timeout=8000)
         devagar(0.8)
@@ -2031,7 +2043,7 @@ def baixar_gestor_abc(pg, cfg, p=None):
 def coletar_estoque(p, cfg, token, enviar=True):
     ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-    vendas, nota_vendas, abc, gestor_abc = None, "", None, None
+    vendas, nota_vendas, abc, gestor_abc, nota_abc = None, "", None, None, ""
     try:
         arq, esperado = baixar_estoque(pg, p)
         try:
@@ -2062,8 +2074,8 @@ def coletar_estoque(p, cfg, token, enviar=True):
         try:                                    # 01/10: a Análise ABC do próprio UpSeller (falha não derruba nada)
             abc = baixar_vendas(pg2, cfg, p, relatorio="abc")
         except Exception as ea:  # noqa: BLE001
-            nota_vendas = f"análise ABC: não baixou ({str(ea)[:200]})"
-            log("  " + nota_vendas)
+            nota_abc = f"análise ABC: não baixou ({str(ea)[:300]})"
+            log("  " + nota_abc)
     except Exception as ev:  # noqa: BLE001
         nota_vendas = f"vendas por anúncio: não baixou ({ev.__class__.__name__}: {str(ev)[:700]})"
         log("  " + nota_vendas)
@@ -2131,6 +2143,8 @@ def coletar_estoque(p, cfg, token, enviar=True):
             nota_gestor = (nota_gestor + " · " if nota_gestor else "") + f"curva ABC do Gestor: não importou ({str(ea)[:200]})"
     if nota_gestor:
         nota_vendas = (nota_vendas + " · " if nota_vendas else "") + nota_gestor
+    if nota_abc:
+        nota_vendas = (nota_vendas + " · " if nota_vendas else "") + nota_abc
     if abc:
         try:
             for linha in api(token, "estoque_vendas_importar", {"arquivo": abc.name}, abc.read_bytes()).get("log") or []:

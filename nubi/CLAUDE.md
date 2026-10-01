@@ -1132,3 +1132,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     `baixar_vendas(periodo=)`, `estoque_vendas_importar?bloco=` → `vendas_anuncio_bloco|<bloco>`); SKUs com disponível e sem
     venda há 30+/60+/90+/120+ dias, dinheiro parado (disponível × custo) e "ADS sem venda" (curva Z do Gestor). Não precisa
     raspar a tela "Vendas Por Anúncio" do Gestor (os blocos do UpSeller dão o mesmo 30/60/90/120). Teste: `test_gestor_lucro.py`.
+  - **Lucro e ADS, cabeçalho e ROAS (01/10, Bruno: "quanto gastei de ADS, meu ROAS geral e o ROAS de cada produto pra
+    mexer no ADS")**: `analise_lucro` dá por SKU `roas` (faturamento ÷ ADS; o Gestor não separa a venda do anúncio) e
+    `roas_min` (faturamento ÷ lucro bruto: abaixo dele o lucro pós ADS fica negativo); totais `roas_geral`, `tacos_pct`,
+    `produtos_com_ads`, `ads_prejuizo`. A tela abre na lista "Produtos com ADS" com a situação por regra (⛔ gastou sem
+    vender, 🔴 ADS maior que o lucro, 🟡 ADS come >50% do lucro, 🟢 folgado = ROAS ≥ 3× o mínimo e cobertura ≥ 15 d) e o
+    botão "📥 Importar arquivo do Gestor" (.xlsx da Curva ABC ou .csv de vendas → `gestor_vendas_importar`, origem manual).
+    Setembro/2026: ADS R$ 23.377,62, ROAS geral 35,1x (TACoS 2,9%), 30 produtos com lucro pós ADS negativo (R$ 1.194,98).
+  - Gráficos (01/10, "esse gráfico está feio"): Curva ABC com altura fixa, áreas por classe, cortes A/B com a contagem e
+    dica ao passar o mouse (`#abc-graf`); barras por dia em HTML (`mvSerie`, `.mv-barras`). Coletor: o seletor de datas do
+    UpSeller é achado pelo conteúdo (inputs com dd/mm/aaaa) — a 1ª rodada real não achou pelas classes; a falha da Análise
+    ABC agora aparece na mensagem (`nota_abc`).

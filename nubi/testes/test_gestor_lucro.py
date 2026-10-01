@@ -90,6 +90,9 @@ def test_unidade():
     pn = {p["sku"]: p for p in lu["produtos"]}
     assert pn["XER-NAX-100"]["un7"] == 2 and pn["XER-NAX-100"]["un15"] == 2 and pn["XER-NAX-100"]["disponivel"] == 13, pn
     assert [g["nome"] for g in lu["por_logistica"]] == ["Full", "Não Full"], lu["por_logistica"]
+    # ROAS (01/10): faturamento ÷ ADS; geral = 5.400 ÷ 450; mínimo = faturamento ÷ lucro bruto
+    assert pn["XER-NAX-100"]["roas"] == 12.86 and pn["XER-NAX-100"]["roas_min"] == 3.33, pn["XER-NAX-100"]
+    assert pn["PARADO-1"]["roas"] == 0.0 and lu["totais"]["roas_geral"] == 12.0 and lu["totais"]["produtos_prejuizo"] == 2, lu["totais"]
     # blocos 31–60 / 61–90 / 91–120 dias atrás e a lista para promoção
     pend = w.rota_estoque(r, "GET", "estoque_vendas_blocos_pendentes", {}, b"")["blocos"]
     assert [b["bloco"] for b in pend] == ["31-60", "61-90", "91-120"] and pend[0] == {"bloco": "31-60", "inicio": "2026-08-02", "fim": "2026-08-31"}, pend
@@ -153,6 +156,7 @@ def test_tela(lu, pr):
                 pg.wait_for_selector("#lu-tab tbody tr", timeout=15000)
                 txt = pg.inner_text("#main")
                 assert "Lucro e ADS" in txt and "Curva Z" in txt and "Full × não Full" in txt, txt[:600]
+                assert "Gasto total com ADS" in txt and "ROAS geral" in txt and "12,0x" in txt and "gastou sem vender" in txt, txt[:900]
                 assert pg.query_selector("#lu-tab tr.ec-urg")                       # Torino com MPA negativa / Z
                 pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"lucro_ads_{nome}.png"), full_page=True)
                 pg.goto(f"http://127.0.0.1:{porta}/#/analises-vendas/promocao")

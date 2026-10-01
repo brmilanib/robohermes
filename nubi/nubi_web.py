@@ -4794,7 +4794,12 @@ def analise_lucro(repo):
         un30 = (jan.get(30) or {}).get(k)
         vd = (un30 or x["unidades"] or 0) / 30
         disp = it.get("disponivel") if it else None
-        produtos.append({**x, "disponivel": disp, "transito": ((it.get("transito_compra") or 0) + (it.get("transito_transf") or 0)) if it else None,
+        # 01/10 (Bruno: "quanto gastei de ADS, meu ROAS geral e o ROAS de cada produto pra mexer no ADS"): ROAS = faturamento
+        # do SKU ÷ ADS do SKU (o Gestor não separa a venda que veio do anúncio: é o faturamento total do produto); ROAS mínimo
+        # = faturamento ÷ lucro bruto (abaixo dele o ADS come todo o lucro: MPA negativa)
+        roas = round(x["valor"] / x["ads"], 2) if x["ads"] > 0 and x["valor"] else (0.0 if x["ads"] > 0 else None)
+        roas_min = round(x["valor"] / x["lucro_bruto"], 2) if x["ads"] > 0 and x["lucro_bruto"] > 0 else None
+        produtos.append({**x, "roas": roas, "roas_min": roas_min, "disponivel": disp, "transito": ((it.get("transito_compra") or 0) + (it.get("transito_transf") or 0)) if it else None,
                          "custo_medio": it.get("custo_medio") if it else None,
                          "un7": (jan.get(7) or {}).get(k, 0) if jan else None, "un15": (jan.get(15) or {}).get(k, 0) if jan else None,
                          "cobertura_dias": round((disp or 0) / vd, 1) if vd and disp is not None else None})
@@ -4814,6 +4819,17 @@ def analise_lucro(repo):
            "ads": round(sum(c["ads"] for c in abc.get("curvas") or []), 2),
            "lucro_pos_ads": round(sum(c["lucro_pos_ads"] for c in abc.get("curvas") or []), 2)}
     tot["margem_pct"] = round(tot["lucro"] / tot["valor"] * 100, 1) if tot["valor"] else None
+    cs = abc.get("curvas") or []
+    fat_abc = sum(c["valor"] for c in cs)
+    com_ads = [p for p in produtos if p["ads"] > 0]
+    fat_ads = sum(p["valor"] for p in com_ads)
+    tot.update({"fat_abc": round(fat_abc, 2), "lucro_bruto_abc": round(sum(c["lucro_bruto"] for c in cs), 2),
+                "roas_geral": round(fat_abc / tot["ads"], 2) if tot["ads"] else None,
+                "roas_com_ads": round(fat_ads / tot["ads"], 2) if tot["ads"] else None,
+                "tacos_pct": round(tot["ads"] / fat_abc * 100, 2) if fat_abc else None,
+                "produtos_com_ads": len(com_ads),
+                "ads_prejuizo": round(sum(p["ads"] for p in com_ads if p["lucro_pos_ads"] < 0), 2),
+                "produtos_prejuizo": sum(1 for p in com_ads if p["lucro_pos_ads"] < 0)})
     return {"abc": {k: v for k, v in abc.items() if k != "linhas"} or None, "produtos": produtos,
             "vendas": {k: v for k, v in g.items() if k != "linhas"} or None, "ultimo_dia": fim, "totais": tot,
             "por_conta": _soma_grupo(validas, lambda x: x.get("conta")), "por_marketplace": _soma_grupo(validas, lambda x: x.get("marketplace")),
