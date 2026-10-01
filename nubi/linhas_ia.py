@@ -77,8 +77,14 @@ def validar(linhas, titulos):
     return out
 
 
+PROPOSTA = "linhas_ia_proposta|"
+
+
 def revisar_marca(repo, marca, perguntar, cfg=None):
-    """Pede as linhas à IA, valida, guarda antes/depois, grava e reconsolida a marca. -> dict com o resultado."""
+    """01/10 (Bruno: "esses dados são o coração das nossas análises"): a IA só PROPÕE. Pede as linhas, valida, SIMULA no
+    último export (trava_agrupamento) e guarda a proposta em `linhas_ia_proposta|<marca>`. Nada é gravado em marcas_config;
+    quem aplica é o Bruno (`aplicar_proposta`)."""
+    import trava_agrupamento
     marca = nubi.chave_marca(marca)
     cfg = cfg if cfg is not None else repo.carregar_config()
     atuais = list((cfg.get(marca) or {}).get("linhas") or [])
@@ -89,15 +95,51 @@ def revisar_marca(repo, marca, perguntar, cfg=None):
     novas = validar(j.get("linhas"), titulos)
     if len(novas) < 1:
         return {"marca": marca, "ok": False, "motivo": "a IA não devolveu linha que apareça nos títulos", "ia": quem}
+    cfg_novo = {k: dict(v) for k, v in cfg.items()}
+    cfg_novo.setdefault(marca, {})["linhas"] = novas
+    trava = trava_agrupamento.simular_marca(repo, marca, cfg, cfg_novo)
     reg = {"marca": marca, "em": datetime.now(timezone.utc).isoformat(), "ia": quem, "snapshot": sid, "antes": atuais, "depois": novas,
            "descartadas": sorted({nubi.normalizar(str(x.get("chave") or "")).strip() for x in (j.get("linhas") or [])} - {k for k, _ in novas})[:20],
-           "observacao": str(j.get("observacao") or "")[:500]}
-    repo._req("POST", "ia_resumos", corpo=[{"chave": CHAVE + marca, "ia": quem or "ia", "criado_em": reg["em"], "texto": json.dumps(reg, ensure_ascii=False)}],
+           "observacao": str(j.get("observacao") or "")[:500], "trava": trava, "estado": "proposta"}
+    repo._req("POST", "ia_resumos", corpo=[{"chave": PROPOSTA + marca, "ia": quem or "ia", "criado_em": reg["em"], "texto": json.dumps(reg, ensure_ascii=False)}],
               prefer="resolution=merge-duplicates,return=minimal")
-    cfg.setdefault(marca, {})["linhas"] = novas
-    repo.salvar_config(cfg, marca)
-    nubi.reconsolidar(repo, cfg, [marca])
-    return {**reg, "ok": True}
+    return {**reg, "ok": True, "aplicada": False}
+
+
+def ler_proposta(repo, marca):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{PROPOSTA}{nubi.chave_marca(marca)}"}) or [None])[0]
+    try:
+        return json.loads(r["texto"]) if r and r.get("texto") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def aplicar_proposta(repo, marca, forcar=False):
+    """Só pelo Bruno (rota da tela). A trava roda DE NOVO com o export de agora; reprovada só passa com `forcar`."""
+    import trava_agrupamento
+    marca = nubi.chave_marca(marca)
+    prop = ler_proposta(repo, marca)
+    if not prop:
+        return {"ok": False, "motivo": "não há proposta da IA para esta marca"}
+    cfg = repo.carregar_config()
+    cfg_novo = {k: dict(v) for k, v in cfg.items()}
+    cfg_novo.setdefault(marca, {})["linhas"] = prop["depois"]
+    trava = trava_agrupamento.simular_marca(repo, marca, cfg, cfg_novo)
+    if not trava["ok"] and not forcar:
+        return {"ok": False, "motivo": "a trava recusou: " + "; ".join(trava["motivos"]), "trava": trava}
+    reg = dict(prop, antes=list((cfg.get(marca) or {}).get("linhas") or []), trava=trava, estado="aplicada", forcada=bool(forcar and not trava["ok"]),
+               aplicada_em=datetime.now(timezone.utc).isoformat())
+    repo._req("POST", "ia_resumos", corpo=[{"chave": CHAVE + marca, "ia": prop.get("ia") or "ia", "criado_em": reg["aplicada_em"],
+                                            "texto": json.dumps(reg, ensure_ascii=False)}], prefer="resolution=merge-duplicates,return=minimal")
+    repo._req("DELETE", "ia_resumos", {"chave": f"eq.{PROPOSTA}{marca}"})
+    repo.salvar_config(cfg_novo, marca)
+    nubi.reconsolidar(repo, cfg_novo, [marca])
+    return {**reg, "ok": True, "aplicada": True}
+
+
+def descartar_proposta(repo, marca):
+    repo._req("DELETE", "ia_resumos", {"chave": f"eq.{PROPOSTA}{nubi.chave_marca(marca)}"})
+    return {"ok": True}
 
 
 def desfazer(repo, marca):
@@ -159,8 +201,9 @@ def revisar_pendentes(repo, perguntar, max_marcas=10):
     out = []
     for m in ms[:max_marcas]:
         try:
-            x = revisar_marca(repo, m, perguntar, cfg)
-            out.append(f"{nubi.nome_bonito(m)}: {len(x['depois'])} linha(s)" if x.get("ok") else f"{nubi.nome_bonito(m)}: {x.get('motivo')}")
+            x = revisar_marca(repo, m, perguntar, cfg)       # só proposta: nada é aplicado sem o Bruno
+            out.append(f"{nubi.nome_bonito(m)}: proposta com {len(x['depois'])} linha(s), trava {'ok' if x['trava']['ok'] else 'RECUSA'}"
+                       if x.get("ok") else f"{nubi.nome_bonito(m)}: {x.get('motivo')}")
         except Exception as e:  # noqa: BLE001
             out.append(f"{nubi.nome_bonito(m)}: erro {str(e)[:120]}")
     return f"{len(ms)} pendente(s); " + "; ".join(out)

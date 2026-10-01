@@ -48,6 +48,13 @@ class Repo:
             self.resumos.pop((q or {}).get("chave", "")[3:], None)
         return []
 
+    def anuncios(self, sid):                         # 01/10: a trava simula no último export
+        import pandas as pd
+        return pd.DataFrame([{"rid": i, "snapshot_id": 9, "titulo": t, "vendedor": "V", "vendedor_id": "v" * 64, "marca_anuncio": "DOLCE & GABBANA",
+                              "categoria": "", "gtin": "", "sku": "", "un": u, "fat": u * 100.0, "preco": 100.0, "un_hist": 0, "fat_hist": 0,
+                              "dias_pub": 1, "exposicao": "", "catalogo": 1, "full": 0, "flex": 0, "internacional": 0, "loja_oficial": 0,
+                              "frete_gratis": 0, "bruto": {}} for i, (t, u) in enumerate(TITULOS)])
+
     def carregar_config(self):
         return {k: dict(v) for k, v in self.cfg.items()}
 
@@ -65,19 +72,18 @@ def test_valida_e_ordena_e_grava_antes_depois():
         {"chave": "contratipo x", "rotulo": "Lixo"}, {"chave": "light blue", "rotulo": "Repetida"}]}
     x = linhas_ia.revisar_marca(r, "DOLCE & GABBANA", lambda pedido, schema: (resposta, "chatgpt"))
     assert x["ok"] and [k for k, _ in x["depois"]] == ["light blue capri in love", "light blue for men", "the one for men", "light blue"], x["depois"]
-    # "light blue intense" não aparece nos títulos ("edp intense" vem depois): descartada; "pour homme" e o contratipo também
     assert "light blue intense" in x["descartadas"] and "contratipo x" in x["descartadas"]
-    assert r.cfg["DOLCE & GABBANA"]["linhas"] == x["depois"] and r.reconsolidadas == [["DOLCE & GABBANA"]]
-    reg = json.loads(r.resumos[linhas_ia.CHAVE + "DOLCE & GABBANA"])
-    assert reg["antes"][0] == ["light blue", "Light Blue"] and reg["ia"] == "chatgpt"
-    assert linhas_ia.pendentes(r) == []                                     # revisada hoje: não pende
+    # 01/10: a IA só PROPÕE — nada gravado, nada reprocessado
+    assert not x["aplicada"] and r.cfg["DOLCE & GABBANA"]["linhas"][0] == ["light blue", "Light Blue"] and r.reconsolidadas == []
+    assert linhas_ia.ler_proposta(r, "DOLCE & GABBANA")["ia"] == "chatgpt" and "trava" in x
     # o pedido leva os títulos por venda e nunca o contratipo
     ped = linhas_ia.pedido("DOLCE & GABBANA", r.cfg["DOLCE & GABBANA"]["linhas"], linhas_ia.titulos_da_marca(r, "DOLCE & GABBANA")[0])
     assert "(900 un.)" in ped and "Contratipo X" not in ped
-    # desfazer volta a lista de antes
+    # o Bruno aprova: a trava roda de novo; aprovada (ou forçada), grava e reprocessa; desfazer volta a lista de antes
+    y = linhas_ia.aplicar_proposta(r, "DOLCE & GABBANA", forcar=True)
+    assert y["ok"] and r.cfg["DOLCE & GABBANA"]["linhas"] == x["depois"] and r.reconsolidadas == [["DOLCE & GABBANA"]]
     d = linhas_ia.desfazer(r, "DOLCE & GABBANA")
-    assert d["ok"] and r.cfg["DOLCE & GABBANA"]["linhas"][0] == ["light blue", "Light Blue"] and linhas_ia.CHAVE + "DOLCE & GABBANA" not in r.resumos
-    assert linhas_ia.pendentes(r) == ["DOLCE & GABBANA"]
+    assert d["ok"] and r.cfg["DOLCE & GABBANA"]["linhas"][0] == ["light blue", "Light Blue"]
 
 
 def test_sem_linha_valida_nao_grava():

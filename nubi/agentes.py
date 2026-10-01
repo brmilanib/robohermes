@@ -125,6 +125,11 @@ buscas por capital, e novos agentes (Hermes).
 {TECNICA}
 
 ## Regras aprendidas em 01/10 (erros reais do Bruno; na base de conhecimento, tipo "regra")
+- AGRUPAMENTO É O CORAÇÃO DAS ANÁLISES (01/10, a IA picou o Sabah Al Ward em 25+ produtos): nenhum agente nem IA grava
+  linhas de marca, junta ou separa produto sozinho. Só PROPÕE. Toda mudança passa pela trava (`trava_agrupamento`):
+  simulada no último export, é recusada se partir um GTIN, picar um dos 15 produtos que mais vendem (perde >10% das
+  unidades), aumentar os produtos com venda em mais de 15% ou trouxer linha com mais de 5 palavras. Quem aplica é o
+  Bruno, e a trava roda de novo na hora. Na dúvida, deixa como está e pergunta.
 - Explorador: perfumaria é pela categoria FINAL do arquivo (Perfumes, Fragrâncias, Cuidado do Corpo, Desodorantes). Fora
   de perfumaria o produto é o GTIN: nome do título + modelo, categoria do arquivo (Escovas Elétricas, Batons…), nunca EDT/EDP.
   Erro: 29 GTINs de escovas Revlon viraram "Revlon Escova Secadora EDT". Totais usam "Unidades vendidas" e "Vendas em $" do

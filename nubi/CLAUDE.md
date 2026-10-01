@@ -491,6 +491,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     motivo + resumo; cache 12 h em `observados|destaques`, `?forcar=1` refaz). Na página do vendedor, os produtos são
     clicáveis (`abrirProdutoDeMarca`: carrega o relatório da marca e abre o quadro do produto) e o quadro ganhou a foto do
     catálogo do ML (`meli_foto`, 1º GTIN que o ML conhece).
+  - **TRAVA DO AGRUPAMENTO (01/10, Bruno: "esses dados são o coração das nossas análises; precisa ter regras mais
+    firmes")**: `trava_agrupamento.py`. Toda mudança de linhas (IA em `linhas_ia`, revisão diária gpt-oss+Hermes em
+    `aplicar_revisao`) é SIMULADA no último export da marca (`simular_marca`: `nubi.consolidar` com a config de hoje x a
+    proposta) e recusada se: GTIN partido; um dos 15 produtos que mais vendem perde >10% das unidades; produtos com venda
+    +15% (e +3); chave com >5 palavras. Sem conseguir simular = recusa. A IA só PROPÕE (`linhas_ia_proposta|<marca>`);
+    a tela mostra hoje x proposta + resultado da trava; "Aprovar e aplicar" (`linhas_ia_aplicar`) roda a trava de novo e
+    só passa reprovada com "forçar" marcado pelo Bruno. A rotina `linhas_ia` fica desligada; se religada, só propõe.
+    Teste: testes/test_trava_agrupamento.py (reproduz o Sabah picado).
   - **⚠️ 01/10 08h: a rotina automática `linhas_ia` foi DESLIGADA e as 10 marcas revisadas voltaram às linhas de antes**
     (Bruno: "bugou mais ainda"): a IA picou o Sabah Al Ward da Al Wataniah em 25+ produtos ("Sabah Al Ward Original",
     "Sugar EDT", "Him Her"…, vendedores e foto errados) e na Jequiti usou títulos inteiros como linha. Regra 12b reprocessa

@@ -44,6 +44,7 @@ import perseguir
 import monitor
 import observados
 import linhas_ia
+import trava_agrupamento
 import precos
 import revisao
 import reuniao
@@ -327,7 +328,15 @@ def rota_linhas_ia(repo, metodo, rota, q, corpo):
             raise ErroNuvem("Faltou a marca.")
         if not ia.disponivel():
             raise ErroNuvem("Sem IA configurada.")
-        return linhas_ia.revisar_marca(repo, marca, _perguntar_linhas)
+        _preparar(repo)
+        return linhas_ia.revisar_marca(repo, marca, _perguntar_linhas)     # só PROPÕE (01/10)
+    if rota == "linhas_ia_proposta":
+        return {"proposta": linhas_ia.ler_proposta(repo, marca)}
+    if rota == "linhas_ia_aplicar" and metodo == "POST":
+        _preparar(repo)
+        return linhas_ia.aplicar_proposta(repo, marca, forcar=bool(d.get("forcar")))
+    if rota == "linhas_ia_descartar" and metodo == "POST":
+        return linhas_ia.descartar_proposta(repo, marca)
     if rota == "linhas_ia_desfazer" and metodo == "POST":
         return linhas_ia.desfazer(repo, marca)
     if rota == "linhas_ia_estado":
@@ -936,6 +945,7 @@ def aplicar_revisao(repo, dia, vereditos):
             continue
     cfg = repo.carregar_config()
     aplicadas, recusadas, marcas = [], [], set()
+    _preparar(repo)
     for p in d.get("propostas") or []:
         v = ver.get(int(p["id"]))
         p["hermes"] = v
@@ -943,10 +953,22 @@ def aplicar_revisao(repo, dia, vereditos):
             if v:
                 recusadas.append(f'{revisao.descrever(p)} — Hermes: {v["motivo"]}')
             continue
+        # 01/10 (Bruno: "regras mais firmes"): a mudança é simulada no último export antes de gravar (trava_agrupamento)
+        chave_m = nubi.chave_marca(p["marca"])
+        cfg_novo = {k: {"linhas": [list(x) for x in (vv.get("linhas") or [])]} for k, vv in cfg.items()}
+        if revisao.aplicar_no_config(cfg_novo, p):
+            try:
+                tr = trava_agrupamento.simular_marca(repo, chave_m, cfg, cfg_novo)
+            except Exception as e:  # noqa: BLE001  (sem simulação não grava)
+                tr = {"ok": False, "motivos": [f"simulação falhou: {str(e)[:100]}"]}
+            if not tr["ok"]:
+                p["trava"] = tr
+                recusadas.append(f'{revisao.descrever(p)} — trava: {"; ".join(tr["motivos"])[:200]}')
+                continue
+            cfg = cfg_novo
+            repo.salvar_config(cfg, chave_m)
         if p["acao"] in ("mesma_marca", "linha_da_marca"):
             juntar_apelido(repo, p["nome"], p["marca"])
-        if revisao.aplicar_no_config(cfg, p):
-            repo.salvar_config(cfg, nubi.chave_marca(p["marca"]))
         marcas.add(p["marca"])
         p["aplicada"] = True
         aplicadas.append(revisao.descrever(p))

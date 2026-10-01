@@ -7493,7 +7493,7 @@ async function telaConfig(el) {
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
         <button class="btn" id="cfa">+ Adicionar linha</button>
         <button class="btn" id="cfr" title="Descarta esta lista e detecta de novo pelos títulos do período mais recente">↻ Detectar linhas de novo</button>
-        <button class="btn" id="cfia" title="A IA lê os títulos que mais vendem e devolve os nomes oficiais das linhas (Light Blue, Light Blue Intense, Light Blue Capri in Love…); o que havia fica guardado para desfazer">🧠 Revisar linhas com IA</button>
+        <button class="btn" id="cfia" title="A IA lê os títulos que mais vendem e PROPÕE as linhas; a trava simula no último export (GTIN partido, produto grande picado, explosão de produtos) e você aprova ou descarta">🧠 Propor linhas com IA</button>
         <button class="btn ghost" id="cfdesf" title="Volta a lista de antes da revisão da IA">↶ Desfazer revisão da IA</button>
         <label class="btn ghost" title="Rótulo de loja (ex.: LIPX da ICARBONXX): os produtos são de outras marcas; esta marca nunca fica dona de um GTIN que outra marca também tem" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="cfrev" ${(S.revenda || []).includes(S.marca) ? "checked" : ""}> 🏷️ marca de revenda</label>
         <div style="flex:1"></div>
@@ -7502,21 +7502,47 @@ async function telaConfig(el) {
     el.querySelectorAll("#cfl input").forEach(i => i.oninput = () => { linhas[i.dataset.i][i.dataset.j] = i.value; });
     el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { linhas.splice(+b.dataset.del, 1); desenhar(); });
     $("#cfa", el).onclick = () => { linhas.unshift(["", ""]); desenhar(); $("#cfl input", el).focus(); };
-    // 01/10 (Bruno, "revisão geral nessas marcas e produtos"): a IA refaz as linhas e a marca é reprocessada na hora
+    // 01/10 (Bruno: "esses dados são o coração das nossas análises"): a IA só PROPÕE; a trava simula no último export e
+    // você aprova (ou descarta). Reprovada pela trava só passa marcando "forçar".
+    const mostrarProposta = x => {
+      const t = x.trava || {}, m = t.metricas || {};
+      const bg = modal(`<h2 style="margin-top:0">🧠 Proposta da IA para ${esc(nome(S.marca))}</h2>
+        <div class="muted" style="font-size:12.5px">${esc(x.ia || "IA")} · ${x.antes.length} linha(s) hoje → ${x.depois.length} na proposta · nada foi aplicado ainda</div>
+        <div class="card pad" style="margin:10px 0;border-left:4px solid ${t.ok ? "var(--good)" : "var(--bad)"}">
+          <b>${t.ok ? "✅ Trava aprovou" : "⛔ Trava recusou"}</b>
+          <span class="muted" style="font-size:12.5px"> · simulado no último export: produtos com venda ${m.produtos_antes ?? "?"} → ${m.produtos_depois ?? "?"} · GTINs partidos ${m.gtins_partidos ?? 0}</span>
+          ${(t.motivos || []).length ? `<ul style="margin:6px 0 0">${t.motivos.map(z => `<li>${esc(z)}</li>`).join("")}</ul>` : ""}
+          ${(t.exemplos || []).length ? `<details style="margin-top:6px"><summary class="muted">exemplos</summary><ul>${t.exemplos.map(z => `<li style="font-size:12.5px">${esc(z)}</li>`).join("")}</ul></details>` : ""}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;max-height:40vh;overflow:auto">
+          <div><b>Hoje</b><ul style="font-size:12.5px">${x.antes.map(l => `<li>${esc(l[1])} <span class="muted">(${esc(l[0])})</span></li>`).join("")}</ul></div>
+          <div><b>Proposta</b><ul style="font-size:12.5px">${x.depois.map(l => `<li>${esc(l[1])} <span class="muted">(${esc(l[0])})</span></li>`).join("")}</ul></div></div>
+        ${x.observacao ? `<p class="muted" style="font-size:12.5px">${esc(x.observacao)}</p>` : ""}
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+          ${t.ok ? "" : `<label style="font-size:12.5px"><input type="checkbox" id="pp-forcar"> forçar mesmo com a trava recusando</label>`}
+          <div style="flex:1"></div><button class="btn" id="pp-desc">Descartar</button>
+          <button class="btn primary" id="pp-ok" ${t.ok ? "" : "disabled"}>Aprovar e aplicar</button></div>`);
+      $(".modal", bg).classList.add("larga");
+      if ($("#pp-forcar", bg)) $("#pp-forcar", bg).onchange = e => { $("#pp-ok", bg).disabled = !e.target.checked; };
+      $("#pp-desc", bg).onclick = async () => { await api("linhas_ia_descartar", {}, {method: "POST", body: JSON.stringify({marca: S.marca})}); bg.remove(); toast("Proposta descartada"); };
+      $("#pp-ok", bg).onclick = async () => { const b = $("#pp-ok", bg); b.disabled = true; b.textContent = "Aplicando…";
+        try { const r = await api("linhas_ia_aplicar", {}, {method: "POST", body: JSON.stringify({marca: S.marca, forcar: !!($("#pp-forcar", bg) || {}).checked})});
+          if (!r.ok) { toast(r.motivo, 8000); b.disabled = false; b.textContent = "Aprovar e aplicar"; return; }
+          bg.remove(); toast("Linhas aplicadas e marca reprocessada", 5000); linhas.splice(0, linhas.length, ...r.depois); desenhar(); abrirMarca(S.marca, true);
+        } catch (e) { toast(e.message, 6000); b.disabled = false; b.textContent = "Aprovar e aplicar"; } };
+    };
     $("#cfia", el).onclick = async () => { const b = $("#cfia", el); b.disabled = true; b.textContent = "🧠 lendo os títulos…";
       try { const x = await api("linhas_ia_revisar", {}, {method: "POST", body: JSON.stringify({marca: S.marca})});
-        if (!x.ok) { toast(x.motivo || "A IA não devolveu linhas", 6000); b.disabled = false; b.textContent = "🧠 Revisar linhas com IA"; return; }
-        toast(`${x.depois.length} linha(s) pela IA (antes ${x.antes.length}); marca reprocessada`, 5000);
-        $("#cflog", el).innerHTML = `<div class="log">${esc(x.observacao || "")}${x.descartadas && x.descartadas.length ? `\nDescartadas (não aparecem nos títulos): ${esc(x.descartadas.join(", "))}` : ""}</div>`;
-        linhas.splice(0, linhas.length, ...x.depois); desenhar(); abrirMarca(S.marca, true);
-      } catch (e) { toast(e.message, 6000); b.disabled = false; b.textContent = "🧠 Revisar linhas com IA"; } };
+        b.disabled = false; b.textContent = "🧠 Propor linhas com IA";
+        if (!x.ok) { toast(x.motivo || "A IA não devolveu linhas", 6000); return; }
+        mostrarProposta(x);
+      } catch (e) { toast(e.message, 6000); b.disabled = false; b.textContent = "🧠 Propor linhas com IA"; } };
+    $("#cfdesf", el).onclick = async () => { try { const x = await api("linhas_ia_desfazer", {}, {method: "POST", body: JSON.stringify({marca: S.marca})});
+        if (!x.ok) { toast(x.motivo, 5000); return; } toast("Linhas de antes restauradas; marca reprocessada", 4000); linhas.splice(0, linhas.length, ...x.linhas); desenhar(); abrirMarca(S.marca, true); }
+      catch (e) { toast(e.message, 6000); } };
     $("#cfrev", el).onchange = async e => { const lig = e.target.checked; e.target.disabled = true;
       try { const x = await api("marca_revenda", {}, {method: "POST", body: JSON.stringify({marca: S.marca, ligado: lig})});
         S.revenda = x.revenda; toast(lig ? `${nome(S.marca)} marcada como revenda; reprocessadas: ${x.reprocessadas.length ? x.reprocessadas.map(nome).join(", ") : "nenhuma"}` : `${nome(S.marca)} deixou de ser revenda`, 6000);
         abrirMarca(S.marca, true); } catch (err) { toast(err.message, 6000); e.target.checked = !lig; e.target.disabled = false; } };
-    $("#cfdesf", el).onclick = async () => { try { const x = await api("linhas_ia_desfazer", {}, {method: "POST", body: JSON.stringify({marca: S.marca})});
-        if (!x.ok) { toast(x.motivo, 5000); return; } toast("Linhas de antes restauradas; marca reprocessada", 4000); linhas.splice(0, linhas.length, ...x.linhas); desenhar(); abrirMarca(S.marca, true); }
-      catch (e) { toast(e.message, 6000); } };
     $("#cfr", el).onclick = async () => {
       if (!confirm("Descartar a lista atual e detectar as linhas de novo pelos títulos do período mais recente?")) return;
       const bt = $("#cfr", el); bt.disabled = true; bt.innerHTML = '<span class="spin"></span> Detectando…';

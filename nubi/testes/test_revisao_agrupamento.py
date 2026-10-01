@@ -50,6 +50,10 @@ class Repo:
     def _todos(self, tabela, params=None):
         return []
 
+    def snapshots(self, marca=None):                 # 01/10: a trava simula no último export (aqui, sem export)
+        import pandas as pd
+        return pd.DataFrame(columns=["id", "marca"])
+
     def carregar_config(self):
         return json.loads(json.dumps(self.cfg))
 
