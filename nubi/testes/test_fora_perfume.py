@@ -72,8 +72,21 @@ def test_reprocessar_recalcula_a_categoria_pelo_arquivo():
     assert "categoria" in nubi.CAMPOS_CONSOLIDACAO
 
 
+
+
+def test_gtin_com_zero_na_frente_e_o_mesmo_produto():
+    assert nubi.gtin_canonico("0761318552925") == "761318552925" and nubi.gtin_canonico("761318552925") == "761318552925"
+    assert nubi.gtin_canonico("6290360591230") == "6290360591230" and nubi.gtin_canonico("00012345") == "00012345" and nubi.gtin_canonico("") == ""
+    df = _df([("Escova Secadora Modeladora Revlon Root Booster Rvdr5292", "0761318552925", 730, "Escovas Elétricas", "RVDR5292"),
+              ("Escova Secadora Revlon Root Booster Rvdr5292 110v", "761318552925", 313, "Escovas Elétricas", "RVDR5292")])
+    out = nubi.consolidar(df, "REVLON", {}, info={})
+    assert out.at[0, "produto"] == out.at[1, "produto"] and "GTIN" not in out.at[0, "produto"], list(out["produto"])
+    assert list(out["gtin"]) == ["0761318552925", "761318552925"]            # o gravado continua o do arquivo
+
+
 if __name__ == "__main__":
     test_perfumaria_e_pela_categoria_final()
     test_fora_de_perfume_o_produto_e_o_gtin()
     test_reprocessar_recalcula_a_categoria_pelo_arquivo()
+    test_gtin_com_zero_na_frente_e_o_mesmo_produto()
     print("ok fora de perfume")

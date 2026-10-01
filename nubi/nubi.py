@@ -713,6 +713,13 @@ def _ean_valido(txt):
     return (10 - soma % 10) % 10 == int(t[-1])
 
 
+def gtin_canonico(g):
+    """01/10 (Revlon: 0761318552925 e 761318552925 viraram 2 produtos): UPC de 12 dígitos escrito com zero na frente (EAN-13)
+    é o MESMO código. Tira os zeros à esquerda quando sobram 12+ dígitos; o resto fica como está."""
+    t = str(g or "").strip()
+    return re.sub(r"^0+(?=\d{12,}$)", "", t) if t.isdigit() else t
+
+
 def gtin_efetivo(df):
     """
     29/09 (print do Bruno: ICARBONXX com 2 anúncios do Asad Elixir, mesmo título e SKU ASADELIXIR, um sem GTIN "para
@@ -722,7 +729,7 @@ def gtin_efetivo(df):
     """
     g = df["gtin"].fillna("").astype(str).str.strip() if "gtin" in df.columns else pd.Series("", index=df.index)
     if "sku" not in df.columns or "vendedor_id" not in df.columns:
-        return g
+        return g.map(gtin_canonico)
     sku = df["sku"].fillna("").astype(str).str.strip().str.upper()
     vend = df["vendedor_id"].fillna("").astype(str)
     chave = vend + "|" + sku
@@ -733,7 +740,7 @@ def gtin_efetivo(df):
     out[vazio] = chave[vazio].map(unico).fillna("")
     resto = (out == "") & sku.map(_ean_valido)
     out[resto] = sku[resto]
-    return out
+    return out.map(gtin_canonico)
 
 
 def _titulo_canonico(titulos):
@@ -758,7 +765,7 @@ def mapa_gtin_global(linhas):
     """
     por = {}
     for l in linhas:
-        g = str(l.get("gtin") or "")
+        g = gtin_canonico(l.get("gtin") or "")
         if g:
             por.setdefault(g, []).append(l)
     out = {}
@@ -1082,7 +1089,7 @@ def consolidar(df, marca, cfg, info=None):
     # anúncio: é o nome oficial do produto, não o que o vendedor digitou.
     pesquisados = {}
     for g in df.loc[df["gtin"] != "", "gtin"].unique():
-        d = info.get(g) or {}
+        d = info.get(g) or info.get("0" + g) or info.get("00" + g) or {}      # gtin_info guarda o código como veio no arquivo
         if d.get("nome") or d.get("marca"):
             p = ler_texto(normalizar(d.get("nome", "")), linhas, palavras_marca)
             p["marca"] = d.get("marca", "")

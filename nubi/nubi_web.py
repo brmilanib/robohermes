@@ -636,7 +636,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 11b: fora de perfumaria o produto é o GTIN e perfumaria é pela categoria final (recalculada do arquivo ao reprocessar)"   # 01/10 (Revlon; pedido do Bruno)
+REGRA_ATUAL = "regra 11c: fora de perfumaria o produto é o GTIN; GTIN com zero na frente é o mesmo código; perfumaria pela categoria final"   # 01/10 (Revlon; pedido do Bruno)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"

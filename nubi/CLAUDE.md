@@ -185,7 +185,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `nao_perf` em `consolidar`: nome = `nome_fora(titulo, marca, Modelo)` (título sem marca/enfeite + modelo), anúncios do mesmo
   GTIN levam o nome do que mais vende, produto = `f"{marca} {nome}"` (sem "(não perfume)") e GTINs diferentes com o mesmo nome
   ganham ` · GTIN <n>`; `cat` = categoria final do arquivo (Escovas Elétricas…). Nunca tipo EDT/EDP fora de perfume.
-  `REGRA_ATUAL` = regra 11. Teste `test_fora_perfume.py`.
+  `gtin_canonico` (01/10): UPC-12 com zero na frente (0761318552925) = 761318552925 em `gtin_efetivo` e no
+  `mapa_gtin_global` (o gravado continua o do arquivo; `gtin_info` é lido com e sem o zero). Ao reprocessar, `preparar()`
+  recalcula a categoria pelo bruto e `atualizar_consolidacao` grava `categoria`. `REGRA_ATUAL` = regra 11c.
+  Teste `test_fora_perfume.py`.
 - **Estoque por categoria (01/10)**: `categorias.GENERICAS` (perfume, kit, importado…) nunca é marca em `marca_do_titulo`
   (o Explorador tem uma "marca" PERFUME; a linha PERFUME→Árabe de `marca_categorias` foi apagada: levava Sospiro e Xerjoff
   para Árabe); `TIPOS_PRODUTO` ganhou Eletrônicos, Maquiagem e Cabelo e, fora de `TIPOS_DA_MARCA` (Perfume, Body splash,
