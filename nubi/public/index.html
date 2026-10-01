@@ -1092,7 +1092,7 @@ header.top{padding:7px 16px}
 .abc-corte span{position:absolute;top:4px;left:6px;font-size:11.5px;font-weight:600;white-space:nowrap;background:var(--card,#fff);padding:1px 5px;border-radius:5px}
 .abc-dica{position:absolute;top:30px;z-index:3;width:250px;background:var(--card,#fff);border:1px solid var(--line,#e5e7eb);border-radius:8px;padding:7px 9px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.12);pointer-events:none}
 #lu-tab td:first-child,#abc-tab td:first-child,#mv-tab td:first-child,#pr-tab td:first-child{white-space:normal;min-width:220px;max-width:380px}
-#lu-tab td:first-child b,#abc-tab td:first-child b,#mv-tab td:first-child b,#pr-tab td:first-child b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#lu-tab td:first-child > b,#abc-tab td:first-child > b,#mv-tab td:first-child > b,#pr-tab td:first-child > b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pm-card{padding:12px 14px;margin-bottom:10px}
 .pm-lin{display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 170px 170px auto;gap:14px;align-items:center}
 .pm-foto img,.pm-foto{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:24px}
@@ -1115,7 +1115,9 @@ header.top{padding:7px 16px}
 .lu-sit{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);cursor:pointer;text-align:left;font:inherit;color:inherit}
 .lu-sit:hover{border-color:currentColor}.lu-sit.on{outline:2px solid currentColor;outline-offset:-1px}
 .lu-sit.neg{background:rgba(220,38,38,.06);color:#b91c1c}.lu-sit.warn{background:rgba(234,179,8,.10);color:#a16207}.lu-sit.pos{background:rgba(22,163,74,.07);color:#15803d}
-.lu-sit-ic{font-size:18px}.lu-sit-tx{font-size:13px}.lu-sit-tx b{font-size:16px}.lu-sit-v{font-size:11.5px;opacity:.8;border-left:1px solid currentColor;padding-left:8px}
+.lu-sit-ic{font-size:18px}.lu-sit-tx{font-size:13px}.lu-sit-tx b{font-size:16px}.lu-sit-v{font-size:11.5px;line-height:1.35;opacity:.9;border-left:1px solid currentColor;padding-left:8px}
+.lu-lojas{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.lu-lojas span{font-size:10.5px;padding:1px 6px;border-radius:999px;background:rgba(127,127,127,.12);white-space:nowrap}
+.lu-lojas span.on{background:rgba(37,99,235,.15);color:#1d4ed8}
 .lu-sit.todos{color:inherit}
 </style>
 </head>
@@ -3301,7 +3303,7 @@ async function telaLucroAds() {
   if (r.vazio) { main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas · Lucro e ADS</h1>${importar}</div>
     <div class="card empty">Ainda não chegaram a Curva ABC e o relatório de vendas do Gestor Seller. O coletor baixa os dois junto do Gestor (01:00, 12:00 e 19:00); ou importe os arquivos no botão acima.</div>`;
     ligarImportar(); return; }
-  const t = r.totais, f = S.luF || (S.luF = {curva: "", q: "", ord: "folga", so: "ads", sit: null});
+  const t = r.totais, f = S.luF || (S.luF = {curva: "", q: "", ord: "folga", so: "ads", sit: null, loja: ""});
   const pct = v => v == null ? "—" : nf1.format(v) + "%";
   const roasTx = v => v == null ? "—" : nf1.format(v) + "x";
   const mpaCls = v => v == null ? "" : v < 0 ? "neg" : v < 8 ? "warn-t" : "pos";
@@ -3329,12 +3331,23 @@ async function telaLucroAds() {
   const desenhar = () => {
     const q = f.q.toLowerCase().trim();
     const xs = r.produtos.filter(x => (!f.curva || x.curva === f.curva) && (f.so !== "ads" || x.ads > 0)
-      && (f.sit == null || situacao(x).n === f.sit)
+      && (f.sit == null || situacao(x).n === f.sit) && (!f.loja || (x.lojas || []).some(l => l.loja === f.loja))
       && (!q || (x.sku + " " + x.produto).toLowerCase().includes(q))).sort(ORD[f.ord][1]);
-    main.querySelectorAll(".lu-sit").forEach(b => b.classList.toggle("on", b.dataset.sit === "" ? f.sit == null : +b.dataset.sit === f.sit));
+    // botões por situação: contam os produtos do filtro de loja/curva/ADS atual (sem o filtro de situação)
+    const base = r.produtos.filter(x => (!f.curva || x.curva === f.curva) && (f.so !== "ads" || x.ads > 0) && (!f.loja || (x.lojas || []).some(l => l.loja === f.loja)));
+    $("#lu-sits").innerHTML = SITS.map(([n, ic, tx, cls]) => { const ys = base.filter(x => situacao(x).n === n);
+        const ads = ys.reduce((a, x) => a + (x.ads || 0), 0), fat = ys.reduce((a, x) => a + (x.valor || 0), 0);
+        return ys.length ? `<button class="lu-sit ${cls}" data-sit="${n}" title="Mostrar só estes · ROAS do grupo = faturamento somado ÷ ADS somado"><span class="lu-sit-ic">${ic}</span>
+          <span class="lu-sit-tx"><b>${nf0.format(ys.length)}</b> ${tx}</span>
+          <span class="lu-sit-v">gastou <b>${rsES(ads)}</b> de ADS<br>ROAS <b>${ads ? nf1.format(fat / ads) + "x" : "—"}</b></span></button>` : ""; }).join("")
+      + `<button class="lu-sit todos" data-sit="" title="Mostrar todos">Todos</button>`;
+    main.querySelectorAll(".lu-sit").forEach(b => { b.classList.toggle("on", b.dataset.sit === "" ? f.sit == null : +b.dataset.sit === f.sit);
+      b.onclick = () => { const n = b.dataset.sit === "" ? null : +b.dataset.sit;
+        f.sit = f.sit === n ? null : n; if (f.sit != null) { f.so = "ads"; $("#lu-so").value = "ads"; } desenhar(); }; });
     $("#lu-tab tbody").innerHTML = xs.map(x => { const st = situacao(x);
       return `<tr class="${st.n <= 1 ? "ec-urg" : st.n === 2 ? "ec-alerta" : ""}">
-      <td data-l="Produto"><b>${esc(x.produto || x.sku)}</b><div class="muted" style="font-size:11.5px">${esc(x.sku)} · <span class="abc" style="background:${COR[x.curva]}22;color:${COR[x.curva]}">${x.curva}</span></div></td>
+      <td data-l="Produto"><b>${esc(x.produto || x.sku)}</b><div class="muted" style="font-size:11.5px">${esc(x.sku)} · <span class="abc" style="background:${COR[x.curva]}22;color:${COR[x.curva]}">${x.curva}</span></div>
+        ${(x.lojas || []).length ? `<div class="lu-lojas">${x.lojas.slice(0, 4).map(l => `<span class="${f.loja === l.loja ? "on" : ""}" title="${esc(l.loja)}: ${nf0.format(l.unidades)} un. · ${rsES(l.valor)}">${esc(l.loja)} <b>${nf0.format(l.unidades)}</b></span>`).join("")}</div>` : ""}</td>
       <td class="num" data-l="ADS"><b>${rsES(x.ads)}</b></td>
       <td class="num" data-l="Faturamento">${rsES(x.valor)}<div class="muted" style="font-size:11px">${nf0.format(x.unidades)} un.${x.un7 != null ? ` · 7d ${nf0.format(x.un7)}` : ""}</div></td>
       <td class="num" data-l="ROAS"><b class="${x.roas == null ? "" : !x.roas || x.lucro_pos_ads < 0 || (x.roas_min && x.roas < x.roas_min) ? "neg" : x.roas_min && x.roas < 2 * x.roas_min ? "warn-t" : "pos"}" style="font-size:15px">${roasTx(x.roas)}</b></td>
@@ -3361,13 +3374,11 @@ async function telaLucroAds() {
       <h3 style="margin:0 8px 0 0">Produtos com ADS</h3>
       <input type="search" id="lu-q" placeholder="Buscar SKU ou produto…" value="${esc(f.q)}" style="flex:1;min-width:180px">
       <select id="lu-so"><option value="ads" ${f.so === "ads" ? "selected" : ""}>Só com ADS</option><option value="" ${f.so !== "ads" ? "selected" : ""}>Todos os produtos</option></select>
+      ${(r.por_conta || []).length ? `<select id="lu-loja"><option value="">Todas as lojas</option>${r.por_conta.map(c => `<option ${f.loja === c.nome ? "selected" : ""} value="${esc(c.nome)}">${esc(c.nome)}</option>`).join("")}</select>` : ""}
       <select id="lu-curva"><option value="">Todas as curvas</option>${["A", "B", "C", "Z"].map(k => `<option ${f.curva === k ? "selected" : ""} value="${k}">Curva ${k}</option>`).join("")}</select>
       <select id="lu-ord">${Object.entries(ORD).map(([k, [n]]) => `<option ${f.ord === k ? "selected" : ""} value="${k}">Ordenar: ${n}</option>`).join("")}</select>
       <span class="muted" id="lu-n"></span></div>
-      <div class="lu-sits">${SITS.map(([n, ic, tx, cls]) => { const ys = r.produtos.filter(x => situacao(x).n === n);
-        return ys.length ? `<button class="lu-sit ${cls}" data-sit="${n}" title="Mostrar só estes"><span class="lu-sit-ic">${ic}</span>
-          <span class="lu-sit-tx"><b>${nf0.format(ys.length)}</b> ${tx}</span><span class="lu-sit-v">ADS ${rsES(ys.reduce((a, x) => a + (x.ads || 0), 0))}</span></button>` : ""; }).join("")}
-        <button class="lu-sit todos" data-sit="" title="Mostrar todos">Todos</button></div>
+      <div class="lu-sits" id="lu-sits"></div>
       <div class="rolar"><table class="t" id="lu-tab"><thead><tr><th>Produto</th><th class="num">ADS</th><th class="num">Faturamento</th>
         <th class="num" title="Faturamento do produto ÷ ADS do produto">ROAS</th><th class="num" title="Faturamento ÷ lucro bruto: abaixo disso o ADS come todo o lucro">ROAS mínimo</th>
         <th class="num">Lucro pós ADS</th><th class="num">Disponível</th><th>Situação</th></tr></thead><tbody></tbody></table></div>
@@ -3389,9 +3400,9 @@ async function telaLucroAds() {
     $("#lu-q").oninput = e => { f.q = e.target.value; desenhar(); };
     $("#lu-so").onchange = e => { f.so = e.target.value; desenhar(); };
     $("#lu-curva").onchange = e => { f.curva = e.target.value; desenhar(); };
+    if ($("#lu-loja")) $("#lu-loja").onchange = e => { f.loja = e.target.value; desenhar(); };
     $("#lu-ord").onchange = e => { f.ord = e.target.value; desenhar(); };
-    main.querySelectorAll(".lu-sit").forEach(b => b.onclick = () => { const n = b.dataset.sit === "" ? null : +b.dataset.sit;
-      f.sit = f.sit === n ? null : n; if (f.sit != null) { f.so = "ads"; $("#lu-so").value = "ads"; } desenhar(); });
+
     main.querySelectorAll(".lu-curva").forEach(b => b.onclick = () => { f.curva = f.curva === b.dataset.curva ? "" : b.dataset.curva; $("#lu-curva").value = f.curva;
       if (f.curva === "Z") { f.so = "ads"; $("#lu-so").value = "ads"; } desenhar(); $("#lu-tab").scrollIntoView({behavior: "smooth", block: "start"}); });
     desenhar();

@@ -92,6 +92,8 @@ def test_unidade():
     assert [g["nome"] for g in lu["por_logistica"]] == ["Full", "Não Full"], lu["por_logistica"]
     # ROAS (01/10): faturamento ÷ ADS; geral = 5.400 ÷ 450; mínimo = faturamento ÷ lucro bruto
     assert pn["XER-NAX-100"]["roas"] == 12.86 and pn["XER-NAX-100"]["roas_min"] == 3.33, pn["XER-NAX-100"]
+    assert [l["loja"] for l in pn["XER-NAX-100"]["lojas"]] == ["ESSENCE PRIME", "AURA SCENT"], pn["XER-NAX-100"]["lojas"]
+    assert pn["TORINO-21"]["lojas"] == [], pn["TORINO-21"]                     # só venda reembolsada: fora
     assert pn["PARADO-1"]["roas"] == 0.0 and lu["totais"]["roas_geral"] == 12.0 and lu["totais"]["produtos_prejuizo"] == 2, lu["totais"]
     # blocos 31–60 / 61–90 / 91–120 dias atrás e a lista para promoção
     pend = w.rota_estoque(r, "GET", "estoque_vendas_blocos_pendentes", {}, b"")["blocos"]
@@ -161,7 +163,12 @@ def test_tela(lu, pr):
                 # 01/10 (Bruno): botões por situação com a quantidade; clicar mostra só esses
                 pg.click(".lu-sit[data-sit='0']")
                 assert "1 produto(s)" in pg.inner_text("#lu-n") and "PARADO-1" in pg.inner_text("#lu-tab"), pg.inner_text("#lu-n")
+                assert "ROAS" in pg.inner_text(".lu-sits") and "gastou" in pg.inner_text(".lu-sits"), pg.inner_text(".lu-sits")
                 pg.click(".lu-sit[data-sit='']")
+                pg.select_option("#lu-loja", "AURA SCENT")                         # 01/10: por loja
+                t = pg.inner_text("#lu-tab")
+                assert "XER-NAX-100" in t and "TORINO-21" not in t and "AURA SCENT" in t, t
+                pg.select_option("#lu-loja", "")
                 pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"lucro_ads_{nome}.png"), full_page=True)
                 pg.goto(f"http://127.0.0.1:{porta}/#/analises-vendas/promocao")
                 pg.wait_for_selector("#pr-tab tbody tr", timeout=15000)

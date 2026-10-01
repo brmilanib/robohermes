@@ -1158,3 +1158,6 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - Lucro e ADS (01/10, Bruno: "um botão por legenda com o número de itens; clico e vem só a lista deles"): `.lu-sits` acima
   da tabela, um botão por situação (`SITS`: ⛔ gastou sem vender, 🔴 ADS maior que o lucro, 🟡 come >50% do lucro, 🟢
   folgado, 🟢 ok) com a quantidade e o ADS somado; clicar filtra (`S.luF.sit`), "Todos" limpa.
+  Botões também com "gastou R$ X de ADS" e o ROAS do grupo (faturamento somado ÷ ADS somado) e recontados pelo filtro atual
+  (loja/curva). Filtro de loja (`#lu-loja`, contas do relatório de vendas do Gestor) e etiquetas por produto com as unidades
+  em cada loja (`produtos[].lojas`, de `analise_lucro`); o ADS do Gestor é por produto, não por loja.

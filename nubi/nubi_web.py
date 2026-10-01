@@ -4787,6 +4787,14 @@ def analise_lucro(repo):
     est = {estoque._chave(it["sku"]): it for it in itens}
     vs = g.get("linhas") or []
     jan, fim = gestor_janelas_sku(vs)
+    # 01/10 (Bruno: "dentro da listagem, por loja"): vendas de cada SKU por conta/loja (relatório de vendas do Gestor)
+    validas0 = [x for x in vs if not re.search(r"cancel|reembols|n[ãa]o pago|devol", x.get("status") or "", re.I)]
+    por_loja = {}
+    for x in validas0:
+        k, conta = estoque._chave(x.get("sku")), (x.get("conta") or "—")
+        d = por_loja.setdefault(k, {}).setdefault(conta, {"loja": conta, "unidades": 0.0, "valor": 0.0})
+        d["unidades"] += x.get("unidades") or 0
+        d["valor"] += x.get("valor") or 0
     produtos = []
     for x in abc.get("linhas") or []:
         k = estoque._chave(x["sku"])
@@ -4799,7 +4807,9 @@ def analise_lucro(repo):
         # = faturamento ÷ lucro bruto (abaixo dele o ADS come todo o lucro: MPA negativa)
         roas = round(x["valor"] / x["ads"], 2) if x["ads"] > 0 and x["valor"] else (0.0 if x["ads"] > 0 else None)
         roas_min = round(x["valor"] / x["lucro_bruto"], 2) if x["ads"] > 0 and x["lucro_bruto"] > 0 else None
-        produtos.append({**x, "roas": roas, "roas_min": roas_min, "disponivel": disp, "transito": ((it.get("transito_compra") or 0) + (it.get("transito_transf") or 0)) if it else None,
+        lojas_sku = sorted(({"loja": d["loja"], "unidades": round(d["unidades"]), "valor": round(d["valor"], 2)}
+                            for d in (por_loja.get(k) or {}).values()), key=lambda d: -d["valor"])
+        produtos.append({**x, "roas": roas, "roas_min": roas_min, "lojas": lojas_sku, "disponivel": disp, "transito": ((it.get("transito_compra") or 0) + (it.get("transito_transf") or 0)) if it else None,
                          "custo_medio": it.get("custo_medio") if it else None,
                          "un7": (jan.get(7) or {}).get(k, 0) if jan else None, "un15": (jan.get(15) or {}).get(k, 0) if jan else None,
                          "cobertura_dias": round((disp or 0) / vd, 1) if vd and disp is not None else None})
