@@ -402,6 +402,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     da foto (`_casa_foto`), abre o anúncio, lê a loja (`JS_ML_VENDEDOR`) e grava `ml_busca_foto_achou` ("certa", prova =
     foto + MLB; passo no card #126). Ordem oficial de descoberta: foto na busca → vitrine inteira (`_CustId_`, todas as
     categorias) → GTIN pelo catálogo só como confirmação. "Catálogo: Não" nunca é motivo para "não achei".
+    **Foto de anúncio de catálogo NÃO é prova** (01/10, VANVIC→BEAUTYFLOWER e AUMA→PERFUMES_BHZ errados e desfeitos à
+    mão): é a foto do produto do catálogo, igual para todos os vendedores (IDs "-MLA…"); `_card_de_catalogo` (link
+    /p/MLB) descarta o card; `ml_busca_foto_achou` nunca troca uma loja já ligada com outro seller_id (vira "candidata"
+    no card, `aviso`), confirma quando o id é o mesmo (soma anúncio/voto, confiança "certa") e anota a loja oficial
+    (`loja_oficial`) na prova; `JS_ML_VENDEDOR` lê seller_id/nickname também dos scripts da página (loja oficial sem
+    link _CustId_, caso MAMS). Teste: testes/test_busca_foto.py.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".
   - Caso real (29/09, provado pelo Cowork no navegador: foto do anúncio MLB4350649763, data 07/12/2025, R$ 149,90 e a

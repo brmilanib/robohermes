@@ -2097,9 +2097,16 @@ JS_ML_VENDEDOR = r"""() => {
   if (!v) { const a = [...document.querySelectorAll('a[href*="/perfil/"]')][0]; if (a) v = decodeURIComponent(a.href.split('/perfil/')[1].split(/[?#/]/)[0]).replace(/\+/g, ' '); }
   const h1 = q('h1'), img = q('.ui-pdp-gallery__figure img, figure img'), fr = q('.ui-pdp-price__second-line .andes-money-amount__fraction, .andes-money-amount__fraction');
   const perfil = [...document.querySelectorAll('a[href*="_CustId_"], a[href*="seller_id="]')].map(a => a.href)[0] || '';
-  const sid = (perfil.match(/_CustId_(\d+)|seller_id=(\d+)/) || []).slice(1).find(Boolean) || '';
+  let sid = (perfil.match(/_CustId_(\d+)|seller_id=(\d+)/) || []).slice(1).find(Boolean) || '';
+  // 01/10 (MAMS numa loja oficial: o cabeçalho mostra a marca "KID'S LIFE" e nenhum link _CustId_): o número do vendedor
+  // e o apelido também ficam nos dados da própria página (scripts) e no link /perfil/
+  if (!sid) { for (const s of document.scripts) { const m = (s.textContent || '').match(/"seller_id"\s*:\s*"?(\d{3,15})"?|"sellerId"\s*:\s*"?(\d{3,15})"?/); if (m) { sid = m[1] || m[2]; break; } } }
+  let apelido = '';
+  const lp = [...document.querySelectorAll('a[href*="/perfil/"]')][0];
+  if (lp) apelido = decodeURIComponent(lp.href.split('/perfil/')[1].split(/[?#/]/)[0]).replace(/\+/g, ' ');
+  if (!apelido) { for (const s of document.scripts) { const m = (s.textContent || '').match(/"nickname"\s*:\s*"([^"]{2,60})"/); if (m) { apelido = m[1]; break; } } }
   return {vendedor: (v || '').replace(/^\s*(Vendido por|Loja oficial)\s*/i, '').replace(/\s*\+?\d+\s*(mil)?\s*vendas.*$/i, '').trim(),
-          vendedor_id: sid,
+          vendedor_id: sid, apelido: apelido,
           titulo: h1 ? h1.textContent.trim() : '', foto: img ? (img.getAttribute('data-zoom') || img.getAttribute('src') || '') : '',
           preco: fr ? Number(fr.textContent.replace(/\D/g, '')) : null};
 }"""
@@ -2260,6 +2267,12 @@ def _casa_foto(fid, foto):
     return bool(fid) and fid in str(foto or "")
 
 
+def _card_de_catalogo(card):
+    """01/10 (VANVIC → BEAUTYFLOWER e AUMA → PERFUMES_BHZ errados): a foto de um anúncio DE CATÁLOGO é a foto do produto do
+    catálogo, igual para todos os vendedores daquele produto. Só um card fora do catálogo (link /MLB-…) serve de prova."""
+    return "/p/MLB" in str((card or {}).get("link") or "")
+
+
 def coletar_busca_foto(p, cfg, token, so=None):
     """01/10 (card #126, Bruno: "achou a loja e o anúncio no ML para finalizar a afirmação"): para cada seguido SEM loja,
     busca no ML o título dos anúncios mais vendidos dele (Nubimetrics), casa o card pelo ID da foto, abre o anúncio e lê a
@@ -2287,9 +2300,11 @@ def coletar_busca_foto(p, cfg, token, so=None):
                 except Exception as e:  # noqa: BLE001
                     log(f"  {v['vendedor']}: busca '{termo}' falhou ({str(e)[:100]})")
                     continue
-                card = next((r for r in rs if _casa_foto(it["fid"], r.get("foto"))), None)
+                iguais = [r for r in rs if _casa_foto(it["fid"], r.get("foto"))]
+                card = next((r for r in iguais if not _card_de_catalogo(r)), None)
                 if not card:
-                    log(f"  {v['vendedor']}: '{termo}' — {len(rs)} cards, foto {it['fid']} não está entre eles")
+                    log(f"  {v['vendedor']}: '{termo}' — {len(rs)} cards, foto {it['fid']} "
+                        + (f"só em {len(iguais)} card(s) de catálogo (foto do produto, não vale como prova)" if iguais else "não está entre eles"))
                     devagar(3)
                     continue
                 pg.goto(f"https://produto.mercadolivre.com.br/MLB-{card['id'][3:]}", wait_until="domcontentloaded", timeout=45000)
@@ -2298,11 +2313,13 @@ def coletar_busca_foto(p, cfg, token, so=None):
                     raise Falha("o Mercado Livre pediu verificação de robô: rode entrar-ml no Mac")
                 x = pg.evaluate(JS_ML_VENDEDOR)
                 r = api(token, "ml_busca_foto_achou", corpo={"vendedor": v["vendedor"], "seller_id": x.get("vendedor_id") or "",
-                                                            "nome": x.get("vendedor") or card.get("vendedor") or "", "mlb": card["id"],
+                                                            "nome": x.get("apelido") or x.get("vendedor") or card.get("vendedor") or "",
+                                                            "loja_oficial": x.get("vendedor") or "", "mlb": card["id"],
                                                             "fid": it["fid"], "titulo": x.get("titulo") or card.get("titulo") or ""}, timeout=60)
                 lj = r.get("loja") or {}
-                log(f"  {v['vendedor']}: foto {it['fid']} = {card['id']} → loja {lj.get('nome') or '?'} ({lj.get('id') or 'sem id'}, {lj.get('confianca')})")
-                partes.append(f"{v['vendedor']} → {lj.get('nome') or '?'}")
+                log(f"  {v['vendedor']}: foto {it['fid']} = {card['id']} → loja {lj.get('nome') or '?'} ({lj.get('id') or 'sem id'}, "
+                    f"{lj.get('confianca')}){' · ' + r['aviso'] if r.get('aviso') else ''}")
+                partes.append(f"{v['vendedor']} → {lj.get('nome') or '?'}" + (" (candidata)" if r.get("aviso") else ""))
                 ok = True
                 break
             if not ok:

@@ -6551,20 +6551,39 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
             lj = None
         nome = (lj or {}).get("nome") or str(d.get("nome") or "")[:120]
         link = (lj or {}).get("link") or str(d.get("link") or "")[:300] or (f"https://perfil.mercadolivre.com.br/{nome}" if nome else "")
+        oficial = str(d.get("loja_oficial") or "")[:120]
+        prova = f"foto do anúncio {mlb} (fora do catálogo) igual à do Nubimetrics (ID {fid}), achada pela busca no ML e conferida na página do anúncio"
+        if oficial and oficial.upper() != nome.upper():
+            prova += f"; o anúncio está na loja oficial {oficial}"
+        anuncio = {"anuncio": mlb, "link": precos.link_de(mlb), "titulo": str(d.get("titulo") or "")[:200], "foto_id": fid}
         x = {"id": sid or None, "nome": nome, "link": link, "votos": 1, "confianca": "certa" if sid else "provável",
-             "prova": f"foto do anúncio {mlb} igual à do Nubimetrics (ID {fid}), achada pela busca no ML e conferida na página do anúncio",
-             "anuncios": [{"anuncio": mlb, "link": precos.link_de(mlb), "titulo": str(d.get("titulo") or "")[:200], "foto_id": fid}],
-             "em": datetime.now(timezone.utc).isoformat()}
-        meli.gravar_hash_lojas(repo, {vend: x}, meli.SEGUIDOS)
-        hashes = _hashes_do_nome(repo, vend)
-        if hashes and sid:
-            meli.gravar_hash_lojas(repo, {h: {k: v for k, v in x.items() if k != "anuncios"} for h in hashes})
+             "prova": prova, "anuncios": [anuncio], "em": datetime.now(timezone.utc).isoformat()}
+        # 01/10 (VANVIC/AUMA sobrescritos por engano): loja já ligada com OUTRO seller_id nunca é trocada pelo robô; a nova
+        # vira candidata no card e o Bruno decide. Mesmo seller_id (ou a antiga sem id): a foto confirma e soma o anúncio.
+        velha = meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vend) or {}
+        aviso = ""
+        if velha.get("id") and sid and str(velha["id"]) != sid:
+            aviso = f"candidata: {vend} já está ligado a {velha.get('nome')} ({velha['id']}, {velha.get('confianca')}); a foto aponta {nome} ({sid}). Não troquei."
+            x = dict(velha)
+        elif velha.get("id") and not sid:
+            aviso = f"sem seller_id na página: {vend} continua com {velha.get('nome')} ({velha['id']})."
+            x = dict(velha)
+        elif velha and velha.get("confianca") != "manual":
+            x["anuncios"] = [a for a in (velha.get("anuncios") or []) if a.get("anuncio") != mlb] + [anuncio]
+            x["votos"] = int(velha.get("votos") or 0) + 1
+            x["prova"] = (velha.get("prova") + "; " if velha.get("prova") and velha.get("id") == x["id"] else "") + prova
+        if not aviso:
+            meli.gravar_hash_lojas(repo, {vend: x}, meli.SEGUIDOS)
+            hashes = _hashes_do_nome(repo, vend)
+            if hashes and sid:
+                meli.gravar_hash_lojas(repo, {h: {k: v for k, v in x.items() if k != "anuncios"} for h in hashes})
         try:
             repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": DESAFIO_PRINCIPAL, "autor": "mac", "tipo": "passo",
-                                                        "texto": f"📷 {vend} → {nome} ({sid or 'sem id'}): {x['prova']}"}], prefer="return=minimal")
+                                                        "texto": (f"📷 {vend} → {nome} ({sid or 'sem id'}): {prova}" if not aviso
+                                                                  else f"📷 {vend}: {aviso} Prova nova: {prova}")}], prefer="return=minimal")
         except ErroNuvem:
             pass
-        return {"ok": True, "loja": x}
+        return {"ok": True, "loja": x, "aviso": aviso}
     if rota == "ml_vitrine_pendente":
         # card #126, etapa 2: para o coletor (vitrine-seguidos), as lojas reais ligadas aos seguidos (só o seller_id)
         lojas = meli.ler_hash_lojas(repo, meli.SEGUIDOS)

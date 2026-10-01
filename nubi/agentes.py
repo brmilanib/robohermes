@@ -25,6 +25,10 @@ Ordem obrigatória (quem procura loja segue esta sequência e registra cada pass
    do card com o ID da foto do Nubimetrics (`_casa_foto`). ID igual = é o anúncio dele, sem chute. Abrir o anúncio e ler
    a loja (nome, seller_id, loja oficial, nickname, cidade). Comando do coletor: `ml-busca-foto` (rotas
    ml_busca_foto_pendente / ml_busca_foto_achou). Prova gravada = "foto <id> + MLB<n>".
+   CUIDADO (erro de 01/10, VANVIC→BEAUTYFLOWER e AUMA→PERFUMES_BHZ desfeitos): a foto de um anúncio DE CATÁLOGO é a
+   foto do produto do catálogo, igual para TODOS os vendedores daquele produto (IDs quase sempre "-MLA…"). Só um card
+   fora do catálogo (link /MLB-…, não /p/MLB…) serve de prova. E uma loja já ligada com outro seller_id nunca é trocada
+   pelo robô: a nova vira candidata no card e o Bruno decide.
 2. VITRINE INTEIRA da loja achada: lista.mercadolivre.com.br/_CustId_<seller_id> (todas as páginas, TODAS as categorias,
    não só perfume) → vend_anuncios_ml; cada card com foto cujo ID bate com vend_fotos vira anúncio ligado ao vendedor.
    Comando `vitrine-seguidos`. Quanto mais fotos batem, mais forte a prova ("certa" quando bate com link e seller_id).
