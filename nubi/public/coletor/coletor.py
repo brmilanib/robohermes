@@ -3264,7 +3264,26 @@ def _metricas_mac(info=None):
     return {"coletado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"), "origem": "mac_mini",
             "cpu_pct": _cpu_top(rodar("/usr/bin/top", "-l", "2", "-n", "0", "-s", "1")),
             "mem_pct": _mem_vm_stat(rodar("/usr/bin/vm_stat"), total), "disco_pct": disco, "temp_c": None,
-            "agentes": agentes}
+            "agentes": agentes, "extras": {"ip": _ip_publico()}}
+
+
+_IP_CACHE = {"ip": None, "em": 0.0}
+
+
+def _ip_publico():
+    """01/10 (Bruno: "colocar os IPs no monitor e controlar há quanto tempo"): IP público desta máquina (api.ipify.org),
+    guardado por 1 h. Sem rede: None."""
+    if time.time() - _IP_CACHE["em"] < 3600 and _IP_CACHE["ip"]:
+        return _IP_CACHE["ip"]
+    try:
+        with urllib.request.urlopen("https://api.ipify.org", timeout=8) as r:
+            ip = r.read().decode().strip()
+        if re.fullmatch(r"[0-9a-fA-F.:]{7,45}", ip):
+            _IP_CACHE.update(ip=ip, em=time.time())
+            return ip
+    except Exception:  # noqa: BLE001
+        pass
+    return _IP_CACHE["ip"]
 
 
 def _gpu_nvidia(rodar):
@@ -3315,7 +3334,7 @@ def _metricas_windows(info=None):
     agentes = {"atendente": atend, "ollama": bool((info or {}).get("ollama"))}
     return {"coletado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"), "origem": _nome_maquina(),
             "cpu_pct": round(cpu, 1) if cpu is not None else None, "mem_pct": mem, "disco_pct": disco, "temp_c": temp_c,
-            "agentes": agentes, **_gpu_nvidia(rodar)}
+            "agentes": agentes, "extras": {"ip": _ip_publico()}, **_gpu_nvidia(rodar)}
 
 
 EMBED = "http://localhost:11434/api/embed"

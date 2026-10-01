@@ -6785,6 +6785,8 @@ async function telaMonitor() {
       return `<div class="card pad mn-maq ${m.fora_do_ar ? "fora" : ""}"><div class="ag-cab"><h2>🖥️ ${esc(m.nome)}</h2><div style="flex:1"></div>
         <span class="st ${m.fora_do_ar ? "bad" : u.status === "alerta" ? "warn" : "good"}">${m.fora_do_ar ? "sem sinal" : u.status === "alerta" ? "alerta" : "ok"}</span></div>
         <div class="muted" style="font-size:12px;margin:-4px 0 8px">última leitura ${hora(u.coletado_em)}${m.atraso_min != null ? ` (há ${nf0.format(m.atraso_min)} min)` : ""} · ${nf0.format(m.leituras_24h)} leituras em 24 h</div>
+        ${m.ip ? `<div class="mn-med" style="margin:0 0 8px"><div class="mn-med-cab"><span>IP público</span><b class="${m.ip.trocar ? "bad" : "good"}">${esc(m.ip.ip)}</b></div>
+          <div class="muted" style="font-size:12px">${m.ip.dias != null ? `há ${nf0.format(m.ip.dias)} dia(s)${m.ip.desde ? ` (desde ${hora(m.ip.desde)})` : ""}` : "desde quando: sem histórico"}${m.ip.trocar ? ` · <b>hora de trocar: reinicie o roteador</b>` : ""}</div></div>` : `<div class="muted" style="font-size:12px;margin-bottom:6px">IP público: sem leitura ainda (vem no próximo sinal do coletor)</div>`}
         ${medida("Processador", u.cpu_pct, 90, "%", s.cpu_pct)}
         ${medida("Memória", u.mem_pct, 90, "%", s.mem_pct)}
         ${medida("Disco", u.disco_pct, 90, "%", null)}

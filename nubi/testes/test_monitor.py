@@ -104,8 +104,32 @@ def test_leitura_da_gpu_e_do_windows():
     assert c._gpu_nvidia(lambda *cmd: "") in ({}, {"gpu_pct": 37.0, "gpu_mem_pct": 25.0, "gpu_temp_c": 58.0}) or True
 
 
+
+
+def test_ip_publico_e_prazo_de_troca():
+    """01/10 (Bruno): IP de cada máquina no Monitor, há quanto tempo e aviso para trocar depois de 30 dias."""
+    class R(Repo):
+        def _req(self, metodo, tabela, q=None, corpo=None, **k):
+            if tabela == "servidor_metricas" and metodo == "GET":
+                f = (q or {}).get("extras->>ip", "")
+                rows = [{"coletado_em": "2026-08-20T10:00:00+00:00", "extras": {"ip": "177.1.1.1"}},
+                        {"coletado_em": "2026-08-25T10:00:00+00:00", "extras": {"ip": "177.2.2.2"}},
+                        {"coletado_em": "2026-10-01T11:55:00+00:00", "extras": {"ip": "177.2.2.2"}}]
+                if f.startswith("neq."):
+                    rows = [r for r in rows if r["extras"]["ip"] != f[4:]]
+                elif f.startswith("eq."):
+                    rows = [r for r in rows if r["extras"]["ip"] == f[3:]]
+                rows.sort(key=lambda r: r["coletado_em"], reverse=(q or {}).get("order", "").endswith("desc"))
+                return rows[:1]
+            return super()._req(metodo, tabela, q, corpo, **k)
+    x = monitor.ip_da_maquina(R(), "gamdias", AGORA)
+    assert x["ip"] == "177.2.2.2" and x["desde"] == "2026-08-20T10:00:00+00:00" and x["dias"] == 42.1 and x["trocar"] is True, x
+    assert monitor.ip_da_maquina(Repo(), "dell", AGORA) is None
+
+
 if __name__ == "__main__":
     test_foto_diaria_e_evolucao()
     test_maquinas_com_gpu_e_sem_sinal()
     test_leitura_da_gpu_e_do_windows()
+    test_ip_publico_e_prazo_de_troca()
     print("ok monitor")

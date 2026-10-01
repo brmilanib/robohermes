@@ -132,9 +132,41 @@ def maquinas(repo, agora=None, horas=24):
         serie["t"] = [x.get("coletado_em") for x in amostra]
         maximos = {k: max((float(v) for v in serie[k] if v is not None), default=None) for k in ("cpu_pct", "mem_pct", "temp_c", "gpu_pct")}
         out.append({"origem": origem, "nome": MAQUINAS_NOME.get(origem, origem), "ultimo": ult, "atraso_min": round(atraso, 1) if atraso is not None else None,
-                    "fora_do_ar": atraso is None or atraso > 15, "serie": serie, "maximos_24h": maximos, "leituras_24h": len(xs)})
+                    "fora_do_ar": atraso is None or atraso > 15, "serie": serie, "maximos_24h": maximos, "leituras_24h": len(xs),
+                    "ip": ip_da_maquina(repo, origem, agora)})
     out.sort(key=lambda m: (m["fora_do_ar"], m["origem"]))
     return out
+
+
+IP_TROCAR_DIAS = 30
+
+
+def ip_da_maquina(repo, origem, agora=None):
+    """01/10 (Bruno: "colocar os IPs no monitor, controlar há quanto tempo e trocar 1 vez por mês"): IP público atual da
+    máquina (extras.ip da última leitura), desde quando está com ele e se já passou do prazo de trocar (reiniciar o roteador)."""
+    agora = agora or datetime.now(timezone.utc)
+    try:
+        ult = (repo._req("GET", "servidor_metricas", {"select": "coletado_em,extras", "origem": f"eq.{origem}", "extras->>ip": "not.is.null",
+                                                      "order": "coletado_em.desc", "limit": 1}) or [None])[0]
+    except Exception:  # noqa: BLE001
+        ult = None
+    ip = ((ult or {}).get("extras") or {}).get("ip") if ult else None
+    if not ip:
+        return None
+    try:   # a última leitura com OUTRO ip = quando o atual começou (sem outra: a 1ª leitura com este ip)
+        troca = (repo._req("GET", "servidor_metricas", {"select": "coletado_em", "origem": f"eq.{origem}", "extras->>ip": f"neq.{ip}",
+                                                        "order": "coletado_em.desc", "limit": 1}) or [None])[0]
+        if troca:
+            desde = troca["coletado_em"]
+        else:
+            prim = (repo._req("GET", "servidor_metricas", {"select": "coletado_em", "origem": f"eq.{origem}", "extras->>ip": f"eq.{ip}",
+                                                           "order": "coletado_em", "limit": 1}) or [None])[0]
+            desde = (prim or ult)["coletado_em"]
+        dias = (agora - datetime.fromisoformat(str(desde).replace("Z", "+00:00"))).total_seconds() / 86400
+    except Exception:  # noqa: BLE001
+        desde, dias = None, None
+    return {"ip": ip, "desde": desde, "dias": round(dias, 1) if dias is not None else None,
+            "trocar": bool(dias is not None and dias >= IP_TROCAR_DIAS)}
 
 
 def _json(x):

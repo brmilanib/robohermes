@@ -202,7 +202,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   tarefa_eventos, atendimento_kb; `dados`; `operacao`); base por tipo = `nubi_saber_tipos()`. Máquinas: `servidor_metricas`
   ganhou gpu_pct/gpu_mem_pct/gpu_temp_c/extras; o `mac_tick` grava métricas também do servidor (origem = nome da máquina);
   no Windows `_metricas_windows` (PowerShell/WMI: CPU, memória, disco, temperatura quando a placa expõe) + `_gpu_nvidia`
-  (nvidia-smi). Sem leitura = None, nunca zero. Teste `test_monitor.py`.
+  (nvidia-smi). Sem leitura = None, nunca zero. IP público (01/10, Bruno: "colocar os IPs, controlar há quanto tempo e
+  trocar 1 vez por mês"): o coletor manda `extras.ip` (api.ipify.org, cache 1 h) nas métricas; `monitor.ip_da_maquina`
+  acha desde quando (última leitura com outro ip) e marca `trocar` com 30+ dias (`IP_TROCAR_DIAS`): a tela mostra "hora
+  de trocar: reinicie o roteador". Trocar IP é higiene mensal, nunca para fugir de bloqueio. Teste `test_monitor.py`.
 - **Regras ensinadas aos agentes (01/10)**: bloco "Regras aprendidas em 01/10" em `agentes.SISTEMA` e 5 linhas tipo
   `regra` na tabela `saber` (foto de catálogo, produto = GTIN fora de perfume, palavra de anúncio não é marca / categoria
   por produto, rodízio sem proxy, captcha do atendente).
