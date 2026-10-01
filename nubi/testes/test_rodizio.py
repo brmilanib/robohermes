@@ -22,6 +22,14 @@ class Repo(_Repo):
         if tabela == "ia_resumos" and metodo == "DELETE":
             self.resumos.pop(c[3:], None)
             return []
+        if tabela == "ia_resumos" and metodo == "POST":            # guarda também o criado_em (bloqueio do ML)
+            for r in corpo:
+                self.resumos[r["chave"]] = r["texto"]
+                self.__dict__.setdefault("criado", {})[r["chave"]] = r.get("criado_em", "x")
+            return []
+        if tabela == "ia_resumos" and metodo == "GET" and c.startswith("eq."):
+            k_ = c[3:]
+            return [{"texto": self.resumos[k_], "criado_em": self.__dict__.get("criado", {}).get(k_, "x")}] if k_ in self.resumos else []
         if tabela == "ia_resumos" and metodo == "GET" and c.startswith("like."):
             pre = c[5:].rstrip("*")
             return [{"chave": k_, "texto": v} for k_, v in self.resumos.items() if k_.startswith(pre)]
