@@ -521,7 +521,10 @@ PALAVRAS_TIPO = {"eau", "de", "toilette", "parfum", "cologne", "edt", "edp", "ed
 # Palavras que vêm depois do nome da linha e não são nome de variação (concentração, público, anúncio).
 PARA_VARIACAO = {"extrait", "extrai", "extra", "men", "man", "women", "woman", "homme", "femme", "pour", "for", "arabe", "arab",
                  "arabic", "spray", "oz", "gift", "set", "decant", "one", "size", "unisex", "corporal", "mist", "edition",
-                 "collection", "new", "nova", "novo", "lacrado", "lacrada"}
+                 "collection", "new", "nova", "novo", "lacrado", "lacrada",
+                 # 01/10: "Sabah Al Ward For Him / Her" (nome pesquisado do GTIN) virava a linha "Sabah Al Ward Him Her"
+                 "him", "her", "his", "hers", "she", "he", "them", "ladies", "lady", "mens", "womens", "feminino",
+                 "masculino", "unissex", "unisexo", "dele", "dela", "ela", "ele"}
 
 
 def _completar_linha(titulo_norm, linha, palavras_marca, cortado=False):

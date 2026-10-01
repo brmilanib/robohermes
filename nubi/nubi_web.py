@@ -764,7 +764,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 12d: ficha fixa da linha (Sabah Al Ward = EDP 100 ml, confirmada no ML); título cortado recebe o par que mais vende; revenda nunca dona de GTIN alheio"   # 01/10 (pedido do Bruno)
+REGRA_ATUAL = "regra 12e: público (For Him / Her, feminino, masculino) nunca vira variação da linha; ficha fixa da linha (Sabah Al Ward = EDP 100 ml); título cortado recebe o par que mais vende"   # 01/10 (pedido do Bruno)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"

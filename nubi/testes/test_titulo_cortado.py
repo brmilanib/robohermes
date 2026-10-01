@@ -37,7 +37,11 @@ def df():
 def test_cortado_vai_para_o_par_que_mais_vende_e_sugar_separado():
     nubi.definir_gtin_global({})
     nubi.INFO_GTIN.clear()
+    # nome da base pública do GTIN principal (UPCitemdb): "For Him / Her" não é variação (virava "Sabah Al Ward Him Her")
+    nubi.INFO_GTIN["5055810013110"] = {"nome": "Al Wataniah Sabah Al Ward For Him / Her Edp 100 Ml / 3.4 Fl. Oz 3.4 Fl Oz",
+                                       "marca": "Al Wataniah", "fonte": "UPCitemdb"}
     r = nubi.consolidar(df(), M, {M: {"linhas": LINHAS}})
+    nubi.INFO_GTIN.clear()
     prod = dict(zip(r["titulo"] + "|" + r["gtin"], r["produto"]))
     assert prod["Perfume Arabe Feminino Al Wataniah Sabah|7902287196731"] == "Al Wataniah Sabah Al Ward EDP 100 ml", prod
     assert prod["Perfume Arabe Feminino Al Wataniah Sabah|"] == "Al Wataniah Sabah Al Ward EDP 100 ml", prod

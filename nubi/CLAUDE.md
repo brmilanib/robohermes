@@ -1080,3 +1080,6 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   do coletor abre MINIMIZADO no Dock (CDP `windowState: minimized`, o macOS não deixa janela fora do monitor) com `SEM_FREIO`
   (flags que impedem o Chrome minimizado de desacelerar). Login/entrar/navegar continuam na tela (`na_tela=True`);
   `trazer_para_tela` restaura, `mandar_para_fora` minimiza de novo. Desligar: `cfg["janela_na_tela"]=True`.
+- Regra 12e (01/10): no Sabah, o GTIN principal 5055810013110 tem nome pesquisado "Sabah Al Ward For Him / Her" e a etapa 2c
+  completava a linha para "Sabah Al Ward Him Her" (31 mil un. separadas). `PARA_VARIACAO` agora tem as palavras de público
+  (him, her, his, hers, feminino, masculino, unissex...). Teste: `test_titulo_cortado.py` com esse nome pesquisado.
