@@ -1700,8 +1700,34 @@ def _clicar_texto(pg, padroes, espera=2.5):
     return False
 
 
-def baixar_vendas(pg, cfg, p=None):
-    """Baixa 'Vendas por Anúncio' (últimos 30 dias) do UpSeller. -> arquivo .xlsx (nome do UpSeller, sem renomear)."""
+def _periodo_upseller(pg, ini, fim):
+    """01/10 (Bruno: "coletar diariamente, pra calcular as frequências"): põe o período ini..fim (AAAA-MM-DD) no seletor de
+    datas do relatório (o campo "01/09/2026 - 30/09/2026" ao lado de "Últimos 30 dias"). Digita como uma pessoa: clica na
+    data inicial, apaga, digita, Enter; o mesmo na final. Confere o que ficou escrito."""
+    br = lambda d: f"{d[8:10]}/{d[5:7]}/{d[:4]}"
+    campos = pg.locator(".ant-picker-range input, .el-range-input, input[placeholder*='Data' i], input[placeholder*='Início' i], "
+                        "input[placeholder*='Fim' i]")
+    vis = [campos.nth(i) for i in range(min(campos.count(), 8)) if campos.nth(i).is_visible()]
+    if len(vis) < 2:
+        raise Falha("não achei o seletor de datas do relatório de vendas. Na tela: " + str(pg.evaluate(JS_TEXTOS))[:500])
+    for campo, valor in ((vis[0], br(ini)), (vis[1], br(fim))):
+        campo.click(timeout=8000)
+        devagar(0.8)
+        campo.press("Control+A" if sys.platform != "darwin" else "Meta+A")
+        campo.press("Backspace")
+        campo.type(valor, delay=90)
+        devagar(0.6)
+        campo.press("Enter")
+        devagar(1.2)
+    devagar(3)
+    lido = [vis[0].input_value(), vis[1].input_value()]
+    if lido != [br(ini), br(fim)]:
+        raise Falha(f"o seletor de datas não aceitou {br(ini)} a {br(fim)} (ficou {lido[0]} a {lido[1]})")
+
+
+def baixar_vendas(pg, cfg, p=None, dia=None):
+    """Baixa 'Vendas por Anúncio' (últimos 30 dias) do UpSeller. -> arquivo .xlsx (nome do UpSeller, sem renomear).
+    dia='AAAA-MM-DD' (01/10): o relatório só desse dia, para o histórico por dia."""
     url = cfg.get("upseller_vendas_url") or UPSELLER_VENDAS
     if url:
         pg.goto(url, wait_until="domcontentloaded", timeout=90000)
@@ -1744,8 +1770,11 @@ def baixar_vendas(pg, cfg, p=None):
           + a.getAttribute('href')).filter(t => /analy|analis|report|relat|statis|data|venda|sales/i.test(t)).slice(0, 25).join(' | ')""")
         raise Falha("não achei 'Análises → Vendas por Anúncio' no UpSeller. Links de análise na página: " + str(links)[:900]
                     + " · Na tela: " + str(pg.evaluate(JS_TEXTOS))[:500] + " " + diagnostico(pg))
-    _clicar_texto(pg, [r"^\s*[ÚU]ltimos 30 dias\s*$", r"^\s*30 dias\s*$"], 4)
-    destino = PASTA / "vendas"
+    if dia:
+        _periodo_upseller(pg, dia, dia)
+    else:
+        _clicar_texto(pg, [r"^\s*[ÚU]ltimos 30 dias\s*$", r"^\s*30 dias\s*$"], 4)
+    destino = PASTA / ("vendas_dia" if dia else "vendas")
     destino.mkdir(parents=True, exist_ok=True)
     # 29/09 (Mac): o Chrome fecha sozinho no download (como no estoque, 25/09): guarda o login e os links antes, deixa uma aba
     # extra aberta e, se cair, baixa pelo link com um cliente à parte (_baixar_link)
@@ -1791,7 +1820,50 @@ def baixar_vendas(pg, cfg, p=None):
     if not cfg.get("upseller_vendas_url") and "/login" not in pg.url:
         cfg["upseller_vendas_url"] = pg.url
         salvar_config(cfg)
+    if dia and dia.replace("-", "") + "-" + dia.replace("-", "") not in arq.name:
+        raise Falha(f"o arquivo baixado não é do dia {dia} ({arq.name}); o período não mudou")
     return arq
+
+
+VENDAS_DIAS_RODADA = 4          # ontem + até 3 dias que faltam dos últimos 30 (o histórico enche em ~10 dias)
+
+
+def vendas_por_dia(p, cfg, token):
+    """01/10: depois do estoque, baixa o Vendas por Anúncio de cada dia que falta (o nubi diz quais: ontem primeiro) e
+    manda a estoque_vendas_importar. Falha nunca derruba o estoque. -> nota curta para a execução."""
+    try:
+        dias = (api(token, "estoque_vendas_dias_pendentes") or {}).get("dias") or []
+    except Exception as e:  # noqa: BLE001
+        return f"vendas por dia: não consultei ({str(e)[:120]})"
+    dias = dias[:VENDAS_DIAS_RODADA]
+    if not dias:
+        return ""
+    feitos, erro, ctx = [], "", None
+    try:
+        ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        for d in dias:
+            try:
+                arq = baixar_vendas(pg, cfg, p, dia=d)
+                api(token, "estoque_vendas_importar", {"arquivo": arq.name}, arq.read_bytes())
+                feitos.append(d)
+                devagar(4)
+            except SessaoExpirada:
+                raise
+            except Exception as e:  # noqa: BLE001
+                erro = f"{d}: {str(e)[:200]}"
+                log(f"  vendas do dia {erro}")
+                break
+    except Exception as e:  # noqa: BLE001
+        erro = erro or str(e)[:200]
+    finally:
+        if ctx is not None:
+            try:
+                ctx.close()
+            except Exception:  # noqa: BLE001
+                pass
+    nota = f"vendas por dia: {len(feitos)} dia(s) importado(s)" + (f" ({', '.join(feitos)})" if feitos else "")
+    return nota + (f" · parou em {erro}" if erro else "")
 
 
 # ---------------------------------------------------------------------------
@@ -1962,6 +2034,10 @@ def coletar_estoque(p, cfg, token, enviar=True):
             log("  " + nota_gestor)
     if nota_gestor:
         nota_vendas = (nota_vendas + " · " if nota_vendas else "") + nota_gestor
+    nota_dia = vendas_por_dia(p, cfg, token)      # 01/10: histórico por dia (ontem + dias que faltam)
+    if nota_dia:
+        log("  " + nota_dia)
+        nota_vendas = (nota_vendas + " · " if nota_vendas else "") + nota_dia
     if nota_vendas:                        # 28/09: o resultado das vendas aparece na execução (dá para ver de fora do Mac)
         linhas = linhas + [nota_vendas]
         return 1, 1, 0, ((linhas[1] if len(linhas) > 2 else linhas[0])[:200] + " · " + nota_vendas)[:1500]

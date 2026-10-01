@@ -1091,3 +1091,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   último estoque: por anúncio (`estoque.por_anuncio` + disponível, em trânsito, média/dia, cobertura do SKU somando todos os
   anúncios, link do MLB), totais (faturamento, unidades, pedidos, ticket, SKUs que vendem e estão zerados) e por loja
   (clique filtra). Mesma cor de linha da lista da categoria. Só números, sem IA. Teste: `test_analises_vendas.py`.
+- **Vendas por dia + Curva ABC + anúncio sem SKU (01/10, arquivo do Bruno de 01–30/09)**:
+  - `ler_vendas` agora guarda anúncio SEM "SKU Principal" (`sem_sku`; o arquivo tinha 49 de 320, R$ 34,7 mil, TikTok da PURE
+    e alguns do ML): entra nos totais e em `por_anuncio`, fica fora das listas por SKU (`listas`, `precos_diferentes`). Com
+    isso o total bate com o UpSeller (R$ 836.875,23, 3.470 un.). A tela mostra "sem SKU" e o KPI "Anúncios sem SKU".
+  - Histórico por dia: depois do estoque, `coletor.vendas_por_dia` pergunta `estoque_vendas_dias_pendentes` (ontem primeiro,
+    depois os que faltam dos últimos 30) e baixa até `VENDAS_DIAS_RODADA`=4 dias por rodada (`baixar_vendas(dia=)` →
+    `_periodo_upseller` digita a data inicial/final no seletor e confere; o nome do arquivo tem que ter AAAAMMDD-AAAAMMDD do
+    dia). `vendas_importar` com 1 dia grava `vendas_anuncio_dia|AAAA-MM-DD` (nunca troca o de 30 dias). Falha nunca derruba
+    o estoque. A página mostra "Vendas por dia" (`mvSerie`) e, com 7/15 dias guardados, `un7`/`un15` por anúncio.
+  - Curva ABC (`estoque.curva_abc`, valor ou volume): mesma regra do UpSeller (A até 80% acumulado, B até 95%, C o resto),
+    conferida no arquivo real: 59/95/166 anúncios = 79,71/15,23/5,06% — igual à tela Análise ABC dele, então NÃO baixa outro
+    relatório. Página `#/analises-vendas/abc` (`telaCurvaABC`) e a letra A/B/C em cada anúncio. Teste: `test_analises_vendas.py`.

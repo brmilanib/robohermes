@@ -1074,6 +1074,8 @@ header.top{padding:7px 16px}
 .ec-modal tr.ec-urg td,#mv-tab tr.ec-urg td{background:rgba(220,38,38,.07)}
 .ec-modal tr.ec-alerta td,#mv-tab tr.ec-alerta td{background:rgba(234,179,8,.10)}
 .ec-modal tr.ec-ok td,#mv-tab tr.ec-ok td{background:rgba(22,163,74,.07)}
+.abc{display:inline-block;min-width:20px;padding:1px 6px;border-radius:6px;font-size:11.5px;font-weight:700;text-align:center}
+.abc-A{background:rgba(37,99,235,.14);color:#2563eb}.abc-B{background:rgba(217,119,6,.15);color:#b45309}.abc-C{background:rgba(220,38,38,.12);color:#dc2626}
 </style>
 </head>
 <body>
@@ -3167,15 +3169,78 @@ function abrirEcLista(campo, valor) {
 }
 // ---------- Minhas Lojas → 📊 Análises de Vendas (01/10; nome como o menu Análises do UpSeller, Bruno: "crie um menu Minhas Vendas com os dados do UpSeller Vendas por
 // Anúncio primeiro"). O coletor baixa o relatório de 30 dias junto do estoque; o servidor cruza com o estoque (só números).
-const MV_MENU = [["anuncio", "🧾 Vendas por Anúncio"]];
+const MV_MENU = [["anuncio", "🧾 Vendas por Anúncio"], ["abc", "🔤 Curva ABC"]];
+// 01/10 (Bruno: "vendas ABC do UpSeller, separado"): a mesma conta da Análise ABC do UpSeller (A até 80% acumulado, B até
+// 95%, C o resto), por valor ou por volume, feita com o relatório Vendas por Anúncio (conferida: 59/95/166 = 79,71/15,23/5,06%)
+function telaCurvaABC(r) {
+  const main = $("#main"), v = r.vendas || {};
+  const f = S.abcF || (S.abcF = {por: "valor", classe: "", q: ""});
+  const dia = x => x ? String(x).slice(8, 10) + "/" + String(x).slice(5, 7) : "";
+  const est = {}; r.anuncios.forEach(a => est[a.sku + "|" + a.anuncio + "|" + a.loja] = a);
+  const desenhar = () => {
+    const c = r.abc[f.por], ehValor = f.por === "valor", fmt = x => ehValor ? rsES(x) : nf0.format(x) + " un.";
+    const cor = {A: "#2563eb", B: "#d97706", C: "#dc2626"};
+    const W = 900, H = 160, n = c.itens.length || 1;
+    const pts = c.itens.map((x, i) => [(i + 1) / n * W, H - x.acum / 100 * H]);
+    const seg = k => { const ix = c.itens.map((x, i) => x.classe === k ? i : -1).filter(i => i >= 0); if (!ix.length) return "";
+      const p = [ix[0] ? pts[ix[0] - 1] : [0, H], ...ix.map(i => pts[i])];
+      return `<polyline points="${p.map(q => q.map(z => z.toFixed(1)).join(",")).join(" ")}" fill="none" stroke="${cor[k]}" stroke-width="2.5"></polyline>`; };
+    const q = f.q.toLowerCase().trim();
+    const xs = c.itens.filter(x => (!f.classe || x.classe === f.classe) && (!q || (x.sku + " " + x.produto + " " + x.anuncio).toLowerCase().includes(q)));
+    main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas · Curva ABC</h1>
+        <span class="muted">UpSeller · ${dia(v.inicio)} a ${dia(v.fim)} (${nf0.format(v.dias || 30)} dias) · ${nf0.format(c.anuncios)} anúncio(s) com venda</span></div>
+      <div class="seg" style="margin:10px 0"><button data-por="valor" class="${ehValor ? "on" : ""}">Anúncio &amp; Valor de Vendas</button><button data-por="volume" class="${!ehValor ? "on" : ""}">Anúncio &amp; Volume de Vendas</button></div>
+      <div class="kpis" style="margin:8px 0 12px">
+        <div class="kpi"><div class="l">${ehValor ? "Valor total de vendas" : "Unidades vendidas"}</div><div class="v">${fmt(c.total)}</div><div class="s">${nf0.format(c.anuncios)} anúncio(s) (100%)</div></div>
+        ${c.classes.map(k => `<div class="kpi abc-kpi" data-classe="${k.classe}" style="cursor:pointer;border-top:3px solid ${cor[k.classe]}" title="Filtrar a categoria ${k.classe}">
+          <div class="l">Categoria ${k.classe} (${nf1.format(k.pct)}%)</div><div class="v">${fmt(k.total)}</div><div class="s">${nf0.format(k.anuncios)} anúncio(s) (${nf1.format(k.pct_anuncios)}%)</div></div>`).join("")}
+      </div>
+      <div class="card" style="margin-bottom:12px"><svg viewBox="0 0 ${W} ${H + 4}" style="width:100%;height:auto;display:block" role="img" aria-label="Curva ABC acumulada">
+        ${[20, 40, 60, 80, 95].map(p => `<line x1="0" x2="${W}" y1="${H - p / 100 * H}" y2="${H - p / 100 * H}" stroke="currentColor" opacity=".08"></line><text x="2" y="${H - p / 100 * H - 2}" font-size="10" fill="currentColor" opacity=".5">${p}%</text>`).join("")}
+        ${seg("A")}${seg("B")}${seg("C")}</svg>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">A = os anúncios que somam até 80% ${ehValor ? "do faturamento" : "das unidades"}; B = de 80% a 95%; C = o resto. Mesma regra da Análise ABC do UpSeller.</p></div>
+      <div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+        <div class="seg">${["", "A", "B", "C"].map(k => `<button data-cl="${k}" class="${f.classe === k ? "on" : ""}">${k ? "Categoria " + k : "Tudo"}</button>`).join("")}</div>
+        <input type="search" id="abc-q" placeholder="Buscar SKU, produto ou anúncio…" value="${esc(f.q)}" style="flex:1;min-width:200px">
+        <span class="muted">${nf0.format(xs.length)} de ${nf0.format(c.anuncios)}</span></div>
+        <div class="rolar"><table class="t" id="abc-tab"><thead><tr><th>Produto</th><th>SKU / Anúncio</th><th>Tipo</th><th class="num">Valor de vendas</th>
+          <th class="num">% das vendas</th><th class="num">% acumulado</th><th class="num">Volume</th><th class="num">Preço médio</th>
+          <th class="num" title="Disponível do SKU no UpSeller">Disponível</th><th class="num" title="Disponível ÷ venda por dia do SKU">Cobertura</th></tr></thead><tbody>
+        ${xs.map(x => { const a = est[x.sku + "|" + x.anuncio + "|" + x.loja] || {};
+          return `<tr><td data-l="Produto"><b>${esc(x.produto || x.sku)}</b><div class="muted" style="font-size:11.5px">${esc(x.loja)}</div></td>
+          <td data-l="SKU / Anúncio">${x.sku ? esc(x.sku) : `<span class="warn-t">sem SKU</span>`}<div style="font-size:11.5px">${a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(x.anuncio)} ↗</a>` : esc(x.anuncio)}</div></td>
+          <td data-l="Tipo"><span class="abc abc-${x.classe}">${x.classe}</span></td>
+          <td class="num" data-l="Valor"><b>${rsES(x.valor)}</b></td><td class="num" data-l="% vendas">${nf1.format(x.pct)}%</td>
+          <td class="num" data-l="% acumulado">${nf1.format(x.acum)}%</td><td class="num" data-l="Volume">${nf0.format(x.unidades)}</td>
+          <td class="num" data-l="Preço médio">${x.preco ? rsES(x.preco) : "—"}</td>
+          <td class="num" data-l="Disponível">${a.estoque == null ? "—" : `<b class="${a.estoque > 0 ? "" : "neg"}">${nf0.format(a.estoque)}</b>`}</td>
+          <td class="num" data-l="Cobertura"><b class="${a.cobertura_dias == null ? "" : a.cobertura_dias < 15 ? "neg" : a.cobertura_dias < 30 ? "warn-t" : "pos"}">${a.cobertura_dias == null ? "—" : nf0.format(a.cobertura_dias) + " d"}</b></td></tr>`; }).join("")
+          || `<tr><td colspan="10" class="empty">Nenhum anúncio.</td></tr>`}</tbody></table></div></div>`;
+    main.querySelectorAll("[data-por]").forEach(b => b.onclick = () => { f.por = b.dataset.por; desenhar(); });
+    main.querySelectorAll("[data-cl]").forEach(b => b.onclick = () => { f.classe = b.dataset.cl; desenhar(); });
+    main.querySelectorAll(".abc-kpi").forEach(b => b.onclick = () => { f.classe = f.classe === b.dataset.classe ? "" : b.dataset.classe; desenhar(); });
+    const qi = $("#abc-q"); qi.oninput = e => { f.q = e.target.value; const pos = qi.selectionStart; desenhar(); const n2 = $("#abc-q"); n2.focus(); n2.setSelectionRange(pos, pos); };
+  };
+  desenhar();
+}
+// barras das unidades por dia (SVG simples, sem biblioteca)
+function mvSerie(xs) {
+  const W = 900, H = 140, max = Math.max(1, ...xs.map(x => x.unidades || 0)), bw = W / xs.length;
+  return `<svg viewBox="0 0 ${W} ${H + 18}" preserveAspectRatio="none" style="width:100%;height:150px;display:block" role="img" aria-label="Unidades vendidas por dia">
+    ${xs.map((x, i) => { const h = Math.round((x.unidades || 0) / max * H);
+      return `<g><title>${x.dia.slice(8, 10)}/${x.dia.slice(5, 7)}: ${nf0.format(x.unidades || 0)} un. · ${rsES(x.valor || 0)}</title>
+        <rect x="${(i * bw + bw * .15).toFixed(1)}" y="${H - h}" width="${(bw * .7).toFixed(1)}" height="${h}" rx="2" fill="var(--accent, #2563eb)" opacity=".8"></rect>
+        ${xs.length <= 31 ? `<text x="${(i * bw + bw / 2).toFixed(1)}" y="${H + 13}" font-size="10" text-anchor="middle" fill="currentColor" opacity=".6">${x.dia.slice(8, 10)}</text>` : ""}</g>`; }).join("")}</svg>`;
+}
 async function telaMinhasVendas() {
   const main = $("#main");
   main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo as vendas por anúncio do UpSeller</div></div>`;
   let r;
   try { r = await api("estoque_vendas_anuncio"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/analises-vendas")) return;
+  if (!r.vazio && location.hash.startsWith("#/analises-vendas/abc")) return telaCurvaABC(r);
   if (r.vazio) { main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas</h1></div><div class="card empty">Ainda não chegou o relatório Vendas por Anúncio do UpSeller. O coletor baixa junto do estoque (00:30, 11:30 e 18:30).</div>`; return; }
-  const v = r.vendas || {}, t = r.totais || {};
+  const v = r.vendas || {}, t = r.totais || {}, jan = r.janelas || [];
   const f = S.mvF || (S.mvF = {loja: "", q: "", ord: "valor"});
   const dt = x => x ? new Date(x).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
   const dia = x => x ? String(x).slice(8, 10) + "/" + String(x).slice(5, 7) : "";
@@ -3188,10 +3253,10 @@ async function telaMinhasVendas() {
     const xs = r.anuncios.filter(a => (!f.loja || a.loja === f.loja) && (!q || (a.sku + " " + a.produto + " " + a.anuncio).toLowerCase().includes(q)))
       .sort(ORD[f.ord][1]);
     $("#mv-tab tbody").innerHTML = xs.map(a => `<tr class="ec-${nivel(a)}">
-      <td data-l="Anúncio"><b>${esc(a.produto || a.sku)}</b><div class="muted" style="font-size:11.5px">${esc(a.sku)} · ${a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.anuncio)} ↗</a>` : esc(a.anuncio)}</div></td>
-      <td data-l="Loja"><span class="pill">${esc(a.loja)}</span></td>
+      <td data-l="Anúncio"><b>${esc(a.produto || a.sku)}</b><div class="muted" style="font-size:11.5px">${a.sem_sku ? `<span class="warn-t" title="Anúncio sem SKU Principal no UpSeller: não liga ao estoque">sem SKU</span>` : esc(a.sku)} · ${a.link ? `<a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.anuncio)} ↗</a>` : esc(a.anuncio)}</div></td>
+      <td data-l="Loja"><span class="pill">${esc(a.loja)}</span>${a.abc ? ` <span class="abc abc-${a.abc}" title="Curva ABC pelo faturamento">${a.abc}</span>` : ""}</td>
       <td class="num" data-l="Unidades"><b>${nf0.format(a.unidades)}</b><div class="muted" style="font-size:11px">${nf0.format(a.pedidos)} pedido(s)</div></td>
-      <td class="num" data-l="Média/dia">${a.media_dia ? nf1.format(a.media_dia) : "—"}</td>
+      <td class="num" data-l="Média/dia">${a.media_dia ? nf1.format(a.media_dia) : "—"}${jan.length ? `<div class="muted" style="font-size:11px">${jan.map(n => `${n}d: ${nf0.format(a["un" + n] ?? 0)}`).join(" · ")}</div>` : ""}</td>
       <td class="num" data-l="Faturamento">${rsES(a.valor)}</td>
       <td class="num" data-l="Preço médio">${a.preco != null ? rsES(a.preco) : "—"}</td>
       <td class="num" data-l="Custo médio">${a.custo != null ? rsES(a.custo) : "—"}</td>
@@ -3209,8 +3274,13 @@ async function telaMinhasVendas() {
       <div class="kpi"><div class="l">Unidades</div><div class="v">${nf0.format(t.unidades)}</div><div class="s">${nf1.format(t.media_dia)} por dia</div></div>
       <div class="kpi"><div class="l">Pedidos</div><div class="v">${nf0.format(t.pedidos)}</div><div class="s">ticket ${t.ticket != null ? rsES(t.ticket) : "—"}</div></div>
       <div class="kpi"><div class="l">Anúncios com venda</div><div class="v">${nf0.format(t.anuncios)}</div><div class="s">${nf0.format(t.skus)} SKU(s)</div></div>
+      ${t.sem_sku ? `<div class="kpi"><div class="l">Anúncios sem SKU</div><div class="v warn-t">${nf0.format(t.sem_sku)}</div><div class="s">${rsES(t.sem_sku_valor)} · cadastre o SKU no UpSeller</div></div>` : ""}
       <div class="kpi"><div class="l">Vendem e estão zerados</div><div class="v ${t.sem_estoque ? "neg" : ""}">${nf0.format(t.sem_estoque)}</div><div class="s">SKU(s) sem disponível</div></div>
     </div>
+    <div class="card" style="margin-bottom:12px"><h3 style="margin:0 0 4px">Vendas por dia</h3>
+      ${(r.serie || []).length ? mvSerie(r.serie) : ""}
+      <p class="muted" style="font-size:12px;margin:6px 0 0">${(r.serie || []).length ? `${nf0.format(r.dias_guardados)} dia(s) guardado(s).` : "Ainda sem dias guardados."}
+        Todo dia, junto do estoque, o coletor baixa o relatório só de ontem (e até 3 dias que faltam dos últimos 30); com 7 e 15 dias guardados aparecem as vendas de 7d e 15d por anúncio.</p></div>
     <div class="card" style="margin-bottom:12px"><h3 style="margin:0 0 8px">Por loja</h3><table class="t"><thead><tr><th>Loja</th><th class="num">Anúncios</th><th class="num">Pedidos</th>
       <th class="num">Unidades</th><th class="num">Média/dia</th><th class="num">Faturamento</th><th class="num">Ticket médio</th><th class="num">% do faturamento</th></tr></thead><tbody>
       ${r.lojas.map(l => `<tr class="mv-loja" data-loja="${esc(l.loja)}" style="cursor:pointer" title="Filtrar por esta loja"><td data-l="Loja"><b>${esc(l.loja)}</b></td><td class="num" data-l="Anúncios">${nf0.format(l.anuncios)}</td>

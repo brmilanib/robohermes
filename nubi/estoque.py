@@ -262,9 +262,12 @@ def ler_vendas(conteudo):
     for row in linhas:
         it = {campo: row[i] if i < len(row) else None for i, campo in mapa.items()}
         sku = str(it.get("sku") or "").strip()
-        if not sku:
+        # 01/10 (arquivo do Bruno: 49 de 320 anúncios sem SKU, R$ 34,7 mil): anúncio sem SKU Principal também é venda —
+        # entra nos totais e na lista por anúncio (sem_sku), mas não nas listas por SKU (não liga ao estoque)
+        if not sku and not str(it.get("anuncio") or "").strip():
             continue
         it["sku"] = sku
+        it["sem_sku"] = not sku
         for c in VENDAS_NUMEROS:
             it[c] = _num(it.get(c)) or 0.0
         for c in ("produto", "loja", "anuncio"):
@@ -383,7 +386,8 @@ def listas(itens, vendas, dias=30, alerta=ALERTA_DIAS, alvo=ALVO_DIAS, gestor=No
     Venda por dia = unidades vendidas no período / dias. Cobertura = (disponível + em trânsito da compra) / venda por dia."""
     import math
     por = {}
-    for v in vendas or []:
+    todas, vendas = vendas, [v for v in vendas or [] if v.get("sku")]      # sem SKU: só na lista por anúncio
+    for v in vendas:
         k = _chave(v["sku"])
         x = por.setdefault(k, {"sku": v["sku"], "produto": v.get("produto") or "", "unidades": 0.0, "pedidos": 0.0,
                                "valor": 0.0, "anuncios": 0, "lojas": set()})
@@ -419,7 +423,7 @@ def listas(itens, vendas, dias=30, alerta=ALERTA_DIAS, alvo=ALVO_DIAS, gestor=No
             if r["sugerido"] > 0:
                 comprar.append(r)
     comprar.sort(key=lambda r: (r["cobertura_dias"] if r["cobertura_dias"] is not None else 9e9, -r["vendidos"]))
-    anuncios = por_anuncio(itens, vendas, dias, gestor)
+    anuncios = por_anuncio(itens, todas, dias, gestor)
     return {"dias": dias, "alerta_dias": alerta, "alvo_dias": alvo, "zerados": zerados, "mais_vendidos": vendidos,
             "comprar": comprar, "zerados_com_venda": sum(1 for r in zerados if r["vendidos"] > 0),
             "vendas_sem_estoque": sum(1 for r in vendidos if not r["no_estoque"]),
@@ -455,7 +459,7 @@ def por_anuncio(itens, vendas, dias=30, gestor=None):
     real = gestor_por_sku(gestor)
     out = []
     for v in vendas or []:
-        it = est.get(_chave(v["sku"])) or {}
+        it = (est.get(_chave(v["sku"])) or {}) if v.get("sku") else {}
         un, ped, val = v.get("unidades") or 0, v.get("pedidos") or 0, v.get("valor") or 0
         preco = v.get("preco_medio") or (val / un if un else 0)
         custo = it.get("custo_medio")
@@ -468,16 +472,46 @@ def por_anuncio(itens, vendas, dias=30, gestor=None):
                     "pedidos_dia": round(ped / dias, 2), "frequencia": _frequencia(ped, dias),
                     "estoque": (it.get("disponivel") or 0) if it else None,
                     "margem_real_pct": (real.get(_chave(v["sku"])) or {}).get("margem_pct"),
-                    "lucro_un": (real.get(_chave(v["sku"])) or {}).get("lucro_un")})
+                    "lucro_un": (real.get(_chave(v["sku"])) or {}).get("lucro_un"), "sem_sku": not v.get("sku")})
     out.sort(key=lambda r: (-r["valor"], -r["unidades"]))
     return out
+
+
+ABC_A, ABC_B = 0.80, 0.95      # igual ao UpSeller (conferido em 01/10: 59/95/166 anúncios = 79,71% / 15,23% / 5,06%)
+
+
+def curva_abc(vendas, por="valor"):
+    """01/10 (Bruno: "coloque também as vendas ABC do UpSeller"): curva ABC por anúncio, como a Análise ABC do UpSeller
+    ("Anúncio & Valor de Vendas" / "Anúncio & Volume de Vendas"): ordena pelo valor (ou unidades), acumula; A até 80% do
+    acumulado, B até 95%, C o resto. Mesmo relatório Vendas por Anúncio, sem baixar outro."""
+    campo = "valor" if por == "valor" else "unidades"
+    xs = sorted((v for v in vendas or [] if (v.get(campo) or 0) > 0), key=lambda v: -(v.get(campo) or 0))
+    tot = sum(v.get(campo) or 0 for v in xs)
+    out, ac = [], 0.0
+    res = {k: {"classe": k, "anuncios": 0, "total": 0.0} for k in "ABC"}
+    for v in xs:
+        ac += v.get(campo) or 0
+        acum = ac / tot if tot else 0
+        k = "A" if acum <= ABC_A + 1e-9 else "B" if acum <= ABC_B + 1e-9 else "C"
+        res[k]["anuncios"] += 1
+        res[k]["total"] += v.get(campo) or 0
+        out.append({"anuncio": v.get("anuncio") or "", "sku": v.get("sku") or "", "produto": v.get("produto") or "",
+                    "loja": _loja_curta(v.get("loja")), "valor": round(v.get("valor") or 0, 2), "unidades": round(v.get("unidades") or 0),
+                    "preco": v.get("preco_medio"), "pct": round((v.get(campo) or 0) / tot * 100, 2) if tot else 0,
+                    "acum": round(acum * 100, 2), "classe": k})
+    n = len(xs)
+    for r in res.values():
+        r["pct"] = round(r["total"] / tot * 100, 2) if tot else 0
+        r["pct_anuncios"] = round(r["anuncios"] / n * 100, 2) if n else 0
+        r["total"] = round(r["total"], 2)
+    return {"por": campo, "total": round(tot, 2), "anuncios": n, "classes": [res[k] for k in "ABC"], "itens": out}
 
 
 def precos_diferentes(anuncios, limite=PRECO_DIFERENTE):
     """SKUs vendidos em mais de um anúncio com preço médio muito diferente (o mais barato pode estar deixando dinheiro)."""
     por = {}
     for a in anuncios:
-        if a["preco"]:
+        if a["preco"] and a["sku"]:
             por.setdefault(_chave(a["sku"]), []).append(a)
     out = []
     for xs in por.values():

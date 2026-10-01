@@ -132,14 +132,15 @@ def test_falha_do_gestor_nao_derruba_o_estoque():
     c.api = lambda token, rota, q=None, corpo=None, **k: enviados.append(rota) or {"log": ["OK: estoque", "640 SKUs"]}
     try:
         r = c.coletar_estoque(None, {}, "T")
-        assert enviados == ["estoque_importar"] and r[1] == 1, (enviados, r)
+        # 01/10: depois do estoque, o coletor pergunta quais dias do Vendas por Anúncio faltam (aqui nenhum)
+        assert enviados == ["estoque_importar", "estoque_vendas_dias_pendentes"] and r[1] == 1, (enviados, r)
         assert "vendas do Gestor: não baixou" in r[3], r
         g = c.PASTA / "gestor_vendas.xlsx"
         g.write_bytes(PLANILHA)
         c.baixar_gestor_vendas = lambda pg, cfg, p=None: (g, date(2026, 8, 30), date(2026, 9, 28))
         enviados.clear()
         c.coletar_estoque(None, {}, "T")
-        assert enviados == ["estoque_importar", "gestor_vendas_importar"], enviados
+        assert enviados == ["estoque_importar", "gestor_vendas_importar", "estoque_vendas_dias_pendentes"], enviados
     finally:
         (c.abrir_navegador, c.baixar_estoque, c.baixar_vendas, c.baixar_gestor_vendas, c.guardar_sessao, c.enviar_foto, c.api) = antes
 

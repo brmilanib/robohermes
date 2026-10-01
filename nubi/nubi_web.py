@@ -4507,6 +4507,18 @@ def vendas_importar(repo, conteudo, arquivo, origem="coletor"):
         raise ErroNuvem(f"Relatório de vendas não importado: {e}.")
     ini, fim, dias = estoque.periodo_vendas(arquivo)
     h = ranking.hash_de(conteudo)
+    if ini and ini == fim:
+        # 01/10 (Bruno: "coletar diariamente, pra calcular as frequências"): relatório de 1 dia vai para o histórico por dia
+        # (vendas_anuncio_dia|AAAA-MM-DD) e nunca troca o de 30 dias
+        agora = datetime.now(timezone.utc).isoformat()
+        d = {"arquivo": arquivo, "origem": origem, "hash": h, "importado_em": agora, "dia": ini, "anuncios": len(linhas),
+             "unidades": round(sum(x["unidades"] for x in linhas)), "valor": round(sum(x["valor"] for x in linhas), 2),
+             "pedidos": round(sum(x["pedidos"] for x in linhas)), "linhas": linhas}
+        repo._req("POST", "ia_resumos", corpo=[{"chave": f"{VENDAS_DIA_CHAVE}{ini}", "ia": "upseller", "criado_em": agora,
+                                                 "texto": json.dumps(d, ensure_ascii=False)}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True, "dia": ini, "log": [f"OK: vendas do dia {ini[8:10]}/{ini[5:7]}: {len(linhas)} anúncios, "
+                                                f"{d['unidades']} unidades."]}
     atual = _vendas_atuais(repo) or {}
     if atual.get("hash") == h:
         return {"ok": True, "repetido": True, "log": ["Esse relatório de vendas já foi importado."]}
@@ -4514,7 +4526,7 @@ def vendas_importar(repo, conteudo, arquivo, origem="coletor"):
     unidades = round(sum(x["unidades"] for x in linhas))
     valor = round(sum(x["valor"] for x in linhas), 2)
     d = {"arquivo": arquivo, "origem": origem, "hash": h, "importado_em": agora, "inicio": ini, "fim": fim, "dias": dias,
-         "anuncios": len(linhas), "skus": len({estoque._chave(x["sku"]) for x in linhas}), "unidades": unidades, "valor": valor,
+         "anuncios": len(linhas), "skus": len({estoque._chave(x["sku"]) for x in linhas if x["sku"]}), "unidades": unidades, "valor": valor,
          "linhas": linhas}
     resumo = {k: v for k, v in d.items() if k != "linhas"}
     repo._req("POST", "ia_resumos", corpo=[
@@ -4526,6 +4538,38 @@ def vendas_importar(repo, conteudo, arquivo, origem="coletor"):
 
 
 GESTOR_VENDAS_CHAVE = "gestor_vendas|atual"
+VENDAS_DIA_CHAVE = "vendas_anuncio_dia|"
+VENDAS_DIAS_HIST = 30
+
+
+def vendas_dias_guardados(repo):
+    """Dias (AAAA-MM-DD) que já têm o Vendas por Anúncio de 1 dia guardado."""
+    rs = repo._todos("ia_resumos", {"select": "chave", "chave": f"like.{VENDAS_DIA_CHAVE}*"}) or []
+    return sorted(r["chave"][len(VENDAS_DIA_CHAVE):] for r in rs)
+
+
+def vendas_dias_pendentes(repo, agora=None):
+    """Ontem primeiro (se falta), depois os dias que faltam dos últimos VENDAS_DIAS_HIST, do mais recente para trás."""
+    hoje = (agora or _agora_br()).date()
+    tem = set(vendas_dias_guardados(repo))
+    alvo = [(hoje - timedelta(days=i)).isoformat() for i in range(1, VENDAS_DIAS_HIST + 1)]
+    return [d for d in alvo if d not in tem]
+
+
+def vendas_por_dia(repo, dias=VENDAS_DIAS_HIST, agora=None):
+    """{dia: {sku_anuncio: unidades...}} lidos do histórico por dia (só os que existem)."""
+    hoje = (agora or _agora_br()).date()
+    desde = (hoje - timedelta(days=dias)).isoformat()
+    rs = repo._todos("ia_resumos", {"select": "chave,texto", "chave": f"like.{VENDAS_DIA_CHAVE}*"}) or []
+    out = {}
+    for r in rs:
+        if r["chave"][len(VENDAS_DIA_CHAVE):] < desde:
+            continue
+        try:
+            out[r["chave"][len(VENDAS_DIA_CHAVE):]] = json.loads(r["texto"])
+        except (TypeError, ValueError):
+            continue
+    return dict(sorted(out.items()))
 
 
 def gestor_vendas_importar(repo, conteudo, arquivo, inicio=None, fim=None, origem="coletor"):
@@ -4646,8 +4690,9 @@ def minhas_vendas_anuncio(repo):
     est = {estoque._chave(it["sku"]): it for it in itens}
     un_sku = {}
     for a in an:
-        k = estoque._chave(a["sku"])
-        un_sku[k] = un_sku.get(k, 0) + (a["unidades"] or 0)
+        if a["sku"]:
+            k = estoque._chave(a["sku"])
+            un_sku[k] = un_sku.get(k, 0) + (a["unidades"] or 0)
     lojas = {}
     for a in an:
         k = estoque._chave(a["sku"])
@@ -4655,7 +4700,7 @@ def minhas_vendas_anuncio(repo):
         disp = it.get("disponivel") if it else None
         a["transito"] = ((it.get("transito_compra") or 0) + (it.get("transito_transf") or 0)) if it else None
         a["media_dia"] = round(a["unidades"] / dias, 2)
-        vd = un_sku.get(k, 0) / dias
+        vd = un_sku.get(k, 0) / dias if a["sku"] else 0
         a["cobertura_dias"] = round((disp or 0) / vd, 1) if vd and disp is not None else None
         a["link"] = (f"https://produto.mercadolivre.com.br/MLB-{a['anuncio'][3:]}"
                      if re.fullmatch(r"MLB\d+", str(a["anuncio"] or "")) else "")
@@ -4668,14 +4713,41 @@ def minhas_vendas_anuncio(repo):
     for l in lojas.values():
         l["ticket"] = round(l["valor"] / l["pedidos"], 2) if l["pedidos"] else None
         l["media_dia"] = round(l["unidades"] / dias, 1)
+    # 01/10: histórico por dia (Vendas por Anúncio de 1 dia, baixado todo dia): unidades nos últimos 7 e 15 dias por anúncio
+    # (só quando há esses dias guardados) e a série do total por dia
+    hist = vendas_por_dia(repo)
+    hoje = _agora_br().date()
+    chave_an = lambda x: (estoque._chave(x.get("sku")), str(x.get("anuncio") or ""), estoque._loja_curta(x.get("loja")))
+    janela = {}
+    for n in (7, 15):
+        ds = [(hoje - timedelta(days=i)).isoformat() for i in range(1, n + 1)]
+        if all(d in hist for d in ds):
+            soma = {}
+            for d in ds:
+                for x in hist[d].get("linhas") or []:
+                    soma[chave_an(x)] = soma.get(chave_an(x), 0) + (x.get("unidades") or 0)
+            janela[n] = soma
+    for a in an:
+        k = (estoque._chave(a["sku"]), str(a["anuncio"] or ""), a["loja"])
+        for n, soma in janela.items():
+            a[f"un{n}"] = round(soma.get(k, 0))
+    abc = {"valor": estoque.curva_abc(v["linhas"], "valor"), "volume": estoque.curva_abc(v["linhas"], "volume")}
+    classe = {(x["sku"], x["anuncio"], x["loja"]): x["classe"] for x in abc["valor"]["itens"]}
+    for a in an:
+        a["abc"] = classe.get((a["sku"], a["anuncio"], a["loja"]))
+    serie = [{"dia": d, "unidades": h.get("unidades"), "valor": h.get("valor"), "pedidos": h.get("pedidos")}
+             for d, h in hist.items()]
     tot_un = sum(a["unidades"] for a in an)
     tot_val = round(sum(a["valor"] for a in an), 2)
     tot_ped = sum(a["pedidos"] for a in an)
     return {"vendas": {k: x for k, x in v.items() if k != "linhas"}, "estoque_em": (ult or {}).get("criado_em"),
             "totais": {"anuncios": len(an), "skus": len(un_sku), "pedidos": tot_ped, "unidades": tot_un, "valor": tot_val,
                        "ticket": round(tot_val / tot_ped, 2) if tot_ped else None, "media_dia": round(tot_un / dias, 1),
-                       "sem_estoque": sum(1 for k, u in un_sku.items() if u and (est.get(k) or {}).get("disponivel", 0) <= 0)},
-            "lojas": sorted(lojas.values(), key=lambda l: -l["valor"]), "anuncios": an}
+                       "sem_estoque": sum(1 for k, u in un_sku.items() if u and (est.get(k) or {}).get("disponivel", 0) <= 0),
+                       "sem_sku": sum(1 for a in an if a.get("sem_sku")),
+                       "sem_sku_valor": round(sum(a["valor"] for a in an if a.get("sem_sku")), 2)},
+            "lojas": sorted(lojas.values(), key=lambda l: -l["valor"]), "anuncios": an,
+            "serie": serie, "janelas": sorted(janela), "dias_guardados": len(hist), "abc": abc}
 
 
 MARCA_SKU_CHAVE = "estoque|marca_sku"
@@ -6570,6 +6642,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         data = lambda k: q.get(k) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(q.get(k) or "")) else None
         return gestor_vendas_importar(repo, corpo, (q.get("arquivo") or "relatorio_de_vendas.xlsx")[:200], data("inicio"), data("fim"),
                                       "manual" if q.get("origem") == "manual" else "coletor")
+    if rota == "estoque_vendas_dias_pendentes":
+        return {"dias": vendas_dias_pendentes(repo)}
     if rota == "estoque_vendas_anuncio":
         return minhas_vendas_anuncio(repo)
     if rota == "estoque_compras":
