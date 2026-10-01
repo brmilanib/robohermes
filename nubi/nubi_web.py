@@ -3321,7 +3321,7 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("monitor", "rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "perseguir", "resumo_semana", "resumo_marcas", "nomes_marcas",
+NO_SERVIDOR = ("monitor", "confirmar_loja", "rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "perseguir", "resumo_semana", "resumo_marcas", "nomes_marcas",
                "noticias", "auditoria", "reuniao", "design", "revisao", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 ROTINAS_TEXTO = ("resumo_dia", "resumo_semana", "resumo_marcas", "nomes_marcas", "noticias")   # texto sem conferência de número
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
@@ -3626,6 +3626,8 @@ def rodar_rotinas(repo, so=None):
                 res = revisar_agrupamento(repo, forcar=bool(so))
             elif rid == "monitor":
                 res = monitor.coletar(repo, forcar=bool(so))
+            elif rid == "confirmar_loja":
+                res = confirmar_pendentes(repo)
             elif rid == "resumo_marcas":
                 x = resumos_marcas_pendentes(repo)
                 res = "; ".join(f"{k.split('|')[1]} {k.split('|')[2]}: {v}" for k, v in x.items()) or "nada novo (análises do mês já feitas)"
@@ -4951,6 +4953,123 @@ def _descobrir_loja(repo, vid):
     un = (sum(u for u in (meli._num(l.get("un")) for l in linhas) if u and u == u)
           or sum(float(l.get("unidades") or 0) for l in seg))
     return _achar_e_gravar(repo, nome if rel else "", refs, hashes=[vid], seguido=nome if rel else None, un_mes=un or None)
+
+
+CONFIRMAR_CHAVE = "seguidos|confirmar"       # ia_resumos: [{"vendedor": nome, "n": 50}] à espera da rotina confirmar_loja
+PRECO_PERTO = 0.10                            # preço médio do mês do Nubimetrics x preço de agora: ±10% = "bate"
+
+
+def confirmar_pelo_catalogo(repo, vendedor, n=50, candidatas=None):
+    """01/10 (Bruno: "entrando no catálogo dá pra confirmar se a loja tá dentro"): etapa 3 da técnica, só CONFIRMAÇÃO.
+    Pega os `n` produtos de catálogo em que o vendedor seguido mais vendeu no último relatório, abre a listagem de
+    vendedores de cada um (/products/{id}/items, a mesma lista do botão "Ver todas as opções de compra") e conta em
+    quantos cada loja aparece, com preço perto do médio do mês e Full igual. Só vira "certa" se a 1ª do ranking for uma
+    das candidatas (a loja já ligada ou nome parecido com o do seguido) e estiver bem na frente da 2ª: o catálogo nunca
+    descobre uma loja nova, porque muitas lojas vendem os mesmos produtos."""
+    vendedor = str(vendedor or "").strip()
+    seg, rel = _linhas_seguido(repo, vendedor)
+    if not rel:
+        return {"ok": False, "motivo": f"{vendedor}: sem relatório do Nubimetrics"}
+    refs = [l for l in seg if l.get("catalogo") and l.get("gtins") and (l.get("estado") or "active") == "active"]
+    refs.sort(key=lambda l: -float(l.get("unidades") or 0))
+    por_gtin = {}
+    for l in refs:
+        g = l["gtins"][0]
+        if re.fullmatch(r"\d{8,14}", str(g)) and g not in por_gtin:
+            por_gtin[g] = l
+        if len(por_gtin) >= n:
+            break
+    gtins = list(por_gtin)
+    if not gtins:
+        return {"ok": False, "motivo": f"{vendedor}: nenhum anúncio de catálogo com GTIN no relatório"}
+    ofs = meli.ofertas_por_gtin(gtins, limite_produtos=1, max_gtins=len(gtins))
+    vistos = {}                                              # (loja, gtin) -> {preco_bate, full_bate}
+    for o in ofs:
+        sid, g = str(o.get("vendedor_id") or ""), o.get("gtin_busca")
+        ref = por_gtin.get(g)
+        if not sid or not ref:
+            continue
+        pr, pn = float(ref.get("preco") or 0), float(o.get("preco") or 0)
+        v = vistos.setdefault((sid, g), {"preco_bate": False, "full_bate": False})
+        v["preco_bate"] = v["preco_bate"] or bool(pr and pn and abs(pn - pr) / pr <= PRECO_PERTO)
+        v["full_bate"] = v["full_bate"] or (bool(o.get("full")) == bool(ref.get("full")))
+    lojas = {}
+    for (sid, g), v in vistos.items():
+        x = lojas.setdefault(sid, {"id": sid, "produtos": 0, "preco_bate": 0, "full_bate": 0})
+        x["produtos"] += 1; x["preco_bate"] += int(v["preco_bate"]); x["full_bate"] += int(v["full_bate"])
+    rank = sorted(lojas.values(), key=lambda x: (-x["produtos"], -x["preco_bate"], -x["full_bate"]))[:10]
+    try:
+        nomes = meli.lojas([x["id"] for x in rank])
+    except Exception:  # noqa: BLE001
+        nomes = {}
+    for x in rank:
+        lj = nomes.get(x["id"]) or {}
+        x["nome"] = lj.get("nome") or ""; x["link"] = lj.get("link") or ""
+    atual = meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor) or {}
+    chave_nome = re.sub(r"[^A-Z0-9]", "", vendedor.split()[0].upper()) if vendedor else ""
+    cands = {str(c).upper() for c in (candidatas or [])}
+    for x in rank:
+        nm = re.sub(r"[^A-Z0-9]", "", x["nome"].upper())
+        x["candidata"] = bool((atual.get("id") and str(atual["id"]) == x["id"]) or x["nome"].upper() in cands or str(x["id"]) in cands
+                              or (len(chave_nome) >= 4 and chave_nome in nm))
+    out = {"ok": True, "vendedor": vendedor, "testados": len(gtins), "relatorio": str(rel.get("mes") or "")[:7], "ranking": rank,
+           "atual": {k: atual.get(k) for k in ("id", "nome", "confianca")} if atual else None}
+    top = rank[0] if rank else None
+    # a "2ª" que importa é a outra candidata mais forte (duas candidatas parecidas = empate); sem outra, a 2ª do ranking
+    seg2 = next((x for x in rank[1:] if x["candidata"]), rank[1] if len(rank) > 1 else {"produtos": 0, "preco_bate": 0})
+    forte = bool(top and top["candidata"] and top["produtos"] >= 0.6 * len(gtins) and top["preco_bate"] >= 0.5 * len(gtins)
+                 and (seg2["produtos"] <= 0.7 * top["produtos"] or seg2["preco_bate"] <= 0.6 * top["preco_bate"]))
+    if forte and atual.get("confianca") != "manual":
+        prova = (f"catálogo (01/10): está em {top['produtos']} dos {len(gtins)} produtos de catálogo em que mais vendeu no relatório "
+                 f"{out['relatorio']}, preço do mês batendo (±10%) em {top['preco_bate']} e Full igual em {top['full_bate']}; "
+                 f"2ª colocada {seg2.get('nome') or seg2.get('id') or '-'} em {seg2['produtos']} (preço em {seg2['preco_bate']})")
+        x = {"id": top["id"], "nome": top["nome"] or atual.get("nome") or "", "link": top["link"] or f"https://perfil.mercadolivre.com.br/{top['nome']}",
+             "votos": int(atual.get("votos") or 0) + 1, "confianca": "certa", "anuncios": atual.get("anuncios") or [],
+             "prova": ((atual.get("prova") + "; ") if atual.get("prova") and str(atual.get("id")) == top["id"] else "") + prova,
+             "em": datetime.now(timezone.utc).isoformat()}
+        meli.gravar_hash_lojas(repo, {vendedor: x}, meli.SEGUIDOS)
+        hashes = _hashes_do_nome(repo, vendedor)
+        if hashes:
+            meli.gravar_hash_lojas(repo, {h: {k: v for k, v in x.items() if k != "anuncios"} for h in hashes})
+        out["loja"] = x
+        out["texto"] = f"✅ {vendedor} → {x['nome']} ({x['id']}) confirmada pelo catálogo: {prova}."
+    else:
+        lin = "; ".join(f"{x['nome'] or x['id']}{' ★' if x['candidata'] else ''}: {x['produtos']} produtos, preço bate em {x['preco_bate']}"
+                        for x in rank[:5])
+        out["texto"] = (f"🤔 {vendedor}: o catálogo não decidiu nos {len(gtins)} produtos testados"
+                        + (" (loja confirmada à mão, não mexo)" if atual.get("confianca") == "manual" else "")
+                        + f". Ranking (★ = candidata): {lin or 'nenhuma loja lida'}.")
+    try:
+        repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": DESAFIO_PRINCIPAL, "autor": "sistema", "tipo": "passo", "texto": out["texto"][:4000]}],
+                  prefer="return=minimal")
+        repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "sistema", "texto": out["texto"][:2000], "criado_em": datetime.now(timezone.utc).isoformat()}],
+                  prefer="return=minimal")
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def confirmar_pendentes(repo):
+    """Rotina `confirmar_loja`: roda confirmar_pelo_catalogo para cada pedido em seguidos|confirmar e limpa a lista."""
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{CONFIRMAR_CHAVE}"}) or [None])[0]
+    try:
+        pend = json.loads(r["texto"]) if r and r.get("texto") else []
+    except (TypeError, ValueError):
+        pend = []
+    if not pend:
+        return "nada a confirmar"
+    if not meli.tem_chave():
+        return "sem as chaves do ML"
+    res = []
+    for p in pend[:3]:
+        try:
+            x = confirmar_pelo_catalogo(repo, p.get("vendedor"), int(p.get("n") or 50), p.get("candidatas"))
+            res.append(x.get("texto") or x.get("motivo") or "?")
+        except Exception as e:  # noqa: BLE001
+            res.append(f"{p.get('vendedor')}: erro {str(e)[:150]}")
+    repo._req("POST", "ia_resumos", corpo=[{"chave": CONFIRMAR_CHAVE, "ia": "sistema", "texto": json.dumps(pend[3:])}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return " | ".join(res)[:1500]
 
 
 def _nubi_da_loja(repo, seller_id):

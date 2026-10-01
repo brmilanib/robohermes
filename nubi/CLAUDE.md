@@ -462,6 +462,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     link _CustId_, caso MAMS). **Foto com ID "-MLA…" é a do PRODUTO do catálogo** (01/10, AUMA→EAMCOSMETICOS errado): um
     vendedor reaproveita num anúncio fora do catálogo; `_foto_de_catalogo` pula no coletor e `ml_busca_foto_achou` grava no
     máximo "provável" sem trocar loja já ligada. Só foto "-MLB…" (upload do vendedor) é prova. Teste: testes/test_busca_foto.py.
+    **Etapa 3, confirmação pelo catálogo (01/10, Bruno: "entrando no catálogo dá pra confirmar se a loja tá dentro")**:
+    `confirmar_pelo_catalogo(repo, seguido, n=50)` pega os 50 produtos de catálogo em que o seguido mais vendeu no último
+    relatório, abre a listagem de vendedores de cada um (`/products/{id}/items` = botão "Ver todas as opções de compra",
+    URL `/p/MLB…/s`) e conta por loja: produtos em que aparece, preço do mês batendo (±10%) e Full igual. Só vira "certa"
+    se a 1ª do ranking for CANDIDATA (loja já ligada, nome parecido com o seguido ou passada em `candidatas`), estiver em
+    ≥60% dos produtos com preço batendo em ≥50% e bem na frente da outra candidata mais forte; loja grande que vende tudo
+    nunca vira "certa" (catálogo confirma, não descobre); manual do Bruno não muda. Pedidos ficam em
+    `seguidos|confirmar` (ia_resumos) e a rotina `confirmar_loja` (servidor) roda e posta no card #126 e na Sala.
+    Teste: testes/test_confirmar_catalogo.py.
   - **RODÍZIO Mac / Dell / gamdias (01/10, Bruno: "usa um pouco em cada")** das leituras públicas do ML: monitor de
     preços (rotina `precos` 04:10), vitrine dos seguidos (rotina `vitrine` 04:40) e busca por foto (rotina `busca_foto`
     05:10). `maquinas_ml(repo)` = Mac vivo e não pausado + servidores vivos (`fila|servidor|<nome>`) cujo `pode` tem
