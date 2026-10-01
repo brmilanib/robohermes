@@ -85,7 +85,10 @@ def test_le_a_tela_do_upseller_e_guarda():
     assert ag["lojas"][0] == {"loja": "ESSENCE PRIME", "plataforma": "Mercado Libre BR", "pedidos": 43.0, "valor": 6793.12}, ag["lojas"]
     assert ag["anuncios"][1]["loja"] == "PURE PERFUMARIA" and ag["anuncios"][1]["plataforma"] == "TikTok Shop BR"
     assert ag["anuncios"][0]["unidades"] == 10 and ag["anuncios"][0]["valor"] == 2088.9
-    assert ag["anuncios"][0]["foto"] == "https://http2.mlstatic.com/D_Q_NP_ferrari-O.webp" and ag["anuncios"][1]["foto"] is None   # foto da linha
+    fotos = json.loads(r.res[vh.FOTOS])                                  # foto da linha, guardada fora do dia
+    assert list(fotos.values()) == ["https://http2.mlstatic.com/D_Q_NP_ferrari-O.webp"] and "foto" not in ag["anuncios"][0]
+    p = vh.painel(r, "2026-10-01", agora=datetime(2026, 10, 1, 18, 20, tzinfo=BR))
+    assert p["anuncios"][0]["foto"].endswith("ferrari-O.webp") and p["anuncios"][1]["foto"] is None
     assert ag["hora_upseller"].startswith("2026-10-01 18:18")
     d = json.loads(r.res["vendas_hoje|2026-10-01"])
     assert d["pontos"]["18:00"]["valor"] == 14995.73
@@ -275,6 +278,28 @@ def test_picos_por_loja_no_banco_e_melhores_horarios():
     assert pure["plataforma"] == "TikTok Shop BR" and pure["melhores"][0] == {"hora": "19h", "valor": 700.0}   # (600 + 800) ÷ 2
 
 
+def test_hora_a_hora_exata_icones_e_kpi_sem_buraco():
+    """01/10 (print do Bruno às 20h3x: Valor/Pedidos/Ticket "—", gráfico sem as horas da manhã, ícones diferentes do
+    UpSeller): a faixa de agora sem leitura usa a última; o vendido de cada hora vem do /per-hour do UpSeller (rótulo =
+    fim da hora); os ícones oficiais que o coletor copiou da tela ficam em vendas_hoje|icones."""
+    r = Repo()
+    per_hour = {"code": 0, "data": {"perHour": [{"hour": f"2026-10-01 {h:02d}:00:00", "amount": v, "validOrders": n}
+                for h, v, n in ((1, 129.9, 1), (9, 655.7, 5), (19, 1830.61, 4), (20, 1825.08, 2), (21, 341.99, 1))]}}
+    ico = "data:image/png;base64," + "A" * 40
+    x = {"valor": {"nums": ["18.651,42", "31.678,53", "27.368,51"]}, "pedidos": {"nums": ["70", "113", "95"]},
+         "lojas": [["1", "ESSENCE PRIME\n[Mercado Libre BR]", "47", "7.163,09"], ["2", "ESSENCE PRIME\n[Amazon BR]", "3", "2.140,84"]],
+         "icones_lojas": [ico, "javascript:alert(1)"],
+         "respostas": [{"url": "https://app.upseller.com/api/statistics/sale-data/per-hour", "corpo": json.dumps(per_hour)}]}
+    vh.salvar(r, x, agora=datetime(2026, 10, 1, 20, 26, tzinfo=BR))
+    assert json.loads(r.res[vh.ICONES]) == {"Mercado Libre BR": ico}               # só imagem de verdade
+    p = vh.painel(r, "2026-10-01", agora=datetime(2026, 10, 1, 20, 41, tzinfo=BR))
+    assert p["ate_agora"]["valor"] == 18651.42 and p["ate_agora"]["pedidos"] == 70   # faixa 20:30 ainda sem leitura
+    ph = {x["hora"]: x for x in p["por_hora"]}
+    assert ph[0]["valor"] == 129.9 and ph[8]["valor"] == 655.7 and ph[18]["valor"] == 1830.61 and ph[19]["valor"] == 1825.08
+    assert ph[20]["valor"] == 341.99 and ph[21]["valor"] is None                    # hora em andamento; futuro vazio
+    assert p["icones"]["Mercado Libre BR"] == ico and p["picos"][0]["hora"] == "18h"
+
+
 def test_tv_tela():
     from playwright.sync_api import sync_playwright
     hoje = datetime.now(BR).replace(second=0, microsecond=0)
@@ -320,6 +345,12 @@ def test_tv_tela():
                 assert pg.locator(".tv-pos.sobe").count() >= 1 and pg.locator(".tv-pos.novo").count() == 1
                 assert pg.query_selector("#tv-acum svg path") is not None and pg.locator(".tv-k.sac.alerta").count() == 1
                 pg.screenshot(path=str(RAIZ / "testes" / f"saida_vendas_{nome}.png"))
+                if nome == "tv720":                                                  # clicável: chats leva ao SAC
+                    pg.route("**/api/app?r=atendimento*", lambda rt: rt.fulfill(content_type="application/json", body="{}"))
+                    pg.click(".tv-k.sac")
+                    pg.wait_for_function("!document.querySelector('.tv-tela') && location.hash === '#/sac/painel'", timeout=5000)
+                    assert not erros, erros
+                    continue
                 pg.keyboard.press("Escape")
                 pg.wait_for_function("!document.querySelector('.tv-tela')", timeout=5000)
                 assert "#/analises-vendas/hoje" in pg.url

@@ -2202,7 +2202,31 @@ JS_UPSELLER_HOJE = r"""() => {
       return im ? (im.currentSrc || im.src || im.getAttribute("data-src") || "").slice(0, 400) : ""; }) : []; };
   return {valor: kpi(/^Valor de Vendas V[áa]lidas$/), pedidos: kpi(/^Pedidos V[áa]lidos$/),
           anuncios: tabela(/^Ranking de An[úu]ncio$/), fotos_anuncios: fotos(/^Ranking de An[úu]ncio$/),
-          lojas: tabela(/^Ranking de Loja$/), series, hora_upseller: hora}; }"""
+          lojas: tabela(/^Ranking de Loja$/), icones_lojas: fotos(/^Ranking de Loja$/), series, hora_upseller: hora}; }"""
+
+
+def _imagem_data(pg, src, teto=60000):
+    """01/10 (Bruno: "os ícones iguais aos do UpSeller, em alta qualidade" e "a foto dos produtos"): baixa a imagem que a
+    própria tela do UpSeller mostra (com o login do Chrome do coletor) e devolve como data:image/...;base64 para o nubi
+    guardar. Só imagem e até `teto` bytes; falhou = None (a tela usa o ícone desenhado)."""
+    src = str(src or "").strip()
+    if not src:
+        return None
+    if src.startswith("data:image/"):
+        return src if len(src) < teto * 1.4 else None
+    if not src.startswith("https://"):
+        return None
+    try:
+        r = pg.request.get(src, timeout=15000)
+        if not r.ok:
+            return None
+        corpo, tipo = r.body(), (r.headers.get("content-type") or "").split(";")[0].strip()
+        if not tipo.startswith("image/") or len(corpo) > teto:
+            return None
+        import base64
+        return f"data:{tipo};base64," + base64.b64encode(corpo).decode()
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def ler_upseller_hoje(pg):
@@ -2233,6 +2257,13 @@ def ler_upseller_hoje(pg):
     devagar(4)
     x = pg.evaluate(JS_UPSELLER_HOJE)
     x["respostas"] = respostas
+    cache = {}
+    def dado(src, teto):
+        if src not in cache:
+            cache[src] = _imagem_data(pg, src, teto)
+        return cache[src]
+    x["fotos_anuncios"] = [dado(u, 45000) for u in (x.get("fotos_anuncios") or [])[:20]]
+    x["icones_lojas"] = [dado(u, 30000) for u in (x.get("icones_lojas") or [])[:30]]
     return x
 
 

@@ -1256,6 +1256,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `acumulado`, barra listrada). `por_hora_lojas` (ranking de loja de cada meia hora) e `gravar_picos` (a cada leitura) guardam
   em `ia_resumos` `vendas_hoje|picos` {dia: {geral, pedidos, lojas, picos}} (400 dias); `melhores_horarios` = média por hora,
   os 3 melhores horários de cada loja e o dia da semana → mapa de calor "⭐ Melhores horários de cada loja" e na TV.
+- **Vendas de hoje: hora a hora exata, ícones oficiais, fotos, TV clicável (01/10, print do Bruno às 20h3x)**: a faixa de meia
+  hora sem leitura deixava Valor/Pedidos/Ticket em "—" (`ate_horario` = última leitura até agora). A tela do UpSeller carrega
+  `/api/statistics/sale-data/per-hour` (vendido e pedidos de CADA hora; rótulo = FIM da hora, conferido pela soma = KPI):
+  `horas_do_upseller` → `d["horas"]`, e `por_hora_dia` usa esse número exato (o cálculo pelo acumulado fica de reserva).
+  Ícones e fotos: o coletor copia a imagem que a própria tela do UpSeller mostra (`_imagem_data`, `pg.request` com o login
+  do Chrome, só image/*, até 30–45 KB) → `vendas_hoje|icones` {plataforma: data:image} e `vendas_hoje|fotos` {título+loja}
+  (fora do doc do dia); `platIco` usa o oficial quando existe (senão o SVG desenhado). Modo TV: cabeçalho em pílula com
+  gradiente animado e selo AO VIVO; cartões com `data-ir` (chats/atendimento → `#/sac/painel`, vendas/lojas/campeões →
+  `#/analises-vendas/hoje`, faixa de preços → `#/precos`).
 - **Monitor de preços 12 h e 19 h, aviso e tags (01/10, Bruno)**: `precos.HORARIOS` = 12:00 e 19:00; `rodada_atual`;
   o cron da hora lê pela API só quando a rodada não foi feita (`api_devida`/`marcar_rodada`, `ia_resumos` `precos|rodada`);
   `pendente` (coletor) = não lidos desde o início da rodada + os de título ruim (o coletor lê o `<h1>`), 20 min depois da

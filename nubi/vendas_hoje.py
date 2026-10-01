@@ -62,9 +62,61 @@ def _kpi(k):
 
 
 def _foto_ok(u):
-    """Só link https de imagem (a foto do anúncio que o UpSeller mostra); nada de data:, javascript: ou http."""
+    """Imagem que a tela do UpSeller mostra: link https ou a cópia que o coletor baixou (data:image/...;base64, até ~50 KB).
+    Nada de javascript:, http ou outro tipo."""
     u = str(u or "").strip()
+    if re.fullmatch(r"data:image/(png|jpeg|jpg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]{20,70000}", u):
+        return u
     return u if re.fullmatch(r"https://[\w.-]+/[^\s\"'<>]{1,380}", u) else None
+
+
+FOTOS = "vendas_hoje|fotos"          # {chave do anúncio: imagem} (fora do dia, para o dia não ficar pesado)
+ICONES = "vendas_hoje|icones"        # {plataforma: imagem} — os ícones oficiais que o UpSeller mostra
+
+
+def _guardar_imagens(repo, leitura, icones_lojas):
+    fotos = _ler(repo, FOTOS) or {}
+    mudou = False
+    for a in leitura["anuncios"]:
+        f = a.pop("foto", None)
+        if f and fotos.get(_chave(a["titulo"], a["loja"])) != f:
+            fotos[_chave(a["titulo"], a["loja"])] = f
+            mudou = True
+    if mudou:
+        for k in list(fotos)[:-300]:                   # guarda as 300 mais recentes
+            fotos.pop(k, None)
+        _gravar(repo, FOTOS, fotos)
+    ic = _ler(repo, ICONES) or {}
+    novo = dict(ic)
+    for l, f in zip(leitura["lojas"], icones_lojas or []):
+        f = _foto_ok(f)
+        if f and l.get("plataforma"):
+            novo[l["plataforma"]] = f
+    if novo != ic:
+        _gravar(repo, ICONES, novo)
+
+
+def horas_do_upseller(respostas, dia):
+    """01/10: a tela carrega /api/statistics/sale-data/per-hour com o vendido de CADA hora do dia (desde 00h, mesmo com o
+    coletor desligado). O rótulo "HH:00" é o FIM da hora (conferido em 01/10: a soma até o rótulo 20:00 = 18.651,42, o
+    'Valor de Vendas Válidas' das 20:26; o rótulo 18:00 = 269,89 não cabe nas vendas de 18:00–18:53). Hora h = rótulo h+1."""
+    out = {}
+    for r in respostas or []:
+        if "per-hour" not in str(r.get("url") or ""):
+            continue
+        try:
+            dados = json.loads(r.get("corpo") or "{}").get("data") or {}
+        except ValueError:
+            continue
+        for x in dados.get("perHour") or []:
+            try:
+                fim = datetime.strptime(str(x.get("hour"))[:19], "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                continue
+            ini = fim - timedelta(hours=1)
+            if ini.date().isoformat() == dia:
+                out[ini.hour] = {"valor": round(float(x.get("amount") or 0), 2), "pedidos": int(x.get("validOrders") or 0)}
+    return out
 
 
 def _anuncios(linhas, fotos=None):
@@ -113,6 +165,11 @@ def salvar(repo, x, agora=None):
                "valor_ontem_mesmo": valor_mesmo, "pedidos_ontem_mesmo": int(ped_mesmo) if ped_mesmo is not None else None,
                "anuncios": _anuncios(x.get("anuncios"), x.get("fotos_anuncios")), "lojas": _lojas(x.get("lojas")),
                "series": (x.get("series") or [])[:4], "hora_upseller": str(x.get("hora_upseller") or "")[:20]}
+    try:
+        _guardar_imagens(repo, leitura, x.get("icones_lojas"))
+    except Exception:  # noqa: BLE001 — foto e ícone nunca derrubam a leitura
+        for a in leitura["anuncios"]:
+            a.pop("foto", None)
     _gravar(repo, AGORA, leitura)
     if x.get("respostas"):                             # respostas JSON da página (para ler a curva por hora no futuro)
         _gravar(repo, BRUTO, {"em": agora.isoformat(), "respostas": x["respostas"][:10]})
@@ -127,6 +184,9 @@ def salvar(repo, x, agora=None):
             "lojas": [{k: l[k] for k in ("loja", "plataforma", "pedidos", "valor")} for l in leitura["lojas"]]}
     if leitura["series"]:
         d["series"] = leitura["series"]
+    hs = horas_do_upseller(x.get("respostas"), dia)
+    if hs:                                             # vendido exato de cada hora, até a hora de agora
+        d["horas"] = {str(h): v for h, v in hs.items() if h <= agora.hour}
     _gravar(repo, chave_dia(dia), d)
     try:
         gravar_picos(repo, d)
@@ -182,6 +242,15 @@ def curva(d):
             if x["valor"] is None:
                 x["valor"], x["pedidos"] = fim["valor"], fim.get("pedidos")
     return out
+
+
+def por_hora_dia(d):
+    """Vendido em cada hora: o número exato do UpSeller (d["horas"]) quando a tela mandou; senão a diferença do
+    acumulado de meia hora (hora sem leitura antes fica None)."""
+    hs = (d or {}).get("horas")
+    if hs:
+        return [dict(hs[str(h)], hora=h) if str(h) in hs else {"hora": h, "valor": None, "pedidos": None} for h in range(24)]
+    return por_hora(curva(d), lidas_do(d))
 
 
 def por_hora(c, lidas=None):
@@ -253,7 +322,7 @@ PICOS_DIAS = 400
 def gravar_picos(repo, d):
     """Guarda no banco o vendido por hora do dia (geral e por loja) em `vendas_hoje|picos` {dia: {...}} — base para os
     melhores horários de cada loja (comparação entre dias)."""
-    ph = por_hora(curva(d), lidas_do(d))
+    ph = por_hora_dia(d)
     hist = _ler(repo, PICOS) or {}
     hist[d["dia"]] = {"geral": [x["valor"] for x in ph], "pedidos": [x["pedidos"] for x in ph],
                       "lojas": por_hora_lojas(d), "picos": picos(ph, 5)}
@@ -309,6 +378,13 @@ def no_horario(c, hora):
     return x if x and x["valor"] is not None else None
 
 
+def ate_horario(c, hora):
+    """01/10 (print do Bruno: Valor/Pedidos/Ticket com "—" às 20h3x): a faixa de agora ainda sem leitura usa a última
+    leitura antes dela (o acumulado não volta)."""
+    xs = [p for p in c if p["hora"] <= hora and p["valor"] is not None]
+    return xs[-1] if xs else None
+
+
 def dias_guardados(repo, limite=120):
     rs = repo._req("GET", "ia_resumos", {"select": "chave", "chave": "like.vendas_hoje|2*", "order": "chave.desc",
                                          "limit": limite}) or []
@@ -324,18 +400,22 @@ def painel(repo, dia=None, comparar=None, agora=None):
     comparar = comparar or (datetime.fromisoformat(dia) - timedelta(days=1)).date().isoformat()
     d, k = _ler(repo, chave_dia(dia)), _ler(repo, chave_dia(comparar))
     cd, ck = curva(d), curva(k)
-    ph, pk = por_hora(cd, lidas_do(d)), por_hora(ck, lidas_do(k))
+    ph, pk = por_hora_dia(d), por_hora_dia(k)
     hora = faixa(agora) if dia == hoje else "23:30"
-    atual, antes = no_horario(cd, hora), no_horario(ck, hora)
+    atual, antes = ate_horario(cd, hora), ate_horario(ck, hora)
     ult = _ler(repo, AGORA) or {}
-    return {"hoje": hoje, "dia": dia, "comparar": comparar, "hora": hora, "agora": ult if dia == hoje else None,
+    out = {"hoje": hoje, "dia": dia, "comparar": comparar, "hora": hora, "agora": ult if dia == hoje else None,
             "curva": cd, "curva_comparar": ck, "por_hora": ph, "por_hora_comparar": pk,
             "picos": picos(ph), "picos_comparar": picos(pk),
             "ate_agora": atual, "ate_agora_comparar": antes,
             "total": (d or {}).get("total_final") or (cd[-1] if cd and cd[-1]["valor"] is not None else None),
             "total_comparar": (k or {}).get("total_final") or (ck[-1] if ck and ck[-1]["valor"] is not None else None),
             "lojas": (d or {}).get("lojas") or [], "anuncios": (d or {}).get("anuncios") or [],
-            "dias": dias_guardados(repo), "horarios": melhores_horarios(repo, 30, hoje)}
+            "dias": dias_guardados(repo), "horarios": melhores_horarios(repo, 30, hoje), "icones": _ler(repo, ICONES) or {}}
+    fotos = _ler(repo, FOTOS) or {}
+    for a in (out["anuncios"] or []) + ((out["agora"] or {}).get("anuncios") or []):
+        a["foto"] = fotos.get(_chave(a.get("titulo"), a.get("loja")))
+    return out
 
 
 # ---------- 📺 Modo TV (01/10, Bruno: "um modo TV para eu ficar olhando ao vivo: vendas, chats, ranking dos campeões, se
@@ -360,7 +440,7 @@ def tv(repo, agora=None):
     ds = _ler(repo, chave_dia(semana))
     cs = curva(ds)
     hora = p["hora"]
-    a, b, c = p["ate_agora"], p["ate_agora_comparar"], no_horario(cs, hora)
+    a, b, c = p["ate_agora"], p["ate_agora_comparar"], ate_horario(cs, hora)
     # projeção do dia: o ritmo de ontem (total ÷ até este horário) aplicado ao de hoje; senão o da semana passada
     proj = None
     for ate, tot in ((b, p["total_comparar"]), (c, (ds or {}).get("total_final"))):
@@ -386,4 +466,4 @@ def tv(repo, agora=None):
             "ultima_hora": ultima, "curva": p["curva"], "curva_ontem": p["curva_comparar"], "curva_semana": cs,
             "por_hora": p["por_hora"], "por_hora_ontem": p["por_hora_comparar"], "picos": p["picos"],
             "campeoes": campeoes[:10], "lojas": lojas, "ontem": ontem, "semana": semana,
-            "lojas_hora": por_hora_lojas(_ler(repo, chave_dia(hoje))), "horarios": melhores_horarios(repo, 30, hoje)}
+            "lojas_hora": por_hora_lojas(_ler(repo, chave_dia(hoje))), "horarios": p["horarios"], "icones": p["icones"]}
