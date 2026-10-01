@@ -1242,6 +1242,11 @@ header.top{padding:7px 16px}
 .pm-ev.novo{background:rgba(239,68,68,.1);border-left:3px solid #ef4444}.pm-evn{background:#fff3e6;border-radius:8px;padding:2px 8px}
 .pm-ult-ev{font-size:12px;margin-top:4px}
 .pm-busca{font-size:12.5px;margin-top:4px}.pm-termo{font-weight:600}
+.pm-meu{min-width:170px;gap:2px}.pm-meu small{font-size:11.5px;color:var(--muted)}.pm-meu .btn{margin-top:4px;align-self:flex-start}
+.pm-por{font-style:normal;font-size:10.5px;margin-left:4px;padding:1px 6px;border-radius:999px;background:var(--card)}
+.pv-lista{display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow:auto}
+.pv-it{display:grid;grid-template-columns:1fr auto;gap:2px 10px;text-align:left;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer;color:inherit}
+.pv-it:hover,.pv-it.on{border-color:#2563eb;background:rgba(37,99,235,.06)}.pv-it span.muted{font-size:12px}.pv-c{grid-row:1/3;grid-column:2;align-self:center;font-weight:700}
 </style>
 </head>
 <body>
@@ -8301,6 +8306,35 @@ async function telaPrecoDetalhe(mlb) {
     series: [{nome: "Preço", cor: "var(--s1)", v: pts.map(p => p.preco)}, ...(pts.some(p => p.preco_original) ? [{nome: "Riscado", cor: "var(--s3)", v: pts.map(p => p.preco_original || null)}] : [])]});
   desenharMenu();
 }
+// 01/10 (Bruno: "como vincular os produtos ao meu estoque e puxar meu SKU, estoque e preço de custo?")
+function pmVincular(x) {
+  modal(`<h2 style="margin-top:0">🔗 Vincular ao meu estoque</h2>
+    <p class="muted" style="margin-top:0">${esc(x.titulo || x.mlb)} · ${esc(x.mlb)}</p>
+    <input id="pv-q" placeholder="Buscar no meu estoque por nome ou SKU (ex.: silver scent 200)" style="width:100%">
+    <div class="muted" id="pv-dica" style="font-size:12.5px;margin:6px 0">Sugestões pelo título do anúncio:</div>
+    <div id="pv-lista" class="pv-lista"><div class="muted">buscando…</div></div>
+    <div style="display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-top:12px">
+      <span style="display:flex;gap:8px"><button class="btn small" id="pv-nao" title="Para de sugerir pelo título">🚫 Não tenho este produto</button>
+      ${x.sku_meu || x.sem_vinculo ? `<button class="btn small" id="pv-auto">↺ Voltar ao automático</button>` : ""}</span>
+      <button class="btn small" data-fechar>Fechar</button></div>`, bg => {
+    const lista = bg.querySelector("#pv-lista");
+    const salvar = async corpo => { try { await api("ml_precos_vincular", {}, {method: "POST", body: JSON.stringify({mlb: x.mlb, ...corpo})});
+      bg.remove(); toast(corpo.sku ? "Vinculado: o custo e o estoque já entram na conta." : "Salvo."); telaPrecos(); } catch (e) { toast(e.message, 5000); } };
+    const buscar = async q => {
+      try { const r = await api("ml_precos_estoque_busca", {q, mlb: x.mlb});
+        bg.querySelector("#pv-dica").textContent = q ? `${r.itens.length} item(ns) do estoque com "${q}":` : "Sugestões pelo título do anúncio:";
+        lista.innerHTML = r.itens.length ? r.itens.map(it => `<button class="pv-it ${x.sku_meu === it.sku ? "on" : ""}" data-sku="${esc(it.sku)}">
+            <b>${esc(it.titulo || it.sku)}</b><span class="muted">${esc(it.sku)} · ${nf0.format(it.disponivel || 0)} disp.${it.transito_compra ? ` · ${nf0.format(it.transito_compra)} em trânsito` : ""}</span>
+            <span class="pv-c">${it.custo_medio ? "custo " + rsES(+it.custo_medio) : "sem custo"}</span></button>`).join("")
+          : `<div class="muted">${q ? "Nada no estoque com essas palavras." : "Sem sugestão pelo título: busque acima."}</div>`;
+        lista.querySelectorAll("[data-sku]").forEach(el => el.onclick = () => salvar({sku: el.dataset.sku}));
+      } catch (e) { lista.innerHTML = `<div class="muted">${esc(e.message)}</div>`; } };
+    let t; bg.querySelector("#pv-q").oninput = e => { clearTimeout(t); t = setTimeout(() => buscar(e.target.value.trim()), 300); };
+    bg.querySelector("#pv-nao").onclick = () => salvar({nenhum: true});
+    const au = bg.querySelector("#pv-auto"); if (au) au.onclick = () => salvar({});
+    buscar(""); bg.querySelector("#pv-q").focus();
+  });
+}
 async function telaPrecos() {
   // 01/10 (Bruno: "tela mais organizada: data e hora da última atualização, quantas atualizações, botão mostrar histórico de
   // preços com o gráfico de todas as atualizações e o maior e menor preço do período")
@@ -8331,7 +8365,10 @@ async function telaPrecos() {
     if (!c) return "";
     const it = (rot, val, cls = "", tip = "") => `<div class="pm-c ${cls}" title="${esc(tip)}"><span>${rot}</span><b>${val}</b></div>`;
     return `<div class="pm-calc"><div class="pm-calc-t">🧮 Se eu vender a ${rsES(c.preco)}</div>
-      ${it("Meu custo", m && m.custo ? rsES(m.custo) : "não achei no estoque", m ? "" : "neg", m ? `${m.sku} · ${m.titulo} · ${m.disponivel ?? 0} disponível(is) · casado por ${m.casado_por === "gtin" ? "GTIN" : "título"}` : "Nenhum SKU do estoque do UpSeller com esse GTIN ou título")}
+      <div class="pm-c pm-meu ${m ? "" : "neg"}"><span>Meu estoque ${m ? `<i class="pm-por">${m.casado_por === "manual" ? "✔ vinculado" : m.casado_por === "gtin" ? "pelo GTIN" : "pelo título, confira"}</i>` : ""}</span>
+        ${m ? `<b title="${esc(m.titulo || "")}">${m.custo ? rsES(m.custo) : "sem custo"}</b><small>${esc(m.sku || "")} · ${nf0.format(m.disponivel || 0)} disp.${m.transito ? ` · ${nf0.format(m.transito)} em trânsito` : ""}</small>`
+          : `<b>${x.sem_vinculo ? "não tenho" : "não achei"}</b>`}
+        <button class="btn small ${m ? "" : "primary"}" data-vinc="${esc(x.mlb)}">🔗 ${m ? "trocar" : "Vincular ao meu estoque"}</button></div>
       ${it("Tarifa ML", c.tarifa != null ? rsES(c.tarifa) : "—", "", c.sem_tarifa ? "A categoria e o tipo do anúncio vêm na próxima leitura da página" : "")}
       ${it("Frete", c.sem_frete ? "—" : rsES(c.frete || 0), "", c.preco >= 79 ? "Frete grátis que o ML cobra (acima de R$ 79)" : "Abaixo de R$ 79 o comprador paga o frete")}
       ${it(`Imposto (${String(r.calc?.imposto_pct ?? 0).replace(".", ",")}%)`, rsES(c.imposto || 0))}
@@ -8388,6 +8425,7 @@ async function telaPrecos() {
     S.precosAlertas = mlb ? (S.precosAlertas || []).filter(a => a.mlb !== mlb) : []; desenharMenu(); telaPrecos(); };
   main.querySelectorAll("button[data-visto]").forEach(b => b.onclick = () => visto(b.dataset.visto));
   const vt = main.querySelector("#pm-vi-todos"); if (vt) vt.onclick = () => visto(null);
+  main.querySelectorAll("button[data-vinc]").forEach(b => b.onclick = () => pmVincular(xs.find(z => z.mlb === b.dataset.vinc)));
   main.querySelectorAll("button[data-busca]").forEach(b => b.onclick = async () => {
     const t = prompt("Palavra de busca no Mercado Livre para achar a posição deste anúncio (vazio = automática pelo título):", b.dataset.termo || "");
     if (t === null) return;

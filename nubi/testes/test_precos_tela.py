@@ -67,7 +67,7 @@ def test_tela():
                 assert "01/10" in txt and "14:05" in txt, txt[:800]                   # 17:05 UTC = 14:05 em Brasília
                 # 01/10 (print do Bruno): tags, "+50 disponíveis", aviso de preço e a calculadora com o meu custo
                 assert "MAIS VENDIDO" in txt and "CATÁLOGO" in txt and "FULL" in txt and "+47 disponíveis" in txt, txt[:900]
-                assert pg.locator(".pm-mudou").count() == 1 and "O preço mudou" in txt and "Lucro líquido" in txt and "R$ 150,00" in txt
+                assert pg.locator(".pm-mudou").count() == 1 and "O preço mudou" in txt and "Lucro líquido" in txt and "R$ 150,00" in txt and "trocar" in txt
                 pg.click("button[data-hist]")
                 pg.wait_for_selector(".pm-hist svg", timeout=5000)
                 h = pg.inner_text(".pm-hist")

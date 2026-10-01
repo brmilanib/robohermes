@@ -6611,6 +6611,28 @@ def fotos_com_anuncio(repo, vendedor, dados):
     return dados
 
 
+def _estoque_busca_monitor(repo, termo, mlb=None, n=20):
+    """Itens do último estoque do UpSeller para o Bruno escolher o vínculo: com termo, por palavras (SKU ou título); sem
+    termo, as sugestões pelo título do anúncio monitorado (mesmo volume e tipo primeiro)."""
+    ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id", "order": "id.desc", "limit": 1}) or [None])[0]
+    est = _num_itens(_estoque_itens(repo, ult["id"])) if ult else []
+    campos = lambda it: {k: it.get(k) for k in ("sku", "titulo", "disponivel", "custo_medio", "transito_compra")}
+    termo = str(termo or "").strip()
+    if termo:
+        ws = [w for w in re.sub(r"[^\w ]+", " ", nubi.normalizar(termo)).split() if w]
+        achou = [it for it in est if all(w in nubi.normalizar(f"{it.get('sku')} {it.get('titulo')}") for w in ws)]
+        return [campos(it) for it in sorted(achou, key=lambda it: -(it.get("disponivel") or 0))[:n]]
+    x = next((x for x in precos.lista(repo) if x.get("mlb") == precos.normalizar_mlb(mlb)), None) if mlb else None
+    t = (x or {}).get("titulo") or ""
+    if not t or precos.titulo_ruim(t):
+        return []
+    for it in est:
+        it["_tok"], it["_tipo"] = _tokens_produto(it.get("titulo")), _tipo_tok(it.get("titulo"))
+    _, vol = _tokens_produto(t)
+    sug = _casar_varios(t, est, 8, vol_fixo=vol, tipo_fixo=_tipo_tok(t)) or _casar_varios(t, est, 8)
+    return [campos(it) for it in sug]
+
+
 def _calc_monitor(repo, itens):
     """01/10 (Bruno): para cada anúncio monitorado, o MEU custo (último estoque do UpSeller: SKU = GTIN, senão o título com o
     mesmo volume e tipo) e a conta da calculadora da extensão vendendo pelo preço dele: tarifa do ML (categoria e tipo lidos
@@ -6623,8 +6645,16 @@ def _calc_monitor(repo, itens):
     por_gtin = {re.sub(r"\D", "", str(it.get("sku") or "")): it for it in est if len(re.sub(r"\D", "", str(it.get("sku") or ""))) >= 8}
     preparados = False
 
+    por_sku = {estoque._chave(it.get("sku")): it for it in est if it.get("sku")}
+
     def meu(x):
         nonlocal preparados
+        # 01/10 (Bruno: "vincular os produtos ao meu estoque e puxar meu SKU, estoque e custo"): o vínculo dele vence tudo
+        if x.get("sku_meu"):
+            v = por_sku.get(estoque._chave(x["sku_meu"]))
+            return (v, "manual") if v else ({"sku": x["sku_meu"], "titulo": "(SKU não está no último estoque)"}, "manual")
+        if x.get("sem_vinculo"):
+            return None, None
         g = re.sub(r"\D", "", str(x.get("gtin") or ""))
         if g and g in por_gtin:
             return por_gtin[g], "gtin"
@@ -6654,7 +6684,7 @@ def _calc_monitor(repo, itens):
           except Exception:  # noqa: BLE001 — ML fora: a conta sai sem tarifa/frete
             pass
         x["meu"] = {"sku": it.get("sku"), "titulo": it.get("titulo"), "disponivel": it.get("disponivel"), "custo": custo,
-                    "casado_por": como} if it else None
+                    "transito": it.get("transito_compra"), "casado_por": como} if it else None
         x["calc"] = dict(precos.contas(preco, custo, tarifa, frete, cfg["imposto_pct"]) or {},
                          sem_tarifa=tarifa is None, sem_frete=bool(preco and preco >= 79 and frete is None)) if preco else None
 
@@ -8534,6 +8564,13 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         if rota == "ml_precos_busca" and metodo == "POST":      # 01/10: palavra de busca do rastreamento (vazio = automática)
             try:
                 return {"ok": True, "busca": precos.salvar_busca(repo, d.get("mlb"), d.get("busca"))}
+            except precos.ErroPrecos as e:
+                raise ErroNuvem(str(e))
+        if rota == "ml_precos_estoque_busca":                     # 01/10: busca no meu estoque para vincular
+            return {"itens": _estoque_busca_monitor(repo, q.get("q") or "", q.get("mlb"))}
+        if rota == "ml_precos_vincular" and metodo == "POST":
+            try:
+                return {"ok": True, "item": precos.vincular(repo, d.get("mlb"), d.get("sku"), bool(d.get("nenhum")))}
             except precos.ErroPrecos as e:
                 raise ErroNuvem(str(e))
         if rota == "ml_precos_calc" and metodo == "POST":

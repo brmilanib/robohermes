@@ -1279,6 +1279,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   pagina, patrocinado, lidos}; ponto do histórico `pos_busca`; eventos (`_evento_busca`): sumiu/apareceu nas 3 páginas e
   troca de página = alerta; mudança dentro da página = só histórico. A aba 🎯 Perseguir anúncios (Apify) saiu do menu do
   Estoque e `#/estoque/perseguir` redireciona para `#/precos` (código e dados guardados). Teste em `test_precos_rodadas.py`.
+- **Vincular ao meu estoque (01/10, Bruno: "vincular os produtos ao meu estoque e puxar meu SKU, estoque e custo")**: no
+  cartão, "🔗 Vincular ao meu estoque"/"trocar" abre `pmVincular` (sugestões pelo título + busca por nome/SKU no último
+  estoque, rota `ml_precos_estoque_busca`); escolher grava `sku_meu` no item (`precos.vincular`, rota `ml_precos_vincular`;
+  "🚫 Não tenho" = `sem_vinculo`; "↺ Voltar ao automático" limpa). `_calc_monitor`: vínculo do Bruno > GTIN > título;
+  mostra SKU, disponível, em trânsito e o custo médio na conta. Teste `test_vincular_ao_meu_estoque`.
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

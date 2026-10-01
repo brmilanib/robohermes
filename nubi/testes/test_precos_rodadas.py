@@ -194,6 +194,38 @@ def test_busca_termo_posicao_e_eventos():
     assert precos.salvar_busca(r, "MLB5141216661", "silver scent 200") == "silver scent 200"
 
 
+def test_vincular_ao_meu_estoque():
+    import nubi_web as w
+    import meli
+    est = [{"sku": "SHISEIDO-BB-30", "titulo": "Shiseido BB For Sports FPS 50 Light 30ml", "custo_medio": 120.0, "disponivel": 4, "transito_compra": 2},
+           {"sku": "CK-ONE-200", "titulo": "Calvin Klein CK One EDT 200ml", "custo_medio": 140.0, "disponivel": 9}]
+    antes = (w._estoque_itens, meli.tem_chave)
+    w._estoque_itens = lambda repo, aid: [dict(x) for x in est]
+    meli.tem_chave = lambda: False
+    r = Repo()
+    r._req_orig = r._req
+    r._req = lambda metodo, tabela, params=None, corpo=None, prefer=None: [{"id": 1}] if tabela == "estoque_atualizacoes" else r._req_orig(metodo, tabela, params, corpo, prefer)
+    try:
+        precos.seguir(r, {"mlb": "MLB3055037392", "titulo": "Shiseido BB For Sports FPS 50 Light - Base Líquida 30ml"})
+        assert [i["sku"] for i in w._estoque_busca_monitor(r, "", "MLB3055037392")][:1] == ["SHISEIDO-BB-30"]
+        assert [i["sku"] for i in w._estoque_busca_monitor(r, "ck one", None)] == ["CK-ONE-200"]
+        precos.vincular(r, "MLB3055037392", "CK-ONE-200")                       # o vínculo do Bruno vence o título
+        itens = [{"mlb": "MLB3055037392", "atual": 291.25, "titulo": "Shiseido BB 30ml", **{k: v for k, v in precos.lista(r)[0].items() if k in ("sku_meu", "sem_vinculo")}}]
+        w._calc_monitor(r, itens)
+        m = itens[0]["meu"]
+        assert m["sku"] == "CK-ONE-200" and m["custo"] == 140.0 and m["casado_por"] == "manual" and itens[0]["calc"]["lucro"] == round(291.25 - 140, 2)
+        precos.vincular(r, "MLB3055037392", "", nenhum=True)
+        itens = [{"mlb": "MLB3055037392", "atual": 291.25, "titulo": "Shiseido BB For Sports 30ml", "sem_vinculo": True}]
+        w._calc_monitor(r, itens)
+        assert itens[0]["meu"] is None
+        x = precos.vincular(r, "MLB3055037392", "")                              # volta ao automático
+        assert "sku_meu" not in x and "sem_vinculo" not in x
+        out = w.rota_posicoes(r, "POST", "ml_precos_vincular", {}, json.dumps({"mlb": "MLB3055037392", "sku": "SHISEIDO-BB-30"}).encode())
+        assert out["item"]["sku_meu"] == "SHISEIDO-BB-30"
+    finally:
+        w._estoque_itens, meli.tem_chave = antes
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

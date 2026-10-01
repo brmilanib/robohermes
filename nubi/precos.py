@@ -231,6 +231,25 @@ def _evento_busca(x, bp, agora):
                     "em": agora, "visto": not mudou_pag, "de": pa, "para": pn})
 
 
+def vincular(repo, mlb, sku, nenhum=False):
+    """01/10: o Bruno liga o anúncio monitorado a um SKU do estoque dele (custo, disponível); `nenhum` = não tenho esse
+    produto (para de sugerir pelo título); sem sku e sem `nenhum` = volta ao automático."""
+    mlb = normalizar_mlb(mlb)
+    xs = lista(repo)
+    x = next((x for x in xs if x.get("mlb") == mlb), None)
+    if not x:
+        raise ErroPrecos("anúncio fora do monitor")
+    sku = str(sku or "").strip()[:60]
+    x.pop("sku_meu", None)
+    x.pop("sem_vinculo", None)
+    if sku:
+        x["sku_meu"] = sku
+    elif nenhum:
+        x["sem_vinculo"] = True
+    _gravar(repo, LISTA, xs)
+    return x
+
+
 def salvar_busca(repo, mlb, termo):
     mlb = normalizar_mlb(mlb)
     termo = re.sub(r"\s+", " ", str(termo or "")).strip()[:80]
