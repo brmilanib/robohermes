@@ -125,6 +125,17 @@ def test_ip_publico_e_prazo_de_troca():
     x = monitor.ip_da_maquina(R(), "gamdias", AGORA)
     assert x["ip"] == "177.2.2.2" and x["desde"] == "2026-08-20T10:00:00+00:00" and x["dias"] == 42.1 and x["trocar"] is True, x
     assert monitor.ip_da_maquina(Repo(), "dell", AGORA) is None
+    # IP trocou sozinho: aviso na Sala com quantos dias durou o anterior
+    r = R(); r.sala = []
+    r._req_orig = r._req
+    def _req2(metodo, tabela, q=None, corpo=None, **k):
+        if tabela == "reuniao_mensagens" and metodo == "POST":
+            r.sala += corpo; return []
+        return r._req_orig(metodo, tabela, q, corpo, **k)
+    r._req = _req2
+    assert w.avisar_troca_ip(r, "gamdias", "177.2.2.2", AGORA) is None                   # mesmo IP: nada
+    txt = w.avisar_troca_ip(r, "gamdias", "177.3.3.3", AGORA)
+    assert "177.2.2.2 → 177.3.3.3" in txt and "42 dia" in txt and r.sala[0]["autor"] == "sistema", txt
 
 
 if __name__ == "__main__":

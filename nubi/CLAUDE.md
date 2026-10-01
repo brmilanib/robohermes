@@ -205,7 +205,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (nvidia-smi). Sem leitura = None, nunca zero. IP público (01/10, Bruno: "colocar os IPs, controlar há quanto tempo e
   trocar 1 vez por mês"): o coletor manda `extras.ip` (api.ipify.org, cache 1 h) nas métricas; `monitor.ip_da_maquina`
   acha desde quando (última leitura com outro ip) e marca `trocar` com 30+ dias (`IP_TROCAR_DIAS`): a tela mostra "hora
-  de trocar: reinicie o roteador". Trocar IP é higiene mensal, nunca para fugir de bloqueio. Teste `test_monitor.py`.
+  de trocar: reinicie o roteador"; `avisar_troca_ip` (no `servidor_metricas_gravar`) posta na Sala quando o IP muda
+  sozinho, com quantos dias durou o anterior. Trocar IP é higiene mensal, nunca para fugir de bloqueio. Teste `test_monitor.py`.
 - **Regras ensinadas aos agentes (01/10)**: bloco "Regras aprendidas em 01/10" em `agentes.SISTEMA` e 5 linhas tipo
   `regra` na tabela `saber` (foto de catálogo, produto = GTIN fora de perfume, palavra de anúncio não é marca / categoria
   por produto, rodízio sem proxy, captcha do atendente).
@@ -458,7 +459,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     /p/MLB) descarta o card; `ml_busca_foto_achou` nunca troca uma loja já ligada com outro seller_id (vira "candidata"
     no card, `aviso`), confirma quando o id é o mesmo (soma anúncio/voto, confiança "certa") e anota a loja oficial
     (`loja_oficial`) na prova; `JS_ML_VENDEDOR` lê seller_id/nickname também dos scripts da página (loja oficial sem
-    link _CustId_, caso MAMS). Teste: testes/test_busca_foto.py.
+    link _CustId_, caso MAMS). **Foto com ID "-MLA…" é a do PRODUTO do catálogo** (01/10, AUMA→EAMCOSMETICOS errado): um
+    vendedor reaproveita num anúncio fora do catálogo; `_foto_de_catalogo` pula no coletor e `ml_busca_foto_achou` grava no
+    máximo "provável" sem trocar loja já ligada. Só foto "-MLB…" (upload do vendedor) é prova. Teste: testes/test_busca_foto.py.
   - **RODÍZIO Mac / Dell / gamdias (01/10, Bruno: "usa um pouco em cada")** das leituras públicas do ML: monitor de
     preços (rotina `precos` 04:10), vitrine dos seguidos (rotina `vitrine` 04:40) e busca por foto (rotina `busca_foto`
     05:10). `maquinas_ml(repo)` = Mac vivo e não pausado + servidores vivos (`fila|servidor|<nome>`) cujo `pode` tem

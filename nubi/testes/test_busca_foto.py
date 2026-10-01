@@ -39,6 +39,7 @@ def _achou(r, **d):
 
 def test_card_de_catalogo_nao_e_prova():
     import coletor as c
+    assert c._foto_de_catalogo("849828-MLA93387691711") and not c._foto_de_catalogo("863486-MLB114945658162")
     assert c._card_de_catalogo({"link": "https://www.mercadolivre.com.br/perfume-x/p/MLB12345"})
     assert not c._card_de_catalogo({"link": "https://produto.mercadolivre.com.br/MLB-123456-perfume"})
     assert not c._card_de_catalogo({})
@@ -66,6 +67,12 @@ def test_loja_ja_ligada_com_outro_id_nao_e_trocada():
     x = _achou(r, vendedor="MAMS ECOMMERCE TOP14", seller_id="55", nome="MAMS ECOMMERCE", loja_oficial="KID'S LIFE")
     lj = meli.ler_hash_lojas(r, meli.SEGUIDOS)["MAMS ECOMMERCE TOP14"]
     assert lj["id"] == "55" and lj["confianca"] == "certa" and "loja oficial KID'S LIFE" in lj["prova"]
+    # foto do catálogo (MLA) reaproveitada: no máximo "provável" e nunca troca uma loja já ligada
+    x = _achou(r, vendedor="AUMA PERFUMARIA P2", seller_id="316", nome="EAMCOSMETICOS", fid="849828-MLA93387691711", mlb="MLB7338224356")
+    lj = meli.ler_hash_lojas(r, meli.SEGUIDOS)["AUMA PERFUMARIA P2"]
+    assert lj["confianca"] == "provável" and "não é prova" in lj["prova"] and not x["aviso"]
+    x = _achou(r, seller_id="999", nome="OUTRA", fid="111111-MLA22222222222", mlb="MLB7338224357")        # VANVIC já ligado
+    assert x["aviso"].startswith("foto de catálogo") and meli.ler_hash_lojas(r, meli.SEGUIDOS)["VANVIC P4"]["id"] == "273342367"
 
 
 if __name__ == "__main__":

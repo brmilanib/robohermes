@@ -3711,6 +3711,10 @@ def servidor_metricas_gravar(repo, m, agora=None):
            "gpu_pct": num("gpu_pct", 0, 100), "gpu_mem_pct": num("gpu_mem_pct", 0, 100), "gpu_temp_c": num("gpu_temp_c", 1, 150)}
     if isinstance(m.get("extras"), dict):
         reg["extras"] = {str(k)[:40]: v for k, v in list(m["extras"].items())[:20] if isinstance(v, (str, int, float, bool)) or v is None}
+        try:                                               # 01/10 (Bruno): IP trocou sozinho → aviso na Sala com quantos dias durou o anterior
+            avisar_troca_ip(repo, reg["origem"], reg["extras"].get("ip"), agora)
+        except Exception:  # noqa: BLE001
+            pass
     ag = {str(k)[:40]: bool(v) for k, v in (m.get("agentes") or {}).items()} if isinstance(m.get("agentes"), dict) else {}
     reg["agentes"] = ag
     reg["faltantes"] = [k for k, v in ag.items() if not v]
@@ -3721,6 +3725,23 @@ def servidor_metricas_gravar(repo, m, agora=None):
     repo._req("POST", "servidor_metricas", {"on_conflict": "coletado_em,origem"}, corpo=[reg],
               prefer="resolution=merge-duplicates,return=minimal")
     return reg
+
+
+def avisar_troca_ip(repo, origem, ip_novo, agora=None):
+    """Compara o IP novo com o último gravado da máquina; mudou = mensagem na Sala ("IP do gamdias mudou: a → b, depois de
+    N dias"). -> texto do aviso ou None."""
+    if not ip_novo:
+        return None
+    ant = monitor.ip_da_maquina(repo, origem, agora)
+    if not ant or ant.get("ip") == ip_novo:
+        return None
+    nome = monitor.MAQUINAS_NOME.get(origem, origem)
+    dias = ant.get("dias")
+    txt = (f"📡 IP público do {nome} mudou: {ant['ip']} → {ip_novo}"
+           + (f", depois de {dias:.0f} dia(s) com o anterior." if dias is not None else "."))
+    repo._req("POST", "reuniao_mensagens", corpo=[{"autor": "sistema", "texto": txt, "criado_em": (agora or datetime.now(timezone.utc)).isoformat()}],
+              prefer="return=minimal")
+    return txt
 
 
 def servidor_status(repo, agora=None):
@@ -6852,7 +6873,14 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         # vira candidata no card e o Bruno decide. Mesmo seller_id (ou a antiga sem id): a foto confirma e soma o anúncio.
         velha = meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vend) or {}
         aviso = ""
-        if velha.get("id") and sid and str(velha["id"]) != sid:
+        if "-MLA" in fid:                                   # 01/10: foto do catálogo reaproveitada: no máximo candidata
+            x["confianca"] = "provável"
+            prova += " (foto com ID de catálogo: não é prova, só indício)"
+            x["prova"] = prova
+            if velha.get("id"):
+                aviso = f"foto de catálogo: {vend} continua com {velha.get('nome')} ({velha['id']}); {nome} ({sid or 'sem id'}) fica só como indício."
+                x = dict(velha)
+        if not aviso and velha.get("id") and sid and str(velha["id"]) != sid:
             aviso = f"candidata: {vend} já está ligado a {velha.get('nome')} ({velha['id']}, {velha.get('confianca')}); a foto aponta {nome} ({sid}). Não troquei."
             x = dict(velha)
         elif velha.get("id") and not sid:

@@ -2273,6 +2273,12 @@ def _casa_foto(fid, foto):
     return bool(fid) and fid in str(foto or "")
 
 
+def _foto_de_catalogo(fid):
+    """01/10 (AUMA → EAMCOSMETICOS errado): ID de foto "-MLA…" é a foto do PRODUTO do catálogo, que um vendedor pode
+    reaproveitar num anúncio fora do catálogo. Não é prova de ninguém."""
+    return "-MLA" in str(fid or "")
+
+
 def _card_de_catalogo(card):
     """01/10 (VANVIC → BEAUTYFLOWER e AUMA → PERFUMES_BHZ errados): a foto de um anúncio DE CATÁLOGO é a foto do produto do
     catálogo, igual para todos os vendedores daquele produto. Só um card fora do catálogo (link /MLB-…) serve de prova."""
@@ -2309,6 +2315,9 @@ def coletar_busca_foto(p, cfg, token, so=None, rodizio=False):
                     raise
                 except Exception as e:  # noqa: BLE001
                     log(f"  {v['vendedor']}: busca '{termo}' falhou ({str(e)[:100]})")
+                    continue
+                if _foto_de_catalogo(it["fid"]):
+                    log(f"  {v['vendedor']}: foto {it['fid']} é a do catálogo (MLA): não serve de prova, pulando")
                     continue
                 iguais = [r for r in rs if _casa_foto(it["fid"], r.get("foto"))]
                 card = next((r for r in iguais if not _card_de_catalogo(r)), None)
