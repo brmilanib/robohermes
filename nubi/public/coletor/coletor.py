@@ -1725,7 +1725,7 @@ def _periodo_upseller(pg, ini, fim):
         raise Falha(f"o seletor de datas não aceitou {br(ini)} a {br(fim)} (ficou {lido[0]} a {lido[1]})")
 
 
-def baixar_vendas(pg, cfg, p=None, dia=None):
+def baixar_vendas(pg, cfg, p=None, dia=None, relatorio="anuncio"):
     """Baixa 'Vendas por Anúncio' (últimos 30 dias) do UpSeller. -> arquivo .xlsx (nome do UpSeller, sem renomear).
     dia='AAAA-MM-DD' (01/10): o relatório só desse dia, para o histórico por dia."""
     url = cfg.get("upseller_vendas_url") or UPSELLER_VENDAS
@@ -1764,7 +1764,11 @@ def baixar_vendas(pg, cfg, p=None, dia=None):
                 except Exception:  # noqa: BLE001
                     continue
     _fechar_popups(pg)
-    aba = _clicar_texto(pg, [r"^\s*Vendas por An[úu]ncios?\s*$", r"^\s*Vendas por Produtos?\s*$"], 5)
+    # 01/10: relatorio="abc" = Análise ABC (mesmo menu Relatórios de Vendas, mesmo "Últimos 30 dias" e Exportar)
+    aba = _clicar_texto(pg, [r"^\s*An[áa]lise ABC\s*$"] if relatorio == "abc"
+                        else [r"^\s*Vendas por An[úu]ncios?\s*$", r"^\s*Vendas por Produtos?\s*$"], 5)
+    if relatorio == "abc" and not aba:
+        raise Falha("não achei 'Análise ABC' no menu de Relatórios de Vendas do UpSeller. Na tela: " + str(pg.evaluate(JS_TEXTOS))[:500])
     if not aba and not na_tela:
         links = pg.evaluate("""() => [...document.querySelectorAll('a[href]')].map(a => (a.innerText || '').trim().slice(0, 30) + ' -> '
           + a.getAttribute('href')).filter(t => /analy|analis|report|relat|statis|data|venda|sales/i.test(t)).slice(0, 25).join(' | ')""")
@@ -1774,7 +1778,7 @@ def baixar_vendas(pg, cfg, p=None, dia=None):
         _periodo_upseller(pg, dia, dia)
     else:
         _clicar_texto(pg, [r"^\s*[ÚU]ltimos 30 dias\s*$", r"^\s*30 dias\s*$"], 4)
-    destino = PASTA / ("vendas_dia" if dia else "vendas")
+    destino = PASTA / ("vendas_dia" if dia else "vendas_abc" if relatorio == "abc" else "vendas")
     destino.mkdir(parents=True, exist_ok=True)
     # 29/09 (Mac): o Chrome fecha sozinho no download (como no estoque, 25/09): guarda o login e os links antes, deixa uma aba
     # extra aberta e, se cair, baixa pelo link com um cliente à parte (_baixar_link)
@@ -1817,7 +1821,7 @@ def baixar_vendas(pg, cfg, p=None, dia=None):
             raise
         log(f"  vendas: o download se perdeu ({e.__class__.__name__}); baixando pelo link com um cliente à parte")
         return _baixar_link(p, estado, candidatos, destino, d.suggested_filename or "")
-    if not cfg.get("upseller_vendas_url") and "/login" not in pg.url:
+    if relatorio == "anuncio" and not cfg.get("upseller_vendas_url") and "/login" not in pg.url:
         cfg["upseller_vendas_url"] = pg.url
         salvar_config(cfg)
     if dia and dia.replace("-", "") + "-" + dia.replace("-", "") not in arq.name:
@@ -1951,7 +1955,7 @@ def baixar_gestor_vendas(pg, cfg, p=None):
 def coletar_estoque(p, cfg, token, enviar=True):
     ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-    vendas, nota_vendas = None, ""
+    vendas, nota_vendas, abc = None, "", None
     try:
         arq, esperado = baixar_estoque(pg, p)
         try:
@@ -1979,6 +1983,11 @@ def coletar_estoque(p, cfg, token, enviar=True):
         except Exception as ev:  # noqa: BLE001
             enviar_foto(pg2, f"vendas por anúncio: {str(ev)[:150]}", str(ev)[:3000])
             raise
+        try:                                    # 01/10: a Análise ABC do próprio UpSeller (falha não derruba nada)
+            abc = baixar_vendas(pg2, cfg, p, relatorio="abc")
+        except Exception as ea:  # noqa: BLE001
+            nota_vendas = f"análise ABC: não baixou ({str(ea)[:200]})"
+            log("  " + nota_vendas)
     except Exception as ev:  # noqa: BLE001
         nota_vendas = f"vendas por anúncio: não baixou ({ev.__class__.__name__}: {str(ev)[:700]})"
         log("  " + nota_vendas)
@@ -2034,6 +2043,13 @@ def coletar_estoque(p, cfg, token, enviar=True):
             log("  " + nota_gestor)
     if nota_gestor:
         nota_vendas = (nota_vendas + " · " if nota_vendas else "") + nota_gestor
+    if abc:
+        try:
+            for linha in api(token, "estoque_vendas_importar", {"arquivo": abc.name}, abc.read_bytes()).get("log") or []:
+                log("  " + linha)
+                nota_vendas = (nota_vendas + " · " if nota_vendas else "") + linha[:200]
+        except Exception as ea:  # noqa: BLE001
+            nota_vendas = (nota_vendas + " · " if nota_vendas else "") + f"análise ABC: não importou ({str(ea)[:200]})"
     nota_dia = vendas_por_dia(p, cfg, token)      # 01/10: histórico por dia (ontem + dias que faltam)
     if nota_dia:
         log("  " + nota_dia)

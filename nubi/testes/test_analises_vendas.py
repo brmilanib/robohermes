@@ -103,6 +103,23 @@ def test_dia_abc_sem_sku():
     c = estoque.curva_abc(vs)
     assert [x["classe"] for x in c["itens"]] == ["A", "A", "B", "B", "C", "C"], c["itens"]
     assert [k["anuncios"] for k in c["classes"]] == [2, 2, 2] and c["classes"][0]["pct"] == 80.0, c["classes"]
+    # 01/10: a Análise ABC do próprio UpSeller ("Classificação ABC") é guardada à parte e a letra dela vence a conta
+    import openpyxl
+    import io
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Produtos", "Loja", "SKU Principal", "ID do Anúncios", "Classificação ABC", "Valor de Vendas Válidas",
+               "Percentual de vendas", "Percentual acumulado de vendas", "Volume de vendas válido", "Preço Médio"])
+    ws.append(["Naxos", "PURE [TikTok Shop BR]", "XER-NAX-100", "MLB1", "A", 3000, "90%", "90%", 2, 1500])
+    ws.append(["Sem sku", "PURE [TikTok Shop BR]", "", "1734815535096432238", "C", 300, "10%", "100%", 3, 100])
+    bb = io.BytesIO()
+    wb.save(bb)
+    r = R()
+    x = w.vendas_importar(r, bb.getvalue(), "Product_Sales_20260901_20260930_20261001140845.xlsx")
+    assert x["abc"] and r.gravados[0]["chave"] == "vendas_abc|atual" and "A 1, B 0, C 1" in x["log"][0], (x, r.gravados)
+    up = {("MLB2", "L"): "B"}
+    c2 = estoque.curva_abc(vs, classes_upseller=up)
+    assert c2["itens"][2]["classe"] == "B" and c2["itens"][1]["classe"] == "A", c2["itens"][:3]
     print("ok análises de vendas (dia, ABC, sem SKU)")
 
 

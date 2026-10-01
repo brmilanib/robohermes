@@ -239,6 +239,67 @@ ALERTA_DIAS = 15        # estoque (disponível + em trânsito) que dura menos qu
 ALVO_DIAS = 30          # a sugestão de compra cobre 30 dias de venda
 
 
+ABC_COLUNAS = {"Produtos": "produto", "Loja": "loja", "SKU Principal": "sku", "ID do Anúncios": "anuncio", "ID do Anúncio": "anuncio",
+               "Classificação ABC": "classe", "Valor de Vendas Válidas": "valor", "Volume de vendas válido": "unidades",
+               "Preço Médio": "preco_medio"}
+
+
+def eh_abc(conteudo):
+    """True se o .xlsx é a Análise ABC do UpSeller (coluna "Classificação ABC")."""
+    import openpyxl
+    import warnings
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            wb = openpyxl.load_workbook(io.BytesIO(conteudo), read_only=True, data_only=True)
+        cab = [_cab(c) for c in next(wb.worksheets[0].iter_rows(values_only=True))]
+        wb.close()
+        return _cab("Classificação ABC") in cab
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def ler_abc(conteudo):
+    """01/10 (Bruno: "o próprio UpSeller gera o relatório da curva ABC"): Análise ABC → Exportar ("Product_Sales_…xlsx"):
+    uma linha por anúncio com a classe A/B/C do UpSeller. -> [{anuncio, loja, sku, produto, classe, valor, unidades}]"""
+    import openpyxl
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(conteudo), data_only=True)
+        except Exception as e:  # noqa: BLE001
+            raise ErroEstoque(f"não é uma planilha .xlsx válida ({e.__class__.__name__})")
+    linhas = wb.worksheets[0].iter_rows(values_only=True)
+    cab = [_cab(c) for c in next(linhas)]
+    colunas = {_cab(k): v for k, v in ABC_COLUNAS.items()}
+    mapa = {i: colunas[c] for i, c in enumerate(cab) if c in colunas}
+    if not {"classe", "anuncio"} <= set(mapa.values()):
+        raise ErroEstoque("não parece a Análise ABC do UpSeller (falta Classificação ABC)")
+    out = []
+    for row in linhas:
+        it = {campo: row[i] if i < len(row) else None for i, campo in mapa.items()}
+        classe = str(it.get("classe") or "").strip().upper()[:1]
+        if classe not in ("A", "B", "C"):
+            continue
+        out.append({"anuncio": str(it.get("anuncio") or "").strip(), "loja": str(it.get("loja") or "").strip(),
+                    "sku": str(it.get("sku") or "").strip(), "produto": str(it.get("produto") or "").strip()[:300],
+                    "classe": classe, "valor": _num(it.get("valor")) or 0.0, "unidades": _num(it.get("unidades")) or 0.0,
+                    "preco_medio": _num(it.get("preco_medio"))})
+    wb.close()
+    if not out:
+        raise ErroEstoque("nenhum anúncio com classe A/B/C na planilha")
+    return out
+
+
+def periodo_abc(nome):
+    """'Product_Sales_20260901_20260930_…' -> ('2026-09-01', '2026-09-30') ou (None, None)."""
+    m = re.search(r"(20\d{6})_(20\d{6})", str(nome or ""))
+    if not m:
+        return None, None
+    return tuple(f"{x[:4]}-{x[4:6]}-{x[6:]}" for x in m.groups())
+
+
 def ler_vendas(conteudo):
     """Bytes do .xlsx "Vendas por Produtos" do UpSeller -> lista de linhas (uma por anúncio)."""
     import openpyxl
@@ -480,12 +541,13 @@ def por_anuncio(itens, vendas, dias=30, gestor=None):
 ABC_A, ABC_B = 0.80, 0.95      # igual ao UpSeller (conferido em 01/10: 59/95/166 anúncios = 79,71% / 15,23% / 5,06%)
 
 
-def curva_abc(vendas, por="valor"):
+def curva_abc(vendas, por="valor", classes_upseller=None):
     """01/10 (Bruno: "coloque também as vendas ABC do UpSeller"): curva ABC por anúncio, como a Análise ABC do UpSeller
     ("Anúncio & Valor de Vendas" / "Anúncio & Volume de Vendas"): ordena pelo valor (ou unidades), acumula; A até 80% do
     acumulado, B até 95%, C o resto. Mesmo relatório Vendas por Anúncio, sem baixar outro."""
     campo = "valor" if por == "valor" else "unidades"
-    xs = sorted((v for v in vendas or [] if (v.get(campo) or 0) > 0), key=lambda v: -(v.get(campo) or 0))
+    # todos os anúncios do relatório, até os de valor 0 (o UpSeller conta esses em C: 166 e não 156 no arquivo de 09/2026)
+    xs = sorted((v for v in vendas or []), key=lambda v: -(v.get(campo) or 0))
     tot = sum(v.get(campo) or 0 for v in xs)
     out, ac = [], 0.0
     res = {k: {"classe": k, "anuncios": 0, "total": 0.0} for k in "ABC"}
@@ -493,6 +555,8 @@ def curva_abc(vendas, por="valor"):
         ac += v.get(campo) or 0
         acum = ac / tot if tot else 0
         k = "A" if acum <= ABC_A + 1e-9 else "B" if acum <= ABC_B + 1e-9 else "C"
+        if classes_upseller:                    # a letra do próprio UpSeller (Análise ABC) vence a conta, se o anúncio está lá
+            k = classes_upseller.get((str(v.get("anuncio") or ""), _loja_curta(v.get("loja")))) or k
         res[k]["anuncios"] += 1
         res[k]["total"] += v.get(campo) or 0
         out.append({"anuncio": v.get("anuncio") or "", "sku": v.get("sku") or "", "produto": v.get("produto") or "",

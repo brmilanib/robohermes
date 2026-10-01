@@ -1103,3 +1103,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   - Curva ABC (`estoque.curva_abc`, valor ou volume): mesma regra do UpSeller (A até 80% acumulado, B até 95%, C o resto),
     conferida no arquivo real: 59/95/166 anúncios = 79,71/15,23/5,06% — igual à tela Análise ABC dele, então NÃO baixa outro
     relatório. Página `#/analises-vendas/abc` (`telaCurvaABC`) e a letra A/B/C em cada anúncio. Teste: `test_analises_vendas.py`.
+  - **Análise ABC do próprio UpSeller (01/10, Bruno mandou o arquivo "Product_Sales_…xlsx")**: o coletor, logo depois do
+    Vendas por Anúncio de 30 dias e no mesmo Chrome, baixa Relatórios de Vendas → Análise ABC → Exportar
+    (`baixar_vendas(relatorio="abc")`, falha não derruba nada) e manda para a mesma rota `estoque_vendas_importar`, que
+    reconhece a coluna "Classificação ABC" (`estoque.eh_abc`/`ler_abc`, `periodo_abc`) e grava `vendas_abc|atual`. Na Curva
+    ABC por valor, a letra do UpSeller vence a conta do nubi quando o período é o mesmo (`abc.fonte`="upseller"). Conferido no
+    arquivo de 09/2026: a conta do nubi dá 59/95/166 como o UpSeller e só 2 anúncios empatados em R$ 660,00 na fronteira B/C
+    trocam de lado; anúncios de valor 0 também contam em C.

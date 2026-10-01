@@ -3198,7 +3198,8 @@ function telaCurvaABC(r) {
       <div class="card" style="margin-bottom:12px"><svg viewBox="0 0 ${W} ${H + 4}" style="width:100%;height:auto;display:block" role="img" aria-label="Curva ABC acumulada">
         ${[20, 40, 60, 80, 95].map(p => `<line x1="0" x2="${W}" y1="${H - p / 100 * H}" y2="${H - p / 100 * H}" stroke="currentColor" opacity=".08"></line><text x="2" y="${H - p / 100 * H - 2}" font-size="10" fill="currentColor" opacity=".5">${p}%</text>`).join("")}
         ${seg("A")}${seg("B")}${seg("C")}</svg>
-        <p class="muted" style="font-size:12px;margin:6px 0 0">A = os anúncios que somam até 80% ${ehValor ? "do faturamento" : "das unidades"}; B = de 80% a 95%; C = o resto. Mesma regra da Análise ABC do UpSeller.</p></div>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">A = os anúncios que somam até 80% ${ehValor ? "do faturamento" : "das unidades"}; B = de 80% a 95%; C = o resto.
+          ${ehValor && r.abc.fonte === "upseller" ? "Letras da Análise ABC do próprio UpSeller (baixada junto)." : "Mesma regra da Análise ABC do UpSeller, calculada pelo nubi."}</p></div>
       <div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
         <div class="seg">${["", "A", "B", "C"].map(k => `<button data-cl="${k}" class="${f.classe === k ? "on" : ""}">${k ? "Categoria " + k : "Tudo"}</button>`).join("")}</div>
         <input type="search" id="abc-q" placeholder="Buscar SKU, produto ou anúncio…" value="${esc(f.q)}" style="flex:1;min-width:200px">

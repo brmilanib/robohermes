@@ -4501,6 +4501,8 @@ ESTOQUE_HORARIOS = tuple(f"{(int(h[:2]) * 60 + int(h[3:]) - ESTOQUE_ANTES_MIN) %
 def vendas_importar(repo, conteudo, arquivo, origem="coletor"):
     """28/09 (Bruno): relatório 'Vendas por Anúncio' do UpSeller (últimos 30 dias), 1 vez por dia. Guarda a foto atual em
     ia_resumos (VENDAS_CHAVE) e um resumo por dia (vendas_anuncio|AAAA-MM-DD) para o histórico."""
+    if estoque.eh_abc(conteudo):
+        return abc_importar(repo, conteudo, arquivo, origem)
     try:
         linhas = estoque.ler_vendas(conteudo)
     except estoque.ErroEstoque as e:
@@ -4540,6 +4542,28 @@ def vendas_importar(repo, conteudo, arquivo, origem="coletor"):
 GESTOR_VENDAS_CHAVE = "gestor_vendas|atual"
 VENDAS_DIA_CHAVE = "vendas_anuncio_dia|"
 VENDAS_DIAS_HIST = 30
+
+
+VENDAS_ABC_CHAVE = "vendas_abc|atual"
+
+
+def abc_importar(repo, conteudo, arquivo, origem="coletor"):
+    """01/10 (Bruno: "o próprio UpSeller gera o relatório da curva ABC"): Análise ABC do UpSeller (Exportar) — a letra
+    A/B/C de cada anúncio. Vence a conta do nubi na Curva ABC quando é do mesmo período do Vendas por Anúncio."""
+    try:
+        linhas = estoque.ler_abc(conteudo)
+    except estoque.ErroEstoque as e:
+        raise ErroNuvem(f"Análise ABC não importada: {e}.")
+    ini, fim = estoque.periodo_abc(arquivo)
+    agora = datetime.now(timezone.utc).isoformat()
+    d = {"arquivo": arquivo, "origem": origem, "importado_em": agora, "inicio": ini, "fim": fim, "anuncios": len(linhas),
+         "linhas": [{k: x[k] for k in ("anuncio", "loja", "classe")} for x in linhas]}
+    repo._req("POST", "ia_resumos", corpo=[{"chave": VENDAS_ABC_CHAVE, "ia": "upseller", "criado_em": agora,
+                                             "texto": json.dumps(d, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    n = {k: sum(1 for x in linhas if x["classe"] == k) for k in "ABC"}
+    return {"ok": True, "abc": True, "log": [f"OK: Análise ABC do UpSeller ({ini or '?'} a {fim or '?'}): A {n['A']}, B {n['B']}, "
+                                             f"C {n['C']} anúncios."]}
 
 
 def vendas_dias_guardados(repo):
@@ -4731,7 +4755,11 @@ def minhas_vendas_anuncio(repo):
         k = (estoque._chave(a["sku"]), str(a["anuncio"] or ""), a["loja"])
         for n, soma in janela.items():
             a[f"un{n}"] = round(soma.get(k, 0))
-    abc = {"valor": estoque.curva_abc(v["linhas"], "valor"), "volume": estoque.curva_abc(v["linhas"], "volume")}
+    up = _vendas_atuais(repo, VENDAS_ABC_CHAVE) or {}
+    mesmo = up.get("linhas") and up.get("inicio") == v.get("inicio") and up.get("fim") == v.get("fim")
+    cl_up = {(str(x["anuncio"]), estoque._loja_curta(x["loja"])): x["classe"] for x in up.get("linhas") or []} if mesmo else None
+    abc = {"valor": estoque.curva_abc(v["linhas"], "valor", cl_up), "volume": estoque.curva_abc(v["linhas"], "volume"),
+           "fonte": "upseller" if cl_up else "nubi"}
     classe = {(x["sku"], x["anuncio"], x["loja"]): x["classe"] for x in abc["valor"]["itens"]}
     for a in an:
         a["abc"] = classe.get((a["sku"], a["anuncio"], a["loja"]))
