@@ -78,10 +78,11 @@ def test_base_que_nao_parece_perfume_e_ignorada_e_a_ia_pesquisa():
     ia.disponivel = lambda: True
     try:
         r, falhas, n = nubi.consultar_gtin("634240397363")
+        fonte = ia.nome()  # com o disponivel falso; fora dele depende das chaves da máquina (no Mac dava "IA (…)")
     finally:
         nubi.fonte_open_beauty, nubi.fonte_upcitemdb, nubi.fonte_ia = orig
         ia.disponivel = disp
-    assert chamadas == ["634240397363"] and r["marca"] == "Bidaya" and r["fonte"] == ia.nome(), (r, falhas)
+    assert chamadas == ["634240397363"] and r["marca"] == "Bidaya" and r["fonte"] == fonte, (r, falhas)
     print("ok test_base_que_nao_parece_perfume_e_ignorada_e_a_ia_pesquisa")
 
 

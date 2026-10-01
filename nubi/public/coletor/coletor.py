@@ -2307,9 +2307,18 @@ def coletar_vitrine_seguidos(p, cfg, token, so=None, rodizio=False):
                     x = pg.evaluate(JS_VITRINE)
                     if not x.get("cards"):
                         break
-                    r = api(token, "ml_vitrine_salvar", corpo={"vendedor": l["vendedor"], "seller_id": l["seller_id"],
-                                                               "pagina": pag, "cards": x["cards"], "scripts": x.get("scripts") or [],
-                                                               "total": x.get("total") if not pag else None}, timeout=120)
+                    # card #136 (01/10): um "[Errno 60] Operation timed out" no envio ao nubi derrubava a loja inteira;
+                    # falha de rede tenta de novo (3 vezes, com pausa), como no card #123
+                    for tentativa in (1, 2, 3):
+                        try:
+                            r = api(token, "ml_vitrine_salvar", corpo={"vendedor": l["vendedor"], "seller_id": l["seller_id"],
+                                                                       "pagina": pag, "cards": x["cards"], "scripts": x.get("scripts") or [],
+                                                                       "total": x.get("total") if not pag else None}, timeout=120)
+                            break
+                        except OSError:   # URLError, TimeoutError, ConnectionResetError
+                            if tentativa == 3:
+                                raise
+                            time.sleep(10 * tentativa)
                     novos = set(r.get("mlbs") or []) - vistos
                     vistos |= novos
                     if not novos or len(x["cards"]) < ML_POR_PAGINA:
