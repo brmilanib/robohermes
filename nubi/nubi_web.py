@@ -6515,6 +6515,9 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         # /products/{id}/items. Caminho novo: o coletor busca o TÍTULO no ML e casa o card pelo ID da foto do Nubimetrics
         # (único por anúncio); abre o anúncio e lê a loja. Aqui: os seguidos sem loja e as fotos mais vendidas de cada um.
         lojas = meli.ler_hash_lojas(repo, meli.SEGUIDOS)
+        # 01/10: o nome das fotos pode vir com pontos no lugar dos traços ("AIRON.AMBAR.INQUIETANTE" x "AIRON-AMBAR-INQUIETANTE")
+        fotos_chaves = {re.sub(r"[^a-z0-9]", "", str(x["chave"])[len("vend_fotos|"):].lower()): x["chave"]
+                        for x in (repo._req("GET", "ia_resumos", {"select": "chave", "chave": "like.vend_fotos|*"}) or [])}
         out = []
         for r in _vend_rels(repo):
             v = r.get("vendedor")
@@ -6523,7 +6526,8 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
             lj = _a_conferir(lojas.get(v))
             if lj and lj.get("confianca") in ("manual", "certa"):
                 continue
-            f = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(f"vend_fotos|{v}")}) or [None])[0]
+            chave_f = fotos_chaves.get(re.sub(r"[^a-z0-9]", "", v.lower()), f"vend_fotos|{v}")
+            f = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(chave_f)}) or [None])[0]
             try:
                 itens = (json.loads(f["texto"]) if f else {}).get("itens") or []
             except (TypeError, ValueError):
