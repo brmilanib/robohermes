@@ -1290,6 +1290,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `painel.js` (custo fixo abaixo de R$ 79, frete só a partir de R$ 79) e "Quero margem de X%" → preço sugerido. Sem categoria
   lida, a tarifa usa `meli.categoria_pelo_titulo` (domain_discovery); título "Clássico" vem da vitrine; SKU sem custo usa o
   custo de uma importação anterior (`custo_antigo`). Teste em `test_precos_tela.py`/`test_precos_rodadas.py`.
+  Com o MEU anúncio (01/10, Bruno: "pegar a minha categoria, o peso, e marcar clássico ou premium"): rota `ml_precos_calc_ml`
+  (`_calc_ml`): `meli.meu_anuncio_por_sku` (conta conectada, `/users/{id}/items/search?seller_sku=` + `/items/{id}`: categoria,
+  tipo, Full, medidas `dimensoes_do_item` = shipping.dimensions ou SELLER_PACKAGE_*), tarifa dos 2 tipos (Clássico/Premium) pela
+  minha categoria e frete por `meli.frete_por_medidas` (`/users/{id}/shipping_options/free?dimensions=AxLxC,g`). Na tela:
+  botões Clássico/Premium, ⚡ Full e as medidas editáveis (recalcula no ML ao mudar). Só leitura.
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

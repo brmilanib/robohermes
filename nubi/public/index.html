@@ -1100,6 +1100,10 @@ header.top{padding:7px 16px}
 .pm-calcbtn{border:1px solid var(--borda,#dde3ee);background:var(--card,#fff);border-radius:8px;padding:1px 6px;margin-right:6px;cursor:pointer;font-size:14px;vertical-align:top}
 .pm-calcbtn:hover{background:#eef4ff}
 .pm-calc-t a{color:inherit;text-decoration:none}.pm-calc-t a:hover{text-decoration:underline}
+.pc-ml{font-size:12.5px;background:#f3f6fb;border-radius:10px;padding:8px 10px;margin-bottom:10px;line-height:1.5}
+.pc-tipos{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px}.pc-tipos>span{font-weight:600;margin-right:4px}
+.pc-full{display:flex;gap:4px;align-items:center;margin-left:8px;font-weight:600}
+.pc-med{grid-column:1/-1}.pc-med span{display:flex;gap:6px}.pc-med span input{width:70px}
 .pc-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
 .pc-grade label,.pc-alvo label{display:flex;flex-direction:column;gap:3px;font-size:12.5px;font-weight:600}
 .pc-grade small{font-weight:400;color:var(--muted,#6b7280);font-size:11px}
@@ -8333,6 +8337,9 @@ function pmCalc(x, cfg) {
   const lerP = el => { const v = parseFloat(String(el.value).replace(",", ".")); return isFinite(v) ? v : 0; };
   modal(`<h2 style="margin-top:0">🧮 Calculadora</h2>
     <p class="muted" style="margin-top:0">${esc(x.titulo || x.mlb)} · ${esc(x.mlb)}${m.sku ? ` · meu SKU ${esc(m.sku)}` : ""}</p>
+    <div class="pc-ml" id="pc-ml">🔄 buscando no Mercado Livre a categoria, o tipo e as medidas do meu anúncio…</div>
+    <div class="pc-tipos"><span>Meu anúncio será</span><button class="btn small" data-tipo="gold_special">Clássico</button><button class="btn small" data-tipo="gold_pro">Premium</button>
+      <label class="pc-full"><input type="checkbox" id="pc-fullck"> ⚡ Full</label></div>
     <div class="pc-grade">
       <label>Preço de venda (R$)<input id="pc-preco" inputmode="decimal" value="${n(x.atual)}"></label>
       <label>Meu custo (R$)<input id="pc-custo" inputmode="decimal" value="${n(m.custo)}" placeholder="custo do produto"></label>
@@ -8340,6 +8347,7 @@ function pmCalc(x, cfg) {
       <label>Frete grátis (R$)<input id="pc-frete" inputmode="decimal" value="${n(c.frete || 0)}"><small>${c.frete ? "o que o ML cobra deste vendedor" : "a partir de R$ 79"}</small></label>
       <label>Imposto (%)<input id="pc-imp" inputmode="decimal" value="${n(cfg?.imposto_pct || 0)}"></label>
       <label>Outros custos (R$)<input id="pc-out" inputmode="decimal" value="" placeholder="embalagem, brinde…"></label>
+      <label class="pc-med">Pacote: altura × largura × comprimento (cm) e peso (g)<span><input id="pc-a" inputmode="decimal" placeholder="A"><input id="pc-l" inputmode="decimal" placeholder="L"><input id="pc-c" inputmode="decimal" placeholder="C"><input id="pc-g" inputmode="numeric" placeholder="g"></span><small id="pc-med-o">o frete grátis do ML depende do peso e das medidas</small></label>
     </div>
     <div id="pc-res" class="pc-res"></div>
     <div class="pc-alvo"><label>Quero margem de (%)<input id="pc-alvo" inputmode="decimal" value="15"></label><div id="pc-alvo-r" class="muted"></div></div>
@@ -8373,8 +8381,40 @@ function pmCalc(x, cfg) {
       $i("#pc-alvo-r").innerHTML = !v.custo ? "Preencha o meu custo para calcular." : sug ? `Venda a <b>${rsES(sug)}</b> <a href="javascript:void 0" id="pc-usar">usar este preço</a>` : "Margem impossível com essas taxas.";
       const u = $i("#pc-usar"); if (u) u.onclick = () => { $i("#pc-preco").value = n(sug); desenhar(); };
     };
+    // dados do ML: tarifa dos 2 tipos pela MINHA categoria e o frete pelas medidas do pacote (rota ml_precos_calc_ml)
+    let tipo = c.tipo_id || x.tipo_id || "gold_special", ml = null, seq = 0, tm = null;
+    const marcaTipo = () => bg.querySelectorAll("[data-tipo]").forEach(b => b.classList.toggle("primary", b.dataset.tipo === tipo));
+    const aplicar = () => { if (!ml) return;
+      const tf = (ml.tarifas || {})[tipo];
+      if (tf && tf.pct != null) $i("#pc-pct").value = n(tf.pct);
+      if (ml.frete != null) $i("#pc-frete").value = n(ml.frete);
+      const tnome = {gold_special: "Clássico", gold_pro: "Premium"};
+      $i("#pc-ml").innerHTML = [ml.meu ? `✅ Meu anúncio <a href="https://produto.mercadolivre.com.br/MLB-${esc(String(ml.meu.mlb).replace(/^MLB/, ""))}" target="_blank" rel="noopener">${esc(ml.meu.mlb)}</a> (${tnome[ml.meu.tipo_id] || esc(ml.meu.tipo_id || "")}${ml.meu.full ? ", Full" : ""})` : `⚠️ Não achei anúncio meu com o SKU ${esc(m.sku || "—")} na conta do ML conectada`,
+        ml.categoria ? `categoria ${esc(ml.categoria)} (${esc(ml.origem_categoria || "")})` : "sem categoria: tarifa padrão",
+        Object.entries(ml.tarifas || {}).filter(([, t]) => t && t.pct != null).map(([k, t]) => `${tnome[k]} ${n(t.pct)}%`).join(" · "),
+        ml.origem_frete ? `frete ${esc(ml.origem_frete)}` : (lerN($i("#pc-preco")) >= 79 ? "frete: preencha as medidas do pacote" : ""),
+        ml.aviso ? esc(ml.aviso) : ""].filter(Boolean).join(" · ");
+      desenhar(); };
+    const dims = () => { const v = ["#pc-a", "#pc-l", "#pc-c", "#pc-g"].map(id => lerP($i(id)));
+      return v.every(z => z > 0) ? `${v[0]}x${v[1]}x${v[2]},${Math.round(v[3])}` : ""; };
+    const buscar = async (manual) => { const meu = ++seq;
+      const corpo = {mlb: x.mlb, sku: m.sku || "", preco: lerN($i("#pc-preco")), tipo, full: $i("#pc-fullck").checked};
+      if (manual) corpo.dimensoes = dims();
+      try { const r2 = await api("ml_precos_calc_ml", {}, {method: "POST", body: JSON.stringify(corpo)});
+        if (meu !== seq) return;
+        ml = r2;
+        if (!manual) { tipo = r2.tipo || tipo; $i("#pc-fullck").checked = !!r2.full; marcaTipo();
+          const dm = /^([\d.]+)x([\d.]+)x([\d.]+),(\d+)$/.exec(r2.dimensoes || "");
+          if (dm) { $i("#pc-a").value = dm[1]; $i("#pc-l").value = dm[2]; $i("#pc-c").value = dm[3]; $i("#pc-g").value = dm[4];
+            $i("#pc-med-o").textContent = r2.meu && r2.meu.dimensoes ? "do meu anúncio no ML (pode mudar)" : "digitadas"; } }
+        aplicar();
+      } catch (e) { if (meu === seq) $i("#pc-ml").textContent = "⚠️ " + e.message + " (a conta segue com os dados acima)"; } };
+    const depois = manual => { clearTimeout(tm); tm = setTimeout(() => buscar(manual), 700); };
+    bg.querySelectorAll("[data-tipo]").forEach(b => b.onclick = () => { tipo = b.dataset.tipo; marcaTipo(); aplicar(); depois(true); });
+    $i("#pc-fullck").onchange = () => depois(true);
     bg.querySelectorAll("input").forEach(el => el.oninput = desenhar);
-    desenhar(); $i("#pc-preco").focus(); $i("#pc-preco").select();
+    ["#pc-preco", "#pc-a", "#pc-l", "#pc-c", "#pc-g"].forEach(id => $i(id).addEventListener("input", () => depois(true)));
+    marcaTipo(); desenhar(); buscar(false); $i("#pc-preco").focus(); $i("#pc-preco").select();
   });
 }
 

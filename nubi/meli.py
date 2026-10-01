@@ -737,6 +737,72 @@ def categoria_pelo_titulo(titulo):
     return x.get("category_id") or None
 
 
+def _minha_conta():
+    """Nº da conta do ML conectada (a do Bruno); None sem a conta."""
+    return _mem("conta|id", 3600, lambda: (_get("/users/me") or {}).get("id"))
+
+
+def _medida(v, unidade):
+    """'12 cm' / '0,5 kg' / '500 g' -> número na unidade pedida (cm ou g)."""
+    m = re.match(r"\s*([\d.,]+)\s*([a-zA-Z]*)", str(v or ""))
+    if not m:
+        return None
+    n = float(m.group(1).replace(",", ".")) if m.group(1).count(",") <= 1 else None
+    if n is None:
+        return None
+    u = m.group(2).lower()
+    if unidade == "g":
+        return round(n * 1000) if u == "kg" else round(n)
+    return round(n * (100 if u == "m" else 0.1 if u == "mm" else 1), 1)
+
+
+def dimensoes_do_item(b):
+    """'AxLxC,peso' (cm e g) do anúncio: shipping.dimensions ou os atributos SELLER_PACKAGE_* / PACKAGE_*."""
+    d = ((b.get("shipping") or {}).get("dimensions") or "").strip()
+    if re.fullmatch(r"\d+(\.\d+)?x\d+(\.\d+)?x\d+(\.\d+)?,\d+", d):
+        return d
+    at = {a.get("id"): a.get("value_name") for a in b.get("attributes") or []}
+    def pega(nome, un):
+        return _medida(at.get(f"SELLER_PACKAGE_{nome}") or at.get(f"PACKAGE_{nome}"), un)
+    a, l, c, p = pega("HEIGHT", "cm"), pega("WIDTH", "cm"), pega("LENGTH", "cm"), pega("WEIGHT", "g")
+    if all(v for v in (a, l, c, p)):
+        cm = lambda v: str(int(v)) if float(v).is_integer() else f"{v:.1f}"
+        return f"{cm(a)}x{cm(l)}x{cm(c)},{int(p)}"
+    return None
+
+
+def meu_anuncio_por_sku(sku):
+    """01/10 (Bruno: "pegar a minha categoria, o peso do produto, para calcular certo a tarifa e o frete"): o MEU anúncio
+    do SKU na conta conectada (só leitura): categoria, tipo (Clássico/Premium), Full e as medidas do pacote."""
+    uid = _minha_conta()
+    if not uid or not sku:
+        return None
+    r = _get(f"/users/{uid}/items/search", {"seller_sku": str(sku), "limit": 10}) or {}
+    for mlb in (r.get("results") or [])[:5]:
+        try:
+            b = _get(f"/items/{mlb}", {"include_attributes": "all"}) or {}
+        except ErroMeli:
+            continue
+        if not b.get("category_id"):
+            continue
+        return {"mlb": b.get("id") or mlb, "titulo": b.get("title"), "categoria": b.get("category_id"),
+                "tipo_id": b.get("listing_type_id"), "preco": _num(b.get("price")), "status": b.get("status"),
+                "full": (b.get("shipping") or {}).get("logistic_type") == "fulfillment", "dimensoes": dimensoes_do_item(b)}
+    return None
+
+
+def frete_por_medidas(dimensoes, preco, tipo_id="gold_special", full=False):
+    """Frete grátis que o ML cobra da MINHA conta para um pacote 'AxLxC,peso' (cm, g) vendido a `preco`."""
+    uid = _minha_conta()
+    if not uid or not dimensoes:
+        return None
+    r = _get(f"/users/{uid}/shipping_options/free", {"dimensions": dimensoes, "item_price": round(float(preco), 2),
+                                                      "listing_type_id": tipo_id or "gold_special", "mode": "me2",
+                                                      "condition": "new", "logistic_type": "fulfillment" if full else "drop_off",
+                                                      "verbose": "true"}) or {}
+    return _num((((r.get("coverage") or {}).get("all_country") or {}).get("list_cost")))
+
+
 def frete_do_vendedor(vendedor_id, mlb):
     """O que o vendedor paga de frete grátis neste anúncio (custo cheio de lista)."""
     try:

@@ -60,6 +60,11 @@ def test_tela():
                 pg.route("https://cdn.jsdelivr.net/**", lambda rt: rt.fulfill(content_type="application/javascript", body=STUB))
                 pg.route("https://fonts.**", lambda rt: rt.abort())
                 pg.route("**/api/app?r=ml_precos_lista*", lambda rt: rt.fulfill(content_type="application/json", body=json.dumps(r)))
+                ML = {"categoria": "MLB6284", "origem_categoria": "meu anúncio", "tipo": "gold_special", "full": False,
+                      "tarifas": {"gold_special": {"pct": 14, "fixa": 0, "total": 30.1}, "gold_pro": {"pct": 19, "fixa": 0, "total": 40.85}},
+                      "dimensoes": "10x8x20,600", "frete": 24.45, "origem_frete": "pelas medidas do pacote, na minha conta do ML",
+                      "meu": {"mlb": "MLB999", "tipo_id": "gold_special", "full": False, "dimensoes": "10x8x20,600"}}
+                pg.route("**/api/app?r=ml_precos_calc_ml*", lambda rt: rt.fulfill(content_type="application/json", body=json.dumps(ML)))
                 pg.goto(f"http://127.0.0.1:{porta}/#/precos")
                 pg.wait_for_selector(".pm-card", timeout=15000)
                 txt = pg.inner_text("#main")
@@ -72,12 +77,16 @@ def test_tela():
                 pg.click("button.pm-calcbtn")
                 pg.wait_for_selector("#pc-res .pc-lucro", timeout=5000)
                 assert pg.input_value("#pc-pct") == "14" and pg.input_value("#pc-custo") == "150" and pg.input_value("#pc-imp") == "10"
+                pg.wait_for_selector("#pc-ml >> text=Meu anúncio", timeout=5000)
+                assert pg.input_value("#pc-g") == "600" and "Clássico 14%" in pg.inner_text("#pc-ml")
                 assert "R$ -11,05" in pg.inner_text("#pc-res") or "-R$ 11,05" in pg.inner_text("#pc-res"), pg.inner_text("#pc-res")
                 pg.fill("#pc-preco", "250")
                 assert "R$ 15,55" in pg.inner_text("#pc-res"), pg.inner_text("#pc-res")   # 250 − 35 − 24,45 − 25 − 150
                 assert "Venda a" in pg.inner_text("#pc-alvo-r")
                 pg.click("#pc-usar")
                 assert "15,0%" in pg.inner_text("#pc-res"), pg.inner_text("#pc-res")      # o preço sugerido dá a margem pedida
+                pg.click("[data-tipo=gold_pro]")                                         # Premium: 19% da API
+                assert pg.input_value("#pc-pct") == "19", pg.input_value("#pc-pct")
                 pg.click(".modal [data-fechar]")
                 pg.click("button[data-hist]")
                 pg.wait_for_selector(".pm-hist svg", timeout=5000)

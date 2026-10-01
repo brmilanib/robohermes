@@ -6740,6 +6740,60 @@ def _calc_monitor(repo, itens):
                          tarifa_pct=tf_pct, tarifa_fixa=tf_fixa) if preco else None
 
 
+def _calc_ml(repo, d):
+    """01/10 (Bruno: "pegar a minha categoria, o peso do produto, para fazer o cálculo correto; marcar se é clássico ou
+    premium"): tarifa do ML pelos 2 tipos e frete pela conta conectada com as medidas do pacote. Ordem dos dados: o que o
+    Bruno digitou na calculadora > o MEU anúncio do SKU (categoria, tipo, Full, medidas) > o anúncio do concorrente."""
+    if not meli.tem_chave():
+        raise ErroNuvem("As chaves do Mercado Livre não estão na Vercel.")
+    preco = meli._num(d.get("preco"))
+    if not preco or preco <= 0:
+        raise ErroNuvem("Preço inválido.")
+    it = next((x for x in precos.lista(repo) if x.get("mlb") == precos.normalizar_mlb(d.get("mlb"))), {}) if d.get("mlb") else {}
+    meu, aviso = None, None
+    sku = str(d.get("sku") or "").strip()
+    if sku:
+        try:
+            meu = meli._mem(f"meu_sku|{sku}", 6 * 3600, lambda: meli.meu_anuncio_por_sku(sku))
+        except meli.ErroMeli as e:
+            aviso = f"Não li o meu anúncio no ML ({e})."
+    cat = d.get("categoria") or (meu or {}).get("categoria") or it.get("categoria")
+    origem_cat = "digitada" if d.get("categoria") else "meu anúncio" if (meu or {}).get("categoria") else "anúncio do concorrente" if it.get("categoria") else None
+    if not cat and it.get("titulo") and not precos.titulo_ruim(it["titulo"]):
+        cat = meli._mem(f"cat|{it['titulo']}", 7 * 86400, lambda: meli.categoria_pelo_titulo(it["titulo"]))
+        origem_cat = "sugerida pelo título" if cat else None
+    tipo = d.get("tipo") if d.get("tipo") in ("gold_special", "gold_pro") else (meu or {}).get("tipo_id") or it.get("tipo_id") or "gold_special"
+    tarifas = {}
+    if cat:
+        for t in ("gold_special", "gold_pro"):
+            try:
+                tarifas[t] = meli._mem(f"tarifa|{preco}|{cat}|{t}", 6 * 3600, lambda t=t: meli.tarifa(preco, cat, t))
+            except meli.ErroMeli:
+                tarifas[t] = None
+    dims = str(d.get("dimensoes") or "").replace(" ", "") or (meu or {}).get("dimensoes")
+    if dims and not re.fullmatch(r"\d+(\.\d+)?x\d+(\.\d+)?x\d+(\.\d+)?,\d+", dims):
+        raise ErroNuvem("Medidas no formato altura x largura x comprimento (cm), peso (g). Ex.: 10x10x20,500")
+    full = d["full"] in (True, "true", "1", 1) if "full" in d else bool((meu or {}).get("full"))
+    frete, origem_frete = 0.0, "abaixo de R$ 79 o comprador paga"
+    if preco >= 79:
+        frete, origem_frete = None, None
+        if dims:
+            try:
+                frete = meli._mem(f"frete_med|{dims}|{preco}|{tipo}|{full}", 6 * 3600, lambda: meli.frete_por_medidas(dims, preco, tipo, full))
+                origem_frete = "pelas medidas do pacote, na minha conta do ML" if frete is not None else None
+            except meli.ErroMeli as e:
+                aviso = (aviso + " " if aviso else "") + f"Frete pelas medidas falhou ({e})."
+        if frete is None and it.get("seller_id"):
+            try:
+                frete = meli._mem(f"frete|{it['seller_id']}|{it['mlb']}", 6 * 3600, lambda: meli.frete_do_vendedor(it["seller_id"], it["mlb"]))
+                origem_frete = "estimado pelo anúncio do concorrente (sem as medidas do meu)" if frete is not None else None
+            except meli.ErroMeli:
+                pass
+    return {"categoria": cat, "origem_categoria": origem_cat, "tipo": tipo, "tarifas": tarifas, "dimensoes": dims, "full": full,
+            "frete": frete, "origem_frete": origem_frete, "aviso": aviso,
+            "meu": {k: meu.get(k) for k in ("mlb", "titulo", "categoria", "tipo_id", "preco", "full", "dimensoes")} if meu else None}
+
+
 def _seguir_pelo_gtin(repo, d):
     """01/10: põe no monitor o anúncio de catálogo da loja do seguido achado pelo GTIN (ofertas do produto no ML).
     Se a loja tiver mais de uma oferta do GTIN, fica a do mesmo tipo (Clássico/Premium) e Full; depois, a de preço mais perto."""
@@ -8636,6 +8690,8 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
                 return {"ok": True, "calc": precos.salvar_calc(repo, d)}
             except precos.ErroPrecos as e:
                 raise ErroNuvem(str(e))
+        if rota == "ml_precos_calc_ml" and metodo == "POST":   # 01/10: calculadora 🧮 com os dados do MEU anúncio no ML
+            return _calc_ml(repo, d)
         if rota == "ml_precos_hist":
             return dict(precos.detalhe(repo, q.get("mlb")), mlb=precos.normalizar_mlb(q.get("mlb")))
         if rota == "ml_precos_seguir" and metodo == "POST":

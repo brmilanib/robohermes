@@ -234,6 +234,50 @@ def test_vincular_ao_meu_estoque():
         w._estoque_itens, meli.tem_chave = antes
 
 
+
+
+def test_calculadora_com_o_meu_anuncio_do_ml():
+    """01/10 (Bruno: "pegar a minha categoria, o peso do produto, e marcar clássico ou premium"): tarifa dos 2 tipos pela
+    categoria do MEU anúncio do SKU e o frete pelas medidas do pacote na minha conta."""
+    import nubi_web as w
+    import meli
+    meli._CACHE.clear()
+    assert meli.dimensoes_do_item({"attributes": [{"id": "SELLER_PACKAGE_HEIGHT", "value_name": "12 cm"},
+        {"id": "SELLER_PACKAGE_WIDTH", "value_name": "8.5 cm"}, {"id": "SELLER_PACKAGE_LENGTH", "value_name": "20 cm"},
+        {"id": "SELLER_PACKAGE_WEIGHT", "value_name": "0,6 kg"}]}) == "12x8.5x20,600"
+    chamadas = []
+    def get(caminho, params=None, timeout=20):
+        chamadas.append((caminho, params))
+        if caminho == "/users/me":
+            return {"id": 77}
+        if caminho == "/users/77/items/search":
+            assert params["seller_sku"] == "SILVER-200"
+            return {"results": ["MLB111"]}
+        if caminho == "/items/MLB111":
+            return {"id": "MLB111", "category_id": "MLB6284", "listing_type_id": "gold_pro", "price": 299,
+                    "shipping": {"logistic_type": "fulfillment", "dimensions": "10x8x20,600"}}
+        if caminho == "/sites/MLB/listing_prices":
+            pct = 14 if params["listing_type_id"] == "gold_special" else 19
+            return {"sale_fee_amount": round(params["price"] * pct / 100, 2), "sale_fee_details": {"percentage_fee": pct, "fixed_fee": 0}}
+        if caminho == "/users/77/shipping_options/free":
+            assert params["dimensions"] == "10x8x20,600" and params["logistic_type"] == "fulfillment"
+            return {"coverage": {"all_country": {"list_cost": 21.9}}}
+        raise AssertionError(caminho)
+    antes = (meli._get, meli.tem_chave, w.precos.lista)
+    meli._get, meli.tem_chave = get, (lambda: True)
+    w.precos.lista = lambda repo: [{"mlb": "MLB7285008092", "categoria": "MLB1000", "tipo_id": "gold_special", "seller_id": "9"}]
+    try:
+        r = w._calc_ml(None, {"mlb": "MLB7285008092", "sku": "SILVER-200", "preco": 309.99})
+        assert r["categoria"] == "MLB6284" and r["origem_categoria"] == "meu anúncio" and r["tipo"] == "gold_pro" and r["full"]
+        assert r["tarifas"]["gold_special"]["pct"] == 14 and r["tarifas"]["gold_pro"]["pct"] == 19
+        assert r["frete"] == 21.9 and "medidas" in r["origem_frete"] and r["meu"]["mlb"] == "MLB111"
+        r2 = w._calc_ml(None, {"mlb": "MLB7285008092", "sku": "SILVER-200", "preco": 60, "tipo": "gold_special"})
+        assert r2["frete"] == 0 and r2["tipo"] == "gold_special"                 # abaixo de R$ 79 o comprador paga
+    finally:
+        meli._get, meli.tem_chave, w.precos.lista = antes
+        meli._CACHE.clear()
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):
