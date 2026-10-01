@@ -500,6 +500,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     Sabah Al Ward; saíram palavras soltas que viravam produto ("sedutor" do título da PHTEC, "ward", "origin", "noiva").
     Linha mais longa ganha da curta que ela contém; chave curta que aparece ANTES no título ganha de outra mais longa, por
     isso a variação precisa da chave completa. Teste: testes/test_titulo_cortado.py.
+  - **Ficha da linha confirmada no ML (01/10, Bruno: "Sabah Al Ward só existe EDP 100 ml; 200 ml e EDT são erro de
+    digitação; confirme pela API do ML antes de juntar")**: `nubi.FICHAS` (ia_resumos `linhas|fichas`
+    {marca: {linha: {tipo, volume, quem, ml}}}, carregado no `_preparar`): no fim do `consolidar`, todo anúncio da linha
+    que é perfume inteiro recebe o tipo e o volume da ficha (body splash, deo, banho, kit, decant, contratipo, outra marca
+    e fora de perfumaria ficam como estão). `ficha_pelo_ml(repo, marca, produto)`: lê as características no ML
+    (`meli.ficha_dos_atributos`: "Tipo" e "Volume da unidade") dos anúncios das lojas rastreadas (MLB real da vitrine,
+    pelo GTIN ou pela linha no título) e do produto de catálogo dos GTINs que mais vendem; vota (tipo, volume);
+    `concorda` = 2+ fontes e 75%. Rota `ficha_linha` (GET confere, POST fixa; sem o ML concordar só com "forçar" do
+    Bruno); no quadro do produto, "🔎 conferir ficha no ML". O ID do anúncio no export do Explorador vem embaralhado:
+    o MLB real vem da vitrine. Teste: testes/test_ficha_linha.py.
   - **TRAVA DO AGRUPAMENTO (01/10, Bruno: "esses dados são o coração das nossas análises; precisa ter regras mais
     firmes")**: `trava_agrupamento.py`. Toda mudança de linhas (IA em `linhas_ia`, revisão diária gpt-oss+Hermes em
     `aplicar_revisao`) é SIMULADA no último export da marca (`simular_marca`: `nubi.consolidar` com a config de hoje x a

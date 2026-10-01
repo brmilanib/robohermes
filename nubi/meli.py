@@ -354,6 +354,31 @@ def _num(v):
 # ---------------------------------------------------------------------------
 # Anúncios, lojas, visitas
 # ---------------------------------------------------------------------------
+TIPOS_FICHA = (("body splash", "Body Splash"), ("extrait", "Parfum"), ("eau de parfum", "EDP"), ("eau de toilette", "EDT"),
+               ("eau de cologne", "EDC"), ("colonia", "EDC"), ("colônia", "EDC"), ("parfum", "Parfum"))
+
+
+def ficha_dos_atributos(attrs):
+    """01/10 (Bruno: "confirme o anúncio pela API do ML antes de juntar"): as características do anúncio/produto no ML
+    ("Tipo: Eau de parfum", "Volume da unidade: 100 mL") -> {"tipo": "EDP", "volume": "100 ml"} (o que não vier fica None)."""
+    tipo = volume = None
+    for a in attrs or []:
+        nome = str(a.get("name") or "").lower()
+        aid = str(a.get("id") or "").upper()
+        val = str(a.get("value_name") or "").strip()
+        if not val:
+            continue
+        if volume is None and ("VOLUME" in aid or nome.startswith("volume")):
+            m = re.search(r"(\d+(?:[.,]\d+)?)\s*(ml|l)\b", val.lower())
+            if m:
+                n = float(m.group(1).replace(",", "."))
+                volume = f"{int(round(n * 1000 if m.group(2) == 'l' else n))} ml"
+        if tipo is None and (nome in ("tipo", "tipo de perfume", "concentração", "concentracao") or aid in ("FRAGRANCE_TYPE", "PERFUME_TYPE", "FRAGRANCE_CONCENTRATION")):
+            v = val.lower()
+            tipo = next((t for k, t in TIPOS_FICHA if k in v), None)
+    return {"tipo": tipo, "volume": volume}
+
+
 def normalizar_item(b, agora=None):
     """Corpo de /items -> o anúncio no formato das telas (contrato da rota meli_anuncios)."""
     fotos = b.get("pictures") or []
@@ -375,7 +400,7 @@ def normalizar_item(b, agora=None):
             "cidade": ((end.get("city") or {}).get("name") or ""), "uf": _uf((end.get("state") or {}).get("id") or (end.get("state") or {}).get("name")),
             "categoria": b.get("category_id") or "", "catalogo": bool(b.get("catalog_listing")),
             "produto_catalogo": b.get("catalog_product_id") or "", "vendedor_id": b.get("seller_id"), "gtin": gtin,
-            "condicao": b.get("condition") or ""}
+            "condicao": b.get("condition") or "", "ficha": ficha_dos_atributos(b.get("attributes"))}
 
 
 def normalizar_loja(u):
@@ -811,6 +836,19 @@ def pagina_loja(repo, texto, forcar=False, gtins_fn=None):
     except Exception:  # noqa: BLE001  (sem o cache a tela sai do mesmo jeito)
         pass
     return d
+
+
+def ficha_do_catalogo(pid):
+    """Tipo e volume do produto de catálogo do ML (características) + nome."""
+    def ler():
+        try:
+            p = _get(f"/products/{pid}") or {}
+        except ErroLogin:
+            raise
+        except ErroMeli:
+            return {}
+        return dict(ficha_dos_atributos(p.get("attributes")), nome=p.get("name") or "")
+    return _mem("ficha|" + pid, 6 * 3600, ler)
 
 
 def _produto_catalogo(pid):

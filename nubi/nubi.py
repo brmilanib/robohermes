@@ -119,6 +119,15 @@ APELIDOS_MARCA = {}
 # 29/09 (print do Bruno: LIPX vendendo o Asad Elixir da Lattafa com a marca dela): GTIN que aparece em mais de uma marca
 # {gtin: {"marca": dona, linha, volume, tipo, genero, produto, titulo}} — o nubi_web preenche (definir_gtin_global).
 GTIN_GLOBAL = {}
+# 01/10 (Bruno: "Sabah Al Ward só existe EDP 100 ml; 200 ml e EDT são erro de digitação"): ficha fixa da linha, confirmada
+# pelas características do ML (API) e/ou pelo Bruno. {marca: {linha: {"tipo": "EDP", "volume": "100 ml"}}}
+FICHAS = {}
+TIPOS_SEM_FICHA = {"Body Splash", "Deo", "Banho", "Kit"}
+
+
+def definir_fichas(m):
+    FICHAS.clear()
+    FICHAS.update({chave_marca(k): v for k, v in (m or {}).items()})
 # 01/10 (Bruno, "Lipx Sabah": a ICARBONXX vende Al Wataniah/Lattafa com o rótulo LIPX e GTIN próprio 789…): marca de
 # REVENDA (rótulo de loja) nunca é dona de um GTIN que outra marca também tem — o produto é da marca de verdade.
 MARCAS_REVENDA = set()
@@ -1302,6 +1311,16 @@ def consolidar(df, marca, cfg, info=None):
             if vencedor is not None:
                 df.loc[faltando, "genero"] = vencedor
 
+    # Ficha fixa da linha (01/10): o perfume só existe num tipo/volume; o que o vendedor digitou diferente é erro
+    # (perfume inteiro; decant, body splash, kit, outra marca e fora de perfumaria ficam como estão)
+    fichas = FICHAS.get(chave_marca(marca)) or {}
+    if fichas:
+        for linha, f in fichas.items():
+            alvo = (df["linha"] == linha) & ~fora & ~df["tipo"].isin(TIPOS_SEM_FICHA)
+            if f.get("tipo"):
+                df.loc[alvo, "tipo"] = f["tipo"]
+            if f.get("volume"):
+                df.loc[alvo, "volume"] = f["volume"]
     # "Arabe Sabah" -> "Sabah" (29/09): linhas antigas da Configuração começando por palavra de anúncio; "Arabe" sozinho = Outros
     def _sem_arabe(l):
         p = str(l).split()

@@ -7196,7 +7196,9 @@ function abrirVendedoresProduto(prod) {
         <div class="muted">${[row.linha && row.linha !== "-" ? "Linha " + esc(row.linha) : "", row.tipo && row.tipo !== "-" ? esc(row.tipo) : "", row.volume && row.volume !== "-" ? esc(row.volume) : "",
           gtins.length ? `${gtins.length} GTIN${gtins.length > 1 ? "s" : ""}: ${gtins.slice(0, 4).map(esc).join(", ")}${gtins.length > 4 ? "…" : ""}` : "sem GTIN",
           row.abc ? "curva " + esc(row.abc) : ""].filter(Boolean).join(" · ")}</div>
-        <div class="muted">período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)} (${dias} dias)</div></div>
+        <div class="muted">período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)} (${dias} dias)
+          · <a href="#" id="pq-ficha" title="Lê o Tipo e o Volume nas características do ML (anúncios das lojas rastreadas e catálogo do GTIN) antes de fixar a ficha da linha">🔎 conferir ficha no ML</a></div>
+        <div id="pq-ficha-res" style="font-size:12.5px"></div></div>
       <button class="btn small" data-fechar>Fechar</button>
     </div>
     <div class="pq-sec">Mercado (Nubimetrics)</div>
@@ -7232,6 +7234,20 @@ function abrirVendedoresProduto(prod) {
     </tbody></table></div>
     <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).</p>`);
   $(".modal", bg).classList.add("larga", "pq");
+  // 01/10 (Bruno: "Sabah Al Ward só existe EDP 100 ml; confirme pela API do ML antes de juntar")
+  $("#pq-ficha", bg).onclick = async e => { e.preventDefault(); const el = $("#pq-ficha-res", bg); el.innerHTML = `<span class="muted">lendo as características no Mercado Livre…</span>`;
+    try { const f = await api("ficha_linha", {marca: S.rel.marca, produto: prod});
+      const fontes = (f.fontes || []).map(x => `<li>${esc(x.fonte)} ${esc(x.id)}: <b>${esc(x.tipo || "?")} ${esc(x.volume || "?")}</b> <span class="muted">${esc((x.titulo || "").slice(0, 70))}</span></li>`).join("");
+      el.innerHTML = `<div class="card pad" style="margin-top:6px">Linha <b>${esc(f.linha || "?")}</b>: o ML diz <b>${esc(f.tipo || "?")} ${esc(f.volume || "?")}</b>
+        ${f.concorda ? `<span class="st good">confirmado (${Object.entries(f.votos || {}).map(([k, v]) => esc(k) + ": " + v).join(", ")})</span>` : `<span class="st warn">sem confirmação suficiente</span>`}
+        ${f.fixada ? ` · ficha fixada: <b>${esc(f.fixada.tipo)} ${esc(f.fixada.volume)}</b> (${esc(f.fixada.quem || "")})` : ""}
+        ${f.tipo ? ` <button class="btn small ${f.concorda ? "primary" : ""}" id="pq-fixar">Fixar ${esc(f.tipo)} ${esc(f.volume)} para a linha${f.concorda ? "" : " (forçar)"}</button>` : ""}
+        <details style="margin-top:4px"><summary class="muted">${(f.fontes || []).length} fonte(s)</summary><ul>${fontes}</ul></details></div>`;
+      if ($("#pq-fixar", bg)) $("#pq-fixar", bg).onclick = async () => {
+        if (!f.concorda && !confirm("O ML não confirmou com segurança. Fixar mesmo assim?")) return;
+        try { await api("ficha_linha", {}, {method: "POST", body: JSON.stringify({marca: S.rel.marca, produto: prod, linha: f.linha, tipo: f.tipo, volume: f.volume, forcar: !f.concorda})});
+          toast("Ficha fixada e marca reprocessada", 5000); bg.remove(); abrirMarca(S.rel.marca, true); } catch (err) { toast(err.message, 7000); } };
+    } catch (err) { el.innerHTML = mlAviso(err); } };
   if (gtins.length) api("meli_foto", {gtins: gtins.slice(0, 6).join("|"), genero: row.genero && row.genero !== "-" ? row.genero : ""}).then(f => {   // 01/10 (Bruno): foto no cabeçalho, do GTIN que mais vende e do gênero certo
     const el = $("#pq-foto", bg); if (!el || !document.body.contains(bg)) return;
     if (f && f.foto) { el.innerHTML = `<img src="${esc(urlML(f.foto))}" alt="" loading="lazy" title="${esc(f.nome || "")}">${f.link ? `<a href="${esc(urlML(f.link))}" target="_blank" rel="noopener" class="muted" style="font-size:10.5px">catálogo ↗</a>` : ""}`;

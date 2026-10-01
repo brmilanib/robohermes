@@ -682,6 +682,10 @@ def _preparar(repo):
         nubi.definir_apelidos({k: v[0] for k, v in apelidos(repo).items()})
     except Exception:  # noqa: BLE001
         nubi.definir_apelidos({})
+    try:                                   # 01/10: ficha fixa da linha (Sabah Al Ward = EDP 100 ml), confirmada pelo ML
+        nubi.definir_fichas(fichas_linha(repo))
+    except Exception:  # noqa: BLE001
+        nubi.definir_fichas({})
     try:                                   # 01/10: marcas de revenda (rótulo de loja: LIPX) nunca são donas de GTIN
         nubi.definir_revenda(marcas_revenda(repo))
     except Exception:  # noqa: BLE001
@@ -729,11 +733,84 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 12c: título cortado sem tipo e volume recebe o par (tipo, volume) que mais vende na linha; linhas de antes da IA; revenda nunca dona de GTIN alheio"   # 01/10 (Sabah Al Ward; pedido do Bruno)
+REGRA_ATUAL = "regra 12d: ficha fixa da linha (Sabah Al Ward = EDP 100 ml, confirmada no ML); título cortado recebe o par que mais vende; revenda nunca dona de GTIN alheio"   # 01/10 (pedido do Bruno)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"
 REVENDA_CHAVE = "marcas|revenda"
+FICHAS_CHAVE = "linhas|fichas"
+
+
+def fichas_linha(repo):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(FICHAS_CHAVE)}) or [None])[0]
+    try:
+        x = json.loads(r["texto"]) if r and r.get("texto") else {}
+    except (TypeError, ValueError):
+        x = {}
+    return x if isinstance(x, dict) else {}
+
+
+def ficha_pelo_ml(repo, marca, produto, linha=None):
+    """01/10 (Bruno: "confirme pela API do ML antes de fazer a junção"; o anúncio da KID'S LIFE MLB5661331620, título
+    cortado, é "Tipo: Eau de parfum, Volume: 100 mL"). Lê as características no ML de:
+    - os anúncios das lojas que rastreamos (vitrine, MLB real) cujo GTIN é do produto ou cujo título traz a linha;
+    - o produto de catálogo dos GTINs que mais vendem.
+    Vota (tipo, volume). -> {"tipo", "volume", "votos", "fontes", "concorda"} (concorda = 2+ fontes e 75% do lado do vencedor)."""
+    snaps = _ultimos_snapshots(repo, marca)
+    linhas = _linhas_nubi(repo, snaps, {"produto": repo._eq(produto)}) if produto else []
+    if not linha and linhas and not snaps.empty:
+        x = (repo._req("GET", "anuncios", {"select": "linha", "produto": repo._eq(produto),
+                                           "snapshot_id": f"in.({','.join(str(int(i)) for i in snaps['id'])})", "limit": 1}) or [{}])[0]
+        linha = str(x.get("linha") or "")
+    gtins = [g for g, _ in sorted(((l["gtin"], float(l.get("un") or 0)) for l in linhas if l.get("gtin")), key=lambda x: -x[1])]
+    gtins = list(dict.fromkeys(gtins))[:5]
+    palavras = [w for w in nubi.normalizar(linha or "").split() if len(w) >= 3]
+    mlbs = []
+    try:
+        for a in repo._todos("vend_anuncios_ml", {"select": "mlb,titulo,gtin"}):
+            t = f" {nubi.normalizar(a.get('titulo') or '')} "
+            if (a.get("gtin") and a["gtin"] in gtins) or (palavras and all(f" {w} " in t for w in palavras)):
+                mlbs.append(a["mlb"])
+    except Exception:  # noqa: BLE001
+        pass
+    fontes = []
+    for mlb, it in (meli.itens(mlbs[:12]) if mlbs else {}).items():
+        f = it.get("ficha") or {}
+        if (f.get("tipo") or f.get("volume")) and not it.get("bloqueado") and not it.get("sumiu"):
+            fontes.append({"fonte": "anúncio", "id": mlb, "titulo": it.get("titulo"), "tipo": f.get("tipo"), "volume": f.get("volume")})
+    for g in gtins:
+        try:
+            for pid in meli._produtos_do_gtin(g, 1):
+                f = meli.ficha_do_catalogo(pid)
+                if f.get("tipo") or f.get("volume"):
+                    fontes.append({"fonte": "catálogo", "id": pid, "gtin": g, "titulo": f.get("nome"), "tipo": f.get("tipo"), "volume": f.get("volume")})
+        except Exception:  # noqa: BLE001
+            continue
+    votos = {}
+    for f in fontes:
+        if f.get("tipo") and f.get("volume"):
+            votos[(f["tipo"], f["volume"])] = votos.get((f["tipo"], f["volume"]), 0) + 1
+    if not votos:
+        return {"tipo": None, "volume": None, "votos": {}, "fontes": fontes, "concorda": False, "linha": linha}
+    (tipo, volume), n = max(votos.items(), key=lambda kv: kv[1])
+    total = sum(votos.values())
+    return {"tipo": tipo, "volume": volume, "votos": {f"{k[0]} {k[1]}": v for k, v in votos.items()}, "fontes": fontes[:20],
+            "concorda": n >= 2 and n / total >= 0.75, "linha": linha}
+
+
+def fixar_ficha(repo, marca, linha, tipo, volume, quem="bruno", forcar=False, conferencia=None):
+    """Grava a ficha da linha. Sem `forcar`, só se a conferência do ML concorda com o tipo e o volume."""
+    marca = nubi.chave_marca(marca)
+    if not forcar and not (conferencia and conferencia.get("concorda") and conferencia.get("tipo") == tipo and conferencia.get("volume") == volume):
+        raise ErroNuvem("O Mercado Livre não confirmou essa ficha (tipo e volume nas características dos anúncios e do catálogo).")
+    todas = fichas_linha(repo)
+    todas.setdefault(marca, {})[linha] = {"tipo": tipo, "volume": volume, "quem": quem, "em": datetime.now(timezone.utc).isoformat(),
+                                          "ml": {k: (conferencia or {}).get(k) for k in ("tipo", "volume", "votos")} if conferencia else None}
+    repo._req("POST", "ia_resumos", corpo=[{"chave": FICHAS_CHAVE, "ia": quem, "texto": json.dumps(todas, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    nubi.definir_fichas(todas)
+    nubi.reconsolidar(repo, repo.carregar_config(), [marca])
+    return {"ok": True, "ficha": todas[marca][linha]}
 
 
 def marcas_revenda(repo):
@@ -1927,6 +2004,16 @@ def atender(metodo, rota, q, corpo, token):
             nubi.reconsolidar(repo, repo.carregar_config(), [q["marca"]] if q.get("marca") else None)
             return _json({"ok": True, "log": log})
 
+        if rota == "ficha_linha":
+            # 01/10: GET = conferência pelo ML (características dos anúncios rastreados e do catálogo); POST = fixar
+            if metodo == "POST":
+                d = json.loads(corpo or b"{}")
+                conf = ficha_pelo_ml(repo, d.get("marca"), d.get("produto"), d.get("linha"))
+                return _json(fixar_ficha(repo, d.get("marca"), d.get("linha") or conf.get("linha"), d.get("tipo") or conf.get("tipo"),
+                                         d.get("volume") or conf.get("volume"), "bruno", bool(d.get("forcar")), conf))
+            atual = (fichas_linha(repo).get(nubi.chave_marca(q.get("marca") or "")) or {})
+            conf = ficha_pelo_ml(repo, q.get("marca"), q.get("produto"), q.get("linha"))
+            return _json(dict(conf, fixada=atual.get(conf.get("linha") or "")))
         if rota == "marca_revenda":
             if metodo == "POST":
                 d = json.loads(corpo or b"{}")
