@@ -3411,7 +3411,7 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("monitor", "confirmar_loja", "linhas_ia", "rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "perseguir", "resumo_semana", "resumo_marcas", "nomes_marcas",
+NO_SERVIDOR = ("monitor", "confirmar_loja", "placar_lojas", "linhas_ia", "rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "perseguir", "resumo_semana", "resumo_marcas", "nomes_marcas",
                "noticias", "auditoria", "reuniao", "design", "revisao", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 ROTINAS_TEXTO = ("resumo_dia", "resumo_semana", "resumo_marcas", "nomes_marcas", "noticias")   # texto sem conferência de número
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
@@ -3718,6 +3718,8 @@ def rodar_rotinas(repo, so=None):
                 res = monitor.coletar(repo, forcar=bool(so))
             elif rid == "confirmar_loja":
                 res = confirmar_pendentes(repo)
+            elif rid == "placar_lojas":
+                res = placar_pendentes(repo)
             elif rid == "linhas_ia":
                 res = linhas_ia.revisar_pendentes(repo, _perguntar_linhas) if ia.disponivel() else "sem IA configurada"
             elif rid == "resumo_marcas":
@@ -5154,6 +5156,8 @@ def confirmar_pelo_catalogo(repo, vendedor, n=50, candidatas=None):
     seg2 = next((x for x in rank[1:] if x["candidata"]), rank[1] if len(rank) > 1 else {"produtos": 0, "preco_bate": 0})
     forte = bool(top and top["candidata"] and top["produtos"] >= 0.6 * len(gtins) and top["preco_bate"] >= 0.5 * len(gtins)
                  and (seg2["produtos"] <= 0.7 * top["produtos"] or seg2["preco_bate"] <= 0.6 * top["preco_bate"]))
+    if forte and _candidatas_de(repo, vendedor):
+        forte = False                                     # 01/10: com lojas candidatas (irmãs) quem decide é o placar da vitrine
     if forte and atual.get("confianca") != "manual":
         prova = (f"catálogo (01/10): está em {top['produtos']} dos {len(gtins)} produtos de catálogo em que mais vendeu no relatório "
                  f"{out['relatorio']}, preço do mês batendo (±10%) em {top['preco_bate']} e Full igual em {top['full_bate']}; "
@@ -5169,6 +5173,10 @@ def confirmar_pelo_catalogo(repo, vendedor, n=50, candidatas=None):
         out["loja"] = x
         out["texto"] = f"✅ {vendedor} → {x['nome']} ({x['id']}) confirmada pelo catálogo: {prova}."
     else:
+        try:                                              # 01/10: as candidatas vão para o placar da vitrine
+            gravar_candidatas(repo, vendedor, [{"id": x["id"], "nome": x["nome"]} for x in rank[:5] if x["candidata"]])
+        except Exception:  # noqa: BLE001
+            pass
         lin = "; ".join(f"{x['nome'] or x['id']}{' ★' if x['candidata'] else ''}: {x['produtos']} produtos, preço bate em {x['preco_bate']}"
                         for x in rank[:5])
         out["texto"] = (f"🤔 {vendedor}: o catálogo não decidiu nos {len(gtins)} produtos testados"
@@ -5182,6 +5190,180 @@ def confirmar_pelo_catalogo(repo, vendedor, n=50, candidatas=None):
     except Exception:  # noqa: BLE001
         pass
     return out
+
+
+CANDIDATAS_CHAVE = "seguidos|candidatas"      # {seguido: [{"id": seller_id, "nome": apelido}]} — lojas a comparar no placar
+
+
+def rotulo_cand(vendedor, sid):
+    return f"cand|{sid}|{vendedor}"
+
+
+def rotulo_candidata(rotulo):
+    """'cand|358625041|AUMA PERFUMARIA P2' -> ('AUMA PERFUMARIA P2', '358625041'); outro texto -> None."""
+    m = re.fullmatch(r"cand\|(\d{3,15})\|(.+)", str(rotulo or ""))
+    return (m.group(2), m.group(1)) if m else None
+
+
+def _candidatas_de(repo, vendedor):
+    return candidatas(repo).get(vendedor)
+
+
+def candidatas(repo):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{CANDIDATAS_CHAVE}"}) or [None])[0]
+    try:
+        x = json.loads(r["texto"]) if r and r.get("texto") else {}
+    except (TypeError, ValueError):
+        x = {}
+    return x if isinstance(x, dict) else {}
+
+
+def gravar_candidatas(repo, vendedor, lojas):
+    """Junta candidatas (id e/ou apelido) de um seguido; apelido sem id é resolvido pela API do ML."""
+    atual = candidatas(repo)
+    cs = {str(c.get("id") or c.get("nome")).upper(): c for c in atual.get(vendedor, [])}
+    for c in lojas or []:
+        c = {"id": str(c.get("id") or "").strip(), "nome": str(c.get("nome") or "").strip()}
+        if not c["id"] and c["nome"]:
+            try:
+                r = meli._get(f"/sites/{meli.SITE}/search", {"nickname": c["nome"], "limit": 1}) or {}
+                c["id"] = str((r.get("seller") or {}).get("id") or ((r.get("results") or [{}])[0].get("seller") or {}).get("id") or "")
+            except Exception:  # noqa: BLE001
+                pass
+        if c["id"] or c["nome"]:
+            if c["id"] and c["nome"]:                     # a mesma loja que estava só pelo apelido ganha o id
+                cs.pop(c["nome"].upper(), None)
+                cs = {k: v for k, v in cs.items() if not (v.get("nome", "").upper() == c["nome"].upper() and not v.get("id"))}
+            cs[(c["id"] or c["nome"]).upper()] = c
+    atual[vendedor] = list(cs.values())
+    repo._req("POST", "ia_resumos", corpo=[{"chave": CANDIDATAS_CHAVE, "ia": "sistema", "texto": json.dumps(atual, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return atual[vendedor]
+
+
+def _itens_nubimetrics(repo, vendedor):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.vend_fotos|{vendedor}"}) or [None])[0]
+    try:
+        return (json.loads(r["texto"]) if r and r.get("texto") else {}).get("itens") or []
+    except (TypeError, ValueError):
+        return []
+
+
+PRECO_VITRINE = 0.05
+
+
+def placar_lojas(repo, vendedor):
+    """01/10 (Bruno: "tem que pegar o número do anúncio, bater foto, preço, número de anúncios na loja: são várias
+    variáveis"; AUMAPERFUMARIA e AUMAFLEX são do mesmo dono, o nome não decide). Para a loja ligada e cada candidata com
+    vitrine lida: quantas fotos PRÓPRIAS (ID -MLB…) dos anúncios do Nubimetrics estão na vitrine dela, e nesses pares se o
+    preço (±5%), o Full e o tipo batem; mais o nº de anúncios lidos na vitrine x anúncios ativos no relatório.
+    Foto de catálogo (-MLA…) não conta: é a mesma para todo mundo."""
+    itens = _itens_nubimetrics(repo, vendedor)
+    proprias = {}
+    for it in itens:
+        m = meli_id_foto(it.get("foto") or it.get("Thumbnail"))
+        if m and "-MLB" in m:
+            proprias[m] = it
+    seg = meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor) or {}
+    lojas = {str(seg["id"]): seg.get("nome") or ""} if seg.get("id") else {}
+    for c in candidatas(repo).get(vendedor, []):
+        if c.get("id"):
+            lojas.setdefault(str(c["id"]), c.get("nome") or "")
+    ativos = sum(1 for it in itens if str(it.get("Status") or "active") == "active")
+    out = []
+    for sid, nome in lojas.items():
+        vit = repo._todos("vend_anuncios_ml", {"select": "mlb,foto,preco,full,tipo_pub,visto_em", "seller_id": f"eq.{sid}"})
+        if not vit:
+            out.append({"id": sid, "nome": nome, "lida": False})
+            continue
+        por_foto = {}
+        for a in vit:
+            f = meli_id_foto(a.get("foto"))
+            if f:
+                por_foto.setdefault(f, a)
+        fotos = preco = full = 0
+        exemplos = []
+        for f, it in proprias.items():
+            a = por_foto.get(f)
+            if not a:
+                continue
+            fotos += 1
+            p1, p2 = float(it.get("Price") or 0), float(a.get("preco") or 0)
+            if p1 and p2 and abs(p2 - p1) / p1 <= PRECO_VITRINE:
+                preco += 1
+            if bool(it.get("IsFull")) == bool(a.get("full")):
+                full += 1
+            if len(exemplos) < 3:
+                exemplos.append(a["mlb"])
+        out.append({"id": sid, "nome": nome, "lida": True, "anuncios_vitrine": len(vit), "fotos": fotos, "preco": preco, "full": full,
+                    "exemplos": exemplos, "visto_em": max(str(a.get("visto_em") or "") for a in vit)})
+    out.sort(key=lambda x: (-(x.get("fotos") or 0), -(x.get("preco") or 0)))
+    return {"vendedor": vendedor, "fotos_proprias": len(proprias), "anuncios_ativos": ativos, "lojas": out}
+
+
+def meli_id_foto(url):
+    m = ID_FOTO.search(str(url or ""))
+    return m.group(0) if m else None
+
+
+def decidir_pelo_placar(repo, vendedor):
+    """Decide a loja pelo placar: a 1ª precisa de ≥5 fotos próprias na vitrine, ≥20% das fotos próprias do relatório, preço
+    batendo em ≥50% dessas e 3x as fotos da 2ª. Só decide com TODAS as lojas do placar lidas; manual do Bruno não muda.
+    -> texto para o card #126."""
+    pl = placar_lojas(repo, vendedor)
+    ls = pl["lojas"]
+    if not ls:
+        return None
+    if not all(x.get("lida") for x in ls):
+        faltam = [x["nome"] or x["id"] for x in ls if not x.get("lida")]
+        return f"⏳ {vendedor}: placar esperando a vitrine de {', '.join(faltam)}."
+    lin = "; ".join(f"{x['nome'] or x['id']}: {x['fotos']} fotos próprias, preço em {x['preco']}, Full em {x['full']}, {x['anuncios_vitrine']} anúncios lidos"
+                    for x in ls)
+    top, seg2 = ls[0], (ls[1] if len(ls) > 1 else {"fotos": 0, "nome": "-"})
+    n = max(1, pl["fotos_proprias"])
+    forte = top["fotos"] >= 5 and top["fotos"] >= 0.2 * n and top["preco"] >= 0.5 * top["fotos"] and top["fotos"] >= 3 * max(1, seg2["fotos"])
+    atual = meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor) or {}
+    base = f"📊 {vendedor} — placar das lojas ({pl['fotos_proprias']} fotos próprias e {pl['anuncios_ativos']} anúncios ativos no Nubimetrics): {lin}."
+    if not forte:
+        return base + " Não decide: nenhuma loja se destacou o bastante."
+    if atual.get("confianca") == "manual":
+        return base + (" Confere com a loja confirmada por você." if str(atual.get("id")) == top["id"] else " A loja confirmada por você é outra: confira.")
+    lj = {}
+    try:
+        lj = meli.lojas([top["id"]]).get(top["id"]) or {}
+    except Exception:  # noqa: BLE001
+        pass
+    nome = lj.get("nome") or top["nome"] or atual.get("nome") or top["id"]
+    prova = (f"placar da vitrine (01/10): {top['fotos']} de {pl['fotos_proprias']} fotos próprias do Nubimetrics estão na vitrine "
+             f"da loja, preço batendo (±5%) em {top['preco']} e Full em {top['full']} (ex.: {', '.join(top['exemplos'])}); "
+             f"2ª loja {seg2.get('nome') or seg2.get('id')} com {seg2['fotos']}")
+    x = {"id": top["id"], "nome": nome, "link": lj.get("link") or f"https://perfil.mercadolivre.com.br/{nome}", "confianca": "certa",
+         "votos": int(atual.get("votos") or 0) + 1, "prova": prova, "anuncios": atual.get("anuncios") if str(atual.get("id")) == top["id"] else [],
+         "em": datetime.now(timezone.utc).isoformat()}
+    meli.gravar_hash_lojas(repo, {vendedor: x}, meli.SEGUIDOS)
+    hashes = _hashes_do_nome(repo, vendedor)
+    if hashes:
+        meli.gravar_hash_lojas(repo, {h: {k: v for k, v in x.items() if k != "anuncios"} for h in hashes})
+    troca = atual.get("id") and str(atual["id"]) != top["id"]
+    return base + (f" ✅ Decidido: {nome} ({top['id']})" + (f", no lugar de {atual.get('nome')} ({atual['id']})." if troca else ", confirmada."))
+
+
+def placar_pendentes(repo):
+    """Rotina `confirmar_loja` (parte 2): placar de cada seguido com candidatas, depois da vitrine (04:40)."""
+    res = []
+    for v in candidatas(repo):
+        try:
+            t = decidir_pelo_placar(repo, v)
+        except Exception as e:  # noqa: BLE001
+            t = f"{v}: erro no placar {str(e)[:120]}"
+        if t:
+            res.append(t)
+            try:
+                repo._req("POST", "tarefa_eventos", corpo=[{"tarefa_id": DESAFIO_PRINCIPAL, "autor": "sistema", "tipo": "passo", "texto": t[:4000]}],
+                          prefer="return=minimal")
+            except Exception:  # noqa: BLE001
+                pass
+    return " | ".join(res)[:1500] or "sem candidatas"
 
 
 def confirmar_pendentes(repo):
@@ -5361,9 +5543,16 @@ def gravar_vitrine(repo, vendedor, seller_id, cards, scripts=(), pagina=0):
     """Card #126, etapa 2: uma página da vitrine da loja (_CustId_, lida pelo coletor) -> vend_anuncios_ml, 1 linha por
     MLB (upsert), ligada ao seguido de meli|seguidos. Só loja já ligada (a do seller_id dela); na 1ª página os anúncios
     de prova já gravados em meli|seguidos entram primeiro (a vitrine completa por cima). Devolve os MLB lidos."""
-    loja = _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor))
-    if not loja or str(loja.get("id")) != str(seller_id):
-        raise ErroNuvem("Vendedor seguido sem essa loja ligada.")
+    cand = rotulo_candidata(vendedor)
+    if cand:                                     # 01/10: vitrine de loja CANDIDATA (AUMAPERFUMARIA x AUMAFLEX) para o placar
+        v_seg, sid_c = cand
+        if str(sid_c) != str(seller_id) or str(seller_id) not in {str(c.get("id")) for c in candidatas(repo).get(v_seg, [])}:
+            raise ErroNuvem("Essa loja não é candidata desse vendedor.")
+        loja = {}
+    else:
+        loja = _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor))
+        if not loja or str(loja.get("id")) != str(seller_id):
+            raise ErroNuvem("Vendedor seguido sem essa loja ligada.")
     agora = datetime.now(timezone.utc).isoformat()
     base = {"vendedor": vendedor, "seller_id": str(seller_id), "visto_em": agora}
     linhas = {}
@@ -7256,10 +7445,24 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         ls = [{"vendedor": v, "seller_id": str(x["id"]), "nome": x.get("nome") or "", "visto_em": visto.get(v)}
               for v, x in ((v, _a_conferir(x)) for v, x in lojas.items())
               if x and re.fullmatch(r"\d{3,15}", str(x.get("id") or ""))]
+        # 01/10 (Bruno: "AUMAPERFUMARIA e AUMAFLEX são duas lojas do mesmo dono"): as candidatas também têm a vitrine lida,
+        # com rótulo próprio (cand|<seller_id>|<seguido>), para o placar foto + preço + Full + nº de anúncios
+        ligadas = {(l["vendedor"], l["seller_id"]) for l in ls}
+        for v, cs in candidatas(repo).items():
+            for c in cs:
+                sid = str(c.get("id") or "")
+                if re.fullmatch(r"\d{3,15}", sid) and (v, sid) not in ligadas:
+                    rot = rotulo_cand(v, sid)
+                    ls.append({"vendedor": rot, "seller_id": sid, "nome": c.get("nome") or "", "visto_em": visto.get(rot), "candidata": True})
         ls, info = fatia_rodizio(repo, ls, "vendedor", q)        # 01/10: rodízio Mac / Dell / gamdias
         hoje = _agora_br().date().isoformat()
         faltam = [l for l in ls if str(l.get("visto_em") or "")[:10] != hoje]
         return {"lojas": ls, "rodizio": info, "rodar": bool(faltam) and _rotina_na_hora(repo, "vitrine")}
+    if rota == "ml_placar":
+        v = str(q.get("vendedor") or d.get("vendedor") or "")
+        if metodo == "POST" and d.get("candidatas"):
+            gravar_candidatas(repo, v, d["candidatas"])
+        return placar_lojas(repo, v)
     if rota == "ml_vitrine_salvar" and metodo == "POST":
         # card #126, etapa 2: uma página da vitrine _CustId_ lida pelo coletor -> vend_anuncios_ml
         cards = [str(c)[:30000] for c in (d.get("cards") or [])[:100]]

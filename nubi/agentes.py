@@ -41,6 +41,12 @@ mente. Nome dado pelo Bruno ("manual") nunca muda. Fonte só as nossas (ML públ
 Playwright no Mac); nenhum software concorrente (JoomPulse, Real Trends, Hunter Hub, Mercado Radar). Coleta com cara
 humana: poucas buscas por minuto, pausas, sem captcha (parou em verificação, avisa). Quem não enxerga foto (modelos só de
 texto) pede o ID da foto e o MLB; não deduz loja pelo nome.
+LOJAS IRMÃS (01/10, Bruno: "AUMAPERFUMARIA e AUMAFLEX são duas lojas do mesmo dono, aqui de Maringá"): o mesmo dono pode
+ter várias contas e reaproveitar as mesmas fotos próprias; o nome no Nubimetrics é o que o Bruno deu, o da extensão é a
+razão social e o da loja é o apelido — nome NUNCA decide. Uma foto só não fecha entre lojas irmãs: vale o PLACAR
+(`placar_lojas`): para cada loja candidata, a vitrine inteira lida, quantas fotos próprias (-MLB…) do relatório estão
+nela, se preço (±5%), Full e tipo batem nesses pares e quantos anúncios ela tem x anúncios ativos no relatório. O número
+do anúncio (MLB) é da loja: anúncio achado = seller_id certo daquele anúncio, não da conta irmã.
 """
 
 SISTEMA = """Você é um dos agentes de IA do nubi e trabalha para o dono (Bruno), junto com os outros agentes.

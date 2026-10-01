@@ -471,6 +471,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     nunca vira "certa" (catálogo confirma, não descobre); manual do Bruno não muda. Pedidos ficam em
     `seguidos|confirmar` (ia_resumos) e a rotina `confirmar_loja` (servidor) roda e posta no card #126 e na Sala.
     Teste: testes/test_confirmar_catalogo.py.
+  - **Placar das lojas / lojas irmãs (01/10, Bruno: "AUMAPERFUMARIA e AUMAFLEX são duas lojas do mesmo dono; tem que
+    bater foto, preço, número de anúncios: são várias variáveis")**: candidatas por seguido em `seguidos|candidatas`
+    (`gravar_candidatas`, apelido sem id resolvido pela API; `confirmar_pelo_catalogo` grava as ★ quando não decide). A
+    vitrine de cada candidata é lida pelo coletor com rótulo `cand|<seller_id>|<seguido>` (`ml_vitrine_pendente`,
+    `gravar_vitrine` aceita só candidata cadastrada). `placar_lojas`: fotos PRÓPRIAS (-MLB) do `vend_fotos|<seguido>` na
+    vitrine de cada loja + preço (±5% do Price do Nubimetrics) + Full + nº de anúncios lidos x ativos; foto de catálogo
+    (-MLA) não conta. `decidir_pelo_placar`: só com todas lidas; 1ª com ≥5 fotos, ≥20% das próprias, preço em ≥50% e 3x a
+    2ª → "certa" (troca a ligada se não for manual). Rotina `placar_lojas` 06:30 (depois da vitrine 04:40 e da busca por
+    foto 05:10); `ml_placar?vendedor=` mostra o placar. Nome nunca decide (Nubimetrics = nome do Bruno, extensão = razão
+    social, loja = apelido). Teste: testes/test_placar_lojas.py.
   - **Observados: cabeçalho com botões + ✨ Destaques (01/10)**: os números (seguidos, observados, com loja, ⭐) filtram a
     lista; "✨ quem se destaca?" chama `observados_destaques` → `observados.destaques` (SQL `nubi_observados_sinais()`:
     ritmo do período x média de vida, un. em anúncios ≤90 dias, liderança em produto; IA estruturada escolhe 6–10 com
