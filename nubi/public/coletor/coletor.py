@@ -2103,6 +2103,25 @@ def baixar_gestor_abc(pg, cfg, p=None):
     return arq
 
 
+def gestor_semanal_devido(cfg, qual, hoje=None):
+    """Relatório do Gestor (`vendas` ou `abc`) ainda não importado nesta semana (de segunda a domingo)? Falhou = tenta de
+    novo no próximo estoque. `cfg["gestor_forcar"]=True` baixa na próxima rodada mesmo já feito."""
+    if cfg.get("gestor_forcar"):
+        return True
+    hoje = hoje or date.today()
+    ultimo = (cfg.get("gestor_semana") or {}).get(qual)
+    try:
+        return date.fromisoformat(ultimo) < hoje - timedelta(days=hoje.weekday())
+    except (TypeError, ValueError):
+        return True
+
+
+def gestor_semanal_feito(cfg, qual):
+    cfg.setdefault("gestor_semana", {})[qual] = date.today().isoformat()
+    cfg.pop("gestor_forcar", None)
+    salvar_config(cfg)
+
+
 def coletar_estoque(p, cfg, token, enviar=True):
     ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -2156,28 +2175,35 @@ def coletar_estoque(p, cfg, token, enviar=True):
         log("  " + nota_abc)
     # card #124: o Relatório de Vendas do Gestor Seller (lucro, custo, imposto) também num Chrome novo e sem derrubar o estoque
     gestor_vendas, nota_gestor, ctx3 = None, "", None
-    try:
-        ctx3 = abrir_navegador(p, cfg, visivel=True if cfg.get("gestor_ver") else None)
-        pg3 = ctx3.pages[0] if ctx3.pages else ctx3.new_page()
+    # 01/10 (Bruno: "ADS se mexe 1 vez por semana, o algoritmo do ML pede 7 dias para aprender"): os dois relatórios do
+    # Gestor saem 1 vez por semana (a 1ª rodada de estoque a partir de segunda), não a cada estoque
+    semana_vendas, semana_abc = gestor_semanal_devido(cfg, "vendas"), gestor_semanal_devido(cfg, "abc")
+    if not (semana_vendas or semana_abc):
+        log("  relatórios do Gestor: já baixados nesta semana (próximos na segunda)")
+    if semana_vendas:
         try:
-            gestor_vendas = baixar_gestor_vendas(pg3, cfg, p)
-        except Exception as ev:  # noqa: BLE001
-            enviar_foto(pg3, f"gestor vendas: {str(ev)[:150]}", str(ev)[:3000])
-            raise
-    except Exception as ev:  # noqa: BLE001
-        nota_gestor = f"vendas do Gestor: não baixou ({ev.__class__.__name__}: {str(ev)[:500]})"
-        log("  " + nota_gestor)
-    finally:
-        if ctx3 is not None:
+            ctx3 = abrir_navegador(p, cfg, visivel=True if cfg.get("gestor_ver") else None)
+            pg3 = ctx3.pages[0] if ctx3.pages else ctx3.new_page()
             try:
-                ctx3.close()
-            except Exception:  # noqa: BLE001
-                pass
-    try:                                        # 01/10: Curva ABC do Gestor (ADS e lucro pós ADS), Chrome novo, sempre tentada
-        gestor_abc = _em_chrome_novo(p, cfg, lambda pg: baixar_gestor_abc(pg, cfg, p), ver="gestor_ver")
-    except Exception as ea:  # noqa: BLE001
-        nota_gestor = (nota_gestor + " · " if nota_gestor else "") + f"curva ABC do Gestor: não baixou ({str(ea)[:200]})"
-        log("  curva ABC do Gestor: não baixou")
+                gestor_vendas = baixar_gestor_vendas(pg3, cfg, p)
+            except Exception as ev:  # noqa: BLE001
+                enviar_foto(pg3, f"gestor vendas: {str(ev)[:150]}", str(ev)[:3000])
+                raise
+        except Exception as ev:  # noqa: BLE001
+            nota_gestor = f"vendas do Gestor: não baixou ({ev.__class__.__name__}: {str(ev)[:500]})"
+            log("  " + nota_gestor)
+        finally:
+            if ctx3 is not None:
+                try:
+                    ctx3.close()
+                except Exception:  # noqa: BLE001
+                    pass
+    if semana_abc:
+        try:                                    # Curva ABC do Gestor (ADS e lucro pós ADS), Chrome novo
+            gestor_abc = _em_chrome_novo(p, cfg, lambda pg: baixar_gestor_abc(pg, cfg, p), ver="gestor_ver")
+        except Exception as ea:  # noqa: BLE001
+            nota_gestor = (nota_gestor + " · " if nota_gestor else "") + f"curva ABC do Gestor: não baixou ({str(ea)[:200]})"
+            log("  curva ABC do Gestor: não baixou")
     log(f"  baixado: {arq.name} ({arq.stat().st_size // 1024} KB)")
     if not enviar:
         return 1, 0, 0, f"estoque baixado em {arq} (sem enviar)"
@@ -2196,6 +2222,7 @@ def coletar_estoque(p, cfg, token, enviar=True):
                              g.read_bytes()).get("log") or []:
                 log("  " + linha)
                 nota_gestor = linha[:300]
+            gestor_semanal_feito(cfg, "vendas")
         except Exception as ev:  # noqa: BLE001
             nota_gestor = f"vendas do Gestor: não importou ({str(ev)[:300]})"
             log("  " + nota_gestor)
@@ -2204,6 +2231,7 @@ def coletar_estoque(p, cfg, token, enviar=True):
             for linha in api(token, "gestor_vendas_importar", {"arquivo": gestor_abc.name}, gestor_abc.read_bytes()).get("log") or []:
                 log("  " + linha)
                 nota_gestor = (nota_gestor + " · " if nota_gestor else "") + linha[:200]
+            gestor_semanal_feito(cfg, "abc")
         except Exception as ea:  # noqa: BLE001
             nota_gestor = (nota_gestor + " · " if nota_gestor else "") + f"curva ABC do Gestor: não importou ({str(ea)[:200]})"
     if nota_gestor:

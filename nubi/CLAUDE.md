@@ -1177,3 +1177,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (sem escolher período o Gestor manda o dia de hoje). `_gestor_ultimos_30` abre o seletor e clica "Últimos 30 dias"
   (senão escreve as datas); curva com menos de 7 dias no e-mail NÃO é importada. Vendas: tenta também `/sales` e o
   exportar que é só ícone (`JS_GESTOR_EXPORTAR`, title/aria-label; nunca salvar/importar/excluir).
+- **Relatórios do Gestor 1 vez por semana (01/10, Bruno: "ADS se mexe 1 vez por semana; o algoritmo do ML pede 7 dias
+  para aprender")**: Curva ABC e Relatório de Vendas do Gestor saem na 1ª rodada de estoque a partir de segunda
+  (`gestor_semanal_devido`: último import ok, por relatório, em `cfg["gestor_semana"]`, antes da segunda desta semana).
+  Falhou = tenta de novo no próximo estoque. Forçar: `cfg["gestor_forcar"]=True`. O estoque e o UpSeller seguem 3x/dia.

@@ -106,6 +106,16 @@ def test_acha_exportar_que_e_so_icone():
         nav.close(); p.stop()
 
 
+def test_relatorios_do_gestor_uma_vez_por_semana():
+    qui = date(2026, 10, 1)                                    # quinta
+    assert c.gestor_semanal_devido({}, "abc", qui)             # nunca baixou
+    feito = {"gestor_semana": {"abc": "2026-09-29"}}           # terça da mesma semana
+    assert not c.gestor_semanal_devido(feito, "abc", qui)
+    assert c.gestor_semanal_devido(feito, "vendas", qui)       # cada relatório conta à parte
+    assert c.gestor_semanal_devido(feito, "abc", date(2026, 10, 5))   # segunda seguinte
+    assert c.gestor_semanal_devido({**feito, "gestor_forcar": True}, "abc", qui)
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):
