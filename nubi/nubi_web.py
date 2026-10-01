@@ -6686,7 +6686,7 @@ def _calc_monitor(repo, itens):
         return (um[0], "titulo") if um else (None, None)
 
     pares = [(x, *meu(x)) for x in itens]
-    # 01/10 (print do Bruno: Silver Scent e CK One "sem custo"): SKU zerado vem com custo médio 0 no UpSeller; vale o
+    # 01/10 (print do Bruno: Silver Scent e CK One "sem custo"; o custo não estava preenchido no UpSeller): sem custo, vale o
     # último custo médio > 0 do mesmo SKU nas fotos anteriores do estoque (até 15 para trás)
     sem = {estoque._chave(it["sku"]) for _, it, _ in pares if it and it.get("sku") and not it.get("custo_medio")}
     anteriores = {}

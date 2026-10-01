@@ -8366,7 +8366,7 @@ async function telaPrecos() {
     const it = (rot, val, cls = "", tip = "") => `<div class="pm-c ${cls}" title="${esc(tip)}"><span>${rot}</span><b>${val}</b></div>`;
     return `<div class="pm-calc"><div class="pm-calc-t">🧮 Se eu vender a ${rsES(c.preco)}</div>
       <div class="pm-c pm-meu ${m ? "" : "neg"}"><span>Meu estoque ${m ? `<i class="pm-por">${m.casado_por === "manual" ? "✔ vinculado" : m.casado_por === "gtin" ? "pelo GTIN" : "pelo título, confira"}</i>` : ""}</span>
-        ${m ? `<b title="${esc(m.titulo || "")}">${m.custo ? rsES(m.custo) : "sem custo"}</b>${m.custo_antigo ? `<small title="SKU zerado: o UpSeller mostra custo 0; este é o último custo médio do estoque">custo da última vez com estoque</small>` : ""}<small>${esc(m.sku || "")} · ${nf0.format(m.disponivel || 0)} disp.${m.transito ? ` · ${nf0.format(m.transito)} em trânsito` : ""}</small>`
+        ${m ? `<b title="${esc(m.titulo || "")}">${m.custo ? rsES(m.custo) : "sem custo"}</b>${m.custo_antigo ? `<small title="O último estoque veio sem custo para este SKU; este é o custo médio de uma importação anterior">custo de uma importação anterior</small>` : ""}<small>${esc(m.sku || "")} · ${nf0.format(m.disponivel || 0)} disp.${m.transito ? ` · ${nf0.format(m.transito)} em trânsito` : ""}</small>`
           : `<b>${x.sem_vinculo ? "não tenho" : "não achei"}</b>`}
         <button class="btn small ${m ? "" : "primary"}" data-vinc="${esc(x.mlb)}">🔗 ${m ? "trocar" : "Vincular ao meu estoque"}</button></div>
       ${it("Tarifa ML", c.tarifa != null ? rsES(c.tarifa) : "—", "", c.sem_tarifa ? "A categoria e o tipo do anúncio vêm na próxima leitura da página" : "")}
