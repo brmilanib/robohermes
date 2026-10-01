@@ -6038,7 +6038,7 @@ def _ia_atendente(chave, mensagens, token, estado, papel=None, ferramentas=None)
 
 # 27/09 (Bruno): taxa de resposta oficial de cada plataforma no Painel do SAC, lida a cada 2 h numa aba própria (o chat não
 # é recarregado), só com IA grátis. Só lê: nunca muda configuração, nunca responde cliente.
-TAXA_A_CADA_SEG = int(os.environ.get("NUBI_TAXA_SEG", str(2 * 3600)))
+TAXA_A_CADA_SEG = int(os.environ.get("NUBI_TAXA_SEG", str(20 * 3600)))    # 01/10: 1 vez por dia (era a cada 2 h)
 TAXA_INICIO = {"shopee": "https://seller.shopee.com.br/", "tiktok_shop": "https://seller-br.tiktok.com/"}
 # 27/09 (print do Bruno): na Shopee os números ficam no próprio chat, aba Data → Chat; lidos direto da página, sem IA
 TAXA_PAGINA = {"shopee": os.environ.get("NUBI_SHOPEE_DATA", "https://seller.shopee.com.br/new-webchat/services/agent")}
@@ -6176,7 +6176,29 @@ def _ler_taxa(ctx, canal, token):
 
 
 def _na_tela_login(pg):
-    return bool(re.search(r"/(login|signin|sign-in|entrar)\b|accounts\.", pg.url or "", re.I))
+    # 01/10 (Bruno, print da Shopee: "já deu captcha duas vezes"): verificação/captcha conta como login: a rodada não
+    # recarrega o chat (recarregar de novo é o que faz a plataforma pedir outro captcha)
+    return bool(re.search(r"/(login|signin|sign-in|entrar|verify|verification|captcha)\b|accounts\.", pg.url or "", re.I))
+
+
+LOGIN_ESPERA_SEG = int(os.environ.get("NUBI_LOGIN_ESPERA_SEG", "1800"))
+
+
+def _esperando_login(cfg, canal):
+    """01/10: depois de cair no login/captcha, o atendente deixa a aba quieta por 30 min (nada de goto, nada de IA):
+    o Bruno resolve a verificação na própria janela; a próxima rodada confere sem recarregar."""
+    v = cfg.get(f"{canal}_login_avisado")
+    if not v:
+        return False
+    try:
+        return (datetime.now() - datetime.fromisoformat(str(v))).total_seconds() < LOGIN_ESPERA_SEG
+    except ValueError:
+        return False
+
+
+def _hora_quieta():
+    """02:00–05:59 (hora da máquina = Brasília): quando o atendente pode reabrir o Chrome (versão nova) e ler a taxa."""
+    return 2 <= datetime.now().hour < 6
 
 
 def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=None):
@@ -6195,14 +6217,19 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
                       [n for v in (pend.get("conhecidos_por_canal") or {}).values() for n in v])[-300:]
     else:
         conhecidos = (pend.get("conhecidos_por_canal") or {}).get(canal) or (pend.get("conhecidos") if canal == "tiktok_shop" else []) or []
-    try:
-        _no_chat(pg, cfg.get(k_url) or url_ini)
-        if canal == "shopee":
-            _voltar_atendendo_hoje(pg)      # 28/09 (Bruno): lista fixa em "Atendendo Hoje", sem busca sobrando
-        marca = _atendente_marca(pg)
-    except Exception:  # noqa: BLE001
-        marca = None
     k_login = f"{canal}_login_avisado"
+    if not sac and _esperando_login(cfg, canal) and _na_tela_login(pg):
+        return 0.0, {"nada": True, "login": True}, f"{nome}: esperando o login/verificação na janela do Chrome (sem recarregar)."
+    if not sac and _na_tela_login(pg) and dominio in (pg.url or ""):
+        marca = None                       # 01/10: na tela de login/captcha da própria plataforma, não navega (captcha de novo)
+    else:
+        try:
+            _no_chat(pg, cfg.get(k_url) or url_ini)
+            if canal == "shopee":
+                _voltar_atendendo_hoje(pg)      # 28/09 (Bruno): lista fixa em "Atendendo Hoje", sem busca sobrando
+            marca = _atendente_marca(pg)
+        except Exception:  # noqa: BLE001
+            marca = None
     if _na_tela_login(pg):
         # 27/09: o Mac sem login na Shopee chamava a IA a cada minuto só para descobrir a tela de login
         msg = f"{nome}: precisa entrar (login) no Chrome deste computador; nada feito."
@@ -6580,8 +6607,10 @@ def cmd_atendente(args, cfg):
             voltas = 0
             while True:
                 agora = datetime.now().strftime("%H:%M")
-                # versão nova: a cada ~1 h (era 15 min). Trocar de versão reabre o Chrome e recarrega o chat (captcha, 27/09)
-                if voltas % 30 == 0 and not os.environ.get("NUBI_TOKEN"):
+                # versão nova: a cada ~1 h (era 15 min). Trocar de versão reabre o Chrome e recarrega o chat (captcha, 27/09).
+                # 01/10 (Bruno: "a janela fica abrindo e dando refresh, já deu captcha duas vezes"): só na hora quieta
+                # (02h–06h), para cada publicação do dia não reabrir o chat na frente dele
+                if voltas % 30 == 0 and not os.environ.get("NUBI_TOKEN") and _hora_quieta():
                     try:
                         baixado = urllib.request.urlopen(f"{NUBI}/coletor/coletor.py", timeout=30).read()
                         if baixado and b"def main" in baixado and baixado != carregado:
@@ -6612,9 +6641,12 @@ def cmd_atendente(args, cfg):
                         pg = _aba_do_canal(ctx, abas, canal)
                         print(f"{agora} " + _rodada_atendente(pg, cfg, chave, token, _gasto_atendente(cfg), canal, x)[2], flush=True)
                         guardar_sessao(ctx)
-                    for canal in [c_ for c_ in canais if c_ in TAXA_INICIO]:        # taxa de resposta oficial a cada 2 h
+                    # taxa de resposta oficial: abre uma aba nova (traz a janela para a frente); 01/10: só 1 vez por dia,
+                    # na hora quieta (02h–06h), e nunca enquanto um canal espera login/verificação
+                    for canal in [c_ for c_ in canais if c_ in TAXA_INICIO]:
                         cfg = ler_config()
-                        if time.time() - float(cfg.get(f"{canal}_taxa_em") or 0) >= TAXA_A_CADA_SEG:
+                        if (_hora_quieta() and not _esperando_login(cfg, canal)
+                                and time.time() - float(cfg.get(f"{canal}_taxa_em") or 0) >= TAXA_A_CADA_SEG):
                             cfg[f"{canal}_taxa_em"] = time.time()
                             salvar_config(cfg)
                             print(f"{agora} 📶 " + _ler_taxa(ctx, canal, token), flush=True)

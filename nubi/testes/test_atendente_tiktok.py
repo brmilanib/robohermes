@@ -687,3 +687,21 @@ if __name__ == "__main__":
         if nome.startswith("test_"):
             f()
             print("ok", nome)
+
+
+def test_captcha_conta_como_login_e_espera_sem_recarregar():
+    """01/10 (Bruno: 'já deu captcha duas vezes'): tela de verificação = login (a rodada não recarrega o chat) e, depois do
+    aviso, o atendente deixa a aba quieta por 30 min."""
+    import coletor as c
+    from datetime import datetime, timedelta
+
+    class Pg:
+        def __init__(self, url):
+            self.url = url
+    assert c._na_tela_login(Pg("https://seller.shopee.com.br/verification/captcha?x=1"))
+    assert c._na_tela_login(Pg("https://accounts.shopee.com.br/seller/login"))
+    assert not c._na_tela_login(Pg("https://seller.shopee.com.br/new-webchat/conversations"))
+    assert c._esperando_login({"shopee_login_avisado": datetime.now().isoformat()}, "shopee")
+    assert not c._esperando_login({"shopee_login_avisado": (datetime.now() - timedelta(hours=1)).isoformat()}, "shopee")
+    assert not c._esperando_login({}, "shopee")
+    assert not c._esperando_login({"shopee_login_avisado": "lixo"}, "shopee")
