@@ -155,6 +155,45 @@ def test_eventos_de_tags_full_estoque_posicao():
     assert precos.alertas(r) == []
 
 
+def test_busca_termo_posicao_e_eventos():
+    assert precos.termo_busca("Perfume Jacques Bogart Silver Scent Intense Edt 200ml Para Masculino") == "jacques bogart silver scent intense"
+    assert precos.termo_busca("Perfume Feminino Yara Elixir Lattafa Eau De Parfum 100 Ml") == "yara elixir lattafa"
+    import importlib.util
+    from playwright.sync_api import sync_playwright
+    raiz = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("coletor", raiz / "public" / "coletor" / "coletor.py")
+    col = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(col)
+    col.devagar = lambda *a: None
+    card = lambda href, t, pat=False: f'<li class="ui-search-layout__item"><a href="{href}"><h3>{t}</h3></a>{"<span>Patrocinado</span>" if pat else ""}</li>'
+    pagina = "<ol>" + card("https://produto.mercadolivre.com.br/MLB-111111111-outro", "Outro perfume", True) + \
+        card("https://www.mercadolivre.com.br/silver-scent/p/MLB6181234?pdp_filters=item_id:MLB9999999999", "Silver Scent catálogo") + \
+        card("https://produto.mercadolivre.com.br/MLB-5141216661-silver", "Silver Scent Sieno") + "</ol>"
+    exe = os.environ.get("NUBI_CHROMIUM") or "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+    with sync_playwright() as p:
+        b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()
+        pg = b.new_page()
+        pg.route("https://lista.mercadolivre.com.br/**", lambda rt: rt.fulfill(content_type="text/html", body=pagina))
+        x = col.posicao_na_busca(pg, "jacques bogart silver scent intense", "MLB5141216661", paginas=1)
+        y = col.posicao_na_busca(pg, "silver scent", "MLB5141216661", "MLB6181234", paginas=1)   # catálogo: casa pelo produto
+        z = col.posicao_na_busca(pg, "silver scent", "MLB7777777777", paginas=1)
+        b.close()
+    assert x["posicao"] == 3 and x["pagina"] == 1 and not x["patrocinado"], x
+    assert y["posicao"] == 2 and y["vencedor"] is False, y                    # o buy box é de outro (wid MLB9999999999)
+    assert z["posicao"] is None and z["lidos"] == 3, z
+    r = Repo()
+    precos.seguir(r, {"mlb": "MLB5141216661", "titulo": "Jacques Bogart Silver Scent Intense Edt 200ml"})
+    assert precos.pendente(r, {"ativo": True}, precos.rodada_atual() + timedelta(minutes=25))["itens"][0]["busca"] == "jacques bogart silver scent intense"
+    g = lambda pos, pag: precos.gravar_leitura(r, [dict(precos.ler_pagina({"fracao": "309", "centavos": "99", "titulo": "Jacques Bogart Silver Scent",
+                                                                          "busca_pos": {"termo": "silver", "posicao": pos, "pagina": pag, "lidos": 144}}),
+                                                         mlb="MLB5141216661")])
+    g(3, 1); g(5, 1); g(60, 2); g(None, None)
+    evs = precos.lista(r)[0]["eventos"]
+    assert [e["tipo"] for e in evs] == ["busca_posicao", "busca_posicao", "busca_saiu"]
+    assert [e["visto"] for e in evs] == [True, False, False] and "pág. 1 → 2" in evs[1]["texto"]
+    assert precos.salvar_busca(r, "MLB5141216661", "silver scent 200") == "silver scent 200"
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

@@ -131,13 +131,16 @@ def gravar_leitura(repo, itens, dia=None):
         for k in ("full", "catalogo"):
             if isinstance(it.get(k), bool):
                 ponto[k] = it[k]
+        bp = it.get("busca_pos") if isinstance(it.get("busca_pos"), dict) else None
+        if bp:                                         # posição na busca do ML (None = fora das páginas lidas)
+            ponto["pos_busca"] = bp.get("posicao")
         # 01/10: leitura de hora em hora pela API: no mesmo dia, ponto igual ao último só atualiza a hora; se algo mudou
         # (preço, riscado, situação, estoque), entra um ponto novo com a hora (a mudança fica com a hora certa)
         h = historico(repo, mlb)
         antes = next((p for p in reversed(h) if p.get("preco")), None)
         mesmo_dia = [p for p in h if p.get("dia") == dia]
         chave = lambda p: (p.get("preco"), p.get("preco_original"), p.get("status"), p.get("estoque"),
-                           p.get("mais_vendido"), p.get("posicao_mv"), p.get("full"))
+                           p.get("mais_vendido"), p.get("posicao_mv"), p.get("full"), p.get("pos_busca"))
         if mesmo_dia and chave(mesmo_dia[-1]) == chave(ponto):
             mesmo_dia[-1]["em"] = agora
         else:
@@ -162,6 +165,11 @@ def gravar_leitura(repo, itens, dia=None):
                     x[k] = it[k]
             if "estoque" in it and not it.get("estoque_mais") and it.get("fonte") != "api":
                 x.pop("estoque_mais", None)
+            if bp:
+                _evento_busca(x, bp, agora)
+                x["busca_pos"] = dict({k: bp.get(k) for k in ("termo", "posicao", "pagina", "patrocinado", "lidos", "vencedor")}, em=agora)
+            if re.fullmatch(r"MLB\d{6,14}", str(it.get("produto_catalogo") or "")):
+                x["produto_catalogo"] = it["produto_catalogo"]
             for k in ("mais_vendido", "categoria", "tipo_id"):
                 if it.get(k) is not None and (it[k] or k == "mais_vendido"):
                     x[k] = it[k]
@@ -175,6 +183,20 @@ def gravar_leitura(repo, itens, dia=None):
     return n
 
 
+# 01/10 (Bruno: "a posição na busca, com as principais palavras do título do perfume; esse monitoramento é o rastreamento"):
+# o termo nasce do título (sem palavras genéricas, volume e gênero) e o Bruno pode trocar na tela.
+PALAVRAS_FORA = set("""perfume perfumes original originais importado importada lacrado lacrada novo nova masculino masculina
+feminino feminina unissex homem mulher para de da do das dos e com sem o a os as em edt edp eau toilette parfum parfume
+colonia colônia extrait ml 100ml 200ml 50ml 30ml 80ml 90ml 60ml 75ml 125ml 150ml spray vaporizador frete gratis grátis kit
+masc fem promoção promocao oferta""".split())
+
+
+def termo_busca(titulo, n=5):
+    t = re.sub(r"[^\wÀ-ÿ ]+", " ", str(titulo or "").lower())
+    ws = [w for w in t.split() if w not in PALAVRAS_FORA and not re.fullmatch(r"\d+(ml|g)?", w) and len(w) > 1]
+    return " ".join(ws[:n])
+
+
 # 01/10 (Bruno: "monitora a tag de MAIS VENDIDO: quando aparece e quando some; o Full, quando entrou e saiu; quando zerar o
 # estoque; e a posição — para o agente entender como o ML dá essas tags"). Cada mudança vira um evento no anúncio (fica no
 # histórico; `visto: False` = alerta piscando até o Bruno marcar "vi"). Só a leitura da PÁGINA sabe MAIS VENDIDO/FULL/catálogo.
@@ -185,6 +207,43 @@ def posicao_mais_vendido(txt):
     """"MAIS VENDIDO · 2º em Perfumes Jacques Bogart" -> (2, "Perfumes Jacques Bogart")."""
     m = re.search(r"(\d{1,3})\s*[º°o]?\s+em\s+(.+)$", str(txt or ""))
     return (int(m.group(1)), m.group(2).strip()) if m else (None, "")
+
+
+def _evento_busca(x, bp, agora):
+    """Posição na busca: entrar/sair das páginas lidas ou trocar de página = alerta; mudar de posição na mesma página fica
+    só no histórico (visto)."""
+    antes = x.get("busca_pos") or {}
+    if not antes or antes.get("termo") != bp.get("termo"):
+        return
+    pa, pn = antes.get("posicao"), bp.get("posicao")
+    if pa == pn:
+        return
+    termo = bp.get("termo")
+    evs = x.setdefault("eventos", [])
+    if pa and not pn:
+        evs.append({"tipo": "busca_saiu", "texto": f"🔎 Sumiu das {bp.get('paginas') or 3} primeiras páginas da busca '{termo}' (estava {pa}º)", "em": agora, "visto": False})
+    elif pn and not pa:
+        evs.append({"tipo": "busca_entrou", "texto": f"🔎 Apareceu na busca '{termo}': {pn}º (pág. {bp.get('pagina')})", "em": agora, "visto": False})
+    else:
+        pg_a, pg_n = antes.get("pagina"), bp.get("pagina")
+        mudou_pag = pg_a != pg_n
+        evs.append({"tipo": "busca_posicao", "texto": f"🔎 Busca '{termo}': {pa}º → {pn}º" + (f" (pág. {pg_a} → {pg_n})" if mudou_pag else ""),
+                    "em": agora, "visto": not mudou_pag, "de": pa, "para": pn})
+
+
+def salvar_busca(repo, mlb, termo):
+    mlb = normalizar_mlb(mlb)
+    termo = re.sub(r"\s+", " ", str(termo or "")).strip()[:80]
+    xs = lista(repo)
+    x = next((x for x in xs if x.get("mlb") == mlb), None)
+    if not x:
+        raise ErroPrecos("anúncio fora do monitor")
+    if termo:
+        x["busca"] = termo
+    else:
+        x.pop("busca", None)
+    _gravar(repo, LISTA, xs)
+    return x.get("busca") or termo_busca(x.get("titulo"))
 
 
 def pn_ok(it):
@@ -239,7 +298,8 @@ def titulo_ruim(t):
 
 
 CAMPOS_MUDANCA = (("preco", "Preço"), ("preco_original", "Preço riscado"), ("status", "Situação"), ("estoque", "Estoque"),
-                  ("mais_vendido", "Tag MAIS VENDIDO"), ("posicao_mv", "Posição no MAIS VENDIDO"), ("full", "FULL"), ("catalogo", "Catálogo"))
+                  ("mais_vendido", "Tag MAIS VENDIDO"), ("posicao_mv", "Posição no MAIS VENDIDO"), ("full", "FULL"), ("catalogo", "Catálogo"),
+                  ("pos_busca", "Posição na busca"))
 
 
 def mudancas(h):
@@ -294,7 +354,7 @@ def painel(repo, dias=60):
         com_p = [p for p in h if p.get("preco")]
         menor = min(com_p, key=lambda p: p["preco"]) if com_p else None
         maior = max(com_p, key=lambda p: p["preco"]) if com_p else None
-        out.append(dict(x, historico=h[-240:], atual=(ult or {}).get("preco"), anterior=(ant or {}).get("preco"), var=var,
+        out.append(dict(x, busca_auto="" if titulo_ruim(x.get("titulo")) else termo_busca(x.get("titulo")), historico=h[-240:], atual=(ult or {}).get("preco"), anterior=(ant or {}).get("preco"), var=var,
                         ultima_em=x.get("ultima_leitura") or (ult or {}).get("em"), leituras=int(x.get("leituras") or 0) or len(h),
                         menor_em=(menor or {}).get("em") or (menor or {}).get("dia"), maior_em=(maior or {}).get("em") or (maior or {}).get("dia"),
                         titulo_ok=not titulo_ruim(x.get("titulo")),
@@ -350,7 +410,8 @@ def pendente(repo, rotina, agora=None):
     # 01/10 (Bruno: "o título certinho do produto que está no ML"): a API não dá o título de anúncio de outra loja; o
     # coletor abre a página e lê o <h1> — também dos já lidos que ainda estão sem título de verdade
     # 01/10 (print do Bruno): em cada rodada o coletor abre a página de todos (tags MAIS VENDIDO, "+50 disponíveis", FULL)
-    faltam = [{"mlb": x["mlb"], "link": x.get("link") or link_de(x["mlb"])} for x in xs
+    faltam = [{"mlb": x["mlb"], "link": x.get("link") or link_de(x["mlb"]), "produto": x.get("produto_catalogo") or "",
+               "busca": x.get("busca") or ("" if titulo_ruim(x.get("titulo")) else termo_busca(x.get("titulo")))} for x in xs
               if not _lido_desde(dict(x, ultima_leitura=x.get("ultima_pagina")), ini)]
     # dá 20 min para a API (cron da hora) ler primeiro; o coletor pega só o que sobrar
     na_hora = bool(rotina is None or rotina.get("ativo", True)) and agora >= ini + timedelta(minutes=20)
@@ -429,6 +490,15 @@ def ler_pagina(x):
         extra["estoque_mais"] = True
     if x.get("mais_vendido") is not None:
         extra["mais_vendido"] = re.sub(r"\s+", " ", str(x.get("mais_vendido") or "")).strip()[:120]
+    bp = x.get("busca_pos")
+    if isinstance(bp, dict) and bp.get("termo"):
+        pos = bp.get("posicao")
+        extra["busca_pos"] = {"termo": str(bp["termo"])[:80], "posicao": int(pos) if isinstance(pos, int) and 0 < pos < 1000 else None,
+                              "pagina": int(bp["pagina"]) if isinstance(bp.get("pagina"), int) else None,
+                              "patrocinado": bool(bp.get("patrocinado")), "vencedor": bp.get("vencedor") if isinstance(bp.get("vencedor"), bool) else None,
+                              "lidos": int(bp.get("lidos") or 0), "paginas": int(bp.get("paginas") or 3)}
+    if re.fullmatch(r"MLB\d{6,14}", str(x.get("produto_catalogo") or "")):
+        extra["produto_catalogo"] = x["produto_catalogo"]
     for k, rx in (("categoria", r"MLB\d{2,8}"), ("tipo_id", r"gold_pro|gold_special|gold|free|silver|bronze")):
         if re.fullmatch(rx, str(x.get(k) or "")):
             extra[k] = x[k]

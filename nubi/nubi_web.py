@@ -8531,6 +8531,11 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
             except Exception:  # noqa: BLE001 — a calculadora nunca derruba a lista
                 traceback.print_exc()
             return {"itens": itens, "max": precos.MAX_ANUNCIOS, "calc": precos.calc_config(repo)}
+        if rota == "ml_precos_busca" and metodo == "POST":      # 01/10: palavra de busca do rastreamento (vazio = automática)
+            try:
+                return {"ok": True, "busca": precos.salvar_busca(repo, d.get("mlb"), d.get("busca"))}
+            except precos.ErroPrecos as e:
+                raise ErroNuvem(str(e))
         if rota == "ml_precos_calc" and metodo == "POST":
             try:
                 return {"ok": True, "calc": precos.salvar_calc(repo, d)}

@@ -3039,10 +3039,42 @@ JS_ML_PRECO = r"""() => {
             const r = q('.ui-pdp-promotions-pill-label + a, .ui-pdp-promotions-pill-label ~ a, a[href*="mais-vendidos"]');
             return t ? (t + (r ? ' · ' + r.textContent.trim() : '')).replace(/\s+/g, ' ').slice(0, 120) : ''; })(),
           categoria: ((document.documentElement.innerHTML.replace(/\\"/g, '"').match(/"category_id":"(MLB\d+)"/) || [])[1]) || '',
+          produto_catalogo: ((location.pathname.match(/\/p\/(MLB\d+)/) || document.documentElement.innerHTML.replace(/\\"/g, '"').match(/"catalog_product_id":"(MLB\d+)"/) || [])[1]) || '',
           tipo_id: ((document.documentElement.innerHTML.replace(/\\"/g, '"').match(/"listing_type_id":"(gold_pro|gold_special|gold|free|silver|bronze)"/) || [])[1]) || '',
           full: !!q('[class*="icon--full"], [class*="full-icon"], svg[class*="full"]') || /enviado pelo\s*full|\bFULL\b/.test((cx.innerText || '')),
           texto: ((cx.innerText || '') + '\n' + (document.body.innerText || '').slice(0, 4000)).slice(0, 12000)};
 }"""
+
+
+BUSCA_PAGINAS = 3
+
+
+def posicao_na_busca(pg, termo, mlb, produto=None, paginas=BUSCA_PAGINAS):
+    """Procura o termo no ML e devolve a posição do anúncio (1 = primeiro card, contando patrocinados) nas `paginas`
+    primeiras páginas. Anúncio de catálogo: o card é do PRODUTO (/p/MLB…); `vencedor` diz se o buy box é dele. Só lê."""
+    alvo = {mlb.upper()} | ({produto.upper()} if produto else set())
+    n_total = 0
+    for n in range(paginas):
+        url = f"{ML_LISTA}/{_ml_slug(termo)}" + (f"_Desde_{n * ML_POR_PAGINA + 1}_NoIndex_True" if n else "")
+        pg.goto(url, wait_until="domcontentloaded", timeout=45000)
+        devagar(2.5)
+        if _ml_bloqueado(pg):
+            raise Falha("o Mercado Livre pediu verificação de robô: rode entrar-ml no Mac")
+        cards = pg.evaluate(JS_ML_RESULTADOS)
+        if not cards:
+            break
+        for i, c in enumerate(cards):
+            codigos = set()
+            for h in c.get("links") or []:
+                u = urllib.parse.unquote(urllib.parse.unquote(h or ""))
+                codigos |= {m.replace("-", "").upper() for m in re.findall(r"MLB-?\d{6,}", u)}
+            if codigos & alvo:
+                return {"termo": termo, "posicao": n_total + i + 1, "pagina": n + 1, "patrocinado": bool(c.get("patrocinado")),
+                        "vencedor": (ml_id(c.get("links")) == mlb.upper()) if produto and produto.upper() in codigos else None,
+                        "lidos": n_total + len(cards), "paginas": paginas}
+        n_total += len(cards)
+        devagar(2)
+    return {"termo": termo, "posicao": None, "pagina": None, "lidos": n_total, "paginas": paginas}
 
 
 def coletar_ml_precos(p, cfg, token, so=None, rodizio=False):
@@ -3071,6 +3103,14 @@ def coletar_ml_precos(p, cfg, token, so=None, rodizio=False):
                 pg.mouse.wheel(0, 600)
                 devagar(0.8)
                 x = pg.evaluate(JS_ML_PRECO)
+                # 01/10 (Bruno: "a posição na busca com as principais palavras do título; esse monitoramento é o rastreamento")
+                if it.get("busca"):
+                    try:
+                        x["busca_pos"] = posicao_na_busca(pg, it["busca"], it["mlb"], x.get("produto_catalogo") or it.get("produto"))
+                    except Falha:
+                        raise
+                    except Exception as e:  # noqa: BLE001 — a busca nunca derruba a leitura do preço
+                        log(f"  {it['mlb']}: busca '{it['busca']}' falhou ({str(e)[:100]})")
                 lote.append(dict(x, mlb=it["mlb"]))
                 lidos += 1
             except Falha:

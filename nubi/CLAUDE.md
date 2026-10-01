@@ -1271,6 +1271,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   ponto de partida (visto). Cada ponto do histórico guarda `mais_vendido`, `posicao_mv`, `full`, `catalogo` (entram em
   `mudancas`). `alertas` junta preço + eventos; o card mostra os novos no aviso e os 2 últimos embaixo; a página de
   detalhes tem a linha do tempo e a coluna Tags nas leituras. Teste em `test_precos_rodadas.py`.
+- **Rastreamento = Monitor de preços (01/10, Bruno: "a posição na busca com as principais palavras do título; esse
+  monitoramento é o rastreamento; não precisa mais daquela tela")**: cada item tem `busca` (o Bruno edita no ✏️, rota
+  `ml_precos_busca`) ou o termo automático `precos.termo_busca` (título sem palavras genéricas/volume/gênero, 5 palavras).
+  Na rodada, o coletor (`posicao_na_busca`, `BUSCA_PAGINAS`=3) procura o termo e acha o card do anúncio (MLB do anúncio
+  ou o produto de catálogo `produto_catalogo`, lido da página; `vencedor` = buy box dele) → `busca_pos` {termo, posicao,
+  pagina, patrocinado, lidos}; ponto do histórico `pos_busca`; eventos (`_evento_busca`): sumiu/apareceu nas 3 páginas e
+  troca de página = alerta; mudança dentro da página = só histórico. A aba 🎯 Perseguir anúncios (Apify) saiu do menu do
+  Estoque e `#/estoque/perseguir` redireciona para `#/precos` (código e dados guardados). Teste em `test_precos_rodadas.py`.
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

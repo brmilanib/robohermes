@@ -1241,6 +1241,7 @@ header.top{padding:7px 16px}
 .pm-linha-tempo{display:flex;flex-direction:column;gap:6px}.pm-ev{display:flex;gap:12px;padding:6px 10px;border-radius:10px;background:var(--soft)}
 .pm-ev.novo{background:rgba(239,68,68,.1);border-left:3px solid #ef4444}.pm-evn{background:#fff3e6;border-radius:8px;padding:2px 8px}
 .pm-ult-ev{font-size:12px;margin-top:4px}
+.pm-busca{font-size:12.5px;margin-top:4px}.pm-termo{font-weight:600}
 </style>
 </head>
 <body>
@@ -1806,6 +1807,7 @@ async function rotear() {
   if (location.hash.startsWith("#/decants")) return telaDecants();
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
     return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
+  if (location.hash.startsWith("#/estoque/perseguir")) { history.replaceState(null, "", "#/precos"); return rotear(); }   // 01/10: virou o Monitor
   if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/categorias") ? telaEstoqueCategorias() : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
@@ -3194,7 +3196,7 @@ const esAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px"><but
   <button class="${ativa === "compras" ? "on" : ""}" onclick="location.hash='#/estoque/compras'">🛒 Compras e vendas</button>
   <button class="${ativa === "gestor" ? "on" : ""}" onclick="location.hash='#/estoque/gestor'">🧾 Planilha do Gestor Seller</button>
   <button class="${ativa === "posicoes" ? "on" : ""}" onclick="location.hash='#/estoque/posicoes'">📈 Posição do anúncio</button>
-  <button class="${ativa === "perseguir" ? "on" : ""}" onclick="location.hash='#/estoque/perseguir'">🎯 Perseguir anúncios</button>
+  <button onclick="location.hash='#/precos'" title="O rastreamento dos anúncios dos concorrentes agora é o Monitor de preços">📈 Rastreamento (Monitor de preços)</button>
   <button class="${ativa === "rank" ? "on" : ""}" onclick="location.hash='#/estoque/rankeamento'">🧪 Rankeamento</button></div>`;
 // 30/09 (Bruno: "meu estoque por categoria, igual ao ranking de marcas"): marca tirada do título, categoria do ranking
 async function telaEstoqueCategorias() {
@@ -8262,7 +8264,7 @@ async function telaPrecoDetalhe(mlb) {
   const it = r.item || {}, h = r.historico || [], mu = r.mudancas || [];
   const k = (l, v, o = "") => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
   const val = (c, v) => v == null ? "—" : (c === "preco" || c === "preco_original") ? rsES(+v) : c === "estoque" ? nf0.format(v)
-    : v === true ? "sim" : v === false ? "não" : c === "posicao_mv" ? v + "º" : esc(String(v));
+    : v === true ? "sim" : v === false ? "não" : c === "posicao_mv" || c === "pos_busca" ? v + "º" : esc(String(v));
   const evs = (it.eventos || []).slice().reverse();
   const quandoEv = em => em ? new Date(em).toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "";
   const dif = m => m.diff == null ? "" : `<span class="${m.diff > 0 ? "neg" : "pos"}">${m.diff > 0 ? "+" : "−"}${m.campo === "estoque" ? nf0.format(Math.abs(m.diff)) : rsES(Math.abs(m.diff))}${m.pct != null ? ` (${FMT.var(m.pct)})` : ""}</span>`;
@@ -8289,10 +8291,10 @@ async function telaPrecoDetalhe(mlb) {
           ${mu.map(m => `<tr><td class="first">${esc(dataBR(m.dia))}${hh(m.em)}<div class="muted" style="font-size:11px">antes: ${esc(dataBR(m.dia_antes))}</div></td><td>${esc(m.nome)}</td>
             <td class="num">${val(m.campo, m.de)}</td><td class="num"><b>${val(m.campo, m.para)}</b></td><td class="num">${dif(m)}</td></tr>`).join("")}</tbody></table></div>`
           : `<div class="muted">Nenhuma mudança desde que começou a ser monitorado.</div>`}</div>
-      <div class="card pad"><h2>Todas as leituras</h2><div class="tw" style="max-height:52vh"><table class="t"><thead><tr><th>Dia</th><th class="num">Preço</th><th class="num">Riscado</th><th>Situação</th><th class="num">Estoque</th><th>Tags</th></tr></thead><tbody>
+      <div class="card pad"><h2>Todas as leituras</h2><div class="tw" style="max-height:52vh"><table class="t"><thead><tr><th>Dia</th><th class="num">Preço</th><th class="num">Riscado</th><th>Situação</th><th class="num">Estoque</th><th>Tags</th><th class="num">Busca</th></tr></thead><tbody>
         ${h.slice().reverse().map(p => `<tr><td class="first">${esc(dataBR(p.dia))}<span class="muted">${hh(p.em)}</span>${p.fonte === "api" ? ` <span class="muted" style="font-size:10.5px">API</span>` : ""}</td><td class="num">${p.preco ? rsES(p.preco) : "—"}</td><td class="num muted">${p.preco_original ? rsES(p.preco_original) : "—"}</td>
           <td>${p.status ? `<span class="st ${p.status === "ativo" ? "good" : "bad"}">${esc(p.status)}</span>` : ""}</td><td class="num">${p.estoque != null ? nf0.format(p.estoque) : "—"}</td>
-          <td>${p.mais_vendido ? `<span class="pm-tag mv">MAIS VENDIDO${p.posicao_mv ? ` <i>${p.posicao_mv}º</i>` : ""}</span>` : ""}${p.full ? ` <span class="pm-tag full">⚡ FULL</span>` : ""}${p.catalogo ? ` <span class="pm-tag cat">CATÁLOGO</span>` : ""}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">Sem leituras ainda.</td></tr>`}</tbody></table></div></div>
+          <td>${p.mais_vendido ? `<span class="pm-tag mv">MAIS VENDIDO${p.posicao_mv ? ` <i>${p.posicao_mv}º</i>` : ""}</span>` : ""}${p.full ? ` <span class="pm-tag full">⚡ FULL</span>` : ""}${p.catalogo ? ` <span class="pm-tag cat">CATÁLOGO</span>` : ""}</td><td class="num">${p.pos_busca ? p.pos_busca + "º" : "pos_busca" in p ? "fora" : "—"}</td></tr>`).join("") || `<tr><td colspan="7" class="muted">Sem leituras ainda.</td></tr>`}</tbody></table></div></div>
     </div>`;
   const pts = h.filter(p => p.preco);
   if (pts.length > 1) grafLinhas($("#pd-graf"), {rotulos: pts.map(p => dataBR(p.dia).slice(0, 5)), fmt: v => rsES(v), fmtEixo: v => "R$ " + nf0.format(v), pontos: true, rotFim: false,
@@ -8316,6 +8318,11 @@ async function telaPrecos() {
   const lidosHoje = xs.filter(x => x.ultimo_dia === hoje).length;
   const ultimaGeral = xs.map(x => x.ultima_em).filter(Boolean).sort().pop();
   const evNovos = x => (x.eventos || []).filter(e => e.visto === false);
+  // 01/10 (Bruno: "a posição na busca com as principais palavras do título; esse monitoramento é o rastreamento")
+  const buscaChip = x => { const b = x.busca_pos || {}, termo = x.busca || (b.termo) || x.busca_auto || "";
+    const pos = b.posicao ? `<b>${b.posicao}º</b> na busca (pág. ${b.pagina}${b.patrocinado ? " · patrocinado" : ""}${b.vencedor === false ? " · produto de catálogo, buy box com outro" : b.vencedor ? " · ganha o buy box" : ""})`
+      : b.termo ? `fora das ${b.paginas || 3} primeiras páginas (${nf0.format(b.lidos || 0)} anúncios lidos)` : "posição na busca: lida na próxima rodada";
+    return `🔎 <span class="pm-termo">"${esc(termo || "…")}"</span> ${pos} <button class="btn small ghost" data-busca="${esc(x.mlb)}" data-termo="${esc(termo)}" title="Trocar a palavra de busca">✏️</button>`; };
   const alertaDe0 = x => (x.alerta && x.alerta.visto === false) ? x.alerta : null;
   const alertaDe = x => alertaDe0(x) || (evNovos(x).length ? {} : null);
   // 01/10 (Bruno: "puxa o custo do meu estoque e coloca lucro líquido, margem e ROI vendendo no mesmo preço que ele")
@@ -8348,6 +8355,7 @@ async function telaPrecos() {
             ${x.catalogo ? `<span class="pm-tag cat" title="Anúncio de catálogo (disputa o buy box)">CATÁLOGO</span>` : x.catalogo === false ? `<span class="pm-tag" title="Anúncio próprio, fora do catálogo">fora do catálogo</span>` : ""}
             ${x.full ? `<span class="pm-tag full" title="Armazenado e enviado pelo Full do Mercado Livre">⚡ FULL</span>` : ""}${x.status ? `<span class="st ${x.status === "ativo" ? "good" : "bad"}">${esc(x.status)}</span>` : ""}${x.estoque != null ? `<span class="pm-chip">${x.estoque_mais ? "+" : ""}${nf0.format(x.estoque)} disponíveis</span>` : ""}
             ${x.mudancas_preco ? `<span class="pm-chip">${nf0.format(x.mudancas_preco)} mudança(s) de preço</span>` : `<span class="pm-chip muted">preço sem mudança</span>`}</div>
+          <div class="pm-busca">${buscaChip(x)}</div>
           ${(x.eventos || []).filter(e => e.visto !== false).length ? `<div class="pm-ult-ev muted">🕘 ${(x.eventos || []).filter(e => e.visto !== false).slice(-2).reverse().map(e => `${esc(e.texto)} (${quando(e.em)})`).join(" · ")}</div>` : ""}
         </div>
         <div class="pm-preco">${x.atual ? `<b>${rsES(x.atual)}</b>` : `<span class="muted">ainda não lido</span>`}
@@ -8370,7 +8378,7 @@ async function telaPrecos() {
     <div class="pm-imposto"><label>🧮 Imposto sobre a venda <input id="pm-imp" type="number" min="0" max="40" step="0.1" value="${r.calc?.imposto_pct ?? 0}">%</label>
       <span class="muted">usado na conta de lucro, margem e ROI (custo = custo médio do seu estoque no UpSeller)</span></div>
     <p class="muted" style="margin:4px 0 12px;font-size:12.5px">Ao meio-dia e às 19 h o nubi lê preço, preço riscado, situação e estoque pela API oficial do Mercado Livre;
-      o que a API não trouxer (e o título certo do anúncio) o coletor do Mac lê na página logo depois. Mudou o preço: o cartão fica em destaque e o menu pisca até você marcar "✓ vi".
+      o que a API não trouxer (e o título certo do anúncio) o coletor do Mac lê na página logo depois. Mudou o preço, a tag MAIS VENDIDO, o FULL, o estoque ou a posição na busca: o cartão fica em destaque e o menu pisca até você marcar "✓ vi".
       Para adicionar: Concorrentes → Vendedores → página do vendedor → fotos dos anúncios → "📈 Monitorar".</p>
     ${xs.length ? [...xs].sort((a, b) => !!alertaDe(b) - !!alertaDe(a)).map(cartao).join("")
     : `<div class="card empty"><h2>Nenhum anúncio monitorado</h2><p>Abra um vendedor seguido (Concorrentes → Vendedores), vá às fotos dos anúncios e clique em "📈 Monitorar" nos que quiser acompanhar.</p></div>`}`;
@@ -8380,6 +8388,11 @@ async function telaPrecos() {
     S.precosAlertas = mlb ? (S.precosAlertas || []).filter(a => a.mlb !== mlb) : []; desenharMenu(); telaPrecos(); };
   main.querySelectorAll("button[data-visto]").forEach(b => b.onclick = () => visto(b.dataset.visto));
   const vt = main.querySelector("#pm-vi-todos"); if (vt) vt.onclick = () => visto(null);
+  main.querySelectorAll("button[data-busca]").forEach(b => b.onclick = async () => {
+    const t = prompt("Palavra de busca no Mercado Livre para achar a posição deste anúncio (vazio = automática pelo título):", b.dataset.termo || "");
+    if (t === null) return;
+    try { await api("ml_precos_busca", {}, {method: "POST", body: JSON.stringify({mlb: b.dataset.busca, busca: t})}); toast("Palavra salva: a posição sai na próxima rodada (12 h / 19 h)."); telaPrecos(); }
+    catch (e) { toast(e.message, 5000); } });
   main.querySelectorAll("button[data-hist]").forEach(b => b.onclick = () => {
     const x = xs.find(z => z.mlb === b.dataset.hist), box = $("#pm-h-" + CSS.escape(x.mlb));
     if (!box.hidden) { box.hidden = true; b.textContent = "📈 Histórico de preços"; return; }
