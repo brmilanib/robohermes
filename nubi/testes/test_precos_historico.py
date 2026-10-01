@@ -32,6 +32,25 @@ def test_mudancas_e_detalhe():
     assert round(d["var_inicio"], 4) == round(209.9 / 221.26 - 1, 4) and len(d["mudancas"]) == len(mu)
 
 
+def test_leitura_pela_api_de_hora_em_hora():
+    d = {precos.LISTA: [{"mlb": "MLB1234567", "titulo": "X"}, {"mlb": "MLB2345678", "titulo": "Y"}]}
+    precos._ler = lambda repo, chave, padrao: d.get(chave, padrao)
+    precos._gravar = lambda repo, chave, valor: d.__setitem__(chave, valor)
+    itens = {"MLB1234567": {"preco": 100.0, "preco_cheio": 150.0, "status": "active", "disponivel": 5},
+             "MLB2345678": {"anuncio": "MLB2345678", "bloqueado": True}}
+    assert precos.ler_pela_api(None, lambda ids: itens) == (1, 1)
+    assert precos.ler_pela_api(None, lambda ids: itens) == (1, 1)                 # igual: não cria ponto novo
+    assert len(d[precos.HIST + "MLB1234567"]) == 1 and d[precos.HIST + "MLB1234567"][0]["fonte"] == "api"
+    itens["MLB1234567"]["preco"] = 95.0
+    precos.ler_pela_api(None, lambda ids: itens)                                    # mudou no mesmo dia: ponto novo com a hora
+    h = d[precos.HIST + "MLB1234567"]
+    assert [p["preco"] for p in h] == [100.0, 95.0] and h[0]["status"] == "ativo"
+    mu = precos.mudancas(h)
+    assert mu[0]["campo"] == "preco" and mu[0]["de"] == 100.0 and mu[0]["para"] == 95.0 and mu[0]["em"]
+    assert precos.pendente(None, {"ativo": True, "horario": "00:00"})["itens"] == [{"mlb": "MLB2345678", "link": precos.link_de("MLB2345678")}]
+
+
 if __name__ == "__main__":
     test_mudancas_e_detalhe()
+    test_leitura_pela_api_de_hora_em_hora()
     print("ok histórico de preços")

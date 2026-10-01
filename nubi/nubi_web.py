@@ -3772,6 +3772,12 @@ def rodar_rotinas(repo, so=None):
             out["ml_fotos"] = fotos_comparar(repo)
         except Exception as e:  # noqa: BLE001
             out["ml_fotos"] = f"erro: {str(e)[:120]}"
+        try:                                            # 01/10: monitor de preços pela API oficial, de hora em hora (sem navegador)
+            if meli.tem_chave():
+                lidos, faltaram = precos.ler_pela_api(repo, meli.itens)
+                out["monitor_api"] = f"{lidos} lido(s) pela API" + (f", {faltaram} para o coletor" if faltaram else "")
+        except Exception as e:  # noqa: BLE001
+            out["monitor_api"] = f"erro: {str(e)[:120]}"
         try:                                            # card #121: preço de agora dos GTINs das marcas pelo catálogo, 1x/dia
             out["ml_precos"] = precos_catalogo(repo) if meli.tem_chave() else "sem as chaves do ML"
         except Exception as e:  # noqa: BLE001

@@ -50,11 +50,12 @@ def test_seguir_gravar_e_painel():
         pass
     n = precos.gravar_leitura(r, [{"mlb": "MLB4350649763", "preco": 329.9, "status": "ativo", "estoque": 96}], dia="2026-09-29")
     n += precos.gravar_leitura(r, [{"mlb": "MLB4350649763", "preco": 299.9, "preco_original": 599.9, "status": "ativo", "estoque": 90}], dia="2026-09-30")
-    precos.gravar_leitura(r, [{"mlb": "MLB4350649763", "preco": 309.9, "status": "ativo"}], dia="2026-09-30")   # mesmo dia substitui
-    assert n == 2 and [p["preco"] for p in precos.historico(r, "MLB4350649763")] == [329.9, 309.9]
+    # 01/10: mudou no mesmo dia = ponto novo com a hora (antes substituía e a mudança se perdia)
+    precos.gravar_leitura(r, [{"mlb": "MLB4350649763", "preco": 309.9, "status": "ativo"}], dia="2026-09-30")
+    assert n == 2 and [p["preco"] for p in precos.historico(r, "MLB4350649763")] == [329.9, 299.9, 309.9]
     p = precos.painel(r)[0]
-    assert p["atual"] == 309.9 and p["anterior"] == 329.9 and round(p["var"], 4) == round(309.9 / 329.9 - 1, 4)
-    assert p["minimo"] == 309.9 and p["maximo"] == 329.9 and p["ultimo_dia"] == "2026-09-30" and p["estoque"] is None
+    assert p["atual"] == 309.9 and p["anterior"] == 299.9 and round(p["var"], 4) == round(309.9 / 299.9 - 1, 4)
+    assert p["minimo"] == 299.9 and p["maximo"] == 329.9 and p["ultimo_dia"] == "2026-09-30" and p["estoque"] is None
     # pendente: já lido hoje -> não roda; outro dia -> roda depois das 04:10
     hoje = datetime(2026, 9, 30, 5, 0, tzinfo=precos.BRASILIA)
     assert precos.pendente(r, {"ativo": True, "horario": "04:10"}, hoje)["rodar"] is False

@@ -492,6 +492,18 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     "Quando mudou" (`precos.mudancas`: preço, riscado, situação e estoque entre leituras seguidas, com diferença e %) e
     todas as leituras. `ml_precos_hist` devolve `precos.detalhe`. A lista `#/precos` (Monitor de preços) é a aba de
     todos os monitorados, com link para o histórico. Teste: testes/test_precos_historico.py.
+  - **Janela do Chrome fora da tela (01/10, Bruno: "fica abrindo navegador no meio da tela do PC, o TikTok inteiro")**:
+    no Windows, `abrir_navegador` abre o Chrome visível (o invisível é detectado pelo ML/TikTok) com
+    `--window-position=-32000,-32000`: não aparece. `trazer_para_tela(pg)` (CDP `Browser.setWindowBounds`) mostra a
+    janela só quando precisa do Bruno (atendente caiu no login/captcha; comando `login` do atendente);
+    `mandar_para_fora` quando o login volta. Comandos em que o Bruno mexe (`entrar`, `entrar-ml`, `entrar-upseller`,
+    `entrar-gestor`, `navegar`) passam `na_tela=True`. Desligar: `cfg["janela_na_tela"]=True` ou NUBI_NA_TELA=1.
+    Opera não resolveria (é o mesmo Chromium, abre janela igual) e um navegador dentro do nubi (iframe) não abre ML
+    nem TikTok (eles bloqueiam ser embutidos). Teste: testes/test_janela_fora.py.
+  - **Monitor de preços pela API (01/10)**: a rodada da hora (`rodar_rotinas`) chama `precos.ler_pela_api(repo,
+    meli.itens)`: preço, riscado, situação e estoque dos monitorados sem navegador; o que a API não devolver o coletor lê
+    de madrugada (`pendente` só pede os não lidos no dia). `gravar_leitura`: no mesmo dia, leitura igual só atualiza a
+    hora; mudou = ponto novo com a hora (`em`), e "Quando mudou" mostra a hora.
   - **Uma página por vendedor (01/10, Bruno: "cada vendedor tem que ter uma página só; menos tela, mais otimizado")**:
     a página do seguido (`#/vendedores/<nome>`: Visão do ano, Mês a mês, Alertas, com gráficos, loja real, anúncios
     reais da vitrine e fotos) ganhou a aba **🔭 Explorador** (`#/vendedores/<nome>/explorador`, `telaVendedorExplorador`):

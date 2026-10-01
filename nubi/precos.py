@@ -119,10 +119,18 @@ def gravar_leitura(repo, itens, dia=None):
         if not mlb:
             continue
         ponto = {"dia": dia, "em": agora, "preco": _num(it.get("preco")), "preco_original": _num(it.get("preco_original")),
-                 "status": str(it.get("status") or "")[:40], "estoque": it.get("estoque") if isinstance(it.get("estoque"), int) else None}
-        h = [p for p in historico(repo, mlb) if p.get("dia") != dia]
-        h.append(ponto)
-        h.sort(key=lambda p: p.get("dia") or "")
+                 "status": str(it.get("status") or "")[:40], "estoque": it.get("estoque") if isinstance(it.get("estoque"), int) else None,
+                 "fonte": str(it.get("fonte") or "navegador")[:20]}
+        # 01/10: leitura de hora em hora pela API: no mesmo dia, ponto igual ao último só atualiza a hora; se algo mudou
+        # (preço, riscado, situação, estoque), entra um ponto novo com a hora (a mudança fica com a hora certa)
+        h = historico(repo, mlb)
+        mesmo_dia = [p for p in h if p.get("dia") == dia]
+        chave = lambda p: (p.get("preco"), p.get("preco_original"), p.get("status"), p.get("estoque"))
+        if mesmo_dia and chave(mesmo_dia[-1]) == chave(ponto):
+            mesmo_dia[-1]["em"] = agora
+        else:
+            h.append(ponto)
+        h.sort(key=lambda p: (p.get("dia") or "", p.get("em") or ""))
         _gravar(repo, HIST + mlb, h[-MAX_PONTOS:])
         if mlb in por:
             x = por[mlb]
@@ -143,7 +151,7 @@ def mudancas(h):
     """01/10 (Bruno: "que dia mudou o preço, quanto mudou"): entre leituras seguidas, o que mudou -> lista do mais novo
     para o mais antigo: {dia, dia_antes, campo, nome, de, para, diff, pct}. Leitura sem o campo (None) não conta como mudança."""
     out = []
-    pts = sorted([p for p in h or [] if p.get("dia")], key=lambda p: p["dia"])
+    pts = sorted([p for p in h or [] if p.get("dia")], key=lambda p: (p["dia"], p.get("em") or ""))
     ult = {}
     for p in pts:
         for c, nome in CAMPOS_MUDANCA:
@@ -152,7 +160,7 @@ def mudancas(h):
                 continue
             if c in ult and ult[c][1] != v:
                 de, dia_antes = ult[c][1], ult[c][0]
-                x = {"dia": p["dia"], "dia_antes": dia_antes, "campo": c, "nome": nome, "de": de, "para": v}
+                x = {"dia": p["dia"], "em": p.get("em"), "dia_antes": dia_antes, "campo": c, "nome": nome, "de": de, "para": v}
                 if isinstance(de, (int, float)) and isinstance(v, (int, float)):
                     x["diff"] = round(v - de, 2)
                     x["pct"] = round(v / de - 1, 4) if de else None
@@ -165,7 +173,7 @@ def detalhe(repo, mlb):
     """Um anúncio do monitor com o histórico inteiro, as mudanças e o resumo (para a tela de histórico)."""
     mlb = normalizar_mlb(mlb)
     item = next((x for x in lista(repo) if x.get("mlb") == mlb), None) or {"mlb": mlb, "link": link_de(mlb), "fora_do_monitor": True}
-    h = sorted(historico(repo, mlb), key=lambda p: p.get("dia") or "")
+    h = sorted(historico(repo, mlb), key=lambda p: (p.get("dia") or "", p.get("em") or ""))
     precos = [p["preco"] for p in h if p.get("preco")]
     ini = item.get("preco_inicial") or (precos[0] if precos else None)
     atual = precos[-1] if precos else None
@@ -244,3 +252,24 @@ def ler_pagina(x):
         estoque = 1
     return {"preco": preco if preco and preco > 0 else None, "preco_original": orig if orig and orig > (preco or 0) else None,
             "status": status, "estoque": estoque, "titulo": str(x.get("titulo") or "")[:200], "vendedor": str(x.get("vendedor") or "")[:120]}
+
+
+def ler_pela_api(repo, itens_fn):
+    """01/10 (Bruno: "melhor monitorar por API, sem abrir navegador"): preço, preço riscado, situação e estoque de todos os
+    monitorados pela API oficial do ML (itens_fn = meli.itens), sem navegador. O que a API não devolver fica para o coletor.
+    -> (lidos, faltaram)."""
+    xs = lista(repo)
+    if not xs:
+        return 0, 0
+    r = itens_fn([x["mlb"] for x in xs]) or {}
+    ok = []
+    for x in xs:
+        it = r.get(x["mlb"]) or {}
+        if it.get("bloqueado") or it.get("sumiu") or it.get("preco") is None:
+            continue
+        st = {"active": "ativo", "paused": "pausado", "closed": "finalizado"}.get(str(it.get("status") or ""), str(it.get("status") or ""))
+        ok.append({"mlb": x["mlb"], "preco": it.get("preco"), "preco_original": it.get("preco_cheio"), "status": st,
+                   "estoque": it.get("disponivel") if isinstance(it.get("disponivel"), int) else None, "titulo": it.get("titulo"), "fonte": "api"})
+    if ok:
+        gravar_leitura(repo, ok)
+    return len(ok), len(xs) - len(ok)

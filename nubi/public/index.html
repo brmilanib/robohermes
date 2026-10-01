@@ -6813,6 +6813,7 @@ async function telaPrecoDetalhe(mlb) {
   const val = (c, v) => v == null ? "—" : (c === "preco" || c === "preco_original") ? rsES(+v) : c === "estoque" ? nf0.format(v) : esc(String(v));
   const dif = m => m.diff == null ? "" : `<span class="${m.diff > 0 ? "neg" : "pos"}">${m.diff > 0 ? "+" : "−"}${m.campo === "estoque" ? nf0.format(Math.abs(m.diff)) : rsES(Math.abs(m.diff))}${m.pct != null ? ` (${FMT.var(m.pct)})` : ""}</span>`;
   const lojaL = it.seller_id ? `https://lista.mercadolivre.com.br/_CustId_${esc(it.seller_id)}` : "";
+  const hh = em => em ? " " + new Date(em).toLocaleTimeString("pt-BR", {timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit"}) : "";
   main.innerHTML = `<div class="vcab"><h1>📈 ${esc(it.titulo || mlb)}</h1><a class="btn small" href="#/precos">← todos os monitorados</a></div>
     <div class="card pad pd-cab">${it.foto ? `<img src="${esc(urlML(it.foto))}" alt="">` : ""}
       <div style="min-width:0"><a href="${esc(urlML(it.link || ""))}" target="_blank" rel="noopener"><b>${esc(mlb)} ↗</b></a>
@@ -6828,11 +6829,11 @@ async function telaPrecoDetalhe(mlb) {
     <div class="ex-grid" style="grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)">
       <div class="card pad"><h2>Quando mudou</h2>
         ${mu.length ? `<div class="tw"><table class="t"><thead><tr><th>Dia</th><th>O que</th><th class="num">De</th><th class="num">Para</th><th class="num">Diferença</th></tr></thead><tbody>
-          ${mu.map(m => `<tr><td class="first">${esc(dataBR(m.dia))}<div class="muted" style="font-size:11px">antes: ${esc(dataBR(m.dia_antes))}</div></td><td>${esc(m.nome)}</td>
+          ${mu.map(m => `<tr><td class="first">${esc(dataBR(m.dia))}${hh(m.em)}<div class="muted" style="font-size:11px">antes: ${esc(dataBR(m.dia_antes))}</div></td><td>${esc(m.nome)}</td>
             <td class="num">${val(m.campo, m.de)}</td><td class="num"><b>${val(m.campo, m.para)}</b></td><td class="num">${dif(m)}</td></tr>`).join("")}</tbody></table></div>`
           : `<div class="muted">Nenhuma mudança desde que começou a ser monitorado.</div>`}</div>
       <div class="card pad"><h2>Todas as leituras</h2><div class="tw" style="max-height:52vh"><table class="t"><thead><tr><th>Dia</th><th class="num">Preço</th><th class="num">Riscado</th><th>Situação</th><th class="num">Estoque</th></tr></thead><tbody>
-        ${h.slice().reverse().map(p => `<tr><td class="first">${esc(dataBR(p.dia))}</td><td class="num">${p.preco ? rsES(p.preco) : "—"}</td><td class="num muted">${p.preco_original ? rsES(p.preco_original) : "—"}</td>
+        ${h.slice().reverse().map(p => `<tr><td class="first">${esc(dataBR(p.dia))}<span class="muted">${hh(p.em)}</span>${p.fonte === "api" ? ` <span class="muted" style="font-size:10.5px">API</span>` : ""}</td><td class="num">${p.preco ? rsES(p.preco) : "—"}</td><td class="num muted">${p.preco_original ? rsES(p.preco_original) : "—"}</td>
           <td>${p.status ? `<span class="st ${p.status === "ativo" ? "good" : "bad"}">${esc(p.status)}</span>` : ""}</td><td class="num">${p.estoque != null ? nf0.format(p.estoque) : "—"}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">Sem leituras ainda.</td></tr>`}</tbody></table></div></div>
     </div>`;
   const pts = h.filter(p => p.preco);
@@ -6852,8 +6853,8 @@ async function telaPrecos() {
   const lidosHoje = xs.filter(x => x.ultimo_dia === new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10)).length;
   main.innerHTML = `<div class="es-cab"><h1>📈 Monitor de preços</h1>
       <span class="muted">${nf0.format(xs.length)} anúncio(s) monitorado(s) (máx. ${r.max}) · ${nf0.format(lidosHoje)} lido(s) hoje</span></div>
-    <p class="muted" style="margin:4px 0 12px;font-size:13px">Todo dia de madrugada (rotina <b>Monitor de preços</b>, Coletor e agente → Tarefas de rotina) o coletor abre cada anúncio
-      no Chrome do Mac e anota preço, preço original, situação e estoque. Para adicionar: Concorrentes → Vendedores → página do vendedor → fotos dos anúncios → "📈 Monitorar".
+    <p class="muted" style="margin:4px 0 12px;font-size:13px">De hora em hora o nubi lê preço, preço riscado, situação e estoque pela API oficial do Mercado Livre, sem abrir navegador;
+      o que a API não devolver o coletor lê de madrugada. Para adicionar: Concorrentes → Vendedores → página do vendedor → fotos dos anúncios → "📈 Monitorar".
       Para ler agora: Central → comando "Mercado Livre: ler agora o preço dos anúncios do monitor de preços".</p>
     ${xs.length ? `<div class="card"><table class="tab" id="pm-tab"><thead><tr><th></th><th>Anúncio</th><th>Loja</th><th class="num">Preço agora</th><th class="num">Variação</th>
       <th class="num">Mín · Máx (60 d)</th><th>Histórico</th><th>Situação</th><th>Lido em</th><th></th></tr></thead><tbody>

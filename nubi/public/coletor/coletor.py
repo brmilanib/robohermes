@@ -256,8 +256,51 @@ def api(token, rota, params=None, corpo=None, metodo=None, timeout=300, _de_novo
 # Navegador
 # ---------------------------------------------------------------------------
 
-def abrir_navegador(p, cfg, visivel=None, perfil=None):
-    """Chrome com perfil próprio e persistente: o login do Nubimetrics fica salvo nele."""
+FORA_DA_TELA = (-32000, -32000)
+
+
+def _janela_fora(cfg, na_tela):
+    """01/10 (Bruno: "fica abrindo navegador no meio da tela do PC, inclusive o TikTok inteiro"): no Windows o Chrome do
+    coletor/atendente abre FORA da área visível do monitor. Continua um Chrome normal com janela (o modo invisível é
+    detectado pelo ML e pelo TikTok), só que não aparece; vem para a tela só quando precisa do Bruno (login, verificação)
+    pelo `trazer_para_tela`. `cfg["janela_na_tela"] = True` (ou NUBI_NA_TELA=1) volta ao jeito antigo."""
+    return (sys.platform.startswith("win") and not na_tela and not cfg.get("janela_na_tela")
+            and not os.environ.get("NUBI_NA_TELA"))
+
+
+def _janela(pg, esquerda, topo, estado="normal"):
+    try:
+        cdp = pg.context.new_cdp_session(pg)
+        wid = cdp.send("Browser.getWindowForTarget")["windowId"]
+        if estado != "normal":
+            cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "normal"}})
+        cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {"left": esquerda, "top": topo, "windowState": "normal"}})
+        cdp.detach()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def trazer_para_tela(pg):
+    """Traz a janela do Chrome para a área visível (login/verificação que só o Bruno resolve)."""
+    ok = _janela(pg, 60, 40)
+    try:
+        pg.bring_to_front()
+    except Exception:  # noqa: BLE001
+        pass
+    return ok
+
+
+def mandar_para_fora(pg, cfg=None):
+    """Depois do login resolvido, a janela volta para fora da tela (Windows)."""
+    if sys.platform.startswith("win") and not (cfg or {}).get("janela_na_tela") and not os.environ.get("NUBI_NA_TELA"):
+        return _janela(pg, *FORA_DA_TELA)
+    return False
+
+
+def abrir_navegador(p, cfg, visivel=None, perfil=None, na_tela=False):
+    """Chrome com perfil próprio e persistente: o login do Nubimetrics fica salvo nele.
+    na_tela: comandos em que o Bruno mexe na janela (entrar, navegar) abrem visíveis no monitor."""
     if perfil is None:
         # 27/09: no servidor (gamdias) o atendente deixa o perfil principal sempre aberto; coletas e logins usam outro
         # perfil persistente (os logins do Nubimetrics, UpSeller, Gestor e Mercado Livre ficam salvos nele)
@@ -266,7 +309,8 @@ def abrir_navegador(p, cfg, visivel=None, perfil=None):
         visivel = bool(cfg.get("mostrar_navegador") or os.environ.get("NUBI_VER"))
     opcoes = dict(user_data_dir=str(PASTA / perfil), headless=not visivel, accept_downloads=True,
                   viewport={"width": 1500, "height": 950}, locale="pt-BR", **({"user_agent": UA} if sys.platform == "darwin" else {}),
-                  args=["--disable-blink-features=AutomationControlled"],
+                  args=["--disable-blink-features=AutomationControlled"]
+                       + ([f"--window-position={FORA_DA_TELA[0]},{FORA_DA_TELA[1]}"] if visivel and _janela_fora(cfg, na_tela) else []),
                   # extensões ligadas (26/09): o Hunter Spy que o Bruno instala no perfil do coletor mostra loja e cidade
                   ignore_default_args=["--enable-automation", "--disable-extensions",
                                        "--disable-component-extensions-with-background-pages"])
@@ -1271,7 +1315,7 @@ def testar_sessao(p, cfg, visivel):
 def cmd_entrar(args, cfg):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        ctx = abrir_navegador(p, cfg, visivel=True)
+        ctx = abrir_navegador(p, cfg, visivel=True, na_tela=True)
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
         pg.goto(f"{BASE}/competition/dashboardbycompetitor?group={cfg['grupo']}&range=PREVMONTH")
         print("Faça login no Nubimetrics na janela que abriu (marque 'lembrar', se houver).")
@@ -2367,7 +2411,7 @@ def cmd_entrar_ml(args, cfg):
     """Abre o Mercado Livre no Chrome do coletor para o Bruno passar pela verificação (e entrar, se quiser); guarda a sessão."""
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        ctx = abrir_navegador(p, cfg, visivel=True)
+        ctx = abrir_navegador(p, cfg, visivel=True, na_tela=True)
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
         pg.goto(ML_HOME)
         print("Na janela do Mercado Livre: se aparecer a verificação ('não sou um robô'), resolva. Entrar na conta é opcional.")
@@ -2685,7 +2729,7 @@ def coletar_fotos_vendedores(p, cfg, token, so=None):
 def cmd_entrar_upseller(args, cfg):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        ctx = abrir_navegador(p, cfg, visivel=True)
+        ctx = abrir_navegador(p, cfg, visivel=True, na_tela=True)
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
         pg.goto(f"{UPSELLER}/pt/inventory/list")
         print("Faça login no UpSeller na janela que abriu (a senha fica só no navegador do coletor, nunca no nubi).")
@@ -2708,7 +2752,7 @@ def cmd_entrar_upseller(args, cfg):
             return 1
         print("OK: login do UpSeller feito. Testando se o coletor entra sozinho, sem janela…")
         for visivel in (False, True):
-            ctx = abrir_navegador(p, cfg, visivel=visivel)
+            ctx = abrir_navegador(p, cfg, visivel=visivel, na_tela=True)
             try:
                 _upseller_lista(ctx.pages[0] if ctx.pages else ctx.new_page())
                 guardar_sessao(ctx)
@@ -2925,7 +2969,7 @@ def coletar_gestor(p, cfg, token):
 def cmd_entrar_gestor(args, cfg):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        ctx = abrir_navegador(p, cfg, visivel=True)
+        ctx = abrir_navegador(p, cfg, visivel=True, na_tela=True)
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
         pg.goto(f"{GESTOR}/management/products")
         print("Faça login no Gestor Seller na janela que abriu (a senha fica só no navegador do coletor, nunca no nubi).")
@@ -2950,7 +2994,7 @@ def cmd_entrar_gestor(args, cfg):
             return 1
         print("OK: login do Gestor Seller feito. Testando se o coletor entra sozinho, sem janela…")
         for visivel in (False, True):
-            ctx = abrir_navegador(p, cfg, visivel=visivel)
+            ctx = abrir_navegador(p, cfg, visivel=visivel, na_tela=True)
             try:
                 _gestor_produtos(ctx.pages[0] if ctx.pages else ctx.new_page())
                 guardar_sessao(ctx)
@@ -5350,7 +5394,7 @@ def cmd_navegar(args, cfg):
                                             "pode fazer exatamente a ação aprovada." if aprovado else "")}]
         fim = None
         with sync_playwright() as p:
-            ctx = abrir_navegador(p, cfg, visivel=True)
+            ctx = abrir_navegador(p, cfg, visivel=True, na_tela=True)
             pg = ctx.pages[0] if ctx.pages else ctx.new_page()
             estado = {}
             for _ in range(NAVEGADOR_PASSOS):
@@ -6386,10 +6430,12 @@ def _rodada_atendente(pg, cfg, chave, token, gasto, canal="tiktok_shop", pend=No
         if not cfg.get(k_login):         # card #108: avisa na Sala uma vez só, até o login voltar a funcionar
             cfg[k_login] = datetime.now().isoformat()
             salvar_config(cfg)
-            _postar_hermes_como(token, autor, f"🔐 {msg} Entre na central do vendedor na janela do Chrome.")
+            trazer_para_tela(pg)           # 01/10: a janela estava fora da tela; aparece só agora, para o Bruno entrar
+            _postar_hermes_como(token, autor, f"🔐 {msg} A janela do Chrome apareceu na tela: entre na central do vendedor.")
         return 0.0, {"nada": True, "login": True}, msg
     if cfg.pop(k_login, None):
         salvar_config(cfg)
+        mandar_para_fora(pg, cfg)          # 01/10: login resolvido, a janela sai da tela de novo
     if marca and marca == cfg.get(k_marca) and not aprovadas and not fechados and not sac:
         return 0.0, {"nada": True}, f"{nome}: nada novo no chat e nada para enviar."     # sem gasto
     pedido = (("IMPORTAR O SAC DO UPSELLER (pedido do Bruno): traga o histórico já respondido. CONVERSAS QUE JÁ ESTÃO NO "
@@ -6900,7 +6946,7 @@ def _pc_comando(cmd, pg, token):
             else:
                 nova = pg.context.new_page()        # aba própria: o atendente não mexe nela (nem recarrega)
                 nova.goto(url, timeout=60000)
-                nova.bring_to_front()
+                trazer_para_tela(nova)
                 saida = f"abri {url} numa aba nova do Chrome do atendente: é só o Bruno entrar (o atendente não mexe nessa aba)"
         else:
             saida = "reiniciando o atendente"
