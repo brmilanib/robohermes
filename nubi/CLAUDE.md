@@ -491,6 +491,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     motivo + resumo; cache 12 h em `observados|destaques`, `?forcar=1` refaz). Na página do vendedor, os produtos são
     clicáveis (`abrirProdutoDeMarca`: carrega o relatório da marca e abre o quadro do produto) e o quadro ganhou a foto do
     catálogo do ML (`meli_foto`, 1º GTIN que o ML conhece).
+  - **Título cortado / Sabah Al Ward Sugar (01/10, Bruno: "MAMS vende o Sugar e está junto no tradicional")**: o
+    Nubimetrics corta títulos em 40 letras ("Perfume Arabe Feminino Al Wataniah Sabah"), sem tipo nem volume; viravam EDT e
+    pegavam o volume do único EDT da linha ("Sabah EDT 200 ml" com 16,7 mil un., que não existe). Etapa 3·0 de
+    `consolidar`: sem tipo E sem volume, recebe o PAR (tipo, volume) que mais vende na linha (regra 12c). Configuração da
+    Al Wataniah refeita à mão a pedido do Bruno (simulada com os anúncios reais antes; a de antes em
+    `linhas_manual|AL WATANIAH|2026-10-01`): "sabah al ward sugar"/"ward sugar" → Sabah Al Ward Sugar; "sabah" →
+    Sabah Al Ward; saíram palavras soltas que viravam produto ("sedutor" do título da PHTEC, "ward", "origin", "noiva").
+    Linha mais longa ganha da curta que ela contém; chave curta que aparece ANTES no título ganha de outra mais longa, por
+    isso a variação precisa da chave completa. Teste: testes/test_titulo_cortado.py.
   - **TRAVA DO AGRUPAMENTO (01/10, Bruno: "esses dados são o coração das nossas análises; precisa ter regras mais
     firmes")**: `trava_agrupamento.py`. Toda mudança de linhas (IA em `linhas_ia`, revisão diária gpt-oss+Hermes em
     `aplicar_revisao`) é SIMULADA no último export da marca (`simular_marca`: `nubi.consolidar` com a config de hoje x a

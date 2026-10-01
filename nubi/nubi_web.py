@@ -729,7 +729,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 12b: linhas de antes da revisão automática da IA (desfeita 01/10: picou o Sabah Al Ward); marca de revenda nunca é dona de GTIN de outra marca"   # 01/10 (pedido do Bruno)
+REGRA_ATUAL = "regra 12c: título cortado sem tipo e volume recebe o par (tipo, volume) que mais vende na linha; linhas de antes da IA; revenda nunca dona de GTIN alheio"   # 01/10 (Sabah Al Ward; pedido do Bruno)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"

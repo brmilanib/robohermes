@@ -1263,6 +1263,18 @@ def consolidar(df, marca, cfg, info=None):
     df.loc[sem_linha, "linha"] = dono[sem_linha].map(nome_bonito)
 
     # Etapa 3 — preencher o que sobrou vazio.
+    # 3·0 (01/10, Bruno: "Al Wataniah Sabah EDT 200 ml" que não existe): título CORTADO pelo Nubimetrics ("Perfume Arabe
+    #     Feminino Al Wataniah Sabah", 40 letras) não diz tipo nem volume; antes virava EDT e pegava o volume do único EDT
+    #     da linha (200 ml) — 16 mil unidades num produto falso. Sem tipo E sem volume, o anúncio recebe o PAR (tipo,
+    #     volume) que mais vende na mesma linha, entre os anúncios que dizem os dois.
+    for _, grupo in df[~fora].groupby("linha"):
+        faltando = grupo.index[(grupo["tipo"] == TIPO_PADRAO) & (grupo["volume"] == "-")]
+        if not len(faltando):
+            continue
+        sabidos = grupo[grupo["tipo"].isin(["EDT", "EDP", "EDC", "Parfum", "Extrait"]) & (grupo["volume"] != "-")]
+        if len(sabidos):
+            par = sabidos.assign(_u=sabidos["un"].astype(float) + 1).groupby(["tipo", "volume"])["_u"].sum().idxmax()
+            df.loc[faltando, "tipo"], df.loc[faltando, "volume"] = par[0], par[1]
     # 3a. Tipo não escrito no título e sem GTIN que resolva ("EDT?"): recebe o tipo
     #     de perfume (EDT/EDP/EDC) que mais vendeu na mesma linha e volume. Assim um
     #     "Montblanc Explorer 100ml" solto vira EDP, como os anúncios que dizem o tipo.
