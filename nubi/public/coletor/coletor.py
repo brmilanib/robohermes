@@ -1168,13 +1168,14 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
         # selecionada, segue pela tabela.
         from playwright.sync_api import TimeoutError as _TO
         ja_aberta = bool(pg.locator('button#simple-tab-3[aria-selected="true"]').count())
+        # 01/10 (card #134): a página recém-aberta também pode ter a consulta em cache (nenhuma resposta nova): 4 rodadas
+        # seguidas esperaram 120 s em cada mês da Maquiagem. Sem resposta em 30 s, segue pela tabela; se ela não carregar,
+        # o wait_for_function abaixo ainda falha (após 60 s).
         try:
-            with pg.expect_response(lambda r: e_ranking(r), timeout=20000 if ja_aberta else 120000):
+            with pg.expect_response(lambda r: e_ranking(r), timeout=30000):
                 pg.click("button#simple-tab-3")
         except _TO:
-            if not ja_aberta:
-                raise
-            log("  aba MARCAS já estava aberta; sigo pela tabela")
+            log("  aba MARCAS sem consulta nova (já aberta ou em cache); sigo pela tabela" + (" [aba já aberta]" if ja_aberta else ""))
         # 100 linhas por página (o export sai da tabela carregada)
         seletor = pg.locator('[role="combobox"], [aria-haspopup="listbox"]').filter(has_text=re.compile(r"^\s*10\s*$")).first
         if seletor.count():
