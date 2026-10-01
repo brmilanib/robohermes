@@ -207,8 +207,14 @@ def post_decant(p):
         raise ErroBazar("este decant não tem preços; atualize no menu 🧪 Decants")
     nome = nome_com_marca(p)
     linhas = ["✨ DECANT NA PURE PERFUMARIA! ✨", "", f"{p.get('cor') or '❤️'} {nome}"]
-    if p.get("descricao"):
+    if p.get("legenda"):                              # legenda da IA (sem números) feita com as notas
+        linhas += ["", p["legenda"].strip()]
+    elif p.get("descricao"):
         linhas += ["", f"✨ {p['descricao'].strip()}"]
+    n = p.get("notas") or {}
+    notas = [(r, n.get(k)) for r, k in (("🍋 Topo", "notas_topo"), ("🌸 Coração", "notas_coracao"), ("🌳 Fundo", "notas_fundo")) if n.get(k)]
+    if notas:
+        linhas += [""] + [f"{r}: {v}" for r, v in notas]
     linhas += [""] + [f"🧪 {d['ml']} ml por {brl(d['preco'])}" for d in sorted(ds, key=lambda d: d["ml"])]
     linhas += ["", "💧 Perfume 100% original, fracionado com cuidado.", "", "👜 Garanta o seu! ❤️✨"]
     return "\n".join(linhas)
@@ -475,12 +481,21 @@ def decant_ao_bazar(repo, linha, quem=""):
     reg = {"aba": "decant", "sku": linha["sku"], "condicao": "DECANT", "qtd_inicial": 0, "desconto": None, "preco_original": None}
     if not ja:
         reg.update({"produto": nome_decant(linha.get("titulo")) or linha["sku"], "marca": linha.get("marca") or "", "categoria": "DECANT"})
-    if linha.get("foto"):
-        reg["foto"] = linha["foto"]
+    fotos, videos = (linha.get("fotos") or ([linha["foto"]] if linha.get("foto") else []))[:3], (linha.get("videos") or [])[:3]
+    if fotos:
+        reg["foto"] = fotos[0]
+    if videos:
+        reg["video"] = videos[0]
+    if linha.get("legenda"):
+        reg["descricao"] = linha["legenda"][:300]
     p = salvar_produto(repo, dict(reg, id=ja["id"]) if ja else reg, quem)
     prods = produtos(repo)                            # os preços por tamanho vão direto (não passam pelo _limpo)
     alvo = next(x for x in prods if x["id"] == p["id"])
     alvo["decant"] = [{"ml": int(d["ml"]), "preco": float(d["preco"])} for d in linha.get("decants") or []]
+    alvo["fotos"], alvo["videos"] = fotos, videos
+    alvo["legenda"] = linha.get("legenda") or ""
+    n = linha.get("notas") or {}
+    alvo["notas"] = {k: n.get(k) for k in ("familia", "notas_topo", "notas_coracao", "notas_fundo")} if n else None
     if linha.get("foto") and alvo.get("foto") != linha["foto"]:
         alvo["arte"] = ""
     _gravar(repo, PRODUTOS, prods)

@@ -55,6 +55,34 @@ def test_leva_ao_bazar_com_os_precos():
     assert "🧪 *DECANTS*" in bazar.painel(r)["catalogo"] and "5 ml R$ 30,00" in bazar.painel(r)["catalogo"]
 
 
+def test_notas_e_legenda():
+    d = decants.notas_do_texto('Achei: {"perfume": "Yara Lattafa", "familia": "Âmbar Floral", "notas_topo": "Orquídea, Heliotrópio",'
+                               ' "notas_coracao": "Acordes gourmand", "notas_fundo": "Baunilha, Almíscar",'
+                               ' "link": "https://www.fragrantica.com.br/perfume/Lattafa-Perfumes/Yara-76880.html"}')
+    assert d["notas_fundo"] == "Baunilha, Almíscar" and d["link"].startswith("https://www.fragrantica.com.br/")
+    assert decants.notas_do_texto('{"perfume": "X", "link": "https://golpe.com"}') == {}           # sem notas não vale
+    assert decants.notas_do_texto('{"notas_topo": "a", "link": "https://golpe.com/x"}')["link"] == ""
+    leg = decants.legenda_limpa("Sinta a baunilha 🍦\nLeve por R$ 29,90 no tamanho 5ml!\nExperimente antes de comprar o frasco.")
+    assert not any(c.isdigit() for c in leg) and "Experimente antes" in leg
+    # post do decant com legenda e notas, preço do sistema
+    r = Repo()
+    y = decants.planilha(ITENS, decants.config(r), {})["itens"][0]
+    y.update(legenda="Uma baunilha cremosa que abraça 🤍", notas={"notas_topo": "Orquídea", "notas_coracao": "Gourmand", "notas_fundo": "Baunilha"},
+             fotos=["bazar/decant/Y/foto-1.jpg", "bazar/decant/Y/foto-2.jpg"], videos=["bazar/decant/Y/video-1.mp4"])
+    p = bazar.decant_ao_bazar(r, y)
+    t = bazar.post(p)
+    assert "Uma baunilha cremosa que abraça 🤍" in t and "🌳 Fundo: Baunilha" in t and "🧪 5 ml por R$ 33,35" in t
+    assert p["foto"] == "bazar/decant/Y/foto-1.jpg" and p["video"] == "bazar/decant/Y/video-1.mp4" and len(p["fotos"]) == 2
+    # até 3 fotos guardadas no cadastro do decant; caminho de fora é recusado
+    decants.salvar_item(r, {"sku": "YARA100", "fotos": [f"bazar/decant/Y/f{i}.jpg" for i in range(5)]})
+    assert len(decants.itens_extra(r)["YARA100"]["fotos"]) == 3 and decants.itens_extra(r)["YARA100"]["foto"] == "bazar/decant/Y/f0.jpg"
+    try:
+        decants.salvar_item(r, {"sku": "YARA100", "videos": ["sala/../x.mp4"]})
+        raise AssertionError("aceitou caminho de fora")
+    except decants.ErroDecant:
+        pass
+
+
 def test_tela():
     import subprocess
     import time
@@ -76,6 +104,8 @@ def test_tela():
         d = json.loads(rota.request.post_data_buffer or b"{}") if rota.request.method == "POST" else {}
         if nome == "decants":
             out = planilha()
+            for x in out["itens"]:
+                x.setdefault("notas", None)
         elif nome == "decants_config":
             out = {"ok": True, "config": decants.salvar_config(r, d)}
         elif nome == "decants_item":
@@ -127,6 +157,13 @@ def test_tela():
                     pg.locator("[data-dcvol='ASAD']").dispatch_event("change")
                     pg.wait_for_function("document.querySelector('.dc-tab').innerText.includes('Asad')", timeout=8000)
                     pg.screenshot(path=str(RAIZ / "testes" / "saida_decants_pc.png"))
+                    pg.locator("[data-dccad='YARA100']").first.click()
+                    pg.wait_for_selector("#dcc-fotos .dc-slot", timeout=5000)
+                    assert pg.locator("#dcc-fotos .dc-slot.vazio").count() == 3 and pg.locator("#dcc-videos .dc-slot.vazio").count() == 3
+                    pg.fill("#dcc-leg", "Uma baunilha que abraça")
+                    pg.click("#dcc-salvar")
+                    pg.wait_for_function("document.querySelector('.dc-tab') && document.querySelector('.dc-tab').innerText.includes('legenda')", timeout=8000)
+                    assert decants.itens_extra(r)["YARA100"]["legenda"] == "Uma baunilha que abraça"
                     pg.locator("[data-dcbz='YARA100']").click()
                     pg.wait_for_selector(".dc-tam", timeout=5000)
                     assert pg.locator(".dc-tam").count() == 3
@@ -160,3 +197,39 @@ if __name__ == "__main__":
         if nome.startswith("test_"):
             f()
             print("ok", nome)
+
+
+def test_ficha_pelo_gemini_vai_para_perfume_fichas():
+    import nubi_web
+    import ia
+
+    class R:
+        def __init__(self):
+            self.fichas = []
+
+        def _req(self, metodo, tabela, params=None, corpo=None, prefer=None):
+            assert tabela == "perfume_fichas"
+            if metodo == "GET":
+                return [f for f in self.fichas if f["chave"] == params["chave"][3:]]
+            if metodo == "POST":
+                self.fichas.append(dict(corpo[0], id=1))
+                return [self.fichas[-1]]
+    pedidos = []
+    antes = ia.gemini_texto
+    ia.gemini_texto = lambda pergunta, **k: (pedidos.append(pergunta) or (
+        '{"perfume": "Yara", "familia": "Âmbar", "notas_topo": "Orquídea", "notas_coracao": "Gourmand", "notas_fundo": "Baunilha",'
+        ' "link": "https://www.fragrantica.com/perfume/Lattafa/Yara.html"}', ["https://www.fragrantica.com/perfume/Lattafa/Yara.html"]))
+    try:
+        r = R()
+        f = nubi_web._ficha_decant(r, "Perfume Lattafa Yara EDP 100ml Feminino")
+        assert f["notas_fundo"] == "Baunilha" and f["fontes"][0]["url"].startswith("https://www.fragrantica.com/")
+        assert "Fragrantica" in pedidos[0] and "Lattafa Yara EDP Feminino" in pedidos[0]
+        nubi_web._ficha_decant(r, "Perfume Lattafa Yara EDP 100ml Feminino")      # já tem: não pesquisa de novo
+        assert len(pedidos) == 1 and len(r.fichas) == 1
+    finally:
+        ia.gemini_texto = antes
+
+
+if __name__ == "__main__":
+    test_ficha_pelo_gemini_vai_para_perfume_fichas()
+    print("ok test_ficha_pelo_gemini_vai_para_perfume_fichas")

@@ -82,6 +82,16 @@ def itens_extra(repo):
     return x if isinstance(x, dict) else {}
 
 
+MAX_MIDIAS = 3
+
+
+def _caminho(c):
+    c = str(c or "")
+    if c and (not re.fullmatch(r"bazar/[A-Za-z0-9_./-]{3,250}", c) or ".." in c):
+        raise ErroDecant("arquivo inválido")
+    return c
+
+
 def salvar_item(repo, d):
     sku = str(d.get("sku") or "").strip()
     if not sku:
@@ -98,10 +108,16 @@ def salvar_item(repo, d):
         ts = sorted({int(_num(t, "tamanho", 1, 100)) for t in d["tamanhos_bazar"] or []}, reverse=True)
         it["tamanhos_bazar"] = ts or None
     if "foto" in d:
-        f = str(d.get("foto") or "")
-        if f and (not re.fullmatch(r"bazar/[A-Za-z0-9_./-]{3,250}", f) or ".." in f):
-            raise ErroDecant("foto inválida")
-        it["foto"] = f
+        it["foto"] = _caminho(d.get("foto"))
+    # 01/10 (Bruno: "espaço para subir três fotos e vídeos de cada decant")
+    for k in ("fotos", "videos"):
+        if k in d:
+            cs = [_caminho(c) for c in (d.get(k) or []) if c][:MAX_MIDIAS]
+            it[k] = cs or None
+            if k == "fotos":
+                it["foto"] = cs[0] if cs else ""
+    if "legenda" in d:
+        it["legenda"] = str(d.get("legenda") or "").strip()[:2000]
     xs[sku] = {k: v for k, v in it.items() if v not in (None, "", False)}
     _gravar(repo, ITENS, xs)
     return xs[sku]
@@ -136,7 +152,9 @@ def planilha(itens_cat, cfg, extras):
         vol = ex.get("volume_ml") or (None if kit else volume_do_titulo(it.get("titulo")))
         base = {"sku": sku, "titulo": it.get("titulo") or "", "marca": it.get("marca") or "", "disponivel": it.get("disponivel") or 0,
                 "custo": it.get("custo"), "volume_ml": vol, "volume_manual": bool(ex.get("volume_ml")), "foto": ex.get("foto") or "",
-                "oculto": bool(ex.get("oculto")), "markup": ex.get("markup"), "tamanhos_bazar": ex.get("tamanhos_bazar"), "categoria": it.get("categoria")}
+                "oculto": bool(ex.get("oculto")), "markup": ex.get("markup"), "tamanhos_bazar": ex.get("tamanhos_bazar"),
+                "fotos": ex.get("fotos") or ([ex["foto"]] if ex.get("foto") else []), "videos": ex.get("videos") or [],
+                "legenda": ex.get("legenda") or "", "categoria": it.get("categoria")}
         if not it.get("custo"):
             sem_custo.append(base)
             continue
@@ -150,3 +168,52 @@ def planilha(itens_cat, cfg, extras):
         linhas.append(base)
     linhas.sort(key=lambda x: (x["oculto"], -(x["disponivel"] > 0), x["marca"] or "~", x["titulo"]))
     return {"itens": linhas, "sem_volume": sem_volume, "sem_custo": sem_custo, "config": cfg}
+
+
+# ---------- notas (Fragrantica pela busca do Google no Gemini) e legenda ----------
+PEDIDO_NOTAS = """Procure o perfume "{nome}" no site Fragrantica (fragrantica.com ou fragrantica.com.br) usando a busca. Use SÓ o
+que a página do Fragrantica (ou, se não houver, outra fonte confiável de perfumaria) diz. Responda SÓ JSON numa linha:
+{{"perfume": "nome e marca", "familia": "família olfativa", "notas_topo": "notas separadas por vírgula", "notas_coracao": "...",
+"notas_fundo": "...", "inspirado_em": "perfume famoso que ele lembra, só se a fonte disser", "ocasiao": "dia/noite, estações",
+"curiosidades": "1 frase", "link": "endereço da página do Fragrantica"}}. Não invente notas: campo sem dado fica "".""".strip()
+
+PEDIDO_LEGENDA = """Escreva a legenda de um post de WhatsApp/Instagram da PURE PERFUMARIA vendendo o DECANT (perfume original
+fracionado em frasquinho) do perfume abaixo. Objetivo: convencer a pessoa a comprar o decant ANTES de comprar o frasco inteiro
+(experimentar na pele, sentir a fixação, levar na bolsa, conhecer sem gastar muito). Use as notas olfativas para descrever o
+cheiro de um jeito sensorial e fácil de entender. Tom: animado, elegante, brasileiro, com alguns emojis (sem exagero).
+Até 7 linhas curtas. NÃO escreva preço, valor, desconto, ml, quantidade nem nenhum número: os tamanhos e preços são colocados
+depois pelo sistema. Não prometa o que não está nas notas.
+
+PERFUME: {nome}
+FAMÍLIA: {familia}
+NOTAS DE TOPO: {topo}
+NOTAS DE CORAÇÃO: {coracao}
+NOTAS DE FUNDO: {fundo}
+LEMBRA: {inspirado}
+OCASIÃO: {ocasiao}"""
+
+
+def notas_do_texto(texto):
+    m = re.search(r"\{.*\}", str(texto or ""), re.S)
+    if not m:
+        return {}
+    try:
+        d = json.loads(m.group(0))
+    except ValueError:
+        return {}
+    campos = ("perfume", "familia", "notas_topo", "notas_coracao", "notas_fundo", "inspirado_em", "ocasiao", "curiosidades", "link")
+    out = {k: re.sub(r"\s+", " ", str(d.get(k) or "")).strip()[:600] for k in campos}
+    if out["link"] and not re.match(r"https://(www\.)?fragrantica\.com(\.br)?/", out["link"]):
+        out["link"] = ""
+    return out if any(out[k] for k in ("notas_topo", "notas_coracao", "notas_fundo")) else {}
+
+
+def legenda_limpa(texto):
+    """Tira números (preço/ml) que a IA tenha escrito: preço é sempre do sistema."""
+    linhas = []
+    for l in str(texto or "").strip().splitlines():
+        l = re.sub(r"(R\$\s*)?\d+([.,]\d+)?\s*(ml|reais|%)?", "", l, flags=re.I).strip()
+        l = re.sub(r"\s{2,}", " ", l)
+        if l or (linhas and linhas[-1]):
+            linhas.append(l)
+    return "\n".join(linhas).strip()[:1500]

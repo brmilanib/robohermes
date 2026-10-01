@@ -4657,8 +4657,16 @@ def decants_planilha(repo):
     cat = estoque_categorias(repo) or {}
     r = decants.planilha(cat.get("itens") or [], decants.config(repo), decants.itens_extra(repo))
     no_bazar = {p.get("sku"): p["codigo"] for p in bazar.produtos(repo) if p.get("aba") == "decant" and not p.get("arquivado")}
+    fichas = {}
+    try:
+        for f in repo._todos("perfume_fichas", {"select": "chave,perfume,familia,notas_topo,notas_coracao,notas_fundo,inspirado_em,ocasiao,fontes,status"}):
+            fichas[f["chave"]] = f
+    except ErroNuvem:
+        pass
     for x in r["itens"]:
         x["bazar"] = no_bazar.get(x["sku"])
+        f = fichas.get(atendimento._chave_produto(x["titulo"]))
+        x["notas"] = f if f and any(f.get(k) for k in ("notas_topo", "notas_coracao", "notas_fundo")) else None
     r["estoque_em"] = cat.get("estoque_em")
     return r
 
@@ -4685,7 +4693,62 @@ def rota_decants(repo, metodo, rota, q, corpo):
             if not linha["decants"]:
                 raise ErroNuvem("Nenhum dos tamanhos marcados existe na planilha.")
         return {"ok": True, "produto": bazar.decant_ao_bazar(repo, linha, str(getattr(repo, "email", "") or ""))}
+    if rota in ("decants_notas", "decants_legenda") and metodo == "POST":
+        linha = next((x for x in decants_planilha(repo)["itens"] if x["sku"] == str(d.get("sku") or "")), None)
+        if not linha:
+            raise ErroNuvem("Perfume não encontrado na planilha de decants.")
+        ficha = _ficha_decant(repo, linha["titulo"], forcar=bool(d.get("forcar")) and rota == "decants_notas")
+        if rota == "decants_notas":
+            return {"ok": True, "ficha": ficha}
+        if not ficha or not any(ficha.get(k) for k in ("notas_topo", "notas_coracao", "notas_fundo")):
+            raise ErroNuvem("Ainda não tenho as notas deste perfume: clique em 🌸 Notas primeiro.")
+        pedido = decants.PEDIDO_LEGENDA.format(nome=ficha.get("perfume") or bazar.nome_decant(linha["titulo"]),
+                                               familia=ficha.get("familia") or "-", topo=ficha.get("notas_topo") or "-",
+                                               coracao=ficha.get("notas_coracao") or "-", fundo=ficha.get("notas_fundo") or "-",
+                                               inspirado=ficha.get("inspirado_em") or "-", ocasiao=ficha.get("ocasiao") or "-")
+        try:
+            texto, _ = ia.gemini_texto(pedido, web=False, max_tokens=700, timeout=90)
+        except ia.SemIA:
+            try:
+                texto = ia.perguntar(pedido, web=False, max_tokens=700)[0]
+            except ia.SemIA as e:
+                raise ErroNuvem(f"Nenhuma IA disponível para a legenda: {e}")
+        leg = decants.legenda_limpa(texto)
+        if not leg:
+            raise ErroNuvem("A IA não devolveu a legenda; tente de novo.")
+        decants.salvar_item(repo, {"sku": linha["sku"], "legenda": leg})
+        return {"ok": True, "legenda": leg}
     raise ErroNuvem("Rota de decants desconhecida.", 404)
+
+
+def _ficha_decant(repo, titulo, forcar=False):
+    """Notas do perfume: a ficha já guardada (perfume_fichas, a mesma do SAC) ou, sem ela ou com forcar, o Gemini com a
+    busca do Google procurando a página do Fragrantica (só leitura de página pública pela busca; nada de raspar o site)."""
+    chave = atendimento._chave_produto(titulo)
+    ja = (repo._req("GET", "perfume_fichas", {"select": "*", "chave": f"eq.{chave}"}) or [None])[0]
+    tem = ja and any(ja.get(k) for k in ("notas_topo", "notas_coracao", "notas_fundo"))
+    if tem and (not forcar or ja.get("status") == "confirmada"):
+        return ja
+    nome = bazar.nome_decant(titulo)
+    d, links = {}, []
+    try:
+        texto, links = ia.gemini_texto(decants.PEDIDO_NOTAS.format(nome=nome), web=True, max_tokens=1200, timeout=120)
+        d = decants.notas_do_texto(texto)
+    except ia.SemIA:
+        d = {}
+    if not d:                                    # sem Gemini: a busca grátis do SAC (ollama + gpt-oss)
+        f = atendimento.fichar_perfume(repo, titulo)
+        return f if f and any((f or {}).get(k) for k in ("notas_topo", "notas_coracao", "notas_fundo")) else ja
+    fontes = ([{"titulo": "Fragrantica", "url": d["link"]}] if d.get("link") else []) + \
+             [{"titulo": "", "url": u[:300]} for u in links[:4] if u != d.get("link")]
+    reg = {k: d.get(k) or None for k in atendimento.FICHA_CAMPOS}
+    reg.update(chave=chave, produto=str(titulo)[:300], status="internet", fontes=fontes,
+               atualizado_em=datetime.now(timezone.utc).isoformat())
+    if ja:
+        repo._req("PATCH", "perfume_fichas", {"id": f"eq.{ja['id']}"}, corpo=reg, prefer="return=minimal")
+        return dict(ja, **reg)
+    out = repo._req("POST", "perfume_fichas", corpo=[reg], prefer="return=representation")
+    return (out or [reg])[0]
 
 
 def rota_bazar(repo, metodo, rota, q, corpo):

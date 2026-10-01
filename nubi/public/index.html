@@ -1130,6 +1130,15 @@ header.top{padding:7px 16px}
 .bz-mods{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
 .bz-mod{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:10px;cursor:pointer;color:var(--ink)}
 .bz-mod input{grid-row:span 2;margin-top:3px}.bz-mod small{font-size:11.5px;line-height:1.35}.bz-mod:has(input:checked){border-color:var(--accent);background:var(--soft)}
+.dc-chips{display:flex;gap:4px;flex-wrap:wrap;margin:3px 0}.dc-chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:1px 8px;font-size:11px;color:var(--muted);cursor:pointer}
+.dc-chip.ok{border-color:var(--good);color:var(--good);background:var(--good-bg)}button.dc-foto{border:0;padding:0;background:none}
+.dc-h{display:flex;gap:8px;align-items:center;margin:14px 0 8px;font-size:15px}
+.dc-midias{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.dc-slot{position:relative;aspect-ratio:1;border-radius:12px;overflow:hidden;background:var(--soft);border:1px solid var(--line);display:grid;place-items:center}
+.dc-slot img,.dc-slot video{width:100%;height:100%;object-fit:cover}.dc-slot .btn{position:absolute;top:6px;right:6px}
+.dc-slot.vazio{border-style:dashed;cursor:pointer;color:var(--muted);font-weight:600}
+.dc-cap{position:absolute;left:6px;bottom:6px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;padding:1px 7px;border-radius:999px}
+.dc-notas{display:grid;gap:4px;margin-bottom:6px}.dc-notas div{display:grid;grid-template-columns:110px 1fr;gap:8px;font-size:13px}
 .dc-tams{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
 .dc-tam{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer}
 .dc-tam input{grid-row:span 3;width:20px;height:20px}.dc-tam b{font-size:16px}.dc-tam-p{font-size:20px;font-weight:800;color:var(--good)}
@@ -3755,7 +3764,11 @@ async function bzCompartilhar(p) {
     let usar = p.arte || p.foto;
     const pintar = async () => { await bzDesenharArte(cv, p, links[usar]); bg.querySelector("#bzc-orig").hidden = !(p.arte && usar === p.arte); };
     await pintar();
-    if (p.video && links[p.video]) bg.querySelector("#bzc-video").innerHTML = `<a class="btn small" href="${links[p.video]}" target="_blank" rel="noopener" download>🎬 Baixar vídeo</a>`;
+    if (p.aba === "decant" && ((p.fotos || []).length > 1 || (p.videos || []).length)) {     // decant: as 3 fotos e os vídeos do cadastro
+      const lk = await bzLinks([...(p.fotos || []), ...(p.videos || [])]);
+      bg.querySelector("#bzc-video").innerHTML = [...(p.fotos || []).map((c, i) => [c, `📷 Foto ${i + 1}`]), ...(p.videos || []).map((c, i) => [c, `🎬 Vídeo ${i + 1}`])]
+        .filter(([c]) => lk[c]).map(([c, n]) => `<a class="btn small" href="${lk[c]}" target="_blank" rel="noopener" download>⬇️ ${n}</a>`).join(" ");
+    } else if (p.video && links[p.video]) bg.querySelector("#bzc-video").innerHTML = `<a class="btn small" href="${links[p.video]}" target="_blank" rel="noopener" download>🎬 Baixar vídeo</a>`;
     const blobArte = () => new Promise(ok => cv.toBlob(ok, "image/jpeg", 0.9));
     bg.querySelector("#bzc-orig").onclick = async () => { usar = p.foto; await pintar(); };
     bg.querySelector("#bzc-baixar").onclick = async () => { const a = document.createElement("a"); a.href = URL.createObjectURL(await blobArte()); a.download = `bazar-${p.codigo}.jpg`; a.click(); };
@@ -3779,6 +3792,64 @@ async function bzCompartilhar(p) {
 }
 // ---------- Minhas Lojas → 🧪 Decants (01/10, Bruno: "decant de 15, 10 e 5 ml; custo por ml + R$ 5 do frasco, R$ 1 do adesivo e
 // R$ 1 da caixa, padrão mas editável; markup 2,3; foto e botão para o Bazar gerar a arte"). Contas no servidor (decants.py).
+// 01/10 (Bruno: "dentro do cadastro de cada decant, espaço para subir três fotos e vídeos; linkar com o Fragrantica para puxar as
+// notas e fazer uma legenda convincente para comprar o decant antes do perfume")
+async function dcCadastro(x) {
+  const sku = x.sku, pasta = `bazar/decant/${sku.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60)}`;
+  const st = {fotos: [...(x.fotos || [])], videos: [...(x.videos || [])], notas: x.notas, legenda: x.legenda || ""};
+  const notasHtml = n => !n ? `<p class="muted" style="margin:0">Ainda sem notas. Clique em "🌸 Buscar notas" (procura a página do perfume no Fragrantica).</p>` :
+    `<div class="dc-notas">${[["🍋 Topo", "notas_topo"], ["🌸 Coração", "notas_coracao"], ["🌳 Fundo", "notas_fundo"]].map(([r, k]) => n[k] ? `<div><b>${r}</b><span>${esc(n[k])}</span></div>` : "").join("")}
+      ${n.familia ? `<div><b>Família</b><span>${esc(n.familia)}</span></div>` : ""}${n.inspirado_em ? `<div><b>Lembra</b><span>${esc(n.inspirado_em)}</span></div>` : ""}</div>
+      ${(n.fontes || []).filter(f => f.url).slice(0, 3).map(f => `<a class="muted" style="font-size:12px;margin-right:10px" href="${esc(f.url)}" target="_blank" rel="noopener">${/fragrantica/i.test(f.url) ? "🔗 Fragrantica" : "🔗 fonte"}</a>`).join("")}
+      ${n.status === "confirmada" ? `<span class="muted" style="font-size:12px">✔ conferida pelo Bruno</span>` : `<span class="muted" style="font-size:12px">da internet, confira antes de postar</span>`}`;
+  const bg = modal(`<div style="display:flex;justify-content:space-between;gap:8px;align-items:start"><h2 style="margin-top:0">🧪 Cadastro do decant</h2><button class="btn small" data-fechar>✕ Fechar</button></div>
+    <p style="margin:0 0 12px"><b>${esc(x.titulo)}</b> <span class="muted">${esc(sku)}</span></p>
+    <h3 class="dc-h">📷 Fotos <span class="muted">(até 3)</span></h3><div class="dc-midias" id="dcc-fotos"></div>
+    <h3 class="dc-h">🎬 Vídeos <span class="muted">(até 3, máx. 50 MB cada)</span></h3><div class="dc-midias" id="dcc-videos"></div>
+    <h3 class="dc-h">🌸 Notas olfativas <button class="btn small" id="dcc-notas">${st.notas ? "↻ Buscar de novo" : "🌸 Buscar notas"}</button></h3><div id="dcc-n">${notasHtml(st.notas)}</div>
+    <h3 class="dc-h">✍️ Legenda <button class="btn small" id="dcc-gerar">✨ Gerar legenda com IA</button></h3>
+    <textarea id="dcc-leg" rows="7" style="width:100%" placeholder="Texto para convencer a comprar o decant antes do frasco. Os tamanhos e preços entram sozinhos no post.">${esc(st.legenda)}</textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn primary" id="dcc-salvar">Salvar</button></div>
+    <div class="muted" id="dcc-msg" style="margin-top:8px;font-size:12.5px"></div>`, el => el.querySelector(".modal").classList.add("larga"));
+  const msg = t => { bg.querySelector("#dcc-msg").textContent = t; };
+  const salvar = async (corpo, aviso) => { await api("decants_item", {}, {method: "POST", body: JSON.stringify({sku, ...corpo})}); S.dcSujo = true; if (aviso) toast(aviso); };
+  const desenhar = async () => {
+    const links = await bzLinks([...st.fotos, ...st.videos]);
+    for (const tipo of ["fotos", "videos"]) {
+      const xs = st[tipo], box = bg.querySelector("#dcc-" + tipo);
+      box.innerHTML = [0, 1, 2].map(i => xs[i] ? `<div class="dc-slot">${tipo === "fotos" ? `<img src="${links[xs[i]] || ""}" alt="">` : `<video src="${links[xs[i]] || ""}" muted controls playsinline></video>`}
+          <button class="btn small" data-tirar="${tipo}:${i}" title="Tirar">✕</button>${i === 0 && tipo === "fotos" ? `<span class="dc-cap">capa</span>` : ""}</div>`
+        : `<label class="dc-slot vazio">${tipo === "fotos" ? "＋ foto" : "＋ vídeo"}<input type="file" accept="${tipo === "fotos" ? "image/*" : "video/*"}" hidden data-por="${tipo}"></label>`).join("");
+    }
+    bg.querySelectorAll("[data-tirar]").forEach(b => b.onclick = async () => { const [t, i] = b.dataset.tirar.split(":"); st[t].splice(+i, 1);
+      try { await salvar({[t]: st[t]}); desenhar(); } catch (e) { msg(e.message); } });
+    bg.querySelectorAll("[data-por]").forEach(inp => inp.onchange = async () => {
+      const fl = inp.files[0], t = inp.dataset.por; if (!fl) return;
+      try {
+        msg(t === "fotos" ? "enviando a foto…" : `enviando o vídeo (${(fl.size / 1048576).toFixed(0)} MB)…`);
+        let c;
+        if (t === "fotos") { try { const bmp = await createImageBitmap(fl); c = await anxSubir(`${pasta}/foto-${Date.now()}.jpg`, await anxCanvasJpeg(bmp, bmp.width, bmp.height, 1600), "image/jpeg"); }
+          catch { c = await anxSubir(`${pasta}/foto-${Date.now()}${(fl.name.match(/\.[A-Za-z0-9]{1,5}$/) || [".jpg"])[0].toLowerCase()}`, fl, fl.type); } }
+        else { if (fl.size > 50 * 1048576) throw new Error("Vídeo maior que 50 MB: corte ou comprima antes.");
+          c = await anxSubir(`${pasta}/video-${Date.now()}${(fl.name.match(/\.[A-Za-z0-9]{1,5}$/) || [".mp4"])[0].toLowerCase()}`, fl, fl.type || "video/mp4"); }
+        st[t].push(c); await salvar({[t]: st[t]}); msg(""); desenhar();
+      } catch (e) { msg(e.message); } });
+  };
+  desenhar();
+  bg.querySelector("#dcc-notas").onclick = async () => {
+    const b = bg.querySelector("#dcc-notas"); b.disabled = true; msg("procurando o perfume no Fragrantica (até 1 min)…");
+    try { const r = await api("decants_notas", {}, {method: "POST", body: JSON.stringify({sku, forcar: !!st.notas})}); S.dcSujo = true;
+      if (!r.ficha) throw new Error("Não achei as notas deste perfume. Confira o nome do anúncio."); st.notas = r.ficha;
+      bg.querySelector("#dcc-n").innerHTML = notasHtml(st.notas); msg(""); }
+    catch (e) { msg(e.message); } b.disabled = false; };
+  bg.querySelector("#dcc-gerar").onclick = async () => {
+    const b = bg.querySelector("#dcc-gerar"); b.disabled = true; msg("a IA está escrevendo a legenda com as notas…");
+    try { const r = await api("decants_legenda", {}, {method: "POST", body: JSON.stringify({sku})}); S.dcSujo = true;
+      bg.querySelector("#dcc-leg").value = r.legenda; msg("Legenda pronta (sem preços: eles entram sozinhos no post). Edite à vontade e salve."); }
+    catch (e) { msg(e.message); } b.disabled = false; };
+  bg.querySelector("#dcc-salvar").onclick = async () => { try { await salvar({legenda: bg.querySelector("#dcc-leg").value}, "Cadastro do decant salvo."); bg.remove(); telaDecants(); } catch (e) { msg(e.message); } };
+  bg.addEventListener("click", e => { if ((e.target === bg || e.target.hasAttribute("data-fechar")) && S.dcSujo) { S.dcSujo = false; telaDecants(); } });
+}
 // 01/10 (Bruno: "abre um quadro para ela marcar se vai só 15, 10 ou 5 ml; árabe barato só 15 ml, nicho talvez menores")
 function dcEscolherTamanhos(x) {
   const marcados = new Set(x.tamanhos_bazar || x.decants.map(d => d.ml));
@@ -3840,8 +3911,8 @@ async function telaDecants() {
   const desenhar = () => {
     const xs = visiveis();
     $(".dc-tab tbody").innerHTML = xs.map(x => `<tr class="${x.oculto ? "dc-oc" : ""}">
-      <td data-l="Perfume"><div class="bz-prod"><label class="dc-foto" title="${x.foto ? "Trocar a foto" : "Colocar a foto do decant"}">${x.foto && links[x.foto] ? `<img src="${links[x.foto]}" alt="">` : `<span class="bz-sem">📷</span>`}<input type="file" accept="image/*" hidden data-dcfoto="${esc(x.sku)}"></label>
-        <div><b>${esc(x.titulo)}</b><div class="muted" style="font-size:11.5px">${esc(x.sku)}${x.marca ? " · " + esc(x.marca) : ""}${x.bazar ? ` · <a href="#/bazar/decant">no Bazar ${esc(x.bazar)}</a>${x.tamanhos_bazar ? ` (${x.tamanhos_bazar.slice().sort((a, b) => a - b).join("/")} ml)` : ""}` : ""}</div></div></div></td>
+      <td data-l="Perfume"><div class="bz-prod"><button class="dc-foto" data-dccad="${esc(x.sku)}" title="Cadastro do decant: fotos, vídeos, notas e legenda">${x.foto && links[x.foto] ? `<img src="${links[x.foto]}" alt="">` : `<span class="bz-sem">📷</span>`}</button>
+        <div><b>${esc(x.titulo)}</b><div class="dc-chips"><button class="dc-chip" data-dccad="${esc(x.sku)}">📷 ${x.fotos.length}/3 · 🎬 ${x.videos.length}/3</button><button class="dc-chip ${x.notas ? "ok" : ""}" data-dccad="${esc(x.sku)}">🌸 ${x.notas ? "notas" : "sem notas"}</button><button class="dc-chip ${x.legenda ? "ok" : ""}" data-dccad="${esc(x.sku)}">✍️ ${x.legenda ? "legenda" : "sem legenda"}</button></div><div class="muted" style="font-size:11.5px">${esc(x.sku)}${x.marca ? " · " + esc(x.marca) : ""}${x.bazar ? ` · <a href="#/bazar/decant">no Bazar ${esc(x.bazar)}</a>${x.tamanhos_bazar ? ` (${x.tamanhos_bazar.slice().sort((a, b) => a - b).join("/")} ml)` : ""}` : ""}</div></div></div></td>
       <td class="num" data-l="Disponível">${nf0.format(x.disponivel)}</td>
       <td class="num" data-l="Custo frasco">${rsES(x.custo)}</td>
       <td class="num" data-l="ml do frasco"><input class="dc-in" type="number" min="1" data-dcvol="${esc(x.sku)}" value="${x.volume_ml}" title="${x.volume_manual ? "digitado" : "lido no título"}"></td>
@@ -3858,14 +3929,7 @@ async function telaDecants() {
     el.querySelectorAll("[data-dcvol]").forEach(i => i.onchange = () => salvarItem({sku: i.dataset.dcvol, volume_ml: i.value || null}, "ml salvo; preços refeitos."));
     el.querySelectorAll("[data-dcmk]").forEach(i => i.onchange = () => salvarItem({sku: i.dataset.dcmk, markup: i.value || null}, "Markup salvo."));
     el.querySelectorAll("[data-dcoc]").forEach(b => b.onclick = () => { const x = r.itens.find(y => y.sku === b.dataset.dcoc); salvarItem({sku: b.dataset.dcoc, oculto: !(x && x.oculto)}); });
-    el.querySelectorAll("[data-dcfoto]").forEach(i => i.onchange = async () => {
-      const fl = i.files[0]; if (!fl) return;
-      toast("enviando a foto…");
-      try { const base = `bazar/decant/${i.dataset.dcfoto.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60)}/foto-${Date.now()}`;
-        let caminho; try { const bmp = await createImageBitmap(fl); caminho = await anxSubir(base + ".jpg", await anxCanvasJpeg(bmp, bmp.width, bmp.height, 1600), "image/jpeg"); }
-        catch { caminho = await anxSubir(base + ((fl.name.match(/\.[A-Za-z0-9]{1,5}$/) || [".jpg"])[0].toLowerCase()), fl, fl.type); }
-        salvarItem({sku: i.dataset.dcfoto, foto: caminho}, "Foto salva.");
-      } catch (e) { toast(e.message, 6000); } });
+    el.querySelectorAll("[data-dccad]").forEach(b => b.onclick = () => dcCadastro(r.itens.find(y => y.sku === b.dataset.dccad)));
     el.querySelectorAll("[data-dcbz]").forEach(b => b.onclick = () => dcEscolherTamanhos(r.itens.find(y => y.sku === b.dataset.dcbz)));
   };
   $("#dc-q").oninput = e => { f.q = e.target.value; desenhar(); };

@@ -1214,3 +1214,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Quadro de tamanhos (01/10, Bruno: "árabe barato só 15 ml, nicho talvez menores"): "🛍️ Bazar" abre `dcEscolherTamanhos`
   (cartões 5/10/15 ml com preço, custo e lucro); só os marcados vão (`decants_bazar` com `tamanhos`) e a escolha fica
   guardada por SKU (`decants|itens` `tamanhos_bazar`, já vem marcada da próxima vez). Teste: `testes/test_decants.py`.
+  Cadastro do decant (01/10, Bruno: "3 fotos e vídeos; linkar com o Fragrantica para puxar as notas e fazer uma legenda
+  convincente para comprar o decant antes do perfume"): botão da foto/chips da linha abrem `dcCadastro` — até 3 fotos e
+  3 vídeos (`decants|itens` `fotos`/`videos`, a 1ª foto = capa `foto`; vídeo até 50 MB), "🌸 Buscar notas" (rota
+  `decants_notas` → `_ficha_decant`: usa a ficha já guardada em `perfume_fichas` — a mesma do SAC; sem ela, o Gemini com a
+  busca do Google procura a página do Fragrantica (`decants.PEDIDO_NOTAS`, `notas_do_texto` só aceita link fragrantica e
+  exige notas); sem Gemini, `atendimento.fichar_perfume`; ficha "confirmada" pelo Bruno nunca é trocada) e "✨ Gerar
+  legenda" (`decants_legenda`, `PEDIDO_LEGENDA`: vender o decant antes do frasco, sem números; `legenda_limpa` tira
+  preço/ml). Não raspa o site do Fragrantica: lê pela busca do Google. O Bazar recebe fotos, vídeos, legenda e notas
+  (`decant_ao_bazar`); o post do decant usa a legenda + "🍋 Topo / 🌸 Coração / 🌳 Fundo" + os tamanhos com preço do sistema;
+  o Compartilhar baixa cada foto e vídeo.
