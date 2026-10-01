@@ -6714,7 +6714,7 @@ async function anunciosRealSeguido(nomeV) {
   const sem = r.sem_ligacao || [], conf = r.a_conferir || [], lig = r.ligados || [];
   box.innerHTML = `<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>🛒 Anúncios reais no Mercado Livre</b>
       <span class="muted" style="font-size:12.5px">${nf0.format(r.total)} anúncio(s) · ${nf0.format(lig.length)} ligados ao Nubimetrics (${r.pct_ligados}%) · ${nf0.format(conf.length)} a conferir · ${nf0.format(sem.length)} sem ligação</span></div>
-    ${conf.length ? `<div style="margin-top:8px"><b style="font-size:13px">🔎 A conferir</b>${tabela(conf, true)}</div>` : ""}
+    ${conf.length ? `<div style="margin-top:8px"><b style="font-size:13px">🔎 A conferir</b>${tabela(conf.slice(0, 300), true)}</div>` : ""}
     ${lig.length ? `<details open style="margin-top:8px"><summary><b style="font-size:13px">✅ Ligados (${nf0.format(lig.length)})</b></summary>${tabela(lig.slice(0, 300), false)}</details>` : ""}
     ${sem.length ? `<details style="margin-top:8px"><summary><b style="font-size:13px">Sem ligação (${nf0.format(sem.length)})</b></summary>${tabela(sem.slice(0, 300), false)}</details>` : ""}`;
   const decidir = (attr, decisao) => box.querySelectorAll(`button[${attr}]`).forEach(b => b.onclick = async () => {

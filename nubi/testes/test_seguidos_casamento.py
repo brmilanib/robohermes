@@ -124,6 +124,7 @@ class RepoRota:
         if tabela == "vend_anuncios_ml" and metodo == "POST":
             self.upserts += 1
             for x in corpo:
+                assert x.get("vendedor") and x.get("seller_id"), "NOT NULL do Postgres"
                 self.ml[x["mlb"]] = {**self.ml[x["mlb"]], **x}
             return []
         if tabela == "marca_apelidos" or metodo == "GET":
@@ -173,6 +174,16 @@ def test_12_ligacao_manual_e_recusa_nao_sao_desfeitas_por_rodada_nova():
         except w.ErroNuvem:
             pass
     assert w.rota_meli(r, "GET", "meli_seguido_anuncios", {"vendedor": "OUTRO"}, b"")["anuncios"] == []
+
+
+def test_13_manual_de_relatorio_antigo_nao_e_sobrescrita():
+    r = RepoRota()
+    a = _anuncio("MLB1", "Asad Lattafa 100ml Masculino Original", "6291108735411")
+    a.update(vend_anuncio_id=777, ligacao="manual")                 # linha 777 era de um relatório que já não é o último
+    r.ml["MLB1"] = a
+    out = w.rota_meli(r, "GET", "meli_seguido_anuncios", {"vendedor": "SIENO"}, b"")
+    assert r.ml["MLB1"]["ligacao"] == "manual" and r.ml["MLB1"]["vend_anuncio_id"] == 777 and r.upserts == 0
+    assert out["ligados"][0]["metodo"] == "gtin"                    # na tela mostra o casamento de agora
 
 
 if __name__ == "__main__":

@@ -5293,17 +5293,19 @@ def anuncios_seguido(repo, vendedor):
     gravar, ligados, conferir, sem = [], [], [], []
     for x in xs:
         manual = x.get("ligacao") == "manual" and x.get("vend_anuncio_id") in por_id
-        if x.get("ligacao") == "nao" or (x.get("ligacao") == "manual" and not manual):
+        if x.get("ligacao") == "nao":
             r = {"linha": None, "metodo": None, "a_conferir": False}
         else:
             r = categorias.casar_anuncio_nubimetrics(
                 {"titulo": x.get("titulo"), "gtin": x.get("gtin"), "full": x.get("full"), "tipo": x.get("tipo_pub")},
                 linhas, conhecidas, {"metodo": "manual", "linha": por_id.get(x.get("vend_anuncio_id"))} if manual else None)
         linha = r["linha"]
-        if x.get("ligacao") != "nao" and not (x.get("ligacao") == "manual" and manual):
+        if x.get("ligacao") not in ("nao", "manual"):     # decisão do Bruno (manual, mesmo de relatório antigo) nunca é regravada
             novo = (linha["id"] if linha else None, r["metodo"])
             if novo != (x.get("vend_anuncio_id"), x.get("ligacao")):
-                gravar.append({"mlb": x["mlb"], "vend_anuncio_id": novo[0], "ligacao": novo[1]})
+                # vendedor e seller_id: o upsert parcial viola NOT NULL no Postgres sem eles
+                gravar.append({"mlb": x["mlb"], "vendedor": x["vendedor"], "seller_id": x["seller_id"],
+                               "vend_anuncio_id": novo[0], "ligacao": novo[1]})
         item = {k: x.get(k) for k in ("mlb", "link", "titulo", "foto", "preco", "vendidos", "full", "tipo_pub")}
         item["recusado"] = x.get("ligacao") == "nao"
         item["metodo"] = r["metodo"]
@@ -5329,7 +5331,7 @@ def ligar_anuncio_seguido(repo, vendedor, mlb, decisao, vend_anuncio_id=None):
     sugeriu), 'nao' (✖ Não é) ou 'limpar' (volta ao automático)."""
     if decisao not in ("sim", "nao", "limpar"):
         raise ErroNuvem("decisao deve ser sim, nao ou limpar.")
-    xs = repo._todos("vend_anuncios_ml", {"select": "mlb,vend_anuncio_id", "vendedor": repo._eq(vendedor), "mlb": repo._eq(mlb)})
+    xs = repo._todos("vend_anuncios_ml", {"select": "mlb,seller_id,vend_anuncio_id", "vendedor": repo._eq(vendedor), "mlb": repo._eq(mlb)})
     if not xs:
         raise ErroNuvem("Anúncio não encontrado nesse vendedor.", 404)
     if decisao == "sim":
@@ -5339,11 +5341,12 @@ def ligar_anuncio_seguido(repo, vendedor, mlb, decisao, vend_anuncio_id=None):
             raise ErroNuvem("Sem linha do Nubimetrics para ligar.")
         if vid not in {l["id"] for l in _linhas_nubi_seguido(repo, vendedor)[0]}:
             raise ErroNuvem("Essa linha não é do Nubimetrics desse vendedor.")
-        reg = {"mlb": mlb, "vend_anuncio_id": vid, "ligacao": "manual"}
+        reg = {"vend_anuncio_id": vid, "ligacao": "manual"}
     elif decisao == "nao":
-        reg = {"mlb": mlb, "vend_anuncio_id": None, "ligacao": "nao"}
+        reg = {"vend_anuncio_id": None, "ligacao": "nao"}
     else:
-        reg = {"mlb": mlb, "vend_anuncio_id": None, "ligacao": None}
+        reg = {"vend_anuncio_id": None, "ligacao": None}
+    reg = {"mlb": mlb, "vendedor": vendedor, "seller_id": xs[0]["seller_id"], **reg}
     repo._req("POST", "vend_anuncios_ml", {"on_conflict": "mlb"}, corpo=[reg], prefer="resolution=merge-duplicates,return=minimal")
     return {"ok": True, **reg}
 
