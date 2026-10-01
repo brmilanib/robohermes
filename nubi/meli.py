@@ -724,6 +724,19 @@ def tarifa(preco, categoria, tipo_id):
     return {"pct": _num(det.get("percentage_fee")), "fixa": _num(det.get("fixed_fee")) or 0.0, "total": total}
 
 
+def categoria_pelo_titulo(titulo):
+    """01/10: categoria que o ML sugere para o título (preditor público /domain_discovery), para a tarifa antes de
+    a página do anúncio ser lida. None quando o ML não responde."""
+    try:
+        r = _get(f"/sites/{SITE}/domain_discovery/search", {"q": str(titulo)[:120], "limit": 1})
+    except ErroLogin:
+        raise
+    except ErroMeli:
+        return None
+    x = r[0] if isinstance(r, list) and r else {}
+    return x.get("category_id") or None
+
+
 def frete_do_vendedor(vendedor_id, mlb):
     """O que o vendedor paga de frete grátis neste anúncio (custo cheio de lista)."""
     try:

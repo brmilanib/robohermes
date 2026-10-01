@@ -373,7 +373,7 @@ def painel(repo, dias=60):
         com_p = [p for p in h if p.get("preco")]
         menor = min(com_p, key=lambda p: p["preco"]) if com_p else None
         maior = max(com_p, key=lambda p: p["preco"]) if com_p else None
-        out.append(dict(x, busca_auto="" if titulo_ruim(x.get("titulo")) else termo_busca(x.get("titulo")), historico=h[-240:], atual=(ult or {}).get("preco"), anterior=(ant or {}).get("preco"), var=var,
+        out.append(dict(x, busca_auto="" if titulo_ruim(x.get("titulo")) or str(x.get("titulo") or "").startswith("Anúncio ") else termo_busca(x.get("titulo")), historico=h[-240:], atual=(ult or {}).get("preco"), anterior=(ant or {}).get("preco"), var=var,
                         ultima_em=x.get("ultima_leitura") or (ult or {}).get("em"), leituras=int(x.get("leituras") or 0) or len(h),
                         menor_em=(menor or {}).get("em") or (menor or {}).get("dia"), maior_em=(maior or {}).get("em") or (maior or {}).get("dia"),
                         titulo_ok=not titulo_ruim(x.get("titulo")),

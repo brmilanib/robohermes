@@ -68,6 +68,7 @@ def _gemini_falso(url, corpo, cab, timeout=90):
 def _cenario(usos_extra=(), precos=({"modelo": "gemini-2.5-flash-image", "entrada": 0.3, "saida": 2.5},)):
     os.environ["GEMINI_API_KEY"] = "chave-de-teste"
     os.environ.pop("NUBI_TETO_GEMINI", None)
+    os.environ["NUBI_IA_MODELO_GEMINI"] = "gemini-2.5-flash-image"   # 01/10: a escolha automática tenta outros modelos antes
     repo = Repo(usos=usos_extra, precos=precos)
     ia._http_json = _gemini_falso
     nubi_web.ligar_registro_uso(repo, "teste")

@@ -6685,22 +6685,55 @@ def _calc_monitor(repo, itens):
         um = _casar_varios(t, est, 1, vol_fixo=vol, tipo_fixo=_tipo_tok(t))
         return (um[0], "titulo") if um else (None, None)
 
-    for x in itens:
-        it, como = meu(x)
+    pares = [(x, *meu(x)) for x in itens]
+    # 01/10 (print do Bruno: Silver Scent e CK One "sem custo"): SKU zerado vem com custo médio 0 no UpSeller; vale o
+    # último custo médio > 0 do mesmo SKU nas fotos anteriores do estoque (até 15 para trás)
+    sem = {estoque._chave(it["sku"]) for _, it, _ in pares if it and it.get("sku") and not it.get("custo_medio")}
+    anteriores = {}
+    if sem and ult:
+        try:
+            ids = [a["id"] for a in repo._req("GET", "estoque_atualizacoes", {"select": "id", "id": f"lt.{ult['id']}",
+                                                                                "order": "id.desc", "limit": 15}) or []]
+            for aid in ids:
+                if not sem:
+                    break
+                for y in repo._todos("estoque_itens", {"select": "sku,custo_medio", "atualizacao_id": repo._eq(int(aid)),
+                                                       "custo_medio": "gt.0"}):
+                    k = estoque._chave(y.get("sku"))
+                    if k in sem:
+                        anteriores[k] = float(y["custo_medio"]); sem.discard(k)
+        except Exception:  # noqa: BLE001 — sem histórico, fica "sem custo"
+            traceback.print_exc()
+    # categoria para a tarifa: a lida na página; antes da 1ª leitura, a que o ML sugere pelo título (domain_discovery)
+    def categoria(x):
+        if x.get("categoria"):
+            return x["categoria"]
+        t = x.get("titulo") or ""
+        if precos.titulo_ruim(t) or t.startswith("Anúncio "):
+            return None
+        try:
+            return meli._mem(f"cat|{t}", 7 * 86400, lambda: meli.categoria_pelo_titulo(t))
+        except Exception:  # noqa: BLE001
+            return None
+    for x, it, como in pares:
         custo = float(it["custo_medio"]) if it and it.get("custo_medio") else None
+        custo_antigo = False
+        if custo is None and it and it.get("sku") and estoque._chave(it["sku"]) in anteriores:
+            custo, custo_antigo = anteriores[estoque._chave(it["sku"])], True
         preco = x.get("atual")
         tarifa = frete = None
-        if preco and x.get("categoria") and meli.tem_chave():
+        cat = categoria(x) if preco and meli.tem_chave() else None
+        if cat:
           try:
             tipo = x.get("tipo_id") or "gold_special"
-            tf = meli._mem(f"tarifa|{preco}|{x['categoria']}|{tipo}", 6 * 3600, lambda: meli.tarifa(preco, x["categoria"], tipo))
+            tf = meli._mem(f"tarifa|{preco}|{cat}|{tipo}", 6 * 3600, lambda: meli.tarifa(preco, cat, tipo))
             tarifa = (tf or {}).get("total")
             if preco >= 79 and x.get("seller_id"):
                 frete = meli._mem(f"frete|{x['seller_id']}|{x['mlb']}", 6 * 3600, lambda: meli.frete_do_vendedor(x["seller_id"], x["mlb"]))
           except Exception:  # noqa: BLE001 — ML fora: a conta sai sem tarifa/frete
             pass
         x["meu"] = {"sku": it.get("sku"), "titulo": it.get("titulo"), "disponivel": it.get("disponivel"), "custo": custo,
-                    "transito": it.get("transito_compra"), "casado_por": como} if it else None
+                    "custo_antigo": custo_antigo, "transito": it.get("transito_compra"), "casado_por": como} if it else None
         x["calc"] = dict(precos.contas(preco, custo, tarifa, frete, cfg["imposto_pct"]) or {},
                          sem_tarifa=tarifa is None, sem_frete=bool(preco and preco >= 79 and frete is None)) if preco else None
 
@@ -8558,16 +8591,23 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         if rota == "ml_precos_lista":
             itens = precos.painel(repo)
             # 01/10 (Bruno: tags Catálogo e FULL): o que a leitura não disse, a vitrine da loja diz (/p/ = catálogo, FULL)
-            falta = [x["mlb"] for x in itens if x.get("catalogo") is None or x.get("full") is None]
+            # 01/10 (print do Bruno: "Anúncio MLB4189279531 · Clássico" no Sabah Sugar): título que não é título vem da vitrine
+            falta = [x["mlb"] for x in itens if x.get("catalogo") is None or x.get("full") is None
+                     or precos.titulo_ruim(x.get("titulo")) or str(x.get("titulo") or "").startswith("Anúncio ")]
             if falta:
                 try:
-                    vit = {a["mlb"]: a for a in repo._todos("vend_anuncios_ml", {"select": "mlb,link,full,produto_catalogo",
+                    vit = {a["mlb"]: a for a in repo._todos("vend_anuncios_ml", {"select": "mlb,titulo,link,full,produto_catalogo",
                                                                                  "mlb": f"in.({','.join(falta[:300])})"})}
                 except Exception:  # noqa: BLE001
                     vit = {}
                 for x in itens:
                     a = vit.get(x["mlb"])
                     if a:
+                        t = x.get("titulo")
+                        if (precos.titulo_ruim(t) or str(t or "").startswith("Anúncio ")) and not precos.titulo_ruim(a.get("titulo")):
+                            x["titulo"] = a["titulo"]
+                            if not x.get("busca"):
+                                x["busca_auto"] = precos.termo_busca(a["titulo"])
                         if x.get("catalogo") is None:
                             x["catalogo"] = bool(a.get("produto_catalogo") or "/p/MLB" in str(a.get("link") or ""))
                         if x.get("full") is None and a.get("full") is not None:
