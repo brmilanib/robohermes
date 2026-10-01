@@ -20,13 +20,18 @@ STUB = """window.supabase = { createClient: () => { const sess = {access_token: 
 
 def dados():
     d = {precos.LISTA: [{"mlb": "MLB7440859356", "titulo": "Clássico", "loja": "MAMS ECOMMERCE", "seller_id": "1", "vendedor": "MAMS ECOMMERCE TOP14",
-                          "preco_inicial": 221.26, "desde": "2026-09-30T03:00:00+00:00", "leituras": 14, "ultima_leitura": "2026-10-01T17:05:00+00:00"}],
+                          "preco_inicial": 221.26, "desde": "2026-09-30T03:00:00+00:00", "leituras": 14, "ultima_leitura": "2026-10-01T17:05:00+00:00",
+                          "mais_vendido": "MAIS VENDIDO · 2º em Perfumes Jacques Bogart", "full": True, "catalogo": True, "estoque_mais": True,
+                          "alerta": {"de": 209.9, "para": 215.0, "pct": 0.0243, "em": "2026-10-01T17:05:00+00:00", "visto": False}}],
          precos.HIST + "MLB7440859356": [
              {"dia": "2026-09-30", "em": "2026-09-30T12:00:00+00:00", "preco": 221.26, "preco_original": 299.0, "status": "ativo", "estoque": 50},
              {"dia": "2026-10-01", "em": "2026-10-01T13:00:00+00:00", "preco": 209.9, "preco_original": 299.0, "status": "ativo", "estoque": 48},
              {"dia": "2026-10-01", "em": "2026-10-01T17:05:00+00:00", "preco": 215.0, "preco_original": 299.0, "status": "ativo", "estoque": 47}]}
     precos._ler = lambda repo, chave, padrao: d.get(chave, padrao)
-    return {"itens": precos.painel(None), "max": 300}
+    itens = precos.painel(None)
+    itens[0]["meu"] = {"sku": "3355991004672", "titulo": "Silver Scent Intense 200ml", "custo": 150.0, "disponivel": 7, "casado_por": "gtin"}
+    itens[0]["calc"] = dict(precos.contas(215.0, 150.0, 30.1, 24.45, 10), sem_tarifa=False, sem_frete=False)
+    return {"itens": itens, "max": 300, "calc": {"imposto_pct": 10}}
 
 
 def test_tela():
@@ -60,6 +65,9 @@ def test_tela():
                 txt = pg.inner_text("#main")
                 assert "Última atualização" in txt and "14 atualização(ões)" in txt and "Anúncio MLB7440859356" in txt, txt[:800]
                 assert "01/10" in txt and "14:05" in txt, txt[:800]                   # 17:05 UTC = 14:05 em Brasília
+                # 01/10 (print do Bruno): tags, "+50 disponíveis", aviso de preço e a calculadora com o meu custo
+                assert "MAIS VENDIDO" in txt and "CATÁLOGO" in txt and "FULL" in txt and "+47 disponíveis" in txt, txt[:900]
+                assert pg.locator(".pm-mudou").count() == 1 and "O preço mudou" in txt and "Lucro líquido" in txt and "R$ 150,00" in txt
                 pg.click("button[data-hist]")
                 pg.wait_for_selector(".pm-hist svg", timeout=5000)
                 h = pg.inner_text(".pm-hist")

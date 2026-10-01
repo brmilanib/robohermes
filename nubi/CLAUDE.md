@@ -1256,6 +1256,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   em destaque com "✓ vi", e o Modo TV e ⚡ Vendas de hoje mostram a faixa "Concorrentes mudaram o preço". Tags CATÁLOGO /
   ⚡ FULL: `catalogo`/`full` no item (seguir pelo GTIN = catálogo; API `catalog_listing`/fulfillment; página: /p/MLB ou
   outras opções de compra, ícone/texto do Full; senão a vitrine `vend_anuncios_ml`). Teste `test_precos_rodadas.py`.
+- **Monitor de preços: página do anúncio e calculadora (01/10, print do Bruno no Silver Scent da Sieno)**: em cada rodada
+  (12 h/19 h) o coletor abre a página de TODOS (`pendente` usa `ultima_pagina`): `JS_ML_PRECO` lê também MAIS VENDIDO +
+  "2º em …" (`mais_vendido`), "(+50 disponíveis)" (`estoque_mais`), FULL, catálogo, `categoria` e `tipo_id` do JSON da página.
+  Cartão: tags MAIS VENDIDO / CATÁLOGO / ⚡ FULL, "+N disponíveis" e a linha "🧮 Se eu vender a R$ X": meu custo (último
+  estoque do UpSeller: SKU = GTIN, senão título com mesmo volume/tipo, `_calc_monitor`), tarifa do ML (`meli.tarifa`,
+  cache 6 h), frete grátis (≥ R$ 79, `frete_do_vendedor`), imposto % (`precos|calc`, campo no topo, rota `ml_precos_calc`),
+  recebo, lucro líquido, margem e ROI (`precos.contas`, mesma conta do `painel.js` da extensão).
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

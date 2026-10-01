@@ -61,7 +61,7 @@ def test_seguir_gravar_e_painel():
     precos.gravar_leitura(r, [{"mlb": "MLB4350649763", "preco": 309.9, "status": "ativo"}])
     from datetime import timedelta as _td
     ini = precos.rodada_atual()
-    assert precos.pendente(r, {"ativo": True}, ini + _td(minutes=25))["rodar"] is False
+    assert precos.pendente(r, {"ativo": True}, ini + _td(minutes=25))["rodar"] is False       # já leu a página nesta rodada
     prox = precos.rodada_atual(ini + _td(hours=12))
     pd_ = precos.pendente(r, {"ativo": True}, prox + _td(minutes=25))
     assert pd_["rodar"] is True and pd_["itens"][0]["mlb"] == "MLB4350649763"

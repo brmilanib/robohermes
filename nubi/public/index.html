@@ -1231,6 +1231,13 @@ header.top{padding:7px 16px}
 .tv-precos em.sobe{color:#34d399}.tv-precos em.cai{color:#f87171}
 .pm-tag{font-size:11px;font-weight:800;letter-spacing:.3px;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--muted)}
 .pm-tag.cat{background:#e0ecff;color:#1d4ed8}.pm-tag.full{background:#dcfce7;color:#15803d;font-style:italic}
+.pm-tag.mv{background:#ff7a00;color:#fff}.pm-tag.mv i{font-style:normal;font-weight:500;margin-left:6px;opacity:.95}
+.pm-tag.full{background:#dcfce7;color:#00a650;font-style:italic;font-weight:900}
+.pm-calc{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--soft)}
+.pm-calc-t{font-weight:700;font-size:13px;margin-right:4px}
+.pm-c{display:flex;flex-direction:column;min-width:90px}.pm-c span{font-size:11.5px;color:var(--muted)}.pm-c b{font-size:14px}
+.pm-c.pos b{color:#059669}.pm-c.neg b{color:#dc2626}.pm-calc-obs{font-size:11.5px;width:100%}
+.pm-imposto{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0;font-size:13px}.pm-imposto input{width:70px}
 </style>
 </head>
 <body>
@@ -8299,6 +8306,21 @@ async function telaPrecos() {
   const lidosHoje = xs.filter(x => x.ultimo_dia === hoje).length;
   const ultimaGeral = xs.map(x => x.ultima_em).filter(Boolean).sort().pop();
   const alertaDe = x => (x.alerta && x.alerta.visto === false) ? x.alerta : null;
+  // 01/10 (Bruno: "puxa o custo do meu estoque e coloca lucro líquido, margem e ROI vendendo no mesmo preço que ele")
+  const pctTxt = v => v == null ? "—" : (v * 100).toFixed(1).replace(".", ",") + "%";
+  const calcLinha = x => { const c = x.calc, m = x.meu;
+    if (!c) return "";
+    const it = (rot, val, cls = "", tip = "") => `<div class="pm-c ${cls}" title="${esc(tip)}"><span>${rot}</span><b>${val}</b></div>`;
+    return `<div class="pm-calc"><div class="pm-calc-t">🧮 Se eu vender a ${rsES(c.preco)}</div>
+      ${it("Meu custo", m && m.custo ? rsES(m.custo) : "não achei no estoque", m ? "" : "neg", m ? `${m.sku} · ${m.titulo} · ${m.disponivel ?? 0} disponível(is) · casado por ${m.casado_por === "gtin" ? "GTIN" : "título"}` : "Nenhum SKU do estoque do UpSeller com esse GTIN ou título")}
+      ${it("Tarifa ML", c.tarifa != null ? rsES(c.tarifa) : "—", "", c.sem_tarifa ? "A categoria e o tipo do anúncio vêm na próxima leitura da página" : "")}
+      ${it("Frete", c.sem_frete ? "—" : rsES(c.frete || 0), "", c.preco >= 79 ? "Frete grátis que o ML cobra (acima de R$ 79)" : "Abaixo de R$ 79 o comprador paga o frete")}
+      ${it(`Imposto (${String(r.calc?.imposto_pct ?? 0).replace(".", ",")}%)`, rsES(c.imposto || 0))}
+      ${it("Recebo", rsES(c.recebido))}
+      ${it("Lucro líquido", c.lucro != null ? rsES(c.lucro) : "—", c.lucro == null ? "" : c.lucro >= 0 ? "pos" : "neg")}
+      ${it("Margem", pctTxt(c.margem), c.margem == null ? "" : c.margem >= 0.1 ? "pos" : c.margem >= 0 ? "" : "neg")}
+      ${it("ROI", pctTxt(c.roi), c.roi == null ? "" : c.roi >= 0 ? "pos" : "neg")}
+      ${c.sem_tarifa || c.sem_frete ? `<span class="muted pm-calc-obs">sem a tarifa/frete do ML ainda: a conta fica completa depois da próxima leitura</span>` : ""}</div>`; };
   const cartao = x => { const ult = (x.historico || []).slice(-1)[0] || {}, al = alertaDe(x);
     return `<div class="card pm-card ${al ? "pm-mudou" : ""}" data-mlb="${esc(x.mlb)}">
       ${al ? `<div class="pm-aviso">🔔 O preço mudou ${quando(al.em)}: <s>${rsES(al.de)}</s> → <b>${rsES(al.para)}</b>
@@ -8309,8 +8331,9 @@ async function telaPrecos() {
         <div class="pm-info">
           <a class="pm-tit" href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir o anúncio no Mercado Livre">${esc(x.titulo_ok ? x.titulo : (x.titulo && x.titulo.length > 12 ? x.titulo : "Anúncio " + x.mlb))} ↗</a>
           <div class="muted pm-sub">${esc(x.mlb)}${x.titulo && !x.titulo_ok ? ` · ${esc(x.titulo)}` : ""} · loja ${lojaLink(x) ? `<a href="${lojaLink(x)}" target="_blank" rel="noopener">${esc(x.loja || x.seller_id)} ↗</a>` : esc(x.loja || "—")}${x.vendedor ? ` · <a href="#/vendedores/${encodeURIComponent(x.vendedor)}">${esc(x.vendedor)}</a>` : ""}</div>
-          <div class="pm-chips">${x.catalogo ? `<span class="pm-tag cat" title="Anúncio de catálogo (disputa o buy box)">CATÁLOGO</span>` : x.catalogo === false ? `<span class="pm-tag" title="Anúncio próprio, fora do catálogo">fora do catálogo</span>` : ""}
-            ${x.full ? `<span class="pm-tag full" title="Enviado pelo Full do Mercado Livre">⚡ FULL</span>` : ""}${x.status ? `<span class="st ${x.status === "ativo" ? "good" : "bad"}">${esc(x.status)}</span>` : ""}${x.estoque != null ? `<span class="pm-chip">estoque ${nf0.format(x.estoque)}</span>` : ""}
+          <div class="pm-chips">${x.mais_vendido ? `<span class="pm-tag mv" title="${esc(x.mais_vendido)}">MAIS VENDIDO${/·/.test(x.mais_vendido) ? `<i>${esc(x.mais_vendido.split("·").slice(1).join("·"))}</i>` : ""}</span>` : ""}
+            ${x.catalogo ? `<span class="pm-tag cat" title="Anúncio de catálogo (disputa o buy box)">CATÁLOGO</span>` : x.catalogo === false ? `<span class="pm-tag" title="Anúncio próprio, fora do catálogo">fora do catálogo</span>` : ""}
+            ${x.full ? `<span class="pm-tag full" title="Armazenado e enviado pelo Full do Mercado Livre">⚡ FULL</span>` : ""}${x.status ? `<span class="st ${x.status === "ativo" ? "good" : "bad"}">${esc(x.status)}</span>` : ""}${x.estoque != null ? `<span class="pm-chip">${x.estoque_mais ? "+" : ""}${nf0.format(x.estoque)} disponíveis</span>` : ""}
             ${x.mudancas_preco ? `<span class="pm-chip">${nf0.format(x.mudancas_preco)} mudança(s) de preço</span>` : `<span class="pm-chip muted">preço sem mudança</span>`}</div>
         </div>
         <div class="pm-preco">${x.atual ? `<b>${rsES(x.atual)}</b>` : `<span class="muted">ainda não lido</span>`}
@@ -8324,16 +8347,21 @@ async function telaPrecos() {
           <a class="btn small" href="#/precos/${esc(x.mlb)}" title="Página com todas as leituras e mudanças">Detalhes</a>
           <button class="btn small" data-parar="${esc(x.mlb)}" title="Parar de monitorar (o histórico fica guardado)">✕ parar</button></div>
       </div>
+      ${calcLinha(x)}
       <div class="pm-hist" id="pm-h-${esc(x.mlb)}" hidden></div></div>`; };
   main.innerHTML = `<div class="es-cab"><h1>📈 Monitor de preços</h1>
       <span class="muted">${nf0.format(xs.length)} anúncio(s) (máx. ${r.max}) · ${nf0.format(lidosHoje)} lido(s) hoje${ultimaGeral ? ` · última atualização ${quando(ultimaGeral)}` : ""}</span></div>
     ${xs.some(alertaDe) ? `<div class="card pm-alertas"><b>🔔 ${nf0.format(xs.filter(alertaDe).length)} anúncio(s) mudaram de preço</b>
       <button class="btn small" id="pm-vi-todos">✓ marcar todos como vistos</button></div>` : ""}
+    <div class="pm-imposto"><label>🧮 Imposto sobre a venda <input id="pm-imp" type="number" min="0" max="40" step="0.1" value="${r.calc?.imposto_pct ?? 0}">%</label>
+      <span class="muted">usado na conta de lucro, margem e ROI (custo = custo médio do seu estoque no UpSeller)</span></div>
     <p class="muted" style="margin:4px 0 12px;font-size:12.5px">Ao meio-dia e às 19 h o nubi lê preço, preço riscado, situação e estoque pela API oficial do Mercado Livre;
       o que a API não trouxer (e o título certo do anúncio) o coletor do Mac lê na página logo depois. Mudou o preço: o cartão fica em destaque e o menu pisca até você marcar "✓ vi".
       Para adicionar: Concorrentes → Vendedores → página do vendedor → fotos dos anúncios → "📈 Monitorar".</p>
     ${xs.length ? [...xs].sort((a, b) => !!alertaDe(b) - !!alertaDe(a)).map(cartao).join("")
     : `<div class="card empty"><h2>Nenhum anúncio monitorado</h2><p>Abra um vendedor seguido (Concorrentes → Vendedores), vá às fotos dos anúncios e clique em "📈 Monitorar" nos que quiser acompanhar.</p></div>`}`;
+  const imp = main.querySelector("#pm-imp");
+  if (imp) imp.onchange = async () => { try { await api("ml_precos_calc", {}, {method: "POST", body: JSON.stringify({imposto_pct: imp.value})}); telaPrecos(); } catch (e) { toast(e.message, 5000); } };
   const visto = async mlb => { try { await api("ml_precos_visto", {}, {method: "POST", body: JSON.stringify(mlb ? {mlb} : {})}); } catch { /* tenta depois */ }
     S.precosAlertas = mlb ? (S.precosAlertas || []).filter(a => a.mlb !== mlb) : []; desenharMenu(); telaPrecos(); };
   main.querySelectorAll("button[data-visto]").forEach(b => b.onclick = () => visto(b.dataset.visto));

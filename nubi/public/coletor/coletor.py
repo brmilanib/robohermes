@@ -3032,6 +3032,14 @@ JS_ML_PRECO = r"""() => {
           titulo: h1 ? h1.textContent.trim() : '', vendedor: cab ? cab.textContent.trim() : '',
           // 01/10 (Bruno: tags Catálogo e FULL): /p/MLB no endereço ou "outras opções de compra" = catálogo; ícone/texto do Full
           catalogo: /\/p\/MLB/.test(location.pathname) || !!q('.ui-pdp-other-sellers, [class*="other-sellers"]'),
+          // 01/10 (print do Bruno, Silver Scent da Sieno): "MAIS VENDIDO · 2º em Perfumes Jacques Bogart", categoria e tipo
+          // do anúncio (para a calculadora: tarifa do ML) lidos do JSON da própria página
+          mais_vendido: (() => { const t = [...document.querySelectorAll('.ui-pdp-promotions-pill-label, [class*="highlight"], [class*="pill"]')]
+              .map(e => (e.innerText || '').trim()).find(t => /mais vendido/i.test(t)) || '';
+            const r = q('.ui-pdp-promotions-pill-label + a, .ui-pdp-promotions-pill-label ~ a, a[href*="mais-vendidos"]');
+            return t ? (t + (r ? ' · ' + r.textContent.trim() : '')).replace(/\s+/g, ' ').slice(0, 120) : ''; })(),
+          categoria: ((document.documentElement.innerHTML.replace(/\\"/g, '"').match(/"category_id":"(MLB\d+)"/) || [])[1]) || '',
+          tipo_id: ((document.documentElement.innerHTML.replace(/\\"/g, '"').match(/"listing_type_id":"(gold_pro|gold_special|gold|free|silver|bronze)"/) || [])[1]) || '',
           full: !!q('[class*="icon--full"], [class*="full-icon"], svg[class*="full"]') || /enviado pelo\s*full|\bFULL\b/.test((cx.innerText || '')),
           texto: ((cx.innerText || '') + '\n' + (document.body.innerText || '').slice(0, 4000)).slice(0, 12000)};
 }"""

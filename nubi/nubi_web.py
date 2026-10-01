@@ -6611,6 +6611,54 @@ def fotos_com_anuncio(repo, vendedor, dados):
     return dados
 
 
+def _calc_monitor(repo, itens):
+    """01/10 (Bruno): para cada anúncio monitorado, o MEU custo (último estoque do UpSeller: SKU = GTIN, senão o título com o
+    mesmo volume e tipo) e a conta da calculadora da extensão vendendo pelo preço dele: tarifa do ML (categoria e tipo lidos
+    na página), frete grátis que o ML cobra (≥ R$ 79), imposto configurado, lucro líquido, margem e ROI."""
+    if not itens:
+        return
+    cfg = precos.calc_config(repo)
+    ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id", "order": "id.desc", "limit": 1}) or [None])[0]
+    est = _num_itens(_estoque_itens(repo, ult["id"])) if ult else []
+    por_gtin = {re.sub(r"\D", "", str(it.get("sku") or "")): it for it in est if len(re.sub(r"\D", "", str(it.get("sku") or ""))) >= 8}
+    preparados = False
+
+    def meu(x):
+        nonlocal preparados
+        g = re.sub(r"\D", "", str(x.get("gtin") or ""))
+        if g and g in por_gtin:
+            return por_gtin[g], "gtin"
+        t = x.get("titulo") or ""
+        if precos.titulo_ruim(t) or t.startswith("Anúncio "):
+            return None, None
+        if not preparados:
+            for it in est:
+                it["_tok"], it["_tipo"] = _tokens_produto(it.get("titulo")), _tipo_tok(it.get("titulo"))
+            preparados = True
+        _, vol = _tokens_produto(t)
+        um = _casar_varios(t, est, 1, vol_fixo=vol, tipo_fixo=_tipo_tok(t))
+        return (um[0], "titulo") if um else (None, None)
+
+    for x in itens:
+        it, como = meu(x)
+        custo = float(it["custo_medio"]) if it and it.get("custo_medio") else None
+        preco = x.get("atual")
+        tarifa = frete = None
+        if preco and x.get("categoria") and meli.tem_chave():
+          try:
+            tipo = x.get("tipo_id") or "gold_special"
+            tf = meli._mem(f"tarifa|{preco}|{x['categoria']}|{tipo}", 6 * 3600, lambda: meli.tarifa(preco, x["categoria"], tipo))
+            tarifa = (tf or {}).get("total")
+            if preco >= 79 and x.get("seller_id"):
+                frete = meli._mem(f"frete|{x['seller_id']}|{x['mlb']}", 6 * 3600, lambda: meli.frete_do_vendedor(x["seller_id"], x["mlb"]))
+          except Exception:  # noqa: BLE001 — ML fora: a conta sai sem tarifa/frete
+            pass
+        x["meu"] = {"sku": it.get("sku"), "titulo": it.get("titulo"), "disponivel": it.get("disponivel"), "custo": custo,
+                    "casado_por": como} if it else None
+        x["calc"] = dict(precos.contas(preco, custo, tarifa, frete, cfg["imposto_pct"]) or {},
+                         sem_tarifa=tarifa is None, sem_frete=bool(preco and preco >= 79 and frete is None)) if preco else None
+
+
 def _seguir_pelo_gtin(repo, d):
     """01/10: põe no monitor o anúncio de catálogo da loja do seguido achado pelo GTIN (ofertas do produto no ML).
     Se a loja tiver mais de uma oferta do GTIN, fica a do mesmo tipo (Clássico/Premium) e Full; depois, a de preço mais perto."""
@@ -8478,7 +8526,16 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
                             x["catalogo"] = bool(a.get("produto_catalogo") or "/p/MLB" in str(a.get("link") or ""))
                         if x.get("full") is None and a.get("full") is not None:
                             x["full"] = bool(a["full"])
-            return {"itens": itens, "max": precos.MAX_ANUNCIOS}
+            try:
+                _calc_monitor(repo, itens)
+            except Exception:  # noqa: BLE001 — a calculadora nunca derruba a lista
+                traceback.print_exc()
+            return {"itens": itens, "max": precos.MAX_ANUNCIOS, "calc": precos.calc_config(repo)}
+        if rota == "ml_precos_calc" and metodo == "POST":
+            try:
+                return {"ok": True, "calc": precos.salvar_calc(repo, d)}
+            except precos.ErroPrecos as e:
+                raise ErroNuvem(str(e))
         if rota == "ml_precos_hist":
             return dict(precos.detalhe(repo, q.get("mlb")), mlb=precos.normalizar_mlb(q.get("mlb")))
         if rota == "ml_precos_seguir" and metodo == "POST":

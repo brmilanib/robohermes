@@ -143,12 +143,19 @@ def gravar_leitura(repo, itens, dia=None):
             # 01/10 (Bruno: "data e hora da última atualização, quantas atualizações já tivemos"): conta cada leitura
             x["leituras"] = int(x.get("leituras") or 0) + 1
             x["ultima_leitura"] = agora
+            if ponto["fonte"] != "api":
+                x["ultima_pagina"] = agora            # a página dá o que a API não dá: MAIS VENDIDO, +50, FULL, título
             # 01/10 (Bruno: "quando mudar o preço, que fique piscando no menu para eu clicar e ver"): aviso até ele ver
             if antes and ponto["preco"] and abs(ponto["preco"] - antes["preco"]) >= 0.01:
                 x["alerta"] = {"de": antes["preco"], "para": ponto["preco"], "pct": round(ponto["preco"] / antes["preco"] - 1, 4),
                                "em": agora, "visto": False}
-            for k in ("catalogo", "full"):
+            for k in ("catalogo", "full", "estoque_mais"):
                 if isinstance(it.get(k), bool):
+                    x[k] = it[k]
+            if "estoque" in it and not it.get("estoque_mais") and it.get("fonte") != "api":
+                x.pop("estoque_mais", None)
+            for k in ("mais_vendido", "categoria", "tipo_id"):
+                if it.get(k) is not None and (it[k] or k == "mais_vendido"):
                     x[k] = it[k]
             for k in ("titulo", "vendedor"):
                 # 01/10: o cartão de foto mandava o tipo do anúncio ("Clássico") como título; a leitura corrige
@@ -279,8 +286,9 @@ def pendente(repo, rotina, agora=None):
     xs = lista(repo)
     # 01/10 (Bruno: "o título certinho do produto que está no ML"): a API não dá o título de anúncio de outra loja; o
     # coletor abre a página e lê o <h1> — também dos já lidos que ainda estão sem título de verdade
+    # 01/10 (print do Bruno): em cada rodada o coletor abre a página de todos (tags MAIS VENDIDO, "+50 disponíveis", FULL)
     faltam = [{"mlb": x["mlb"], "link": x.get("link") or link_de(x["mlb"])} for x in xs
-              if not _lido_desde(x, ini) or titulo_ruim(x.get("titulo")) or str(x.get("titulo") or "").startswith("Anúncio ")]
+              if not _lido_desde(dict(x, ultima_leitura=x.get("ultima_pagina")), ini)]
     # dá 20 min para a API (cron da hora) ler primeiro; o coletor pega só o que sobrar
     na_hora = bool(rotina is None or rotina.get("ativo", True)) and agora >= ini + timedelta(minutes=20)
     return {"rodar": na_hora and bool(faltam), "itens": faltam, "total": len(xs), "horario": " e ".join(HORARIOS),
@@ -340,9 +348,17 @@ def ler_pagina(x):
         estoque = int(m.group(1))
     elif "ultimo disponivel" in texto or "último disponível" in texto:
         estoque = 1
+    extra = {k: x[k] for k in ("catalogo", "full") if isinstance(x.get(k), bool)}
+    if re.search(r"\+\s*\d{1,6}\s+dispon", texto):       # "(+50 disponíveis)": o ML mostra "mais de"
+        extra["estoque_mais"] = True
+    if x.get("mais_vendido") is not None:
+        extra["mais_vendido"] = re.sub(r"\s+", " ", str(x.get("mais_vendido") or "")).strip()[:120]
+    for k, rx in (("categoria", r"MLB\d{2,8}"), ("tipo_id", r"gold_pro|gold_special|gold|free|silver|bronze")):
+        if re.fullmatch(rx, str(x.get(k) or "")):
+            extra[k] = x[k]
     return {"preco": preco if preco and preco > 0 else None, "preco_original": orig if orig and orig > (preco or 0) else None,
             "status": status, "estoque": estoque, "titulo": str(x.get("titulo") or "")[:200], "vendedor": str(x.get("vendedor") or "")[:120],
-            **{k: x[k] for k in ("catalogo", "full") if isinstance(x.get(k), bool)}}
+            **extra}
 
 
 def ler_pela_api(repo, itens_fn):
@@ -361,7 +377,41 @@ def ler_pela_api(repo, itens_fn):
         st = {"active": "ativo", "paused": "pausado", "closed": "finalizado"}.get(str(it.get("status") or ""), str(it.get("status") or ""))
         ok.append({"mlb": x["mlb"], "preco": it.get("preco"), "preco_original": it.get("preco_cheio"), "status": st,
                    "estoque": it.get("disponivel") if isinstance(it.get("disponivel"), int) else None, "titulo": it.get("titulo"), "fonte": "api",
-                   **{k: it[k] for k in ("catalogo", "full") if isinstance(it.get(k), bool)}})
+                   **{k: it[k] for k in ("catalogo", "full") if isinstance(it.get(k), bool)},
+                   **{k: v for k, v in (("categoria", it.get("categoria")), ("tipo_id", it.get("tipo_id"))) if v}})
     if ok:
         gravar_leitura(repo, ok)
     return len(ok), len(xs) - len(ok)
+
+
+# ---------- calculadora (01/10, Bruno: "puxa o custo do meu estoque e coloca lucro líquido, margem e ROI vendendo no mesmo
+# preço que ele"): mesma conta da calculadora da extensão (painel.js `contas`) ----------
+CALC = "precos|calc"
+
+
+def calc_config(repo):
+    c = _ler(repo, CALC, {}) or {}
+    return {"imposto_pct": float(c.get("imposto_pct") or 0)}
+
+
+def salvar_calc(repo, d):
+    try:
+        v = float(str(d.get("imposto_pct") or 0).replace(",", "."))
+    except ValueError:
+        raise ErroPrecos("imposto inválido")
+    if not 0 <= v <= 40:
+        raise ErroPrecos("imposto entre 0 e 40%")
+    _gravar(repo, CALC, {"imposto_pct": v})
+    return {"imposto_pct": v}
+
+
+def contas(preco, custo, tarifa_total, frete, imposto_pct):
+    """Vendendo a `preco`: recebido = preço − tarifa do ML − frete; lucro = recebido − imposto − custo."""
+    if not preco:
+        return None
+    imposto = round(preco * (imposto_pct or 0) / 100, 2)
+    recebido = round(preco - (tarifa_total or 0) - (frete or 0), 2)
+    lucro = round(recebido - imposto - (custo or 0), 2) if custo else None
+    return {"preco": preco, "tarifa": tarifa_total, "frete": frete or 0, "imposto": imposto, "recebido": recebido, "custo": custo,
+            "lucro": lucro, "margem": round(lucro / preco, 4) if lucro is not None else None,
+            "roi": round(lucro / custo, 4) if lucro is not None and custo else None}
