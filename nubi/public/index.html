@@ -1154,6 +1154,23 @@ header.top{padding:7px 16px}
 .est-op{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
 .est-op .muted{font-size:12.5px}.est-dica{border:1px solid var(--line);border-radius:12px;padding:12px;font-size:13px}.est-dica ul{margin:6px 0 0;padding-left:18px}
 @media (max-width:760px){.bz-wa,.bz-sh{grid-template-columns:1fr}.bz-cv{max-width:100%}}
+/* ⚡ Vendas de hoje */
+.vh-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:10px 0}
+.vh-kpi{padding:14px 16px;display:flex;flex-direction:column;gap:3px}
+.vh-kpi .vh-n{font-size:26px;letter-spacing:-.5px}
+.vh-var{font-weight:700;font-size:13px}.vh-var.sobe{color:#059669}.vh-var.cai{color:#dc2626}
+.vh-aviso{padding:10px 14px;margin:8px 0;border-left:4px solid #f59e0b}
+.vh-filtros{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+.vh-filtros label{display:flex;flex-direction:column;font-size:12.5px;gap:4px}
+.vh-atalhos{display:flex;gap:6px;flex-wrap:wrap}
+.vh-horas{display:grid;grid-template-columns:repeat(24,1fr);gap:3px;height:190px;align-items:end}
+.vh-h{display:flex;flex-direction:column;align-items:center;height:100%;font-size:10.5px;color:var(--muted)}
+.vh-hb{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:1px}
+.vh-hb i{display:block;width:45%;border-radius:3px 3px 0 0}.vh-hb i.a{background:#2563eb}.vh-hb i.b{background:#10b981;opacity:.75}
+.vh-dois{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px;margin:10px 0}
+.vh-pico{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.vh-pn{color:#fff;border-radius:999px;font-size:11.5px;font-weight:700;padding:2px 8px}
+@media (max-width:600px){.vh-horas{gap:1px;height:150px}.vh-h span{font-size:8.5px}}
 </style>
 </head>
 <body>
@@ -3253,7 +3270,7 @@ function abrirEcLista(campo, valor) {
 }
 // ---------- Minhas Lojas → 📊 Análises de Vendas (01/10; nome como o menu Análises do UpSeller, Bruno: "crie um menu Minhas Vendas com os dados do UpSeller Vendas por
 // Anúncio primeiro"). O coletor baixa o relatório de 30 dias junto do estoque; o servidor cruza com o estoque (só números).
-const MV_MENU = [["anuncio", "🧾 Vendas por Anúncio"], ["abc", "🔤 Curva ABC"], ["lucro", "💰 Lucro e ADS (Gestor)"], ["promocao", "🏷️ Para promoção"]];
+const MV_MENU = [["hoje", "⚡ Vendas de hoje"], ["anuncio", "🧾 Vendas por Anúncio"], ["abc", "🔤 Curva ABC"], ["lucro", "💰 Lucro e ADS (Gestor)"], ["promocao", "🏷️ Para promoção"]];
 // 01/10 (Bruno: "vendas ABC do UpSeller, separado"): a mesma conta da Análise ABC do UpSeller (A até 80% acumulado, B até
 // 95%, C o resto), por valor ou por volume, feita com o relatório Vendas por Anúncio (conferida: 59/95/166 = 79,71/15,23/5,06%)
 function telaCurvaABC(r) {
@@ -4208,7 +4225,101 @@ function mvSerie(xs) {
       <span class="mv-bv">${nf0.format(x.unidades || 0)}</span><i style="height:${Math.max(2, Math.round((x.unidades || 0) / max * 100))}%"></i>
       <span class="mv-bd">${x.dia.slice(8, 10)}</span></div>`).join("")}</div>`;
 }
+// ---------- ⚡ Vendas de hoje (01/10, Bruno com o print de UpSeller → Análises → Visão geral: "atualiza a cada 5 min e não
+// exporta; lê de 10 em 10 min, guarda a cada meia hora e me deixa comparar 10/10 com 09/09, hora a hora, e ver os picos").
+// O coletor do Mac lê a tela; o servidor guarda (vendas_hoje.py). Esta tela se atualiza sozinha a cada 5 min.
+function vhDataBR(d) { return d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : ""; }
+function vhSemana(d) { return ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"][new Date(d + "T12:00:00").getDay()]; }
+function vhMais(d, dias) { const x = new Date(d + "T12:00:00"); x.setDate(x.getDate() + dias); return x.toISOString().slice(0, 10); }
+function vhAtalhos(dia) {
+  const out = [["Ontem", vhMais(dia, -1)], ["Mesmo dia da semana passada", vhMais(dia, -7)]];
+  const [a, m, d] = dia.split("-").map(Number);
+  const mesAnt = new Date(a, m - 2, Math.min(d, new Date(a, m - 1, 0).getDate()), 12).toISOString().slice(0, 10);
+  out.push(["Mesmo dia do mês passado", mesAnt]);
+  if (d === m) {                                         // data dupla (10/10): a anterior é 09/09
+    const p = m === 1 ? `${a - 1}-12-12` : `${a}-${String(m - 1).padStart(2, "0")}-${String(m - 1).padStart(2, "0")}`;
+    out.unshift([`Data dupla anterior (${p.slice(8, 10)}/${p.slice(5, 7)})`, p]);
+  }
+  return out;
+}
+function vhVar(a, b) {
+  if (a == null || b == null || !b) return "";
+  const v = a / b - 1;
+  return `<span class="vh-var ${v >= 0 ? "sobe" : "cai"}">${v >= 0 ? "▲" : "▼"} ${Math.abs(v * 100).toFixed(1).replace(".", ",")}%</span>`;
+}
+async function telaVendasHoje() {
+  const main = $("#main"), f = S.vh || (S.vh = {dia: "", comparar: ""});
+  if (!main.querySelector(".vh")) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo as vendas de hoje</div></div>`;
+  let r;
+  try { r = await api("vendas_hoje", {dia: f.dia || "", comparar: f.comparar || ""}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/analises-vendas/hoje")) return;
+  const ag = r.agora || {}, a = r.ate_agora || {}, b = r.ate_agora_comparar || {}, hoje = r.dia === r.hoje;
+  const quando = ag.lido_em ? new Date(ag.lido_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}) : null;
+  const atrasado = ag.lido_em && Date.now() - new Date(ag.lido_em) > 30 * 60e3;
+  const ticket = (x) => x && x.pedidos ? x.valor / x.pedidos : null;
+  const rot = `até ${hoje ? "agora" : "o fim do dia"}`, rotB = `${vhDataBR(r.comparar)} (${vhSemana(r.comparar)}) até ${hoje ? r.hora.replace(":", "h") : "o fim do dia"}`;
+  const kpi = (nome, va, vb, fmt) => `<div class="card vh-kpi"><span class="muted">${nome}</span><b class="vh-n">${va != null ? fmt(va) : "—"}</b>
+      <span class="muted" style="font-size:12px">${rot} ${vhVar(va, vb)}</span>
+      <span class="muted" style="font-size:12px">${rotB}: <strong>${vb != null ? fmt(vb) : "sem dados"}</strong></span></div>`;
+  const picos = (xs, cor) => xs.length ? xs.map((x, i) => `<div class="vh-pico"><span class="vh-pn" style="background:${cor}">${i + 1}º</span><b>${x.hora}</b>
+      <span>${rsES(x.valor)}</span><span class="muted">${nf0.format(x.pedidos || 0)} pedidos</span></div>`).join("") : `<p class="muted" style="margin:0">Sem leituras suficientes.</p>`;
+  const linhasT = (xs, cols) => xs.length ? `<div class="tw"><table class="t"><thead><tr>${cols.map(c => `<th class="${c[2] || ""}">${c[0]}</th>`).join("")}</tr></thead>
+      <tbody>${xs.map((x, i) => `<tr>${cols.map(c => `<td class="${c[2] || ""}" data-l="${c[0]}">${c[1](x, i)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : `<p class="muted">Sem dados ainda.</p>`;
+  const dias = r.dias || [];
+  main.innerHTML = `<div class="vh">
+    <div class="es-cab"><h1>⚡ Vendas de hoje</h1>
+      <span class="muted">${quando ? `lido no UpSeller às <b>${quando}</b> · o coletor lê a cada 10 min · guarda a cada meia hora` : "ainda sem leitura do UpSeller"}</span></div>
+    ${ag.erro && (!ag.lido_em || ag.erro_em > ag.lido_em) ? `<div class="card vh-aviso">⚠️ Última tentativa: ${esc(ag.erro)}${ag.login ? " — entre no UpSeller pelo Mac (Central → entrar no UpSeller)." : ""}</div>` : ""}
+    ${atrasado && hoje ? `<div class="card vh-aviso">⏳ A última leitura tem mais de 30 min (o Chrome do coletor pode estar ocupado com outra tarefa).</div>` : ""}
+    <div class="card pad vh-filtros">
+      <label>Dia <input type="date" id="vh-dia" value="${r.dia}" max="${r.hoje}"></label>
+      <label>Comparar com <input type="date" id="vh-comp" value="${r.comparar}" max="${r.hoje}"></label>
+      <div class="vh-atalhos">${vhAtalhos(r.dia).map(([n, d]) => `<button class="btn small ${d === r.comparar ? "primary" : ""}" data-vhc="${d}">${n}${dias.includes(d) ? "" : " ·sem dados"}</button>`).join("")}</div>
+    </div>
+    <div class="vh-kpis">
+      ${kpi("💰 Valor de vendas válidas", a.valor, b.valor, rsES)}
+      ${kpi("🧾 Pedidos válidos", a.pedidos, b.pedidos, nf0.format)}
+      ${kpi("🎯 Ticket médio", ticket(a), ticket(b), rsES)}
+      ${hoje && ag.valor_ontem != null ? `<div class="card vh-kpi"><span class="muted">📅 Ontem inteiro (UpSeller)</span><b class="vh-n">${rsES(ag.valor_ontem)}</b>
+        <span class="muted" style="font-size:12px">${nf0.format(ag.pedidos_ontem || 0)} pedidos · até agora ontem: ${ag.valor_ontem_mesmo != null ? rsES(ag.valor_ontem_mesmo) : "—"}</span></div>` : ""}
+    </div>
+    <div class="card pad"><h3 style="margin-top:0">Acumulado no dia <span class="muted" style="font-weight:400;font-size:13px">— <b style="color:#2563eb">${vhDataBR(r.dia)} (${vhSemana(r.dia)})</b> × <b style="color:#10b981">${vhDataBR(r.comparar)} (${vhSemana(r.comparar)})</b></span></h3><div class="ch" id="vh-acum"></div></div>
+    <div class="card pad"><h3 style="margin-top:0">Vendido em cada hora</h3><div class="vh-horas">${(() => {
+      const ph = r.por_hora, pc = r.por_hora_comparar, mx = Math.max(1, ...ph.map(x => x.valor || 0), ...pc.map(x => x.valor || 0));
+      return ph.map((x, h) => { const y = pc[h] || {};
+        return `<div class="vh-h" title="${String(h).padStart(2, "0")}h · ${vhDataBR(r.dia)}: ${x.valor != null ? rsES(x.valor) + " (" + (x.pedidos || 0) + " pedidos)" : "sem leitura"} · ${vhDataBR(r.comparar)}: ${y.valor != null ? rsES(y.valor) + " (" + (y.pedidos || 0) + " pedidos)" : "sem leitura"}">
+          <div class="vh-hb"><i class="a" style="height:${x.valor ? Math.max(2, x.valor / mx * 100) : 0}%"></i><i class="b" style="height:${y.valor ? Math.max(2, y.valor / mx * 100) : 0}%"></i></div>
+          <span>${String(h).padStart(2, "0")}</span></div>`; }).join(""); })()}</div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Passe o mouse em cada hora para ver os valores. Hora sem leitura (coletor desligado) fica vazia.</p></div>
+    <div class="vh-dois">
+      <div class="card pad"><h3 style="margin-top:0">🔥 Picos de ${vhDataBR(r.dia)}</h3>${picos(r.picos, "#2563eb")}</div>
+      <div class="card pad"><h3 style="margin-top:0">🔥 Picos de ${vhDataBR(r.comparar)}</h3>${picos(r.picos_comparar, "#10b981")}</div>
+    </div>
+    <div class="vh-dois">
+      <div class="card pad"><h3 style="margin-top:0">🏆 Ranking de anúncio</h3>${linhasT(r.anuncios || [], [["#", (x, i) => i + 1],
+        ["Produto", x => `<div class="wrap">${esc(x.titulo)}</div><span class="muted" style="font-size:11.5px">${esc(x.loja)}${x.plataforma ? " [" + esc(x.plataforma) + "]" : ""}</span>`],
+        ["Un.", x => x.unidades != null ? nf0.format(x.unidades) : "—", "num"], ["Valor", x => x.valor != null ? rsES(x.valor) : "—", "num"]])}</div>
+      <div class="card pad"><h3 style="margin-top:0">🏪 Ranking de loja</h3>${linhasT(r.lojas || [], [["#", (x, i) => i + 1],
+        ["Loja", x => `${esc(x.loja)} <span class="muted" style="font-size:11.5px">${esc(x.plataforma)}</span>`],
+        ["Pedidos", x => x.pedidos != null ? nf0.format(x.pedidos) : "—", "num"], ["Valor", x => x.valor != null ? rsES(x.valor) : "—", "num"]])}</div>
+    </div>
+    <p class="muted" style="font-size:12px">Fonte: UpSeller → Análises → Visão geral (todas as lojas). O dia fecha com o "Ontem" que o UpSeller mostra no dia seguinte. Dias guardados: ${nf0.format(dias.length)}.</p>
+  </div>`;
+  const faixas = r.curva.map(x => x.hora), mapa = Object.fromEntries((r.curva_comparar || []).map(x => [x.hora, x.valor]));
+  if (faixas.length || (r.curva_comparar || []).length) {
+    const rot = faixas.length ? faixas : r.curva_comparar.map(x => x.hora);
+    grafLinhas(main.querySelector("#vh-acum"), {rotulos: rot, fmt: rsES, fmtEixo: v => "R$ " + nf0.format(v), altura: 280,
+      series: [{nome: vhDataBR(r.dia), cor: "#2563eb", v: rot.map(h => (r.curva.find(x => x.hora === h) || {}).valor ?? null)},
+               {nome: vhDataBR(r.comparar), cor: "#10b981", v: rot.map(h => mapa[h] ?? null)}]});
+  } else main.querySelector("#vh-acum").innerHTML = `<div class="empty">Sem leituras neste dia ainda.</div>`;
+  main.querySelector("#vh-dia").onchange = e => { f.dia = e.target.value === r.hoje ? "" : e.target.value; f.comparar = ""; telaVendasHoje(); };
+  main.querySelector("#vh-comp").onchange = e => { f.comparar = e.target.value; telaVendasHoje(); };
+  main.querySelectorAll("[data-vhc]").forEach(x => x.onclick = () => { f.comparar = x.dataset.vhc; telaVendasHoje(); });
+  clearTimeout(S.vhTimer);
+  if (hoje) S.vhTimer = setTimeout(() => { if (location.hash.startsWith("#/analises-vendas/hoje") && !document.hidden) telaVendasHoje(); }, 5 * 60e3);
+}
 async function telaMinhasVendas() {
+  if (location.hash.startsWith("#/analises-vendas/hoje")) return telaVendasHoje();
   if (location.hash.startsWith("#/analises-vendas/lucro")) return telaLucroAds();
   if (location.hash.startsWith("#/analises-vendas/promocao")) return telaParaPromocao();
   const main = $("#main");

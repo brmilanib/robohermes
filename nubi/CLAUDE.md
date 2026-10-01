@@ -1227,6 +1227,20 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Insumos (01/10, print do Bruno): padrão frasco (split) R$ 5, embalagem (`caixa`) R$ 1, adesivo R$ 0,50 (`decants.PADRAO`,
   `INSUMOS`); colunas "Frasco (split) / Embalagem / Adesivo" editáveis por perfume na tabela (`decants|itens` frasco/caixa/
   adesivo; vazio = padrão; 0 vale = "sem adesivo"); a planilha baixada traz os 3 valores usados.
+- **⚡ Vendas de hoje (01/10, Bruno com o print de UpSeller → Análises → Visão geral: "atualiza a cada 5 min e não exporta;
+  lê de 10 em 10 min, guarda a cada meia hora, quero comparar o 10/10 com o 09/09 hora a hora e achar os picos")**:
+  coletor `upseller-hoje` (`cmd_upseller_hoje`, `ler_upseller_hoje`, `JS_UPSELLER_HOJE`: cartões "Valor de Vendas Válidas"/
+  "Pedidos Válidos" com hoje, ontem inteiro e mesmo período de ontem, Ranking de Anúncio/Loja, gráfico ECharts se acessível
+  e as respostas JSON da página em `vendas_hoje|bruto`). O vigia chama a cada ~5 min e o servidor diz se está na hora
+  (`vendas_hoje_pendente`: 9 min desde a última leitura; rotina `vendas_hoje` liga/desliga); Chrome do coletor ocupado =
+  pula; não entra em Coletas (seriam 144 linhas/dia), o erro vai em `vendas_hoje|agora`. Módulo `vendas_hoje.py`, guardado em
+  `ia_resumos` (a tabela nova `vendas_intradia` não foi criada: o conector do banco travou no DDL): `vendas_hoje|agora` e
+  `vendas_hoje|AAAA-MM-DD` {pontos: {"HH:MM" (faixa de meia hora, Brasília): valor/pedidos acumulados da última leitura da
+  faixa}, lojas, anuncios, total_final (o "Ontem" do UpSeller fecha o dia anterior)}. `painel`: curva de meia hora (faixa
+  sem leitura = último valor; depois da última leitura = None), vendido por hora (`por_hora`, hora em andamento parcial),
+  picos, até o mesmo horário × dia comparado. Tela Minhas Lojas → Análises de Vendas → ⚡ Vendas de hoje
+  (`#/analises-vendas/hoje`, `telaVendasHoje`, atalhos ontem / semana passada / mês passado / data dupla anterior, atualiza
+  a cada 5 min). Teste: `testes/test_vendas_hoje.py` (página igual ao print).
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

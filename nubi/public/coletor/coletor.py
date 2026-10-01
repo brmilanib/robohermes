@@ -2174,6 +2174,109 @@ def gestor_semanal_feito(cfg, qual):
     salvar_config(cfg)
 
 
+# ---------------------------------------------------------------------------
+# 01/10 (Bruno, print de Análises → Visão geral do UpSeller: "as vendas de hoje atualizam a cada 5 min e não dá para
+# exportar; lê os números a cada 10 min e guarda a cada meia hora para eu comparar 10/10 com 09/09 e achar os picos").
+# Só lê a tela (nada é clicado além da aba "Vendas de Hoje"); o nubi guarda em ia_resumos vendas_hoje|<dia>.
+# ---------------------------------------------------------------------------
+UPSELLER_VISAO = f"{UPSELLER}/pt/analytics/overview-sales"
+JS_UPSELLER_HOJE = r"""() => {
+  const limpo = t => (t || "").replace(/[-+]?\d+(?:[.,]\d+)?\s*%/g, " ");
+  const nums = t => [...limpo(t).matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:,\d{1,2})?)(?![\d])/g)].map(m => m[1]);
+  const titulo = re => [...document.querySelectorAll("div,span,h1,h2,h3,h4,p")].find(e => e.children.length <= 2 && re.test((e.innerText || "").trim()));
+  const cartao = (re, precisa) => { let e = titulo(re); for (let i = 0; e && i < 8; i++, e = e.parentElement) if (precisa.test(e.innerText || "")) return e; return null; };
+  const kpi = re => { const c = cartao(re, /Ontem/); return c ? {texto: (c.innerText || "").slice(0, 600), nums: nums(c.innerText).slice(0, 8)} : null; };
+  const tabela = re => { const c = cartao(re, /\n.*\d/); if (!c) return [];
+    let el = c; for (let i = 0; i < 4 && el && !el.querySelector("tbody tr"); i++) el = el.parentElement;
+    return el ? [...el.querySelectorAll("tbody tr")].slice(0, 20).map(tr => [...tr.querySelectorAll("td")].map(td => (td.innerText || "").trim().slice(0, 300))) : []; };
+  // gráfico (ECharts), quando a biblioteca fica acessível
+  const series = [];
+  try { const ec = window.echarts; document.querySelectorAll("[_echarts_instance_]").forEach(d => {
+      const o = ec && ec.getInstanceByDom(d) && ec.getInstanceByDom(d).getOption();
+      if (o) series.push({x: ((o.xAxis || [])[0] || {}).data || [], s: (o.series || []).map(z => ({nome: z.name || "", dados: (z.data || []).map(v => v && typeof v === "object" ? (v.value ?? null) : v)}))}); }); } catch (e) {}
+  const hora = (document.body.innerText.match(/Hor[áa]rio do Brasil:\s*([\d-]+\s+[\d:]+)/) || [])[1] || "";
+  return {valor: kpi(/^Valor de Vendas V[áa]lidas$/), pedidos: kpi(/^Pedidos V[áa]lidos$/),
+          anuncios: tabela(/^Ranking de An[úu]ncio$/), lojas: tabela(/^Ranking de Loja$/), series, hora_upseller: hora}; }"""
+
+
+def ler_upseller_hoje(pg):
+    """Abre Análises → Visão geral (aba Vendas de Hoje) e devolve os números da tela + as respostas JSON da página."""
+    respostas = []
+
+    def guardar(r):
+        try:
+            u = r.url.split("?")[0]
+            if len(respostas) < 10 and "upseller" in u and re.search(r"analy|statist|overview|sale", u, re.I) \
+                    and "json" in (r.headers.get("content-type") or ""):
+                respostas.append({"url": u[:200], "corpo": r.text()[:40000]})
+        except Exception:  # noqa: BLE001
+            pass
+    pg.on("response", guardar)
+    pg.goto(UPSELLER_VISAO, wait_until="domcontentloaded", timeout=90000)
+    try:
+        pg.get_by_text(re.compile(r"Valor de Vendas V[áa]lidas")).first.wait_for(state="visible", timeout=60000)
+    except Exception:  # noqa: BLE001
+        u = urllib.parse.urlparse(pg.url)
+        if pg.locator("input[type=password]:visible").count() or "login" in (u.path + u.fragment).lower():
+            raise SessaoExpirada(f"O UpSeller pediu login de novo. Rode {_onde_rodar('entrar-upseller')} " + diagnostico(pg))
+        raise Falha("a Visão geral do UpSeller não carregou " + diagnostico(pg))
+    _fechar_popups(pg)
+    aba = pg.get_by_text("Vendas de Hoje", exact=True).first
+    if aba.count():
+        aba.click()
+    devagar(4)
+    x = pg.evaluate(JS_UPSELLER_HOJE)
+    x["respostas"] = respostas
+    return x
+
+
+def cmd_upseller_hoje(cfg):
+    """Chamado pelo vigia a cada ~10 min: se o Chrome do coletor está livre, lê a tela e manda ao nubi. Não entra em
+    Coletas (seriam 144 linhas por dia); o erro vai junto da leitura e aparece na tela do nubi."""
+    if _outra_rodando() or _chrome_do_perfil_vivo(PASTA / ("perfil-coleta" if _eh_servidor(cfg) else "perfil")):
+        print(f"{datetime.now():%d/%m %H:%M} vendas de hoje: Chrome do coletor ocupado; fica para a próxima", flush=True)
+        return 0
+    trava = PASTA / "rodando.pid"
+    try:
+        trava.write_text(str(os.getpid()))
+    except OSError:
+        pass
+    token = token_nubi(cfg)
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            ctx = abrir_navegador(p, cfg)
+            try:
+                pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+                x = ler_upseller_hoje(pg)
+                try:
+                    guardar_sessao(ctx)
+                except Exception:  # noqa: BLE001
+                    pass
+            finally:
+                try:
+                    ctx.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        r = api(token, "vendas_hoje_salvar", corpo=x, timeout=60)
+        print(f"{datetime.now():%d/%m %H:%M} vendas de hoje: {r.get('resumo')}", flush=True)
+        return 0
+    except Exception as e:  # noqa: BLE001
+        msg = str(e) if isinstance(e, Falha) else f"{e.__class__.__name__}: {e}"
+        print(f"{datetime.now():%d/%m %H:%M} vendas de hoje: ERRO {msg[:300]}", flush=True)
+        try:
+            api(token, "vendas_hoje_salvar", corpo={"erro": msg[:500], "login": isinstance(e, SessaoExpirada)}, timeout=30)
+        except Exception:  # noqa: BLE001
+            pass
+        return 1
+    finally:
+        try:
+            if trava.read_text().strip() == str(os.getpid()):
+                trava.unlink()
+        except OSError:
+            pass
+
+
 def coletar_estoque(p, cfg, token, enviar=True):
     ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -3980,6 +4083,10 @@ def cmd_vigiar():
         if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas", por_hora=True):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Gestor Seller -> importando a planilha", flush=True)
             return _soltar("gestor")
+        # 01/10 (Bruno): vendas de hoje do UpSeller a cada ~10 min (só lê a tela; se o Chrome estiver ocupado, pula)
+        if not motivo and not _outra_rodando() and _vendas_hoje_na_hora(token):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: lendo as vendas de hoje no UpSeller", flush=True)
+            return _soltar("upseller-hoje")
         if not motivo and _fora_da_janela_coleta() and _na_hora(cfg, token, "ml_posicoes_pendente", "posicoes_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora da posição dos anúncios no Mercado Livre", flush=True)
             return _soltar("ml-posicoes")
@@ -4273,6 +4380,15 @@ def _param_maquina(cfg, rodizio=False):
     if rodizio:
         p["rodizio"] = "1"
     return p or None
+
+
+def _vendas_hoje_na_hora(token):
+    if _eh_servidor():                       # o login do UpSeller fica no Mac
+        return False
+    try:
+        return bool(api(token, "vendas_hoje_pendente", timeout=20).get("rodar"))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _na_hora(cfg, token, rota, chave, por_hora=False):
@@ -7877,6 +7993,7 @@ def main():
     sub.add_parser("entrar-ml", help="Mercado Livre: abre a janela para passar pela verificação (sessão fica salva)")
     sub.add_parser("ml-lojas", help="Mercado Livre: acha os anúncios das minhas lojas")
     sub.add_parser("ml-posicoes", help="Mercado Livre: posição dos meus anúncios na busca")
+    sub.add_parser("upseller-hoje", help="UpSeller: lê as vendas de hoje (Análises → Visão geral) e manda ao nubi, só lê")
     mp = sub.add_parser("ml-precos", help="Mercado Livre: preço de agora dos anúncios do monitor de preços, só lê")
     mp.add_argument("--so", default=None, help="só este anúncio (MLB…)")
     mp.add_argument("--rodizio", action="store_true", help="só a parte desta máquina (vigia; Mac / Dell / gamdias)")
@@ -8006,6 +8123,8 @@ def main():
         return executar("ml_lojas", coletar_ml_lojas)
     if args.cmd == "ml-posicoes":
         return executar("ml_posicoes", coletar_ml_posicoes)
+    if args.cmd == "upseller-hoje":
+        return cmd_upseller_hoje(cfg)
     if args.cmd == "ml-precos":
         return executar("ml_precos", lambda p, cfg, token: coletar_ml_precos(p, cfg, token, args.so, args.rodizio))
     if args.cmd == "ml-busca-foto":

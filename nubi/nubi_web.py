@@ -49,6 +49,7 @@ import precos
 import bazar
 import decants
 import marketing
+import vendas_hoje
 import revisao
 import reuniao
 import vend_bi
@@ -1440,7 +1441,7 @@ def atender(metodo, rota, q, corpo, token):
                 return _json(rota_bazar(repo, metodo, rota, q, corpo))
             except bazar.ErroBazar as e:
                 raise ErroNuvem(str(e)[:1].upper() + str(e)[1:])
-        if rota.startswith("estoque") or rota.startswith("gestor_") or rota == "coleta_pendente":
+        if rota.startswith("estoque") or rota.startswith("gestor_") or rota == "coleta_pendente" or rota.startswith("vendas_hoje"):
             return _json(rota_estoque(repo, metodo, rota, q, corpo))
         if rota == "conhecimento":
             p = {"select": "id,tipo,titulo,texto,autor,fonte,fixo,atualizado_em", "order": "fixo.desc,atualizado_em.desc", "limit": 200}
@@ -7338,6 +7339,20 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         hoje_ok = bool(ult and _br(ult["iniciado_em"]).date() == agora.date() and _br(ult["iniciado_em"]).strftime("%H:%M") >= (rot or {}).get("horario", "07:00"))
         na_hora = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "07:00"))
         return {"rodar": na_hora and not hoje_ok, "horario": (rot or {}).get("horario") or "07:00"}
+    # 01/10 (Bruno): vendas de hoje do UpSeller (Análises → Visão geral), lidas pelo coletor a cada ~10 min
+    if rota == "vendas_hoje_pendente":
+        rot = (repo._req("GET", "rotinas", {"select": "ativo", "id": "eq.vendas_hoje"}) or [None])[0]
+        return vendas_hoje.pendente(repo, ativo=bool(rot is None or rot.get("ativo")))
+    if rota == "vendas_hoje_salvar" and metodo == "POST":
+        try:
+            return vendas_hoje.salvar(repo, json.loads(corpo or b"{}"))
+        except vendas_hoje.ErroVendasHoje as e:
+            raise ErroNuvem(str(e))
+    if rota == "vendas_hoje":
+        try:
+            return vendas_hoje.painel(repo, q.get("dia") or None, q.get("comparar") or None)
+        except vendas_hoje.ErroVendasHoje as e:
+            raise ErroNuvem(str(e))
     if rota == "estoque_pendente":
         # o vigia do Mac pergunta se está na hora do estoque do UpSeller: 00:30, 11:30 e 18:30 (meia hora antes do Gestor)
         if q.get("maquina") == "servidor" and _so_no_mac(repo, "estoque"):
