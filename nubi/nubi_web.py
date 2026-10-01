@@ -5888,7 +5888,7 @@ def fotos_com_anuncio(repo, vendedor, dados):
                 por_foto[m.group(0)] = a
     except Exception:  # noqa: BLE001  (tabela ainda não aplicada)
         pass
-    monitor = {x.get("mlb") for x in precos.lista(repo)}
+    monitor = {x.get("mlb"): x for x in precos.lista(repo)}
     loja = _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vendedor)) or {}
     achados = 0
     for it in itens:
@@ -5897,6 +5897,10 @@ def fotos_com_anuncio(repo, vendedor, dados):
         if a:
             it["mlb"], it["link"] = a["mlb"], a.get("link") or precos.link_de(a["mlb"])
             it["monitorando"] = a["mlb"] in monitor
+            if it["monitorando"]:                     # 01/10: etiqueta verde com o último preço lido e o dia
+                m_ = monitor[a["mlb"]]
+                u_ = m_.get("ultimo") or {}
+                it["monitor"] = {"preco": u_.get("preco") or m_.get("preco_inicial"), "dia": u_.get("dia"), "desde": m_.get("desde")}
             achados += 1
     dados["com_link"] = achados
     dados["loja"] = {"id": loja.get("id"), "nome": loja.get("nome"), "link": loja.get("link")} if loja else None
@@ -7695,7 +7699,7 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
         if rota == "ml_precos_lista":
             return {"itens": precos.painel(repo), "max": precos.MAX_ANUNCIOS}
         if rota == "ml_precos_hist":
-            return {"mlb": precos.normalizar_mlb(q.get("mlb")), "historico": precos.historico(repo, q.get("mlb"))}
+            return dict(precos.detalhe(repo, q.get("mlb")), mlb=precos.normalizar_mlb(q.get("mlb")))
         if rota == "ml_precos_seguir" and metodo == "POST":
             try:
                 return {"ok": True, "item": precos.seguir(repo, d), "total": len(precos.lista(repo))}

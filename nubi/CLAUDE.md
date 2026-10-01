@@ -485,6 +485,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     (`anuncios_do_relatorio`: total e ativos; o `vend_fotos` tem só os 500 que mais vendem) x o total da loja no ML
     (`total_loja`: "N resultados" lido pelo `JS_VITRINE` na 1ª página → `ml|total_loja|<sid>`; senão a busca da API por
     seller_id). ±25% = `total_bate`; a 1ª do placar com total que não bate não vira "certa".
+  - **Monitor de preços com histórico (01/10, Bruno: "tag verde produto monitorado com o último preço; uma aba com todos
+    os monitorados; clica e vê o histórico: que dia mudou, quanto mudou")**: cartão de foto monitorado mostra
+    `tagMonitor` (verde, último preço lido e o dia; `fotos_com_anuncio` manda `monitor`), que leva a `#/precos/<MLB>`
+    (`telaPrecoDetalhe`): preço agora, variação desde o início, mín/máx/médio, gráfico por dia (preço e riscado),
+    "Quando mudou" (`precos.mudancas`: preço, riscado, situação e estoque entre leituras seguidas, com diferença e %) e
+    todas as leituras. `ml_precos_hist` devolve `precos.detalhe`. A lista `#/precos` (Monitor de preços) é a aba de
+    todos os monitorados, com link para o histórico. Teste: testes/test_precos_historico.py.
   - **Uma página por vendedor (01/10, Bruno: "cada vendedor tem que ter uma página só; menos tela, mais otimizado")**:
     a página do seguido (`#/vendedores/<nome>`: Visão do ano, Mês a mês, Alertas, com gráficos, loja real, anúncios
     reais da vitrine e fotos) ganhou a aba **🔭 Explorador** (`#/vendedores/<nome>/explorador`, `telaVendedorExplorador`):

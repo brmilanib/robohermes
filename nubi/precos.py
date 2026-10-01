@@ -136,6 +136,46 @@ def gravar_leitura(repo, itens, dia=None):
     return n
 
 
+CAMPOS_MUDANCA = (("preco", "Preço"), ("preco_original", "Preço riscado"), ("status", "Situação"), ("estoque", "Estoque"))
+
+
+def mudancas(h):
+    """01/10 (Bruno: "que dia mudou o preço, quanto mudou"): entre leituras seguidas, o que mudou -> lista do mais novo
+    para o mais antigo: {dia, dia_antes, campo, nome, de, para, diff, pct}. Leitura sem o campo (None) não conta como mudança."""
+    out = []
+    pts = sorted([p for p in h or [] if p.get("dia")], key=lambda p: p["dia"])
+    ult = {}
+    for p in pts:
+        for c, nome in CAMPOS_MUDANCA:
+            v = p.get(c)
+            if v in (None, ""):
+                continue
+            if c in ult and ult[c][1] != v:
+                de, dia_antes = ult[c][1], ult[c][0]
+                x = {"dia": p["dia"], "dia_antes": dia_antes, "campo": c, "nome": nome, "de": de, "para": v}
+                if isinstance(de, (int, float)) and isinstance(v, (int, float)):
+                    x["diff"] = round(v - de, 2)
+                    x["pct"] = round(v / de - 1, 4) if de else None
+                out.append(x)
+            ult[c] = (p["dia"], v)
+    return list(reversed(out))
+
+
+def detalhe(repo, mlb):
+    """Um anúncio do monitor com o histórico inteiro, as mudanças e o resumo (para a tela de histórico)."""
+    mlb = normalizar_mlb(mlb)
+    item = next((x for x in lista(repo) if x.get("mlb") == mlb), None) or {"mlb": mlb, "link": link_de(mlb), "fora_do_monitor": True}
+    h = sorted(historico(repo, mlb), key=lambda p: p.get("dia") or "")
+    precos = [p["preco"] for p in h if p.get("preco")]
+    ini = item.get("preco_inicial") or (precos[0] if precos else None)
+    atual = precos[-1] if precos else None
+    return {"item": item, "historico": h, "mudancas": mudancas(h), "atual": atual, "inicial": ini,
+            "var_inicio": round(atual / ini - 1, 4) if atual and ini else None,
+            "minimo": min(precos) if precos else None, "maximo": max(precos) if precos else None,
+            "medio": round(sum(precos) / len(precos), 2) if precos else None, "dias": len(h),
+            "primeiro_dia": h[0]["dia"] if h else None, "ultimo_dia": h[-1]["dia"] if h else None}
+
+
 def painel(repo, dias=60):
     """A lista com o resumo do histórico de cada anúncio, para a tela."""
     out = []
@@ -149,6 +189,7 @@ def painel(repo, dias=60):
         if ult and ult.get("preco") and ant and ant.get("preco"):
             var = ult["preco"] / ant["preco"] - 1
         out.append(dict(x, historico=h[-45:], atual=(ult or {}).get("preco"), anterior=(ant or {}).get("preco"), var=var,
+                        mudancas_preco=sum(1 for m in mudancas(h) if m["campo"] == "preco"),
                         minimo=min(precos) if precos else None, maximo=max(precos) if precos else None,
                         status=(ult or {}).get("status") or "", estoque=(ult or {}).get("estoque"),
                         ultimo_dia=(ult or {}).get("dia"), pontos=len(h)))
