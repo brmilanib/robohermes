@@ -1195,5 +1195,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   foto SEM texto) e a tela desenha por cima o preço/desconto num canvas 1080×1350 (`bzDesenharArte`); baixar arte e
   "📤 Enviar" (compartilhar do celular com a imagem, senão wa.me com o texto). Para promoção (Análises de Vendas) ganhou
   "🛍️ Bazar" por linha e "Levar a lista ao Bazar" (`bazar_levar`: aba Promoção, 20% de desconto, preço = venda média do
-  SKU no UpSeller; não duplica SKU ainda à venda). Nada é apagado: produto é arquivado. Parte 2 (agente que posta no
+  SKU no UpSeller; não duplica SKU ainda à venda). Nada é apagado: produto é arquivado. **3 modelos de cadastro (01/10, Bruno)** = as abas:
+  📭 Sem caixa (`sem_caixa`, vai sem a caixa), 📦 Caixa avariada (`avariada`, caixa aberta na devolução/plástico estragado
+  mas vai na caixa) e 🏷️ Outlet (chave `promocao`: encalhado para promoções, grupos, Instagram e campanhas). Escolhido no
+  topo do cadastro (`bazar.MODELOS`, condições por modelo em `CONDICOES_MODELO`); a planilha separa pela condição
+  (`modelo_pela_condicao`: "SEM CAIXA…" = sem caixa). O post e a arte dizem "vai na caixa" / "sem caixa" / "OUTLET". Parte 2 (agente que posta no
   grupo VIP e no Instagram) fica para depois. Teste: `testes/test_bazar.py`.

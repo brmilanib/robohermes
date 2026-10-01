@@ -57,10 +57,13 @@ def test_post_no_formato_do_grupo():
     assert "💜 Yara Elixir – Lattafa" in t
     assert "De R$ 230,00 por apenas R$ 138,00 😱🔥" in t and "💰 Economize R$ 92,00!" in t
     assert t.endswith("👜 Corre aproveitar essa oferta! ❤️✨")
-    assert "📦" not in t                                                   # promoção não fala de caixa
+    assert "📦" not in t and "🏷️ OUTLET PURE" in t                          # outlet não fala de caixa
     av = bazar.salvar_produto(r, {"produto": "Club de Nuit", "marca": "Armaf", "qtd_inicial": 1, "preco_original": 275.99,
                                   "desconto": 0.4, "condicao": "CAIXA COM PEQUENAS AVARIAS"})
-    assert "📦 Produto original e novo · Caixa com pequenas avarias" in bazar.post(av)
+    assert "📦 Produto original e novo · vai na caixa (caixa com pequenas avarias)" in bazar.post(av)
+    sc = bazar.salvar_produto(r, {"produto": "Yara", "marca": "Lattafa", "qtd_inicial": 1, "preco_original": 249,
+                                  "desconto": 0.4, "aba": "sem_caixa", "condicao": "SEM CAIXA"})
+    assert "📦 Produto original e novo · sem caixa" in bazar.post(sc)
 
 
 def test_frase_da_ia_sem_numeros():
@@ -92,7 +95,9 @@ def test_importa_a_planilha_do_bruno():
     cdn = ps["CLUB DE NUIT INTENSE MEN"]
     assert cdn["marca"] == "ARMAF" and cdn["qtd_inicial"] == 15 and cdn["preco_original"] == 275.99
     assert cdn["desconto"] == 0.4 and cdn["preco_promo"] == 165.59 and cdn["data_cadastro"] == "2026-09-23"
-    assert all(p["aba"] == "avariada" for p in ps.values())
+    # 3 modelos: "SEM CAIXA…" vai para Sem caixa, o resto com avaria para Caixa avariada
+    assert ps["YARA ELIXIR"]["aba"] == "sem_caixa" and ps["CK ONE"]["aba"] == "sem_caixa" and ps["FERRARI BLACK"]["aba"] == "avariada"
+    assert sum(p["aba"] == "sem_caixa" for p in ps.values()) == 11 and sum(p["aba"] == "avariada" for p in ps.values()) == 12
 
 
 def test_levar_ao_bazar_nao_duplica():
@@ -180,7 +185,16 @@ def test_tela():
                     t = pg.input_value("#bzc-txt")
                     assert t.startswith("🔥 OFERTA IMPERDÍVEL NA PURE PERFUMARIA! 🔥") and "R$ 138,00" in t, t
                     pg.screenshot(path=str(RAIZ / "testes" / "saida_bazar_compartilhar.png"))
-                    pg.click("[data-fechar]") if pg.locator("[data-fechar]").count() else None
+                    pg.click(".modal [data-fechar]")
+                    pg.click("#bz-novo")
+                    pg.wait_for_selector(".bz-mod", timeout=5000)
+                    assert pg.locator(".bz-mod").count() == 3
+                    pg.locator("[name=bze-mod][value=sem_caixa]").check()
+                    assert pg.input_value("#bze-condicao") == "SEM CAIXA"
+                    pg.locator("[name=bze-mod][value=promocao]").check()
+                    assert pg.input_value("#bze-condicao") == "OUTLET (SEM AVARIA)"
+                    pg.screenshot(path=str(RAIZ / "testes" / "saida_bazar_novo.png"))
+                    pg.click(".modal [data-fechar]")
                     pg.goto(f"http://127.0.0.1:{porta}/#/bazar/whatsapp")
                     pg.wait_for_selector("#bzw-cat", timeout=8000)
                     assert "BAZAR PURE PROMOÇÕES" in pg.input_value("#bzw-cat")

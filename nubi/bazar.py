@@ -22,9 +22,28 @@ from datetime import datetime, timedelta, timezone
 PRODUTOS = "bazar|produtos"
 VENDAS = "bazar|vendas"
 TEXTOS = "bazar|textos"
-ABAS = {"avariada": "Caixa avariada", "promocao": "Promoção"}
-CONDICOES = ["CAIXA COM PEQUENAS AVARIAS", "CAIXA COM AVARIAS", "AVARIA NA CAIXA E PRODUTO ABERTO", "PRODUTO ABERTO",
-             "SEM CAIXA", "SEM CAIXA E SEM SPRAY", "LUZ DE LED DA CAIXA NÃO ACENDE", "SEM AVARIA (PROMOÇÃO)"]
+# 01/10 (Bruno: "três modelos para cadastrar"): o modelo do produto é a aba. A chave "promocao" ficou para o Outlet
+# (já gravada nos produtos e na rota bazar_levar).
+ABAS = {"sem_caixa": "Sem caixa", "avariada": "Caixa avariada", "promocao": "Outlet"}
+MODELOS = {
+    "sem_caixa": "O produto vai sem a caixa mesmo.",
+    "avariada": "A caixa foi aberta na devolução ou o plástico estragou, mas o produto ainda vai na caixa.",
+    "promocao": "Produto encalhado para promoções nos grupos, Instagram e campanhas, para desovar.",
+}
+OUTLET = "OUTLET (SEM AVARIA)"
+CONDICOES_MODELO = {
+    "sem_caixa": ["SEM CAIXA", "SEM CAIXA E SEM SPRAY", "SEM CAIXA E PRODUTO ABERTO"],
+    "avariada": ["CAIXA COM PEQUENAS AVARIAS", "CAIXA COM AVARIAS", "CAIXA ABERTA NA DEVOLUÇÃO", "PLÁSTICO DA CAIXA DANIFICADO",
+                 "AVARIA NA CAIXA E PRODUTO ABERTO", "LUZ DE LED DA CAIXA NÃO ACENDE"],
+    "promocao": [OUTLET],
+}
+CONDICOES = [c for cs in CONDICOES_MODELO.values() for c in cs]
+
+
+def modelo_pela_condicao(condicao):
+    """Planilha antiga: "SEM CAIXA…" = sem caixa; o resto com avaria = caixa avariada."""
+    c = _sem_acento(condicao)
+    return "sem_caixa" if "SEM CAIXA" in c or "SEM A CAIXA" in c else "avariada"
 PAGAMENTOS = ["Pix", "Dinheiro", "Cartão de crédito", "Cartão de débito", "Link de pagamento", "Outro"]
 STATUS_VENDA = ["Pago", "Reservado", "Entregue", "Cancelado"]
 CORES = ["❤️", "🩷", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "🩵"]
@@ -162,8 +181,8 @@ def linha_catalogo(p):
 def catalogo(itens, aba=None):
     vivos = [p for p in itens if not p.get("arquivado") and p["estoque"] > 0 and (aba is None or p.get("aba") == aba)]
     corpo = "\n\n".join(linha_catalogo(p) for p in vivos)
-    return ("🌸 *BAZAR PURE PROMOÇÕES* 🌸\n\nProdutos originais com preço especial por avaria na caixa/embalagem durante o "
-            "transporte.\nConsulte condição e fotos de cada item.\n\n" + corpo + "\n\n📲 Para reservar, envie o código ou nome "
+    return ("🌸 *BAZAR PURE PROMOÇÕES* 🌸\n\nProdutos originais com preço especial: sem caixa, caixa avariada e outlet.\n"
+            "Consulte condição e fotos de cada item.\n\n" + corpo + "\n\n📲 Para reservar, envie o código ou nome "
             "do produto no grupo.\n⏳ Estoque sujeito à disponibilidade.")
 
 
@@ -175,8 +194,12 @@ def post(p):
     linhas = ["🔥 OFERTA IMPERDÍVEL NA PURE PERFUMARIA! 🔥", "", f"{p.get('cor') or '❤️'} {nome}"]
     if p.get("descricao"):
         linhas += ["", f"✨ {p['descricao'].strip()}"]
-    if p.get("aba") == "avariada" and p.get("condicao"):
-        linhas += ["", f"📦 Produto original e novo · {p['condicao'].strip().capitalize()}"]
+    if p.get("aba") == "avariada":
+        linhas += ["", "📦 Produto original e novo · vai na caixa" + (f" ({p['condicao'].strip().lower()})" if p.get("condicao") else "")]
+    elif p.get("aba") == "sem_caixa":
+        linhas += ["", "📦 Produto original e novo · sem caixa"]
+    elif p.get("aba") == "promocao":
+        linhas += ["", "🏷️ OUTLET PURE · estoque limitado"]
     linhas += ["", f"De {brl(p['preco_original'])} por apenas {brl(p['preco_promo'])} 😱🔥", "",
                f"💰 Economize {brl(p['economia'])}!", "", "👜 Corre aproveitar essa oferta! ❤️✨"]
     return "\n".join(linhas)
@@ -297,7 +320,8 @@ def painel(repo):
     return {"produtos": itens, "vendas": sorted(vends, key=lambda v: (v.get("data") or "", v["id"]), reverse=True),
             "kpis": kpis(itens), "por_aba": por_aba, "kpis_vendas": kpis_vendas(vends),
             "mensagem_fixada": textos.get("mensagem_fixada") or MENSAGEM_FIXADA,
-            "catalogo": catalogo(itens), "abas": ABAS, "condicoes": CONDICOES, "pagamentos": PAGAMENTOS,
+            "catalogo": catalogo(itens), "abas": ABAS, "modelos": MODELOS, "condicoes": CONDICOES,
+            "condicoes_modelo": CONDICOES_MODELO, "pagamentos": PAGAMENTOS,
             "status_venda": STATUS_VENDA, "cores": CORES}
 
 
@@ -322,7 +346,7 @@ def levar_ao_bazar(repo, itens, quem=""):
             continue
         criados.append(salvar_produto(repo, {"aba": "promocao", "sku": sku, "produto": it.get("titulo") or sku,
                                              "marca": it.get("marca") or "", "categoria": it.get("categoria") or "PERFUME",
-                                             "condicao": "SEM AVARIA (PROMOÇÃO)", "qtd_inicial": it.get("disponivel") or 1,
+                                             "condicao": OUTLET, "qtd_inicial": it.get("disponivel") or 1,
                                              "preco_original": it.get("preco"), "desconto": it.get("desconto") or 0.2,
                                              "observacoes": f"sem venda há {it.get('sem_venda_dias')}+ dias"
                                              if it.get("sem_venda_dias") else ""}, quem))
@@ -364,7 +388,7 @@ def importar_planilha(repo, conteudo, quem=""):
         if chave in existentes:
             continue
         dc = col("DATA CADASTRO", row)
-        salvar_produto(repo, {"aba": "avariada", "codigo": str(col("CODIGO", row) or "").strip(), "produto": str(nome).strip(),
+        salvar_produto(repo, {"aba": modelo_pela_condicao(col("CONDICAO", row)), "codigo": str(col("CODIGO", row) or "").strip(), "produto": str(nome).strip(),
                               "marca": marca, "categoria": str(col("CATEGORIA", row) or "").strip(),
                               "volume": str(col("VOLUME", row) or "").strip(),
                               "condicao": str(col("CONDICAO", row) or "").strip(), "qtd_inicial": col("QTD. INICIAL", row) or 0,
