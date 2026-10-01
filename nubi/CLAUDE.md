@@ -1201,3 +1201,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   topo do cadastro (`bazar.MODELOS`, condições por modelo em `CONDICOES_MODELO`); a planilha separa pela condição
   (`modelo_pela_condicao`: "SEM CAIXA…" = sem caixa). O post e a arte dizem "vai na caixa" / "sem caixa" / "OUTLET". Parte 2 (agente que posta no
   grupo VIP e no Instagram) fica para depois. Teste: `testes/test_bazar.py`.
+- **🧪 Decants (01/10, Bruno: "decants de 15, 10 e 5 ml, custo por ml + R$ 5 frasco, R$ 1 adesivo, R$ 1 caixa, padrão mas
+  editável, markup 2,3, foto e botão para o Bazar gerar a arte")**: Minhas Lojas → 🧪 Decants (`#/decants`, `telaDecants`),
+  módulo `decants.py`, rotas `decants`, `decants_config`, `decants_item`, `decants_bazar` (`rota_decants`). Fonte = itens de
+  `estoque_categorias` com tipo Perfume e custo médio do UpSeller; ml do frasco = maior "N ml" do título (≥ 20 ml; kit e
+  miniatura ficam fora) ou digitado na tela. Custo/ml = custo ÷ ml; custo do decant = ml × custo/ml + frasco + adesivo +
+  caixa; preço = custo × markup (por perfume ou o padrão). Padrão em `ia_resumos` `decants|config`, ml/markup/foto/oculto por
+  SKU em `decants|itens`. "⬇️ Baixar planilha" (CSV). Foto no Storage (`anexos/bazar/decant/<sku>/…`). "🛍️ Bazar" cria ou
+  atualiza (pelo SKU) o produto na aba 🧪 Decants do Bazar (`bazar.decant_ao_bazar`, nome sem "Perfume" e sem o ml do frasco,
+  `decant` = [{ml, preco}]); post "✨ DECANT NA PURE PERFUMARIA! ✨" com 1 linha por tamanho, arte com os 3 preços e o
+  catálogo do WhatsApp ganha a seção DECANTS. Estoque real 01/10: 645 SKUs, 456 com ml no título, 380 com custo.
+  Teste: `testes/test_decants.py`.

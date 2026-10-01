@@ -47,6 +47,7 @@ import linhas_ia
 import trava_agrupamento
 import precos
 import bazar
+import decants
 import revisao
 import reuniao
 import vend_bi
@@ -1428,6 +1429,11 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 404)
             except meli.ErroMeli as e:
                 raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 400)
+        if rota.startswith("decants"):               # 01/10: 🧪 Minhas Lojas → Decants (15/10/5 ml, custo por ml, markup)
+            try:
+                return _json(rota_decants(repo, metodo, rota, q, corpo))
+            except (decants.ErroDecant, bazar.ErroBazar) as e:
+                raise ErroNuvem(str(e)[:1].upper() + str(e)[1:])
         if rota.startswith("bazar"):                 # 01/10 (card #137): 🛍️ Minhas Lojas → Bazar
             try:
                 return _json(rota_bazar(repo, metodo, rota, q, corpo))
@@ -4645,6 +4651,32 @@ def _bazar_preco_sku(repo):
             if k and k not in out and x.get("unidades") and x.get("valor"):
                 out[k] = round(float(x["valor"]) / float(x["unidades"]), 2)
     return out
+
+
+def decants_planilha(repo):
+    cat = estoque_categorias(repo) or {}
+    r = decants.planilha(cat.get("itens") or [], decants.config(repo), decants.itens_extra(repo))
+    no_bazar = {p.get("sku"): p["codigo"] for p in bazar.produtos(repo) if p.get("aba") == "decant" and not p.get("arquivado")}
+    for x in r["itens"]:
+        x["bazar"] = no_bazar.get(x["sku"])
+    r["estoque_em"] = cat.get("estoque_em")
+    return r
+
+
+def rota_decants(repo, metodo, rota, q, corpo):
+    d = json.loads(corpo or b"{}") if metodo == "POST" else {}
+    if rota == "decants":
+        return decants_planilha(repo)
+    if rota == "decants_config" and metodo == "POST":
+        return {"ok": True, "config": decants.salvar_config(repo, d)}
+    if rota == "decants_item" and metodo == "POST":
+        return {"ok": True, "item": decants.salvar_item(repo, d)}
+    if rota == "decants_bazar" and metodo == "POST":
+        linha = next((x for x in decants_planilha(repo)["itens"] if x["sku"] == str(d.get("sku") or "")), None)
+        if not linha:
+            raise ErroNuvem("Perfume não encontrado na planilha de decants (sem custo ou sem ml?).")
+        return {"ok": True, "produto": bazar.decant_ao_bazar(repo, linha, str(getattr(repo, "email", "") or ""))}
+    raise ErroNuvem("Rota de decants desconhecida.", 404)
 
 
 def rota_bazar(repo, metodo, rota, q, corpo):

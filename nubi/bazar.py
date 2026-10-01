@@ -24,11 +24,12 @@ VENDAS = "bazar|vendas"
 TEXTOS = "bazar|textos"
 # 01/10 (Bruno: "três modelos para cadastrar"): o modelo do produto é a aba. A chave "promocao" ficou para o Outlet
 # (já gravada nos produtos e na rota bazar_levar).
-ABAS = {"sem_caixa": "Sem caixa", "avariada": "Caixa avariada", "promocao": "Outlet"}
+ABAS = {"sem_caixa": "Sem caixa", "avariada": "Caixa avariada", "promocao": "Outlet", "decant": "Decants"}
 MODELOS = {
     "sem_caixa": "O produto vai sem a caixa mesmo.",
     "avariada": "A caixa foi aberta na devolução ou o plástico estragou, mas o produto ainda vai na caixa.",
     "promocao": "Produto encalhado para promoções nos grupos, Instagram e campanhas, para desovar.",
+    "decant": "Decants de 15, 10 e 5 ml: preços vêm do menu 🧪 Decants (custo por ml + frasco, adesivo, caixa × markup).",
 }
 OUTLET = "OUTLET (SEM AVARIA)"
 CONDICOES_MODELO = {
@@ -36,6 +37,7 @@ CONDICOES_MODELO = {
     "avariada": ["CAIXA COM PEQUENAS AVARIAS", "CAIXA COM AVARIAS", "CAIXA ABERTA NA DEVOLUÇÃO", "PLÁSTICO DA CAIXA DANIFICADO",
                  "AVARIA NA CAIXA E PRODUTO ABERTO", "LUZ DE LED DA CAIXA NÃO ACENDE"],
     "promocao": [OUTLET],
+    "decant": ["DECANT"],
 }
 CONDICOES = [c for cs in CONDICOES_MODELO.values() for c in cs]
 
@@ -153,6 +155,8 @@ def calcular(prods, vends):
         q["preco_promo"] = preco_promo(p.get("preco_original"), p.get("desconto"))
         q["economia"] = round(p["preco_original"] - q["preco_promo"], 2) if q["preco_promo"] is not None else None
         q["status"] = _status(q["estoque"])
+        if p.get("aba") == "decant":                  # decant sai do frasco: sem estoque de unidades nem De/Por
+            q["status"], q["estoque"], q["preco_promo"], q["economia"] = "DECANT", 0, None, None
         out.append(q)
     return out
 
@@ -181,16 +185,42 @@ def linha_catalogo(p):
 def catalogo(itens, aba=None):
     vivos = [p for p in itens if not p.get("arquivado") and p["estoque"] > 0 and (aba is None or p.get("aba") == aba)]
     corpo = "\n\n".join(linha_catalogo(p) for p in vivos)
+    dec = [p for p in itens if not p.get("arquivado") and p.get("aba") == "decant" and p.get("decant")]
+    if dec and aba in (None, "decant"):
+        corpo += ("\n\n" if corpo else "") + "🧪 *DECANTS*\n\n" + "\n\n".join(
+            f"✨ *{p['produto']}*" + (f" | {p['marca']}" if p.get("marca") else "") + f"\nCódigo: {p['codigo']}\n"
+            + " · ".join(f"{d['ml']} ml {brl(d['preco'])}" for d in sorted(p["decant"], key=lambda d: d["ml"])) for p in dec)
     return ("🌸 *BAZAR PURE PROMOÇÕES* 🌸\n\nProdutos originais com preço especial: sem caixa, caixa avariada e outlet.\n"
             "Consulte condição e fotos de cada item.\n\n" + corpo + "\n\n📲 Para reservar, envie o código ou nome "
             "do produto no grupo.\n⏳ Estoque sujeito à disponibilidade.")
 
 
+def nome_com_marca(p):
+    """"Yara Elixir" + Lattafa -> "Yara Elixir – Lattafa"; sem repetir a marca que já está no nome."""
+    nome, marca = p["produto"].strip(), (p.get("marca") or "").strip()
+    return nome + (f" – {marca}" if marca and _sem_acento(marca) not in _sem_acento(nome) else "")
+
+
+def post_decant(p):
+    ds = [d for d in (p.get("decant") or []) if d.get("preco")]
+    if not ds:
+        raise ErroBazar("este decant não tem preços; atualize no menu 🧪 Decants")
+    nome = nome_com_marca(p)
+    linhas = ["✨ DECANT NA PURE PERFUMARIA! ✨", "", f"{p.get('cor') or '❤️'} {nome}"]
+    if p.get("descricao"):
+        linhas += ["", f"✨ {p['descricao'].strip()}"]
+    linhas += [""] + [f"🧪 {d['ml']} ml por {brl(d['preco'])}" for d in sorted(ds, key=lambda d: d["ml"])]
+    linhas += ["", "💧 Perfume 100% original, fracionado com cuidado.", "", "👜 Garanta o seu! ❤️✨"]
+    return "\n".join(linhas)
+
+
 def post(p):
     """Post no MESMO formato do grupo PURE | OFERTAS EXCLUSIVAS (prints do Bruno). Números sempre do sistema."""
+    if p.get("aba") == "decant":
+        return post_decant(p)
     if p.get("preco_original") is None or p.get("preco_promo") is None:
         raise ErroBazar("cadastre o preço original e o desconto antes de compartilhar")
-    nome = p["produto"].strip() + (f" – {p['marca'].strip()}" if p.get("marca") else "")
+    nome = nome_com_marca(p)
     linhas = ["🔥 OFERTA IMPERDÍVEL NA PURE PERFUMARIA! 🔥", "", f"{p.get('cor') or '❤️'} {nome}"]
     if p.get("descricao"):
         linhas += ["", f"✨ {p['descricao'].strip()}"]
@@ -429,3 +459,29 @@ def pedido_arte(p):
             "nem troque nada escrito no produto). Melhore a luz, deixe o fundo elegante e limpo (tons suaves que combinem com o "
             f"perfume \"{p['produto']}\" de \"{p.get('marca') or ''}\"), com um leve brilho de luxo. NÃO escreva nenhum texto, "
             "preço, número ou logo na imagem: o preço é colocado depois. Deixe espaço livre na parte de baixo da imagem.")
+
+
+def nome_decant(titulo):
+    """"Perfume Lattafa Yara EDP 100ml Feminino" -> "Lattafa Yara EDP Feminino" (o ml do frasco não é o do decant)."""
+    t = re.sub(r"\b\d{1,4}\s?ml\b", " ", str(titulo or ""), flags=re.I)
+    t = re.sub(r"^\s*(perfume|parfum)\s+", "", t, flags=re.I)
+    return re.sub(r"\s+", " ", t).strip(" -–")
+
+
+def decant_ao_bazar(repo, linha, quem=""):
+    """Menu 🧪 Decants → Bazar (aba Decants): cria ou atualiza (pelo SKU) o produto com os preços de cada tamanho e a foto."""
+    prods = produtos(repo)
+    ja = next((p for p in prods if p.get("aba") == "decant" and p.get("sku") == linha["sku"] and not p.get("arquivado")), None)
+    reg = {"aba": "decant", "sku": linha["sku"], "condicao": "DECANT", "qtd_inicial": 0, "desconto": None, "preco_original": None}
+    if not ja:
+        reg.update({"produto": nome_decant(linha.get("titulo")) or linha["sku"], "marca": linha.get("marca") or "", "categoria": "DECANT"})
+    if linha.get("foto"):
+        reg["foto"] = linha["foto"]
+    p = salvar_produto(repo, dict(reg, id=ja["id"]) if ja else reg, quem)
+    prods = produtos(repo)                            # os preços por tamanho vão direto (não passam pelo _limpo)
+    alvo = next(x for x in prods if x["id"] == p["id"])
+    alvo["decant"] = [{"ml": int(d["ml"]), "preco": float(d["preco"])} for d in linha.get("decants") or []]
+    if linha.get("foto") and alvo.get("foto") != linha["foto"]:
+        alvo["arte"] = ""
+    _gravar(repo, PRODUTOS, prods)
+    return calcular([alvo], vendas(repo))[0]
