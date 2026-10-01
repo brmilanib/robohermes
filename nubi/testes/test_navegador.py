@@ -32,7 +32,7 @@ URL = _servidor()
 CLAUDE_REAL = c._claude_ferramentas
 
 
-def _abrir(p, cfg, visivel=None):
+def _abrir(p, cfg, visivel=None, na_tela=False):
     # aqui o Chromium do Playwright; no Mac (Ferreiro/Astra rodando os testes) o Google Chrome instalado
     extra = {"executable_path": CHROME} if Path(CHROME).exists() else {"channel": "chrome"}
     return p.chromium.launch_persistent_context(str(c.PASTA / "perfil"), headless=True, **extra)
