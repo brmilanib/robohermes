@@ -1227,3 +1227,24 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Insumos (01/10, print do Bruno): padrão frasco (split) R$ 5, embalagem (`caixa`) R$ 1, adesivo R$ 0,50 (`decants.PADRAO`,
   `INSUMOS`); colunas "Frasco (split) / Embalagem / Adesivo" editáveis por perfume na tabela (`decants|itens` frasco/caixa/
   adesivo; vazio = padrão; 0 vale = "sem adesivo"); a planilha baixada traz os 3 valores usados.
+- **📣 Estúdio de marketing (01/10, Bruno: "vídeos curtos para stories com legenda das notas, arte top para Instagram e WhatsApp,
+  legenda convencendo; tudo pronto de dentro do nubi"; Veo autorizado com teto de US$ 20/mês)**: o 📣 Compartilhar do Bazar
+  virou um estúdio com 3 abas (`bzCompartilhar`). REGRA: a IA faz só imagem/vídeo SEM texto; nome, notas e preços são
+  desenhados pela tela com os números do sistema.
+  - 🖼️ Artes em 3 formatos (`BZ_FMT`: Story 1080×1920 com caixa das notas, Feed 1080×1350, WhatsApp 1080×1080;
+    `bzDesenharArte(canvas, p, url, fmt)`, `bzPainel`); fundo = foto ou o fundo do Gemini (`bazar_arte`); baixar, 📸 Instagram
+    e 💬 WhatsApp (compartilhar do celular com o arquivo + legenda copiada; no PC baixa e copia).
+  - 🎬 Vídeo stories gravado no NAVEGADOR (`bzGravarVideo`: canvas 1080×1920 + MediaRecorder, MP4 quando o navegador grava,
+    senão WebM): roteiro `bzCenas` = nome (3 s) → uma cena por nota (topo/coração/fundo, 3 s cada) → preços (4,5 s). Fundo =
+    fotos com zoom lento (grátis) ou o vídeo do Veo em loop, com o som dele.
+  - ✨ Veo (`marketing.py`): `veo_iniciar` (POST `models/<m>:predictLongRunning`, foto do produto, 9:16, 8 s, 720p, prompt
+    `PEDIDO_VEO` com as notas e "NO text"), modelos em ordem `NUBI_VEO_MODELOS` (lite → fast; 400/404 passa ao próximo);
+    teto `NUBI_VEO_TETO`=20 US$/mês somado ANTES do pedido em `ia_resumos` `veo|gasto|AAAA-MM` (lite US$ 0,40, fast 0,80 por
+    vídeo); `veo_conferir` (GET da operação; pronto → baixa `generatedSamples[0].video.uri`, só de generativelanguage.googleapis.com).
+    Rotas `bazar_veo` (grava `veo_op` no produto), `bazar_veo_status` (sobe o MP4 para `anexos/bazar/<id>/veo-*.mp4`, `veo`),
+    `bazar_veo_gasto`. A tela confere a cada 10 s (até ~7 min) e já monta o vídeo final com os textos.
+  - ✍️ Legendas (`bazar_legendas`, `marketing.PEDIDO_LEGENDAS`): Gemini (reserva: `ia.perguntar`) escreve Instagram (com
+    hashtags) e WhatsApp, SEM números (`_sem_numeros`, JSON lido com `strict=False`); o servidor monta título + legenda +
+    notas + `bloco_precos` (decant: tamanhos e "💡 Sinta por R$ X antes de investir R$ Y no frasco", Y = `preco_frasco` =
+    preço médio de venda do frasco no UpSeller) + chamada. Sem notas, busca a ficha (`_ficha_decant`) e guarda no produto.
+    Guardadas em `bazar|produtos` (`legendas`). Teste: `testes/test_decants.py` (Veo falso, teto, legendas, vídeo gravado).

@@ -156,6 +156,7 @@ def planilha(itens_cat, cfg, extras):
         kit = re.search(r"\bkit\b", nubi.normalizar(it.get("titulo") or ""))   # custo do kit não é de 1 frasco
         vol = ex.get("volume_ml") or (None if kit else volume_do_titulo(it.get("titulo")))
         base = {"sku": sku, "titulo": it.get("titulo") or "", "marca": it.get("marca") or "", "disponivel": it.get("disponivel") or 0,
+                "preco_venda": it.get("preco_venda"),     # preço médio do frasco nas vendas (para "sinta antes de investir")
                 "custo": it.get("custo"), "volume_ml": vol, "volume_manual": bool(ex.get("volume_ml")), "foto": ex.get("foto") or "",
                 "oculto": bool(ex.get("oculto")), "markup": ex.get("markup"), "tamanhos_bazar": ex.get("tamanhos_bazar"),
                 "fotos": ex.get("fotos") or ([ex["foto"]] if ex.get("foto") else []), "videos": ex.get("videos") or [],

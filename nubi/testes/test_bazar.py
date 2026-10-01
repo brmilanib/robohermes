@@ -181,8 +181,13 @@ def test_tela():
                     pg.wait_for_timeout(800)
                     assert bazar.vendas(r)[0]["cliente"] == "Ana"
                     pg.locator("[data-bzsh]").first.click()
-                    pg.wait_for_selector("#bzc-txt", timeout=5000)
-                    t = pg.input_value("#bzc-txt")
+                    pg.wait_for_selector("#bzc-cv", timeout=5000)
+                    assert pg.evaluate("[document.querySelector('#bzc-cv').width, document.querySelector('#bzc-cv').height]") == [1080, 1920]
+                    pg.click("[data-fmt=quadrado]")
+                    pg.wait_for_function("document.querySelector('#bzc-cv') && document.querySelector('#bzc-cv').height === 1080", timeout=5000)
+                    pg.click("[data-est=legendas]")
+                    pg.wait_for_selector("#leg-grupo", timeout=5000)
+                    t = pg.input_value("#leg-grupo")
                     assert t.startswith("🔥 OFERTA IMPERDÍVEL NA PURE PERFUMARIA! 🔥") and "R$ 138,00" in t, t
                     pg.screenshot(path=str(RAIZ / "testes" / "saida_bazar_compartilhar.png"))
                     pg.click(".modal [data-fechar]")

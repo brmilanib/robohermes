@@ -495,7 +495,8 @@ def decant_ao_bazar(repo, linha, quem=""):
     alvo["fotos"], alvo["videos"] = fotos, videos
     alvo["legenda"] = linha.get("legenda") or ""
     n = linha.get("notas") or {}
-    alvo["notas"] = {k: n.get(k) for k in ("familia", "notas_topo", "notas_coracao", "notas_fundo")} if n else None
+    alvo["notas"] = {k: n.get(k) for k in ("familia", "notas_topo", "notas_coracao", "notas_fundo", "inspirado_em")} if n else None
+    alvo["preco_frasco"] = linha.get("preco_venda")
     if linha.get("foto") and alvo.get("foto") != linha["foto"]:
         alvo["arte"] = ""
     _gravar(repo, PRODUTOS, prods)

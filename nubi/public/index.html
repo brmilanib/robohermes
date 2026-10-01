@@ -1148,6 +1148,9 @@ header.top{padding:7px 16px}
 .bz-canc td{opacity:.5;text-decoration:line-through}.bz-canc td select{text-decoration:none}
 .bz-wa{display:grid;grid-template-columns:1fr 1fr;gap:12px}.bz-sh{display:grid;grid-template-columns:minmax(0,380px) 1fr;gap:16px}
 .bz-cv{width:100%;max-width:380px;border-radius:10px;display:block;background:#111}
+.est-vazio{aspect-ratio:9/16;display:grid;place-items:center;text-align:center;color:#b9b3c7;padding:20px;font-size:13px}
+.est-op{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.est-op .muted{font-size:12.5px}.est-dica{border:1px solid var(--line);border-radius:12px;padding:12px;font-size:13px}.est-dica ul{margin:6px 0 0;padding-left:18px}
 @media (max-width:760px){.bz-wa,.bz-sh{grid-template-columns:1fr}.bz-cv{max-width:100%}}
 </style>
 </head>
@@ -3699,96 +3702,248 @@ function bzWhats(main, r, cab) {
   $("#bzw-salvar").onclick = async () => { try { await api("bazar_mensagem", {}, {method: "POST", body: JSON.stringify({texto: $("#bzw-msg").value})}); toast("Mensagem salva."); } catch (e) { toast(e.message, 6000); } };
 }
 // arte final: foto (ou a arte do Gemini) + faixa com o preço desenhado pela tela (números do sistema, nunca da IA)
-async function bzDesenharArte(canvas, p, url) {
-  const W = 1080, H = 1350, c = canvas.getContext("2d");
-  canvas.width = W; canvas.height = H;
-  c.fillStyle = "#111"; c.fillRect(0, 0, W, H);
-  if (url) {
-    try { const bmp = await createImageBitmap(await (await fetch(url)).blob());
-      const k = Math.max(W / bmp.width, 1010 / bmp.height), w = bmp.width * k, h = bmp.height * k;
-      c.drawImage(bmp, (W - w) / 2, (1010 - h) / 2, w, h); } catch { /* sem foto: fundo escuro */ }
-  }
-  const g = c.createLinearGradient(0, 0, 0, 170); g.addColorStop(0, "rgba(0,0,0,.72)"); g.addColorStop(1, "rgba(0,0,0,0)");
-  c.fillStyle = g; c.fillRect(0, 0, W, 170);
-  c.fillStyle = "#fff"; c.textAlign = "center"; c.font = "700 46px system-ui, -apple-system, Segoe UI, sans-serif";
-  c.fillText(p.aba === "decant" ? "✨ DECANT ✨" : "🔥 OFERTA IMPERDÍVEL 🔥", W / 2, 72); c.font = "500 30px system-ui, sans-serif"; c.fillText("PURE PERFUMARIA", W / 2, 116);
-  c.fillStyle = "#14121a"; c.fillRect(0, 1000, W, 350);
-  if (p.aba === "decant") {                  // decant: os preços de cada tamanho (do sistema), sem De/Por
-    c.fillStyle = "#fff"; c.textAlign = "left";
-    const nomeD = bzNome(p);
-    let tD = 44; c.font = `700 ${tD}px system-ui, sans-serif`;
-    while (c.measureText(nomeD).width > W - 120 && tD > 26) { tD -= 2; c.font = `700 ${tD}px system-ui, sans-serif`; }
-    c.fillText(nomeD, 60, 1070);
-    const ds = (p.decant || []).slice().sort((a, b) => a.ml - b.ml), larg = (W - 120) / Math.max(1, ds.length);
-    ds.forEach((d, i) => { const x = 60 + i * larg + larg / 2;
-      c.fillStyle = "#2a2536"; c.beginPath(); c.roundRect ? c.roundRect(60 + i * larg + 8, 1110, larg - 16, 170, 18) : c.rect(60 + i * larg + 8, 1110, larg - 16, 170); c.fill();
-      c.textAlign = "center"; c.fillStyle = "#b9b3c7"; c.font = "600 34px system-ui, sans-serif"; c.fillText(`${d.ml} ml`, x, 1165);
-      c.fillStyle = "#ffd166"; c.font = "800 52px system-ui, sans-serif"; c.fillText(rsES(d.preco), x, 1240); });
-    c.textAlign = "center"; c.fillStyle = "#b9b3c7"; c.font = "500 26px system-ui, sans-serif"; c.fillText("Decant · perfume 100% original", W / 2, 1320);
+// ---------- 📣 Estúdio de marketing do Bazar (01/10, Bruno: "vídeo curto para stories com as notas, arte top para Instagram e
+// WhatsApp e legenda convencendo; tudo pronto de dentro do nubi"). A IA (Gemini/Veo) faz só IMAGEM/VÍDEO sem texto; nome, notas e
+// preços são desenhados aqui, com os números do sistema.
+const BZ_FMT = {story: [1080, 1920, "📱 Story 9:16"], feed: [1080, 1350, "🖼️ Feed 4:5"], quadrado: [1080, 1080, "💬 WhatsApp 1:1"]};
+const BZ_FONTE = "system-ui, -apple-system, Segoe UI, sans-serif";
+function bzQuebrar(c, txt, max) {
+  const out = []; let l = "";
+  for (const w of String(txt || "").split(/\s+/)) { const t = l ? l + " " + w : w; if (c.measureText(t).width > max && l) { out.push(l); l = w; } else l = t; }
+  if (l) out.push(l); return out;
+}
+function bzCobrir(c, fonte, W, H, zoom = 1, alto = H) {
+  const fw = fonte.videoWidth || fonte.width, fh = fonte.videoHeight || fonte.height; if (!fw || !fh) return;
+  const k = Math.max(W / fw, alto / fh) * zoom, w = fw * k, h = fh * k;
+  c.drawImage(fonte, (W - w) / 2, (alto - h) / 2, w, h);
+}
+function bzRet(c, x, y, w, h, r) { c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, r) : c.rect(x, y, w, h); }
+function bzNotasLista(p) { const n = p.notas || {}; return [["🍋 Topo", n.notas_topo], ["🌸 Coração", n.notas_coracao], ["🌳 Fundo", n.notas_fundo]].filter(x => x[1]); }
+// painel de preços (embaixo), em qualquer tamanho de tela; y0 = topo do painel
+function bzPainel(c, p, W, y0, h) {
+  c.fillStyle = "rgba(20,18,26,.94)"; c.fillRect(0, y0, W, h);
+  const nome = bzNome(p), pad = 60;
+  c.textAlign = "left"; c.fillStyle = "#fff";
+  let tam = 46; c.font = `700 ${tam}px ${BZ_FONTE}`;
+  const largNome = p.aba === "decant" ? W - 2 * pad : W - 330;
+  while (c.measureText(nome).width > largNome && tam > 28) { tam -= 2; c.font = `700 ${tam}px ${BZ_FONTE}`; }
+  let n2 = nome; while (c.measureText(n2).width > largNome && n2.length > 4) n2 = n2.slice(0, -2);
+  c.fillText(n2 === nome ? nome : n2.trimEnd() + "…", pad, y0 + 72);
+  if (p.aba === "decant") {
+    const ds = (p.decant || []).slice().sort((a, b) => a.ml - b.ml), larg = (W - 2 * pad) / Math.max(1, ds.length);
+    ds.forEach((d, i) => { const x = pad + i * larg + larg / 2;
+      c.fillStyle = "#2a2536"; bzRet(c, pad + i * larg + 8, y0 + 105, larg - 16, 165, 18); c.fill();
+      c.textAlign = "center"; c.fillStyle = "#b9b3c7"; c.font = `600 34px ${BZ_FONTE}`; c.fillText(`${d.ml} ml`, x, y0 + 158);
+      c.fillStyle = "#ffd166"; c.font = `800 ${ds.length > 2 ? 50 : 62}px ${BZ_FONTE}`; c.fillText(rsES(d.preco), x, y0 + 235); });
+    c.textAlign = "center"; c.fillStyle = "#b9b3c7"; c.font = `500 26px ${BZ_FONTE}`;
+    c.fillText(p.preco_frasco && ds.length ? `Sinta antes de investir ${rsES(p.preco_frasco)} no frasco · 100% original` : "Decant · perfume 100% original", W / 2, y0 + h - 30);
     return;
   }
-  c.fillStyle = "#fff"; c.textAlign = "left"; c.font = "700 44px system-ui, sans-serif";
-  const nome = bzNome(p), larg = W - 330;   // não invade o selo do desconto
-  let tam = 44; c.font = `700 ${tam}px system-ui, sans-serif`;
-  while (c.measureText(nome).width > larg && tam > 28) { tam -= 2; c.font = `700 ${tam}px system-ui, sans-serif`; }
-  let n2 = nome; while (c.measureText(n2).width > larg && n2.length > 4) n2 = n2.slice(0, -2);
-  c.fillText(n2 === nome ? nome : n2.trimEnd() + "…", 60, 1075);
-  c.font = "400 36px system-ui, sans-serif"; c.fillStyle = "#b9b3c7";
-  const de = "De " + rsES(p.preco_original); c.fillText(de, 60, 1140);
-  const wDe = c.measureText(de).width; c.fillRect(60, 1127, wDe, 3);
-  c.fillStyle = "#ffd166"; c.font = "800 88px system-ui, sans-serif"; c.fillText("Por " + rsES(p.preco_promo), 60, 1240);
-  c.fillStyle = "#e63946"; c.beginPath(); c.arc(W - 150, 1150, 100, 0, Math.PI * 2); c.fill();
-  c.fillStyle = "#fff"; c.textAlign = "center"; c.font = "800 62px system-ui, sans-serif"; c.fillText("-" + bzPct(p.desconto), W - 150, 1165);
-  c.font = "500 26px system-ui, sans-serif"; c.fillStyle = "#b9b3c7"; c.textAlign = "left";
-  c.fillText(p.aba === "avariada" ? "Original e novo · vai na caixa" : p.aba === "sem_caixa" ? "Original e novo · sem caixa" : "OUTLET · economize " + rsES(p.economia) + " · estoque limitado", 60, 1300);
+  c.font = `400 36px ${BZ_FONTE}`; c.fillStyle = "#b9b3c7";
+  const de = "De " + rsES(p.preco_original); c.fillText(de, pad, y0 + 135); c.fillRect(pad, y0 + 122, c.measureText(de).width, 3);
+  c.fillStyle = "#ffd166"; c.font = `800 88px ${BZ_FONTE}`; c.fillText("Por " + rsES(p.preco_promo), pad, y0 + 235);
+  c.fillStyle = "#e63946"; c.beginPath(); c.arc(W - 150, y0 + 150, 100, 0, Math.PI * 2); c.fill();
+  c.fillStyle = "#fff"; c.textAlign = "center"; c.font = `800 62px ${BZ_FONTE}`; c.fillText("-" + bzPct(p.desconto), W - 150, y0 + 172);
+  c.font = `500 26px ${BZ_FONTE}`; c.fillStyle = "#b9b3c7"; c.textAlign = "left";
+  c.fillText(p.aba === "avariada" ? "Original e novo · vai na caixa" : p.aba === "sem_caixa" ? "Original e novo · sem caixa" : "OUTLET · economize " + rsES(p.economia) + " · estoque limitado", pad, y0 + h - 30);
+}
+function bzTopo(c, p, W) {
+  const g = c.createLinearGradient(0, 0, 0, 190); g.addColorStop(0, "rgba(0,0,0,.72)"); g.addColorStop(1, "rgba(0,0,0,0)");
+  c.fillStyle = g; c.fillRect(0, 0, W, 190);
+  c.fillStyle = "#fff"; c.textAlign = "center"; c.font = `700 46px ${BZ_FONTE}`;
+  c.fillText(p.aba === "decant" ? "✨ DECANT ✨" : p.aba === "promocao" ? "🏷️ OUTLET PURE 🏷️" : "🔥 OFERTA IMPERDÍVEL 🔥", W / 2, 76);
+  c.font = `500 30px ${BZ_FONTE}`; c.fillText("PURE PERFUMARIA", W / 2, 120);
+}
+function bzCaixaNotas(c, p, W, y, alpha = 1) {
+  const ns = bzNotasLista(p); if (!ns.length) return 0;
+  c.save(); c.globalAlpha = alpha; c.font = `500 32px ${BZ_FONTE}`;
+  const linhas = ns.map(([r, v]) => bzQuebrar(c, `${r}: ${v}`, W - 160).slice(0, 2));
+  const h = 50 + linhas.reduce((a, l) => a + l.length * 42 + 10, 0);
+  c.fillStyle = "rgba(20,18,26,.72)"; bzRet(c, 40, y - h, W - 80, h, 26); c.fill();
+  c.fillStyle = "#fff"; c.textAlign = "left"; let yy = y - h + 58;
+  linhas.forEach(ls => { ls.forEach(l => { c.fillText(l, 80, yy); yy += 42; }); yy += 10; });
+  c.restore(); return h;
+}
+async function bzImagem(url) { if (!url) return null; try { return await createImageBitmap(await (await fetch(url)).blob()); } catch { return null; } }
+async function bzDesenharArte(canvas, p, url, fmt = "feed") {
+  const [W, H] = BZ_FMT[fmt] || BZ_FMT.feed, c = canvas.getContext("2d"), painel = fmt === "quadrado" ? 330 : 350;
+  canvas.width = W; canvas.height = H;
+  c.fillStyle = "#111"; c.fillRect(0, 0, W, H);
+  const img = await bzImagem(url);
+  if (img) bzCobrir(c, img, W, H, 1, H - painel + 10);
+  bzTopo(c, p, W);
+  if (fmt === "story") bzCaixaNotas(c, p, W, H - painel - 40);
+  bzPainel(c, p, W, H - painel, painel);
+}
+// vídeo 9:16: fundo (fotos com zoom lento ou o vídeo do Veo) + nome → notas uma a uma → preços. Gravado aqui no navegador.
+function bzCenas(p) {
+  const cenas = [{tipo: "nome", d: 3}];
+  bzNotasLista(p).forEach(n => cenas.push({tipo: "nota", nota: n, d: 3}));
+  cenas.push({tipo: "precos", d: 4.5});
+  let t = 0; cenas.forEach(x => { x.ini = t; t += x.d; }); return {cenas, total: t};
+}
+function bzQuadro(c, p, W, H, t, roteiro, fundo) {
+  c.fillStyle = "#0d0c10"; c.fillRect(0, 0, W, H);
+  fundo(c, t);
+  const g = c.createLinearGradient(0, H * 0.5, 0, H); g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.65)");
+  c.fillStyle = g; c.fillRect(0, H * 0.5, W, H * 0.5);
+  bzTopo(c, p, W);
+  const cena = roteiro.cenas.find(x => t >= x.ini && t < x.ini + x.d) || roteiro.cenas[roteiro.cenas.length - 1];
+  const k = Math.min(1, (t - cena.ini) / 0.6), sobe = (1 - k) * 60;
+  c.save(); c.globalAlpha = k;
+  if (cena.tipo === "nome") {
+    c.textAlign = "center"; c.fillStyle = "#fff"; c.font = `800 70px ${BZ_FONTE}`;
+    const ls = bzQuebrar(c, bzNome(p), W - 140).slice(0, 3); let y = H - 470 + sobe - ls.length * 40;
+    ls.forEach(l => { c.fillText(l, W / 2, y); y += 84; });
+    c.font = `500 36px ${BZ_FONTE}`; c.fillStyle = "#ffd166";
+    c.fillText(p.aba === "decant" ? "Experimente antes de comprar o frasco" : "Perfume original com preço especial", W / 2, y + 20);
+  } else if (cena.tipo === "nota") {
+    const [rot, val] = cena.nota;
+    c.fillStyle = "rgba(20,18,26,.75)"; bzRet(c, 60, H - 720 + sobe, W - 120, 380, 32); c.fill();
+    c.textAlign = "center"; c.fillStyle = "#ffd166"; c.font = `700 46px ${BZ_FONTE}`;
+    c.fillText(rot.replace(/Topo|Coração|Fundo/, m => "Notas de " + m.toLowerCase()), W / 2, H - 630 + sobe);
+    c.fillStyle = "#fff"; c.font = `600 50px ${BZ_FONTE}`;
+    let y = H - 545 + sobe; bzQuebrar(c, val, W - 200).slice(0, 4).forEach(l => { c.fillText(l, W / 2, y); y += 64; });
+  } else {
+    bzPainel(c, p, W, H - 470 + sobe, 360);
+    c.textAlign = "center"; c.fillStyle = "#fff"; c.font = `700 40px ${BZ_FONTE}`;
+    c.fillText("📲 Chama no direct e garanta o seu!", W / 2, H - 50);
+  }
+  c.restore();
+}
+async function bzGravarVideo(p, fonte, avisar) {
+  const W = 1080, H = 1920, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const c = cv.getContext("2d"), roteiro = bzCenas(p);
+  let fundo, audio = null, video = null;
+  if (fonte.video) {                          // vídeo do Veo, em loop, com o som dele
+    video = document.createElement("video"); video.src = URL.createObjectURL(await (await fetch(fonte.video)).blob());
+    video.loop = true; video.playsInline = true; video.crossOrigin = "anonymous";
+    await new Promise((ok, erro) => { video.onloadeddata = ok; video.onerror = () => erro(new Error("não consegui abrir o vídeo do Veo")); });
+    try { const ac = new (window.AudioContext || window.webkitAudioContext)(), src = ac.createMediaElementSource(video), dst = ac.createMediaStreamDestination();
+      src.connect(dst); audio = {ac, trilha: dst.stream.getAudioTracks()[0]}; } catch { video.muted = true; }
+    try { await video.play(); } catch { video.muted = true; await video.play(); }
+    fundo = (cx) => bzCobrir(cx, video, W, H);
+  } else {                                    // fotos com zoom lento, trocando ao longo do vídeo
+    const imgs = (await Promise.all((fonte.fotos || []).map(bzImagem))).filter(Boolean);
+    if (!imgs.length) throw new Error("Coloque pelo menos 1 foto do produto para fazer o vídeo.");
+    const fatia = roteiro.total / imgs.length;
+    fundo = (cx, t) => { const i = Math.min(imgs.length - 1, Math.floor(t / fatia)), u = (t - i * fatia) / fatia;
+      cx.save(); cx.globalAlpha = Math.min(1, u * 4 + (i ? 0 : 1)); bzCobrir(cx, imgs[i], W, H, 1 + 0.12 * u); cx.restore(); };
+  }
+  const stream = cv.captureStream(30); if (audio && audio.trilha) stream.addTrack(audio.trilha);
+  const tipo = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  if (!tipo) throw new Error("Este navegador não grava vídeo; use o Chrome do computador.");
+  const rec = new MediaRecorder(stream, {mimeType: tipo, videoBitsPerSecond: 8e6}), partes = [];
+  rec.ondataavailable = e => e.data.size && partes.push(e.data);
+  const fim = new Promise(ok => { rec.onstop = ok; });
+  rec.start(250);
+  const t0 = performance.now();
+  await new Promise(ok => { const passo = () => { const t = (performance.now() - t0) / 1000;
+    bzQuadro(c, p, W, H, Math.min(t, roteiro.total - 0.01), roteiro, fundo);
+    if (avisar) avisar(`gravando o vídeo… ${Math.min(100, Math.round(t / roteiro.total * 100))}% (deixe esta aba aberta)`);
+    if (t < roteiro.total) requestAnimationFrame(passo); else ok(); }; requestAnimationFrame(passo); });
+  rec.stop(); await fim;
+  if (video) { video.pause(); URL.revokeObjectURL(video.src); } if (audio) audio.ac.close();
+  return new Blob(partes, {type: tipo.split(";")[0]});
 }
 async function bzCompartilhar(p) {
   let texto = "";
   try { texto = (await api("bazar_post", {id: p.id})).texto; } catch (e) { return toast(e.message, 6000); }
-  modal(`<div style="display:flex;justify-content:space-between;gap:8px;align-items:start"><h2 style="margin-top:0">📣 Compartilhar · ${esc(p.produto)}</h2><button class="btn small" data-fechar>✕ Fechar</button></div>
-    <div class="bz-sh"><div><canvas id="bzc-cv" class="bz-cv"></canvas>
+  const st = {aba: "artes", fmt: "story", usar: p.arte || p.foto, video: null, videoUrl: null, leg: p.legendas || null};
+  const bg = modal(`<div style="display:flex;justify-content:space-between;gap:8px;align-items:start"><h2 style="margin-top:0">📣 Estúdio · ${esc(bzNome(p))}</h2><button class="btn small" data-fechar>✕ Fechar</button></div>
+    <div class="seg" style="margin-bottom:12px">${[["artes", "🖼️ Artes"], ["video", "🎬 Vídeo stories"], ["legendas", "✍️ Legendas"]].map(([k, n]) => `<button data-est="${k}">${n}</button>`).join("")}</div>
+    <div class="bz-sh"><div id="est-prev"></div><div id="est-lado"></div></div>
+    <div class="muted" id="bzc-msg" style="font-size:12.5px;margin-top:8px"></div>`, el => el.querySelector(".modal").classList.add("larga"));
+  const msg = t => { bg.querySelector("#bzc-msg").textContent = t; };
+  const links = await bzLinks([p.foto, p.arte, p.video, p.veo, ...(p.fotos || []), ...(p.videos || [])]);
+  const prev = bg.querySelector("#est-prev"), lado = bg.querySelector("#est-lado");
+  const enviar = async (arquivo, txt, via) => {
+    if (navigator.canShare && navigator.canShare({files: [arquivo]})) { if (txt) await bzCopiar(txt, "Legenda copiada (cole no post)."); try { await navigator.share({files: [arquivo], text: txt}); } catch { /* cancelou */ } return; }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(arquivo); a.download = arquivo.name; a.click();
+    if (txt) await bzCopiar(txt, via === "wa" ? "Arquivo baixado e legenda copiada: mande os dois no grupo." : "Arquivo baixado e legenda copiada: poste no Instagram.");
+    if (via === "wa") window.open("https://wa.me/?text=" + encodeURIComponent(txt || ""), "_blank", "noopener");
+  };
+  const legenda = qual => (st.leg && st.leg[qual]) || texto;
+  const desenharArtes = async () => {
+    prev.innerHTML = `<canvas id="bzc-cv" class="bz-cv"></canvas>`;
+    lado.innerHTML = `<div class="seg" style="margin-bottom:10px">${Object.entries(BZ_FMT).map(([k, v]) => `<button data-fmt="${k}" class="${k === st.fmt ? "on" : ""}">${v[2]}</button>`).join("")}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn small" id="bzc-arte" ${p.foto ? "" : "disabled title='Envie a foto do produto'"}>🎨 ${p.arte ? "Refazer" : "Criar"} fundo com o Gemini</button>
+        <button class="btn small" id="bzc-orig" ${p.arte ? "" : "hidden"}>📷 ${st.usar === p.arte ? "Usar a foto original" : "Usar o fundo do Gemini"}</button></div>
+      <p class="muted" style="font-size:12.5px">O Gemini melhora só a imagem; nome, notas e preços quem escreve é o nubi (sempre certos).${p.foto ? "" : " Sem foto: envie a foto do produto para a arte ficar completa."}</p>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-        <button class="btn small" id="bzc-arte" ${p.foto ? "" : "disabled title='Envie a foto do produto no ✏️ Editar'"}>🎨 ${p.arte ? "Refazer" : "Criar"} arte com o Gemini</button>
-        <button class="btn small" id="bzc-orig" ${p.arte ? "" : "hidden"}>📷 Usar a foto original</button>
-        <button class="btn small primary" id="bzc-baixar">⬇️ Baixar arte</button></div>
-      <div class="muted" id="bzc-msg" style="font-size:12px;margin-top:6px">${p.foto ? "" : "Sem foto: envie a foto do produto no ✏️ Editar para a arte ficar completa."}</div></div>
-    <div><textarea id="bzc-txt" rows="15" style="width:100%">${esc(texto)}</textarea>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-        <button class="btn small" id="bzc-frase" title="A IA escreve só a frase e escolhe o coração; preços são do sistema">✨ ${p.descricao ? "Outra frase" : "Frase com IA"}</button>
-        <button class="btn small primary" id="bzc-copiar">📋 Copiar texto</button>
-        <button class="btn small" id="bzc-share">📤 Enviar (WhatsApp…)</button>
-        <span id="bzc-video"></span></div></div></div>`, async bg => {
-    bg.querySelector(".modal").classList.add("larga");
-    const cv = bg.querySelector("#bzc-cv"), msg = t => { bg.querySelector("#bzc-msg").textContent = t; };
-    const links = await bzLinks([p.foto, p.arte, p.video]);
-    let usar = p.arte || p.foto;
-    const pintar = async () => { await bzDesenharArte(cv, p, links[usar]); bg.querySelector("#bzc-orig").hidden = !(p.arte && usar === p.arte); };
-    await pintar();
-    if (p.aba === "decant" && ((p.fotos || []).length > 1 || (p.videos || []).length)) {     // decant: as 3 fotos e os vídeos do cadastro
-      const lk = await bzLinks([...(p.fotos || []), ...(p.videos || [])]);
-      bg.querySelector("#bzc-video").innerHTML = [...(p.fotos || []).map((c, i) => [c, `📷 Foto ${i + 1}`]), ...(p.videos || []).map((c, i) => [c, `🎬 Vídeo ${i + 1}`])]
-        .filter(([c]) => lk[c]).map(([c, n]) => `<a class="btn small" href="${lk[c]}" target="_blank" rel="noopener" download>⬇️ ${n}</a>`).join(" ");
-    } else if (p.video && links[p.video]) bg.querySelector("#bzc-video").innerHTML = `<a class="btn small" href="${links[p.video]}" target="_blank" rel="noopener" download>🎬 Baixar vídeo</a>`;
-    const blobArte = () => new Promise(ok => cv.toBlob(ok, "image/jpeg", 0.9));
-    bg.querySelector("#bzc-orig").onclick = async () => { usar = p.foto; await pintar(); };
-    bg.querySelector("#bzc-baixar").onclick = async () => { const a = document.createElement("a"); a.href = URL.createObjectURL(await blobArte()); a.download = `bazar-${p.codigo}.jpg`; a.click(); };
-    bg.querySelector("#bzc-copiar").onclick = () => bzCopiar(bg.querySelector("#bzc-txt").value, "Texto copiado: cole no grupo junto da arte.");
-    bg.querySelector("#bzc-share").onclick = async () => {
-      const t = bg.querySelector("#bzc-txt").value, fl = new File([await blobArte()], `bazar-${p.codigo}.jpg`, {type: "image/jpeg"});
-      if (navigator.canShare && navigator.canShare({files: [fl]})) { try { await navigator.share({files: [fl], text: t}); } catch { /* cancelou */ } }
-      else { bzCopiar(t, "Texto copiado. Baixe a arte e mande junto no WhatsApp."); window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank", "noopener"); }
-    };
-    bg.querySelector("#bzc-frase").onclick = async () => {
-      const b = bg.querySelector("#bzc-frase"); b.disabled = true; msg("a IA está escrevendo a frase…");
-      try { const x = await api("bazar_frase", {}, {method: "POST", body: JSON.stringify({id: p.id})}); Object.assign(p, x);
-        bg.querySelector("#bzc-txt").value = (await api("bazar_post", {id: p.id})).texto; msg(""); }
-      catch (e) { msg(e.message); } b.disabled = false; };
-    bg.querySelector("#bzc-arte").onclick = async () => {
-      const b = bg.querySelector("#bzc-arte"); b.disabled = true; msg("o Gemini está fazendo a arte (até 1 min)…");
+        <button class="btn small primary" id="bzc-baixar">⬇️ Baixar arte</button>
+        <button class="btn small" id="bzc-ig">📸 Instagram (arte + legenda)</button>
+        <button class="btn small" id="bzc-wa">💬 WhatsApp (arte + legenda)</button></div>`;
+    const cv = prev.querySelector("#bzc-cv");
+    await bzDesenharArte(cv, p, links[st.usar], st.fmt);
+    const blob = () => new Promise(ok => cv.toBlob(ok, "image/jpeg", 0.92));
+    const nomeArq = () => `pure-${p.codigo}-${st.fmt}.jpg`;
+    lado.querySelectorAll("[data-fmt]").forEach(b => b.onclick = () => { st.fmt = b.dataset.fmt; desenharArtes(); });
+    lado.querySelector("#bzc-baixar").onclick = async () => { const a = document.createElement("a"); a.href = URL.createObjectURL(await blob()); a.download = nomeArq(); a.click(); };
+    lado.querySelector("#bzc-ig").onclick = async () => enviar(new File([await blob()], nomeArq(), {type: "image/jpeg"}), legenda("instagram"), "ig");
+    lado.querySelector("#bzc-wa").onclick = async () => enviar(new File([await blob()], nomeArq(), {type: "image/jpeg"}), legenda("whatsapp"), "wa");
+    const orig = lado.querySelector("#bzc-orig"); if (orig) orig.onclick = () => { st.usar = st.usar === p.arte ? p.foto : p.arte; desenharArtes(); };
+    lado.querySelector("#bzc-arte").onclick = async e => {
+      e.target.disabled = true; msg("o Gemini está fazendo o fundo (até 1 min)…");
       try { const x = await api("bazar_arte", {}, {method: "POST", body: JSON.stringify({id: p.id})}); p.arte = x.arte;
-        Object.assign(links, await bzLinks([x.arte])); usar = x.arte; await pintar(); msg("Arte pronta. O preço é colocado pelo nubi, não pela IA."); }
-      catch (e) { msg(e.message); } b.disabled = false; };
-  });
+        Object.assign(links, await bzLinks([x.arte])); st.usar = x.arte; msg("Fundo pronto."); desenharArtes(); }
+      catch (er) { msg(er.message); e.target.disabled = false; } };
+  };
+  const desenharVideo = async () => {
+    let gasto = null; try { gasto = await api("bazar_veo_gasto", {id: p.id}); } catch { /* sem leitura do gasto */ }
+    prev.innerHTML = st.videoUrl ? `<video src="${st.videoUrl}" class="bz-cv" controls playsinline loop autoplay muted></video>`
+      : `<div class="bz-cv est-vazio">O vídeo de stories (9:16, ~${Math.round(bzCenas(p).total)} s) aparece aqui:<br>nome → ${bzNotasLista(p).length ? "notas de topo, coração e fundo → " : ""}preços.</div>`;
+    const fotos = (p.fotos && p.fotos.length ? p.fotos : [p.arte, p.foto]).filter(Boolean);
+    lado.innerHTML = `<div class="est-op"><b>🎞️ Vídeo grátis com as fotos</b><span class="muted">${fotos.length} foto(s) com zoom lento + nome, notas e preços. Sem custo.</span>
+        <button class="btn small primary" id="est-gratis" ${fotos.length ? "" : "disabled"}>Gerar vídeo grátis</button></div>
+      <div class="est-op"><b>✨ Vídeo cinema com o Veo (Google)</b><span class="muted">A IA dá vida à foto: luz, movimento e elementos das notas (8 s, com som). ~US$ 0,40 por vídeo.
+        ${gasto ? `Usado no mês: <b>US$ ${gasto.usd.toFixed(2).replace(".", ",")}</b> de US$ ${gasto.teto} (${gasto.videos} vídeos).` : ""}</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn small" id="est-veo" ${p.foto ? "" : "disabled"}>${p.veo_op ? "⏳ Ver se ficou pronto" : "Pedir vídeo ao Veo"}</button>
+        ${p.veo && links[p.veo] ? `<button class="btn small primary" id="est-veo-montar">Montar vídeo com o Veo + textos</button>` : ""}</div></div>
+      ${!bzNotasLista(p).length ? `<p class="muted" style="font-size:12.5px">Sem notas olfativas: ${p.aba === "decant" ? "busque as notas no cadastro do decant (🌸)" : "gere as legendas (✍️) que o nubi busca as notas"} para o vídeo mostrar topo, coração e fundo.</p>` : ""}
+      ${st.video ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn small primary" id="est-baixar-v">⬇️ Baixar vídeo</button>
+        <button class="btn small" id="est-ig-v">📸 Instagram (vídeo + legenda)</button><button class="btn small" id="est-wa-v">💬 WhatsApp (vídeo + legenda)</button></div>` : ""}`;
+    const gravar = async fonte => { try { const b = await bzGravarVideo(p, fonte, msg); st.video = b; if (st.videoUrl) URL.revokeObjectURL(st.videoUrl); st.videoUrl = URL.createObjectURL(b);
+      msg(b.type.includes("mp4") ? "Vídeo pronto (MP4)." : "Vídeo pronto (WebM: se o celular não abrir, gere pelo Chrome atualizado)."); desenharVideo(); } catch (e) { msg(e.message); } };
+    const g = lado.querySelector("#est-gratis"); if (g) g.onclick = () => { g.disabled = true; gravar({fotos: fotos.map(f => links[f]).filter(Boolean)}); };
+    const vm = lado.querySelector("#est-veo-montar"); if (vm) vm.onclick = () => { vm.disabled = true; gravar({video: links[p.veo]}); };
+    lado.querySelector("#est-veo").onclick = async e => {
+      e.target.disabled = true;
+      try {
+        if (!p.veo_op) { const r = await api("bazar_veo", {}, {method: "POST", body: JSON.stringify({id: p.id})}); p.veo_op = r.operacao;
+          msg(`Pedido ao Veo (US$ ${r.custo.toFixed(2)}). Leva 1 a 3 minutos; o nubi confere sozinho…`); }
+        for (let i = 0; i < 40; i++) {
+          const s = await api("bazar_veo_status", {id: p.id});
+          if (s.pronto) { p.veo = s.veo; delete p.veo_op; Object.assign(links, await bzLinks([s.veo])); msg("Vídeo do Veo pronto! Montando com os textos…"); desenharVideo(); return gravar({video: links[s.veo]}); }
+          msg(`o Veo está fazendo o vídeo… (${(i + 1) * 10} s)`); await new Promise(ok => setTimeout(ok, 10000));
+        }
+        msg("O Veo ainda não terminou. Clique em ⏳ daqui a pouco."); e.target.disabled = false;
+      } catch (er) { delete p.veo_op; msg(er.message); e.target.disabled = false; }
+    };
+    const arqV = () => new File([st.video], `pure-${p.codigo}-story.${st.video.type.includes("mp4") ? "mp4" : "webm"}`, {type: st.video.type});
+    const bv = lado.querySelector("#est-baixar-v"); if (bv) bv.onclick = () => { const a = document.createElement("a"); a.href = st.videoUrl; a.download = arqV().name; a.click(); };
+    const iv = lado.querySelector("#est-ig-v"); if (iv) iv.onclick = () => enviar(arqV(), legenda("instagram"), "ig");
+    const wv = lado.querySelector("#est-wa-v"); if (wv) wv.onclick = () => enviar(arqV(), legenda("whatsapp"), "wa");
+  };
+  const desenharLegendas = () => {
+    prev.innerHTML = `<div class="est-dica"><b>Como vende mais</b><ul><li>A IA descreve o cheiro com as notas e convence; <b>nenhum preço vem dela</b>.</li>
+      <li>Os preços${p.aba === "decant" ? " e o \"sinta antes de investir no frasco\"" : ""} são colocados pelo nubi.</li><li>Instagram: legenda com hashtags. WhatsApp: curta, chamando para reservar.</li></ul></div>`;
+    const caixa = (k, n, v) => `<label class="bz-f"><span>${n}</span><textarea id="leg-${k}" rows="9" style="width:100%">${esc(v || "")}</textarea></label>
+      <div style="display:flex;gap:6px;margin:6px 0 12px"><button class="btn small" data-copiar-leg="${k}">📋 Copiar</button></div>`;
+    lado.innerHTML = `<button class="btn small primary" id="leg-gerar">✨ ${st.leg ? "Gerar de novo" : "Gerar legendas com IA"}</button>
+      <div style="margin-top:10px">${caixa("instagram", "📸 Instagram", st.leg && st.leg.instagram)}${caixa("whatsapp", "💬 WhatsApp", st.leg && st.leg.whatsapp)}${caixa("grupo", "📌 Post padrão do grupo", texto)}</div>`;
+    lado.querySelectorAll("[data-copiar-leg]").forEach(b => b.onclick = () => bzCopiar(lado.querySelector("#leg-" + b.dataset.copiarLeg).value, "Legenda copiada."));
+    ["instagram", "whatsapp"].forEach(k => lado.querySelector("#leg-" + k).oninput = e => { st.leg = Object.assign(st.leg || {}, {[k]: e.target.value}); });
+    lado.querySelector("#leg-gerar").onclick = async e => {
+      e.target.disabled = true; msg("a IA está escrevendo as legendas com as notas do perfume (até 1 min)…");
+      try { const r = await api("bazar_legendas", {}, {method: "POST", body: JSON.stringify({id: p.id})}); st.leg = {instagram: r.instagram, whatsapp: r.whatsapp}; msg("Legendas prontas. Edite à vontade."); desenharLegendas(); }
+      catch (er) { msg(er.message); e.target.disabled = false; } };
+  };
+  const abrir = k => { st.aba = k; bg.querySelectorAll("[data-est]").forEach(b => b.classList.toggle("on", b.dataset.est === k)); msg("");
+    (k === "video" ? desenharVideo : k === "legendas" ? desenharLegendas : desenharArtes)(); };
+  bg.querySelectorAll("[data-est]").forEach(b => b.onclick = () => abrir(b.dataset.est));
+  abrir("artes");
 }
 // ---------- Minhas Lojas → 🧪 Decants (01/10, Bruno: "decant de 15, 10 e 5 ml; custo por ml + R$ 5 do frasco, R$ 1 do adesivo e
 // R$ 1 da caixa, padrão mas editável; markup 2,3; foto e botão para o Bazar gerar a arte"). Contas no servidor (decants.py).

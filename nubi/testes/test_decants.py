@@ -91,6 +91,54 @@ def test_notas_e_legenda():
         pass
 
 
+def test_marketing_veo_e_legendas():
+    import io
+    import urllib.error
+    import marketing
+    r = Repo()
+    p = {"id": 1, "produto": "Yara", "marca": "Lattafa", "aba": "decant", "decant": [{"ml": 5, "preco": 32.2}, {"ml": 15, "preco": 66.7}],
+         "notas": {"notas_topo": "Orquídea", "notas_coracao": "Gourmand", "notas_fundo": "Baunilha", "familia": "Âmbar"}}
+    os.environ["GEMINI_API_KEY"] = "teste"
+    pedidos = []
+
+    def post(url, corpo, chave):
+        pedidos.append(url)
+        if "lite" in url:                              # o Lite não liberado nesta conta: passa para o Fast
+            raise urllib.error.HTTPError(url, 404, "nao", {}, io.BytesIO(b""))
+        assert corpo["parameters"] == {"aspectRatio": "9:16", "durationSeconds": 8, "resolution": "720p"}
+        assert "NO text" in corpo["instances"][0]["prompt"] and "Baunilha" in corpo["instances"][0]["prompt"]
+        assert corpo["instances"][0]["image"]["mimeType"] == "image/jpeg"
+        return {"name": "models/veo-3.1-fast-generate-preview/operations/abc123"}
+    v = marketing.veo_iniciar(r, p, b"\xff\xd8foto", "image/jpeg", post=post)
+    assert v["modelo"].startswith("veo-3.1-fast") and v["custo"] == 0.8 and marketing.gasto_mes(r)["usd"] == 0.8
+    # teto: com US$ 19,50 gastos, o próximo (0,40 no Lite) passa a estourar? 19,5 + 0,4 = 19,9 ok; + 0,8 no fast estoura
+    marketing._gravar(r, f"veo|gasto|{marketing._mes()}", {"usd": 19.9, "videos": 40})
+    try:
+        marketing.veo_iniciar(r, p, b"x", "image/jpeg", post=post)
+        raise AssertionError("passou do teto")
+    except marketing.ErroMarketing as e:
+        assert "teto" in str(e)
+    # conferir: pronto → baixa o vídeo do endereço do Google
+    def get(url, chave, timeout=60, cru=False):
+        if cru:
+            return b"MP4"
+        return {"done": True, "response": {"generateVideoResponse": {"generatedSamples": [
+            {"video": {"uri": "https://generativelanguage.googleapis.com/v1beta/files/x:download?alt=media"}}]}}}
+    assert marketing.veo_conferir("models/veo-3.1-fast-generate-preview/operations/abc123", get=get) == {"pronto": True, "video": b"MP4"}
+    assert marketing.veo_conferir("models/veo/operations/z", get=lambda *a, **k: {"done": False}) == {"pronto": False}
+    try:
+        marketing.veo_conferir("../../segredo", get=get)
+        raise AssertionError("aceitou operação estranha")
+    except marketing.ErroMarketing:
+        pass
+    # legendas: a IA não põe número; o nubi põe os preços e o "sinta antes de investir"
+    leg = marketing.legendas_do_texto('{"instagram": "Baunilha que abraça 🤍 por R$ 29,90\n#perfume #decant", "whatsapp": "Leve 5ml hoje!"}')
+    assert not any(ch.isdigit() for ch in leg["instagram"] + leg["whatsapp"]) and "#decant" in leg["instagram"]
+    bl = marketing.bloco_precos(p, bazar.brl, 249.0)
+    assert "🧪 5 ml por R$ 32,20" in bl and "Sinta por R$ 32,20 antes de investir R$ 249,00 no frasco" in bl
+    assert "experimentar" in marketing.pedido_legendas(p) and "Baunilha" in marketing.pedido_legendas(p)
+
+
 def test_tela():
     import subprocess
     import time
@@ -125,6 +173,9 @@ def test_tela():
             out = {"ok": True, "produto": bazar.decant_ao_bazar(r, linha)}
         elif nome == "bazar":
             out = bazar.painel(r)
+        elif nome == "bazar_veo_gasto":
+            import marketing
+            out = marketing.gasto_mes(r)
         elif nome == "bazar_post":
             out = {"texto": bazar.post(next(x for x in bazar.painel(r)["produtos"] if x["id"] == int(qs["id"][0])))}
         else:
@@ -152,6 +203,7 @@ def test_tela():
                 pg.route("https://cdn.jsdelivr.net/**", lambda rt: rt.fulfill(content_type="application/javascript", body=STUB))
                 pg.route("https://fonts.**", lambda rt: rt.abort())
                 pg.route("**/api/app?r=decants*", api)
+                pg.set_default_timeout(15000)
                 pg.route("**/api/app?r=bazar*", api)
                 pg.goto(f"http://127.0.0.1:{porta}/#/decants")
                 pg.wait_for_selector(".dc-tab tbody tr", timeout=15000)
@@ -188,8 +240,23 @@ def test_tela():
                     pg.wait_for_selector(".bz-tab tbody tr", timeout=8000)
                     assert "#/bazar/decant" in pg.url and "🧪 DECANT" in pg.inner_text("#main")
                     pg.locator("[data-bzsh]").first.click()
-                    pg.wait_for_selector("#bzc-txt", timeout=5000)
-                    t = pg.input_value("#bzc-txt")
+                    pg.wait_for_selector("#bzc-cv", timeout=5000)
+                    pg.wait_for_timeout(400)
+                    pg.screenshot(path=str(RAIZ / "testes" / "saida_decants_story.png"))
+                    # vídeo grátis gravado no navegador (foto de teste em data:)
+                    tam = pg.evaluate("""async () => { const c = document.createElement('canvas'); c.width = 600; c.height = 900;
+                        const x = c.getContext('2d'); x.fillStyle = '#c9a'; x.fillRect(0, 0, 600, 900);
+                        const p = {produto: 'Yara', marca: 'Lattafa', aba: 'decant', codigo: 'BZ001', decant: [{ml: 15, preco: 59}],
+                          notas: {notas_topo: 'Orquídea', notas_coracao: 'Gourmand', notas_fundo: 'Baunilha'}};
+                        const b = await bzGravarVideo(p, {fotos: [c.toDataURL('image/jpeg')]}); return [b.size, b.type]; }""")
+                    assert tam[0] > 20000 and tam[1].startswith("video/"), tam
+                    pg.click("[data-est=video]")
+                    pg.wait_for_selector("#est-gratis", timeout=5000)
+                    assert "US$ 0,00" in pg.inner_text("#est-lado") or "Usado no mês" in pg.inner_text("#est-lado")
+                    pg.screenshot(path=str(RAIZ / "testes" / "saida_decants_video.png"))
+                    pg.click("[data-est=legendas]")
+                    pg.wait_for_selector("#leg-grupo", timeout=5000)
+                    t = pg.input_value("#leg-grupo")
                     assert t.startswith("✨ DECANT NA PURE PERFUMARIA! ✨") and "15 ml" in t and "5 ml" not in t.replace("15 ml", ""), t
                     assert decants.itens_extra(r)["YARA100"]["tamanhos_bazar"] == [15]
                     pg.wait_for_timeout(400)

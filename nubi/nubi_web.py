@@ -48,6 +48,7 @@ import trava_agrupamento
 import precos
 import bazar
 import decants
+import marketing
 import revisao
 import reuniao
 import vend_bi
@@ -4769,7 +4770,8 @@ def rota_bazar(repo, metodo, rota, q, corpo):
         itens = [dict(x, preco=x.get("preco") or precos_sku.get(estoque._chave(str(x.get("sku") or "")))) for x in (d.get("itens") or [])]
         return {"ok": True, "criados": bazar.levar_ao_bazar(repo, itens, quem)}
     p = next((x for x in bazar.calcular(bazar.produtos(repo), bazar.vendas(repo)) if x["id"] == int(d.get("id") or q.get("id") or 0)), None)
-    if rota.startswith("bazar_") and rota in ("bazar_post", "bazar_frase", "bazar_arte") and not p:
+    if rota.startswith("bazar_") and rota in ("bazar_post", "bazar_frase", "bazar_arte", "bazar_legendas", "bazar_veo",
+                                              "bazar_veo_status") and not p:
         raise ErroNuvem("Produto do Bazar não encontrado.")
     if rota == "bazar_post":
         return {"texto": bazar.post(p)}
@@ -4801,6 +4803,83 @@ def rota_bazar(repo, metodo, rota, q, corpo):
         caminho = _bazar_subir(repo, f"bazar/{p['id']}/arte-{int(time.time() * 1000)}.{'png' if mime == 'image/png' else 'jpg'}", img, mime)
         bazar.salvar_produto(repo, {"id": p["id"], "arte": caminho}, quem)
         return {"ok": True, "arte": caminho, "modelo": modelo}
+    # 01/10 (Bruno: "vídeo de stories com as notas, arte top e legenda convencendo; tudo pronto de dentro do nubi")
+    if rota == "bazar_legendas" and metodo == "POST":
+        if not p.get("notas"):                       # notas do perfume (Fragrantica pela busca do Gemini; mesma ficha do SAC)
+            try:
+                f = _ficha_decant(repo, p["produto"] + (" " + p["marca"] if p.get("marca") else ""))
+            except Exception:  # noqa: BLE001 — sem notas a legenda sai assim mesmo
+                f = None
+            if f and any(f.get(k) for k in ("notas_topo", "notas_coracao", "notas_fundo")):
+                p["notas"] = {k: f.get(k) for k in ("familia", "notas_topo", "notas_coracao", "notas_fundo", "inspirado_em")}
+        pedido = marketing.pedido_legendas(p)
+        try:
+            texto, _ = ia.gemini_texto(pedido, web=False, max_tokens=1200, timeout=90)
+        except ia.SemIA:
+            try:
+                texto = ia.perguntar(pedido, web=False, max_tokens=1200)[0]
+            except ia.SemIA as e:
+                raise ErroNuvem(f"Nenhuma IA disponível para as legendas: {e}")
+        leg = marketing.legendas_do_texto(texto)
+        if not leg:
+            raise ErroNuvem("A IA não devolveu as legendas; tente de novo.")
+        precos = marketing.bloco_precos(p, bazar.brl, p.get("preco_frasco"))
+        titulo = ("✨ DECANT NA PURE PERFUMARIA ✨" if p.get("aba") == "decant" else "🔥 OFERTA NA PURE PERFUMARIA 🔥") + \
+                 f"\n{p.get('cor') or '❤️'} {bazar.nome_com_marca(p)}"
+        n = p.get("notas") or {}
+        notas = "\n".join(f"{r}: {n[k]}" for r, k in (("🍋 Topo", "notas_topo"), ("🌸 Coração", "notas_coracao"), ("🌳 Fundo", "notas_fundo")) if n.get(k))
+        def montar(corpo, extra):
+            partes = [titulo, corpo.split("\n#")[0].strip() if "#" in corpo else corpo.strip()]
+            if notas:
+                partes.append(notas)
+            if precos:
+                partes.append(precos)
+            partes.append(extra)
+            tags = "\n".join(l for l in corpo.splitlines() if l.strip().startswith("#"))
+            return "\n\n".join(x for x in partes + ([tags] if tags else []) if x)
+        out = {"instagram": montar(leg["instagram"], "📲 Chama no direct para garantir o seu!"),
+               "whatsapp": montar(leg["whatsapp"], "📲 Responda aqui no grupo para reservar o seu! ⏳ Estoque limitado.")}
+        prods = bazar.produtos(repo)
+        alvo = next(x for x in prods if x["id"] == p["id"])
+        alvo["legendas"] = out
+        if p.get("notas"):
+            alvo["notas"] = p["notas"]
+        bazar._gravar(repo, bazar.PRODUTOS, prods)
+        return {"ok": True, **out}
+    if rota == "bazar_veo" and metodo == "POST":
+        foto_c = (p.get("fotos") or [None])[0] or p.get("foto")
+        if not foto_c:
+            raise ErroNuvem("Envie a foto do produto antes de pedir o vídeo do Veo.")
+        foto, tipo = _bazar_arquivo(repo, foto_c)
+        try:
+            r = marketing.veo_iniciar(repo, p, foto, tipo)
+        except marketing.ErroMarketing as e:
+            raise ErroNuvem(str(e)[:1].upper() + str(e)[1:])
+        prods = bazar.produtos(repo)
+        next(x for x in prods if x["id"] == p["id"])["veo_op"] = r["operacao"]
+        bazar._gravar(repo, bazar.PRODUTOS, prods)
+        return {"ok": True, **r}
+    if rota == "bazar_veo_status":
+        if not p.get("veo_op"):
+            return {"pronto": bool(p.get("veo")), "veo": p.get("veo") or "", "gasto": marketing.gasto_mes(repo)}
+        try:
+            r = marketing.veo_conferir(p["veo_op"])
+        except marketing.ErroMarketing as e:
+            prods = bazar.produtos(repo)
+            next(x for x in prods if x["id"] == p["id"]).pop("veo_op", None)
+            bazar._gravar(repo, bazar.PRODUTOS, prods)
+            raise ErroNuvem(str(e)[:1].upper() + str(e)[1:])
+        if not r["pronto"]:
+            return {"pronto": False}
+        caminho = _bazar_subir(repo, f"bazar/{p['id']}/veo-{int(time.time() * 1000)}.mp4", r["video"], "video/mp4")
+        prods = bazar.produtos(repo)
+        alvo = next(x for x in prods if x["id"] == p["id"])
+        alvo.pop("veo_op", None)
+        alvo["veo"] = caminho
+        bazar._gravar(repo, bazar.PRODUTOS, prods)
+        return {"pronto": True, "veo": caminho, "gasto": marketing.gasto_mes(repo)}
+    if rota == "bazar_veo_gasto":
+        return marketing.gasto_mes(repo)
     raise ErroNuvem("Rota do Bazar desconhecida.", 404)
 
 
