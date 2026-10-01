@@ -2195,8 +2195,14 @@ JS_UPSELLER_HOJE = r"""() => {
       const o = ec && ec.getInstanceByDom(d) && ec.getInstanceByDom(d).getOption();
       if (o) series.push({x: ((o.xAxis || [])[0] || {}).data || [], s: (o.series || []).map(z => ({nome: z.name || "", dados: (z.data || []).map(v => v && typeof v === "object" ? (v.value ?? null) : v)}))}); }); } catch (e) {}
   const hora = (document.body.innerText.match(/Hor[áa]rio do Brasil:\s*([\d-]+\s+[\d:]+)/) || [])[1] || "";
+  // 01/10 (Bruno: "coloca foto dos produtos"): a foto de cada linha do Ranking de Anúncio (mesma ordem das linhas)
+  const fotos = re => { const c = cartao(re, /\n.*\d/); if (!c) return [];
+    let el = c; for (let i = 0; i < 4 && el && !el.querySelector("tbody tr"); i++) el = el.parentElement;
+    return el ? [...el.querySelectorAll("tbody tr")].slice(0, 20).map(tr => { const im = tr.querySelector("img");
+      return im ? (im.currentSrc || im.src || im.getAttribute("data-src") || "").slice(0, 400) : ""; }) : []; };
   return {valor: kpi(/^Valor de Vendas V[áa]lidas$/), pedidos: kpi(/^Pedidos V[áa]lidos$/),
-          anuncios: tabela(/^Ranking de An[úu]ncio$/), lojas: tabela(/^Ranking de Loja$/), series, hora_upseller: hora}; }"""
+          anuncios: tabela(/^Ranking de An[úu]ncio$/), fotos_anuncios: fotos(/^Ranking de An[úu]ncio$/),
+          lojas: tabela(/^Ranking de Loja$/), series, hora_upseller: hora}; }"""
 
 
 def ler_upseller_hoje(pg):

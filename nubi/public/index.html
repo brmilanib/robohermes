@@ -1224,7 +1224,13 @@ header.top{padding:7px 16px}
 .vh-pn{color:#fff;border-radius:999px;font-size:11.5px;font-weight:700;padding:2px 8px}
 @media (max-width:600px){.vh-horas{gap:1px;height:150px}.vh-h span{font-size:8.5px}}
 /* 📺 Modo TV */
-.vh-loja{display:inline-flex;align-items:center;gap:8px}
+.ft-prod{border-radius:10px;object-fit:cover;background:#fff;border:1px solid #e5e7eb;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:20px}
+.ft-prod.vazio{background:#f3f4f6}
+.vh-prod{display:flex;gap:12px;align-items:center}.vh-prod>div{min-width:0}.vh-pl{font-size:12px}
+.tv-ft{position:relative;width:46px;height:46px}.tv-ft .pl-ico{position:absolute;right:-6px;bottom:-6px}
+.tv-tela .ft-prod{border-color:#1f2a44}.tv-tela .ft-prod.vazio{background:#16213a}
+.vh-loja{display:inline-flex;align-items:center;gap:12px}.vh-loja>span{display:flex;flex-direction:column;line-height:1.35}
+.vh-loja b{font-weight:600;font-size:14px}.vh-loja small{color:var(--muted,#6b7280);font-size:12.5px}
 .vh-hb i.ac{position:absolute;inset:auto 0 0 0;height:100%;background:repeating-linear-gradient(45deg,#e5e7eb 0 4px,transparent 4px 8px);border-radius:3px}
 .vh-hb{position:relative}
 .vh-hz{display:flex;flex-direction:column;gap:4px;overflow-x:auto}
@@ -1258,10 +1264,7 @@ header.top{padding:7px 16px}
 .tv-card h3 span{color:#94a3b8;font-weight:400;font-size:13px;display:flex;gap:6px;align-items:center}
 .tv-card h3 i{display:inline-block;width:10px;height:10px;border-radius:3px}
 .tv-tela .ch svg text{fill:#94a3b8}.tv-tela .ch .grid line{stroke:#1f2a44}
-.pl-ico{display:inline-flex;align-items:center;justify-content:center;width:var(--t);height:var(--t);min-width:var(--t);border-radius:28%;
-  font-weight:900;font-size:calc(var(--t) * .46);line-height:1;vertical-align:middle;letter-spacing:-.5px;font-family:Arial,sans-serif;box-shadow:0 1px 2px rgba(0,0,0,.25)}
-.pl-ml{background:#ffe600;color:#2d3277}.pl-sp{background:#ee4d2d;color:#fff}.pl-tt{background:#000;color:#25f4ee;text-shadow:1.5px 1.5px 0 #fe2c55}
-.pl-am{background:#232f3e;color:#ff9900}.pl-mg{background:#0086ff;color:#fff}.pl-x{background:#e5e7eb;font-size:calc(var(--t) * .6)}
+.pl-ico{display:inline-block;vertical-align:middle;flex:none;border-radius:24%;box-shadow:0 1px 3px rgba(15,23,42,.18)}
 .tv-loja{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:center;margin-bottom:14px;animation:tventra .6s both}
 .tv-ln{min-width:0;display:flex;flex-direction:column}.tv-ln .n{font-size:clamp(16px,1.2vw,22px);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tv-ln small{color:#94a3b8;font-size:13px}.tv-lv{display:flex;flex-direction:column;align-items:flex-end}
@@ -1277,7 +1280,7 @@ header.top{padding:7px 16px}
 @keyframes tvbarra{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 @keyframes tvsobe{from{transform:scaleY(0)}to{transform:scaleY(1)}}
 @keyframes tvnova{0%{opacity:0;transform:translate(-50%,-20px) scale(.8)}8%{opacity:1;transform:translate(-50%,0) scale(1.06)}14%{transform:translate(-50%,0) scale(1)}85%{opacity:1}100%{opacity:0;transform:translate(-50%,-10px)}}
-.tv-camp{display:grid;grid-template-columns:30px 44px 26px 1fr auto auto;gap:9px;align-items:center;padding:7px 0;border-bottom:1px solid #1f2a44;animation:tventra .6s both}
+.tv-camp{display:grid;grid-template-columns:30px 44px 52px 1fr auto auto;gap:9px;align-items:center;padding:7px 0;border-bottom:1px solid #1f2a44;animation:tventra .6s both}
 .tv-camp .t{font-size:clamp(14px,1vw,17px)}
 .tv-camp .p{font-weight:800;font-size:18px;color:#fbbf24;text-align:center}
 .tv-camp .t{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.tv-camp .t small{display:block;color:#94a3b8;font-size:12px}
@@ -4455,10 +4458,10 @@ async function telaVendasHoje() {
     </div>
     <div class="vh-dois">
       <div class="card pad"><h3 style="margin-top:0">🏆 Ranking de anúncio</h3>${linhasT(r.anuncios || [], [["#", (x, i) => i + 1],
-        ["Produto", x => `<div class="wrap">${esc(x.titulo)}</div><span class="muted" style="font-size:11.5px">${platIco(x.plataforma, 16)} ${esc(x.loja)}${x.plataforma ? " · " + esc(x.plataforma) : ""}</span>`],
+        ["Produto", x => `<div class="vh-prod">${fotoProd(x.foto, 48)}<div><div class="wrap">${esc(x.titulo)}</div><span class="muted vh-pl">${platIco(x.plataforma, 16)} ${esc(x.loja)}${x.plataforma ? " [" + esc(x.plataforma) + "]" : ""}</span></div></div>`],
         ["Un.", x => x.unidades != null ? nf0.format(x.unidades) : "—", "num"], ["Valor", x => x.valor != null ? rsES(x.valor) : "—", "num"]])}</div>
-      <div class="card pad"><h3 style="margin-top:0">🏪 Ranking de loja</h3>${linhasT(r.lojas || [], [["#", (x, i) => i + 1],
-        ["Loja", x => `<span class="vh-loja">${platIco(x.plataforma, 26)} <b>${esc(x.loja)}</b> <span class="muted" style="font-size:11.5px">${esc(x.plataforma)}</span></span>`],
+      <div class="card pad"><h3 style="margin-top:0">🏪 Ranking de loja <span class="muted" style="font-weight:400;font-size:13px">— por faturamento</span></h3>${linhasT([...(r.lojas || [])].sort((p, q) => (q.valor || 0) - (p.valor || 0)), [["#", (x, i) => `<b>${i + 1}</b>`],
+        ["Loja", x => `<span class="vh-loja">${platIco(x.plataforma, 42)}<span><b>${esc(x.loja)}</b><small>[${esc(x.plataforma)}]</small></span></span>`],
         ["Pedidos", x => x.pedidos != null ? nf0.format(x.pedidos) : "—", "num"], ["Valor", x => x.valor != null ? rsES(x.valor) : "—", "num"]])}</div>
     </div>
     <p class="muted" style="font-size:12px">Fonte: UpSeller → Análises → Visão geral (todas as lojas). O dia fecha com o "Ontem" que o UpSeller mostra no dia seguinte. Dias guardados: ${nf0.format(dias.length)}.</p>
@@ -4496,7 +4499,27 @@ function vhHorarios(hz) {
 // 01/10 (Bruno: "o ícone do Mercado Livre na frente da loja, o da Shopee na loja da Shopee"): selo da plataforma
 function platIco(p, tam = 22) {
   const k = /mercado/i.test(p || "") ? "ml" : /shopee/i.test(p || "") ? "sp" : /tiktok/i.test(p || "") ? "tt" : /amazon/i.test(p || "") ? "am" : /magalu|magazine/i.test(p || "") ? "mg" : "x";
-  return `<span class="pl-ico pl-${k}" style="--t:${tam}px" title="${esc(p || "loja")}">${{ml: "ML", sp: "S", tt: "♪", am: "a", mg: "M", x: "🏪"}[k]}</span>`;
+  const nota = "M27 8h6c.5 4 3 7 7 7.5v6c-2.8 0-5.2-.9-7-2.3v11.3c0 6-4.8 10.5-10.5 10.5S12 36.5 12 31s4.8-10.5 10.5-10.5c.6 0 1.2 0 1.8.1v6.3c-.6-.2-1.2-.3-1.8-.3-2.4 0-4.3 2-4.3 4.4s1.9 4.4 4.3 4.4 4.5-2 4.5-4.4z";
+  const svg = {
+    ml: `<rect width="48" height="48" rx="11" fill="#FFE600"/><ellipse cx="24" cy="24.5" rx="16.5" ry="11.5" fill="#fff" stroke="#2D3277" stroke-width="2.2"/>
+      <path d="M9.5 24.5l6.5-4.6 5.4 2.2 4.2-3 4.8.3 6.6 5.6" fill="none" stroke="#2D3277" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M16.5 26.8l3.6 3.4M20 25.8l4.4 4.2M23.6 24.8l4.4 3.8M27.6 24.2l3.4 2.8" stroke="#2D3277" stroke-width="2" stroke-linecap="round"/>
+      <path d="M21.4 22.1l3.2 2.3c.9.6 2.1.4 2.6-.5" fill="none" stroke="#2D3277" stroke-width="2" stroke-linecap="round"/>`,
+    tt: `<rect width="48" height="48" rx="11" fill="#000"/><path d="${nota}" fill="#25F4EE" transform="translate(-1.6 -1.4)"/>
+      <path d="${nota}" fill="#FE2C55" transform="translate(1.6 1.4)"/><path d="${nota}" fill="#fff"/>`,
+    am: `<rect width="48" height="48" rx="11" fill="#F3F4F6"/><text x="24" y="29" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="27" font-weight="700" fill="#111">a</text>
+      <path d="M11.5 32.5q12.5 7.5 25 0" fill="none" stroke="#FF9900" stroke-width="3" stroke-linecap="round"/><path d="M33 30.2l4.4 2.1-2.4 4" fill="none" stroke="#FF9900" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`,
+    sp: `<rect width="48" height="48" rx="11" fill="#EE4D2D"/><path d="M19 17q0-6.5 5-6.5t5 6.5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M12.5 17h23l-1.6 19.2q-.2 2.3-2.5 2.3H16.6q-2.3 0-2.5-2.3z" fill="#fff"/>
+      <text x="24" y="33.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="900" fill="#EE4D2D">S</text>`,
+    mg: `<rect width="48" height="48" rx="11" fill="#0086FF"/><text x="24" y="32" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="22" font-weight="900" fill="#fff">M</text>`,
+    x: `<rect width="48" height="48" rx="11" fill="#E5E7EB"/><path d="M12 20l3-8h18l3 8M13 20h22v16H13zM20 36v-8h8v8" fill="none" stroke="#475569" stroke-width="2.4" stroke-linejoin="round"/>`};
+  return `<svg class="pl-ico" viewBox="0 0 48 48" width="${tam}" height="${tam}" role="img" aria-label="${esc(p || "loja")}"><title>${esc(p || "loja")}</title>${svg[k]}</svg>`;
+}
+// 01/10 (Bruno: "coloca foto dos produtos"): foto do anúncio (link https do UpSeller), senão um quadradinho com 🧴
+function fotoProd(u, tam = 44) {
+  return u && /^https:\/\//.test(u) ? `<img class="ft-prod" src="${esc(u)}" width="${tam}" height="${tam}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'ft-prod vazio',textContent:'🧴',style:'width:${tam}px;height:${tam}px'}))">`
+    : `<span class="ft-prod vazio" style="width:${tam}px;height:${tam}px">🧴</span>`;
 }
 // número que sobe do valor anterior até o novo (Modo TV)
 function tvContar(raiz) {
@@ -4542,7 +4565,7 @@ async function telaTV() {
   const mins = ag.lido_em ? Math.round((Date.now() - new Date(ag.lido_em)) / 60e3) : null;
   const tk = x => x && x.pedidos ? x.valor / x.pedidos : null;
   const t = (sac && sac.total) || {}, precisam = (t.precisa_voce || 0) + (t.aprovar || 0);
-  const lojas = (r.lojas || []).slice(0, 7), lmax = Math.max(1, ...lojas.map(x => x.valor || 0));
+  const lojas = [...(r.lojas || [])].sort((p, q) => (q.valor || 0) - (p.valor || 0)).slice(0, 7), lmax = Math.max(1, ...lojas.map(x => x.valor || 0));
   const ph = r.por_hora || [], po = r.por_hora_ontem || [], hmax = Math.max(1, ...ph.map(x => x.valor || 0), ...po.map(x => x.valor || 0));
   const hAgora = new Date().getHours();
   const plat = p => /mercado/i.test(p) ? "🤝" : /shopee/i.test(p) ? "🛍️" : /tiktok/i.test(p) ? "🎵" : /amazon/i.test(p) ? "📦" : "🏪";
@@ -4580,7 +4603,7 @@ async function telaTV() {
     </div>
     <div class="tv-baixo">
       <div class="tv-card"><h3>🏆 Campeões de hoje <span>posição × ontem neste horário</span></h3>${(r.campeoes || []).slice(0, 8).map((x, i) => `<div class="tv-camp" style="animation-delay:${i * 70}ms">
-          <span class="p">${x.pos}</span>${tvPos(x.pos, x.pos_ontem)}${platIco(x.plataforma, 26)}<span class="t">${esc(x.titulo)}<small>${esc(x.loja)}</small></span>
+          <span class="p">${x.pos}</span>${tvPos(x.pos, x.pos_ontem)}<span class="tv-ft">${fotoProd(x.foto, 46)}${platIco(x.plataforma, 20)}</span><span class="t">${esc(x.titulo)}<small>${esc(x.loja)}</small></span>
           <span class="u">${x.unidades != null ? nf0.format(x.unidades) + " un" : ""}</span><b>${x.valor != null ? rsES(x.valor) : ""}</b></div>`).join("") || `<p class="tv-mudo">Sem leitura ainda.</p>`}</div>
       <div class="tv-card"><h3>Vendido por hora <span><i style="background:#60a5fa"></i>hoje <i style="background:#34d399"></i>ontem</span></h3><div class="tv-horas">${ph.map((x, h) => { const y = po[h] || {};
           return `<div class="tv-h ${h === hAgora ? "agora" : ""}"><div class="tv-hb"><i class="a" style="height:${x.valor ? Math.max(2, x.valor / hmax * 100) : 0}%"></i><i class="b" style="height:${y.valor ? Math.max(2, y.valor / hmax * 100) : 0}%"></i></div><span>${String(h).padStart(2, "0")}</span></div>`; }).join("")}</div>

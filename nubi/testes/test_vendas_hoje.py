@@ -36,7 +36,7 @@ PAGINA = """<html><body><div class="tabs"><button>Vendas de Hoje</button><button
    <div class="pie">100,00% <span>Self Fulfillment 63</span></div></div>
 </div>
 <div class="card"><div class="head"><span>Ranking de Anúncio</span></div><table><thead><tr><th>#</th><th>Produtos</th><th>Unidades Vendidas</th><th>Valor de Vendas</th></tr></thead>
- <tbody><tr><td>1</td><td><div>Perfume Ferrari Black 125ml Eau De Toilette</div><div>ESSENCE PRIME [Mercado Libre BR]</div></td><td>10</td><td>2.088,90</td></tr>
+ <tbody><tr><td>1</td><td><img src="https://http2.mlstatic.com/D_Q_NP_ferrari-O.webp"><div>Perfume Ferrari Black 125ml Eau De Toilette</div><div>ESSENCE PRIME [Mercado Libre BR]</div></td><td>10</td><td>2.088,90</td></tr>
  <tr><td>2</td><td><div>Perfume Sabah Al Ward Al Wataniah</div><div>PURE PERFUMARIA [TikTok Shop BR]</div></td><td>6</td><td>608,33</td></tr></tbody></table></div>
 <div class="card"><div class="head"><span>Ranking de Loja</span></div><table><thead><tr><th>#</th><th>Loja</th><th>Pedidos</th><th>Valor de Vendas</th></tr></thead>
  <tbody><tr><td>1</td><td><div>ESSENCE PRIME</div><div>[Mercado Libre BR]</div></td><td>43</td><td>6.793,12</td></tr>
@@ -85,6 +85,7 @@ def test_le_a_tela_do_upseller_e_guarda():
     assert ag["lojas"][0] == {"loja": "ESSENCE PRIME", "plataforma": "Mercado Libre BR", "pedidos": 43.0, "valor": 6793.12}, ag["lojas"]
     assert ag["anuncios"][1]["loja"] == "PURE PERFUMARIA" and ag["anuncios"][1]["plataforma"] == "TikTok Shop BR"
     assert ag["anuncios"][0]["unidades"] == 10 and ag["anuncios"][0]["valor"] == 2088.9
+    assert ag["anuncios"][0]["foto"] == "https://http2.mlstatic.com/D_Q_NP_ferrari-O.webp" and ag["anuncios"][1]["foto"] is None   # foto da linha
     assert ag["hora_upseller"].startswith("2026-10-01 18:18")
     d = json.loads(r.res["vendas_hoje|2026-10-01"])
     assert d["pontos"]["18:00"]["valor"] == 14995.73
@@ -314,7 +315,7 @@ def test_tv_tela():
                     raise AssertionError((erros, pg.inner_text("body")[:1500]))
                 pg.wait_for_timeout(1900)                                            # números sobem até o valor (animação)
                 txt = pg.inner_text(".tv-tela")
-                assert pg.locator(".tv-loja .pl-ml").count() >= 1 and pg.locator(".tv-loja .pl-tt").count() >= 1   # ícone da plataforma
+                assert pg.locator(".tv-loja svg.pl-ico[aria-label*=Mercado]").count() >= 1 and pg.locator(".tv-loja svg.pl-ico[aria-label*=TikTok]").count() >= 1   # ícone da plataforma
                 assert "AO VIVO" in txt and "12.000,00" in txt and "24.000,00" in txt and "Campeões" in txt and "Márcia" in txt, txt[:900]
                 assert pg.locator(".tv-pos.sobe").count() >= 1 and pg.locator(".tv-pos.novo").count() == 1
                 assert pg.query_selector("#tv-acum svg path") is not None and pg.locator(".tv-k.sac.alerta").count() == 1

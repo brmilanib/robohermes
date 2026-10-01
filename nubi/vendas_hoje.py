@@ -61,16 +61,24 @@ def _kpi(k):
     return (ns + [None, None, None])[:3]          # hoje, ontem inteiro, ontem até o mesmo horário
 
 
-def _anuncios(linhas):
+def _foto_ok(u):
+    """Só link https de imagem (a foto do anúncio que o UpSeller mostra); nada de data:, javascript: ou http."""
+    u = str(u or "").strip()
+    return u if re.fullmatch(r"https://[\w.-]+/[^\s\"'<>]{1,380}", u) else None
+
+
+def _anuncios(linhas, fotos=None):
     out = []
-    for c in linhas or []:
+    fotos = list(fotos or [])
+    for i, c in enumerate(linhas or []):
         if len(c) < 4:
             continue
         partes = [x.strip() for x in str(c[1]).split("\n") if x.strip()]
         loja = partes[1] if len(partes) > 1 else ""
         m = re.match(r"(.*?)\s*\[(.*?)\]\s*$", loja)
         out.append({"titulo": partes[0][:200] if partes else "", "loja": (m.group(1) if m else loja)[:80],
-                    "plataforma": (m.group(2) if m else "")[:40], "unidades": num_br(c[-2]), "valor": num_br(c[-1])})
+                    "plataforma": (m.group(2) if m else "")[:40], "unidades": num_br(c[-2]), "valor": num_br(c[-1]),
+                    "foto": _foto_ok(fotos[i]) if i < len(fotos) else None})
     return out[:20]
 
 
@@ -103,7 +111,7 @@ def salvar(repo, x, agora=None):
     leitura = {"lido_em": agora.isoformat(), "dia": dia, "valor": valor, "pedidos": int(pedidos),
                "valor_ontem": valor_ontem, "pedidos_ontem": int(ped_ontem) if ped_ontem is not None else None,
                "valor_ontem_mesmo": valor_mesmo, "pedidos_ontem_mesmo": int(ped_mesmo) if ped_mesmo is not None else None,
-               "anuncios": _anuncios(x.get("anuncios")), "lojas": _lojas(x.get("lojas")),
+               "anuncios": _anuncios(x.get("anuncios"), x.get("fotos_anuncios")), "lojas": _lojas(x.get("lojas")),
                "series": (x.get("series") or [])[:4], "hora_upseller": str(x.get("hora_upseller") or "")[:20]}
     _gravar(repo, AGORA, leitura)
     if x.get("respostas"):                             # respostas JSON da página (para ler a curva por hora no futuro)
@@ -115,7 +123,7 @@ def salvar(repo, x, agora=None):
     # 01/10 (modo TV): ranking de cada meia hora, para dizer quem sobe e quem cai contra ontem no mesmo horário
     if leitura["anuncios"] or leitura["lojas"]:        # leitura sem a tabela não apaga o ranking da faixa
         d.setdefault("ranking", {})[faixa(agora)] = {
-            "anuncios": [{k: a[k] for k in ("titulo", "loja", "unidades", "valor")} for a in leitura["anuncios"][:10]],
+            "anuncios": [{k: a.get(k) for k in ("titulo", "loja", "plataforma", "unidades", "valor", "foto")} for a in leitura["anuncios"][:10]],
             "lojas": [{k: l[k] for k in ("loja", "plataforma", "pedidos", "valor")} for l in leitura["lojas"]]}
     if leitura["series"]:
         d["series"] = leitura["series"]
