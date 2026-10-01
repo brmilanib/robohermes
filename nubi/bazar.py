@@ -201,6 +201,11 @@ def nome_com_marca(p):
     return nome + (f" – {marca}" if marca and _sem_acento(marca) not in _sem_acento(nome) else "")
 
 
+def linha_link(p):
+    lk = p.get("link_curto") or p.get("link")
+    return ["", f"🛒 Compre pelo site: {lk}"] if lk else []
+
+
 def post_decant(p):
     ds = [d for d in (p.get("decant") or []) if d.get("preco")]
     if not ds:
@@ -217,7 +222,7 @@ def post_decant(p):
         linhas += [""] + [f"{r}: {v}" for r, v in notas]
     linhas += [""] + [f"🧪 {d['ml']} ml por {brl(d['preco'])}" for d in sorted(ds, key=lambda d: d["ml"])]
     linhas += ["", "💧 Perfume 100% original, fracionado com cuidado.", "", "👜 Garanta o seu! ❤️✨"]
-    return "\n".join(linhas)
+    return "\n".join(linhas + linha_link(p))
 
 
 def post(p):
@@ -238,7 +243,7 @@ def post(p):
         linhas += ["", "🏷️ OUTLET PURE · estoque limitado"]
     linhas += ["", f"De {brl(p['preco_original'])} por apenas {brl(p['preco_promo'])} 😱🔥", "",
                f"💰 Economize {brl(p['economia'])}!", "", "👜 Corre aproveitar essa oferta! ❤️✨"]
-    return "\n".join(linhas)
+    return "\n".join(linhas + linha_link(p))
 
 
 def _proximo_codigo(prods):
@@ -266,6 +271,11 @@ def _limpo(d):
         out["cor"] = d["cor"] if d["cor"] in CORES else "❤️"
     if "arquivado" in d:
         out["arquivado"] = bool(d["arquivado"])
+    if "link" in d:                                   # 01/10: link do site (opcional), vai encurtado na legenda
+        lk = str(d.get("link") or "").strip()[:500]
+        if lk and not re.fullmatch(r"https?://[^\s<>\"']+\.[^\s<>\"']+", lk):
+            raise ErroBazar("link inválido: comece com https://")
+        out["link"] = lk
     for k in ("foto", "video", "arte"):
         if out.get(k) and not re.fullmatch(r"bazar/[A-Za-z0-9_./-]{3,250}", out[k]) or ".." in (out.get(k) or ""):
             raise ErroBazar(f"arquivo inválido em {k}")
@@ -281,6 +291,8 @@ def salvar_produto(repo, d, quem=""):
             raise ErroBazar("produto não encontrado")
         if reg.get("codigo") and any(x["codigo"] == reg["codigo"] and x["id"] != p["id"] for x in prods):
             raise ErroBazar(f"o código {reg['codigo']} já existe")
+        if "link" in reg and reg["link"] != p.get("link"):
+            p.pop("link_curto", None)                 # link novo: encurta de novo
         p.update(reg)
         p["atualizado_em"] = datetime.now(timezone.utc).isoformat()
         p["atualizado_por"] = quem[:60]

@@ -208,3 +208,27 @@ def bloco_precos(p, brl, preco_frasco=None):
     if p.get("preco_original") is None or p.get("preco_promo") is None:
         return ""
     return f"De {brl(p['preco_original'])} por apenas {brl(p['preco_promo'])} 😱🔥\n💰 Economize {brl(p['economia'])}!"
+
+
+# ---------- link curto (01/10, Bruno: "um campo de link do site para colocar na legenda um link minimizado") ----------
+ENCURTADORES = ("https://is.gd/create.php?format=simple&url={u}", "https://tinyurl.com/api-create.php?url={u}")
+
+
+def encurtar(link, get=None):
+    """Link curto pelo is.gd (senão TinyURL). Só aceita resposta https curta do próprio encurtador; falhou: o link original."""
+    import urllib.parse
+    import urllib.request
+    if not link:
+        return ""
+    def _get(u):
+        with urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "nubi"}), timeout=10) as r:
+            return r.read(300).decode("utf-8", "replace")
+    get = get or _get
+    for modelo in ENCURTADORES:
+        try:
+            r = (get(modelo.format(u=urllib.parse.quote(link, safe=""))) or "").strip()
+        except Exception:  # noqa: BLE001 — encurtador fora: tenta o próximo
+            continue
+        if re.fullmatch(r"https://(is\.gd|tinyurl\.com)/[A-Za-z0-9_-]{3,40}", r):
+            return r
+    return link

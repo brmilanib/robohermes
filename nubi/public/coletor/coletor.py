@@ -1267,10 +1267,26 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
         # 100 linhas por página (o export sai da tabela carregada)
         seletor = pg.locator('[role="combobox"], [aria-haspopup="listbox"]').filter(has_text=re.compile(r"^\s*10\s*$")).first
         if seletor.count():
-            with pg.expect_response(lambda r: e_ranking(r, 100), timeout=120000):
-                seletor.click()
-                pg.locator('li[role="option"][data-value="100"]').click()
-        pg.wait_for_function("() => document.querySelectorAll('table tbody tr').length > 0", timeout=60000)
+            # 01/10 (card #135, Maquiagem: 7 meses parados 120 s cada aqui): a consulta de 100 linhas nem sempre traz a
+            # categoria no endereço do jeito que o filtro esperava. Aceita qualquer consulta de marcas com Limit=100 e, se
+            # nenhuma vier em 40 s, confere pela tabela (mais de 10 linhas = as 100 carregaram).
+            def e_cem(r):
+                u = urllib.parse.unquote(r.url)
+                return "ranking/tree" in u and "Topic=brands" in u and "Limit=100" in u
+            try:
+                with pg.expect_response(e_cem, timeout=40000):
+                    seletor.click()
+                    pg.locator('li[role="option"][data-value="100"]').click()
+            except _TO:
+                log("  100 linhas: sem consulta nova; confiro pela tabela")
+            try:
+                pg.wait_for_function("() => document.querySelectorAll('table tbody tr').length > 10", timeout=30000)
+            except _TO:
+                n = pg.locator("table tbody tr").count()
+                if n >= 10:                          # exatamente 10: o seletor não trocou; exportar daria só 10 marcas
+                    raise Falha(f"a tabela ficou com {n} linhas depois de pedir 100 por página; não exportei para não "
+                                "importar o ranking pela metade")
+                log(f"  categoria com só {n} marcas no mês")
         devagar(3)
         with pg.expect_download(timeout=120000) as d:
             pg.locator("button", has_text="EXPORTAR").last.click()

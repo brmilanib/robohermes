@@ -14,6 +14,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -541,6 +542,79 @@ def perguntar_estruturado(pergunta, schema, nome="resposta", max_tokens=2500, qu
     raise SemIA(f"a IA não devolveu o JSON no formato pedido ({ultimo})")
 
 
+# 01/10 (Bruno: "legenda deu erro, mais modelos de foto com Gemini deu erro"): o modelo fixo de texto dava 404 (saiu do
+# ar) e o de imagem 429. Agora o nubi pergunta ao Google quais modelos a chave tem (só os nomes; a chave vai no cabeçalho)
+# e tenta em ordem de preferência; 404/429/400 de um modelo passa para o próximo.
+_GEMINI_LISTA = {"t": 0, "nomes": None}
+GEMINI_PREF_TEXTO = ("gemini-3.5-flash", "gemini-3-flash", "gemini-flash-latest", "gemini-2.5-flash", "gemini-3.5-pro",
+                     "gemini-3-pro", "gemini-pro-latest", "gemini-2.5-pro")
+GEMINI_PREF_IMAGEM = ("gemini-3.5-flash-image", "gemini-3.1-flash-image", "gemini-3-flash-image", "gemini-3-pro-image",
+                      "gemini-2.5-flash-image")
+
+
+def _gemini_disponiveis():
+    """Nomes (sem "models/") dos modelos com generateContent nesta chave; cache de 6 h. Falhou: None (usa a preferência)."""
+    if _GEMINI_LISTA["nomes"] is not None and time.time() - _GEMINI_LISTA["t"] < 6 * 3600:
+        return _GEMINI_LISTA["nomes"]
+    nomes, pagina = [], ""
+    try:
+        for _ in range(5):
+            req = urllib.request.Request("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"
+                                         + (f"&pageToken={urllib.parse.quote(pagina)}" if pagina else ""),
+                                         headers={"x-goog-api-key": os.environ["GEMINI_API_KEY"]})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                d = json.loads(r.read().decode())
+            nomes += [m["name"].split("/", 1)[-1] for m in d.get("models") or []
+                      if "generateContent" in (m.get("supportedGenerationMethods") or [])]
+            pagina = d.get("nextPageToken") or ""
+            if not pagina:
+                break
+    except Exception:  # noqa: BLE001 — sem a lista, tenta pela ordem de preferência
+        return None
+    _GEMINI_LISTA.update(t=time.time(), nomes=nomes)
+    return nomes
+
+
+def gemini_candidatos(tipo, fixo=None):
+    """Ordem de modelos a tentar: o pedido/da env primeiro, depois a preferência que existir na chave (e, se a lista não
+    vier, a preferência inteira). Imagem: nomes com "image"; texto: sem image/tts/embedding/live/audio."""
+    env = os.environ.get("NUBI_IA_MODELO_GEMINI" if tipo == "imagem" else "NUBI_IA_MODELO_GEMINI_TEXTO")
+    pref = GEMINI_PREF_IMAGEM if tipo == "imagem" else GEMINI_PREF_TEXTO
+    disp = _gemini_disponiveis()
+    out = [m for m in (fixo, env) if m]
+    if disp is None:
+        out += list(pref)
+    else:
+        def serve(n):
+            n = n.lower()
+            if tipo == "imagem":
+                return "image" in n and "imagen" not in n
+            return not re.search(r"image|tts|embed|live|audio|veo|imagen|aqa|gemma|robotics|computer", n)
+        ok = [n for n in disp if serve(n)]
+        for p in pref:                                  # nome exato, depois versões do mesmo nome (-preview, -001…)
+            out += sorted((n for n in ok if n == p or n.startswith(p + "-")), key=lambda n: (n != p, "preview" in n, n))
+        out += [n for n in ok if "flash" in n.lower()][:3]
+    vistos = []
+    for m in out:
+        if m not in vistos:
+            vistos.append(m)
+    return vistos[:6]
+
+
+def _gemini_tentar(candidatos, chamar):
+    """Chama `chamar(modelo)` em cada candidato; 400/403/404/429 (modelo fora do ar, sem cota ou não aceita) passa
+    para o próximo. Devolve (resposta, modelo)."""
+    ultimo = None
+    for m in candidatos:
+        try:
+            return chamar(m), m
+        except urllib.error.HTTPError as e:
+            if e.code not in (400, 403, 404, 429):
+                raise
+            ultimo = f"{m}: HTTP {e.code}"
+    raise SemIA(f"nenhum modelo do Gemini aceitou o pedido (último: {ultimo or 'sem modelos'})")
+
+
 def gemini_gerar_imagem(prompt, modelo=None, imagens=None):
     """Conector Gemini para as rotinas de criativo (imagem/post do Instagram, card #14): gera 1 imagem a partir de
     `prompt`. Teto mensal próprio (NUBI_TETO_GEMINI, regra do card #10) e custo por ia_precos, iguais aos outros
@@ -548,14 +622,13 @@ def gemini_gerar_imagem(prompt, modelo=None, imagens=None):
     A chave vai no cabeçalho (x-goog-api-key), nunca na URL, para não vazar em log de erro."""
     if not tem("gemini"):
         raise SemIA(f"falta a chave {CHAVES['gemini']}")
-    modelo = modelo or os.environ.get("NUBI_IA_MODELO_GEMINI", "gemini-2.5-flash-image")
     # 01/10 (Bazar): `imagens` = [(mime, base64)] para EDITAR a foto do produto (arte do post)
     partes_in = [{"inlineData": {"mimeType": m, "data": b}} for m, b in (imagens or [])] + [{"text": prompt}]
-    corpo = {"model": modelo, "contents": [{"parts": partes_in}]}
     cab = {"x-goog-api-key": os.environ["GEMINI_API_KEY"], "Content-Type": "application/json"}
     try:
-        r = _post_json(f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent", corpo, cab,
-                       timeout=120)
+        r, modelo = _gemini_tentar(gemini_candidatos("imagem", modelo), lambda m: _post_json(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent",
+            {"model": m, "contents": [{"parts": partes_in}]}, cab, timeout=120))
     except EmEspera as e:
         # sem fallback local (card #10 só degrada texto/triagem): registra o aviso ao dono e sobe o erro
         if USO.get("espera"):
@@ -578,7 +651,6 @@ def gemini_texto(pergunta, web=True, max_tokens=4000, modelo=None, sistema=None,
     (texto, links). Sem GEMINI_API_KEY: SemIA. Chave só no cabeçalho, nunca na URL."""
     if not tem("gemini"):
         raise SemIA(f"falta a chave {CHAVES['gemini']}")
-    modelo = modelo or os.environ.get("NUBI_IA_MODELO_GEMINI_TEXTO", "gemini-2.5-flash")
     corpo = {"contents": [{"role": "user", "parts": [{"text": pergunta}]}],
              "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}}
     if sistema:
@@ -586,7 +658,8 @@ def gemini_texto(pergunta, web=True, max_tokens=4000, modelo=None, sistema=None,
     if web:
         corpo["tools"] = [{"google_search": {}}]
     cab = {"x-goog-api-key": os.environ["GEMINI_API_KEY"], "Content-Type": "application/json"}
-    r = _post_json(f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent", corpo, cab, timeout=timeout)
+    r, modelo = _gemini_tentar(gemini_candidatos("texto", modelo), lambda m: _post_json(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent", dict(corpo, model=m), cab, timeout=timeout))
     cands = r.get("candidates") or []
     partes = [p for c in cands for p in (c.get("content", {}).get("parts") or [])]
     texto = "\n".join(p.get("text", "") for p in partes if p.get("text")).strip()

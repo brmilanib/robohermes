@@ -1227,6 +1227,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Insumos (01/10, print do Bruno): padrão frasco (split) R$ 5, embalagem (`caixa`) R$ 1, adesivo R$ 0,50 (`decants.PADRAO`,
   `INSUMOS`); colunas "Frasco (split) / Embalagem / Adesivo" editáveis por perfume na tabela (`decants|itens` frasco/caixa/
   adesivo; vazio = padrão; 0 vale = "sem adesivo"); a planilha baixada traz os 3 valores usados.
+- **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
+  botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
+  catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama
+  `ml_precos_seguir_gtin` (`_seguir_pelo_gtin`: ofertas do produto no catálogo pela API oficial, só as da loja; prefere o
+  mesmo tipo e Full, depois o preço mais perto) e grava no monitor com `gtin`; na volta, a foto acha o monitorado pelo
+  GTIN + seller_id. Pendente: a vitrine do SIENO parou cedo (ver por que a paginação `_Desde_` não trouxe mais).
 - **📣 Estúdio de marketing (01/10, Bruno: "vídeos curtos para stories com legenda das notas, arte top para Instagram e WhatsApp,
   legenda convencendo; tudo pronto de dentro do nubi"; Veo autorizado com teto de US$ 20/mês)**: o 📣 Compartilhar do Bazar
   virou um estúdio com 3 abas (`bzCompartilhar`). REGRA: a IA faz só imagem/vídeo SEM texto; nome, notas e preços são
@@ -1248,3 +1254,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     notas + `bloco_precos` (decant: tamanhos e "💡 Sinta por R$ X antes de investir R$ Y no frasco", Y = `preco_frasco` =
     preço médio de venda do frasco no UpSeller) + chamada. Sem notas, busca a ficha (`_ficha_decant`) e guarda no produto.
     Guardadas em `bazar|produtos` (`legendas`). Teste: `testes/test_decants.py` (Veo falso, teto, legendas, vídeo gravado).
+  - 01/10 (2º teste do Bruno: "legenda deu erro, arte do Gemini deu erro, vídeo feio"):
+    - Gemini: o modelo fixo de texto dava 404 e o de imagem 429. `ia.gemini_candidatos(tipo)` pergunta ao Google quais
+      modelos a chave tem (GET `v1beta/models`, cache 6 h, só os nomes) e tenta em ordem (`GEMINI_PREF_TEXTO`/`_IMAGEM`,
+      env `NUBI_IA_MODELO_GEMINI[_TEXTO]` na frente); `_gemini_tentar` passa ao próximo em 400/403/404/429. A legenda cai
+      para `ia.perguntar` em QUALQUER erro do Gemini.
+    - Visual de varejo alegre (base: vídeo de varejo tipo Walmart, com identidade própria): fonte Baloo 2/Fredoka
+      (`bzFontes()` carrega antes de desenhar), `BZ_COR` azul + amarelo + rosa, pílula do selo com brilho ✦ (`bzBrilho`),
+      cartão branco de preço com selo amarelo inclinado e estrela de desconto (`bzEstrela`), notas em pílulas coloridas,
+      animação com pulo (`bzPulo`), brilhos subindo e chamada pulsando no vídeo.
+    - 🔗 Link do site (opcional) no cadastro e na aba Legendas: `bazar.link` (só http/https), encurtado no `bazar_salvar`
+      por `marketing.encurtar` (is.gd, reserva TinyURL; falhou = link inteiro) em `link_curto`; entra no fim do post, das
+      legendas (`bazar.linha_link`) e no fim do vídeo. Link novo apaga o curto antigo.
+    - Teste: `testes/test_estudio_gtin.py`.

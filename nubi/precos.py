@@ -75,6 +75,7 @@ def seguir(repo, item):
             "foto": str(item.get("foto") or "")[:500], "loja": str(item.get("loja") or "")[:120],
             "seller_id": re.sub(r"\D", "", str(item.get("seller_id") or ""))[:20],
             "vendedor": str(item.get("vendedor") or "")[:120],
+            "gtin": re.sub(r"\D", "", str(item.get("gtin") or ""))[:14],   # 01/10: achado pelo GTIN (anúncio de catálogo)
             "preco_inicial": _num(item.get("preco")), "desde": datetime.now(timezone.utc).isoformat()}
     if ja:
         for k, v in novo.items():

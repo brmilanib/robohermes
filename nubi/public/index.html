@@ -3613,6 +3613,7 @@ function bzEditar(r, p, aba) {
       <label class="bz-f"><span>Desconto %</span><input id="bze-desconto" type="number" min="0" max="95" value="${p.desconto != null ? Math.round(p.desconto * 100) : ""}"></label>
       <label class="bz-f"><span>Preço promo (automático)</span><input id="bze-pp" disabled></label>
       ${campo("localizacao", "Localização")}${campo("sku", "SKU no UpSeller")}
+      <label class="bz-f" style="grid-column:1/-1"><span>🔗 Link do site (opcional · vai encurtado na legenda)</span><input id="bze-link" type="url" placeholder="https://…" value="${esc(p.link || "")}">${p.link_curto ? `<small class="muted">curto: ${esc(p.link_curto)}</small>` : ""}</label>
       <label class="bz-f" style="grid-column:1/-1"><span>Observações</span><textarea id="bze-observacoes" rows="2">${esc(p.observacoes || "")}</textarea></label>
       <label class="bz-f"><span>📷 Foto do produto</span><input type="file" id="bze-foto" accept="image/*">${p.foto ? `<small class="muted">já tem foto (enviar outra troca)</small>` : ""}</label>
       <label class="bz-f"><span>🎬 Vídeo</span><input type="file" id="bze-video" accept="video/*">${p.video ? `<small class="muted">já tem vídeo</small>` : ""}</label>
@@ -3638,7 +3639,7 @@ function bzEditar(r, p, aba) {
       try {
         const corpo = {id: p.id, aba: v("aba"), produto: v("produto"), marca: v("marca"), categoria: v("categoria"), volume: v("volume"),
           condicao: v("condicao"), qtd_inicial: v("qtd_inicial"), preco_original: v("preco_original") === "" ? null : v("preco_original"),
-          desconto: v("desconto") === "" ? null : +v("desconto") / 100, localizacao: v("localizacao"), sku: v("sku"), observacoes: v("observacoes")};
+          desconto: v("desconto") === "" ? null : +v("desconto") / 100, localizacao: v("localizacao"), sku: v("sku"), observacoes: v("observacoes"), link: v("link").trim()};
         if (v("codigo")) corpo.codigo = v("codigo");
         msg("salvando…");
         let x = (await api("bazar_salvar", {}, {method: "POST", body: JSON.stringify(corpo)})).produto;
@@ -3716,7 +3717,20 @@ function bzWhats(main, r, cab) {
 // WhatsApp e legenda convencendo; tudo pronto de dentro do nubi"). A IA (Gemini/Veo) faz só IMAGEM/VÍDEO sem texto; nome, notas e
 // preços são desenhados aqui, com os números do sistema.
 const BZ_FMT = {story: [1080, 1920, "📱 Story 9:16"], feed: [1080, 1350, "🖼️ Feed 4:5"], quadrado: [1080, 1080, "💬 WhatsApp 1:1"]};
-const BZ_FONTE = "system-ui, -apple-system, Segoe UI, sans-serif";
+// 01/10 (2º pedido: "o padrão do vídeo está feio; base num vídeo de varejo tipo Walmart: letras, fontes, símbolo mais bonito e
+// letras mais alegres"): visual de varejo alegre — fonte arredondada (Baloo 2 / Fredoka), faixas azul + amarelo, selo de preço
+// inclinado, estrela de desconto, brilho ✦ desenhado (símbolo próprio da Pure) e animação com "pulo" (ease-out-back).
+const BZ_FONTE = "'Baloo 2', 'Fredoka', system-ui, -apple-system, Segoe UI, sans-serif";
+const BZ_COR = {azul: "#0b4fd8", azul2: "#2f86ff", amarelo: "#ffc61a", rosa: "#ff2e7e", tinta: "#0f1a3c", cinza: "#6b7491", creme: "#fff8e6"};
+let bzFontesOk = null;
+function bzFontes() {                          // carrega as fontes antes de desenhar no canvas (senão sai a do sistema)
+  if (!bzFontesOk) bzFontesOk = (async () => {
+    if (!document.querySelector("#bz-fontes")) { const l = document.createElement("link"); l.id = "bz-fontes"; l.rel = "stylesheet";
+      l.href = "https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Fredoka:wght@500;600;700&display=swap"; document.head.appendChild(l); }
+    try { await Promise.race([Promise.all(["800 60px 'Baloo 2'", "700 60px 'Baloo 2'", "600 40px 'Fredoka'"].map(f => document.fonts.load(f))), new Promise(ok => setTimeout(ok, 2500))]); } catch { /* fica a do sistema */ }
+  })();
+  return bzFontesOk;
+}
 function bzQuebrar(c, txt, max) {
   const out = []; let l = "";
   for (const w of String(txt || "").split(/\s+/)) { const t = l ? l + " " + w : w; if (c.measureText(t).width > max && l) { out.push(l); l = w; } else l = t; }
@@ -3729,99 +3743,159 @@ function bzCobrir(c, fonte, W, H, zoom = 1, alto = H) {
 }
 function bzRet(c, x, y, w, h, r) { c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, r) : c.rect(x, y, w, h); }
 function bzNotasLista(p) { const n = p.notas || {}; return [["🍋 Topo", n.notas_topo], ["🌸 Coração", n.notas_coracao], ["🌳 Fundo", n.notas_fundo]].filter(x => x[1]); }
-// painel de preços (embaixo), em qualquer tamanho de tela; y0 = topo do painel
-function bzPainel(c, p, W, y0, h) {
-  c.fillStyle = "rgba(20,18,26,.94)"; c.fillRect(0, y0, W, h);
-  const nome = bzNome(p), pad = 60;
-  c.textAlign = "left"; c.fillStyle = "#fff";
-  let tam = 46; c.font = `700 ${tam}px ${BZ_FONTE}`;
-  const largNome = p.aba === "decant" ? W - 2 * pad : W - 330;
-  while (c.measureText(nome).width > largNome && tam > 28) { tam -= 2; c.font = `700 ${tam}px ${BZ_FONTE}`; }
-  let n2 = nome; while (c.measureText(n2).width > largNome && n2.length > 4) n2 = n2.slice(0, -2);
-  c.fillText(n2 === nome ? nome : n2.trimEnd() + "…", pad, y0 + 72);
-  if (p.aba === "decant") {
-    const ds = (p.decant || []).slice().sort((a, b) => a.ml - b.ml), larg = (W - 2 * pad) / Math.max(1, ds.length);
-    ds.forEach((d, i) => { const x = pad + i * larg + larg / 2;
-      c.fillStyle = "#2a2536"; bzRet(c, pad + i * larg + 8, y0 + 105, larg - 16, 165, 18); c.fill();
-      c.textAlign = "center"; c.fillStyle = "#b9b3c7"; c.font = `600 34px ${BZ_FONTE}`; c.fillText(`${d.ml} ml`, x, y0 + 158);
-      c.fillStyle = "#ffd166"; c.font = `800 ${ds.length > 2 ? 50 : 62}px ${BZ_FONTE}`; c.fillText(rsES(d.preco), x, y0 + 235); });
-    c.textAlign = "center"; c.fillStyle = "#b9b3c7"; c.font = `500 26px ${BZ_FONTE}`;
-    c.fillText(p.preco_frasco && ds.length ? `Sinta antes de investir ${rsES(p.preco_frasco)} no frasco · 100% original` : "Decant · perfume 100% original", W / 2, y0 + h - 30);
-    return;
-  }
-  c.font = `400 36px ${BZ_FONTE}`; c.fillStyle = "#b9b3c7";
-  const de = "De " + rsES(p.preco_original); c.fillText(de, pad, y0 + 135); c.fillRect(pad, y0 + 122, c.measureText(de).width, 3);
-  c.fillStyle = "#ffd166"; c.font = `800 88px ${BZ_FONTE}`; c.fillText("Por " + rsES(p.preco_promo), pad, y0 + 235);
-  c.fillStyle = "#e63946"; c.beginPath(); c.arc(W - 150, y0 + 150, 100, 0, Math.PI * 2); c.fill();
-  c.fillStyle = "#fff"; c.textAlign = "center"; c.font = `800 62px ${BZ_FONTE}`; c.fillText("-" + bzPct(p.desconto), W - 150, y0 + 172);
-  c.font = `500 26px ${BZ_FONTE}`; c.fillStyle = "#b9b3c7"; c.textAlign = "left";
-  c.fillText(p.aba === "avariada" ? "Original e novo · vai na caixa" : p.aba === "sem_caixa" ? "Original e novo · sem caixa" : "OUTLET · economize " + rsES(p.economia) + " · estoque limitado", pad, y0 + h - 30);
+const bzPulo = k => { k = Math.max(0, Math.min(1, k)); const a = 1.70158, b = a + 1; return 1 + b * Math.pow(k - 1, 3) + a * Math.pow(k - 1, 2); };
+// brilho de 4 pontas (símbolo da Pure nas artes)
+function bzBrilho(c, x, y, r, cor, giro = 0) {
+  c.save(); c.translate(x, y); c.rotate(giro); c.fillStyle = cor; c.beginPath();
+  for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, rr = i % 2 ? r * 0.28 : r; c.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+  c.closePath(); c.fill(); c.restore();
 }
-function bzTopo(c, p, W) {
-  const g = c.createLinearGradient(0, 0, 0, 190); g.addColorStop(0, "rgba(0,0,0,.72)"); g.addColorStop(1, "rgba(0,0,0,0)");
-  c.fillStyle = g; c.fillRect(0, 0, W, 190);
-  c.fillStyle = "#fff"; c.textAlign = "center"; c.font = `700 46px ${BZ_FONTE}`;
-  c.fillText(p.aba === "decant" ? "✨ DECANT ✨" : p.aba === "promocao" ? "🏷️ OUTLET PURE 🏷️" : "🔥 OFERTA IMPERDÍVEL 🔥", W / 2, 76);
-  c.font = `500 30px ${BZ_FONTE}`; c.fillText("PURE PERFUMARIA", W / 2, 120);
+// estrela de desconto (selo com pontas)
+function bzEstrela(c, x, y, r, cor, pontas = 14) {
+  c.beginPath(); for (let i = 0; i < pontas * 2; i++) { const a = i * Math.PI / pontas - Math.PI / 2, rr = i % 2 ? r * 0.84 : r; c.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  c.closePath(); c.fillStyle = cor; c.fill();
+}
+function bzSombra(c, on) { if (on) { c.shadowColor = "rgba(10,20,60,.28)"; c.shadowBlur = 28; c.shadowOffsetY = 10; } else { c.shadowColor = "transparent"; c.shadowBlur = 0; c.shadowOffsetY = 0; } }
+function bzCaber(c, txt, peso, max, tam, min = 26) { do { c.font = `${peso} ${tam}px ${BZ_FONTE}`; if (c.measureText(txt).width <= max) break; tam -= 2; } while (tam > min); return tam; }
+function bzPilula(c, x, y, txt, fundo, cor, tam = 34, peso = 800, centro = true) {
+  c.font = `${peso} ${tam}px ${BZ_FONTE}`; const w = c.measureText(txt).width + tam * 1.3, h = tam * 1.55, x0 = centro ? x - w / 2 : x;
+  c.fillStyle = fundo; bzRet(c, x0, y - h / 2, w, h, h / 2); c.fill();
+  c.fillStyle = cor; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(txt, x0 + w / 2, y + tam * 0.06); c.textBaseline = "alphabetic"; return w;
+}
+function bzSelo(p) { return p.aba === "decant" ? "DECANT ORIGINAL" : p.aba === "promocao" ? "OUTLET PURE" : "OFERTA IMPERDÍVEL"; }
+function bzRodape(p) { return p.aba === "decant" ? "Perfume 100% original, fracionado com cuidado" : p.aba === "avariada" ? "Original e novo · vai na caixa" : p.aba === "sem_caixa" ? "Original e novo · sem caixa" : "Estoque limitado · original"; }
+// cartão branco de preços (embaixo), em qualquer tamanho de tela; y0 = topo do cartão
+function bzPainel(c, p, W, y0, h) {
+  const m = 36, x0 = m, w = W - 2 * m, pad = 44;
+  c.save(); bzSombra(c, true); c.fillStyle = "#fff"; bzRet(c, x0, y0, w, h, 44); c.fill(); bzSombra(c, false);
+  c.fillStyle = BZ_COR.azul; bzRet(c, x0, y0 + h - 64, w, 64, [0, 0, 44, 44]); c.fill();
+  c.fillStyle = "#fff"; c.textAlign = "center"; c.font = `700 28px ${BZ_FONTE}`; c.fillText("✦  " + bzRodape(p) + "  ✦", W / 2, y0 + h - 22);
+  const nome = bzNome(p); c.textAlign = "left"; c.fillStyle = BZ_COR.tinta;
+  const largNome = p.aba === "decant" ? w - 2 * pad : w - 2 * pad - 230;
+  bzCaber(c, nome, 800, largNome, 50, 28);
+  let n2 = nome; while (c.measureText(n2).width > largNome && n2.length > 4) n2 = n2.slice(0, -2);
+  c.fillText(n2 === nome ? nome : n2.trimEnd() + "…", x0 + pad, y0 + 74);
+  const corpoH = h - 64 - 96;
+  if (p.aba === "decant") {
+    const ds = (p.decant || []).slice().sort((a, b) => a.ml - b.ml), n = Math.max(1, ds.length), gap = 18, larg = (w - 2 * pad - gap * (n - 1)) / n;
+    ds.forEach((d, i) => { const x = x0 + pad + i * (larg + gap), y = y0 + 96, hh = Math.min(170, corpoH - 10);
+      c.fillStyle = i === ds.length - 1 ? BZ_COR.amarelo : BZ_COR.creme; bzRet(c, x, y, larg, hh, 26); c.fill();
+      c.textAlign = "center"; c.fillStyle = BZ_COR.azul; c.font = `800 36px ${BZ_FONTE}`; c.fillText(`${d.ml} ml`, x + larg / 2, y + 52);
+      c.fillStyle = BZ_COR.tinta; bzCaber(c, rsES(d.preco), 800, larg - 24, ds.length > 2 ? 54 : 66); c.fillText(rsES(d.preco), x + larg / 2, y + hh - 34); });
+    if (p.preco_frasco && ds.length) { c.textAlign = "center"; c.fillStyle = BZ_COR.cinza; c.font = `600 26px ${BZ_FONTE}`;
+      c.fillText(`Sinta antes de investir ${rsES(p.preco_frasco)} no frasco`, W / 2, y0 + h - 80); }
+    c.restore(); return;
+  }
+  c.fillStyle = BZ_COR.cinza; c.font = `600 38px ${BZ_FONTE}`; c.textAlign = "left";
+  const de = "De " + rsES(p.preco_original), dx = x0 + pad, dy = y0 + 128, dw = c.measureText(de).width; c.fillText(de, dx, dy);
+  c.strokeStyle = BZ_COR.rosa; c.lineWidth = 5; c.beginPath(); c.moveTo(dx - 4, dy - 12); c.lineTo(dx + dw + 4, dy - 16); c.stroke();
+  if (p.economia) { c.fillStyle = BZ_COR.azul; c.font = `800 30px ${BZ_FONTE}`; c.fillText(`  por apenas 👇`, dx + dw + 6, dy); }
+  // selo amarelo inclinado com o preço
+  const preco = rsES(p.preco_promo), tam = bzCaber(c, preco, 800, w - 2 * pad - 300, 96, 50);
+  c.font = `800 ${tam}px ${BZ_FONTE}`; const pw = c.measureText(preco).width + 70, ph = tam * 1.22, px = dx - 8, py = y0 + 152;
+  c.save(); c.translate(px + pw / 2, py + ph / 2); c.rotate(-0.035); bzSombra(c, true); c.fillStyle = BZ_COR.amarelo; bzRet(c, -pw / 2, -ph / 2, pw, ph, 22); c.fill(); bzSombra(c, false);
+  c.fillStyle = BZ_COR.tinta; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(preco, 0, tam * 0.06); c.restore(); c.textBaseline = "alphabetic";
+  // estrela de desconto
+  const ex = x0 + w - pad - 100, ey = y0 + 158;
+  bzEstrela(c, ex, ey, 102, BZ_COR.rosa);
+  c.fillStyle = "#fff"; c.textAlign = "center"; c.font = `800 60px ${BZ_FONTE}`; c.fillText("-" + bzPct(p.desconto), ex, ey + 12);
+  c.font = `800 24px ${BZ_FONTE}`; c.fillText("OFF", ex, ey + 46);
+  if (p.economia) { c.fillStyle = BZ_COR.rosa; c.font = `800 26px ${BZ_FONTE}`; c.textAlign = "center"; c.fillText(`economize ${rsES(p.economia)}`, Math.min(ex, x0 + w - 30 - c.measureText(`economize ${rsES(p.economia)}`).width / 2), ey + 140); }
+  c.restore();
+}
+// faixa do topo: pílula azul com o selo + "PURE PERFUMARIA" com brilhos
+function bzTopo(c, p, W, t = null) {
+  const g = c.createLinearGradient(0, 0, 0, 260); g.addColorStop(0, "rgba(11,79,216,.55)"); g.addColorStop(1, "rgba(11,79,216,0)");
+  c.fillStyle = g; c.fillRect(0, 0, W, 260);
+  const k = t == null ? 1 : bzPulo(t / 0.5), giro = t == null ? 0 : t * 1.2;
+  c.save(); c.translate(W / 2, 92); c.scale(k, k);
+  bzSombra(c, true); const w = bzPilula(c, 0, 0, bzSelo(p), BZ_COR.azul, "#fff", 46); bzSombra(c, false);
+  bzBrilho(c, -w / 2 - 6, -30, 34, BZ_COR.amarelo, giro); bzBrilho(c, w / 2 + 4, 28, 24, BZ_COR.amarelo, -giro);
+  c.restore();
+  c.save(); c.translate(W / 2, 168); bzPilula(c, 0, 0, "PURE PERFUMARIA", "#fff", BZ_COR.azul, 28, 800); c.restore();
 }
 function bzCaixaNotas(c, p, W, y, alpha = 1) {
   const ns = bzNotasLista(p); if (!ns.length) return 0;
-  c.save(); c.globalAlpha = alpha; c.font = `500 32px ${BZ_FONTE}`;
-  const linhas = ns.map(([r, v]) => bzQuebrar(c, `${r}: ${v}`, W - 160).slice(0, 2));
-  const h = 50 + linhas.reduce((a, l) => a + l.length * 42 + 10, 0);
-  c.fillStyle = "rgba(20,18,26,.72)"; bzRet(c, 40, y - h, W - 80, h, 26); c.fill();
-  c.fillStyle = "#fff"; c.textAlign = "left"; let yy = y - h + 58;
-  linhas.forEach(ls => { ls.forEach(l => { c.fillText(l, 80, yy); yy += 42; }); yy += 10; });
+  c.save(); c.globalAlpha = alpha; c.font = `600 32px ${BZ_FONTE}`;
+  const linhas = ns.map(([r, v]) => bzQuebrar(c, v, W - 340).slice(0, 2));
+  const h = 40 + linhas.reduce((a, l) => a + Math.max(70, l.length * 40 + 24), 0);
+  bzSombra(c, true); c.fillStyle = "rgba(255,255,255,.95)"; bzRet(c, 40, y - h, W - 80, h, 34); c.fill(); bzSombra(c, false);
+  const cores = [BZ_COR.amarelo, BZ_COR.rosa, BZ_COR.azul2]; let yy = y - h + 30;
+  ns.forEach(([r], i) => { const alto = Math.max(70, linhas[i].length * 40 + 24);
+    c.save(); c.translate(70, yy + 8); c.fillStyle = cores[i % 3]; bzRet(c, 0, 0, 190, 52, 26); c.fill();
+    c.fillStyle = i % 3 === 0 ? BZ_COR.tinta : "#fff"; c.font = `800 26px ${BZ_FONTE}`; c.textAlign = "center"; c.fillText(r.toUpperCase(), 95, 36); c.restore();
+    c.fillStyle = BZ_COR.tinta; c.font = `600 32px ${BZ_FONTE}`; c.textAlign = "left";
+    linhas[i].forEach((l, j) => c.fillText(l, 285, yy + 44 + j * 40)); yy += alto; });
   c.restore(); return h;
 }
 async function bzImagem(url) { if (!url) return null; try { return await createImageBitmap(await (await fetch(url)).blob()); } catch { return null; } }
 async function bzDesenharArte(canvas, p, url, fmt = "feed") {
-  const [W, H] = BZ_FMT[fmt] || BZ_FMT.feed, c = canvas.getContext("2d"), painel = fmt === "quadrado" ? 330 : 350;
+  await bzFontes();
+  const [W, H] = BZ_FMT[fmt] || BZ_FMT.feed, c = canvas.getContext("2d"), painel = fmt === "quadrado" ? 340 : 380;
   canvas.width = W; canvas.height = H;
-  c.fillStyle = "#111"; c.fillRect(0, 0, W, H);
+  const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, BZ_COR.azul2); g.addColorStop(1, BZ_COR.azul); c.fillStyle = g; c.fillRect(0, 0, W, H);
   const img = await bzImagem(url);
-  if (img) bzCobrir(c, img, W, H, 1, H - painel + 10);
+  if (img) bzCobrir(c, img, W, H, 1, H - painel + 60);
   bzTopo(c, p, W);
-  if (fmt === "story") bzCaixaNotas(c, p, W, H - painel - 40);
-  bzPainel(c, p, W, H - painel, painel);
+  if (fmt === "story") bzCaixaNotas(c, p, W, H - painel - 70);
+  bzPainel(c, p, W, H - painel - 30, painel);
 }
-// vídeo 9:16: fundo (fotos com zoom lento ou o vídeo do Veo) + nome → notas uma a uma → preços. Gravado aqui no navegador.
+// vídeo 9:16: fundo (fotos com zoom lento ou o vídeo do Veo) + nome → notas uma a uma → preços → chamada. Gravado no navegador.
 function bzCenas(p) {
   const cenas = [{tipo: "nome", d: 3}];
-  bzNotasLista(p).forEach(n => cenas.push({tipo: "nota", nota: n, d: 3}));
+  bzNotasLista(p).forEach((n, i) => cenas.push({tipo: "nota", nota: n, i, d: 2.8}));
   cenas.push({tipo: "precos", d: 4.5});
   let t = 0; cenas.forEach(x => { x.ini = t; t += x.d; }); return {cenas, total: t};
 }
 function bzQuadro(c, p, W, H, t, roteiro, fundo) {
-  c.fillStyle = "#0d0c10"; c.fillRect(0, 0, W, H);
+  c.fillStyle = BZ_COR.azul; c.fillRect(0, 0, W, H);
   fundo(c, t);
-  const g = c.createLinearGradient(0, H * 0.5, 0, H); g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.65)");
-  c.fillStyle = g; c.fillRect(0, H * 0.5, W, H * 0.5);
-  bzTopo(c, p, W);
+  const g = c.createLinearGradient(0, H * 0.45, 0, H); g.addColorStop(0, "rgba(11,30,90,0)"); g.addColorStop(1, "rgba(11,30,90,.6)");
+  c.fillStyle = g; c.fillRect(0, H * 0.45, W, H * 0.55);
+  bzTopo(c, p, W, t);
+  // brilhos que sobem devagar (alegria sem poluir)
+  for (let i = 0; i < 6; i++) { const ph = (t * 0.18 + i / 6) % 1, x = (i * 173 + 90) % (W - 120) + 60, y = H * 0.82 - ph * H * 0.55;
+    c.save(); c.globalAlpha = Math.sin(ph * Math.PI) * 0.8; bzBrilho(c, x, y, 16 + (i % 3) * 8, i % 2 ? BZ_COR.amarelo : "#fff", t + i); c.restore(); }
   const cena = roteiro.cenas.find(x => t >= x.ini && t < x.ini + x.d) || roteiro.cenas[roteiro.cenas.length - 1];
-  const k = Math.min(1, (t - cena.ini) / 0.6), sobe = (1 - k) * 60;
-  c.save(); c.globalAlpha = k;
+  const dt = t - cena.ini, k = bzPulo(dt / 0.55), sai = Math.max(0, Math.min(1, (cena.ini + cena.d - t) / 0.25));
+  c.save(); c.globalAlpha = Math.min(1, dt / 0.25) * (cena.tipo === "precos" ? 1 : sai);
   if (cena.tipo === "nome") {
-    c.textAlign = "center"; c.fillStyle = "#fff"; c.font = `800 70px ${BZ_FONTE}`;
-    const ls = bzQuebrar(c, bzNome(p), W - 140).slice(0, 3); let y = H - 470 + sobe - ls.length * 40;
-    ls.forEach(l => { c.fillText(l, W / 2, y); y += 84; });
-    c.font = `500 36px ${BZ_FONTE}`; c.fillStyle = "#ffd166";
-    c.fillText(p.aba === "decant" ? "Experimente antes de comprar o frasco" : "Perfume original com preço especial", W / 2, y + 20);
+    c.font = `800 82px ${BZ_FONTE}`; const ls = bzQuebrar(c, bzNome(p), W - 200).slice(0, 3);
+    const h = ls.length * 92 + 150, y0 = H - 560 - ls.length * 46;
+    c.save(); c.translate(W / 2, y0 + h / 2); c.rotate(-0.025); c.scale(k, k);
+    bzSombra(c, true); c.fillStyle = "#fff"; bzRet(c, -(W - 110) / 2, -h / 2, W - 110, h, 46); c.fill(); bzSombra(c, false);
+    c.fillStyle = BZ_COR.tinta; c.textAlign = "center"; let y = -h / 2 + 100;
+    ls.forEach(l => { c.fillText(l, 0, y); y += 92; });
+    bzPilula(c, 0, h / 2 - 2, p.aba === "decant" ? "Experimente antes do frasco!" : "Original com preço especial!", BZ_COR.amarelo, BZ_COR.tinta, 38);
+    bzBrilho(c, (W - 110) / 2 - 20, -h / 2 + 10, 40, BZ_COR.amarelo, t * 1.5);
+    c.restore();
   } else if (cena.tipo === "nota") {
-    const [rot, val] = cena.nota;
-    c.fillStyle = "rgba(20,18,26,.75)"; bzRet(c, 60, H - 720 + sobe, W - 120, 380, 32); c.fill();
-    c.textAlign = "center"; c.fillStyle = "#ffd166"; c.font = `700 46px ${BZ_FONTE}`;
-    c.fillText(rot.replace(/Topo|Coração|Fundo/, m => "Notas de " + m.toLowerCase()), W / 2, H - 630 + sobe);
-    c.fillStyle = "#fff"; c.font = `600 50px ${BZ_FONTE}`;
-    let y = H - 545 + sobe; bzQuebrar(c, val, W - 200).slice(0, 4).forEach(l => { c.fillText(l, W / 2, y); y += 64; });
+    const [rot, val] = cena.nota, cores = [BZ_COR.amarelo, BZ_COR.rosa, BZ_COR.azul2], cor = cores[cena.i % 3];
+    const titulo = rot.replace(/^(\S+)\s+(.*)$/, (_, e, n) => `${e} NOTAS DE ${n.toUpperCase()}`);
+    c.font = `700 54px ${BZ_FONTE}`; const ls = bzQuebrar(c, val, W - 240).slice(0, 4), h = 130 + ls.length * 68, y0 = H - 560 - h / 2;
+    const x = (1 - k) * -W * 0.25;
+    c.save(); c.translate(W / 2 + x, y0 + h / 2);
+    bzSombra(c, true); c.fillStyle = "#fff"; bzRet(c, -(W - 120) / 2, -h / 2, W - 120, h, 44); c.fill(); bzSombra(c, false);
+    c.fillStyle = cor; bzRet(c, -(W - 120) / 2, -h / 2, W - 120, 26, [44, 44, 0, 0]); c.fill();
+    bzPilula(c, 0, -h / 2 + 2, titulo, cor, cena.i % 3 === 0 ? BZ_COR.tinta : "#fff", 40);
+    c.fillStyle = BZ_COR.tinta; c.textAlign = "center"; c.font = `700 54px ${BZ_FONTE}`;
+    let y = -h / 2 + 112; ls.forEach(l => { c.fillText(l, 0, y); y += 68; });
+    c.restore();
+    // bolinhas de progresso das notas
+    const tot = bzNotasLista(p).length; for (let i = 0; i < tot; i++) { c.fillStyle = i <= cena.i ? BZ_COR.amarelo : "rgba(255,255,255,.55)"; c.beginPath(); c.arc(W / 2 + (i - (tot - 1) / 2) * 34, H - 260, 10, 0, Math.PI * 2); c.fill(); }
   } else {
-    bzPainel(c, p, W, H - 470 + sobe, 360);
-    c.textAlign = "center"; c.fillStyle = "#fff"; c.font = `700 40px ${BZ_FONTE}`;
-    c.fillText("📲 Chama no direct e garanta o seu!", W / 2, H - 50);
+    c.save(); c.translate(W / 2, H - 650); c.scale(k, k); c.translate(-W / 2, -(H - 650));
+    bzPainel(c, p, W, H - 840, 400); c.restore();
+    const pulso = 1 + 0.05 * Math.sin(dt * 6);
+    c.save(); c.translate(W / 2, H - 330); c.scale(pulso * Math.min(1, bzPulo((dt - 0.4) / 0.5)), pulso * Math.min(1, bzPulo((dt - 0.4) / 0.5)));
+    bzSombra(c, true); bzPilula(c, 0, 0, "📲 Chama no direct e garanta o seu!", BZ_COR.amarelo, BZ_COR.tinta, 44); bzSombra(c, false);
+    c.restore();
+    if (p.link_curto || p.link) { c.save(); c.translate(W / 2, H - 230); bzPilula(c, 0, 0, "🛒 " + String(p.link_curto || p.link).replace(/^https?:\/\//, ""), "#fff", BZ_COR.azul, 32, 700); c.restore(); }
   }
   c.restore();
 }
 async function bzGravarVideo(p, fonte, avisar) {
+  await bzFontes();
   const W = 1080, H = 1920, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
   const c = cv.getContext("2d"), roteiro = bzCenas(p);
   let fundo, audio = null, video = null;
@@ -3941,10 +4015,20 @@ async function bzCompartilhar(p) {
       <li>Os preços${p.aba === "decant" ? " e o \"sinta antes de investir no frasco\"" : ""} são colocados pelo nubi.</li><li>Instagram: legenda com hashtags. WhatsApp: curta, chamando para reservar.</li></ul></div>`;
     const caixa = (k, n, v) => `<label class="bz-f"><span>${n}</span><textarea id="leg-${k}" rows="9" style="width:100%">${esc(v || "")}</textarea></label>
       <div style="display:flex;gap:6px;margin:6px 0 12px"><button class="btn small" data-copiar-leg="${k}">📋 Copiar</button></div>`;
-    lado.innerHTML = `<button class="btn small primary" id="leg-gerar">✨ ${st.leg ? "Gerar de novo" : "Gerar legendas com IA"}</button>
+    lado.innerHTML = `<div class="bz-f" style="margin-bottom:10px"><span>🔗 Link do site (opcional: entra encurtado no fim da legenda)</span>
+        <div style="display:flex;gap:6px"><input id="leg-link" type="url" placeholder="https://…" value="${esc(p.link || "")}" style="flex:1">
+        <button class="btn small" id="leg-link-ok">Salvar link</button></div>${p.link_curto ? `<small class="muted">link curto: <b>${esc(p.link_curto)}</b></small>` : ""}</div>
+      <button class="btn small primary" id="leg-gerar">✨ ${st.leg ? "Gerar de novo" : "Gerar legendas com IA"}</button>
       <div style="margin-top:10px">${caixa("instagram", "📸 Instagram", st.leg && st.leg.instagram)}${caixa("whatsapp", "💬 WhatsApp", st.leg && st.leg.whatsapp)}${caixa("grupo", "📌 Post padrão do grupo", texto)}</div>`;
     lado.querySelectorAll("[data-copiar-leg]").forEach(b => b.onclick = () => bzCopiar(lado.querySelector("#leg-" + b.dataset.copiarLeg).value, "Legenda copiada."));
     ["instagram", "whatsapp"].forEach(k => lado.querySelector("#leg-" + k).oninput = e => { st.leg = Object.assign(st.leg || {}, {[k]: e.target.value}); });
+    lado.querySelector("#leg-link-ok").onclick = async e => {
+      e.target.disabled = true; msg("salvando o link e encurtando…");
+      try { const x = (await api("bazar_salvar", {}, {method: "POST", body: JSON.stringify({id: p.id, link: lado.querySelector("#leg-link").value.trim()})})).produto;
+        p.link = x.link; p.link_curto = x.link_curto;
+        try { texto = (await api("bazar_post", {id: p.id})).texto; } catch { /* fica o anterior */ }
+        msg(x.link ? `Link salvo${x.link_curto ? ": " + x.link_curto : ""}. Clique em ✨ para as legendas saírem com ele.` : "Link removido."); desenharLegendas(); }
+      catch (er) { msg(er.message); e.target.disabled = false; } };
     lado.querySelector("#leg-gerar").onclick = async e => {
       e.target.disabled = true; msg("a IA está escrevendo as legendas com as notas do perfume (até 1 min)…");
       try { const r = await api("bazar_legendas", {}, {method: "POST", body: JSON.stringify({id: p.id})}); st.leg = {instagram: r.instagram, whatsapp: r.whatsapp}; msg("Legendas prontas. Edite à vontade."); desenharLegendas(); }
@@ -7862,10 +7946,20 @@ async function fotosNubiSeguido(nomeV) {
         <div class="muted" style="font-size:11px">${esc(lt || "")}${pr != null && !isNaN(+pr) ? ` <b class="p" style="color:var(--ink)">${rsES(+pr)}</b>` : ""}</div>
         ${x.mlb ? `<a class="muted ml-foto-mlb" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${esc(x.mlb)} ↗</a>
           ${x.monitorando ? tagMonitor(x.mlb, x.monitor) : `<button class="btn small ml-foto-bt ml-laranja" data-mon="${esc(x.mlb)}" data-t="${esc(t || "")}" data-p="${pr != null ? +pr : ""}" data-f="${esc(x.foto)}" data-l="${esc(x.link)}">📈 Monitorar</button>`}`
-        : `<div class="muted" style="font-size:10.5px;overflow-wrap:anywhere">${esc((String(x.foto).match(/\d+-ML[AB]\d+/) || [""])[0])}</div>`}</div>`; }).join("")}</div>
+        : `<div class="muted" style="font-size:10.5px;overflow-wrap:anywhere">${esc((String(x.foto).match(/\d+-ML[AB]\d+/) || [""])[0])}</div>
+          ${x.gtin_mon ? `<button class="btn small ml-foto-bt ml-laranja" data-mong="${esc(x.gtin_mon)}" data-t="${esc(t || "")}" data-p="${pr != null ? +pr : ""}" data-f="${esc(x.foto)}"
+            data-full="${x.IsFull ? 1 : ""}" data-tipo="${esc(x.ListingTypeId || "")}" title="Acha o anúncio desta loja no catálogo do ML pelo GTIN">📈 Monitorar</button>` : ""}`}</div>`; }).join("")}</div>
     <details class="muted" style="font-size:11.5px;margin-top:6px"><summary>campos que o Nubimetrics manda</summary>${esc(Object.keys(xs[0]).join(", "))}</details>`
     : `<span class="muted" style="font-size:13px">📷 Fotos dos anúncios no Nubimetrics: ainda não lidas. Na Central, peça ao coletor
       "Nubimetrics: fotos dos anúncios dos vendedores seguidos".</span>`;
+  box.querySelectorAll("button[data-mong]").forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = "procurando no ML…";
+    try {
+      const x = await api("ml_precos_seguir_gtin", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV, gtin: b.dataset.mong, titulo: b.dataset.t,
+        preco: b.dataset.p || null, foto: b.dataset.f, full: !!b.dataset.full, tipo_id: b.dataset.tipo})});
+      b.outerHTML = `<a class="muted ml-foto-mlb" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${esc(x.mlb)} ↗</a>` + tagMonitor(x.mlb, {preco: x.preco, dia: null});
+    } catch (e) { b.disabled = false; b.textContent = "📈 Monitorar"; alert(e.message); }
+  });
   box.querySelectorAll("button[data-mon]").forEach(b => b.onclick = async () => {
     const loja = r.loja || {};
     b.disabled = true;

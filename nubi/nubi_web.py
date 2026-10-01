@@ -4758,7 +4758,15 @@ def rota_bazar(repo, metodo, rota, q, corpo):
     if rota == "bazar":
         return bazar.painel(repo)
     if rota == "bazar_salvar" and metodo == "POST":
-        return {"ok": True, "produto": bazar.salvar_produto(repo, d, quem)}
+        prod = bazar.salvar_produto(repo, d, quem)
+        if prod.get("link") and not prod.get("link_curto"):   # 01/10: link do site encurtado para a legenda
+            curto = marketing.encurtar(prod["link"])
+            if curto != prod["link"]:
+                prods = bazar.produtos(repo)
+                next(x for x in prods if x["id"] == prod["id"])["link_curto"] = curto
+                bazar._gravar(repo, bazar.PRODUTOS, prods)
+                prod["link_curto"] = curto
+        return {"ok": True, "produto": prod}
     if rota == "bazar_venda" and metodo == "POST":
         return {"ok": True, "venda": bazar.salvar_venda(repo, d, quem)}
     if rota == "bazar_mensagem" and metodo == "POST":
@@ -4815,7 +4823,8 @@ def rota_bazar(repo, metodo, rota, q, corpo):
         pedido = marketing.pedido_legendas(p)
         try:
             texto, _ = ia.gemini_texto(pedido, web=False, max_tokens=1200, timeout=90)
-        except ia.SemIA:
+        except Exception:  # noqa: BLE001 — 01/10: Gemini fora (404/429/sem chave): o Claude escreve
+            traceback.print_exc()
             try:
                 texto = ia.perguntar(pedido, web=False, max_tokens=1200)[0]
             except ia.SemIA as e:
@@ -4835,6 +4844,7 @@ def rota_bazar(repo, metodo, rota, q, corpo):
             if precos:
                 partes.append(precos)
             partes.append(extra)
+            partes.append("\n".join(bazar.linha_link(p)).strip())
             tags = "\n".join(l for l in corpo.splitlines() if l.strip().startswith("#"))
             return "\n\n".join(x for x in partes + ([tags] if tags else []) if x)
         out = {"instagram": montar(leg["instagram"], "📲 Chama no direct para garantir o seu!"),
@@ -6583,9 +6593,48 @@ def fotos_com_anuncio(repo, vendedor, dados):
                 u_ = m_.get("ultimo") or {}
                 it["monitor"] = {"preco": u_.get("preco") or m_.get("preco_inicial"), "dia": u_.get("dia"), "desde": m_.get("desde")}
             achados += 1
+        elif loja.get("id") and re.fullmatch(r"\d{8,14}", str(it.get("Gtin") or "")):
+            # 01/10 (Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção"): a vitrine leu só parte
+            # da loja. Anúncio de catálogo com GTIN: o "Monitorar" acha o MLB dessa loja no catálogo do ML (API oficial).
+            it["gtin_mon"] = str(it["Gtin"])
+            m_ = next((x for x in monitor.values() if x.get("gtin") == it["gtin_mon"] and str(x.get("seller_id")) == str(loja["id"])), None)
+            if m_:
+                u_ = m_.get("ultimo") or {}
+                it["mlb"], it["link"], it["monitorando"] = m_["mlb"], m_.get("link") or precos.link_de(m_["mlb"]), True
+                it["monitor"] = {"preco": u_.get("preco") or m_.get("preco_inicial"), "dia": u_.get("dia"), "desde": m_.get("desde")}
+                achados += 1
     dados["com_link"] = achados
     dados["loja"] = {"id": loja.get("id"), "nome": loja.get("nome"), "link": loja.get("link")} if loja else None
     return dados
+
+
+def _seguir_pelo_gtin(repo, d):
+    """01/10: põe no monitor o anúncio de catálogo da loja do seguido achado pelo GTIN (ofertas do produto no ML).
+    Se a loja tiver mais de uma oferta do GTIN, fica a do mesmo tipo (Clássico/Premium) e Full; depois, a de preço mais perto."""
+    vend, g = str(d.get("vendedor") or ""), re.sub(r"\D", "", str(d.get("gtin") or ""))
+    if not re.fullmatch(r"\d{8,14}", g):
+        raise ErroNuvem("GTIN inválido.")
+    loja = _a_conferir(meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(vend)) or {}
+    if not loja.get("id"):
+        raise ErroNuvem("Este vendedor ainda não tem a loja do ML ligada.")
+    try:
+        ofs = [o for o in meli.ofertas_por_gtin([g], limite_produtos=3, max_gtins=1, maximo=meli.MAX_OFERTAS)
+               if str(o.get("vendedor_id")) == str(loja["id"])]
+    except meli.ErroMeli as e:
+        raise ErroNuvem(f"O Mercado Livre não respondeu ({e}). Tente de novo.")
+    if not ofs:
+        raise ErroNuvem(f"A loja {loja.get('nome') or ''} não tem oferta ativa desse produto (GTIN {g}) no catálogo agora.")
+    pr = meli._num(d.get("preco"))
+    full = d.get("full") in (True, "true", "1", 1)
+    ofs.sort(key=lambda o: (o.get("tipo_id") != d.get("tipo_id"), bool(o.get("full")) != full,
+                            abs((o.get("preco") or 0) - (pr or 0)) if pr else 0))
+    o = ofs[0]
+    try:
+        item = precos.seguir(repo, {"mlb": o["anuncio"], "link": o["link"], "titulo": d.get("titulo"), "preco": o.get("preco") or pr,
+                                    "foto": d.get("foto"), "loja": loja.get("nome") or "", "seller_id": loja["id"], "vendedor": vend, "gtin": g})
+    except precos.ErroPrecos as e:
+        raise ErroNuvem(str(e))
+    return {"ok": True, "item": item, "mlb": o["anuncio"], "link": o["link"], "preco": o.get("preco"), "outras": len(ofs) - 1}
 
 
 # 30/09 (Bruno: "abre uma página só para esse card desafio"): tela #/desafio — os cards do tipo "desafio" (#126 e os
@@ -8397,6 +8446,8 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
                 return {"ok": True, "item": precos.seguir(repo, d), "total": len(precos.lista(repo))}
             except precos.ErroPrecos as e:
                 raise ErroNuvem(str(e))
+        if rota == "ml_precos_seguir_gtin" and metodo == "POST":
+            return _seguir_pelo_gtin(repo, d)
         if rota == "ml_precos_parar" and metodo == "POST":
             return {"ok": True, "tirou": precos.parar(repo, d.get("mlb"))}
         if rota == "ml_precos_pendente":
