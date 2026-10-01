@@ -85,6 +85,8 @@ def test_tela():
                 assert "Venda a" in pg.inner_text("#pc-alvo-r")
                 pg.click("#pc-usar")
                 assert "15,0%" in pg.inner_text("#pc-res"), pg.inner_text("#pc-res")      # o preço sugerido dá a margem pedida
+                pg.evaluate("document.querySelector('.pc-modal').scrollTop = 0")
+                pg.screenshot(path=os.path.join(os.path.dirname(os.path.abspath(__file__)), f"saida_calc_{nome}.png"))
                 pg.click("[data-tipo=gold_pro]")                                         # Premium: 19% da API
                 assert pg.input_value("#pc-pct") == "19", pg.input_value("#pc-pct")
                 pg.click(".modal [data-fechar]")

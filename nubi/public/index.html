@@ -1097,22 +1097,57 @@ header.top{padding:7px 16px}
 .pm-lin{display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 170px 170px auto;gap:14px;align-items:center}
 .pm-foto img,.pm-foto{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:24px}
 .pm-titlin{display:flex;align-items:flex-start;gap:0}
-.pm-calcbtn{border:1px solid var(--borda,#dde3ee);background:var(--card,#fff);border-radius:8px;padding:1px 6px;margin-right:6px;cursor:pointer;font-size:14px;vertical-align:top}
-.pm-calcbtn:hover{background:#eef4ff}
 .pm-calc-t a{color:inherit;text-decoration:none}.pm-calc-t a:hover{text-decoration:underline}
-.pc-ml{font-size:12.5px;background:#f3f6fb;border-radius:10px;padding:8px 10px;margin-bottom:10px;line-height:1.5}
-.pc-tipos{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px}.pc-tipos>span{font-weight:600;margin-right:4px}
-.pc-full{display:flex;gap:4px;align-items:center;margin-left:8px;font-weight:600}
-.pc-med{grid-column:1/-1}.pc-med span{display:flex;gap:6px}.pc-med span input{width:70px}
-.pc-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
-.pc-grade label,.pc-alvo label{display:flex;flex-direction:column;gap:3px;font-size:12.5px;font-weight:600}
-.pc-grade small{font-weight:400;color:var(--muted,#6b7280);font-size:11px}
-.pc-res{margin-top:14px;display:flex;flex-direction:column;gap:6px}
-.pc-l{display:flex;justify-content:space-between;font-size:13.5px;border-bottom:1px dashed var(--borda,#e5e7eb);padding-bottom:4px}
-.pc-lucro{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border-radius:12px;padding:12px;margin-top:6px;background:#e9f9ef}
-.pc-lucro.neg{background:#fdecec}.pc-lucro small{display:block;font-size:11px;color:var(--muted,#6b7280)}
-.pc-lucro b{font-size:18px}.pc-lucro.pos b{color:#15803d}.pc-lucro.neg b{color:#b91c1c}
-.pc-alvo{display:flex;gap:12px;align-items:flex-end;margin-top:12px;flex-wrap:wrap}.pc-alvo input{width:90px}
+.modal.pc-modal{max-width:min(980px,100%);padding:0;overflow:auto;border-radius:22px}
+.pc-topo{display:flex;gap:14px;align-items:center;padding:18px 22px;background:linear-gradient(120deg,#1e3a8a,#2563eb 55%,#22d3ee);color:#fff;position:sticky;top:0;z-index:2}
+.pc-ico{width:58px;height:58px;border-radius:16px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;flex:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.3)}
+.pc-tt{display:flex;flex-direction:column;min-width:0;flex:1}.pc-tt>b{font-size:20px}.pc-tt>span{font-size:13.5px;opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc-tt small{opacity:.85;font-size:12px}.pc-x{background:rgba(255,255,255,.2);border:0;color:#fff;width:36px;height:36px;border-radius:50%;font-size:16px;cursor:pointer}
+.pc-corpo{padding:16px 22px 18px}
+.pc-ml{font-size:12.5px;background:#f1f5ff;color:#1e3a8a;border-radius:12px;padding:9px 12px;margin-bottom:12px;line-height:1.5}
+.pc-seg{display:grid;grid-template-columns:1fr 1fr;background:#eef2f7;border-radius:14px;padding:4px;gap:4px;margin-bottom:14px}
+.pc-seg button{border:0;background:transparent;border-radius:11px;padding:9px;font-weight:800;font-size:15px;cursor:pointer;color:#475569;display:flex;flex-direction:column;align-items:center}
+.pc-seg button small{font-weight:500;font-size:11px;color:#64748b}.pc-seg button.on{background:#fff;color:#1d4ed8;box-shadow:0 2px 8px rgba(15,23,42,.12)}
+.pc-2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:18px;align-items:start}.pc-2>*{min-width:0}
+.pc-campos label,.pc-med label{min-width:0}.pc-campos input,.pc-med input,.pc-preco-box input{min-width:0}
+.pc-preco-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:12px 14px;margin-bottom:12px}
+.pc-preco-box>span{font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
+.pc-preco-box>div{display:flex;align-items:baseline;gap:6px}.pc-preco-box i{font-style:normal;font-weight:800;color:#94a3b8;font-size:20px}
+.pc-preco-box input{border:0;background:transparent;font-size:34px;font-weight:900;width:100%;padding:0;color:#0f172a;outline:none}
+.pc-preco-box small{color:#64748b;font-size:12px}
+.pc-campos{display:grid;grid-template-columns:1fr 1fr;gap:10px}.pc-campos .pc-l2{grid-column:1/-1}
+.pc-campos label>span{font-size:11.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
+.pc-campos label>div,.pc-alvo label>div{display:flex;align-items:center;gap:6px;border:1px solid #dbe3ee;border-radius:12px;padding:0 10px;background:#fff;margin-top:3px}
+.pc-campos label>div:focus-within,.pc-alvo label>div:focus-within{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.15)}
+.pc-campos i,.pc-alvo i{font-style:normal;color:#94a3b8;font-weight:700;font-size:13px}
+.pc-campos input,.pc-alvo input{border:0!important;box-shadow:none!important;padding:9px 0!important;font-size:16px;font-weight:700;width:100%;outline:none;background:transparent}
+.pc-pac{margin-top:12px;border:1px dashed #cbd5e1;border-radius:14px;padding:10px 12px}
+.pc-pac-t{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:13px}
+.pc-sw{display:flex;align-items:center;gap:6px;cursor:pointer}.pc-sw input{display:none}
+.pc-sw i{width:34px;height:20px;border-radius:20px;background:#cbd5e1;position:relative;transition:.2s}.pc-sw i:after{content:"";position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:2px;left:2px;transition:.2s}
+.pc-sw input:checked+i{background:#16a34a}.pc-sw input:checked+i:after{left:16px}
+.pc-med{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0 4px}.pc-med label{font-size:11px;color:#64748b;display:flex;flex-direction:column}
+.pc-med input{padding:7px 8px;font-size:14px}.pc-pac small{color:#64748b;font-size:11.5px}
+.pc-lucro{border-radius:18px;padding:16px 18px;background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:1px solid #a7f3d0;animation:pcEntra .35s ease}
+.pc-lucro.neg{background:linear-gradient(135deg,#fef2f2,#fee2e2);border-color:#fecaca}
+.pc-lt{display:flex;justify-content:space-between;align-items:center}.pc-lt span{font-weight:800;font-size:12px;letter-spacing:.6px;text-transform:uppercase;color:#065f46}
+.pc-lucro.neg .pc-lt span{color:#991b1b}.pc-lt em{font-style:normal;font-size:12px;font-weight:800;background:#fff;border-radius:999px;padding:3px 10px;color:#1d4ed8}
+.pc-lucro small{display:block;color:#64748b;font-size:12px;margin-top:6px}
+.pc-lucro>b{font-size:44px;font-weight:900;letter-spacing:-1px;line-height:1.1}.pc-lucro.pos>b{color:#047857}.pc-lucro.neg>b{color:#b91c1c}
+.pc-pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.pc-pills span{background:rgba(255,255,255,.75);border-radius:999px;padding:4px 10px;font-size:12.5px;color:#334155}
+.pc-lista{margin-top:12px;background:#f8fafc;border-radius:14px;padding:6px 12px}
+.pc-l{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:7px 0;border-bottom:1px solid #e2e8f0}.pc-l:last-child{border:0}
+.pc-l.neg b{color:#b45309}.pc-l.tot{font-size:15px}.pc-l.tot b{color:#0f172a}.pc-l small{color:#94a3b8}
+.pc-comp{margin-top:8px;font-size:12.5px;color:#475569;text-align:center}
+.pc-alvo{margin-top:12px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;background:#fffbeb;border:1px solid #fde68a;border-radius:14px;padding:10px 12px}
+.pc-alvo label{font-size:12.5px;font-weight:700;display:flex;flex-direction:column}.pc-alvo label>div{width:110px}
+.pc-alvo #pc-alvo-r{font-size:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-bottom:6px}
+.pc-rod{color:#94a3b8;font-size:11.5px;text-align:center;margin:14px 0 0}
+@keyframes pcEntra{from{opacity:.4;transform:scale(.985)}to{opacity:1;transform:none}}
+@media (max-width:760px){.pc-2{grid-template-columns:1fr}.pc-lucro>b{font-size:36px}.pc-topo{padding:14px}.pc-corpo{padding:12px 14px}}
+.pm-calcbtn{border:0;background:linear-gradient(135deg,#2563eb,#22d3ee);color:#fff;border-radius:10px;width:34px;height:34px;margin-right:8px;cursor:pointer;
+  font-size:18px;flex:none;box-shadow:0 3px 10px rgba(37,99,235,.35);display:inline-flex;align-items:center;justify-content:center;transition:transform .15s}
+.pm-calcbtn:hover{transform:scale(1.08)}
 .pm-tit{font-weight:700;font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pm-sub{font-size:12px;margin-top:2px}.pm-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center}
 .pm-chip{font-size:11.5px;padding:2px 8px;border-radius:999px;background:rgba(127,127,127,.1)}
@@ -8406,23 +8441,39 @@ function pmCalc(x, cfg) {
   const n = v => v == null || v === "" ? "" : String(Math.round(v * 100) / 100).replace(".", ",");
   const lerN = el => { const v = parseFloat(String(el.value).replace(/\./g, "").replace(",", ".")); return isFinite(v) ? v : 0; };
   const lerP = el => { const v = parseFloat(String(el.value).replace(",", ".")); return isFinite(v) ? v : 0; };
-  modal(`<h2 style="margin-top:0">🧮 Calculadora</h2>
-    <p class="muted" style="margin-top:0">${esc(x.titulo || x.mlb)} · ${esc(x.mlb)}${m.sku ? ` · meu SKU ${esc(m.sku)}` : ""}</p>
-    <div class="pc-ml" id="pc-ml">🔄 buscando no Mercado Livre a categoria, o tipo e as medidas do meu anúncio…</div>
-    <div class="pc-tipos"><span>Meu anúncio será</span><button class="btn small" data-tipo="gold_special">Clássico</button><button class="btn small" data-tipo="gold_pro">Premium</button>
-      <label class="pc-full"><input type="checkbox" id="pc-fullck"> ⚡ Full</label></div>
-    <div class="pc-grade">
-      <label>Preço de venda (R$)<input id="pc-preco" inputmode="decimal" value="${n(x.atual)}"></label>
-      <label>Meu custo (R$)<input id="pc-custo" inputmode="decimal" value="${n(m.custo)}" placeholder="custo do produto"></label>
-      <label>Tarifa do ML (%)<input id="pc-pct" inputmode="decimal" value="${n(pct0 != null ? pct0 : 14)}"><small>${pct0 != null ? "da API do ML (categoria do anúncio)" : "padrão; o ML ainda não respondeu"}</small></label>
-      <label>Frete grátis (R$)<input id="pc-frete" inputmode="decimal" value="${n(c.frete || 0)}"><small>${c.frete ? "o que o ML cobra deste vendedor" : "a partir de R$ 79"}</small></label>
-      <label>Imposto (%)<input id="pc-imp" inputmode="decimal" value="${n(cfg?.imposto_pct || 0)}"></label>
-      <label>Outros custos (R$)<input id="pc-out" inputmode="decimal" value="" placeholder="embalagem, brinde…"></label>
-      <label class="pc-med">Pacote: altura × largura × comprimento (cm) e peso (g)<span><input id="pc-a" inputmode="decimal" placeholder="A"><input id="pc-l" inputmode="decimal" placeholder="L"><input id="pc-c" inputmode="decimal" placeholder="C"><input id="pc-g" inputmode="numeric" placeholder="g"></span><small id="pc-med-o">o frete grátis do ML depende do peso e das medidas</small></label>
-    </div>
-    <div id="pc-res" class="pc-res"></div>
-    <div class="pc-alvo"><label>Quero margem de (%)<input id="pc-alvo" inputmode="decimal" value="15"></label><div id="pc-alvo-r" class="muted"></div></div>
-    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn small" data-fechar>Fechar</button></div>`, bg => {
+  const ICO_CALC = `<svg viewBox="0 0 48 48" width="34" height="34" fill="none"><rect x="9" y="4" width="30" height="40" rx="6" fill="#fff"/>
+    <rect x="13" y="8" width="22" height="9" rx="2" fill="#1d4ed8"/><text x="32" y="15.2" text-anchor="end" font-size="6.5" font-weight="800" fill="#fff" font-family="Arial">R$</text>
+    ${[0, 1, 2].map(r => [0, 1, 2].map(c => `<rect x="${13 + c * 8}" y="${21 + r * 7}" width="6" height="5" rx="1.5" fill="${c === 2 && r === 2 ? "#22c55e" : c === 2 ? "#f59e0b" : "#cbd5e1"}"/>`).join("")).join("")}</svg>`;
+  modal(`<div class="pc-topo"><div class="pc-ico">${ICO_CALC}</div>
+      <div class="pc-tt"><b>Calculadora de lucro</b><span>${esc(x.titulo || x.mlb)}</span>
+        <small>${esc(x.mlb)}${x.loja ? ` · concorrente ${esc(x.loja)}` : ""}${m.sku ? ` · meu SKU <b>${esc(m.sku)}</b>` : ""}</small></div>
+      <button class="pc-x" data-fechar title="Fechar">✕</button></div>
+    <div class="pc-corpo">
+      <div class="pc-ml" id="pc-ml">🔄 buscando no Mercado Livre a categoria, o tipo e as medidas do meu anúncio…</div>
+      <div class="pc-seg"><button data-tipo="gold_special">Clássico<small id="pc-t-gold_special"></small></button><button data-tipo="gold_pro">Premium<small id="pc-t-gold_pro"></small></button></div>
+      <div class="pc-2">
+        <div class="pc-ent">
+          <div class="pc-preco-box"><span>Preço de venda</span><div><i>R$</i><input id="pc-preco" inputmode="decimal" value="${n(x.atual)}"></div>
+            <small>concorrente vende a ${x.atual ? rsES(x.atual) : "—"}</small></div>
+          <div class="pc-campos">
+            <label><span>Meu custo</span><div><i>R$</i><input id="pc-custo" inputmode="decimal" value="${n(m.custo)}" placeholder="0,00"></div></label>
+            <label><span>Imposto</span><div><input id="pc-imp" inputmode="decimal" value="${n(cfg?.imposto_pct || 0)}"><i>%</i></div></label>
+            <label><span>Tarifa do ML</span><div><input id="pc-pct" inputmode="decimal" value="${n(pct0 != null ? pct0 : 14)}"><i>%</i></div></label>
+            <label><span>Frete grátis</span><div><i>R$</i><input id="pc-frete" inputmode="decimal" value="${n(c.frete || 0)}"></div></label>
+            <label class="pc-l2"><span>Embalagem e outros</span><div><i>R$</i><input id="pc-out" inputmode="decimal" value="" placeholder="0,00"></div></label>
+          </div>
+          <div class="pc-pac"><div class="pc-pac-t"><span>📦 Pacote</span><label class="pc-sw"><input type="checkbox" id="pc-fullck"><i></i> ⚡ Full</label></div>
+            <div class="pc-med"><label>Alt.<input id="pc-a" inputmode="decimal" placeholder="cm"></label><label>Larg.<input id="pc-l" inputmode="decimal" placeholder="cm"></label>
+              <label>Comp.<input id="pc-c" inputmode="decimal" placeholder="cm"></label><label>Peso<input id="pc-g" inputmode="numeric" placeholder="g"></label></div>
+            <small id="pc-med-o">o frete grátis do ML depende do peso e das medidas</small></div>
+        </div>
+        <div class="pc-sai">
+          <div id="pc-res" class="pc-res"></div>
+          <div class="pc-alvo"><label>🎯 Quero margem de<div><input id="pc-alvo" inputmode="decimal" value="15"><i>%</i></div></label><div id="pc-alvo-r"></div></div>
+        </div>
+      </div>
+      <p class="pc-rod">Tarifa e frete pela API oficial do Mercado Livre (só leitura). A calculadora só simula: nada muda no anúncio.</p>
+    </div>`, bg => {
     const $i = id => bg.querySelector(id);
     const conta = (p, v) => { const fixa = taxaFixa(p), taxa = p * v.pct / 100 + fixa, frete = p >= 79 ? v.frete : 0, imp = p * v.imp / 100;
       const recebido = p - taxa - frete, lucro = recebido - imp - v.custo - v.out;
@@ -8432,15 +8483,20 @@ function pmCalc(x, cfg) {
       const p = lerN($i("#pc-preco")), v = {custo: lerN($i("#pc-custo")), pct: lerP($i("#pc-pct")), frete: lerN($i("#pc-frete")),
         imp: lerP($i("#pc-imp")), out: lerN($i("#pc-out"))};
       const r = conta(p, v), cls = r.lucro < 0 ? "neg" : "pos";
+      const tnome = tipo === "gold_pro" ? "Premium" : "Clássico";
       $i("#pc-res").innerHTML = `
-        <div class="pc-l"><span>Tarifa do ML (${n(v.pct)}%${r.fixa ? ` + ${rsES(r.fixa)} fixo` : ""})</span><b>− ${rsES(r.taxa)}</b></div>
-        <div class="pc-l"><span>Frete grátis${p < 79 ? " (abaixo de R$ 79 o comprador paga)" : ""}</span><b>− ${rsES(r.frete)}</b></div>
-        <div class="pc-l"><span>Recebo do ML</span><b>${rsES(r.recebido)}</b></div>
-        <div class="pc-l"><span>Imposto (${n(v.imp)}%)</span><b>− ${rsES(r.imp)}</b></div>
-        <div class="pc-l"><span>Meu custo${v.out ? " + outros" : ""}</span><b>− ${rsES(v.custo + v.out)}</b></div>
-        <div class="pc-lucro ${cls}"><div><small>Lucro líquido</small><b>${rsES(r.lucro)}</b></div>
-          <div><small>Margem</small><b>${pctF(r.margem)}</b></div><div><small>ROI</small><b>${v.custo ? pctF(r.roi) : "—"}</b></div></div>
-        ${x.atual && Math.abs(p - x.atual) > 0.004 ? `<div class="muted" style="font-size:12px">Concorrente vende a ${rsES(x.atual)} (${p > x.atual ? "▲ " : "▼ "}${pctF(Math.abs(p / x.atual - 1))} do preço dele)</div>` : ""}`;
+        <div class="pc-lucro ${cls}"><div class="pc-lt"><span>${tnome}</span><em>${pctF(r.margem)} margem</em></div>
+          <small>Lucro líquido por venda</small><b>${rsES(r.lucro)}</b>
+          <div class="pc-pills"><span>Margem <b>${pctF(r.margem)}</b></span><span>ROI <b>${v.custo ? pctF(r.roi) : "—"}</b></span><span>Recebo <b>${rsES(r.recebido)}</b></span></div></div>
+        <div class="pc-lista">
+          <div class="pc-l"><span>Preço de venda</span><b>${rsES(p)}</b></div>
+          <div class="pc-l neg"><span>Tarifa ${tnome} (${n(v.pct)}%${r.fixa ? ` + ${rsES(r.fixa)} fixo` : ""})</span><b>− ${rsES(r.taxa)}</b></div>
+          <div class="pc-l neg"><span>Frete grátis${p < 79 ? " <small>(abaixo de R$ 79 o comprador paga)</small>" : ""}</span><b>− ${rsES(r.frete)}</b></div>
+          <div class="pc-l neg"><span>Imposto (${n(v.imp)}%)</span><b>− ${rsES(r.imp)}</b></div>
+          <div class="pc-l neg"><span>Meu custo${v.out ? " + embalagem" : ""}</span><b>− ${rsES(v.custo + v.out)}</b></div>
+          <div class="pc-l tot"><span>Sobra no bolso</span><b>${rsES(r.lucro)}</b></div>
+        </div>
+        ${x.atual && Math.abs(p - x.atual) > 0.004 ? `<div class="pc-comp">${p > x.atual ? "▲" : "▼"} ${pctF(Math.abs(p / x.atual - 1))} ${p > x.atual ? "acima" : "abaixo"} do concorrente (${rsES(x.atual)})</div>` : ""}`;
       // preço para a margem desejada (o custo fixo e o frete mudam com a faixa de preço: procura a faixa certa)
       const alvo = lerP($i("#pc-alvo")) / 100, base = 1 - v.pct / 100 - v.imp / 100 - alvo;
       let sug = null;
@@ -8449,13 +8505,15 @@ function pmCalc(x, cfg) {
           let pp = q / base; for (let k = 0; k < 5; k++) pp = (q + taxaFixa(pp)) / base;
           if ((fr ? pp >= 79 : pp < 79) || fr === 0) { sug = pp; if (fr ? pp >= 79 : pp < 79) break; } }
       }
-      $i("#pc-alvo-r").innerHTML = !v.custo ? "Preencha o meu custo para calcular." : sug ? `Venda a <b>${rsES(sug)}</b> <a href="javascript:void 0" id="pc-usar">usar este preço</a>` : "Margem impossível com essas taxas.";
+      $i("#pc-alvo-r").innerHTML = !v.custo ? `<span class="muted">Preencha o meu custo para calcular.</span>` : sug ? `Venda a <b>${rsES(sug)}</b> <button class="btn small primary" id="pc-usar">usar este preço</button>` : `<span class="muted">Margem impossível com essas taxas.</span>`;
       const u = $i("#pc-usar"); if (u) u.onclick = () => { $i("#pc-preco").value = n(sug); desenhar(); };
     };
     // dados do ML: tarifa dos 2 tipos pela MINHA categoria e o frete pelas medidas do pacote (rota ml_precos_calc_ml)
     let tipo = c.tipo_id || x.tipo_id || "gold_special", ml = null, seq = 0, tm = null;
-    const marcaTipo = () => bg.querySelectorAll("[data-tipo]").forEach(b => b.classList.toggle("primary", b.dataset.tipo === tipo));
+    bg.querySelector(".modal").classList.add("pc-modal");
+    const marcaTipo = () => bg.querySelectorAll("[data-tipo]").forEach(b => b.classList.toggle("on", b.dataset.tipo === tipo));
     const aplicar = () => { if (!ml) return;
+      Object.entries(ml.tarifas || {}).forEach(([k, t]) => { const z = bg.querySelector("#pc-t-" + k); if (z && t && t.pct != null) z.textContent = n(t.pct) + "% de tarifa"; });
       const tf = (ml.tarifas || {})[tipo];
       if (tf && tf.pct != null) $i("#pc-pct").value = n(tf.pct);
       if (ml.frete != null) $i("#pc-frete").value = n(ml.frete);
