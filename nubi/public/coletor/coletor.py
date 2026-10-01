@@ -1344,6 +1344,22 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
         ctx.close()
 
 
+def coletar_marcas_reabrindo(p, cfg, token, mes, categoria=None, nomes=None):
+    """01/10 (card #139, Maquiagem 2026-02): o Chrome do Mac fecha sozinho no download ("Download.save_as: Target page,
+    context or browser has been closed") ou abre sem os botões da categoria; o mesmo mês passava na rodada seguinte.
+    Como os vendedores (card #101): tenta em até 3 Chromes novos antes de contar erro."""
+    for tentativa in (1, 2, 3):
+        try:
+            return coletar_marcas(p, cfg, token, mes, categoria=categoria, nomes=nomes)
+        except SessaoExpirada:
+            raise
+        except Exception as e:  # noqa: BLE001
+            if tentativa == 3:
+                raise
+            log(f"  MARCAS {mes}: {type(e).__name__}: {str(e)[:120]}; abrindo um Chrome novo ({tentativa + 1}/3)")
+            devagar(5)
+
+
 # ---------------------------------------------------------------------------
 # Comandos
 # ---------------------------------------------------------------------------
@@ -8192,7 +8208,7 @@ def main():
                 rot_cat = (nomes_ or [cat_])[-1]
                 ao_vivo(True, atual=f"MARCAS · {rot_cat} · {per['mes']}")
                 try:
-                    a, i, e = coletar_marcas(p, cfg, token, per["mes"], categoria=cat_, nomes=nomes_)
+                    a, i, e = coletar_marcas_reabrindo(p, cfg, token, per["mes"], categoria=cat_, nomes=nomes_)
                     partes.append(f"MARCAS {rot_cat} {per['mes']} importado")
                 except SessaoExpirada:
                     raise
