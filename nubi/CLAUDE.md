@@ -174,6 +174,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   pedido `diario` em `coletor_pedidos` (o vigia do Mac pega em até 15 min). `coletor_pendencias` manda `ranking_nomes`; no
   coletor, `categorias_marcas(cfg, pend)` junta às categorias do config toda categoria já importada no Ranking, então a
   coleta mensal baixa os meses que faltam de cada uma. Teste em `test_ranking_maquiagem.py`.
+  01/10 (card #138): `coletar_marcas` espera o menu de categorias mostrar o nome antes de escolher (até 30 s) e, se o
+  Chrome fecha no download ("has been closed"), abre outro, até 3. Teste `test_marcas_chrome_fechou.py`.
   Menu (Bruno: "não tem necessidade de três menus de perfume"): um item por categoria em `desenharMenu`; Mês a mês / B.I. /
   Categorias de marca são as abas `.seg` no topo das três telas.
   Categoria `CAT_LOW`="Low price" (vence a "Categoria final" do arquivo), confiança `CONF_LOW`, produto "Marca Linha Decant

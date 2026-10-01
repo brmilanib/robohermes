@@ -1208,7 +1208,7 @@ def categorias_marcas(cfg, pend=None):
     return out
 
 
-def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=None):
+def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=None, tentativa=1):
     mes = mes or mes_anterior()
     a, m = map(int, mes.split("-"))
     rotulo_mes = f"{MESES[m - 1]} {a}"
@@ -1230,6 +1230,14 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
                                  ".includes(t)", arg=rotulo_mes.lower(), timeout=30000)
         # categoria: os botões têm que mostrar Beleza e Cuidado Pessoal / Perfumes
         botoes = pg.locator("div.dropdown-category button.dropdown-toggle")
+        # 01/10 (card #138): a página às vezes abre antes do menu de categorias carregar (botões sem texto, itens com
+        # data-name=""); escolher nessa hora esperava 15 s no item escondido. Espera os botões mostrarem o nome (até 30 s).
+        from playwright.sync_api import TimeoutError as _TO
+        try:
+            pg.wait_for_function("() => [...document.querySelectorAll('div.dropdown-category button.dropdown-toggle')]"
+                                 ".some(b => b.innerText.trim())", timeout=30000)
+        except _TO:
+            pass
         textos = " | ".join(botoes.all_inner_texts())
         if not all(n.lower() in textos.lower() for n in nomes_cat):
             log(f"  Categoria na tela: {textos!r}; escolhendo {cat}")
@@ -1254,7 +1262,6 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
         # 30/09 (Maquiagem, card #133): a aba MARCAS já fica aberta de uma rodada anterior; trocar a categoria dispara a
         # consulta ANTES do clique, e o clique na aba já aberta não dispara nada (esperava 120 s à toa). Se a aba já está
         # selecionada, segue pela tabela.
-        from playwright.sync_api import TimeoutError as _TO
         ja_aberta = bool(pg.locator('button#simple-tab-3[aria-selected="true"]').count())
         # 01/10 (card #134): a página recém-aberta também pode ter a consulta em cache (nenhuma resposta nova): 4 rodadas
         # seguidas esperaram 120 s em cada mês da Maquiagem. Sem resposta em 30 s, segue pela tabela; se ela não carregar,
@@ -1304,8 +1311,18 @@ def coletar_marcas(p, cfg, token, mes=None, enviar=True, categoria=None, nomes=N
             log("    " + " ".join(r.get("log", [])))
             return 1, 1, 0
         return 1, 0, 0
+    except Exception as ex:  # noqa: BLE001
+        # 01/10 (card #138): o Chrome às vezes fecha no download (TargetClosedError no save_as, como o card #101): abre
+        # outro e tenta de novo, até 3 Chromes
+        if tentativa == 3 or not ("has been closed" in str(ex) or "Target closed" in str(ex)):
+            raise
+        log(f"  MARCAS {mes}: o navegador fechou ({str(ex)[:80]}); abrindo de novo")
     finally:
-        ctx.close()
+        try:
+            ctx.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return coletar_marcas(p, cfg, token, mes, enviar, categoria, nomes, tentativa + 1)
 
 
 # ---------------------------------------------------------------------------
