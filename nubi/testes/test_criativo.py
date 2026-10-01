@@ -129,7 +129,7 @@ def test_bloqueia_escrita_nas_3_tabelas_de_venda():
 def test_teto_do_mes_esgotado_nao_chama_a_api():
     agora = datetime.now(timezone.utc)
     usos = [{"id": 1, "agente": "gemini", "modelo": "gemini-2.5-flash-image", "origem": "criativo",
-             "inicio": (agora - timedelta(hours=1)).isoformat(), "ok": True, "custo_usd": 5.0}]
+             "inicio": (agora - timedelta(seconds=1)).isoformat(), "ok": True, "custo_usd": 5.0}]
     repo = _cenario(usos_extra=usos)
     os.environ["NUBI_TETO_GEMINI"] = "/5"                          # só teto do mês, US$ 5 já usados
     try:
