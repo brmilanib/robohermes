@@ -2144,7 +2144,7 @@ def ml_completar_anuncios(pg, token, sem_loja):
 
 
 ML_HOME = "https://www.mercadolivre.com.br/"
-ML_ANUNCIO_TESTE = "https://produto.mercadolivre.com.br/MLB-4440002222"   # anúncio público da AURASCENT (loja do Bruno)
+ML_ANUNCIO_TESTE = "https://produto.mercadolivre.com.br/MLB-7440859356"   # anúncio público (Club de Nuit, MAMS); 01/10: o antigo MLB-4440002222 virou outro produto
 
 
 def _ml_navegador(p, cfg):
