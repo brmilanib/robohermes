@@ -485,6 +485,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     (`anuncios_do_relatorio`: total e ativos; o `vend_fotos` tem só os 500 que mais vendem) x o total da loja no ML
     (`total_loja`: "N resultados" lido pelo `JS_VITRINE` na 1ª página → `ml|total_loja|<sid>`; senão a busca da API por
     seller_id). ±25% = `total_bate`; a 1ª do placar com total que não bate não vira "certa".
+  - **Uma página por vendedor (01/10, Bruno: "cada vendedor tem que ter uma página só; menos tela, mais otimizado")**:
+    a página do seguido (`#/vendedores/<nome>`: Visão do ano, Mês a mês, Alertas, com gráficos, loja real, anúncios
+    reais da vitrine e fotos) ganhou a aba **🔭 Explorador** (`#/vendedores/<nome>/explorador`, `telaVendedorExplorador`):
+    produtos, marcas e evolução dos exports do Explorador, produto clicável. O observado que é seguido
+    (`observado` devolve `seguido_nome`, via `_seguidos_por_hash`) redireciona para essa aba; quem não é seguido usa o
+    mesmo desenho (`desenharExplorador`). Rota `observado` aceita `vendedor` (nome do seguido). Cartão de foto: MLB numa
+    linha e o botão "📈 Monitorar" embaixo, na largura do cartão.
   - **Observados: cabeçalho com botões + ✨ Destaques (01/10)**: os números (seguidos, observados, com loja, ⭐) filtram a
     lista; "✨ quem se destaca?" chama `observados_destaques` → `observados.destaques` (SQL `nubi_observados_sinais()`:
     ritmo do período x média de vida, un. em anúncios ≤90 dias, liderança em produto; IA estruturada escolhe 6–10 com

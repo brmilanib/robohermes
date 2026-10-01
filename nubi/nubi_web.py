@@ -298,6 +298,21 @@ def _hash_ok(x):
     return x if x and x.get("confianca") != "a conferir" else None
 
 
+def _seguidos_por_hash(repo):
+    """{hash do Explorador: nome do seguido} (o Explorador mostra o nome que o Bruno deu ao seguido)."""
+    out = {}
+    try:
+        nomes = {r["vendedor"] for r in _vend_rels(repo)}
+        if nomes:
+            for a in repo._req("GET", "anuncios", {"select": "vendedor_id,vendedor", "vendedor": f"in.({','.join(json.dumps(n) for n in nomes)})",
+                                                    "limit": 5000}) or []:
+                if a.get("vendedor_id"):
+                    out.setdefault(str(a["vendedor_id"]), a["vendedor"])
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
 def _hashes_seguidos(repo):
     """Hashes do Explorador dos vendedores seguidos (vend_relatorios.seller_hash + de-para meli|seguidos pelos nomes)."""
     hs = set()
@@ -353,12 +368,28 @@ def rota_observados(repo, metodo, rota, q, corpo):
             lojas = {}
         return observados.lista(repo, _hashes_seguidos(repo), lojas)
     if rota == "observado":
+        # 01/10 (Bruno: "cada vendedor tem uma página só"): pelo nome do seguido (aba Explorador da página dele) ou pelo hash;
+        # o hash de um seguido devolve `seguido_nome` e a tela leva para a página única do seguido
         vid = str(q.get("vendedor_id") or "")
+        pelo_nome = str(q.get("vendedor") or "")
+        mapa = _seguidos_por_hash(repo)
+        if pelo_nome and not vid:
+            hs = [h for h, n in mapa.items() if n == pelo_nome]
+            if not hs:
+                raise ErroNuvem("Esse vendedor não aparece nos exports do Explorador.", 404)
+            vid = max(hs, key=lambda h: len(repo._req("GET", "anuncios", {"select": "id", "vendedor_id": f"eq.{h}", "limit": 500}) or []))
         try:
             lojas = _lojas_ml_do(repo, {vid})
-            return observados.detalhe(repo, vid, _hashes_seguidos(repo), lojas)
+            d = observados.detalhe(repo, vid, set(mapa) | _hashes_seguidos(repo), lojas)
         except ValueError as e:
             raise ErroNuvem(str(e))
+        if not d.get("loja") and (pelo_nome or mapa.get(vid)):
+            x = meli.ler_hash_lojas(repo, meli.SEGUIDOS).get(pelo_nome or mapa.get(vid))
+            if x and x.get("id"):
+                d["loja"] = {k: x.get(k) for k in ("id", "nome", "link", "confianca", "prova")}
+        if not pelo_nome and mapa.get(vid):
+            d["seguido_nome"] = mapa[vid]
+        return d
     if rota == "observados_destaques":
         nomes = {}
         try:

@@ -263,6 +263,8 @@ a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .ml-foto .t{font-size:11.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .ml-foto.tem-link{border-color:rgba(52,131,250,.45)}.ml-foto.tem-link a img:hover{outline:2px solid var(--s1);cursor:pointer}
 .ml-foto .p{font-size:12px;font-weight:700}
+.ml-foto{display:flex;flex-direction:column;gap:3px}.ml-foto-mlb{font-size:10.5px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ml-foto-bt{width:100%;justify-content:center;margin-top:auto;font-size:11.5px;padding:4px 6px}
 #sml-tab .btn.ghost,#vml-loja .btn.ghost,#pv-ml .btn.ghost{background:var(--card);border-color:var(--line);color:var(--ink)}
 #sml-tab .btn.ghost:hover,#vml-loja .btn.ghost:hover,#pv-ml .btn.ghost:hover{background:var(--soft)}
 .calc-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}@media (max-width:600px){.calc-g{grid-template-columns:1fr}}
@@ -925,7 +927,16 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 .ob-num:hover{border-color:var(--accent)}.ob-num.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--soft)}
 .ob-num.good b{color:var(--good)}.ob-num.ml b{color:#e67e22}.ob-num.star b{color:#d4a017}.ob-num.ia{background:linear-gradient(135deg,#f3e8ff,#e0f2fe)}.ob-num.ia b{font-size:16px}
 .ob-dest{margin-bottom:10px;border-left:4px solid #a855f7}.ob-motivo{font-size:11.5px;color:#7c3aed;margin-top:2px;max-width:520px}
-.ob-nome{max-width:380px}.ob-nome b,.ob-nome div{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:380px}.ob-nome div{font-size:11px}
+.ex-loja{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.ex-ico{font-size:20px}
+.ex-prova{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:900px}
+.ex-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:12px;margin-top:12px}
+@media (max-width:900px){.ex-grid{grid-template-columns:1fr}}
+.ex-barra{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
+.ex-barra:last-child{border-bottom:0}.ex-bnome{display:flex;flex-direction:column;min-width:0}.ex-bnome span{font-size:11.5px}
+.ex-btrilho{height:8px;background:var(--soft);border-radius:4px;overflow:hidden}.ex-btrilho div{height:8px;background:var(--accent);border-radius:4px}
+.ex-share{display:inline-block;width:46px;height:6px;background:var(--soft);border-radius:3px;margin-right:6px;vertical-align:middle;overflow:hidden}
+.ex-share div{height:6px;background:var(--accent)}
+.ob-nome{min-width:260px;max-width:460px}.ob-nome b{display:block;white-space:normal;line-height:1.25}.ob-nome div{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:460px;font-size:11px}
 tr.ob-prod{cursor:pointer}tr.ob-prod:hover td{background:var(--soft)}
 .pq-foto{width:88px;height:88px;flex:0 0 88px;border:1px solid var(--line);border-radius:10px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;gap:2px}
 .pq-foto img{max-width:84px;max-height:70px;object-fit:contain}.pq-foto.duvida{border-color:var(--warn);border-style:dashed}.pq-foto:empty{background:var(--soft);border-style:dashed}
@@ -1638,7 +1649,8 @@ async function rotear() {
     if (location.hash.startsWith("#/concorrentes")) return telaConcorrentes();
     if (location.hash.startsWith("#/produtos-iguais")) return telaProdutosIguais();
     const h = decodeURIComponent(location.hash);
-    const m = h.match(/^#\/vendedores\/([^/?]+)(?:\/(\d{4}-\d{2}|alertas))?/);
+    const m = h.match(/^#\/vendedores\/([^/?]+)(?:\/(\d{4}-\d{2}|alertas|explorador))?/);
+    if (m && m[2] === "explorador") return telaVendedorExplorador(m[1]);
     if (m) return m[2] && m[2] !== "alertas" ? telaVendedor(m[1], m[2]) : telaVendedorAno(m[1], m[2] === "alertas");
     return telaVendedores((h.match(/[?&]mes=(\d{4}-\d{2})/) || [])[1]);
   }
@@ -5403,7 +5415,19 @@ function cabVendedor(nomeV, aba, extra = "", nAlertas) {
         <a class="${aba === "ano" ? "on" : ""}" href="${base}">📈 Visão do ano</a>
         <a class="${aba === "mes" ? "on" : ""}" href="${base}/${ultMes}">📅 Mês a mês</a>
         <a class="${aba === "alertas" ? "on" : ""}" href="${base}/alertas">🚨 Alertas de estoque${nAlertas ? ` <span class="n bad">${nAlertas}</span>` : ""}</a>
+        <a class="${aba === "explorador" ? "on" : ""}" href="${base}/explorador" title="O que ele vende nos exports do Explorador de anúncios (todas as marcas), com o produto clicável">🔭 Explorador</a>
       </nav>${extra}</div>`;
+}
+// 01/10 (Bruno: "cada vendedor tem que ter uma página só"): a aba Explorador do vendedor seguido usa o mesmo desenho
+// da página do observado (produtos, marcas e evolução por export, produto clicável)
+async function telaVendedorExplorador(nomeV) {
+  const main = $("#main");
+  main.innerHTML = cabVendedor(nomeV, "explorador") + `<div id="vexp"><div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o Explorador</div></div></div>`;
+  let r;
+  try { r = await api("observado", {vendedor: nomeV}); } catch (e) { $("#vexp").innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  S.obsDet = r;
+  desenharExplorador($("#vexp"), r, r.vendedor_id, () => telaVendedorExplorador(nomeV));
+  desenharMenu();
 }
 async function telaVendedorAno(nomeV, abaAlertas) {
   const main = $("#main");
@@ -6747,8 +6771,8 @@ async function fotosNubiSeguido(nomeV) {
       return `<div class="ml-foto${x.mlb ? " tem-link" : ""}">${x.mlb ? `<a href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir o anúncio no Mercado Livre">${img}</a>` : img}
         <div class="t" title="${esc(t || "")}">${esc(t || "")}</div>
         <div class="muted" style="font-size:11px">${esc(lt || "")}${pr != null && !isNaN(+pr) ? ` <b class="p" style="color:var(--ink)">${rsES(+pr)}</b>` : ""}</div>
-        ${x.mlb ? `<div style="display:flex;gap:4px;align-items:center;margin-top:3px"><a class="muted" style="font-size:10.5px" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${esc(x.mlb)} ↗</a>
-          <button class="btn small ${x.monitorando ? "ghost" : "ml-laranja"}" data-mon="${esc(x.mlb)}" data-t="${esc(t || "")}" data-p="${pr != null ? +pr : ""}" data-f="${esc(x.foto)}" data-l="${esc(x.link)}" style="margin-left:auto">${x.monitorando ? "✓ monitorando" : "📈 Monitorar"}</button></div>`
+        ${x.mlb ? `<a class="muted ml-foto-mlb" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${esc(x.mlb)} ↗</a>
+          <button class="btn small ml-foto-bt ${x.monitorando ? "ghost" : "ml-laranja"}" data-mon="${esc(x.mlb)}" data-t="${esc(t || "")}" data-p="${pr != null ? +pr : ""}" data-f="${esc(x.foto)}" data-l="${esc(x.link)}">${x.monitorando ? "✓ monitorando" : "📈 Monitorar"}</button>`
         : `<div class="muted" style="font-size:10.5px;overflow-wrap:anywhere">${esc((String(x.foto).match(/\d+-ML[AB]\d+/) || [""])[0])}</div>`}</div>`; }).join("")}</div>
     <details class="muted" style="font-size:11.5px;margin-top:6px"><summary>campos que o Nubimetrics manda</summary>${esc(Object.keys(xs[0]).join(", "))}</details>`
     : `<span class="muted" style="font-size:13px">📷 Fotos dos anúncios no Nubimetrics: ainda não lidas. Na Central, peça ao coletor
@@ -6940,52 +6964,64 @@ async function telaObservado(vid) {
   let r;
   try { r = await api("observado", {vendedor_id: vid}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/observados/")) return;
+  // 01/10 (Bruno: "cada vendedor tem uma página só"): o seguido abre a página dele (gráficos, vitrine, fotos) na aba Explorador
+  if (r.seguido_nome) { location.replace("#/vendedores/" + encodeURIComponent(r.seguido_nome) + "/explorador"); return; }
   S.obsDet = r;
-  const t = r.total || {}, kpi = (l, v, o = "") => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
-  const R = x => x == null ? "—" : "R$ " + nf2.format(x);
-  const lojaBloco = () => r.loja ? `<span>🏪 Loja real: <a class="ml-loja" href="${esc(urlLojaML(r.loja))}" target="_blank" rel="noopener">${esc(r.loja.nome)} ↗</a> <span class="muted">(${provaML(r.loja)})</span></span>
-      ${r.loja.id ? `<a class="btn small" href="#/ml/loja/${esc(r.loja.id)}">Página da loja</a>` : ""}`
-    : `<span class="muted">Loja real no Mercado Livre ainda não achada.</span><button class="btn small ml-laranja" id="ob-desc">🔎 Descobrir a loja real</button>
-      <input id="ob-link" type="search" placeholder="Já sei: link da loja ou de um anúncio dela" style="min-width:260px"><button class="btn small" id="ob-sei">Salvar</button><span id="ob-msg" class="muted" style="font-size:12px"></span><div id="ob-cands" style="flex-basis:100%"></div>`;
-  main.innerHTML = `<div class="es-cab"><h1>👀 ${esc(r.nome)}</h1>
+  main.innerHTML = `<div class="vcab"><h1>👀 ${esc(r.nome)}</h1>
       <span class="st ${(SIT_OBS[r.situacao] || [])[1] || ""}">${esc((SIT_OBS[r.situacao] || [r.situacao])[0])}</span>
       <button class="btn small ${r.interesse ? "primary" : ""}" id="ob-estrela">${r.interesse ? "⭐ interessante" : "☆ marcar interessante"}</button>
-      <a class="btn small ghost" href="#/observados">← todos os observados</a></div>
-    <div class="muted" style="margin:-4px 0 8px;font-size:12.5px">${r.nomes.length > 1 ? "nomes vistos no Nubimetrics: " + r.nomes.map(esc).join(", ") + " · " : ""}hash ${esc(vid.slice(0, 12))}…</div>
-    <div class="card pad" style="padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:10px">${lojaBloco()}</div>
-    <div class="kpis pq-kpis">
-      ${kpi("Produtos", nf0.format(t.produtos), `${nf0.format(t.anuncios)} anúncios · ${nf0.format(t.gtins)} com GTIN`)}
-      ${kpi("Unidades (último export de cada marca)", nf0.format(t.un), `${nf0.format(r.marcas.length)} marca(s)`)}
-      ${kpi("Faturamento", abrev(t.fat), "aproximado (faixas)")}
-      ${kpi("Média/dia desde a criação", t.media_dia_hist ? nf1.format(t.media_dia_hist) + "/dia" : "—", "histórico ÷ dias publicados")}
+      <a class="btn small" href="#/observados">← todos os observados</a></div>
+    <div class="muted" style="margin:-2px 0 10px;font-size:12.5px">${r.nomes.length > 1 ? "nomes vistos no Nubimetrics: " + r.nomes.map(esc).join(", ") + " · " : ""}hash ${esc(vid.slice(0, 12))}…</div>
+    <div id="vexp"></div>`;
+  $("#ob-estrela").onclick = () => alternarInteresse(vid, lig => { r.interesse = lig ? {} : null; telaObservado(vid); });
+  desenharExplorador($("#vexp"), r, vid, () => telaObservado(vid));
+}
+function desenharExplorador(el, r, vid, recarregar) {
+  const t = r.total || {}, k = (l, v, o = "") => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
+  const R = x => x == null ? "—" : "R$ " + nf2.format(x);
+  const loja = r.loja ? `<div class="ex-loja"><span class="ex-ico">🏪</span><div style="min-width:0"><div>Loja real: <a class="ml-loja" href="${esc(urlLojaML(r.loja))}" target="_blank" rel="noopener"><b>${esc(r.loja.nome)}</b> ↗</a>
+        <span class="st ${r.loja.confianca === "manual" || r.loja.confianca === "certa" ? "good" : "warn"}">${esc(r.loja.confianca === "manual" ? "confirmada por você" : r.loja.confianca || "a conferir")}</span></div>
+        <div class="muted ex-prova" title="${esc(provaML(r.loja))}">${esc(provaML(r.loja))}</div></div>
+        ${r.loja.id ? `<a class="btn small" href="#/ml/loja/${esc(r.loja.id)}">Página da loja</a>` : ""}</div>`
+    : `<div class="ex-loja"><span class="ex-ico">🔎</span><span class="muted">Loja real no Mercado Livre ainda não achada.</span><button class="btn small ml-laranja" id="ob-desc">Descobrir a loja real</button>
+      <input id="ob-link" type="search" placeholder="Já sei: link da loja ou de um anúncio dela" style="min-width:240px;flex:1"><button class="btn small" id="ob-sei">Salvar</button>
+      <span id="ob-msg" class="muted" style="font-size:12px;flex-basis:100%"></span><div id="ob-cands" style="flex-basis:100%"></div></div>`;
+  const maxUn = Math.max(1, ...r.marcas.map(m => m.un));
+  el.innerHTML = `<div class="card pad" style="margin-bottom:12px">${loja}</div>
+    <div class="kpis">
+      ${k("Produtos", nf0.format(t.produtos), `${nf0.format(t.anuncios)} anúncios · ${nf0.format(t.gtins)} com GTIN`)}
+      ${k("Unidades", nf0.format(t.un), `último export de cada marca · ${nf0.format(r.marcas.length)} marca(s)`)}
+      ${k("Faturamento", abrev(t.fat), "aproximado (faixas)")}
+      ${k("Média/dia desde a criação", t.media_dia_hist ? nf1.format(t.media_dia_hist) + "/dia" : "—", "histórico ÷ dias publicados")}
     </div>
-    <div class="pq-sec">Marcas que ele vende</div>
-    <div class="card" style="margin-bottom:10px"><table class="tab"><thead><tr><th>Marca</th><th class="num">Produtos</th><th class="num">Unidades</th><th class="num">Faturamento</th></tr></thead><tbody>
-      ${r.marcas.map(m => `<tr><td>${esc(m.marca)}</td><td class="num">${nf0.format(m.produtos)}</td><td class="num">${nf0.format(m.un)}</td><td class="num">${abrev(m.fat)}</td></tr>`).join("")}</tbody></table></div>
-    <div class="pq-sec">Produtos <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">· agrupados pelo nubi; share = parte dele nas vendas do produto no mercado</span></div>
-    <div class="card"><table class="tab"><thead><tr><th>Produto</th><th>Categoria</th><th>GTIN</th><th class="num">Anúncios</th><th class="num">Unidades</th><th class="num">Share</th><th class="num">Faturamento</th><th class="num">Preço</th><th class="num">FULL</th><th class="num">Média/dia</th></tr></thead><tbody>
-      ${r.produtos.map(p => `<tr class="ob-prod" data-marca="${esc(p.marca || "")}" data-prod="${esc(p.produto || "")}" title="Abrir o quadro do produto: quem vende, preços e o meu lado">
-        <td class="ob-nome"><b>${esc(p.produto)}</b><div class="muted">${esc(p.titulo)}</div></td>
+    <div class="ex-grid">
+      <div class="card pad"><h2>Marcas que ele vende</h2>
+        ${r.marcas.map(m => `<div class="ex-barra"><div class="ex-bnome"><b>${esc(nome(m.marca))}</b><span class="muted">${nf0.format(m.produtos)} produto(s) · ${abrev(m.fat)}</span></div>
+          <div class="ex-btrilho"><div style="width:${(m.un / maxUn * 100).toFixed(1)}%"></div></div><div class="num">${nf0.format(m.un)} un.</div></div>`).join("") || `<div class="muted">Sem marcas.</div>`}</div>
+      <div class="card pad"><h2>Evolução por export</h2>
+        <div class="tw"><table class="t"><thead><tr><th>Marca</th><th>Período</th><th class="num">Anúncios</th><th class="num">Unidades</th><th class="num">Un./dia</th><th class="num">Faturamento</th></tr></thead><tbody>
+        ${r.periodos.map(x => `<tr><td class="first">${esc(nome(x.marca))}</td><td>${dataBR(x.inicio)} → ${dataBR(x.fim)} <span class="muted">(${x.dias} d)</span></td><td class="num">${nf0.format(x.anuncios)}</td>
+          <td class="num">${nf0.format(x.un)}</td><td class="num">${x.dias ? nf1.format(x.un / x.dias) : "—"}</td><td class="num">${abrev(x.fat)}</td></tr>`).join("")}</tbody></table></div></div>
+    </div>
+    <div class="card pad" style="margin-top:12px"><h2 style="margin-bottom:2px">Produtos</h2><div class="sub">Agrupados pelo nubi. Share = parte dele nas vendas do produto no mercado. Clique no produto para ver todo mundo que vende e a análise.</div>
+      <div class="tw" style="max-height:62vh"><table class="t"><thead><tr><th>Produto</th><th>Categoria</th><th>GTIN</th><th class="num">Anúncios</th><th class="num">Unidades</th><th class="num">Share</th><th class="num">Faturamento</th><th class="num">Preço</th><th class="num">FULL</th><th class="num">Média/dia</th></tr></thead><tbody>
+      ${r.produtos.map(p => `<tr class="ob-prod" data-marca="${esc(p.marca || "")}" data-prod="${esc(p.produto || "")}">
+        <td class="first ob-nome"><a href="#" class="plink"><b>${esc(p.produto)}</b></a><div class="muted">${esc(p.titulo)}</div></td>
         <td style="white-space:nowrap">${esc(p.categoria || "")}</td><td class="muted" style="font-size:12px;white-space:nowrap">${esc(p.gtin || "—")}</td>
-        <td class="num">${nf0.format(p.anuncios)}</td><td class="num"><b>${nf0.format(p.un)}</b></td><td class="num">${FMT.pct(p.share)}</td>
+        <td class="num">${nf0.format(p.anuncios)}</td><td class="num"><b>${nf0.format(p.un)}</b></td>
+        <td class="num"><div class="ex-share"><div style="width:${Math.min(100, p.share * 100).toFixed(1)}%"></div></div>${FMT.pct(p.share)}</td>
         <td class="num">${abrev(p.fat)}</td><td class="num">${R(p.preco)}</td><td class="num">${FMT.pct(p.pct_full)}</td>
         <td class="num">${p.media_dia_hist != null ? nf1.format(p.media_dia_hist) : "—"}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">Sem produtos nos exports recentes.</td></tr>`}
-    </tbody></table></div>
-    <div class="pq-sec">Evolução por export</div>
-    <div class="card"><table class="tab"><thead><tr><th>Marca</th><th>Período</th><th class="num">Anúncios</th><th class="num">Unidades</th><th class="num">Un./dia</th><th class="num">Faturamento</th></tr></thead><tbody>
-      ${r.periodos.map(x => `<tr><td>${esc(x.marca)}</td><td>${dataBR(x.inicio)} → ${dataBR(x.fim)} (${x.dias} d)</td><td class="num">${nf0.format(x.anuncios)}</td><td class="num">${nf0.format(x.un)}</td><td class="num">${x.dias ? nf1.format(x.un / x.dias) : "—"}</td><td class="num">${abrev(x.fat)}</td></tr>`).join("")}
-    </tbody></table></div>`;
-  $("#ob-estrela").onclick = () => alternarInteresse(vid, lig => { r.interesse = lig ? {} : null; telaObservado(vid); });
-  // 01/10 (Bruno): clicar no produto puxa todo mundo que vende e a análise (o mesmo quadro do Explorador)
-  main.querySelectorAll("tr.ob-prod").forEach(tr => tr.onclick = e => { if (e.target.closest("a")) return; abrirProdutoDeMarca(tr.dataset.marca, tr.dataset.prod); });
-  const salvar = async loja => { try { const x = await api("meli_nomear", {}, {method: "POST", body: JSON.stringify({vendedor_id: vid, loja})}); toast("Loja real salva: " + x.loja.nome); telaObservado(vid); } catch (e) { toast(e.message, 6000); } };
-  if ($("#ob-sei")) $("#ob-sei").onclick = () => { const l = $("#ob-link").value.trim(); if (l) salvar(l); };
-  if ($("#ob-desc")) $("#ob-desc").onclick = async e => {
-    e.target.disabled = true; $("#ob-msg").textContent = "procurando os produtos dele no catálogo do Mercado Livre…";
+      </tbody></table></div></div>`;
+  el.querySelectorAll("tr.ob-prod").forEach(tr => tr.onclick = e => { e.preventDefault(); abrirProdutoDeMarca(tr.dataset.marca, tr.dataset.prod); });
+  const salvar = async lj => { try { const x = await api("meli_nomear", {}, {method: "POST", body: JSON.stringify({vendedor_id: vid, loja: lj})}); toast("Loja real salva: " + x.loja.nome); recarregar(); } catch (e) { toast(e.message, 6000); } };
+  if ($("#ob-sei", el)) $("#ob-sei", el).onclick = () => { const l = $("#ob-link", el).value.trim(); if (l) salvar(l); };
+  if ($("#ob-desc", el)) $("#ob-desc", el).onclick = async e => {
+    e.target.disabled = true; $("#ob-msg", el).textContent = "procurando os produtos dele no catálogo do Mercado Livre…";
     try { const x = await api("meli_descobrir", {}, {method: "POST", body: JSON.stringify({vendedor_id: vid})});
-      if (x.achou) telaObservado(vid); else { $("#ob-msg").textContent = "Não achei com certeza: " + (x.motivo || "") + " A busca por foto (coletor) completa à noite."; e.target.disabled = false;
-        $("#ob-cands").innerHTML = candidatasML(x.candidatas); main.querySelectorAll("#ob-cands [data-escolher]").forEach(b => b.onclick = () => salvar(b.dataset.escolher)); }
-    } catch (err) { $("#ob-msg").innerHTML = mlAviso(err); e.target.disabled = false; }
+      if (x.achou) recarregar(); else { $("#ob-msg", el).textContent = "Não achei com certeza: " + (x.motivo || "") + " A busca por foto (coletor) completa à noite."; e.target.disabled = false;
+        $("#ob-cands", el).innerHTML = candidatasML(x.candidatas); el.querySelectorAll("#ob-cands [data-escolher]").forEach(b => b.onclick = () => salvar(b.dataset.escolher)); }
+    } catch (err) { $("#ob-msg", el).innerHTML = mlAviso(err); e.target.disabled = false; }
   };
 }
 // ---------- 🎯 Desafio (30/09, pedido do Bruno: "abre uma página só para esse card desafio") ----------
