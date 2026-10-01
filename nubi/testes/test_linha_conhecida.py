@@ -282,6 +282,23 @@ def test_mesmo_gtin_em_outra_marca_e_o_mesmo_produto():
     assert m["6290362346548"]["marca"] == "LATTAFA" and m["6290362346548"]["produto"] == "Lattafa Asad Elixir EDP 100 ml"
     assert m["6291107455365"]["marca"] == "LATTAFA"
     assert m["6290360378053"]["marca"] == "LIPX"
+    # 01/10 (Bruno, "Lipx Sabah EDP 100 ml" com 4 vendedores e o Sabah Al Ward da Al Wataniah com 277): LIPX é revenda —
+    # GTIN próprio da ICARBONXX (789…) com 8.710 un. na LIPX e 2.620 na Al Wataniah: a dona é a Al Wataniah mesmo assim
+    sb = [L(gtin="7899463112978", un=8710, marca_snap="LIPX", titulo="Perfume Árabe Sabah Al Ward Sugar Feminino 100ml - Original Com Nf",
+            linha="Sabah", produto="Lipx Sabah EDP 100 ml", genero="Feminino"),
+          L(gtin="7899463112978", un=2620, marca_snap="AL WATANIAH", titulo="Perfume Árabe Sabah Al Ward Sugar Eau De Parfum 100ml",
+            linha="Sabah", produto="Lipx Sabah EDP 100 ml", tipo=nubi.TIPO_OUTRA, confianca=nubi.CONF_GTIN_OUTRA, genero="Feminino")]
+    assert nubi.mapa_gtin_global(sb)["7899463112978"]["marca"] == "LIPX"            # sem a marcação: quem mais vende
+    nubi.definir_revenda(["LIPX"])
+    try:
+        x = nubi.mapa_gtin_global(sb)["7899463112978"]
+        assert x["marca"] == "AL WATANIAH" and x["produto"] == "Al Wataniah Sabah EDP 100 ml", x
+        assert nubi.mapa_gtin_global(m_linhas := linhas)["6290360378053"]["marca"] == "LATTAFA"   # Vulcan Feu: a Lattafa tem o GTIN, ganha da LIPX
+        so_lipx = [L(gtin="7891559867861", un=590, marca_snap="LIPX", titulo="Musamam White Lipx", linha="Musamam White", produto="Lipx Musamam White EDP 100 ml"),
+                   L(gtin="7891559867861", un=1, marca_snap="LIPX", titulo="Musamam", linha="Musamam White", produto="Lipx Musamam White EDP 100 ml")]
+        assert "7891559867861" not in nubi.mapa_gtin_global(so_lipx)                  # só a LIPX tem: continua dela (1 marca)
+    finally:
+        nubi.definir_revenda([])
     nubi.definir_gtin_global(m)
     try:
         df = pd.DataFrame([{"titulo": "Perfume Asad Elixir 100ml Eau De Parfum Original Edp", "gtin": "6290362346548", "un": 1300,
@@ -367,3 +384,29 @@ def test_anuncio_sem_gtin_herda_pelo_sku_do_vendedor():
 
 if __name__ == "__main__":
     test_anuncio_sem_gtin_herda_pelo_sku_do_vendedor()
+
+
+def test_foto_do_produto_respeita_o_genero():
+    """01/10 (Bruno): "a foto que trouxe é a de mulher, mas o The Kingdom é o de homem"."""
+    import meli
+    import nubi_web as w
+    cat = {"P1": {"nome": "Lattafa The Kingdom Woman Eau de Parfum 100 ml", "foto": "https://x/woman.jpg", "link": "l1"},
+           "P2": {"nome": "Lattafa The Kingdom Eau de Parfum Masculino 100 ml", "foto": "https://x/men.jpg", "link": "l2"},
+           "P3": {"nome": "Sem foto", "foto": "", "link": ""}}
+    meli._produtos_do_gtin = lambda g, n=2: {"6290360598352": ["P1"], "6290360598345": ["P3"], "7891805378189": ["P2"]}.get(g, [])
+    meli._produto_catalogo = lambda pid: cat[pid]
+    gs = ["6290360598352", "6290360598345", "7891805378189"]
+    f = w.foto_do_produto(gs, "Masculino")
+    assert f["foto"] == "https://x/men.jpg" and f["genero_confere"] and f["gtin"] == "7891805378189", f
+    f = w.foto_do_produto(gs, "Feminino")
+    assert f["foto"] == "https://x/woman.jpg" and f["genero_confere"]
+    f = w.foto_do_produto(gs, "")                                       # sem gênero: a 1ª com foto
+    assert f["foto"] == "https://x/woman.jpg"
+    f = w.foto_do_produto(["6290360598352"], "Masculino")               # só tem a de mulher: vem com aviso
+    assert f["foto"] == "https://x/woman.jpg" and f["genero_confere"] is False
+    assert w.foto_do_produto(["6290360598345"], "Masculino") == {"foto": None}
+    print("ok foto genero")
+
+
+if __name__ == "__main__":
+    test_foto_do_produto_respeita_o_genero()

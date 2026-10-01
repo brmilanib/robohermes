@@ -119,6 +119,14 @@ APELIDOS_MARCA = {}
 # 29/09 (print do Bruno: LIPX vendendo o Asad Elixir da Lattafa com a marca dela): GTIN que aparece em mais de uma marca
 # {gtin: {"marca": dona, linha, volume, tipo, genero, produto, titulo}} — o nubi_web preenche (definir_gtin_global).
 GTIN_GLOBAL = {}
+# 01/10 (Bruno, "Lipx Sabah": a ICARBONXX vende Al Wataniah/Lattafa com o rótulo LIPX e GTIN próprio 789…): marca de
+# REVENDA (rótulo de loja) nunca é dona de um GTIN que outra marca também tem — o produto é da marca de verdade.
+MARCAS_REVENDA = set()
+
+
+def definir_revenda(marcas):
+    MARCAS_REVENDA.clear()
+    MARCAS_REVENDA.update(chave_marca(m) for m in (marcas or []) if m)
 CONF_GTIN_OUTRA = "Mesmo GTIN de outra marca"
 CONF_SKU = "GTIN pelo SKU do vendedor"   # 29/09: anúncio sem GTIN, mesmo SKU de outro anúncio do vendedor que tem GTIN
 
@@ -786,17 +794,28 @@ def mapa_gtin_global(linhas):
             alvo = compacta(m)
             cita[m] = sum(float(l.get("un") or 0) + 1 for l in ls if marca_bate(l.get("titulo") or "", alvo))
         dona = None
-        cand = [m for m in marcas if cita[m] / total >= 0.2 and any(p["marca_snap"] == m for p in presentes)]
+        # marca de revenda (LIPX) só pode ser dona quando NENHUMA marca de verdade tem o GTIN
+        fortes = {m for m in marcas if chave_marca(m) not in MARCAS_REVENDA}
+        if fortes and fortes != marcas and any(l["marca_snap"] in fortes for l in presentes):
+            marcas_ok = fortes
+        else:
+            marcas_ok = marcas
+        cand = [m for m in marcas_ok if cita[m] / total >= 0.2 and any(p["marca_snap"] == m for p in presentes)]
         if cand:
             dona = max(cand, key=lambda m: cita[m])
         if dona is None:
             pesq = (INFO_GTIN.get(g) or {}).get("marca", "")
-            dona = next((m for m in marcas if pesq and marca_bate(pesq, compacta(m))
+            dona = next((m for m in marcas_ok if pesq and marca_bate(pesq, compacta(m))
                          and any(p["marca_snap"] == m for p in proprias)), None)
         if dona is None:
             un = {}
             for p in proprias:
-                un[p["marca_snap"]] = un.get(p["marca_snap"], 0) + float(p.get("un") or 0)
+                if p["marca_snap"] in marcas_ok:
+                    un[p["marca_snap"]] = un.get(p["marca_snap"], 0) + float(p.get("un") or 0)
+            if not un:                                 # a marca de verdade só tem anúncios já trocados: ainda assim é dela
+                for l in presentes:
+                    if l["marca_snap"] in marcas_ok:
+                        un[l["marca_snap"]] = un.get(l["marca_snap"], 0) + float(l.get("un") or 0)
             dona = max(un, key=un.get)
         dela = [p for p in proprias if p["marca_snap"] == dona]
         votos = {}

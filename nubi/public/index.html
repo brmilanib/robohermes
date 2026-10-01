@@ -928,7 +928,7 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 .ob-nome{max-width:380px}.ob-nome b,.ob-nome div{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:380px}.ob-nome div{font-size:11px}
 tr.ob-prod{cursor:pointer}tr.ob-prod:hover td{background:var(--soft)}
 .pq-foto{width:88px;height:88px;flex:0 0 88px;border:1px solid var(--line);border-radius:10px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;gap:2px}
-.pq-foto img{max-width:84px;max-height:70px;object-fit:contain}.pq-foto:empty{background:var(--soft);border-style:dashed}
+.pq-foto img{max-width:84px;max-height:70px;object-fit:contain}.pq-foto.duvida{border-color:var(--warn);border-style:dashed}.pq-foto:empty{background:var(--soft);border-style:dashed}
 .es-aviso{border:1px solid var(--line);border-left:4px solid #d4a017;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:13px;background:var(--card)}
 .es-aviso.bad{border-left-color:#c0392b}
 .es-grade{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;margin-top:14px}
@@ -7174,7 +7174,7 @@ function abrirVendedoresProduto(prod) {
   const comVenda = lista.filter(v => v.un > 0);
   // 30/09 (Bruno): quadro maior e, no cabeçalho, o mercado deste produto + o MEU lado (vendo? preço, estoque, custo)
   const row = ((S.rel.tabelas || {}).produtos || []).find(r => r.produto === prod) || {};
-  const gtins = ((S.rel.tabelas || {}).gtins || []).filter(g => g.produto === prod).map(g => g.gtin);
+  const gtins = ((S.rel.tabelas || {}).gtins || []).filter(g => g.produto === prod).sort((a, b) => (b.un || 0) - (a.un || 0)).map(g => g.gtin);   // o que mais vende primeiro
   const cols = S.rel.colunas_arquivo || [], ct = cols.findIndex(c => /^t[ií]tulo/i.test(c));
   const titulos = ct < 0 ? [] : ((S.rel.tabelas || {}).anuncios || []).filter(x => x.produto === prod).slice(0, 3).map(x => x["c" + ct]).filter(Boolean);
   const pm = tot.un ? tot.fat / tot.un : null;
@@ -7230,9 +7230,10 @@ function abrirVendedoresProduto(prod) {
     </tbody></table></div>
     <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).</p>`);
   $(".modal", bg).classList.add("larga", "pq");
-  if (gtins.length) api("meli_foto", {gtins: gtins.slice(0, 4).join("|")}).then(f => {        // 01/10 (Bruno): foto no cabeçalho
+  if (gtins.length) api("meli_foto", {gtins: gtins.slice(0, 6).join("|"), genero: row.genero && row.genero !== "-" ? row.genero : ""}).then(f => {   // 01/10 (Bruno): foto no cabeçalho, do GTIN que mais vende e do gênero certo
     const el = $("#pq-foto", bg); if (!el || !document.body.contains(bg)) return;
-    if (f && f.foto) el.innerHTML = `<img src="${esc(urlML(f.foto))}" alt="" loading="lazy">${f.link ? `<a href="${esc(urlML(f.link))}" target="_blank" rel="noopener" class="muted" style="font-size:10.5px">catálogo ↗</a>` : ""}`;
+    if (f && f.foto) { el.innerHTML = `<img src="${esc(urlML(f.foto))}" alt="" loading="lazy" title="${esc(f.nome || "")}">${f.link ? `<a href="${esc(urlML(f.link))}" target="_blank" rel="noopener" class="muted" style="font-size:10.5px">catálogo ↗</a>` : ""}`;
+      if (f.genero_confere === false) el.title = `Atenção: no catálogo do ML este GTIN é "${f.nome}" (gênero diferente do produto)`; el.classList.toggle("duvida", f.genero_confere === false); }
     else el.remove(); }).catch(() => { const el = $("#pq-foto", bg); el && el.remove(); });
   else { const el = $("#pq-foto", bg); el && el.remove(); }
   api("estoque_produto", {produto: prod, gtins: gtins.join("|"), titulos: titulos.join("|")})
@@ -7480,7 +7481,7 @@ function corrigirGtin(d) {
 async function telaConfig(el) {
   el.innerHTML = `<div class="card pad"><span class="spin"></span> Carregando…</div>`;
   let linhas;
-  try { linhas = (await api("config", {marca: S.marca})).linhas; } catch (e) { el.innerHTML = `<div class="card pad">${esc(e.message)}</div>`; return; }
+  try { linhas = (await api("config", {marca: S.marca})).linhas; S.revenda = (await api("marca_revenda")).revenda || []; } catch (e) { el.innerHTML = `<div class="card pad">${esc(e.message)}</div>`; return; }
   const desenhar = () => {
     el.innerHTML = `<div class="card pad">
       <h2>Linhas de produto de ${esc(nome(S.marca))}</h2>
@@ -7492,6 +7493,7 @@ async function telaConfig(el) {
         <button class="btn" id="cfr" title="Descarta esta lista e detecta de novo pelos títulos do período mais recente">↻ Detectar linhas de novo</button>
         <button class="btn" id="cfia" title="A IA lê os títulos que mais vendem e devolve os nomes oficiais das linhas (Light Blue, Light Blue Intense, Light Blue Capri in Love…); o que havia fica guardado para desfazer">🧠 Revisar linhas com IA</button>
         <button class="btn ghost" id="cfdesf" title="Volta a lista de antes da revisão da IA">↶ Desfazer revisão da IA</button>
+        <label class="btn ghost" title="Rótulo de loja (ex.: LIPX da ICARBONXX): os produtos são de outras marcas; esta marca nunca fica dona de um GTIN que outra marca também tem" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="cfrev" ${(S.revenda || []).includes(S.marca) ? "checked" : ""}> 🏷️ marca de revenda</label>
         <div style="flex:1"></div>
         <button class="btn primary" id="cfs">Salvar e reprocessar</button></div>
       <div id="cflog"></div></div>`;
@@ -7506,6 +7508,10 @@ async function telaConfig(el) {
         $("#cflog", el).innerHTML = `<div class="log">${esc(x.observacao || "")}${x.descartadas && x.descartadas.length ? `\nDescartadas (não aparecem nos títulos): ${esc(x.descartadas.join(", "))}` : ""}</div>`;
         linhas.splice(0, linhas.length, ...x.depois); desenhar(); abrirMarca(S.marca, true);
       } catch (e) { toast(e.message, 6000); b.disabled = false; b.textContent = "🧠 Revisar linhas com IA"; } };
+    $("#cfrev", el).onchange = async e => { const lig = e.target.checked; e.target.disabled = true;
+      try { const x = await api("marca_revenda", {}, {method: "POST", body: JSON.stringify({marca: S.marca, ligado: lig})});
+        S.revenda = x.revenda; toast(lig ? `${nome(S.marca)} marcada como revenda; reprocessadas: ${x.reprocessadas.length ? x.reprocessadas.map(nome).join(", ") : "nenhuma"}` : `${nome(S.marca)} deixou de ser revenda`, 6000);
+        abrirMarca(S.marca, true); } catch (err) { toast(err.message, 6000); e.target.checked = !lig; e.target.disabled = false; } };
     $("#cfdesf", el).onclick = async () => { try { const x = await api("linhas_ia_desfazer", {}, {method: "POST", body: JSON.stringify({marca: S.marca})});
         if (!x.ok) { toast(x.motivo, 5000); return; } toast("Linhas de antes restauradas; marca reprocessada", 4000); linhas.splice(0, linhas.length, ...x.linhas); desenhar(); abrirMarca(S.marca, true); }
       catch (e) { toast(e.message, 6000); } };

@@ -419,6 +419,12 @@ def relatorio(repo, marca, periodo=None):
     # 29/09 (Bruno): o título do anúncio que mais vende em cada produto, para saber qual é ("Fakhar Gold Extrait")
     # "prevalece o título que aparece mais entre os anúncios; empate, o mais completo" (Bruno, 29/09)
     titulo_top = df.groupby("produto")["titulo"].agg(nubi._titulo_canonico)
+    # 01/10 (foto do Kingdom veio a do Woman): o gênero do produto (o mais vendido entre os anúncios) vai para o quadro
+    genero_top = {}
+    if "genero" in df.columns:
+        gx = df[df["genero"].fillna("-") != "-"].groupby(["produto", "genero"])["un"].sum().reset_index()
+        for prod, x in gx.sort_values("un", ascending=False).groupby("produto"):
+            genero_top[prod] = str(x.iloc[0]["genero"])
     # 29/09 (Bruno): preço médio dos 2 maiores vendedores de cada produto (faturamento ÷ unidades de cada um)
     pv = df.groupby(["produto", "vendedor_id"]).agg(un=("un", "sum"), fat=("fat", "sum"), nome=("vendedor", "first")).reset_index()
     pv = pv[pv["un"] > 0].sort_values(["produto", "un", "fat"], ascending=[True, False, False], kind="mergesort")
@@ -433,7 +439,7 @@ def relatorio(repo, marca, periodo=None):
         t2 = (top2.get(prod) or []) + [(None, "")] * 2
         produtos.append({
             "produto": prod, "titulo_top": str(titulo_top.get(prod, "")), "categoria_l1": a["cat_l1"], "categoria": a["cat"], "marca": a["marca"],
-            "linha": a["linha"], "tipo": a["tipo"], "volume": a["volume"], "gtins": int(a["gtins"]),
+            "linha": a["linha"], "tipo": a["tipo"], "volume": a["volume"], "gtins": int(a["gtins"]), "genero": genero_top.get(prod, "-"),
             "anuncios": int(anun[prod]), "vendedores": int(a["vendedores"]), "un": un,
             "fat": float(a["fat"]), "preco_medio": pm, "faixa": faixa(pm), "giro": un / dias,
             "proj30": un / dias * 30, "pct_volume": pct, "pct_acum": acum,
@@ -667,6 +673,10 @@ def _preparar(repo):
         nubi.definir_apelidos({k: v[0] for k, v in apelidos(repo).items()})
     except Exception:  # noqa: BLE001
         nubi.definir_apelidos({})
+    try:                                   # 01/10: marcas de revenda (rótulo de loja: LIPX) nunca são donas de GTIN
+        nubi.definir_revenda(marcas_revenda(repo))
+    except Exception:  # noqa: BLE001
+        nubi.definir_revenda([])
     try:                                   # 29/09: mesmo GTIN em marcas diferentes = mesmo produto (LIPX x Lattafa)
         r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(GTIN_GLOBAL_CHAVE)}) or [None])[0]
         nubi.definir_gtin_global(json.loads(r["texto"]) if r else {})
@@ -710,10 +720,33 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 11c: fora de perfumaria o produto é o GTIN; GTIN com zero na frente é o mesmo código; perfumaria pela categoria final"   # 01/10 (Revlon; pedido do Bruno)
+REGRA_ATUAL = "regra 12: marca de revenda (LIPX) nunca é dona de GTIN que outra marca tem; fora de perfumaria o produto é o GTIN; GTIN com zero na frente é o mesmo código"   # 01/10 (Lipx Sabah; pedido do Bruno)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"
+REVENDA_CHAVE = "marcas|revenda"
+
+
+def marcas_revenda(repo):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(REVENDA_CHAVE)}) or [None])[0]
+    try:
+        xs = json.loads(r["texto"]) if r and r.get("texto") else []
+    except (TypeError, ValueError):
+        xs = []
+    return [nubi.chave_marca(m) for m in xs if m]
+
+
+def marcar_revenda(repo, marca, ligado):
+    """Liga/desliga a marca como revenda (rótulo de loja), refaz o mapa global de GTINs e reprocessa as marcas que mudaram."""
+    marca = nubi.chave_marca(marca)
+    xs = [m for m in marcas_revenda(repo) if m != marca] + ([marca] if ligado else [])
+    repo._req("POST", "ia_resumos", corpo=[{"chave": REVENDA_CHAVE, "ia": "bruno", "criado_em": datetime.now(timezone.utc).isoformat(),
+                                            "texto": json.dumps(xs, ensure_ascii=False)}], prefer="resolution=merge-duplicates,return=minimal")
+    nubi.definir_revenda(xs)
+    mudadas = construir_gtin_global(repo)
+    if mudadas:
+        nubi.reconsolidar(repo, repo.carregar_config(), list(mudadas))
+    return {"ok": True, "revenda": xs, "reprocessadas": sorted(mudadas)}
 
 
 def construir_gtin_global(repo):
@@ -1872,6 +1905,11 @@ def atender(metodo, rota, q, corpo, token):
             nubi.reconsolidar(repo, repo.carregar_config(), [q["marca"]] if q.get("marca") else None)
             return _json({"ok": True, "log": log})
 
+        if rota == "marca_revenda":
+            if metodo == "POST":
+                d = json.loads(corpo or b"{}")
+                return _json(marcar_revenda(repo, d.get("marca") or q.get("marca"), bool(d.get("ligado"))))
+            return _json({"revenda": marcas_revenda(repo)})
         if rota == "apagar_marca" and metodo == "POST":
             marca = nubi.chave_marca(q["marca"])
             snaps = repo.snapshots(marca)
@@ -4825,6 +4863,36 @@ def _linhas_nubi(repo, snaps, filtro, com_bruto=False):
     return out
 
 
+def foto_do_produto(gtins, genero=""):
+    """01/10 (Bruno: "traga a foto do produto no cabeçalho" / "a foto que trouxe é a de mulher, o The Kingdom é o de homem"):
+    a foto do produto de catálogo do ML. Os GTINs vêm na ordem de venda (o que mais vende primeiro) e o nome do produto
+    no catálogo tem que bater com o gênero do produto do nubi: catálogo "Kingdom Woman" não serve para o masculino. Sem
+    foto que bata, a primeira que o ML tiver, marcada `genero_confere: False`."""
+    gs = [g for g in dict.fromkeys(str(x).strip() for x in gtins or []) if re.fullmatch(r"\d{8,14}", g)][:6]
+    alvo = {"Masculino": "Masculino", "Feminino": "Feminino"}.get(str(genero or "").strip().title(), "")
+    reserva = None
+    for g in gs:
+        try:
+            pids = meli._produtos_do_gtin(g, 1)
+        except Exception:  # noqa: BLE001
+            continue
+        for pid in pids:
+            try:
+                pc = meli._produto_catalogo(pid)
+            except Exception:  # noqa: BLE001
+                continue
+            if not pc.get("foto"):
+                continue
+            x = {"foto": pc["foto"], "nome": pc.get("nome") or "", "link": pc.get("link") or "", "gtin": g, "genero_confere": True}
+            gc = nubi.achar_genero(nubi.normalizar(x["nome"]))
+            if alvo and gc not in ("-", alvo, "Unissex"):
+                x["genero_confere"] = False
+                reserva = reserva or x
+                continue
+            return x
+    return reserva or {"foto": None}
+
+
 def _ml_do_produto(repo, marca, gtins, volume=None):
     """Quem vende o produto no ML agora (catálogo pelo GTIN) + quais vendedores do Nubimetrics são essas lojas.
     volume (01/10, Bruno: "Light Blue Fem 25ml" no meio do produto de 100 ml): o catálogo do ML devolve, para um GTIN,
@@ -5994,16 +6062,7 @@ def rota_meli(repo, metodo, rota, q, corpo):
                 _aprender_oficial(repo, h)
         return {"ok": True, "loja": dict(lj, **x)}
     if rota == "meli_foto":
-        # 01/10 (Bruno: "traga a foto do produto no cabeçalho"): a foto do produto de catálogo do 1º GTIN que o ML conhece
-        for g in [x for x in str(q.get("gtins") or "").split("|") if re.fullmatch(r"\d{8,14}", x)][:4]:
-            try:
-                for pid in meli._produtos_do_gtin(g, 1):
-                    pc = meli._produto_catalogo(pid)
-                    if pc.get("foto"):
-                        return {"foto": pc["foto"], "nome": pc.get("nome") or "", "link": pc.get("link") or "", "gtin": g}
-            except Exception:  # noqa: BLE001
-                continue
-        return {"foto": None}
+        return foto_do_produto([x for x in str(q.get("gtins") or "").split("|")], str(q.get("genero") or ""))
     if rota == "meli_gtin":
         sep = lambda k: [x for x in str(q.get(k) or "").split("|") if x]
         return _ml_do_produto(repo, q.get("marca") or d.get("marca"), d.get("gtins") or sep("gtins"), q.get("volume") or d.get("volume"))

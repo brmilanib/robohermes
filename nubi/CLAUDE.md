@@ -488,6 +488,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     EDT; `vol_fixo` vale para os títulos de reserva), e "No ML agora" tira anúncio cujo título diz outro volume
     (`_ml_do_produto(volume)` → `fora_volume`, o ML junta volumes irmãos no mesmo GTIN). Testes: test_linhas_ia.py,
     test_linha_conhecida.py.
+  - **Marca de revenda (01/10, Bruno: "Lipx Sabah EDP 100 ml" com 4 vendedores; o Sabah Al Ward da Al Wataniah tem 277; "esse
+    ICARBONXX coloca esse negócio de LIPX e confunde")**: a ICARBONXX vende Al Wataniah/Lattafa/Maison Alhambra com o rótulo
+    LIPX e GTIN próprio (789…). `nubi.MARCAS_REVENDA` (ia_resumos `marcas|revenda`, hoje ["LIPX"]; checkbox "🏷️ marca de
+    revenda" na Configuração da marca → `marca_revenda`): em `mapa_gtin_global` a revenda nunca é dona de um GTIN que outra
+    marca também tem, mesmo vendendo mais (candidatas = marcas fortes); se só ela tem, continua dela. `REGRA_ATUAL` = regra 12
+    (reprocessa tudo na 1ª requisição). Teste em test_linha_conhecida.py.
+  - **Foto do produto pelo gênero (01/10, "a foto do Kingdom veio a do Woman")**: `foto_do_produto(gtins, genero)`: GTINs na
+    ordem de venda; o nome do produto no catálogo do ML passa por `achar_genero` e tem que bater com o gênero do produto
+    (`relatorio` → `produtos[].genero`, o mais vendido); sem foto que bata vem a 1ª com `genero_confere: False` (moldura
+    tracejada e aviso no quadro). A separação Kingdom × Kingdom Woman em produtos distintos vem da revisão das linhas pela IA.
   - **Tipo de produto (01/10, "tudo errado ainda")**: em `TIPOS_PRODUTO` body splash e perfume vêm ANTES de maquiagem
     ("Good Girl Blush EDP" é perfume), cabelo e skincare explícitos também; "blush" só decide sem sinal de perfume.
     Palavras de produto (shampoo, blush, gel…) estão em `GENERICAS` (nunca viram marca). Na lista de SKUs, marca sem
