@@ -76,6 +76,36 @@ def test_sem_senha_do_gmail_avisa():
     assert "guardar-senha gmail" in "\n".join(c.LOG)
 
 
+def _pagina(html):
+    from playwright.sync_api import sync_playwright
+    exe = os.environ.get("NUBI_CHROMIUM") or "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+    p = sync_playwright().start()
+    nav = p.chromium.launch(executable_path=exe if os.path.exists(exe) else None)
+    pg = nav.new_page()
+    pg.set_content(html)
+    return p, nav, pg
+
+
+def test_curva_abc_escolhe_ultimos_30_dias():
+    c.devagar = lambda *a: None
+    p, nav, pg = _pagina("""<input value="01/10/2026 - 01/10/2026" onclick="document.getElementById('m').style.display='block'">
+      <div id="m" style="display:none"><span onclick="window.ok=30">Últimos 30 dias</span></div>
+      <button>Solicitar Relatório</button>""")
+    try:
+        assert c._gestor_ultimos_30(pg) and pg.evaluate("window.ok") == 30
+    finally:
+        nav.close(); p.stop()
+
+
+def test_acha_exportar_que_e_so_icone():
+    p, nav, pg = _pagina("""<button title="Excluir">x</button><button title="Exportar"><i class="fa fa-download"></i></button>""")
+    try:
+        assert pg.evaluate(c.JS_GESTOR_EXPORTAR) == "Exportar"
+        assert pg.locator("[data-nubi-exportar='1']").get_attribute("title") == "Exportar"
+    finally:
+        nav.close(); p.stop()
+
+
 if __name__ == "__main__":
     for nome, f in list(globals().items()):
         if nome.startswith("test_"):

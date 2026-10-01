@@ -1173,3 +1173,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   lê o Gmail por IMAP (só leitura, senha de app no Chaveiro, só e-mails do gestorseller.com.br chegados depois do clique,
   até 15 min) e salva o anexo; o período do e-mail vale para o import. O estoque agora é importado logo depois de
   baixado, antes dos relatórios (que podem levar minutos). Teste: `testes/test_gestor_email.py`.
+  1ª prova real (01/10 12:59/13:06): o e-mail da Curva ABC chega ~15 s depois do clique, mas veio só de 01/10 a 01/10
+  (sem escolher período o Gestor manda o dia de hoje). `_gestor_ultimos_30` abre o seletor e clica "Últimos 30 dias"
+  (senão escreve as datas); curva com menos de 7 dias no e-mail NÃO é importada. Vendas: tenta também `/sales` e o
+  exportar que é só ícone (`JS_GESTOR_EXPORTAR`, title/aria-label; nunca salvar/importar/excluir).

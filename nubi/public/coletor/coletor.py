@@ -1958,6 +1958,17 @@ JS_GESTOR_PERIODO = r"""([ini, fim]) => {
     set.call(e, v); e.dispatchEvent(new Event('input', {bubbles: true})); e.dispatchEvent(new Event('change', {bubbles: true})); });
   return 2;
 }"""
+# 01/10: na tela de Vendas do Gestor o exportar pode ser só um ícone (title/aria-label); marca o botão para clicar
+JS_GESTOR_EXPORTAR = r"""() => {
+  const proib = /salvar|importar|excluir|apagar|remover|deletar/i, rx = /export|baixar|download|relat[óo]rio/i;
+  for (const e of document.querySelectorAll('button, a, [role=button]')) {
+    if (!e.getClientRects().length || e.disabled) continue;
+    const t = [e.innerText, e.title, e.getAttribute('aria-label'), e.getAttribute('data-original-title'),
+               (e.querySelector('[title]') || {}).title].filter(Boolean).join(' ').trim();
+    if (rx.test(t) && !proib.test(t) && t.length < 60) { e.setAttribute('data-nubi-exportar', '1'); return t; }
+  }
+  return '';
+}"""
 JS_GESTOR_CONTAS = r"""() => {
   let n = 0;
   for (const c of document.querySelectorAll('input[type=checkbox]')) {
@@ -1977,7 +1988,7 @@ def baixar_gestor_vendas(pg, cfg, p=None):
     # baixou é "reports_sales.csv"): tenta o endereço guardado, as páginas de relatório prováveis e o menu "Relatório"
     rx_botao = re.compile(r"Baixar relat[óo]rio de vendas|Baixar relat[óo]rio|Exportar relat[óo]rio|Exportar vendas|Gerar relat[óo]rio", re.I)
     botao = None
-    for url in [u for u in (cfg.get("gestor_vendas_url"), GESTOR_VENDAS, f"{GESTOR}/reports/sales", f"{GESTOR}/reports",
+    for url in [u for u in (cfg.get("gestor_vendas_url"), GESTOR_VENDAS, f"{GESTOR}/sales", f"{GESTOR}/reports/sales", f"{GESTOR}/reports",
                             f"{GESTOR}/management/products") if u]:
         pg.goto(url, wait_until="domcontentloaded", timeout=90000)
         devagar(5)
@@ -1985,6 +1996,9 @@ def baixar_gestor_vendas(pg, cfg, p=None):
             raise SessaoExpirada(f"O Gestor Seller pediu login de novo (relatório de vendas). Rode {_onde_rodar('entrar-gestor')}")
         botao = pg.get_by_text(rx_botao)
         if botao.count():
+            break
+        if pg.evaluate(JS_GESTOR_EXPORTAR):
+            botao = pg.locator("[data-nubi-exportar='1']")
             break
         # menu "Relatório(s)" → item de vendas; nunca clica em salvar/importar/excluir
         if _clicar_texto(pg, [r"^\s*Relat[óo]rios?\s*$"], 2):
@@ -2002,7 +2016,7 @@ def baixar_gestor_vendas(pg, cfg, p=None):
         log(f"  gestor vendas: {marcadas} conta(s) marcada(s)")
     devagar(2)
     alvo = botao.first
-    if GESTOR_NAO_CLICAR.search(alvo.inner_text() or ""):
+    if GESTOR_NAO_CLICAR.search((alvo.inner_text() or "") + " " + (alvo.get_attribute("title") or "")):
         raise Falha("o botão do relatório de vendas do Gestor tem texto proibido (salvar/importar/excluir); não cliquei")
     destino = PASTA / "gestor_vendas"
     destino.mkdir(parents=True, exist_ok=True)
@@ -2027,6 +2041,39 @@ def baixar_gestor_vendas(pg, cfg, p=None):
 GESTOR_ABC = os.environ.get("NUBI_GESTOR_ABC", "")
 
 
+def _gestor_ultimos_30(pg):
+    """01/10: a Curva ABC vem só com o dia de hoje se ninguém escolhe o período. Abre o seletor de datas e clica em
+    'Últimos 30 dias'; se não houver esse atalho, escreve as datas (30 dias até ontem)."""
+    rx = re.compile(r"^\s*[ÚU]ltimos 30 dias\s*$", re.I)
+    if not pg.get_by_text(rx).locator("visible=true").count():
+        for sel in ("input[value*='/']:visible", "input[placeholder*='ata' i]:visible", "[class*=date i]:visible",
+                    "[class*=periodo i]:visible", "[class*=range i]:visible"):
+            loc = pg.locator(sel)
+            if loc.count():
+                try:
+                    loc.first.click(timeout=5000)
+                    devagar(1.5)
+                except Exception:  # noqa: BLE001
+                    continue
+                if pg.get_by_text(rx).locator("visible=true").count():
+                    break
+    atalho = pg.get_by_text(rx).locator("visible=true")
+    if atalho.count():
+        try:
+            atalho.first.click(timeout=5000)
+            devagar(2)
+            log("  gestor curva ABC: período 'Últimos 30 dias'")
+            return True
+        except Exception:  # noqa: BLE001
+            pass
+    fim = date.today() - timedelta(days=1)
+    if pg.evaluate(JS_GESTOR_PERIODO, [(fim - timedelta(days=29)).isoformat(), fim.isoformat()]):
+        log("  gestor curva ABC: datas escritas (30 dias até ontem)")
+        return True
+    log("  gestor curva ABC: não achei o seletor de período")
+    return False
+
+
 def baixar_gestor_abc(pg, cfg, p=None):
     """01/10 (Bruno: "a Curva ABC do Gestor traz o custo de ADS e a margem de lucro líquido de cada produto"): Curva ABC →
     Últimos 30 dias → "Solicitar Relatório" (só esse botão; nunca salvar/importar/excluir). -> arquivo .xlsx"""
@@ -2037,6 +2084,7 @@ def baixar_gestor_abc(pg, cfg, p=None):
         raise SessaoExpirada(f"O Gestor Seller pediu login de novo (curva ABC). Rode {_onde_rodar('entrar-gestor')}")
     if not pg.get_by_text(re.compile(r"Solicitar relat[óo]rio", re.I)).count():
         _clicar_texto(pg, [r"^\s*Curva ABC\s*$"], 5)
+    _gestor_ultimos_30(pg)
     botao = pg.get_by_text(re.compile(r"Solicitar relat[óo]rio", re.I))
     if not botao.count():
         raise Falha("não achei 'Curva ABC' → 'Solicitar Relatório' no Gestor Seller. Na tela: " + str(pg.evaluate(JS_TEXTOS))[:600])
@@ -2045,7 +2093,10 @@ def baixar_gestor_abc(pg, cfg, p=None):
         raise Falha("o botão da curva ABC do Gestor tem texto proibido (salvar/importar/excluir); não cliquei")
     destino = PASTA / "gestor_abc"
     destino.mkdir(parents=True, exist_ok=True)
-    arq = _clicar_e_receber(pg, alvo, destino, r"curva abc", "relatorio_curva_abc.xlsx")[0]
+    arq, ini, fim = _clicar_e_receber(pg, alvo, destino, r"curva abc", "relatorio_curva_abc.xlsx", espera_email=420)
+    if ini and fim and (fim - ini).days < 6:
+        # 01/10: sem escolher o período o Gestor manda só o dia de hoje; isso não pode substituir a curva de 30 dias
+        raise Falha(f"a curva ABC do Gestor veio só de {ini:%d/%m} a {fim:%d/%m} (não consegui escolher 'Últimos 30 dias'); não importei")
     if not cfg.get("gestor_abc_url") and "/auth" not in pg.url:
         cfg["gestor_abc_url"] = pg.url
         salvar_config(cfg)
@@ -5341,7 +5392,7 @@ def anexo_email(remetente, assunto_rx, desde, destino, espera=900, imap=None):
     return None
 
 
-def _clicar_e_receber(pg, alvo, destino, assunto_rx, nome_padrao, espera_email=900):
+def _clicar_e_receber(pg, alvo, destino, assunto_rx, nome_padrao, espera_email=600):
     """Clica no botão do relatório do Gestor: se o navegador baixar, ótimo; senão o Gestor manda por e-mail e o coletor
     pega o anexo no Gmail. -> (arquivo, inicio, fim)"""
     desde = datetime.now(timezone.utc)
