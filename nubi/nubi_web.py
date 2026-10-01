@@ -3618,6 +3618,12 @@ def rodar_rotinas(repo, so=None):
     rot = {r["id"]: r for r in repo._todos("rotinas", {"select": "*", "order": "ordem,id"})}
     out = {}
     if not so:
+        try:                                            # 01/10: regra nova de agrupamento reprocessa já na rodada da hora
+            if not repo._req("GET", "agente_execucoes", {"select": "id", "origem": repo._eq(REGRA_ATUAL), "limit": 1}):
+                _preparar(repo)
+                out["regra_nova"] = "aplicada" if aplicar_regra_nova(repo) else "já aplicada"
+        except Exception as e:  # noqa: BLE001
+            out["regra_nova"] = f"erro: {str(e)[:120]}"
         try:                                            # 28/09: resultado do Apify (anúncios perseguidos) quando a conferência acabou
             out["perseguir"] = (perseguir.conferir(repo) or {}).get("status")
         except Exception as e:  # noqa: BLE001
