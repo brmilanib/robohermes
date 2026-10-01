@@ -76,7 +76,18 @@ COLUNAS_OPCIONAIS = [
 # O export da marca inteira traz também o que não é perfume (canetas, cintos...).
 # Esses anúncios continuam contando no total, mas viram uma referência por categoria.
 CATEGORIA_PERFUMARIA = "beleza e cuidado pessoal"
+# categorias FINAIS do Mercado Livre que são perfumaria (01/10); fora delas o anúncio é "Não perfume" e o produto é o GTIN
+FINAIS_PERFUMARIA = ("perfumes", "fragrancias", "cuidado do corpo", "desodorantes", "kits de perfumes", "perfumes e fragrancias",
+                     "body splash", "perfumes importados", "perfumes arabes")
 TIPO_FORA = "Não perfume"
+
+
+def eh_perfumaria(l1, fim):
+    """A categoria final diz se é perfumaria; sem final, vale o L1 antigo (arquivo velho só com L1)."""
+    f = normalizar(fim or "")
+    if f:
+        return f in FINAIS_PERFUMARIA or f.startswith("perfume") or "fragranc" in f
+    return normalizar(l1 or "") == CATEGORIA_PERFUMARIA
 TIPO_OUTRA = "Outra marca"   # anúncio de outra marca (contratipo, erro de cadastro)
 TIPO_PADRAO = "EDT?"   # título sem tipo escrito: EDT por padrão, mas não vota na etapa 2
 # 30/09 (Bruno: "contratipo tem que entrar na categoria low price, e decant também, tudo que é decant, 10ml, poucos ml"):
@@ -323,10 +334,13 @@ def ler_csv(fonte):
         # Linha original do arquivo, coluna por coluna (só tira o ="..." do Excel).
         "bruto": [{c: re.sub(r'^="*(.*?)"*$', r"\1", str(v)).strip() for c, v in zip(originais, lin)}
                   for lin in df[originais].itertuples(index=False, name=None)],
-        # "" = perfumaria; senão, o nome da categoria final (ex.: "Canetas").
+        # "" = perfumaria; senão, o nome da categoria final (ex.: "Canetas", "Escovas Elétricas").
+        # 01/10 (Revlon: 29 GTINs de escovas viraram "Revlon Escova Secadora EDT"): a categoria L1 "Beleza e Cuidado
+        # Pessoal" também tem escova, batom e secador; perfumaria é pela categoria FINAL (Perfumes, Fragrâncias, Cuidado
+        # do Corpo, Desodorantes), em qualquer L1 ("Mais Categorias > Perfumes" é perfume)
         "marca_anuncio": df["Marca"].str.strip(),
         "categoria": [
-            "" if (not l1.strip() or normalizar(l1) == CATEGORIA_PERFUMARIA)
+            "" if (not l1.strip() and not fin.strip()) or eh_perfumaria(l1, fin)
             else (fin.strip() or l1.strip())
             for l1, fin in zip(df["Categoria L1"], df["Categoria final"])],
     })
@@ -614,6 +628,23 @@ def achar_genero(t):
     if f and m:
         return "Unissex"
     return "Feminino" if f else "Masculino" if m else "-"
+
+
+PALAVRAS_FORA = {"original", "importado", "importada", "novo", "nova", "promocao", "oferta", "lacrado", "frete", "gratis",
+                 "com", "de", "da", "do", "e", "para", "o", "a", "em", "nf", "garantia", "envio", "imediato", "pronta", "entrega",
+                 "profissional", "oficial", "110v", "220v", "bivolt", "volts"}
+
+
+def nome_fora(titulo, marca, modelo=""):
+    """01/10 (Revlon): nome do produto que NÃO é perfume = as palavras do título sem a marca e sem enfeite de anúncio
+    (até 6), mais o modelo do arquivo ("RVDR5292") quando não está no título. O produto em si é o GTIN (ver consolidar)."""
+    m = {w for w in normalizar(marca or "").split()}
+    pal = [w for w in normalizar(titulo or "").split() if w not in m and w not in PALAVRAS_FORA and not re.fullmatch(r"\d+(ml|g|kg|un)?", w)]
+    nome = " ".join(pal[:6])
+    mod = str(modelo or "").strip()
+    if mod and compacta(mod) not in compacta(nome):
+        nome = f"{nome} {mod}".strip()
+    return nome_bonito(nome) if nome else "Outros"
 
 
 def categoria_de(tipo):
@@ -1071,7 +1102,17 @@ def consolidar(df, marca, cfg, info=None):
     df.loc[outra, "linha"] = dono[outra].map(nome_bonito)
     df.loc[outra, "tipo"] = TIPO_OUTRA
     nao_perf = (df["categoria"].fillna("") != "") & ~outra
-    df.loc[nao_perf, "linha"] = df.loc[nao_perf, "categoria"]
+    # 01/10 (Bruno, Revlon: "vende vários modelos diferentes e o nubi diz que é um só"): fora de perfumaria o produto é o
+    # GTIN (GTIN é CPF) e o nome vem do título + modelo, não da categoria; sem GTIN, o nome do título
+    if nao_perf.any():
+        brut = df["bruto"] if "bruto" in df.columns else pd.Series([None] * len(df), index=df.index)
+        df.loc[nao_perf, "linha"] = [nome_fora(t, marca, (b or {}).get("Modelo", "") if isinstance(b, dict) else "")
+                                     for t, b in zip(df.loc[nao_perf, "titulo"], brut[nao_perf])]
+        g_fora = df["gtin"].fillna("").astype(str)
+        for g, idx in df[nao_perf & (g_fora != "")].groupby(g_fora[nao_perf & (g_fora != "")]).groups.items():
+            if len(idx) > 1:                                        # mesmo GTIN = mesmo produto: o nome do que mais vende
+                sub = df.loc[idx]
+                df.loc[idx, "linha"] = sub.at[sub["un"].astype(float).idxmax(), "linha"]
     df.loc[nao_perf, "tipo"] = TIPO_FORA
     # 30/09 (Bruno): decant/poucos ml e contratipo = "Low price": produto próprio, fora da votação do GTIN
     low = pd.Series([tipo_low_price(t, v, len(alvo_marca) >= 4 and alvo_marca in compacta(tit), o) if not np_ else ""
@@ -1243,12 +1284,20 @@ def consolidar(df, marca, cfg, info=None):
         df.loc[so_linha, "linha"] = df.loc[so_linha, "linha"].map(_sem_prefixo)
     marca_txt = nome_bonito(marca)
     df["produto"] = [
-        f"{marca_txt} {l} (não perfume)" if t == TIPO_FORA else
+        f"{marca_txt} {l}" if t == TIPO_FORA else
         f"Outra marca: {l}" if t == TIPO_OUTRA else
         re.sub(r"\s+", " ", f"{marca_txt} {l} {t} {v if v != '-' else ''}").strip() if t in TIPOS_LOW else
         re.sub(r"\s+", " ", f"{marca_txt} {l} {t} {v if v != '-' else ''}").strip()
         for l, t, v in zip(df["linha"], df["tipo"], df["volume"])
     ]
+    # 01/10: fora de perfumaria, GTINs diferentes com o mesmo nome são produtos diferentes (cor, modelo): o GTIN entra no nome
+    if nao_perf.any():
+        g_fora = df["gtin"].fillna("").astype(str)
+        por_nome = df[nao_perf & (g_fora != "")].groupby("produto")["gtin"].nunique()
+        repetidos = set(por_nome[por_nome > 1].index)
+        if repetidos:
+            df.loc[nao_perf, "produto"] = [f"{p} · GTIN {g}" if p in repetidos and g else p
+                                           for p, g in zip(df.loc[nao_perf, "produto"], g_fora[nao_perf])]
     herd = herdado & df["confianca"].isin([CONF_GTIN, CONF_PESQ, CONF_LINHA_TITULO])
     df.loc[herd, "confianca"] = CONF_SKU
     # Etapa 4 (29/09): GTIN que é de OUTRA marca (vendedor que troca a marca no cadastro, ex.: LIPX com o Asad Elixir da

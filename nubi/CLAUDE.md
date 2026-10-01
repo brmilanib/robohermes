@@ -178,7 +178,21 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Categorias de marca são as abas `.seg` no topo das três telas.
   Categoria `CAT_LOW`="Low price" (vence a "Categoria final" do arquivo), confiança `CONF_LOW`, produto "Marca Linha Decant
   10 ml"/"Marca Linha Contratipo 100 ml". Não votam no GTIN (entram em `fora`), não entram no `mapa_gtin_global` nem na
-  etapa 4; pegam a linha pelo dicionário da etapa 2b. Resumo da marca: `un_low_price`. `REGRA_ATUAL` = regra 10. Teste `test_low_price.py`.
+  etapa 4; pegam a linha pelo dicionário da etapa 2b. Resumo da marca: `un_low_price`. Teste `test_low_price.py`.
+- **Fora de perfumaria o produto é o GTIN (regra 11, 01/10, print do Bruno: 29 GTINs de escovas Revlon viraram "Revlon Escova
+  Secadora EDT")**: perfumaria é pela categoria FINAL do arquivo (`eh_perfumaria`, `FINAIS_PERFUMARIA`: Perfumes, Fragrâncias,
+  Cuidado do Corpo, Desodorantes…; "Mais Categorias > Perfumes" é perfume; escova em "Beleza e Cuidado Pessoal" não é). Linha
+  `nao_perf` em `consolidar`: nome = `nome_fora(titulo, marca, Modelo)` (título sem marca/enfeite + modelo), anúncios do mesmo
+  GTIN levam o nome do que mais vende, produto = `f"{marca} {nome}"` (sem "(não perfume)") e GTINs diferentes com o mesmo nome
+  ganham ` · GTIN <n>`; `cat` = categoria final do arquivo (Escovas Elétricas…). Nunca tipo EDT/EDP fora de perfume.
+  `REGRA_ATUAL` = regra 11. Teste `test_fora_perfume.py`.
+- **Estoque por categoria (01/10)**: `categorias.GENERICAS` (perfume, kit, importado…) nunca é marca em `marca_do_titulo`
+  (o Explorador tem uma "marca" PERFUME; a linha PERFUME→Árabe de `marca_categorias` foi apagada: levava Sospiro e Xerjoff
+  para Árabe); `TIPOS_PRODUTO` ganhou Eletrônicos, Maquiagem e Cabelo e, fora de `TIPOS_DA_MARCA` (Perfume, Body splash,
+  Casa, Outros), a categoria do item é o próprio tipo (escova Revlon = Eletrônicos, sérum = Skincare), mesmo com a marca
+  em Designer. `ordem` da tela inclui esses tipos; o botão do Astra aparece para item sem categoria ou sem marca.
+- **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
+  vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 
 ## Perseguir anúncios pelo Apify (28/09, pedido do Bruno) — Estoque → 🎯 Perseguir anúncios (`#/estoque/perseguir`), `perseguir.py`
 

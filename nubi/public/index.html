@@ -114,6 +114,7 @@ table.t td.first{font-weight:500}
 .pill{display:inline-block;border-radius:10px;padding:1px 8px;font-size:12px;background:var(--soft);color:var(--muted)}
 .pill.good{background:var(--good-bg);color:var(--good)}
 .pill.bad{background:var(--bad-bg);color:var(--bad)}
+.kpi.good .v{color:var(--good)} .kpi.bad .v{color:var(--bad)}
 .pill.warn{background:var(--warn-bg);color:var(--warn)}
 .sinal{display:inline-block;border-radius:6px;padding:0 6px;margin:1px 3px 1px 0;font-size:11.5px;background:var(--soft)}
 .sinal.good{background:var(--good-bg);color:var(--good)}
@@ -2990,8 +2991,8 @@ async function telaEstoqueCategorias() {
   main.innerHTML = `<div class="es-pg">${esAbas("categorias")}
     <div class="es-cab"><h1>🏷️ Estoque por categoria</h1><span class="muted">estoque de ${esc(quandoES(r.estoque_em))}${temV ? ` · vendas de ${nf0.format(r.vendas.dias || 30)} dias do UpSeller` : " · sem relatório de vendas"}</span></div>
     <p class="aviso">A marca vem do título do anúncio e a categoria é a mesma do Ranking de marcas (Designer, Nicho, Árabe…). Trocou a categoria de uma marca no Ranking → Categorias, muda aqui também.</p>
-    ${(() => { const n = r.itens.filter(x => x.categoria === "Sem categoria").length;
-      return n ? `<div class="card pad" style="margin:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:240px"><b>❔ ${nf0.format(n)} produto(s) sem categoria</b>
+    ${(() => { const n = r.itens.filter(x => x.categoria === "Sem categoria" || !x.marca).length;
+      return n ? `<div class="card pad" style="margin:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:240px"><b>❔ ${nf0.format(n)} produto(s) sem categoria ou sem marca</b>
         <div class="muted" style="font-size:12px">O Astra lê o título de cada um, diz a marca e a categoria da marca. Não muda nada que você já escolheu.</div></div>
         <button class="btn primary small" id="ec-astra">🤖 Pedir ao Astra</button></div>` : ""; })()}
     <div class="kpis">${cats.map(c => `<div class="card kpi kpi-link ec-clica" data-ec="categoria" data-ev="${esc(c.categoria)}" role="button" tabindex="0" title="Ver os produtos" style="border-top:3px solid ${cor(c.categoria)}">
@@ -6908,6 +6909,9 @@ function abrirVendedoresProduto(prod) {
   const med = precos.length ? precos[Math.floor(precos.length / 2)] : null;
   const lider = comVenda[0];
   const dias = (S.rel.resumo || {}).dias || 30, mes30 = tot.un / dias * 30;
+  // 01/10 (Bruno): média por dia desde a criação dos anúncios (histórico ÷ dias publicados) x média do período exportado
+  const mediaHist = lista.reduce((a, v) => a + (v.media_dia_hist || 0), 0), mediaPer = tot.un / dias;
+  const tend = mediaHist > 0 ? mediaPer / mediaHist - 1 : null;
   const R = x => x == null ? "—" : "R$ " + nf2.format(x);
   const kpi = (l, v, o = "", cls = "") => `<div class="card kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
   const bg = modal(`
@@ -6921,7 +6925,10 @@ function abrirVendedoresProduto(prod) {
     </div>
     <div class="pq-sec">Mercado (Nubimetrics)</div>
     <div class="kpis pq-kpis">
-      ${kpi("Unidades vendidas", nf0.format(tot.un), `≈ ${nf0.format(mes30)} por 30 dias`)}
+      ${kpi("Unidades vendidas", nf0.format(tot.un), `≈ ${nf0.format(mes30)} por 30 dias · ${nf1.format(mediaPer)}/dia no período`)}
+      ${kpi("Média/dia desde a criação", mediaHist > 0 ? nf1.format(mediaHist) + "/dia" : "—",
+            mediaHist > 0 ? `histórico ÷ dias publicados · período ${tend >= 0 ? "+" : ""}${nf0.format(tend * 100)}% vs. média de vida` : "sem histórico no arquivo",
+            tend == null ? "" : tend > 0.15 ? "good" : tend < -0.15 ? "bad" : "")}
       ${kpi("Faturamento", "R$ " + nf0.format(tot.fat), "aproximado (faixas)")}
       ${kpi("Preço médio", R(pm), precos.length ? `preço atual de ${R(precos[0])} a ${R(precos[precos.length - 1])} · mediana ${R(med)}` : "")}
       ${kpi("Vendedores", `${nf0.format(comVenda.length)} <small class="muted">de ${nf0.format(lista.length)}</small>`, `${nf0.format(tot.an)} anúncios · ${FMT.pct(row.pct_full)} FULL · ${FMT.pct(row.pct_catalogo)} catálogo`)}

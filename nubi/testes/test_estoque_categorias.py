@@ -20,6 +20,17 @@ con = {nubi.compacta(x): x for x in ["LATTAFA", "ASAD", "FERRARI", "BARBOURS", "
 assert categorias.marca_do_titulo("Perfume Asad Elixir Lattafa 100 Ml", con) == "LATTAFA"          # a mais longa ganha
 assert categorias.marca_do_titulo("Body Splash Barbour's Seduction 200ml", con) == "BARBOURS"
 assert categorias.marca_do_titulo("Protetor Solar Facial Creamy", con) is None
+# 01/10 (Sospiro Vibrato em Árabe): "PERFUME" existe como marca no Explorador, mas palavra de anúncio nunca é marca
+con_p = dict(con, **{nubi.compacta(x): x for x in ["PERFUME", "SOSPIRO", "XERJOFF", "REVLON"]})
+assert categorias.marca_do_titulo("Perfume Vibrato Sospiro Edp 100ml Importado Original", con_p) == "SOSPIRO"
+assert categorias.marca_do_titulo("Perfume De Nicho Xerjoff Naxos Edp 100ml Importado", con_p) == "XERJOFF"
+assert categorias.marca_do_titulo("Perfume Importado Original Kit", con_p) is None
+assert categorias.tipo_produto("Escova Secadora Modeladora Revlon One-Step RVDR5222") == "Eletrônicos"
+r_rev = categorias.estoque_por_categoria([{"sku": "REV-1", "titulo": "Escova Secadora Modeladora Revlon One-Step", "atual": 2, "custo_medio": 300},
+                                          {"sku": "SOS-VIB-100", "titulo": "Perfume Vibrato Sospiro Edp 100ml", "atual": 26, "custo_medio": 900}], con_p, {})
+cats_rev = {x["sku"]: (x["marca"], x["categoria"]) for x in r_rev["itens"]}
+assert cats_rev["REV-1"] == ("REVLON", "Eletrônicos") and cats_rev["SOS-VIB-100"] == ("SOSPIRO", "Nicho"), cats_rev
+assert "Eletrônicos" in r_rev["ordem"]
 assert categorias.tipo_produto("Home Spray Perfume Interiores 1100 Ml") == "Casa"
 assert categorias.tipo_produto("Body Splash Teriaq Perfume Mist Lattafa 250ml") == "Body splash"
 assert categorias.tipo_produto("Perfume Ferrari Black 125ml Eau De Toilette") == "Perfume"
@@ -32,7 +43,7 @@ itens_tela = itens + [{"sku": "KIT-DOLCE", "titulo": "Q by Dolce and Gabbana Con
 r = categorias.estoque_por_categoria(itens, con, {}, {"ASAD100": {"unidades": 30, "valor": 6000}})
 c = {x["categoria"]: x for x in r["categorias"]}
 assert c["Árabe"]["valor"] == 1000 and c["Árabe"]["skus"] == 2 and c["Árabe"]["zerados"] == 1, c["Árabe"]
-assert c["Designer"]["valor"] == 600 and c["Sem categoria"]["valor"] == 80, c
+assert c["Designer"]["valor"] == 600 and c["Skincare"]["valor"] == 80 and "Sem categoria" not in c, c   # 01/10: tipo fora de perfumaria = categoria própria
 assert c["Árabe"]["cobertura_dias"] == 10.0 and c["Árabe"]["pct_vendas"] == 1.0, c["Árabe"]      # 10 un. ÷ 1/dia
 assert r["sem_marca"] == [{"sku": "CREAMY-1", "titulo": "Protetor Solar Facial Creamy", "atual": 2.0, "valor": 80.0}]
 assert {x["tipo"] for x in r["tipos"]} == {"Perfume", "Skincare"}
@@ -84,7 +95,7 @@ try:
             assert "Árabe" in txt and "Designer" in txt and "Lattafa" in txt and "Ferrari" in txt, txt[:1500]
             assert ("sem marca no título" in txt or nome == "cel") and "Por tipo de produto" in txt, txt[:1500]   # no cel a marca já foi corrigida
             if nome == "cel":
-                assert "Nacional" in txt, txt[:1500]                                    # a categoria escolhida no pc valeu
+                assert "Skincare" in txt and "Zeta" in txt, txt[:1500]                 # a marca escolhida no pc valeu
             sem_rolagem(pg, nome, "estoque por categoria")
             if nome == "pc":
                 # 30/09 (Bruno: "o Astra já tem crédito; o título já fala a marca"): o Astra completa marca e categoria
@@ -93,20 +104,21 @@ try:
                 pg.click(".kpi.ec-clica[data-ev='Designer']"); pg.wait_for_selector(".modal .ec-marca", timeout=8000)
                 assert "KIT-DOLCE" in pg.inner_text(".modal"), pg.inner_text(".modal")[:800]      # Dolce & Gabbana pelo nome
                 pg.click(".modal [data-fechar]")
-                # 30/09 (Bruno): clicar na categoria abre os produtos dela; marca por SKU e categoria da marca editáveis
-                pg.click(".kpi.ec-clica[data-ev='Sem categoria']"); pg.wait_for_selector(".modal .ec-marca", timeout=8000)
+                # 30/09 (Bruno): clicar na categoria abre os produtos dela; marca por SKU e categoria da marca editáveis.
+                # 01/10: sérum é Skincare (categoria do tipo de produto), mesmo sem marca ou com marca de perfumaria
+                pg.click(".kpi.ec-clica[data-ev='Skincare']"); pg.wait_for_selector(".modal .ec-marca", timeout=8000)
                 m = pg.inner_text(".modal")
                 assert "SERUM-X" in m and "ASAD-100" not in m, m[:800]
                 pg.fill(".modal .ec-marca[data-sku='SERUM-X']", "Zeta"); pg.press(".modal .ec-marca[data-sku='SERUM-X']", "Enter")
                 pg.wait_for_selector(".modal [data-eccat='Zeta']", timeout=10000)     # reabriu já com a marca nova
                 pg.once("dialog", lambda d: d.accept())
                 pg.select_option(".modal [data-eccat='Zeta']", "Nacional")
-                pg.wait_for_function("() => !document.querySelector('.modal') || !document.querySelector('.modal').innerText.includes('SERUM-X')", timeout=10000)
+                pg.wait_for_timeout(1500)
                 pg.wait_for_selector(".modal", timeout=8000); pg.click(".modal [data-fechar]")
-                pg.click(".kpi.ec-clica[data-ev='Nacional']")
+                pg.click(".kpi.ec-clica[data-ev='Skincare']")
                 pg.wait_for_selector(".modal .ec-marca", timeout=8000)
                 m = pg.inner_text(".modal")
-                assert "Nacional" in m and "SERUM-X" in m, m[:800]
+                assert "SERUM-X" in m and "Zeta" in m, m[:800]                       # continua Skincare, com a marca
                 pg.click(".modal [data-fechar]")
             assert not erros, erros
             pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"estoque_categorias_{nome}.png"), full_page=True)

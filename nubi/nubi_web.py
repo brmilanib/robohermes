@@ -499,11 +499,18 @@ def relatorio(repo, marca, periodo=None):
     g = df.assign(fat_preco=df["preco"] * df["un"]).groupby(["produto", "vendedor_id"])
     for (prod, vid), x in g:
         un, fat, n = int(x["un"].sum()), float(x["fat"].sum()), len(x)
+        # 01/10 (Bruno): média por dia desde a criação de cada anúncio = unidades históricas ÷ dias publicados (somada
+        # por vendedor); comparar com a do período exportado mostra quem acelera ou cai
+        uh = pd.to_numeric(x.get("un_hist"), errors="coerce").fillna(0) if "un_hist" in x.columns else pd.Series(0, index=x.index)
+        dp = pd.to_numeric(x.get("dias_pub"), errors="coerce").fillna(0) if "dias_pub" in x.columns else pd.Series(0, index=x.index)
+        media_hist = float((uh / dp.where(dp > 0)).fillna(0).sum())
         vend_prod.setdefault(prod, []).append({
             "codigo": vend.at[vid, "cod"], "vendedor": vend.at[vid, "nome"], "anuncios": n, "un": un, "fat": fat,
             "preco_medio": _div(fat, un), "ultimo_preco": float(x["preco"].median()),
             "full": int(x["full"].sum()), "catalogo": int(x["catalogo"].sum()),
-            "loja_oficial": int(x["loja_oficial"].max()), "vid": str(vid)})
+            "loja_oficial": int(x["loja_oficial"].max()), "vid": str(vid),
+            "un_hist": int(uh.sum()), "media_dia_hist": round(media_hist, 3),
+            "dias_pub_max": int(dp.max()) if len(dp) else 0})
     for lista in vend_prod.values():
         tot = sum(v["un"] for v in lista)
         for v in lista:
@@ -628,7 +635,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 10: Low price (decant até 15 ml, contratipo) + o anúncio vence a pesquisa errada do GTIN"   # 30/09 (Bidaya; pedido do Bruno)
+REGRA_ATUAL = "regra 11: fora de perfumaria o produto é o GTIN (nome do título + modelo) e perfumaria é pela categoria final"   # 01/10 (Revlon; pedido do Bruno)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"
