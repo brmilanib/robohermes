@@ -69,6 +69,8 @@ def validar(linhas, titulos):
             continue
         if not any(f" {k} " in t for t in tn):
             continue
+        if len(k.split()) > 5:                       # 01/10 (Jequiti): título inteiro como "linha" não é linha
+            continue
         vistas.add(k)
         out.append([k, r])
     out.sort(key=lambda kr: -len(kr[0]))

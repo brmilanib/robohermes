@@ -1481,8 +1481,10 @@ function telaInicioOps() {
 // Celular: toda tabela vira uma lista de cartões (rótulo da coluna ao lado de cada valor), sem rolagem para o lado.
 function rotularTabelas(raiz) {
   (raiz || document).querySelectorAll("table.t:not([data-rot])").forEach(tb => {
-    const cab = tb.querySelector("thead tr:not(.f)") || tb.querySelector("tr");
-    if (!cab) return;
+    // 01/10 (Bruno: "todos os vendedores com o mesmo número de unidades"): tabela SEM cabeçalho usava a 1ª linha de dados
+    // como rótulo de todos os cartões. Só o <thead> vira rótulo; sem ele, ficam os data-l que a própria tabela trouxer.
+    const cab = tb.querySelector("thead tr:not(.f)");
+    if (!cab) { tb.dataset.rot = 1; return; }
     const rot = [...cab.children].map(th => (th.innerText || th.textContent || "").replace(/[↑↓▲▼]/g, "").trim());
     tb.querySelectorAll("tbody tr").forEach(tr => [...tr.children].forEach((td, i) => { if (rot[i] && !td.dataset.l) td.dataset.l = rot[i]; }));
     tb.dataset.rot = 1;
@@ -6016,12 +6018,12 @@ function telaMarca() {
       <div class="card pad">
         <h2>Maiores vendedores</h2>
         <div class="rolar"><table class="t" style="font-size:13px"><tbody>
-        ${r.tabelas.vendedores.slice(0, 10).map((v, i) => `<tr><td class="num muted">${i + 1}</td>
-          <td class="first">${vendLink(v.codigo, v.vendedor)}</td>
-          <td class="num">${nf0.format(v.un)} un.</td><td class="num">R$ ${nf0.format(v.fat)}</td>
-          <td style="width:18%;min-width:70px"><div style="background:var(--soft);border-radius:4px;height:8px">
+        ${r.tabelas.vendedores.slice(0, 10).map((v, i) => `<tr><td class="num muted" data-l="#">${i + 1}</td>
+          <td class="first" data-l="Vendedor">${vendLink(v.codigo, v.vendedor)}</td>
+          <td class="num" data-l="Unidades">${nf0.format(v.un)} un.</td><td class="num" data-l="Faturamento">R$ ${nf0.format(v.fat)}</td>
+          <td style="width:18%;min-width:70px" data-l=""><div style="background:var(--soft);border-radius:4px;height:8px">
           <div style="width:${Math.min(100, v.share / Math.max(r.tabelas.vendedores[0].share, 0.0001) * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:4px"></div></div></td>
-          <td class="num">${FMT.pct(v.share)}</td></tr>`).join("")}
+          <td class="num" data-l="Share">${FMT.pct(v.share)}</td></tr>`).join("")}
         </tbody></table></div>
         <div class="muted" style="font-size:12px;margin-top:10px">Concentração do volume:
           ${r.concentracao.map(c => `<span class="sinal">${c.faixa === "Todos" ? nf0.format(c.vendedores) + " vendedores" : c.faixa + ": " + FMT.pct(c.share)}</span>`).join("")}</div>

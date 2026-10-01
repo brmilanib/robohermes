@@ -491,6 +491,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     motivo + resumo; cache 12 h em `observados|destaques`, `?forcar=1` refaz). Na página do vendedor, os produtos são
     clicáveis (`abrirProdutoDeMarca`: carrega o relatório da marca e abre o quadro do produto) e o quadro ganhou a foto do
     catálogo do ML (`meli_foto`, 1º GTIN que o ML conhece).
+  - **⚠️ 01/10 08h: a rotina automática `linhas_ia` foi DESLIGADA e as 10 marcas revisadas voltaram às linhas de antes**
+    (Bruno: "bugou mais ainda"): a IA picou o Sabah Al Ward da Al Wataniah em 25+ produtos ("Sabah Al Ward Original",
+    "Sugar EDT", "Him Her"…, vendedores e foto errados) e na Jequiti usou títulos inteiros como linha. Regra 12b reprocessa
+    tudo. Nunca aplicar linhas da IA sem o Bruno conferir; chave com mais de 5 palavras é recusada. Também: no celular,
+    `rotularTabelas` usava a 1ª linha de dados como rótulo de tabela sem `<thead>` (todos os cartões de "Maiores vendedores"
+    mostravam os números da ICARBONXX); agora só o `<thead>` rotula.
   - **Revisão geral das linhas pela IA (01/10, Bruno: "Light Blue 100 ml juntou feminino, masculino, Intense e Capri in
     Love; precisa de uma revisão geral")**: `linhas_ia.py`. As linhas vinham de `detectar_linhas` (frequência de pares de
     palavras: "blue femin", "edpi"…) e "light blue" engolia as variações. `revisar_marca(repo, marca, perguntar)` manda os

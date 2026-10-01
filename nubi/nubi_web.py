@@ -720,7 +720,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 12: marca de revenda (LIPX) nunca é dona de GTIN que outra marca tem; fora de perfumaria o produto é o GTIN; GTIN com zero na frente é o mesmo código"   # 01/10 (Lipx Sabah; pedido do Bruno)
+REGRA_ATUAL = "regra 12b: linhas de antes da revisão automática da IA (desfeita 01/10: picou o Sabah Al Ward); marca de revenda nunca é dona de GTIN de outra marca"   # 01/10 (pedido do Bruno)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"
