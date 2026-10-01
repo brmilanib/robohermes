@@ -105,3 +105,102 @@ def detalhe(repo, vid, seguidos_hashes=None, lojas=None):
             "situacao": "seguido" if vid in set(seguidos_hashes or []) else "observado",
             "total": tot, "produtos": produtos, "marcas": sorted(marcas.values(), key=lambda m: -m["un"]),
             "periodos": periodos, "loja": lj, "interesse": interesses(repo).get(vid)}
+
+
+# ---------------------------------------------------------------------------
+# ✨ Destaques (01/10, Bruno: "uma análise de IA que me fale quais vendedores estão se destacando")
+# ---------------------------------------------------------------------------
+DESTAQUES = "observados|destaques"
+DESTAQUES_HORAS = 12
+SCHEMA_DESTAQUES = {"type": "object", "additionalProperties": False, "required": ["resumo", "vendedores"],
+                    "properties": {"resumo": {"type": "string"},
+                                   "vendedores": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                                                  "required": ["vendedor_id", "motivo"],
+                                                  "properties": {"vendedor_id": {"type": "string"}, "motivo": {"type": "string"}}}}}}
+
+
+def sinais(repo):
+    """Sinais de cada vendedor no último export de cada marca (nubi_observados_sinais): ritmo do período x média de vida,
+    anúncios novos (≤90 dias) vendendo, liderança em produto (share ≥30% com ≥100 un.)."""
+    out = []
+    for x in repo._req("POST", "rpc/nubi_observados_sinais", corpo={}) or []:
+        per, vida = float(x.get("un_dia_periodo") or 0), float(x.get("un_dia_vida") or 0)
+        out.append({"vendedor_id": str(x.get("vendedor_id") or ""), "un": int(x.get("un") or 0), "un_dia_periodo": per, "un_dia_vida": vida,
+                    "ritmo": round(per / vida, 2) if vida > 0 else None, "anuncios": int(x.get("anuncios") or 0),
+                    "anuncios_novos": int(x.get("anuncios_novos") or 0), "un_novos": int(x.get("un_novos") or 0),
+                    "lideres": int(x.get("lideres") or 0), "max_share": float(x.get("max_share") or 0),
+                    "produto_lider": x.get("produto_lider") or "", "marca_lider": x.get("marca_lider") or ""})
+    return out
+
+
+def _pontos(s):
+    """Nota de destaque sem IA (desempate e fallback): volume + aceleração + novos + liderança."""
+    p = 0.0
+    if s["un"] >= 300:
+        p += min(3.0, s["un"] / 5000)
+    if s["ritmo"] and s["un"] >= 300:
+        p += min(4.0, max(0.0, (s["ritmo"] - 1) * 4))                  # 1.5x a média de vida = +2
+    if s["un_novos"] >= 200:
+        p += min(3.0, s["un_novos"] / 1000)
+    p += min(3.0, s["lideres"] * 0.75)
+    return round(p, 2)
+
+
+def _motivos(s):
+    m = []
+    if s["ritmo"] and s["ritmo"] >= 1.3 and s["un"] >= 300:
+        m.append(f"acelerando: {s['ritmo']:.1f}x a média de vida dos anúncios")
+    if s["ritmo"] and s["ritmo"] <= 0.6 and s["un"] >= 300:
+        m.append(f"desacelerando: {s['ritmo']:.1f}x a média de vida")
+    if s["un_novos"] >= 200:
+        m.append(f"{s['un_novos']:,} un. em {s['anuncios_novos']} anúncio(s) novo(s) (≤90 dias)".replace(",", "."))
+    if s["lideres"]:
+        m.append(f"líder em {s['lideres']} produto(s) (maior share {s['max_share'] * 100:.0f}%, {s['produto_lider']})")
+    return m
+
+
+def destaques(repo, nomes, forcar=False, perguntar=None):
+    """Top de vendedores se destacando + análise curta da IA. Cache de 12 h em ia_resumos (`forcar` refaz).
+    nomes: {hash: nome}. perguntar(pedido, schema) -> (dict, ia) (ia.perguntar_estruturado); sem IA, só os sinais."""
+    if not forcar:
+        c = _ler(repo, DESTAQUES, None)
+        if isinstance(c, dict) and c.get("em"):
+            try:
+                idade = (datetime.now(timezone.utc) - datetime.fromisoformat(c["em"])).total_seconds() / 3600
+                if idade < DESTAQUES_HORAS:
+                    return c
+            except ValueError:
+                pass
+    todos = sinais(repo)
+    for s in todos:
+        s["pontos"], s["motivos"], s["nome"] = _pontos(s), _motivos(s), nomes.get(s["vendedor_id"], s["vendedor_id"][:12])
+    cand = sorted([s for s in todos if s["motivos"]], key=lambda s: -s["pontos"])[:25]
+    resumo, escolhidos, quem = "", [], None
+    if perguntar and cand:
+        linhas = "\n".join(f"- id={s['vendedor_id'][:16]} | {s['nome']} | {s['un']} un. no período | ritmo {s['ritmo'] or '-'}x | "
+                            f"novos: {s['un_novos']} un. em {s['anuncios_novos']} anúncios | líder em {s['lideres']} produto(s) "
+                            f"(share máx. {s['max_share'] * 100:.0f}% em {s['produto_lider']} / {s['marca_lider']}) | motivos: {'; '.join(s['motivos'])}"
+                            for s in cand)
+        pedido = ("Você analisa vendedores de perfumaria no Mercado Livre para a nubi (loja do Bruno). Abaixo, os 25 vendedores com "
+                  "sinais de destaque no último export do Nubimetrics de cada marca (nomes são fictícios; o id identifica). "
+                  "Escolha de 6 a 10 que estão realmente se destacando (crescendo, entrando forte com anúncios novos ou dominando "
+                  "produtos) e, para cada um, 1 frase curta de motivo com os números. Depois um resumo de 2 a 3 frases do que "
+                  "está acontecendo no mercado. Use só os dados abaixo, nunca invente; devolva o id exatamente como está.\n\n" + linhas)
+        try:
+            j, quem = perguntar(pedido, SCHEMA_DESTAQUES)
+            por = {s["vendedor_id"][:16]: s for s in cand}
+            for v in (j.get("vendedores") or [])[:10]:
+                s = por.get(str(v.get("vendedor_id") or "")[:16])
+                if s and s["vendedor_id"] not in [e["vendedor_id"] for e in escolhidos]:
+                    escolhidos.append({**{k: s[k] for k in ("vendedor_id", "nome", "un", "ritmo", "un_novos", "anuncios_novos", "lideres", "max_share", "produto_lider", "pontos")},
+                                       "motivo": str(v.get("motivo") or "; ".join(s["motivos"]))[:300]})
+            resumo = str(j.get("resumo") or "")[:1200]
+        except Exception as e:  # noqa: BLE001  (sem IA: os sinais bastam)
+            resumo, quem = f"(IA indisponível: {str(e)[:120]}; lista pelos sinais)", None
+    if not escolhidos:
+        escolhidos = [{**{k: s[k] for k in ("vendedor_id", "nome", "un", "ritmo", "un_novos", "anuncios_novos", "lideres", "max_share", "produto_lider", "pontos")},
+                       "motivo": "; ".join(s["motivos"])} for s in cand[:10]]
+    out = {"em": datetime.now(timezone.utc).isoformat(), "ia": quem, "resumo": resumo, "vendedores": escolhidos, "candidatos": len(cand)}
+    repo._req("POST", "ia_resumos", corpo=[{"chave": DESTAQUES, "ia": quem or "sinais", "criado_em": out["em"], "texto": json.dumps(out, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return out

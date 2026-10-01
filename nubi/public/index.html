@@ -919,6 +919,16 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 /* Minhas Lojas → Estoque */
 .es-cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .es-cab .acoes{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.ob-nums{display:flex;gap:6px;flex-wrap:wrap;align-items:stretch}
+.ob-num{display:flex;flex-direction:column;align-items:flex-start;gap:0;padding:6px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer;font:inherit;color:var(--text);line-height:1.15;min-width:92px;text-align:left}
+.ob-num b{font-size:17px;font-weight:800;letter-spacing:-.02em}.ob-num span{font-size:11px;color:var(--muted)}
+.ob-num:hover{border-color:var(--accent)}.ob-num.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--soft)}
+.ob-num.good b{color:var(--good)}.ob-num.ml b{color:#e67e22}.ob-num.star b{color:#d4a017}.ob-num.ia{background:linear-gradient(135deg,#f3e8ff,#e0f2fe)}.ob-num.ia b{font-size:16px}
+.ob-dest{margin-bottom:10px;border-left:4px solid #a855f7}.ob-motivo{font-size:11.5px;color:#7c3aed;margin-top:2px;max-width:520px}
+.ob-nome{max-width:380px}.ob-nome b,.ob-nome div{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:380px}.ob-nome div{font-size:11px}
+tr.ob-prod{cursor:pointer}tr.ob-prod:hover td{background:var(--soft)}
+.pq-foto{width:88px;height:88px;flex:0 0 88px;border:1px solid var(--line);border-radius:10px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;gap:2px}
+.pq-foto img{max-width:84px;max-height:70px;object-fit:contain}.pq-foto:empty{background:var(--soft);border-style:dashed}
 .es-aviso{border:1px solid var(--line);border-left:4px solid #d4a017;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:13px;background:var(--card)}
 .es-aviso.bad{border-left-color:#c0392b}
 .es-grade{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;margin-top:14px}
@@ -3052,14 +3062,17 @@ function abrirEcLista(campo, valor) {
     <option value="">⚙️ automática${x.categoria_fonte === "tipo" || x.categoria_fonte === "astra" || x.categoria_fonte === "auto" ? ` (${esc(x.categoria)})` : ""}</option>
     ${[...new Set([...(r.opcoes_produto || []), ...r.opcoes, "Perfume", "Body splash"])].map(o => `<option ${x.categoria_fonte === "manual_sku" && o === x.categoria ? "selected" : ""} value="${esc(o)}">${ICO_CAT[o] || ""} ${esc(o)}</option>`).join("")}
     <option value="__nova">➕ nova categoria…</option></select>${x.categoria_fonte === "manual_sku" ? ` <small class="muted" title="Categoria escolhida por você">✎</small>` : x.categoria_fonte === "astra" ? ` <small class="muted" title="Lida pelo Astra">🤖</small>` : ""}`;
-  const opc = (atual, marca) => `<select data-eccat="${esc(marca)}" ${marca ? "" : "disabled title=\"Escolha a marca primeiro\""}>
-    ${[...r.opcoes, "Sem categoria"].map(o => `<option ${o === atual ? "selected" : ""} value="${o === "Sem categoria" ? "" : esc(o)}">${ICO_CAT[o] || ""} ${esc(o)}</option>`).join("")}</select>`;
+  // 01/10 (Bruno): marca sem categoria mostrava "Alta perfumaria" (1ª opção) por engano; agora "Sem categoria" vem selecionada.
+  // E para produto que não é perfume/body splash (Fire Stick, tapete, home spray…) a categoria da marca não vale: mostra "—".
+  const foraPerf = x => x && x.tipo && !["Perfume", "Body splash", "Outros"].includes(x.tipo);
+  const opc = (atual, marca, x) => `<select data-eccat="${esc(marca)}" ${marca ? "" : "disabled title=\"Escolha a marca primeiro\""} ${foraPerf(x) ? `title="Vale para os perfumes e body splash da marca; este item é ${esc(x.tipo)} e fica na categoria dele"` : ""}>
+    ${["Sem categoria", ...r.opcoes].map(o => `<option ${(o === "Sem categoria" ? !atual : o === atual) ? "selected" : ""} value="${o === "Sem categoria" ? "" : esc(o)}">${ICO_CAT[o] || ""} ${esc(o)}</option>`).join("")}</select>${foraPerf(x) ? ` <small class="muted" title="A categoria da marca não muda este item">só p/ perfumes</small>` : ""}`;
   const linhas = xs => xs.map(x => `<tr data-busca="${esc((x.sku + " " + x.titulo + " " + x.marca).toLowerCase())}">
     <td><b>${esc(x.sku)}</b><div class="muted wrap" style="max-width:360px;font-size:11.5px">${esc(x.titulo)}</div></td>
     <td><input list="ec-dl" class="ec-marca" data-sku="${esc(x.sku)}" value="${esc(x.marca)}" placeholder="marca…" style="width:150px">
       ${x.marca_manual ? `<small class="muted" title="Você escolheu esta marca">✎</small>` : ""}</td>
     <td>${opcProd(x)}</td>
-    <td>${opc(catMarca(x), x.marca)}${x.categoria_fonte === "manual" ? ` <small class="muted" title="Categoria escolhida por você">✎</small>` : ""}</td>
+    <td>${opc(catMarca(x), x.marca, x)}${x.categoria_fonte === "manual" ? ` <small class="muted" title="Categoria escolhida por você">✎</small>` : ""}</td>
     <td>${esc(x.tipo)}</td><td class="num">${nf0.format(x.atual)}</td><td class="num">${rsES(x.valor)}</td>
     <td class="num">${nf0.format(x.vend_un)}</td><td class="num">${x.cobertura_dias == null ? "—" : nf0.format(x.cobertura_dias) + " d"}</td></tr>`).join("");
   const tot = itens.reduce((a, x) => ({v: a.v + x.valor, u: a.u + x.atual, vu: a.vu + x.vend_un}), {v: 0, u: 0, vu: 0});
@@ -6830,19 +6843,30 @@ async function telaObservados() {
       && (!q || x.nomes.some(n => n.toLowerCase().includes(q)) || (x.loja && (x.loja.nome || "").toLowerCase().includes(q))));
     xs = xs.slice().sort((a, b) => f.so === "fat" ? b.fat - a.fat : f.so === "marcas" ? b.marcas - a.marcas : f.so === "anuncios" ? b.anuncios - a.anuncios : b.un - a.un);
     const t = r.total || {};
+    const D = S.obsDest, dest = f.sit === "destaques" ? (D ? D.vendedores : []) : null;
+    if (dest) { const ids = new Set(dest.map(x => x.vendedor_id)); xs = xs.filter(x => ids.has(x.vendedor_id)); const ord = new Map(dest.map((x, i) => [x.vendedor_id, i])); xs.sort((a, b) => ord.get(a.vendedor_id) - ord.get(b.vendedor_id)); }
+    const motivo = Object.fromEntries((D ? D.vendedores : []).map(x => [x.vendedor_id, x.motivo]));
+    const num = (v, n, l, cls = "") => `<button class="ob-num ${f.sit === v ? "on" : ""} ${cls}" data-sit="${v}"><b>${nf0.format(n)}</b><span>${l}</span></button>`;
     main.innerHTML = `<div class="es-cab"><h1>👀 Vendedores observados</h1>
-        <span class="muted">${nf0.format(t.vendedores)} vendedores nos exports do Explorador · ${nf0.format(t.seguidos)} seguidos · ${nf0.format(t.observados)} observados · ${nf0.format(t.com_loja)} com loja real · ⭐ ${nf0.format(t.interessantes)}</span></div>
+        <div class="ob-nums">${num("todos", t.vendedores, "vendedores nos exports")}${num("seguido", t.seguidos, "seguidos", "good")}${num("observado", t.observados, "observados")}${num("com_loja", t.com_loja, "com loja real", "ml")}${num("estrela", t.interessantes, "⭐ interessantes", "star")}
+          <button class="ob-num ia ${f.sit === "destaques" ? "on" : ""}" data-sit="destaques" title="Análise de IA: quem está crescendo, entrando forte ou dominando produtos"><b>✨</b><span>${D ? nf0.format(D.vendedores.length) + " em destaque" : "quem se destaca?"}</span></button></div></div>
+      ${dest ? `<div class="card pad ob-dest"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>✨ Quem está se destacando</b>
+          <span class="muted" style="font-size:12px">${D.ia ? "análise do " + esc(D.ia) : "pelos sinais do nubi"} · ${esc(desde(D.em))} · ${nf0.format(D.candidatos || 0)} candidatos olhados</span>
+          <button class="btn small ghost" id="obs-dest-refazer" style="margin-left:auto">↻ refazer agora</button></div>
+          ${D.resumo ? `<p style="margin:6px 0 0;font-size:13.5px">${esc(D.resumo)}</p>` : ""}
+          <p class="muted" style="margin:6px 0 0;font-size:12px">Sinais: ritmo do período x média de vida dos anúncios, unidades em anúncios novos (≤ 90 dias) e liderança em produto (share ≥ 30%). Clique no vendedor para ver os produtos.</p></div>` : ""}
       <p class="muted" style="margin:4px 0 10px;font-size:12.5px">Todo vendedor que aparece num export do Explorador de anúncios (último export de cada marca) entra aqui, mesmo sem ser seguido no Nubimetrics (limite de 20).
         Clique para ver os produtos que ele vende. Marque ⭐ nos interessantes: é a fila para achar a loja real no Mercado Livre e para o revezamento dos seguidos.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
         <input type="search" id="obs-q" placeholder="Buscar nome ou loja…" value="${esc(f.q)}" style="min-width:220px">
-        <select id="obs-sit">${[["todos", "Todos"], ["observado", "Só observados"], ["seguido", "Só seguidos"], ["estrela", "⭐ interessantes"], ["com_loja", "Com loja real"]].map(([v, n]) => `<option value="${v}" ${f.sit === v ? "selected" : ""}>${n}</option>`).join("")}</select>
+        <select id="obs-sit">${[["todos", "Todos"], ["observado", "Só observados"], ["seguido", "Só seguidos"], ["estrela", "⭐ interessantes"], ["com_loja", "Com loja real"], ["destaques", "✨ Em destaque (IA)"]].map(([v, n]) => `<option value="${v}" ${f.sit === v ? "selected" : ""}>${n}</option>`).join("")}</select>
         <select id="obs-so">${[["un", "Mais unidades"], ["fat", "Maior faturamento"], ["marcas", "Mais marcas"], ["anuncios", "Mais anúncios"]].map(([v, n]) => `<option value="${v}" ${f.so === v ? "selected" : ""}>${n}</option>`).join("")}</select>
         <span class="muted">${nf0.format(xs.length)} vendedor(es)</span></div>
       <div class="card"><table class="tab"><thead><tr><th></th><th>Vendedor (nome no Nubimetrics)</th><th>Situação</th><th>Loja real</th><th class="num">Marcas</th><th class="num">Anúncios</th><th class="num">Unidades</th><th class="num">Faturamento</th><th class="num">FULL</th><th class="num">Catálogo</th><th>Visto</th></tr></thead><tbody>
         ${xs.slice(0, 400).map(x => `<tr>
           <td><button class="btn small ghost" data-estrela="${esc(x.vendedor_id)}" title="${x.interesse ? "Tirar da fila de interessantes" : "Marcar como interessante"}">${x.interesse ? "⭐" : "☆"}</button></td>
-          <td data-l="Vendedor"><a href="#/observados/${esc(x.vendedor_id)}"><b>${esc(x.nome)}</b></a>${x.nomes.length > 1 ? `<div class="muted" style="font-size:11px">também: ${x.nomes.slice(1).map(esc).join(", ")}</div>` : ""}${x.loja_oficial ? ` <span class="pill">loja oficial</span>` : ""}</td>
+          <td data-l="Vendedor"><a href="#/observados/${esc(x.vendedor_id)}"><b>${esc(x.nome)}</b></a>${x.nomes.length > 1 ? `<div class="muted" style="font-size:11px">também: ${x.nomes.slice(1).map(esc).join(", ")}</div>` : ""}${x.loja_oficial ? ` <span class="pill">loja oficial</span>` : ""}
+            ${motivo[x.vendedor_id] ? `<div class="ob-motivo">✨ ${esc(motivo[x.vendedor_id])}</div>` : ""}</td>
           <td data-l="Situação"><span class="st ${(SIT_OBS[x.situacao] || [])[1] || ""}">${esc((SIT_OBS[x.situacao] || [x.situacao])[0])}</span></td>
           <td data-l="Loja real">${x.loja ? `<a class="ml-loja" href="${esc(urlLojaML(x.loja))}" target="_blank" rel="noopener">${esc(x.loja.nome)} ↗</a>${x.loja.cidade ? `<div class="muted" style="font-size:11px">📍 ${esc(x.loja.cidade)}${x.loja.uf ? " - " + esc(x.loja.uf) : ""}</div>` : ""}` : `<span class="muted">—</span>`}</td>
           <td class="num" data-l="Marcas">${nf0.format(x.marcas)}</td><td class="num" data-l="Anúncios">${nf0.format(x.anuncios)}</td>
@@ -6852,7 +6876,15 @@ async function telaObservados() {
         ${xs.length > 400 ? `<tr><td colspan="11" class="muted">Mostrando 400 de ${nf0.format(xs.length)}; use a busca para achar os outros.</td></tr>` : ""}
       </tbody></table></div>`;
     $("#obs-q").oninput = e => { S.obsF.q = e.target.value; desenhar(); $("#obs-q").focus(); $("#obs-q").setSelectionRange(99, 99); };
-    $("#obs-sit").onchange = e => { S.obsF.sit = e.target.value; desenhar(); };
+    const carregarDest = async forcar => {
+      if (S.obsDest && !forcar) return;
+      toast(forcar ? "Refazendo a análise…" : "Analisando quem se destaca…", 4000);
+      try { S.obsDest = await api("observados_destaques", forcar ? {forcar: "1"} : {}); } catch (e) { toast(e.message, 6000); }
+    };
+    const mudarSit = async v => { S.obsF.sit = v; if (v === "destaques") await carregarDest(false); desenhar(); };
+    $("#obs-sit").onchange = e => mudarSit(e.target.value);
+    main.querySelectorAll(".ob-num[data-sit]").forEach(b => b.onclick = () => mudarSit(b.dataset.sit));
+    if ($("#obs-dest-refazer")) $("#obs-dest-refazer").onclick = async () => { await carregarDest(true); desenhar(); };
     $("#obs-so").onchange = e => { S.obsF.so = e.target.value; desenhar(); };
     main.querySelectorAll("[data-estrela]").forEach(b => b.onclick = () => alternarInteresse(b.dataset.estrela, () => { const it = r.itens.find(x => x.vendedor_id === b.dataset.estrela); if (it) { it.interesse = it.interesse ? null : {}; r.total.interessantes += it.interesse ? 1 : -1; } desenhar(); }));
   };
@@ -6894,8 +6926,9 @@ async function telaObservado(vid) {
       ${r.marcas.map(m => `<tr><td>${esc(m.marca)}</td><td class="num">${nf0.format(m.produtos)}</td><td class="num">${nf0.format(m.un)}</td><td class="num">${abrev(m.fat)}</td></tr>`).join("")}</tbody></table></div>
     <div class="pq-sec">Produtos <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">· agrupados pelo nubi; share = parte dele nas vendas do produto no mercado</span></div>
     <div class="card"><table class="tab"><thead><tr><th>Produto</th><th>Categoria</th><th>GTIN</th><th class="num">Anúncios</th><th class="num">Unidades</th><th class="num">Share</th><th class="num">Faturamento</th><th class="num">Preço</th><th class="num">FULL</th><th class="num">Média/dia</th></tr></thead><tbody>
-      ${r.produtos.map(p => `<tr><td><b>${esc(p.produto)}</b><div class="muted wrap" style="font-size:11px;max-width:420px">${esc(p.titulo)}</div></td>
-        <td>${esc(p.categoria || "")}</td><td class="muted" style="font-size:12px">${esc(p.gtin || "—")}</td>
+      ${r.produtos.map(p => `<tr class="ob-prod" data-marca="${esc(p.marca || "")}" data-prod="${esc(p.produto || "")}" title="Abrir o quadro do produto: quem vende, preços e o meu lado">
+        <td class="ob-nome"><b>${esc(p.produto)}</b><div class="muted">${esc(p.titulo)}</div></td>
+        <td style="white-space:nowrap">${esc(p.categoria || "")}</td><td class="muted" style="font-size:12px;white-space:nowrap">${esc(p.gtin || "—")}</td>
         <td class="num">${nf0.format(p.anuncios)}</td><td class="num"><b>${nf0.format(p.un)}</b></td><td class="num">${FMT.pct(p.share)}</td>
         <td class="num">${abrev(p.fat)}</td><td class="num">${R(p.preco)}</td><td class="num">${FMT.pct(p.pct_full)}</td>
         <td class="num">${p.media_dia_hist != null ? nf1.format(p.media_dia_hist) : "—"}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">Sem produtos nos exports recentes.</td></tr>`}
@@ -6905,6 +6938,8 @@ async function telaObservado(vid) {
       ${r.periodos.map(x => `<tr><td>${esc(x.marca)}</td><td>${dataBR(x.inicio)} → ${dataBR(x.fim)} (${x.dias} d)</td><td class="num">${nf0.format(x.anuncios)}</td><td class="num">${nf0.format(x.un)}</td><td class="num">${x.dias ? nf1.format(x.un / x.dias) : "—"}</td><td class="num">${abrev(x.fat)}</td></tr>`).join("")}
     </tbody></table></div>`;
   $("#ob-estrela").onclick = () => alternarInteresse(vid, lig => { r.interesse = lig ? {} : null; telaObservado(vid); });
+  // 01/10 (Bruno): clicar no produto puxa todo mundo que vende e a análise (o mesmo quadro do Explorador)
+  main.querySelectorAll("tr.ob-prod").forEach(tr => tr.onclick = e => { if (e.target.closest("a")) return; abrirProdutoDeMarca(tr.dataset.marca, tr.dataset.prod); });
   const salvar = async loja => { try { const x = await api("meli_nomear", {}, {method: "POST", body: JSON.stringify({vendedor_id: vid, loja})}); toast("Loja real salva: " + x.loja.nome); telaObservado(vid); } catch (e) { toast(e.message, 6000); } };
   if ($("#ob-sei")) $("#ob-sei").onclick = () => { const l = $("#ob-link").value.trim(); if (l) salvar(l); };
   if ($("#ob-desc")) $("#ob-desc").onclick = async e => {
@@ -7086,6 +7121,16 @@ function listaML(xs, lista, n = 15) {
         <div class="ml-chips" style="margin:4px 0 0">${chipsML(m)}${m.vendidos != null ? `<span class="ml-chip">🛒 ${vendidosML(m.vendidos)}</span>` : ""}</div></div>
       <div class="num">${precoML(m, true)}</div></div>`; }).join("")}</div>`;
 }
+// 01/10 (Bruno, página do vendedor observado): abre o quadro do produto de qualquer tela; carrega o relatório da marca se preciso
+async function abrirProdutoDeMarca(marca, prod) {
+  if (!marca || !prod) return;
+  if (!S.rel || S.rel.marca !== marca) {
+    toast(`Carregando ${nome(marca)}…`, 2500);
+    try { S.rel = await api("relatorio", {marca}); S.marca = marca; S.tabelas = {}; } catch (e) { toast(e.message, 6000); return; }
+  }
+  if (!(S.rel.vendedores_produto || {})[prod]) { toast("Este produto não está no último export da marca.", 5000); return; }
+  abrirVendedoresProduto(prod);
+}
 // ---------- Vendedores de um produto ----------
 function abrirVendedoresProduto(prod) {
   const lista = (S.rel.vendedores_produto || {})[prod] || [];
@@ -7108,6 +7153,7 @@ function abrirVendedoresProduto(prod) {
   const kpi = (l, v, o = "", cls = "") => `<div class="card kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
   const bg = modal(`
     <div style="display:flex;align-items:flex-start;gap:12px">
+      <div class="pq-foto" id="pq-foto" title="foto do produto no catálogo do Mercado Livre"></div>
       <div style="flex:1;min-width:0"><h2 style="margin-bottom:2px;font-size:18px">${esc(prod)}</h2>
         <div class="muted">${[row.linha && row.linha !== "-" ? "Linha " + esc(row.linha) : "", row.tipo && row.tipo !== "-" ? esc(row.tipo) : "", row.volume && row.volume !== "-" ? esc(row.volume) : "",
           gtins.length ? `${gtins.length} GTIN${gtins.length > 1 ? "s" : ""}: ${gtins.slice(0, 4).map(esc).join(", ")}${gtins.length > 4 ? "…" : ""}` : "sem GTIN",
@@ -7148,6 +7194,11 @@ function abrirVendedoresProduto(prod) {
     </tbody></table></div>
     <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).</p>`);
   $(".modal", bg).classList.add("larga", "pq");
+  if (gtins.length) api("meli_foto", {gtins: gtins.slice(0, 4).join("|")}).then(f => {        // 01/10 (Bruno): foto no cabeçalho
+    const el = $("#pq-foto", bg); if (!el || !document.body.contains(bg)) return;
+    if (f && f.foto) el.innerHTML = `<img src="${esc(urlML(f.foto))}" alt="" loading="lazy">${f.link ? `<a href="${esc(urlML(f.link))}" target="_blank" rel="noopener" class="muted" style="font-size:10.5px">catálogo ↗</a>` : ""}`;
+    else el.remove(); }).catch(() => { const el = $("#pq-foto", bg); el && el.remove(); });
+  else { const el = $("#pq-foto", bg); el && el.remove(); }
   api("estoque_produto", {produto: prod, gtins: gtins.join("|"), titulos: titulos.join("|")})
     .then(m => { if (document.body.contains(bg)) $("#pq-meu", bg).innerHTML = meuLadoProduto(m, {pm, med, mes30, lista, kpi, R, bg}); })
     .catch(e => { $("#pq-meu", bg).innerHTML = `<div class="muted" style="font-size:13px">Não consegui ler meus dados: ${esc(e.message)}</div>`; });

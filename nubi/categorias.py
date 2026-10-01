@@ -212,13 +212,18 @@ TIPOS_PRODUTO = [
                      "babyliss", "barbeador", "depilador", "massageador", "pen drive", "fire tv", "stick", "drone", "camera", "smartwatch",
                      "relogio", "controle remoto", "caixa de som", "fone", "carregador", "alexa", "wi-fi", "wifi", "bluetooth", "tela",
                      "monitor", "notebook", "celular", "tablet", "echo", "lampada inteligente", "roteador")),
+    # 01/10 (Bruno, "tudo errado ainda"): "Good Girl BLUSH Eau de Parfum", "Noble BLUSH by Lattafa 100ml" e "Shampoo a seco
+    # Batiste BLUSH" iam para Maquiagem por causa da palavra "blush". Perfume e body splash (e cabelo/skincare explícitos)
+    # vêm ANTES de maquiagem; "blush" só decide quando não há sinal de perfume.
+    ("Body splash", ("body splash", "perfume mist", "body mist", "hair mist", "desodorante colonia", "splash")),
+    ("Perfume", ("perfume", "perfumes", "eau de parfum", "eau de toilette", "parfum", "extrait", "edp", "edt", "colonia", "decant", "fragrancia")),
+    ("Cabelo", ("shampoo", "condicionador", "mascara capilar", "leave in", "leave-in", "oleo capilar", "finalizador", "tonico capilar",
+                "cabelo", "cabelos", "capilar")),
+    ("Skincare", ("serum", "protetor solar", "vitamina c", "skincare", "retinal", "retinol", "acido", "esfoliante", "demaquilante",
+                  "limpeza de pele", "anti sinais", "antissinais", "anti idade", "antiidade", "gel creme", "sabonete")),
     ("Maquiagem", ("batom", "base liquida", "rimel", "mascara de cilios", "paleta", "blush", "corretivo", "po compacto", "delineador",
                    "gloss", "primer", "iluminador", "sombra", "lapis de olho", "maquiagem", "esmalte")),
-    ("Cabelo", ("shampoo", "condicionador", "mascara capilar", "leave in", "leave-in", "oleo capilar", "finalizador", "tonico capilar")),
-    ("Body splash", ("body splash", "perfume mist", "body mist", "hair mist", "desodorante colonia", "splash")),
-    ("Skincare", ("serum", "protetor solar", "vitamina c", "skincare", "facial", "hidratante", "creme", "tonico", "sabonete", "bronzeador",
-                  "demaquilante", "lenco", "lip balm", "locao", "acido", "retinal", "retinol", "esfoliante", "pore", "limpeza de pele")),
-    ("Perfume", ("perfume", "eau de parfum", "eau de toilette", "parfum", "extrait", "edp", "edt", "colonia", "decant")),
+    ("Skincare", ("facial", "hidratante", "creme", "tonico", "bronzeador", "lenco", "lip balm", "locao", "pore")),
 ]
 # tipos que seguem a categoria da MARCA (Árabe, Designer, Nicho…); os outros são categoria por si (o próprio tipo)
 TIPOS_DA_MARCA = ("Perfume", "Body splash", "Outros")
@@ -240,7 +245,10 @@ def categoria_produto_nome(txt):
 # anúncio nunca é marca
 GENERICAS = {"perfume", "perfumes", "perfumaria", "kit", "kits", "importado", "importados", "original", "originais", "eau",
              "parfum", "edp", "edt", "edc", "decant", "body", "splash", "mist", "spray", "masculino", "feminino", "unissex",
-             "novo", "nova", "promocao", "oferta", "lacrado", "colonia", "desodorante", "creme", "serum", "nicho"}
+             "novo", "nova", "promocao", "oferta", "lacrado", "colonia", "desodorante", "creme", "serum", "nicho",
+             # 01/10: "Shampoo" virou marca do Batiste Blush; palavra de produto nunca é marca
+             "shampoo", "condicionador", "blush", "batom", "gel", "sabonete", "hidratante", "locao", "mist", "home", "sache",
+             "difusor", "aromatizador", "vela", "tapete", "caneca", "faca", "facas", "drone", "stick", "fire", "smartwatch"}
 
 
 def tipo_produto(titulo):

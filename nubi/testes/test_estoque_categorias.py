@@ -36,6 +36,15 @@ assert categorias.tipo_produto("Tabua Redonda Bambu Com Cabo Petisqueira Queijos
 assert categorias.tipo_produto("Tapete Capacho Para Porta 30x60 Em Fibra De Coco Natural") == "Utilidades domésticas"
 assert categorias.tipo_produto("Conjunto Facas Shark Corte Profissional Inox Kit Com 5 Facas") == "Utilidades domésticas"
 assert categorias.tipo_produto("FIRE TV STICK 4K SELECT") == "Eletrônicos" and categorias.tipo_produto("Drone Dji Neo Ultra Leve 4k") == "Eletrônicos"
+# 01/10 (Bruno, "tudo errado ainda"): "blush" não manda perfume, body splash, shampoo e creme para Maquiagem
+assert categorias.tipo_produto("Carolina Herrera Good Girl Blush Eau de Parfum Feminino 80ml") == "Perfume"
+assert categorias.tipo_produto("Perfume Badee Al Oud Noble Blush By Lattafa Feminino 100 Ml") == "Perfume"
+assert categorias.tipo_produto("Body Splash Badee Al Oud Noble Blush Perfume Mist Lattafa 250ml") == "Body splash"
+assert categorias.tipo_produto("Shampoo A Seco Batiste Blush 200ml Kit 2 Unidades Com Brinde") == "Cabelo"
+assert categorias.tipo_produto("Creamy Skincare Gel Creme Retinol 30g Anti Sinais Corretivo") == "Skincare"
+assert categorias.tipo_produto("Blush Compacto Rosa Maquiagem Profissional") == "Maquiagem"
+assert categorias.tipo_produto("Home Spray Perfume Interiores Linha Classicos Avatim 1100 Ml") == "Casa"
+assert categorias.marca_do_titulo("Shampoo A Seco Batiste Blush 200ml", {"SHAMPOO": "SHAMPOO", "BATISTE": "BATISTE"}) == "BATISTE"
 assert categorias.tipo_produto("Bronzeador Hawaiian Tropic Argan Oil Fps 15 Spray") == "Skincare"
 assert categorias.tipo_produto("Difusor Eletrico Aromas Abajur Aromatizador De Ambientes") == "Casa"
 r3 = categorias.estoque_por_categoria([{"sku": "A", "titulo": "Lenço De Algodão Demaquilante Bioré Refil", "atual": 1, "custo_medio": 10},

@@ -471,6 +471,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     nunca vira "certa" (catálogo confirma, não descobre); manual do Bruno não muda. Pedidos ficam em
     `seguidos|confirmar` (ia_resumos) e a rotina `confirmar_loja` (servidor) roda e posta no card #126 e na Sala.
     Teste: testes/test_confirmar_catalogo.py.
+  - **Observados: cabeçalho com botões + ✨ Destaques (01/10)**: os números (seguidos, observados, com loja, ⭐) filtram a
+    lista; "✨ quem se destaca?" chama `observados_destaques` → `observados.destaques` (SQL `nubi_observados_sinais()`:
+    ritmo do período x média de vida, un. em anúncios ≤90 dias, liderança em produto; IA estruturada escolhe 6–10 com
+    motivo + resumo; cache 12 h em `observados|destaques`, `?forcar=1` refaz). Na página do vendedor, os produtos são
+    clicáveis (`abrirProdutoDeMarca`: carrega o relatório da marca e abre o quadro do produto) e o quadro ganhou a foto do
+    catálogo do ML (`meli_foto`, 1º GTIN que o ML conhece).
+  - **Tipo de produto (01/10, "tudo errado ainda")**: em `TIPOS_PRODUTO` body splash e perfume vêm ANTES de maquiagem
+    ("Good Girl Blush EDP" é perfume), cabelo e skincare explícitos também; "blush" só decide sem sinal de perfume.
+    Palavras de produto (shampoo, blush, gel…) estão em `GENERICAS` (nunca viram marca). Na lista de SKUs, marca sem
+    categoria mostra "Sem categoria" selecionada (antes aparecia "Alta perfumaria", a 1ª opção).
   - **RODÍZIO Mac / Dell / gamdias (01/10, Bruno: "usa um pouco em cada")** das leituras públicas do ML: monitor de
     preços (rotina `precos` 04:10), vitrine dos seguidos (rotina `vitrine` 04:40) e busca por foto (rotina `busca_foto`
     05:10). `maquinas_ml(repo)` = Mac vivo e não pausado + servidores vivos (`fila|servidor|<nome>`) cujo `pode` tem

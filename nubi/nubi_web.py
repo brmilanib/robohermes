@@ -328,6 +328,17 @@ def rota_observados(repo, metodo, rota, q, corpo):
             return observados.detalhe(repo, vid, _hashes_seguidos(repo), lojas)
         except ValueError as e:
             raise ErroNuvem(str(e))
+    if rota == "observados_destaques":
+        nomes = {}
+        try:
+            for l in repo._req("POST", "rpc/nubi_observados", corpo={}) or []:
+                ns = [n for n in (l.get("nomes") or []) if n]
+                if ns:
+                    nomes[str(l["vendedor_id"])] = ns[0]
+        except Exception:  # noqa: BLE001
+            pass
+        return observados.destaques(repo, nomes, forcar=str(q.get("forcar") or "") == "1",
+                                    perguntar=lambda pedido, schema: ia.perguntar_estruturado(pedido, schema, nome="destaques", max_tokens=2500))
     if rota == "observados_interesse" and metodo == "POST":
         try:
             return {"ok": True, "interesses": observados.marcar_interesse(repo, d.get("vendedor_id"), bool(d.get("ligado")), d.get("nota"))}
@@ -5841,6 +5852,17 @@ def rota_meli(repo, metodo, rota, q, corpo):
             for h in hashes:
                 _aprender_oficial(repo, h)
         return {"ok": True, "loja": dict(lj, **x)}
+    if rota == "meli_foto":
+        # 01/10 (Bruno: "traga a foto do produto no cabeçalho"): a foto do produto de catálogo do 1º GTIN que o ML conhece
+        for g in [x for x in str(q.get("gtins") or "").split("|") if re.fullmatch(r"\d{8,14}", x)][:4]:
+            try:
+                for pid in meli._produtos_do_gtin(g, 1):
+                    pc = meli._produto_catalogo(pid)
+                    if pc.get("foto"):
+                        return {"foto": pc["foto"], "nome": pc.get("nome") or "", "link": pc.get("link") or "", "gtin": g}
+            except Exception:  # noqa: BLE001
+                continue
+        return {"foto": None}
     if rota == "meli_gtin":
         sep = lambda k: [x for x in str(q.get(k) or "").split("|") if x]
         return _ml_do_produto(repo, q.get("marca") or d.get("marca"), d.get("gtins") or sep("gtins"))
