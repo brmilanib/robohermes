@@ -4964,7 +4964,7 @@ ETAPAS_DESAFIO = [
     (2, "Vitrine completa de cada loja por _CustId_ (regras da extensão) → vend_anuncios_ml", "claude_mac"),
     (3, "Casamento anúncio real ↔ Nubimetrics/Explorador + página do vendedor", "astra"),
     (4, "Histórico diário de preço, posição, vendidos e estoque + alertas", "claude_mac"),
-    (5, "Os 4 seguidos sem loja (prova pelas fotos do Nubimetrics)", "claude_mac"),
+    (5, "Os seguidos sem loja: foto na busca do ML (ml-busca-foto) → vitrine inteira → catálogo só confirma", "claude_mac"),
 ]
 
 
@@ -5989,8 +5989,10 @@ def _tentativas(repo, tid):
 
 def _pedido_card(t, evs, caixa):
     conversa = "\n".join(f"[{e['autor']}] {e['texto'][:1200]}" for e in evs[-15:])
+    # 01/10 (Bruno): nos cards do desafio todo agente recebe a técnica oficial (foto na busca → vitrine → catálogo confirma)
+    tecnica = agentes.TECNICA_LOJA + "\n\n" if (t.get("tipo") or "") == "desafio" else ""
     return (f"Você é o RESPONSÁVEL por este card do quadro de Desenvolvimento do nubi e vai entregá-lo agora.\n"
-            f"CARD #{t['id']}: {t['titulo']}\n{t.get('descricao') or ''}\nNota: {t.get('notas') or '-'}\n\n"
+            f"CARD #{t['id']}: {t['titulo']}\n{t.get('descricao') or ''}\nNota: {t.get('notas') or '-'}\n\n" + tecnica
             + (f"CAIXA DE CONHECIMENTO (fixos):\n{caixa}\n\n" if caixa else "")
             + (f"HISTÓRICO DO CARD (inclui reprovações anteriores; corrija o que foi apontado):\n{conversa}\n\n" if conversa else "")
             + "Entregue o RESULTADO COMPLETO em markdown, pronto para uso (não um plano de como faria). Você não edita código, "

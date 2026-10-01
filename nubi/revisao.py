@@ -30,6 +30,8 @@ PAPEL = ("Você revisa o agrupamento de anúncios de perfumes do Mercado Livre p
          "LATTAFA, linhas Asad, Yara, Khamrah). Regras: GTIN não erra; título, SKU e marca digitada erram. 'Linha' é o nome "
          "do perfume dentro da marca, sem tipo (EDP/EDT), volume, gênero nem palavras de anúncio (perfume, original, "
          "importado, árabe). Nome de LOJA ou de outra marca de verdade NÃO é linha nem apelido. Na dúvida, confiança baixa. "
+         "Para dizer que dois anúncios são o mesmo produto, a prova boa é GTIN igual (GTIN é como CPF) ou a mesma foto "
+         "(o ID da foto do Mercado Livre é único por anúncio); título e SKU são só indício. "
          "Responda SOMENTE com JSON.")
 
 
