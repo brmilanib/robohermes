@@ -444,6 +444,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
     foto: `ml_busca_foto_fim` grava `busca_foto|tentou` (vendedor → dia) e a rotina não repete no mesmo dia. NUNCA proxy,
     VPN ou troca de IP (é o padrão que o ML marca como robô; as lojas do Bruno estão no mesmo IP): são as 3 máquinas dele,
     cada uma com a sua internet, poucas buscas por minuto, pausas e parada em qualquer verificação.
+    Bloqueio do ML (01/10, gamdias caiu em account-verification na busca por foto): saída de comando `ML_COMANDOS` com
+    "verificação de robô"/account-verification → `fila|ml_bloqueado|<máquina>` (12 h): a máquina sai de `maquinas_ml` e
+    `servidor_pode` tira os comandos do ML dela (vão para o Mac); comando do ML ok na máquina ou `entrar-ml` desbloqueia.
     Teste: testes/test_rodizio.py.
   - De-para do hash do Explorador feito pela regra antiga (sem `prova`) sai da tela (`_hash_ok`): o Bruno conferiu no
     Hunter e GLBRASIL2026/SHOP ELETRONICO estavam errados. Os seguidos antigos (AUMA, BAGATELLE) ficam "a conferir".

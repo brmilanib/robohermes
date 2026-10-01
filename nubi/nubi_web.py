@@ -6151,12 +6151,41 @@ def assumir_aprovados(repo, tid):
     return " · ".join(partes)
 
 # Terminal do Mac: lista FECHADA (o Mac confere de novo do lado dele); nada vira comando livre
+# 01/10 (gamdias caiu na verificação do ML na busca por foto): máquina que o Mercado Livre bloqueou fica 12 h fora das
+# leituras do ML (rodízio e comandos da Central vão para as outras); sai do bloqueio quando um comando do ML dá certo nela
+# ou quando alguém passa pela verificação (entrar-ml, que nunca é bloqueado).
+ML_BLOQUEIO = "fila|ml_bloqueado|"
+ML_COMANDOS = ("ml_lojas", "ml_posicoes", "ml_pagina", "vitrine_seguidos", "ml_precos", "ml_busca_foto")
+ML_BLOQUEIO_HORAS = 12
+RE_ML_BLOQUEIO = re.compile(r"verifica[çc][ãa]o de rob[ôo]|account-verification|n[ãa]o sou um rob[ôo]", re.I)
+
+
+def ml_bloqueado(repo, maquina):
+    r = (repo._req("GET", "ia_resumos", {"select": "criado_em", "chave": repo._eq(ML_BLOQUEIO + maquina)}) or [{}])[0]
+    try:
+        return datetime.now(timezone.utc) - datetime.fromisoformat(str(r.get("criado_em")).replace("Z", "+00:00")) < timedelta(hours=ML_BLOQUEIO_HORAS)
+    except (TypeError, ValueError):
+        return False
+
+
+def marcar_ml_bloqueio(repo, maquina, saida=""):
+    repo._req("POST", "ia_resumos", corpo=[{"chave": ML_BLOQUEIO + maquina, "ia": "coletor", "criado_em": datetime.now(timezone.utc).isoformat(),
+                                            "texto": str(saida or "")[-400:]}], prefer="resolution=merge-duplicates,return=minimal")
+
+
+def desbloquear_ml(repo, maquina):
+    repo._req("DELETE", "ia_resumos", {"chave": repo._eq(ML_BLOQUEIO + maquina)})
+
+
 def servidor_pode(repo):
     """27/09: comandos que o servidor principal com sinal sabe fazer (gamdias; Dell de reserva); sem nenhum, None."""
     ativo = atendimento.servidor_ativo(repo)
     if not ativo:
         return None
-    return [p for p in ativo.get("pode") or [] if p in COMANDOS_MAC]
+    pode = [p for p in ativo.get("pode") or [] if p in COMANDOS_MAC]
+    if ml_bloqueado(repo, ativo.get("nome") or ""):
+        pode = [p for p in pode if p not in ML_COMANDOS]              # 01/10: o ML vai para o Mac enquanto o servidor está bloqueado
+    return pode
 
 
 MAC_PAUSA_CHAVE = "fila|mac_pausado"
@@ -6190,13 +6219,14 @@ def mac_pausado(repo):
 def maquinas_ml(repo):
     ms = []
     try:
-        if _mac_vivo(repo, 10) and not mac_pausado(repo):
+        if _mac_vivo(repo, 10) and not mac_pausado(repo) and not ml_bloqueado(repo, "mac"):
             ms.append("mac")
     except Exception:  # noqa: BLE001
         pass
     try:
         for s in atendimento.servidores_vivos(repo):
-            if "ml_busca_foto" in (s.get("pode") or []):          # coletor novo o bastante para as leituras do ML
+            # coletor novo o bastante para as leituras do ML e sem bloqueio do ML (verificação de robô) nas últimas 12 h
+            if "ml_busca_foto" in (s.get("pode") or []) and not ml_bloqueado(repo, s["nome"]):
                 ms.append(f"servidor:{s['nome']}")
     except Exception:  # noqa: BLE001
         pass
@@ -7098,6 +7128,13 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             if reg["status"] in ("ok", "erro", "recusado"):
                 # comando pedido pelo agente de um card: a saída volta para o card
                 c = (repo._req("GET", "mac_comandos", {"select": "comando,tarefa_id", "id": repo._eq(int(sd["id"]))}) or [{}])[0]
+                # 01/10: o Mercado Livre pediu verificação nesta máquina → 12 h fora do ML (rodízio e Central vão para as outras)
+                if c.get("comando") in ML_COMANDOS:
+                    maq_ml = nome if maq == "servidor" else "mac"
+                    if reg["status"] == "erro" and RE_ML_BLOQUEIO.search(reg["saida"]):
+                        marcar_ml_bloqueio(repo, maq_ml, reg["saida"])
+                    elif reg["status"] == "ok":
+                        desbloquear_ml(repo, maq_ml)
                 if c.get("tarefa_id"):
                     ic = {"ok": "✅", "erro": "⚠️", "recusado": "⛔"}[reg["status"]]
                     fim = reg["saida"].strip()[-1500:] or "(sem saída)"

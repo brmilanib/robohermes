@@ -19,6 +19,9 @@ from test_meli import Repo as _Repo  # noqa: E402
 class Repo(_Repo):
     def _req(self, metodo, tabela, q=None, corpo=None, **k):
         c = str((q or {}).get("chave") or "")
+        if tabela == "ia_resumos" and metodo == "DELETE":
+            self.resumos.pop(c[3:], None)
+            return []
         if tabela == "ia_resumos" and metodo == "GET" and c.startswith("like."):
             pre = c[5:].rstrip("*")
             return [{"chave": k_, "texto": v} for k_, v in self.resumos.items() if k_.startswith(pre)]
@@ -90,6 +93,24 @@ def test_rotas_pendentes_devolvem_a_fatia_e_o_rodar():
     assert [v["vendedor"] for v in b["vendedores"]] == ["AIRON-AMBAR-INQUIETANTE"]
     assert len(w.rota_posicoes(r, "GET", "ml_busca_foto_pendente", {}, b"")["vendedores"]) == 2
     assert json.loads(r.resumos["busca_foto|tentou"]) == {"MAMS ECOMMERCE TOP14": hoje}
+
+
+
+
+def test_maquina_bloqueada_pelo_ml_sai_do_rodizio_e_da_central():
+    """01/10: o gamdias caiu na verificação do ML: por 12 h ele sai do rodízio e os comandos do ML vão para o Mac."""
+    _vivas()
+    r = Repo()
+    assert w.maquinas_ml(r) == ["mac", "servidor:gamdias", "servidor:dell"]
+    w.marcar_ml_bloqueio(r, "gamdias", "FALHOU: o Mercado Livre pediu login (verificação de robô)")
+    assert w.ml_bloqueado(r, "gamdias") and not w.ml_bloqueado(r, "dell")
+    assert w.maquinas_ml(r) == ["mac", "servidor:dell"]
+    w.atendimento.servidor_ativo = lambda repo: {"nome": "gamdias", "pode": ["hermes", "ml_busca_foto", "vitrine_seguidos", "entrar_ml", "diario"]}
+    pode = w.servidor_pode(r)
+    assert "ml_busca_foto" not in pode and "vitrine_seguidos" not in pode and "entrar_ml" in pode and "diario" in pode, pode
+    w.desbloquear_ml(r, "gamdias")
+    assert not w.ml_bloqueado(r, "gamdias") and "ml_busca_foto" in w.servidor_pode(r)
+    assert w.RE_ML_BLOQUEIO.search("parou em www.mercadolivre.com.br/gz/account-verification")
 
 
 if __name__ == "__main__":
