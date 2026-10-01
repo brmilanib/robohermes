@@ -2387,12 +2387,31 @@ def cmd_entrar_ml(args, cfg):
                     pass
                 time.sleep(3)
         if ok:
+            # 01/10 (Bruno no gamdias: "a janela abre e fecha, não deixa eu nem validar"): a verificação do ML aparece na
+            # página de BUSCA (lista.mercadolivre.com.br), que a inicial e o anúncio não disparam. Abre uma busca e só
+            # guarda a sessão quando ela carrega com os cards, sem a verificação.
+            print("Agora abrindo uma BUSCA: se aparecer a verificação ('não sou um robô'), resolva nela; a janela fecha quando a busca carregar.")
+            ok = False
+            try:
+                pg.goto(f"{ML_LISTA}/perfume-lattafa-asad", wait_until="domcontentloaded", timeout=45000)
+            except Exception:  # noqa: BLE001
+                pass
+            fim = time.time() + 600
+            while time.time() < fim:
+                try:
+                    if not _ml_bloqueado(pg) and pg.locator("li.ui-search-layout__item, div.poly-card, li.ui-search-result").count():
+                        ok = True
+                        break
+                except Exception:  # noqa: BLE001
+                    pass
+                time.sleep(3)
+        if ok:
             time.sleep(4)
             guardar_sessao(ctx)
             cfg["ml_ver"] = True
             salvar_config(cfg)
         ctx.close()
-    print("OK: Mercado Livre liberado no navegador do coletor (inicial e página de anúncio)." if ok
+    print("OK: Mercado Livre liberado no navegador do coletor (inicial, anúncio e busca)." if ok
           else "Tempo esgotado (10 min) sem passar pela verificação do Mercado Livre.")
     return 0 if ok else 1
 
