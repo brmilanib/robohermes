@@ -1150,3 +1150,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `zero:false` e as linhas tracejadas do menor e do maior preço, opção nova `tracejado` da série) e o resumo menor/maior/
   diferença/pontos. Título "Clássico" (tipo do anúncio vindo do cartão de foto) é trocado pelo da API (`titulo_ruim`).
   Teste: `test_precos_tela.py`.
+- **Perfil do Chrome em uso (01/10, print do Bruno: `entrar-gestor` caiu com "Failed to create a ProcessSingleton… profile
+  is already in use")**: `abrir_navegador` reconhece o erro (`_perfil_em_uso`); se outra tarefa usa o Chrome
+  (`_outra_rodando` ou `_chrome_do_perfil_vivo`: Chrome com o perfil cujo pai ainda vive) espera até 15 min e tenta de
+  novo; se o Chrome ficou órfão (pai = launchd/init), `_destravar_perfil(perfil)` fecha e apaga a trava e abre. Nunca fecha
+  o Chrome de uma tarefa viva. Teste em `test_janela_fora.py`.

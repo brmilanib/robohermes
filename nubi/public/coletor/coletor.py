@@ -328,15 +328,43 @@ def abrir_navegador(p, cfg, visivel=None, perfil=None, na_tela=False):
                   ignore_default_args=["--enable-automation", "--disable-extensions",
                                        "--disable-component-extensions-with-background-pages"])
     exe = os.environ.get("NUBI_CHROMIUM")
-    ctx = None
     if exe:
         opcoes["executable_path"] = exe
-    else:
-        try:                                        # prefere o Google Chrome instalado no Mac
-            ctx = p.chromium.launch_persistent_context(channel="chrome", **opcoes)
-        except Exception:  # noqa: BLE001
-            ctx = None
-    ctx = ctx or p.chromium.launch_persistent_context(**opcoes)
+
+    def lancar():
+        ctx = None
+        if not exe:
+            try:                                    # prefere o Google Chrome instalado no Mac
+                ctx = p.chromium.launch_persistent_context(channel="chrome", **opcoes)
+            except Exception as e:  # noqa: BLE001
+                if _perfil_em_uso(e):
+                    raise
+                ctx = None
+        return ctx or p.chromium.launch_persistent_context(**opcoes)
+
+    try:
+        ctx = lancar()
+    except Exception as e:  # noqa: BLE001
+        # 01/10 (print do Bruno: "entrar-gestor" deu "Failed to create a ProcessSingleton… profile is already in use"):
+        # outra tarefa do coletor estava com o Chrome aberto. Espera ela terminar (até 15 min) e tenta de novo; sem tarefa
+        # rodando, a trava é velha (Chrome que fechou mal): limpa e abre.
+        if not _perfil_em_uso(e):
+            raise
+        em_uso = lambda: _outra_rodando() or _chrome_do_perfil_vivo(PASTA / perfil)
+        if em_uso():
+            log("O Chrome do coletor está em uso por outra tarefa. Esperando ela terminar (até 15 min)…")
+            fim = time.time() + 900
+            while em_uso() and time.time() < fim:
+                time.sleep(15)
+            if em_uso():
+                raise Falha("O Chrome do coletor continua em uso por outra tarefa. Tente de novo daqui a pouco.") from None
+            time.sleep(5)
+            if (PASTA / perfil / "SingletonLock").exists() or os.path.islink(PASTA / perfil / "SingletonLock"):
+                _destravar_perfil(PASTA / perfil)
+        else:
+            log("Trava velha do Chrome do coletor (nenhuma tarefa rodando): limpando e abrindo de novo.")
+            _destravar_perfil(PASTA / perfil)
+        ctx = lancar()
     if visivel and sys.platform == "darwin" and _janela_fora(cfg, na_tela):
         for pg in list(getattr(ctx, "pages", []) or []):       # Mac: vai para o Dock logo que abre
             _janela(pg, 0, 0, "minimized")
@@ -7282,9 +7310,39 @@ def _hermes_escolhe(f):
     return "avisar", "erro que eu não conheço (o Ollama não respondeu ou não soube classificar)"
 
 
-def _destravar_perfil():
-    perfil = PASTA / "perfil"
-    subprocess.run(["pkill", "-f", f"user-data-dir={perfil}"], check=False, capture_output=True)
+def _chrome_do_perfil_vivo(perfil):
+    """True se um Chrome usando este perfil ainda tem quem o abriu vivo (outra tarefa do coletor está usando); False se
+    não há Chrome ou ele ficou órfão (pai = launchd/init: o Python que o abriu morreu). No Windows: há Chrome com o perfil."""
+    try:
+        if sys.platform.startswith("win"):
+            r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                                f"(Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*user-data-dir={perfil}*' }}).Count"],
+                               capture_output=True, text=True, timeout=30)
+            return (r.stdout or "0").strip() not in ("", "0")
+        r = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True, timeout=20)
+        for linha in (r.stdout or "").splitlines():
+            if f"user-data-dir={perfil}" in linha and "--type=" not in linha:
+                partes = linha.split(None, 2)
+                if len(partes) >= 2 and partes[1].strip() not in ("0", "1"):
+                    return True
+    except Exception:  # noqa: BLE001
+        return True                              # na dúvida, não fecha nada
+    return False
+
+
+def _perfil_em_uso(e):
+    """Erro do Chrome de perfil já aberto por outro Chrome (SingletonLock)."""
+    return bool(re.search(r"ProcessSingleton|SingletonLock|profile is already in use|already in use by another", str(e), re.I))
+
+
+def _destravar_perfil(perfil=None):
+    perfil = perfil or PASTA / "perfil"
+    if sys.platform.startswith("win"):
+        subprocess.run(["powershell", "-NoProfile", "-Command",
+                        f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*user-data-dir={perfil}*' }} | "
+                        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], check=False, capture_output=True)
+    else:
+        subprocess.run(["pkill", "-f", f"user-data-dir={perfil}"], check=False, capture_output=True)
     time.sleep(3)
     for nome in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
         try:

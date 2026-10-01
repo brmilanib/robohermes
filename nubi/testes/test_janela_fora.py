@@ -63,6 +63,46 @@ def test_fora_da_tela_no_windows():
         assert "na_tela=True" in fonte[i:j], fn
 
 
+def test_perfil_em_uso_espera_ou_destrava():
+    """01/10 (print do Bruno: entrar-gestor caiu com "ProcessSingleton… profile is already in use")."""
+    os.environ["NUBI_CHROMIUM"] = "/x/chrome"
+    erro = Exception("BrowserType.launch_persistent_context: Failed to create a ProcessSingleton for your profile directory")
+    class Q:
+        class chromium:
+            n = 0
+            @staticmethod
+            def launch_persistent_context(**k):
+                Q.chromium.n += 1
+                if Q.chromium.n == 1:
+                    raise erro
+                class Ctx:
+                    def add_cookies(self, *a):
+                        pass
+                return Ctx()
+    feito = []
+    antes = (c._outra_rodando, c._chrome_do_perfil_vivo, c._destravar_perfil, c.time.sleep)
+    try:
+        c.time.sleep = lambda s: None
+        c._destravar_perfil = lambda perfil=None: feito.append("destravou")
+        c._outra_rodando = lambda: None
+        c._chrome_do_perfil_vivo = lambda perfil: False                  # trava velha: limpa e abre
+        assert c.abrir_navegador(Q, {}, visivel=True, na_tela=True) and feito == ["destravou"] and Q.chromium.n == 2
+        Q.chromium.n, feito[:] = 0, []
+        vivo = iter([True, True, False, False, False])                    # outra tarefa usando: espera, não fecha nada
+        c._chrome_do_perfil_vivo = lambda perfil: next(vivo, False)
+        assert c.abrir_navegador(Q, {}, visivel=True, na_tela=True) and Q.chromium.n == 2
+        Q.chromium.n = 0
+        erro = Exception("outra coisa")
+        try:
+            c.abrir_navegador(Q, {}, visivel=True)
+            raise AssertionError("engoliu um erro que não é de perfil em uso")
+        except Exception as e:  # noqa: BLE001
+            assert "outra coisa" in str(e)
+    finally:
+        c._outra_rodando, c._chrome_do_perfil_vivo, c._destravar_perfil, c.time.sleep = antes
+
+
 if __name__ == "__main__":
     test_fora_da_tela_no_windows()
+    test_perfil_em_uso_espera_ou_destrava()
     print("ok janela fora da tela")
