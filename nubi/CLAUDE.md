@@ -1068,11 +1068,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `vend_anuncio_id` + `ligacao` (gtin/titulo_forte/titulo_fraco/manual/nao). "✔ É este" / "✖ Não é" / "↺ Refazer" =
   `meli_seguido_anuncio_ligar`; manual e "nao" nunca são regravados. Upsert sempre com `vendedor` e `seller_id` (NOT NULL).
   Falta: ligar também à linha do Explorador (`anuncio_explorador_id`). Teste: `test_seguidos_casamento.py`.
-- Estoque de hora em hora e Gestor 3x/dia (01/10, Bruno: "UpSeller tem 3 Torino 21 e o nubi mostra 8"; "gestor 1 vez meio
-  dia, 1 vez 19h, 1 vez 01h"): `estoque_pendente` roda a 1ª do dia no horário da rotina e depois a cada `ESTOQUE_HORA_MIN`
-  (60) min. `GESTOR_HORARIOS = 01:00, 12:00, 19:00` + `gestor_devido` (último horário passado hoje; devido = nenhuma
-  importação ok desde ele; `estoque_ok` = estoque do UpSeller depois do horário). `gestor_pendente`/`gestor_auto` usam isso.
-  Coletor: `_na_hora(..., por_hora=True)` deixa no máximo 2 tentativas por hora (estoque e gestor). Teste: `test_estoque_hora.py`.
+- Estoque e Gestor 3x/dia (01/10, Bruno: "gestor 1 vez meio dia, 1 vez 19h, 1 vez 01h"; depois: "não precisa o estoque de hora
+  em hora, meia hora antes do Gestor é mais que suficiente"): `GESTOR_HORARIOS = 01:00, 12:00, 19:00`; `ESTOQUE_HORARIOS` =
+  30 min antes (00:30, 11:30, 18:30). `estoque_pendente` roda quando não há estoque desde o último horário passado.
+  `gestor_devido`: devido = nenhuma importação ok desde o horário; `estoque_ok` = estoque desde a meia hora antes.
+  Coletor: `_na_hora(..., por_hora=True)` deixa no máximo 2 tentativas por hora. Teste: `test_estoque_horarios.py`.
 - Modal de estoque por categoria (01/10, "essa tela está horrível"): mostra Disponível (UpSeller, não o "atual"), em pedido/
   chegando, Custo médio, Valor, Vendas 30d, Média/dia e Cobertura (colorida), ordenado pela cobertura. Editar marca e
   categoria fica atrás do botão "✎ Editar marca e categoria" (`S.ecEditar`); sem "categoria automática".

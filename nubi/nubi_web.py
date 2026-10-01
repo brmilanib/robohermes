@@ -4487,11 +4487,15 @@ def gestor_devido(repo, agora=None):
           or [None])[0]
     feito = bool(ok and _br(ok["iniciado_em"]) >= inicio)
     est = (repo._req("GET", "estoque_atualizacoes", {"select": "criado_em", "origem": "eq.coletor", "order": "id.desc", "limit": 1}) or [None])[0]
-    estoque_ok = bool(est and _br(est["criado_em"]) >= inicio)
+    estoque_ok = bool(est and _br(est["criado_em"]) >= inicio - timedelta(minutes=ESTOQUE_ANTES_MIN + 5))   # o da meia hora antes
     return {"ativo": ativo, "devido": ativo and not feito, "feito": feito, "estoque_ok": estoque_ok, "horario": h}
 
 
-ESTOQUE_HORA_MIN = int(os.environ.get("NUBI_ESTOQUE_HORA_MIN", "60"))   # 01/10: estoque do UpSeller de hora em hora
+# 01/10 (Bruno: "não precisa de hora em hora; meia hora antes das atualizações do Gestor Seller já é mais que suficiente"):
+# estoque do UpSeller às 00:30, 11:30 e 18:30
+ESTOQUE_ANTES_MIN = 30
+ESTOQUE_HORARIOS = tuple(f"{(int(h[:2]) * 60 + int(h[3:]) - ESTOQUE_ANTES_MIN) % 1440 // 60:02d}:"
+                         f"{(int(h[:2]) * 60 + int(h[3:]) - ESTOQUE_ANTES_MIN) % 60:02d}" for h in GESTOR_HORARIOS)
 
 
 def vendas_importar(repo, conteudo, arquivo, origem="coletor"):
@@ -6626,7 +6630,7 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         na_hora = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "07:00"))
         return {"rodar": na_hora and not hoje_ok, "horario": (rot or {}).get("horario") or "07:00"}
     if rota == "estoque_pendente":
-        # o vigia do Mac pergunta se está na hora da atualização da madrugada (rotina 'estoque', 1 vez por dia)
+        # o vigia do Mac pergunta se está na hora do estoque do UpSeller: 00:30, 11:30 e 18:30 (meia hora antes do Gestor)
         if q.get("maquina") == "servidor" and _so_no_mac(repo, "estoque"):
             return {"rodar": False, "no_mac": True}          # 28/09: estoque liberado no Mac pausado (Bruno assumiu o risco)
         rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.estoque"}) or [None])[0]
@@ -6634,13 +6638,13 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         ult = (repo._req("GET", "estoque_atualizacoes", {"select": "criado_em", "origem": "eq.coletor", "order": "id.desc", "limit": 1})
                or [None])[0]
         hoje_ok = bool(ult and _br(ult["criado_em"]).date() == agora.date())
-        na_hora = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "03:00"))
-        # 01/10 (Bruno: "UpSeller tem 3 Torino 21 disponíveis e o nubi mostra 8; a atualização tem que ser de hora em hora"):
-        # depois da 1ª do dia, roda de novo a cada ESTOQUE_HORA_MIN minutos (o Gestor Seller continua 1 vez, de madrugada)
-        idade = (agora - _br(ult["criado_em"])).total_seconds() / 60 if ult else None
-        de_hora = bool(hoje_ok and idade is not None and idade >= ESTOQUE_HORA_MIN)
-        return {"rodar": na_hora and (not hoje_ok or de_hora), "feito_hoje": hoje_ok, "horario": (rot or {}).get("horario"),
-                "de_hora_em_hora": True, "minutos_desde": round(idade) if idade is not None else None}
+        passados = [h for h in ESTOQUE_HORARIOS if agora.strftime("%H:%M") >= h]
+        ativo = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora))
+        h = passados[-1] if passados else None
+        inicio = agora.replace(hour=int(h[:2]), minute=int(h[3:]), second=0, microsecond=0) if h else None
+        feito = bool(h and ult and _br(ult["criado_em"]) >= inicio)
+        return {"rodar": bool(ativo and h and not feito), "feito_hoje": hoje_ok, "horario": h,
+                "horarios": list(ESTOQUE_HORARIOS)}
     if rota == "estoque":
         hist = repo._req("GET", "estoque_atualizacoes", {
             "select": "id,criado_em,origem,arquivo,skus,unidades,valor,zerados,resumo,analise_por", "order": "id.desc", "limit": 60}) or []
