@@ -2010,17 +2010,14 @@ def baixar_gestor_vendas(pg, cfg, p=None):
     links = []
     pg.context.on("request", lambda r: links.append(r.url) if re.search(r"\.(xlsx|csv)(\?|$)|download|export|relat", r.url, re.I) else None)
     try:
-        with pg.expect_download(timeout=180000) as dl:
-            alvo.click(timeout=15000)
-    except Exception as e:  # noqa: BLE001
-        candidatos = [u for u in links[::-1] if u.startswith("http")]
+        arq, ini_m, fim_m = _clicar_e_receber(pg, alvo, destino, r"relat[óo]rio de vendas", "relatorio_de_vendas.csv")
+    except Falha:
+        candidatos = [u for u in links[::-1] if u.startswith("http") and re.search(r"\.(xlsx|csv)(\?|$)", u, re.I)]
         if p is not None and candidatos:
-            log(f"  gestor vendas: o navegador falhou no download ({e.__class__.__name__}); baixando pelo link")
+            log("  gestor vendas: o e-mail não chegou; baixando pelo link")
             return _baixar_link(p, estado, candidatos, destino, ""), ini, fim
-        raise Falha(f"o relatório de vendas do Gestor não baixou ({e.__class__.__name__}). Na tela: " + str(pg.evaluate(JS_TEXTOS))[:600])
-    d = dl.value
-    arq = destino / (d.suggested_filename or "relatorio_de_vendas.xlsx")
-    _salvar_download(pg, d, arq)
+        raise
+    ini, fim = ini_m or ini, fim_m or fim
     if not cfg.get("gestor_vendas_url") and "/auth" not in pg.url:
         cfg["gestor_vendas_url"] = pg.url
         salvar_config(cfg)
@@ -2048,15 +2045,7 @@ def baixar_gestor_abc(pg, cfg, p=None):
         raise Falha("o botão da curva ABC do Gestor tem texto proibido (salvar/importar/excluir); não cliquei")
     destino = PASTA / "gestor_abc"
     destino.mkdir(parents=True, exist_ok=True)
-    try:
-        with pg.expect_download(timeout=120000) as dl:
-            alvo.click(timeout=15000)
-    except Exception as e:  # noqa: BLE001
-        raise Falha(f"pedi a curva ABC ao Gestor, mas o arquivo não baixou ({e.__class__.__name__}). Na tela: "
-                    + str(pg.evaluate(JS_TEXTOS))[:500])
-    d = dl.value
-    arq = destino / (d.suggested_filename or "relatorio_curva_abc.xlsx")
-    _salvar_download(pg, d, arq)
+    arq = _clicar_e_receber(pg, alvo, destino, r"curva abc", "relatorio_curva_abc.xlsx")[0]
     if not cfg.get("gestor_abc_url") and "/auth" not in pg.url:
         cfg["gestor_abc_url"] = pg.url
         salvar_config(cfg)
@@ -2084,6 +2073,12 @@ def coletar_estoque(p, cfg, token, enviar=True):
             ctx.close()
         except Exception:  # noqa: BLE001
             pass
+    linhas = ["estoque baixado"]
+    if enviar:   # 01/10: o estoque entra já (os relatórios do Gestor chegam por e-mail e podem levar minutos)
+        r = api(token, "estoque_importar", {"arquivo": arq.name, **({"esperado": esperado} if esperado else {})}, arq.read_bytes())
+        for linha in r.get("log") or []:
+            log("  " + linha)
+        linhas = r.get("log") or ["estoque importado"]
     # 28/09: o relatório de vendas abre um Chrome NOVO (o do estoque fecha sozinho no download) e nunca derruba o estoque
     ctx2 = None
     try:
@@ -2135,10 +2130,6 @@ def coletar_estoque(p, cfg, token, enviar=True):
     log(f"  baixado: {arq.name} ({arq.stat().st_size // 1024} KB)")
     if not enviar:
         return 1, 0, 0, f"estoque baixado em {arq} (sem enviar)"
-    r = api(token, "estoque_importar", {"arquivo": arq.name, **({"esperado": esperado} if esperado else {})}, arq.read_bytes())
-    for linha in r.get("log") or []:
-        log("  " + linha)
-    linhas = r.get("log") or ["estoque importado"]
     if vendas:
         try:
             for linha in api(token, "estoque_vendas_importar", {"arquivo": vendas.name}, vendas.read_bytes()).get("log") or []:
@@ -5282,6 +5273,93 @@ def codigo_email(site, desde, espera=150, imap=None):
             return ""
         time.sleep(10)
     return ""
+
+
+GESTOR_REMETENTE = "gestorseller.com.br"
+
+
+def _assunto(msg):
+    import email.header
+    try:
+        return str(email.header.make_header(email.header.decode_header(msg.get("Subject", ""))))
+    except Exception:  # noqa: BLE001
+        return msg.get("Subject", "")
+
+
+def anexo_email(remetente, assunto_rx, desde, destino, espera=900, imap=None):
+    """01/10 (Bruno: "quando você aperta para exportar, o relatório vai para o meu e-mail"): lê no Gmail (IMAP, só leitura)
+    o e-mail do `remetente` com assunto `assunto_rx`, chegado depois de `desde`, e salva o anexo .xlsx/.csv em `destino`.
+    -> (arquivo, inicio, fim) — início/fim do período escrito no e-mail ("entre 2026-09-01 ... até 2026-09-30"), ou None."""
+    usuario, senha = _credencial("gmail")
+    if not senha:
+        log("  (o relatório vai por e-mail, mas a senha de app do Gmail não está no Chaveiro: "
+            "~/.nubi-coletor/coletor guardar-senha gmail)")
+        return None
+    import email
+    import email.utils
+    import imaplib
+    ontem = date.today() - timedelta(days=1)
+    desde_imap = f"{ontem.day:02d}-{MESES_IMAP[ontem.month - 1]}-{ontem.year}"
+    rx = re.compile(assunto_rx, re.I) if isinstance(assunto_rx, str) else assunto_rx
+    fim_espera = time.time() + espera
+    while time.time() < fim_espera:
+        try:
+            with (imap or imaplib.IMAP4_SSL)("imap.gmail.com") as caixa:
+                caixa.login(usuario, senha)
+                caixa.select("INBOX", readonly=True)
+                _, ids = caixa.search(None, f'(FROM "{remetente}" SINCE "{desde_imap}")')
+                for i in reversed(ids[0].split()[-10:]):
+                    _, dados = caixa.fetch(i, "(RFC822)")
+                    msg = email.message_from_bytes(dados[0][1])
+                    quando = email.utils.parsedate_to_datetime(msg["Date"])
+                    if quando.tzinfo is None:
+                        quando = quando.replace(tzinfo=timezone.utc)
+                    if quando < desde - timedelta(minutes=2):
+                        break                          # e-mail velho: o novo ainda não chegou
+                    if not rx.search(_assunto(msg)):
+                        continue
+                    for parte in msg.walk():
+                        nome = parte.get_filename() or ""
+                        if parte.get_content_maintype() == "multipart" or not re.search(r"\.(xlsx|xls|csv)$", nome, re.I):
+                            continue
+                        dados_anexo = parte.get_payload(decode=True) or b""
+                        if not dados_anexo:
+                            continue
+                        destino.mkdir(parents=True, exist_ok=True)
+                        arq = destino / re.sub(r"[^\w.\-]+", "_", nome)
+                        arq.write_bytes(dados_anexo)
+                        per = re.search(r"(\d{4}-\d{2}-\d{2})[\d: ]*\s*at[ée]\s*(\d{4}-\d{2}-\d{2})", _texto_email(msg))
+                        ini = fim = None
+                        if per:
+                            ini, fim = date.fromisoformat(per.group(1)), date.fromisoformat(per.group(2))
+                        log(f"  relatório lido no e-mail: {arq.name} ({len(dados_anexo) // 1024} KB)")
+                        return arq, ini, fim
+        except Exception as e:  # noqa: BLE001
+            log(f"  (não consegui ler o Gmail: {e.__class__.__name__})")
+            return None
+        time.sleep(20)
+    return None
+
+
+def _clicar_e_receber(pg, alvo, destino, assunto_rx, nome_padrao, espera_email=900):
+    """Clica no botão do relatório do Gestor: se o navegador baixar, ótimo; senão o Gestor manda por e-mail e o coletor
+    pega o anexo no Gmail. -> (arquivo, inicio, fim)"""
+    desde = datetime.now(timezone.utc)
+    try:
+        with pg.expect_download(timeout=30000) as dl:
+            alvo.click(timeout=15000)
+        d = dl.value
+        arq = destino / (d.suggested_filename or nome_padrao)
+        _salvar_download(pg, d, arq)
+        return arq, None, None
+    except Exception:  # noqa: BLE001
+        pass
+    log("  o Gestor manda esse relatório por e-mail; esperando chegar no Gmail…")
+    r = anexo_email(GESTOR_REMETENTE, assunto_rx, desde, destino, espera=espera_email)
+    if not r:
+        raise Falha("cliquei para gerar o relatório no Gestor, mas o e-mail com o arquivo não chegou em "
+                    f"{espera_email // 60} min (ou falta a senha de app do Gmail). Na tela: " + str(pg.evaluate(JS_TEXTOS))[:400])
+    return r
 
 
 def _preencher_codigo(pg, site, desde):

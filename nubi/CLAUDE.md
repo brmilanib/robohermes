@@ -1166,3 +1166,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (cada dia, cada bloco, a Análise ABC do UpSeller e a Curva ABC do Gestor) roda num Chrome novo (`_em_chrome_novo`). A
   Curva ABC do Gestor é tentada mesmo quando o relatório de vendas falha. `baixar_gestor_vendas` tenta o endereço guardado,
   `/reports/sales`, `/reports` e o menu "Relatório" → "Vendas", procurando "Baixar/Exportar/Gerar relatório".
+- Relatórios do Gestor por e-mail (01/10, Bruno: "quando você aperta para exportar, ele vai para o meu e-mail"): o
+  Relatório de Vendas e a Curva ABC chegam de contato@gestorseller.com.br ("Relatório de vendas Gestor Seller" /
+  "Relatório Curva ABC - Gestor Seller") com o arquivo em anexo e o período no texto ("entre 2026-09-01 ... até
+  2026-09-30"). `_clicar_e_receber` clica no botão (só o permitido) e, se o navegador não baixar em 30 s, `anexo_email`
+  lê o Gmail por IMAP (só leitura, senha de app no Chaveiro, só e-mails do gestorseller.com.br chegados depois do clique,
+  até 15 min) e salva o anexo; o período do e-mail vale para o import. O estoque agora é importado logo depois de
+  baixado, antes dos relatórios (que podem levar minutos). Teste: `testes/test_gestor_email.py`.
