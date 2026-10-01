@@ -124,6 +124,14 @@ def test_pagina_do_anuncio_tags_e_calculadora():
         w._calc_monitor(r2, itens)
         assert itens[0]["meu"]["custo"] == 150 and itens[0]["meu"]["casado_por"] == "gtin"
         assert itens[0]["calc"]["lucro"] == 64.24 and not itens[0]["calc"]["sem_tarifa"]
+        # 01/10 (print do Bruno): sem a categoria lida na página, a tarifa usa a categoria sugerida pelo título
+        meli.categoria_pelo_titulo, cat_antes = (lambda t: "MLB6284"), getattr(meli, "categoria_pelo_titulo")
+        try:
+            sem_cat = [dict(itens[0], categoria=None, titulo="Perfume Silver Scent Intense 200 ml X", meu=None, calc=None)]
+            w._calc_monitor(r2, sem_cat)
+            assert sem_cat[0]["calc"]["tarifa"] == 40.30 and not sem_cat[0]["calc"]["sem_tarifa"]
+        finally:
+            meli.categoria_pelo_titulo = cat_antes
     finally:
         w._estoque_itens, meli.tarifa, meli.frete_do_vendedor, meli.tem_chave = antes
 

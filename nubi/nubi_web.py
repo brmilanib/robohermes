@@ -6721,13 +6721,14 @@ def _calc_monitor(repo, itens):
         if custo is None and it and it.get("sku") and estoque._chave(it["sku"]) in anteriores:
             custo, custo_antigo = anteriores[estoque._chave(it["sku"])], True
         preco = x.get("atual")
-        tarifa = frete = None
+        tarifa = frete = tf_pct = tf_fixa = None
         cat = categoria(x) if preco and meli.tem_chave() else None
         if cat:
           try:
             tipo = x.get("tipo_id") or "gold_special"
             tf = meli._mem(f"tarifa|{preco}|{cat}|{tipo}", 6 * 3600, lambda: meli.tarifa(preco, cat, tipo))
             tarifa = (tf or {}).get("total")
+            tf_pct, tf_fixa = (tf or {}).get("pct"), (tf or {}).get("fixa")
             if preco >= 79 and x.get("seller_id"):
                 frete = meli._mem(f"frete|{x['seller_id']}|{x['mlb']}", 6 * 3600, lambda: meli.frete_do_vendedor(x["seller_id"], x["mlb"]))
           except Exception:  # noqa: BLE001 — ML fora: a conta sai sem tarifa/frete
@@ -6735,7 +6736,8 @@ def _calc_monitor(repo, itens):
         x["meu"] = {"sku": it.get("sku"), "titulo": it.get("titulo"), "disponivel": it.get("disponivel"), "custo": custo,
                     "custo_antigo": custo_antigo, "transito": it.get("transito_compra"), "casado_por": como} if it else None
         x["calc"] = dict(precos.contas(preco, custo, tarifa, frete, cfg["imposto_pct"]) or {},
-                         sem_tarifa=tarifa is None, sem_frete=bool(preco and preco >= 79 and frete is None)) if preco else None
+                         sem_tarifa=tarifa is None, sem_frete=bool(preco and preco >= 79 and frete is None),
+                         tarifa_pct=tf_pct, tarifa_fixa=tf_fixa) if preco else None
 
 
 def _seguir_pelo_gtin(repo, d):

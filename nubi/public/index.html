@@ -1096,6 +1096,19 @@ header.top{padding:7px 16px}
 .pm-card{padding:12px 14px;margin-bottom:10px}
 .pm-lin{display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 170px 170px auto;gap:14px;align-items:center}
 .pm-foto img,.pm-foto{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:24px}
+.pm-titlin{display:flex;align-items:flex-start;gap:0}
+.pm-calcbtn{border:1px solid var(--borda,#dde3ee);background:var(--card,#fff);border-radius:8px;padding:1px 6px;margin-right:6px;cursor:pointer;font-size:14px;vertical-align:top}
+.pm-calcbtn:hover{background:#eef4ff}
+.pm-calc-t a{color:inherit;text-decoration:none}.pm-calc-t a:hover{text-decoration:underline}
+.pc-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.pc-grade label,.pc-alvo label{display:flex;flex-direction:column;gap:3px;font-size:12.5px;font-weight:600}
+.pc-grade small{font-weight:400;color:var(--muted,#6b7280);font-size:11px}
+.pc-res{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+.pc-l{display:flex;justify-content:space-between;font-size:13.5px;border-bottom:1px dashed var(--borda,#e5e7eb);padding-bottom:4px}
+.pc-lucro{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border-radius:12px;padding:12px;margin-top:6px;background:#e9f9ef}
+.pc-lucro.neg{background:#fdecec}.pc-lucro small{display:block;font-size:11px;color:var(--muted,#6b7280)}
+.pc-lucro b{font-size:18px}.pc-lucro.pos b{color:#15803d}.pc-lucro.neg b{color:#b91c1c}
+.pc-alvo{display:flex;gap:12px;align-items:flex-end;margin-top:12px;flex-wrap:wrap}.pc-alvo input{width:90px}
 .pm-tit{font-weight:700;font-size:14px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pm-sub{font-size:12px;margin-top:2px}.pm-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center}
 .pm-chip{font-size:11.5px;padding:2px 8px;border-radius:999px;background:rgba(127,127,127,.1)}
@@ -8307,6 +8320,64 @@ async function telaPrecoDetalhe(mlb) {
   desenharMenu();
 }
 // 01/10 (Bruno: "como vincular os produtos ao meu estoque e puxar meu SKU, estoque e preço de custo?")
+// 01/10 (Bruno: "o iconezinho da calculadora da extensão no monitor, que traz os dados do ML, e eu calculo com outro preço"):
+// mesma conta do painel.js da extensão — tarifa % do ML + custo fixo abaixo de R$ 79, frete grátis do vendedor a partir de R$ 79,
+// imposto, meu custo; e o preço para chegar numa margem
+function pmCalc(x, cfg) {
+  if (!x) return;
+  const c = x.calc || {}, m = x.meu || {};
+  const taxaFixa = p => p <= 0 || p >= 79 ? 0 : p < 12.5 ? p * 0.5 : p < 29 ? 6.25 : p < 50 ? 6.5 : 6.75;
+  const pct0 = c.tarifa_pct != null ? c.tarifa_pct : (c.tarifa && c.preco ? Math.max(0, (c.tarifa - taxaFixa(c.preco)) / c.preco * 100) : null);
+  const n = v => v == null || v === "" ? "" : String(Math.round(v * 100) / 100).replace(".", ",");
+  const lerN = el => { const v = parseFloat(String(el.value).replace(/\./g, "").replace(",", ".")); return isFinite(v) ? v : 0; };
+  const lerP = el => { const v = parseFloat(String(el.value).replace(",", ".")); return isFinite(v) ? v : 0; };
+  modal(`<h2 style="margin-top:0">🧮 Calculadora</h2>
+    <p class="muted" style="margin-top:0">${esc(x.titulo || x.mlb)} · ${esc(x.mlb)}${m.sku ? ` · meu SKU ${esc(m.sku)}` : ""}</p>
+    <div class="pc-grade">
+      <label>Preço de venda (R$)<input id="pc-preco" inputmode="decimal" value="${n(x.atual)}"></label>
+      <label>Meu custo (R$)<input id="pc-custo" inputmode="decimal" value="${n(m.custo)}" placeholder="custo do produto"></label>
+      <label>Tarifa do ML (%)<input id="pc-pct" inputmode="decimal" value="${n(pct0 != null ? pct0 : 14)}"><small>${pct0 != null ? "da API do ML (categoria do anúncio)" : "padrão; o ML ainda não respondeu"}</small></label>
+      <label>Frete grátis (R$)<input id="pc-frete" inputmode="decimal" value="${n(c.frete || 0)}"><small>${c.frete ? "o que o ML cobra deste vendedor" : "a partir de R$ 79"}</small></label>
+      <label>Imposto (%)<input id="pc-imp" inputmode="decimal" value="${n(cfg?.imposto_pct || 0)}"></label>
+      <label>Outros custos (R$)<input id="pc-out" inputmode="decimal" value="" placeholder="embalagem, brinde…"></label>
+    </div>
+    <div id="pc-res" class="pc-res"></div>
+    <div class="pc-alvo"><label>Quero margem de (%)<input id="pc-alvo" inputmode="decimal" value="15"></label><div id="pc-alvo-r" class="muted"></div></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn small" data-fechar>Fechar</button></div>`, bg => {
+    const $i = id => bg.querySelector(id);
+    const conta = (p, v) => { const fixa = taxaFixa(p), taxa = p * v.pct / 100 + fixa, frete = p >= 79 ? v.frete : 0, imp = p * v.imp / 100;
+      const recebido = p - taxa - frete, lucro = recebido - imp - v.custo - v.out;
+      return {taxa, fixa, frete, imp, recebido, lucro, margem: p ? lucro / p : null, roi: v.custo ? lucro / v.custo : null}; };
+    const pctF = v => v == null || !isFinite(v) ? "—" : (v * 100).toFixed(1).replace(".", ",") + "%";
+    const desenhar = () => {
+      const p = lerN($i("#pc-preco")), v = {custo: lerN($i("#pc-custo")), pct: lerP($i("#pc-pct")), frete: lerN($i("#pc-frete")),
+        imp: lerP($i("#pc-imp")), out: lerN($i("#pc-out"))};
+      const r = conta(p, v), cls = r.lucro < 0 ? "neg" : "pos";
+      $i("#pc-res").innerHTML = `
+        <div class="pc-l"><span>Tarifa do ML (${n(v.pct)}%${r.fixa ? ` + ${rsES(r.fixa)} fixo` : ""})</span><b>− ${rsES(r.taxa)}</b></div>
+        <div class="pc-l"><span>Frete grátis${p < 79 ? " (abaixo de R$ 79 o comprador paga)" : ""}</span><b>− ${rsES(r.frete)}</b></div>
+        <div class="pc-l"><span>Recebo do ML</span><b>${rsES(r.recebido)}</b></div>
+        <div class="pc-l"><span>Imposto (${n(v.imp)}%)</span><b>− ${rsES(r.imp)}</b></div>
+        <div class="pc-l"><span>Meu custo${v.out ? " + outros" : ""}</span><b>− ${rsES(v.custo + v.out)}</b></div>
+        <div class="pc-lucro ${cls}"><div><small>Lucro líquido</small><b>${rsES(r.lucro)}</b></div>
+          <div><small>Margem</small><b>${pctF(r.margem)}</b></div><div><small>ROI</small><b>${v.custo ? pctF(r.roi) : "—"}</b></div></div>
+        ${x.atual && Math.abs(p - x.atual) > 0.004 ? `<div class="muted" style="font-size:12px">Concorrente vende a ${rsES(x.atual)} (${p > x.atual ? "▲ " : "▼ "}${pctF(Math.abs(p / x.atual - 1))} do preço dele)</div>` : ""}`;
+      // preço para a margem desejada (o custo fixo e o frete mudam com a faixa de preço: procura a faixa certa)
+      const alvo = lerP($i("#pc-alvo")) / 100, base = 1 - v.pct / 100 - v.imp / 100 - alvo;
+      let sug = null;
+      if (base > 0 && v.custo) {
+        for (const fr of [v.frete, 0]) { let q = v.custo + v.out + fr;
+          let pp = q / base; for (let k = 0; k < 5; k++) pp = (q + taxaFixa(pp)) / base;
+          if ((fr ? pp >= 79 : pp < 79) || fr === 0) { sug = pp; if (fr ? pp >= 79 : pp < 79) break; } }
+      }
+      $i("#pc-alvo-r").innerHTML = !v.custo ? "Preencha o meu custo para calcular." : sug ? `Venda a <b>${rsES(sug)}</b> <a href="javascript:void 0" id="pc-usar">usar este preço</a>` : "Margem impossível com essas taxas.";
+      const u = $i("#pc-usar"); if (u) u.onclick = () => { $i("#pc-preco").value = n(sug); desenhar(); };
+    };
+    bg.querySelectorAll("input").forEach(el => el.oninput = desenhar);
+    desenhar(); $i("#pc-preco").focus(); $i("#pc-preco").select();
+  });
+}
+
 function pmVincular(x) {
   modal(`<h2 style="margin-top:0">🔗 Vincular ao meu estoque</h2>
     <p class="muted" style="margin-top:0">${esc(x.titulo || x.mlb)} · ${esc(x.mlb)}</p>
@@ -8364,7 +8435,7 @@ async function telaPrecos() {
   const calcLinha = x => { const c = x.calc, m = x.meu;
     if (!c) return "";
     const it = (rot, val, cls = "", tip = "") => `<div class="pm-c ${cls}" title="${esc(tip)}"><span>${rot}</span><b>${val}</b></div>`;
-    return `<div class="pm-calc"><div class="pm-calc-t">🧮 Se eu vender a ${rsES(c.preco)}</div>
+    return `<div class="pm-calc"><div class="pm-calc-t"><a href="javascript:void 0" data-calc="${esc(x.mlb)}" title="Abrir a calculadora">🧮 Se eu vender a ${rsES(c.preco)}</a></div>
       <div class="pm-c pm-meu ${m ? "" : "neg"}"><span>Meu estoque ${m ? `<i class="pm-por">${m.casado_por === "manual" ? "✔ vinculado" : m.casado_por === "gtin" ? "pelo GTIN" : "pelo título, confira"}</i>` : ""}</span>
         ${m ? `<b title="${esc(m.titulo || "")}">${m.custo ? rsES(m.custo) : "sem custo"}</b>${m.custo_antigo ? `<small title="O último estoque veio sem custo para este SKU; este é o custo médio de uma importação anterior">custo de uma importação anterior</small>` : ""}<small>${esc(m.sku || "")} · ${nf0.format(m.disponivel || 0)} disp.${m.transito ? ` · ${nf0.format(m.transito)} em trânsito` : ""}</small>`
           : `<b>${x.sem_vinculo ? "não tenho" : "não achei"}</b>`}
@@ -8386,7 +8457,7 @@ async function telaPrecos() {
       <div class="pm-lin">
         <a class="pm-foto" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${x.foto ? `<img src="${esc(urlML(x.foto))}" alt="" loading="lazy">` : "📦"}</a>
         <div class="pm-info">
-          <a class="pm-tit" href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir o anúncio no Mercado Livre">${esc(x.titulo_ok ? x.titulo : (x.titulo && x.titulo.length > 12 ? x.titulo : "Anúncio " + x.mlb))} ↗</a>
+          <div class="pm-titlin"><button class="pm-calcbtn" data-calc="${esc(x.mlb)}" title="Calculadora: tarifa e frete do ML, meu custo; mude o preço e veja o lucro">🧮</button><a class="pm-tit" href="${esc(urlML(x.link))}" target="_blank" rel="noopener" title="Abrir o anúncio no Mercado Livre">${esc(x.titulo_ok ? x.titulo : (x.titulo && x.titulo.length > 12 ? x.titulo : "Anúncio " + x.mlb))} ↗</a></div>
           <div class="muted pm-sub">${esc(x.mlb)}${x.titulo && !x.titulo_ok ? ` · ${esc(x.titulo)}` : ""} · loja ${lojaLink(x) ? `<a href="${lojaLink(x)}" target="_blank" rel="noopener">${esc(x.loja || x.seller_id)} ↗</a>` : esc(x.loja || "—")}${x.vendedor ? ` · <a href="#/vendedores/${encodeURIComponent(x.vendedor)}">${esc(x.vendedor)}</a>` : ""}</div>
           <div class="pm-chips">${x.mais_vendido ? `<span class="pm-tag mv" title="${esc(x.mais_vendido)}">MAIS VENDIDO${/·/.test(x.mais_vendido) ? `<i>${esc(x.mais_vendido.split("·").slice(1).join("·"))}</i>` : ""}</span>` : ""}
             ${x.catalogo ? `<span class="pm-tag cat" title="Anúncio de catálogo (disputa o buy box)">CATÁLOGO</span>` : x.catalogo === false ? `<span class="pm-tag" title="Anúncio próprio, fora do catálogo">fora do catálogo</span>` : ""}
@@ -8426,6 +8497,7 @@ async function telaPrecos() {
   main.querySelectorAll("button[data-visto]").forEach(b => b.onclick = () => visto(b.dataset.visto));
   const vt = main.querySelector("#pm-vi-todos"); if (vt) vt.onclick = () => visto(null);
   main.querySelectorAll("button[data-vinc]").forEach(b => b.onclick = () => pmVincular(xs.find(z => z.mlb === b.dataset.vinc)));
+  main.querySelectorAll("[data-calc]").forEach(b => b.onclick = e => { e.preventDefault(); pmCalc(xs.find(z => z.mlb === b.dataset.calc), r.calc); });
   main.querySelectorAll("button[data-busca]").forEach(b => b.onclick = async () => {
     const t = prompt("Palavra de busca no Mercado Livre para achar a posição deste anúncio (vazio = automática pelo título):", b.dataset.termo || "");
     if (t === null) return;

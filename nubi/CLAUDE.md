@@ -1284,6 +1284,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   estoque, rota `ml_precos_estoque_busca`); escolher grava `sku_meu` no item (`precos.vincular`, rota `ml_precos_vincular`;
   "🚫 Não tenho" = `sem_vinculo`; "↺ Voltar ao automático" limpa). `_calc_monitor`: vínculo do Bruno > GTIN > título;
   mostra SKU, disponível, em trânsito e o custo médio na conta. Teste `test_vincular_ao_meu_estoque`.
+- **🧮 Calculadora no Monitor (01/10, Bruno: "o iconezinho da calculadora da extensão, que traz os dados do ML, e eu calculo
+  com outro preço")**: botão 🧮 antes do título (e o "Se eu vender a…") abre `pmCalc`: preço, meu custo, tarifa % da API
+  (`calc.tarifa_pct`/`tarifa_fixa` de `_calc_monitor`), frete grátis do ML, imposto e outros custos editáveis; mesma conta do
+  `painel.js` (custo fixo abaixo de R$ 79, frete só a partir de R$ 79) e "Quero margem de X%" → preço sugerido. Sem categoria
+  lida, a tarifa usa `meli.categoria_pelo_titulo` (domain_discovery); título "Clássico" vem da vitrine; SKU sem custo usa o
+  custo de uma importação anterior (`custo_antigo`). Teste em `test_precos_tela.py`/`test_precos_rodadas.py`.
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

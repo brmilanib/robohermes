@@ -68,6 +68,17 @@ def test_tela():
                 # 01/10 (print do Bruno): tags, "+50 disponíveis", aviso de preço e a calculadora com o meu custo
                 assert "MAIS VENDIDO" in txt and "CATÁLOGO" in txt and "FULL" in txt and "+47 disponíveis" in txt, txt[:900]
                 assert pg.locator(".pm-mudou").count() == 1 and "O preço mudou" in txt and "Lucro líquido" in txt and "R$ 150,00" in txt and "trocar" in txt
+                # 01/10 (Bruno: "o iconezinho da calculadora da extensão"): 🧮 abre com os dados do ML e recalcula com outro preço
+                pg.click("button.pm-calcbtn")
+                pg.wait_for_selector("#pc-res .pc-lucro", timeout=5000)
+                assert pg.input_value("#pc-pct") == "14" and pg.input_value("#pc-custo") == "150" and pg.input_value("#pc-imp") == "10"
+                assert "R$ -11,05" in pg.inner_text("#pc-res") or "-R$ 11,05" in pg.inner_text("#pc-res"), pg.inner_text("#pc-res")
+                pg.fill("#pc-preco", "250")
+                assert "R$ 15,55" in pg.inner_text("#pc-res"), pg.inner_text("#pc-res")   # 250 − 35 − 24,45 − 25 − 150
+                assert "Venda a" in pg.inner_text("#pc-alvo-r")
+                pg.click("#pc-usar")
+                assert "15,0%" in pg.inner_text("#pc-res"), pg.inner_text("#pc-res")      # o preço sugerido dá a margem pedida
+                pg.click(".modal [data-fechar]")
                 pg.click("button[data-hist]")
                 pg.wait_for_selector(".pm-hist svg", timeout=5000)
                 h = pg.inner_text(".pm-hist")
