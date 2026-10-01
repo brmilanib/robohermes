@@ -1260,7 +1260,23 @@ def atender(metodo, rota, q, corpo, token):
             # A tabela acesso só devolve a linha de quem está liberado (RLS).
             if not repo._req("GET", "acesso", {"select": "email", "limit": 1}):
                 raise ErroNuvem("Este e-mail ainda não tem acesso ao nubi. Peça para liberar.", 403)
-            return _json(repo.painel())
+            # 01/10 (Bruno: "deslogou e não quer logar mais"): o rpc painel passou do statement_timeout (8 s) com o banco
+            # lento e a tela deslogava. Sucesso grava a cópia em ia_resumos `painel|cache`; erro devolve a cópia.
+            try:
+                p = repo.painel()
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+                c = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": "eq.painel|cache"}) or [None])[0]
+                if not c:
+                    raise
+                return _json(json.loads(c["texto"]))
+            try:
+                repo._req("POST", "ia_resumos", corpo=[{"chave": "painel|cache", "ia": "nubi", "criado_em": datetime.now(timezone.utc).isoformat(),
+                                                       "texto": json.dumps(p, ensure_ascii=False, default=str)}],
+                          prefer="resolution=merge-duplicates,return=minimal")
+            except Exception:  # noqa: BLE001 — a cópia nunca derruba o painel
+                pass
+            return _json(p)
 
         if rota == "coletor_status":
             # consultado a cada 4 s durante a coleta: log só da que está rodando; o resto via coletor_log

@@ -1298,7 +1298,7 @@ async function api(rota, params = {}, opts = {}) {
   let j; try { j = await res.json(); } catch { j = {erro: "Resposta inválida do servidor (" + res.status + ")."}; }
   if (!res.ok || j.erro) {
     if (res.status === 401) { S.msgLogin = j.erro; await sb.auth.signOut(); }
-    throw new Error(j.erro || "Erro " + res.status);
+    const e = new Error(j.erro || "Erro " + res.status); e.status = res.status; throw e;
   }
   return j;
 }
@@ -9457,12 +9457,17 @@ async function iniciar(sessao) {
   S.sessao = sessao;
   if (!sessao) return telaLogin();
   $("#app").innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando</div></div>`;
-  try { await carregarPainel(); await carregarRankLista(); await carregarVendLista(); }
+  // 01/10 (Bruno: "deslogou e não quer logar mais"): só sai do login quando o problema é o acesso (401/403); banco lento
+  // ou erro de uma lista não pode deslogar — abre assim mesmo e tenta de novo depois
+  try { await carregarPainel(); }
   catch (e) {
-    S.msgLogin = e.message;
-    await sb.auth.signOut();
-    return telaLogin();
+    if (e.status === 401 || e.status === 403 || /acesso|Sessão|login/i.test(e.message || "")) {
+      S.msgLogin = e.message; await sb.auth.signOut(); return telaLogin(); }
+    S.painel = S.painel || []; setTimeout(() => toast("O banco está lento: algumas listas podem demorar. Tentando de novo…", 6000), 1500);
+    setTimeout(() => carregarPainel().then(() => desenharMenu()).catch(() => {}), 30000);
   }
+  try { await carregarRankLista(); } catch { /* tenta ao abrir o Ranking */ }
+  try { await carregarVendLista(); } catch { /* tenta ao abrir Concorrentes */ }
   secaoDesenhada = null;
   await rotear();
   carregarAgente();
