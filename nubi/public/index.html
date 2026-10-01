@@ -2081,7 +2081,8 @@ async function resumoIA(cat, gerar, novo) {
 // ---------- Categorias de marca (Alta perfumaria, Designer, Nicho, Árabe, Nacional, Outros) ----------
 const COR_CAT = {"Alta perfumaria": "var(--s5)", "Designer": "var(--s1)", "Nicho": "var(--s7)", "Árabe": "var(--s4)", "Importados low ticket": "var(--s2)", "Nacional": "var(--s3)",
   "Outros": "var(--dv-outro)", "Sem categoria": "color-mix(in srgb, var(--dv-outro) 45%, transparent)"};
-const ICO_CAT = {"Alta perfumaria": "💎", "Designer": "👔", "Nicho": "🧪", "Árabe": "🕌", "Importados low ticket": "✈️", "Nacional": "🇧🇷", "Outros": "📦", "Sem categoria": "❔"};
+const ICO_CAT = {"Alta perfumaria": "💎", "Designer": "👔", "Nicho": "🧪", "Árabe": "🕌", "Importados low ticket": "✈️", "Nacional": "🇧🇷", "Outros": "📦", "Sem categoria": "❔",
+  "Skincare": "🧴", "Maquiagem": "💄", "Cabelo": "💇", "Eletrônicos": "🔌", "Casa": "🏠", "Utilidades domésticas": "🍽️", "Acessórios": "👜", "Alimentos e bebidas": "🍫", "Infantil": "🧸", "Pet": "🐾", "Papelaria": "✏️", "Moda": "👗", "Saúde": "💊", "Perfume": "🌸", "Body splash": "🫧"};
 async function telaCategorias(cat) {
   const main = $("#main");
   if (!S.rankLista) await carregarRankLista();
@@ -2999,9 +3000,9 @@ async function telaEstoqueCategorias() {
   main.innerHTML = `<div class="es-pg">${esAbas("categorias")}
     <div class="es-cab"><h1>🏷️ Estoque por categoria</h1><span class="muted">estoque de ${esc(quandoES(r.estoque_em))}${temV ? ` · vendas de ${nf0.format(r.vendas.dias || 30)} dias do UpSeller` : " · sem relatório de vendas"}</span></div>
     <p class="aviso">A marca vem do título do anúncio e a categoria é a mesma do Ranking de marcas (Designer, Nicho, Árabe…). Trocou a categoria de uma marca no Ranking → Categorias, muda aqui também.</p>
-    ${(() => { const n = r.itens.filter(x => x.categoria === "Sem categoria" || !x.marca).length;
-      return n ? `<div class="card pad" style="margin:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:240px"><b>❔ ${nf0.format(n)} produto(s) sem categoria ou sem marca</b>
-        <div class="muted" style="font-size:12px">O Astra lê o título de cada um, diz a marca e a categoria da marca. Não muda nada que você já escolheu.</div></div>
+    ${(() => { const n = r.itens.filter(x => x.categoria === "Sem categoria" || x.categoria === "Outros" || !x.marca).length;
+      return n ? `<div class="card pad" style="margin:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:240px"><b>❔ ${nf0.format(n)} produto(s) sem categoria, em Outros ou sem marca</b>
+        <div class="muted" style="font-size:12px">O Astra lê o título (e o GTIN, quando há) de cada um, diz a marca e a categoria do produto (Skincare, Eletrônicos, Utilidades domésticas…) e cria categorias novas se precisar. O que ele não souber fica em Sem marca / Sem categoria para você completar. Não muda nada que você já escolheu.</div></div>
         <button class="btn primary small" id="ec-astra">🤖 Pedir ao Astra</button></div>` : ""; })()}
     <div class="kpis">${cats.map(c => `<div class="card kpi kpi-link ec-clica" data-ec="categoria" data-ev="${esc(c.categoria)}" role="button" tabindex="0" title="Ver os produtos" style="border-top:3px solid ${cor(c.categoria)}">
       <div class="l">${ICO_CAT[c.categoria] || ""} ${esc(c.categoria)}</div><div class="v">${abrev(c.valor)}</div>
@@ -3041,24 +3042,32 @@ function abrirEcLista(campo, valor) {
   const filtro = x => (campo === "marca" ? marcaVal(x) : x[campo]) === valor;
   const itens = r.itens.filter(filtro);
   const nomesMarca = [...new Set(r.itens.map(x => x.marca).filter(Boolean))].sort();
+  // 01/10 (Bruno): a categoria é do PRODUTO (faca = Utilidades domésticas, Fire Stick = Eletrônicos, sérum = Skincare);
+  // a categoria da MARCA (Árabe, Designer…) continua valendo para perfume e body splash
+  const catMarca = x => x.marca ? (((r.marcas || []).find(m => m.marca === x.marca) || {}).categoria || "") : "";
+  const opcProd = x => `<select data-ecprod="${esc(x.sku)}" title="Categoria deste produto">
+    <option value="">⚙️ automática${x.categoria_fonte === "tipo" || x.categoria_fonte === "astra" || x.categoria_fonte === "auto" ? ` (${esc(x.categoria)})` : ""}</option>
+    ${[...new Set([...(r.opcoes_produto || []), ...r.opcoes, "Perfume", "Body splash"])].map(o => `<option ${x.categoria_fonte === "manual_sku" && o === x.categoria ? "selected" : ""} value="${esc(o)}">${ICO_CAT[o] || ""} ${esc(o)}</option>`).join("")}
+    <option value="__nova">➕ nova categoria…</option></select>${x.categoria_fonte === "manual_sku" ? ` <small class="muted" title="Categoria escolhida por você">✎</small>` : x.categoria_fonte === "astra" ? ` <small class="muted" title="Lida pelo Astra">🤖</small>` : ""}`;
   const opc = (atual, marca) => `<select data-eccat="${esc(marca)}" ${marca ? "" : "disabled title=\"Escolha a marca primeiro\""}>
     ${[...r.opcoes, "Sem categoria"].map(o => `<option ${o === atual ? "selected" : ""} value="${o === "Sem categoria" ? "" : esc(o)}">${ICO_CAT[o] || ""} ${esc(o)}</option>`).join("")}</select>`;
   const linhas = xs => xs.map(x => `<tr data-busca="${esc((x.sku + " " + x.titulo + " " + x.marca).toLowerCase())}">
     <td><b>${esc(x.sku)}</b><div class="muted wrap" style="max-width:360px;font-size:11.5px">${esc(x.titulo)}</div></td>
     <td><input list="ec-dl" class="ec-marca" data-sku="${esc(x.sku)}" value="${esc(x.marca)}" placeholder="marca…" style="width:150px">
       ${x.marca_manual ? `<small class="muted" title="Você escolheu esta marca">✎</small>` : ""}</td>
-    <td>${opc(x.categoria, x.marca)}${x.categoria_fonte === "manual" ? ` <small class="muted" title="Categoria escolhida por você">✎</small>` : ""}</td>
+    <td>${opcProd(x)}</td>
+    <td>${opc(catMarca(x), x.marca)}${x.categoria_fonte === "manual" ? ` <small class="muted" title="Categoria escolhida por você">✎</small>` : ""}</td>
     <td>${esc(x.tipo)}</td><td class="num">${nf0.format(x.atual)}</td><td class="num">${rsES(x.valor)}</td>
     <td class="num">${nf0.format(x.vend_un)}</td><td class="num">${x.cobertura_dias == null ? "—" : nf0.format(x.cobertura_dias) + " d"}</td></tr>`).join("");
   const tot = itens.reduce((a, x) => ({v: a.v + x.valor, u: a.u + x.atual, vu: a.vu + x.vend_un}), {v: 0, u: 0, vu: 0});
   const bg = modal(`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">${ICO_CAT[valor] || ""} ${esc(nomeCampo)}: ${esc(valor)}</h2>
       <span class="muted">${nf0.format(itens.length)} SKU(s) · ${nf0.format(tot.u)} un. · ${rsES(tot.v)} · vendeu ${nf0.format(tot.vu)} un. em 30 dias</span>
       <div style="flex:1"></div><button class="btn small" data-fechar>Fechar</button></div>
-    <p class="muted" style="margin:6px 0;font-size:12px">A <b>marca</b> é deste produto (apague para voltar à marca achada no título). A <b>categoria</b> é da marca inteira: muda todos os produtos dela aqui e no Ranking de marcas.</p>
+    <p class="muted" style="margin:6px 0;font-size:12px">A <b>marca</b> é deste produto (apague para voltar à marca achada no título). A <b>categoria do produto</b> é deste item (automática = pelo título ou pelo Astra). A <b>categoria da marca</b> vale para os perfumes e body splash da marca inteira, aqui e no Ranking de marcas.</p>
     <input type="search" id="ec-busca" placeholder="Buscar SKU, título ou marca…" style="width:100%;margin-bottom:6px">
     <datalist id="ec-dl">${nomesMarca.map(m => `<option value="${esc(m)}">`).join("")}</datalist>
-    <div class="rolar" style="max-height:62vh"><table class="t"><thead><tr><th>SKU / título</th><th>Marca</th><th>Categoria da marca</th><th>Tipo</th><th class="num">Atual</th><th class="num">Valor</th><th class="num">Vendas 30d</th><th class="num">Cobertura</th></tr></thead>
-    <tbody>${linhas(itens) || `<tr><td colspan="8" class="muted">Nenhum produto.</td></tr>`}</tbody></table></div>`);
+    <div class="rolar" style="max-height:62vh"><table class="t"><thead><tr><th>SKU / título</th><th>Marca</th><th>Categoria do produto</th><th>Categoria da marca</th><th>Tipo</th><th class="num">Atual</th><th class="num">Valor</th><th class="num">Vendas 30d</th><th class="num">Cobertura</th></tr></thead>
+    <tbody>${linhas(itens) || `<tr><td colspan="9" class="muted">Nenhum produto.</td></tr>`}</tbody></table></div>`);
   bg.querySelector(".modal").classList.add("larga");
   bg.querySelector("#ec-busca").oninput = e => { const q = e.target.value.toLowerCase().trim();
     bg.querySelectorAll("tbody tr[data-busca]").forEach(tr => tr.style.display = !q || tr.dataset.busca.includes(q) ? "" : "none"); };
@@ -3076,6 +3085,14 @@ function abrirEcLista(campo, valor) {
       } catch (e) { toast(e.message); inp.disabled = false; }
     };
     inp.onchange = salvar; inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); };
+  });
+  bg.querySelectorAll("[data-ecprod]").forEach(sel => sel.onchange = async () => {
+    let cat = sel.value;
+    if (cat === "__nova") { cat = (prompt("Nome da nova categoria de produto (1 a 3 palavras):") || "").trim(); if (!cat) { sel.value = ""; return; } }
+    sel.disabled = true;
+    try { await api("estoque_categoria_sku_salvar", {}, {method: "POST", body: JSON.stringify({sku: sel.dataset.ecprod, categoria: cat})});
+      await recarregar(cat ? `${sel.dataset.ecprod}: ${cat}` : `${sel.dataset.ecprod}: categoria automática`);
+    } catch (e) { toast(e.message); sel.disabled = false; }
   });
   bg.querySelectorAll("[data-eccat]").forEach(sel => sel.onchange = async () => {
     const marca = sel.dataset.eccat, cat = sel.value;

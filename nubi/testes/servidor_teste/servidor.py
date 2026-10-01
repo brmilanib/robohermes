@@ -77,7 +77,8 @@ if os.environ.get("IA_FALSA"):
                 if " | " in l:
                     sku, tit = l.split(" | ", 1)
                     m = "Creamy" if "Creamy" in tit else ("Dolce & Gabbana" if "Dolce" in tit else "")
-                    itens.append({"sku": sku, "marca": m, "categoria": "Outros" if m == "Creamy" else ("Designer" if m else "")})
+                    cp = "Skincare" if ("Serum" in tit or "Protetor" in tit) else ""          # 01/10: categoria do produto
+                    itens.append({"sku": sku, "marca": m, "categoria": "Outros" if m == "Creamy" else ("Designer" if m else ""), "categoria_produto": cp})
             return {"output": [{"type": "message", "content": [{"type": "output_text", "text": json.dumps({"itens": itens}), "annotations": []}]}]}
         if corpo.get("text", {}).get("format", {}).get("type") == "json_schema":
             tipos = corpo["text"]["format"]["schema"]["properties"]["secoes"]["items"]["properties"]["tipo"]["enum"]

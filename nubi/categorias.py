@@ -201,20 +201,41 @@ def relatorio(meses, linhas_por_mes, manuais=None):
 # estoque sai do título (o UpSeller não tem coluna de marca) e a categoria é a mesma do ranking (classificar).
 TIPOS_PRODUTO = [
     # 01/10 (Bruno: "produto de outra categoria tem que ter a categoria certa, mesmo sendo da mesma marca"): tipos fora
-    # de perfumaria viram categoria própria do item (Eletrônicos, Maquiagem, Cabelo, Skincare), não a categoria da marca
+    # de perfumaria viram categoria própria do item (Eletrônicos, Maquiagem, Cabelo, Skincare…), não a categoria da marca.
+    # Ordem importa: "tábua de corte com cabo" é Utilidades domésticas, não Eletrônicos; "difusor elétrico" é Casa.
+    ("Utilidades domésticas", ("tabua", "faca", "facas", "caneca", "copo", "taca", "jogo americano", "sousplat", "tapete", "capacho",
+                               "petisqueira", "panela", "frigideira", "talher", "talheres", "prato", "garrafa", "lixeira", "escorredor",
+                               "pote", "jarra", "bandeja", "porta", "organizador", "churrasco", "cozinha", "toalha", "lencol", "almofada")),
+    ("Casa", ("home spray", "difusor", "interiores", "aromatizador", "vela aromatica", "vela", "sache", "agua perfumada para tecidos",
+              "abajur", "luminaria", "cortina", "quadro", "vaso")),
     ("Eletrônicos", ("escova secadora", "escova modeladora", "escova alisadora", "secador", "chapinha", "prancha", "modelador",
-                     "babyliss", "barbeador", "depilador", "massageador", "aparelho", "eletrico", "eletrica", "pen drive", "usb",
-                     "fone", "carregador", "cabo", "smartwatch", "relogio")),
+                     "babyliss", "barbeador", "depilador", "massageador", "pen drive", "fire tv", "stick", "drone", "camera", "smartwatch",
+                     "relogio", "controle remoto", "caixa de som", "fone", "carregador", "alexa", "wi-fi", "wifi", "bluetooth", "tela",
+                     "monitor", "notebook", "celular", "tablet", "echo", "lampada inteligente", "roteador")),
     ("Maquiagem", ("batom", "base liquida", "rimel", "mascara de cilios", "paleta", "blush", "corretivo", "po compacto", "delineador",
                    "gloss", "primer", "iluminador", "sombra", "lapis de olho", "maquiagem", "esmalte")),
     ("Cabelo", ("shampoo", "condicionador", "mascara capilar", "leave in", "leave-in", "oleo capilar", "finalizador", "tonico capilar")),
-    ("Casa", ("home spray", "difusor", "interiores", "aromatizador", "vela aromatica", "agua perfumada para tecidos")),
     ("Body splash", ("body splash", "perfume mist", "body mist", "hair mist", "desodorante colonia", "splash")),
-    ("Skincare", ("serum", "protetor solar", "vitamina c", "skincare", "facial", "hidratante", "creme", "tonico", "sabonete")),
+    ("Skincare", ("serum", "protetor solar", "vitamina c", "skincare", "facial", "hidratante", "creme", "tonico", "sabonete", "bronzeador",
+                  "demaquilante", "lenco", "lip balm", "locao", "acido", "retinal", "retinol", "esfoliante", "pore", "limpeza de pele")),
     ("Perfume", ("perfume", "eau de parfum", "eau de toilette", "parfum", "extrait", "edp", "edt", "colonia", "decant")),
 ]
 # tipos que seguem a categoria da MARCA (Árabe, Designer, Nicho…); os outros são categoria por si (o próprio tipo)
-TIPOS_DA_MARCA = ("Perfume", "Body splash", "Casa", "Outros")
+TIPOS_DA_MARCA = ("Perfume", "Body splash", "Outros")
+# categorias de PRODUTO (01/10): as do tipo + as que o Astra ou o Bruno criarem na tela (lista aberta)
+CATEGORIAS_PRODUTO = ["Skincare", "Maquiagem", "Cabelo", "Eletrônicos", "Casa", "Utilidades domésticas", "Acessórios",
+                      "Alimentos e bebidas", "Infantil", "Pet", "Papelaria", "Moda", "Saúde"]
+
+
+def categoria_produto_nome(txt):
+    """Nome limpo de uma categoria de produto (a do Astra ou a digitada): grafia conhecida ganha; senão 'Primeira maiúscula'."""
+    t = " ".join(str(txt or "").split())[:40]
+    if not t:
+        return ""
+    for c in CATEGORIAS + CATEGORIAS_PRODUTO + [t for t, _ in TIPOS_PRODUTO]:
+        if nubi.compacta(c) == nubi.compacta(t):
+            return c
+    return t[:1].upper() + t[1:]
 # 01/10 (Sospiro Vibrato em Árabe): "Perfume" virou marca porque existe uma marca "PERFUME" no Explorador; palavra de
 # anúncio nunca é marca
 GENERICAS = {"perfume", "perfumes", "perfumaria", "kit", "kits", "importado", "importados", "original", "originais", "eau",
@@ -249,11 +270,15 @@ def marca_do_titulo(titulo, conhecidas):
     return conhecidas[melhor] if melhor else None
 
 
-def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marca_sku=None, marca_ia=None):
-    """itens do estoque (sku, titulo, atual, custo_medio) -> totais por categoria de marca, por tipo de produto e por marca.
+def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marca_sku=None, marca_ia=None,
+                          categoria_sku=None, categoria_ia=None):
+    """itens do estoque (sku, titulo, atual, custo_medio) -> totais por categoria, por tipo de produto e por marca.
     vendas_sku: {sku compactado: {"unidades", "valor"}} dos últimos 30 dias (relatório do UpSeller).
-    marca_sku: {sku compactado: marca} escolhida pelo Bruno na tela (vence a marca achada no título)."""
+    marca_sku: {sku compactado: marca} escolhida pelo Bruno na tela (vence a marca achada no título).
+    categoria_sku / categoria_ia (01/10): categoria do PRODUTO escolhida pelo Bruno / lida pelo Astra (título + GTIN); a do
+    Bruno vence tudo; a do Astra vence o tipo e a marca."""
     vendas_sku, marca_sku, marca_ia = vendas_sku or {}, marca_sku or {}, marca_ia or {}
+    categoria_sku, categoria_ia = categoria_sku or {}, categoria_ia or {}
     lista = []
     cats, tipos, marcas = {}, {}, {}
     total = {"skus": 0, "unidades": 0.0, "valor": 0.0, "vend_un": 0.0, "vend_valor": 0.0}
@@ -266,7 +291,12 @@ def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marc
         # ordem: a que o Bruno escolheu > a achada no título > a que o Astra leu no título (30/09)
         marca = manual or marca_do_titulo(it.get("titulo"), conhecidas) or marca_ia.get(nubi.compacta(it.get("sku") or ""))
         tipo = tipo_produto(it.get("titulo"))
-        if tipo in TIPOS_DA_MARCA:
+        ks = nubi.compacta(it.get("sku") or "")
+        if categoria_sku.get(ks):
+            cat, fonte_cat = categoria_sku[ks], "manual_sku"
+        elif categoria_ia.get(ks):
+            cat, fonte_cat = categoria_ia[ks], "astra"
+        elif tipo in TIPOS_DA_MARCA:
             cat, fonte_cat = classificar(marca, manuais) if marca else (SEM, "sem")
         else:                                   # 01/10: escova da Revlon é Eletrônicos, não Designer
             cat, fonte_cat = tipo, "tipo"
@@ -309,10 +339,11 @@ def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marc
             out.append(x)
         return sorted(out, key=lambda x: -x["valor"])
     sem.sort(key=lambda x: -x["valor"])
+    extras = sorted({c for c in cats if c not in CATEGORIAS and c not in CATEGORIAS_PRODUTO and c != SEM})
     return {"total": {k: round(v, 2) if isinstance(v, float) else v for k, v in total.items()},
             "categorias": fechar(cats, "categoria"), "tipos": fechar(tipos, "tipo"), "marcas": fechar(marcas, "marca"),
-            "sem_marca": sem[:60], "ordem": CATEGORIAS + [t for t, _ in TIPOS_PRODUTO if t not in TIPOS_DA_MARCA] + [SEM],
-            "opcoes": CATEGORIAS,
+            "sem_marca": sem[:60], "ordem": CATEGORIAS + CATEGORIAS_PRODUTO + extras + [SEM],
+            "opcoes": CATEGORIAS, "opcoes_produto": CATEGORIAS_PRODUTO + extras,
             "itens": sorted(lista, key=lambda x: (-x["valor"], -x["atual"]))}
 
 

@@ -31,6 +31,20 @@ r_rev = categorias.estoque_por_categoria([{"sku": "REV-1", "titulo": "Escova Sec
 cats_rev = {x["sku"]: (x["marca"], x["categoria"]) for x in r_rev["itens"]}
 assert cats_rev["REV-1"] == ("REVLON", "Eletrônicos") and cats_rev["SOS-VIB-100"] == ("SOSPIRO", "Nicho"), cats_rev
 assert "Eletrônicos" in r_rev["ordem"]
+# 01/10 (prints do Bruno): utilidades domésticas, eletrônicos de verdade, skincare e casa; categoria por SKU (Bruno > Astra > tipo)
+assert categorias.tipo_produto("Tabua Redonda Bambu Com Cabo Petisqueira Queijos E Frios") == "Utilidades domésticas"
+assert categorias.tipo_produto("Tapete Capacho Para Porta 30x60 Em Fibra De Coco Natural") == "Utilidades domésticas"
+assert categorias.tipo_produto("Conjunto Facas Shark Corte Profissional Inox Kit Com 5 Facas") == "Utilidades domésticas"
+assert categorias.tipo_produto("FIRE TV STICK 4K SELECT") == "Eletrônicos" and categorias.tipo_produto("Drone Dji Neo Ultra Leve 4k") == "Eletrônicos"
+assert categorias.tipo_produto("Bronzeador Hawaiian Tropic Argan Oil Fps 15 Spray") == "Skincare"
+assert categorias.tipo_produto("Difusor Eletrico Aromas Abajur Aromatizador De Ambientes") == "Casa"
+r3 = categorias.estoque_por_categoria([{"sku": "A", "titulo": "Lenço De Algodão Demaquilante Bioré Refil", "atual": 1, "custo_medio": 10},
+                                       {"sku": "B", "titulo": "Caneca Martelada Drinks Moscow Mule", "atual": 1, "custo_medio": 10}],
+                                      con_p, {}, {}, {}, {}, {"A": "Maquiagem"}, {"A": "Skincare", "B": "Utilidades domésticas"})
+c3 = {x["sku"]: (x["categoria"], x["categoria_fonte"]) for x in r3["itens"]}
+assert c3["A"] == ("Maquiagem", "manual_sku") and c3["B"] == ("Utilidades domésticas", "astra"), c3
+assert "Utilidades domésticas" in r3["opcoes_produto"] and categorias.categoria_produto_nome("utilidades domesticas") == "Utilidades domésticas"
+assert categorias.categoria_produto_nome("ferramentas") == "Ferramentas" and categorias.categoria_produto_nome("") == ""
 assert categorias.tipo_produto("Home Spray Perfume Interiores 1100 Ml") == "Casa"
 assert categorias.tipo_produto("Body Splash Teriaq Perfume Mist Lattafa 250ml") == "Body splash"
 assert categorias.tipo_produto("Perfume Ferrari Black 125ml Eau De Toilette") == "Perfume"
@@ -99,7 +113,10 @@ try:
             sem_rolagem(pg, nome, "estoque por categoria")
             if nome == "pc":
                 # 30/09 (Bruno: "o Astra já tem crédito; o título já fala a marca"): o Astra completa marca e categoria
-                pg.click("#ec-astra"); pg.wait_for_function("() => !document.querySelector('#ec-astra') || document.body.innerText.includes('Astra leu')", timeout=15000)
+                with pg.expect_response(lambda r_: "estoque_marcas_astra" in r_.url, timeout=20000) as ri:
+                    pg.click("#ec-astra")
+                assert ri.value.status == 200, ri.value.text()[:400]
+                pg.wait_for_function("() => !document.querySelector('#ec-astra') || document.body.innerText.includes('Astra leu') || document.body.innerText.includes('banco do nubi')", timeout=15000)
                 pg.wait_for_timeout(1500)
                 pg.click(".kpi.ec-clica[data-ev='Designer']"); pg.wait_for_selector(".modal .ec-marca", timeout=8000)
                 assert "KIT-DOLCE" in pg.inner_text(".modal"), pg.inner_text(".modal")[:800]      # Dolce & Gabbana pelo nome

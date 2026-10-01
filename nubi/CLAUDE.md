@@ -206,6 +206,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - **Regras ensinadas aos agentes (01/10)**: bloco "Regras aprendidas em 01/10" em `agentes.SISTEMA` e 5 linhas tipo
   `regra` na tabela `saber` (foto de catálogo, produto = GTIN fora de perfume, palavra de anúncio não é marca / categoria
   por produto, rodízio sem proxy, captcha do atendente).
+- **Categoria do PRODUTO no estoque (01/10, prints do Bruno: faca em "Sem categoria", Fire Stick em Outros, sérum em "Alta
+  perfumaria")**: coluna própria na tela (select por SKU, com "➕ nova categoria"), chaves `estoque|categoria_sku` (Bruno,
+  vence tudo) e `estoque|categoria_sku_ia` (Astra/banco); ordem: Bruno > Astra/banco > tipo do título > categoria da
+  marca (só perfume/body splash). `categorias.CATEGORIAS_PRODUTO` (lista aberta) + `categoria_produto_nome`;
+  `TIPOS_PRODUTO` com Utilidades domésticas, Casa (antes de Eletrônicos), Skincare ampliado. Botão "Pedir ao Astra"
+  (`estoque_marcas_astra`): 1º o banco do nubi (`categoria_pelo_banco`: anúncios do Explorador com as mesmas palavras do
+  título ou a mesma marca → categoria final do ML → `categoria_de_ml`), 2º o Astra (marca + categoria do produto, pode
+  criar categoria; NÃO chuta); o que ficar sem resposta volta em `nao_soube` e fica em Sem marca / Sem categoria para o
+  Bruno. Rota `estoque_categoria_sku_salvar`.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 
