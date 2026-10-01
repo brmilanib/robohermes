@@ -170,6 +170,7 @@ def test_tela():
                 pg.wait_for_selector(".bz-tab tbody tr", timeout=15000)
                 txt = pg.inner_text("#main")
                 assert "CLUB DE NUIT INTENSE MEN" in txt and "Valor potencial" in txt, txt[:500]
+                assert pg.locator("label.bz-foto-at input[data-bzfoto]").count() > 0     # atalho da foto na linha
                 if nome == "pc":
                     i = pg.locator(".bz-desc").first
                     i.fill("50")
