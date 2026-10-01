@@ -115,6 +115,12 @@ table.t td.first{font-weight:500}
 .pill.good{background:var(--good-bg);color:var(--good)}
 .pill.bad{background:var(--bad-bg);color:var(--bad)}
 .kpi.good .v{color:var(--good)} .kpi.bad .v{color:var(--bad)}
+.mn-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.mn-maq.fora{opacity:.75}
+.mn-med{margin:6px 0}.mn-med-cab{display:flex;justify-content:space-between;font-size:13px}.mn-med-cab b.good{color:var(--good)}.mn-med-cab b.warn{color:var(--warn,#b45309)}.mn-med-cab b.bad{color:var(--bad)}
+.mn-barra{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:3px 0}.mn-barra i{display:block;height:100%;background:var(--good);border-radius:4px}.mn-barra i.warn{background:var(--warn,#b45309)}.mn-barra i.bad{background:var(--bad)}
+.mn-med .spark{display:block;margin-top:2px}
+
 .pill.warn{background:var(--warn-bg);color:var(--warn)}
 .sinal{display:inline-block;border-radius:6px;padding:0 6px;margin:1px 3px 1px 0;font-size:11.5px;background:var(--soft)}
 .sinal.good{background:var(--good-bg);color:var(--good)}
@@ -1598,6 +1604,7 @@ async function rotear() {
   if (sec === "nomes" && location.hash.startsWith("#/central/erros")) return telaErros();
   if (sec === "nomes" && location.hash.startsWith("#/central/agentes")) return telaAgentes();
   if (sec === "nomes" && location.hash.startsWith("#/central/custos")) return telaCustos();
+  if (sec === "nomes" && location.hash.startsWith("#/central/monitor")) return telaMonitor();
   if (sec === "nomes" && location.hash.startsWith("#/central/terminal")) return telaTerminal();
   if (sec === "nomes" && location.hash.startsWith("#/central/conhecimento")) return telaConhecimento();
   if (sec === "nomes" && location.hash.startsWith("#/central")) return telaDev();
@@ -2891,6 +2898,7 @@ const OPS_ABAS = [
   {k: "conhecimento", h: "#/central/conhecimento", t: "📚 Conhecimento", on: h => h.startsWith("#/central/conhecimento")},
   {k: "agentes", h: "#/central/agentes", t: "🤖 Agentes", on: h => h.startsWith("#/central/agentes")},
   {k: "custos", h: "#/central/custos", t: "💰 Custos", on: h => h.startsWith("#/central/custos")},
+  {k: "monitor", h: "#/central/monitor", t: "📟 Monitor", on: h => h.startsWith("#/central/monitor")},
   {k: "terminal", h: "#/central/terminal", t: "🖥️ Terminal do Mac", on: h => h.startsWith("#/central/terminal")},
   {k: "coletor", h: "#/coletor", t: "📥 Coletor", on: h => h === "#/coletor"},
 ];
@@ -6722,6 +6730,65 @@ async function telaPrecos() {
     if (!confirm("Parar de monitorar este anúncio?")) return;
     try { await api("ml_precos_parar", {}, {method: "POST", body: JSON.stringify({mlb: b.dataset.parar})}); telaPrecos(); } catch (e) { alert(e.message); }
   });
+}
+
+// ---------- 📟 Monitor (01/10, pedido do Bruno): banco de dados, memória e base de conhecimento com evolução + as máquinas ----------
+const MB = b => b == null ? "—" : b >= 1e9 ? nf2.format(b / 1e9) + " GB" : b >= 1e6 ? nf1.format(b / 1e6) + " MB" : nf0.format(b / 1e3) + " kB";
+const varB = (v, fmt = MB) => v == null ? `<span class="muted">—</span>` : v === 0 ? `<span class="muted">=</span>` : `<span class="${v > 0 ? "pos" : "neg"}">${v > 0 ? "+" : "−"}${fmt(Math.abs(v))}</span>`;
+const GRUPO_NOME = {dados: "📊 Dados de mercado", memoria: "🧠 Memória e base de conhecimento", operacao: "⚙️ Operação", outros: "📁 Outros"};
+async function telaMonitor() {
+  const main = $("#main");
+  main.innerHTML = opsAbas("monitor") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o monitor</div></div>`;
+  let r;
+  try { r = await api("monitor_painel"); } catch (e) { main.innerHTML = opsAbas("monitor") + `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/central/monitor")) return;
+  const t = r.total || {}, grupos = r.grupos || [], tabs = r.tabelas || [], maqs = r.maquinas || [];
+  const kpi = (l, v, o = "", cls = "") => `<div class="card kpi ${cls}"><div class="l">${l}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
+  const pct = v => v == null ? `<span class="muted">—</span>` : `${nf0.format(v)}%`;
+  const corP = (v, lim) => v == null ? "" : v >= lim ? "bad" : v >= lim * 0.8 ? "warn" : "good";
+  const barra = (v, lim) => `<div class="mn-barra"><i class="${corP(v, lim)}" style="width:${Math.max(0, Math.min(100, v || 0))}%"></i></div>`;
+  const medida = (l, v, lim, un = "%", s = null) => `<div class="mn-med"><div class="mn-med-cab"><span>${l}</span><b class="${corP(v, lim)}">${v == null ? "—" : nf0.format(v) + un}</b></div>${un === "%" ? barra(v, lim) : ""}${s && s.some(x => x != null) ? sparkSerie(s) : ""}</div>`;
+  const hora = x => x ? new Date(x).toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
+  const mem = grupos.find(g => g.grupo === "memoria") || {};
+  main.innerHTML = opsAbas("monitor") + `<div class="es-cab"><h1>📟 Monitor do nubi</h1>
+      <span class="muted">banco (foto diária às 03:20, rotina <b>Monitor</b>) · máquinas a cada 5 min pelo coletor · hoje ${esc(dataBR(r.hoje))}</span>
+      <button class="btn small" id="mn-agora">📸 Tirar a foto do banco agora</button></div>
+    <div class="pq-sec">Banco de dados (Supabase)</div>
+    <div class="kpis pq-kpis">
+      ${kpi("Tamanho total", MB(t.bytes), `${varB(t.bytes_7d)} em 7 dias · ${nf0.format(t.tabelas || 0)} tabelas`)}
+      ${kpi("Linhas", nf0.format(t.linhas || 0), `${varB(t.linhas_7d, nf0.format)} em 7 dias`)}
+      ${kpi("Memória + base", MB(mem.bytes), `${nf0.format(mem.linhas || 0)} registros · ${varB(mem.bytes_7d)} em 7 dias`)}
+      ${kpi("Evolução (30 d)", (t.serie || []).length > 1 ? sparkSerie(t.serie.map(p => p.bytes)) : `<span class="muted">${(t.serie || []).length} dia(s)</span>`, (t.serie || []).length > 1 ? `de ${MB(t.serie[0].bytes)} em ${dataBR(t.serie[0].data)}` : "a evolução aparece a partir de amanhã")}
+    </div>
+    <div class="pq-sec">Máquinas</div>
+    ${maqs.length ? `<div class="mn-grid">${maqs.map(m => { const u = m.ultimo || {}, s = m.serie || {}, mx = m.maximos_24h || {};
+      return `<div class="card pad mn-maq ${m.fora_do_ar ? "fora" : ""}"><div class="ag-cab"><h2>🖥️ ${esc(m.nome)}</h2><div style="flex:1"></div>
+        <span class="st ${m.fora_do_ar ? "bad" : u.status === "alerta" ? "warn" : "good"}">${m.fora_do_ar ? "sem sinal" : u.status === "alerta" ? "alerta" : "ok"}</span></div>
+        <div class="muted" style="font-size:12px;margin:-4px 0 8px">última leitura ${hora(u.coletado_em)}${m.atraso_min != null ? ` (há ${nf0.format(m.atraso_min)} min)` : ""} · ${nf0.format(m.leituras_24h)} leituras em 24 h</div>
+        ${medida("Processador", u.cpu_pct, 90, "%", s.cpu_pct)}
+        ${medida("Memória", u.mem_pct, 90, "%", s.mem_pct)}
+        ${medida("Disco", u.disco_pct, 90, "%", null)}
+        ${medida("Temperatura", u.temp_c, 85, "°C", s.temp_c)}
+        ${u.gpu_pct != null || u.gpu_temp_c != null ? medida("GPU", u.gpu_pct, 95, "%", s.gpu_pct) + medida("Memória da GPU", u.gpu_mem_pct, 95, "%", null) + medida("Temperatura da GPU", u.gpu_temp_c, 85, "°C", s.gpu_temp_c)
+          : `<div class="muted" style="font-size:12px">GPU: sem leitura nesta máquina${m.origem === "mac_mini" ? " (o macOS não expõe sem sudo)" : " (sem nvidia-smi)"}</div>`}
+        <div class="muted" style="font-size:12px;margin-top:6px">máx. 24 h: CPU ${pct(mx.cpu_pct)} · memória ${pct(mx.mem_pct)}${mx.temp_c != null ? ` · ${nf0.format(mx.temp_c)}°C` : ""}${mx.gpu_pct != null ? ` · GPU ${pct(mx.gpu_pct)}` : ""}
+          ${u.agentes ? " · " + Object.entries(u.agentes).map(([k, v]) => `${v ? "🟢" : "🔴"} ${esc(k)}`).join(" ") : ""}</div>
+        ${(u.alertas || []).length ? `<div class="st bad" style="margin-top:6px">${u.alertas.map(esc).join(" · ")}</div>` : ""}</div>`; }).join("")}</div>`
+      : `<div class="card empty"><p>Nenhuma máquina mandou leitura nas últimas 24 h. O coletor manda a cada 5 min no sinal do Mac e dos servidores.</p></div>`}
+    <div class="pq-sec">Base de conhecimento (tabela saber) por tipo</div>
+    <div class="card"><table class="tab"><thead><tr><th>Tipo</th><th class="num">Registros</th><th>Último</th></tr></thead><tbody>
+      ${(r.saber_tipos || []).map(x => `<tr><td>${esc(x.tipo)}</td><td class="num">${nf0.format(x.n)}</td><td class="muted">${hora(x.ultimo)}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">sem dados</td></tr>`}
+    </tbody></table></div>
+    <div class="pq-sec">Tabelas <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">· tamanho de hoje e variação em 7 e 30 dias</span></div>
+    ${["memoria", "dados", "operacao", "outros"].filter(g => tabs.some(x => x.grupo === g)).map(g => { const gi = grupos.find(x => x.grupo === g) || {};
+      return `<details class="card" ${g !== "outros" ? "open" : ""}><summary style="padding:10px 12px;cursor:pointer"><b>${GRUPO_NOME[g]}</b> <span class="muted">· ${MB(gi.bytes)} · ${nf0.format(gi.linhas || 0)} linhas · ${varB(gi.bytes_7d)} em 7 dias</span></summary>
+      <table class="tab"><thead><tr><th>Tabela</th><th class="num">Linhas</th><th class="num">Tamanho</th><th class="num">7 dias</th><th class="num">30 dias</th><th>Evolução</th></tr></thead><tbody>
+      ${tabs.filter(x => x.grupo === g).map(x => `<tr><td><code>${esc(x.tabela)}</code></td><td class="num">${nf0.format(x.linhas)}</td><td class="num">${MB(x.bytes)}</td>
+        <td class="num">${varB(x.bytes_7d)}${x.linhas_7d ? `<div class="muted" style="font-size:11px">${varB(x.linhas_7d, nf0.format)} linhas</div>` : ""}</td>
+        <td class="num">${varB(x.bytes_30d)}</td><td>${(x.serie_bytes || []).length > 1 ? sparkSerie(x.serie_bytes) : `<span class="muted" style="font-size:11.5px">${(x.serie_bytes || []).length} dia(s)</span>`}</td></tr>`).join("")}
+      </tbody></table></details>`; }).join("")}`;
+  if ($("#mn-agora")) $("#mn-agora").onclick = async () => { $("#mn-agora").disabled = true;
+    try { const x = await api("monitor_coletar", {}, {method: "POST", body: "{}"}); alert("Foto do banco: " + x.resultado); telaMonitor(); } catch (e) { alert(e.message); $("#mn-agora").disabled = false; } };
 }
 // ---------- 🎯 Desafio (30/09, pedido do Bruno: "abre uma página só para esse card desafio") ----------
 // Tudo do card #126 num lugar: etapas, equipe (cards do tipo desafio), os 17 seguidos com a loja real e a cidade, as

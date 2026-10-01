@@ -191,6 +191,18 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   para Árabe); `TIPOS_PRODUTO` ganhou Eletrônicos, Maquiagem e Cabelo e, fora de `TIPOS_DA_MARCA` (Perfume, Body splash,
   Casa, Outros), a categoria do item é o próprio tipo (escova Revlon = Eletrônicos, sérum = Skincare), mesmo com a marca
   em Designer. `ordem` da tela inclui esses tipos; o botão do Astra aparece para item sem categoria ou sem marca.
+- **📟 Monitor (01/10, Bruno: "monitor de bancos de dados, memória e base de conhecimento com evolução; dados das
+  máquinas: processamento, temperatura, memória, GPU")**: módulo `monitor.py`; tela Central → 📟 Monitor (`#/central/monitor`,
+  `telaMonitor`, rota `monitor_painel`; `monitor_coletar` POST = foto agora). Banco: rotina `monitor` (03:20, NO_SERVIDOR)
+  grava `nubi_tamanhos()` (função SQL security definer: linhas e bytes por tabela) em `monitor_banco` (data, tabela) →
+  evolução 7/30 dias por tabela e por grupo (`MEMORIA`: saber, saber_trechos, conhecimento, ia_resumos, reuniao_mensagens,
+  tarefa_eventos, atendimento_kb; `dados`; `operacao`); base por tipo = `nubi_saber_tipos()`. Máquinas: `servidor_metricas`
+  ganhou gpu_pct/gpu_mem_pct/gpu_temp_c/extras; o `mac_tick` grava métricas também do servidor (origem = nome da máquina);
+  no Windows `_metricas_windows` (PowerShell/WMI: CPU, memória, disco, temperatura quando a placa expõe) + `_gpu_nvidia`
+  (nvidia-smi). Sem leitura = None, nunca zero. Teste `test_monitor.py`.
+- **Regras ensinadas aos agentes (01/10)**: bloco "Regras aprendidas em 01/10" em `agentes.SISTEMA` e 5 linhas tipo
+  `regra` na tabela `saber` (foto de catálogo, produto = GTIN fora de perfume, palavra de anúncio não é marca / categoria
+  por produto, rodízio sem proxy, captcha do atendente).
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 

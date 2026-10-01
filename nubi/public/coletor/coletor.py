@@ -3248,6 +3248,57 @@ def _metricas_mac(info=None):
             "agentes": agentes}
 
 
+def _gpu_nvidia(rodar):
+    """GPU NVIDIA (Dell: Quadro P4000) pelo nvidia-smi, se existir: uso %, memória % e temperatura. Sem placa: {}."""
+    exe = shutil.which("nvidia-smi") or (r"C:\Windows\System32\nvidia-smi.exe" if WINDOWS else "")
+    if not exe or not Path(exe).exists():
+        return {}
+    txt = rodar(exe, "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu", "--format=csv,noheader,nounits")
+    m = re.search(r"([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)", txt or "")
+    if not m:
+        return {}
+    uso, usada, total, temp = (float(x) for x in m.groups())
+    return {"gpu_pct": round(uso, 1), "gpu_mem_pct": round(usada / total * 100, 1) if total else None, "gpu_temp_c": round(temp, 1)}
+
+
+def _metricas_windows(info=None):
+    """01/10 (Monitor): saúde do servidor Windows (Dell/gamdias) só com o que o Windows tem (PowerShell/WMI): CPU, memória,
+    disco, temperatura (nem toda placa expõe: fica None) e GPU NVIDIA. Sem leitura = None, nunca zero."""
+    def rodar(*cmd):
+        try:
+            return subprocess.run(list(cmd), capture_output=True, text=True, timeout=25).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    ps = ["powershell", "-NoProfile", "-Command"]
+
+    def num(txt):
+        m = re.search(r"-?\d+(?:[.,]\d+)?", txt or "")
+        return float(m.group(0).replace(",", ".")) if m else None
+    cpu = num(rodar(*ps, "(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average"))
+    mem = None
+    try:
+        tot, livre = (num(rodar(*ps, f"(Get-CimInstance Win32_OperatingSystem).{k}")) for k in ("TotalVisibleMemorySize", "FreePhysicalMemory"))
+        if tot and livre is not None:
+            mem = round((tot - livre) / tot * 100, 1)
+    except Exception:  # noqa: BLE001
+        mem = None
+    try:
+        d = shutil.disk_usage(str(Path.home()))
+        disco = round((d.total - d.free) / d.total * 100, 1)
+    except OSError:
+        disco = None
+    temp = num(rodar(*ps, "(Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select -First 1).CurrentTemperature"))
+    temp_c = round(temp / 10 - 273.15, 1) if temp and temp > 2000 else None
+    try:                                               # atendente vivo = batimento nos últimos 15 min
+        atend = time.time() - (PASTA / "atendente.vivo").stat().st_mtime < 900
+    except OSError:
+        atend = False
+    agentes = {"atendente": atend, "ollama": bool((info or {}).get("ollama"))}
+    return {"coletado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"), "origem": _nome_maquina(),
+            "cpu_pct": round(cpu, 1) if cpu is not None else None, "mem_pct": mem, "disco_pct": disco, "temp_c": temp_c,
+            "agentes": agentes, **_gpu_nvidia(rodar)}
+
+
 EMBED = "http://localhost:11434/api/embed"
 
 
@@ -3309,9 +3360,9 @@ def despachar(cfg):
         corpo["pode"] = list(cfg.get("servidor_pode") or SERVIDOR_PODE)
         corpo["nome"] = _nome_maquina()
         corpo["prioridade"] = int(cfg.get("prioridade") or 1)
-    if sys.platform == "darwin" and time.time() - est.get("metricas_em", 0) >= METRICAS_A_CADA:   # card #92: a cada 5 min
-        try:
-            corpo["metricas"] = _metricas_mac(corpo["info"])
+    if (sys.platform == "darwin" or WINDOWS) and time.time() - est.get("metricas_em", 0) >= METRICAS_A_CADA:   # card #92: a cada 5 min
+        try:                                           # 01/10 (Monitor): o servidor Windows (Dell/gamdias) manda também, com GPU
+            corpo["metricas"] = _metricas_windows(corpo["info"]) if WINDOWS else _metricas_mac(corpo["info"])
             est["metricas_em"] = time.time()
         except Exception as e:  # noqa: BLE001
             print(f"{datetime.now():%d/%m %H:%M} métricas do Mac: {e}", flush=True)

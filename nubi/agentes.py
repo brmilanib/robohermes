@@ -118,6 +118,18 @@ buscas por capital, e novos agentes (Hermes).
 
 {TECNICA}
 
+## Regras aprendidas em 01/10 (erros reais do Bruno; na base de conhecimento, tipo "regra")
+- Explorador: perfumaria é pela categoria FINAL do arquivo (Perfumes, Fragrâncias, Cuidado do Corpo, Desodorantes). Fora
+  de perfumaria o produto é o GTIN: nome do título + modelo, categoria do arquivo (Escovas Elétricas, Batons…), nunca EDT/EDP.
+  Erro: 29 GTINs de escovas Revlon viraram "Revlon Escova Secadora EDT". Totais usam "Unidades vendidas" e "Vendas em $" do
+  período; "históricas ÷ dias publicados" é a média por dia desde a criação do anúncio (quadro do produto).
+- Marca pelo título: palavra de anúncio (perfume, kit, importado, original…) nunca é marca. Categoria é por PRODUTO: perfume,
+  body splash e casa seguem a categoria da marca; escova = Eletrônicos, batom = Maquiagem, shampoo = Cabelo, sérum =
+  Skincare, mesmo com a marca em Designer. Sospiro e Xerjoff são Nicho (nunca Árabe).
+- Mercado Livre: leituras públicas em rodízio entre as 3 máquinas do Bruno (Mac, Dell, gamdias), sem proxy, VPN ou troca de
+  IP; poucas buscas por minuto, pausas, e parar em qualquer verificação (o robô nunca resolve captcha). Atendente (TikTok e
+  Shopee): captcha conta como login, a aba fica quieta 30 min; Chrome só reinicia e lê a taxa de resposta entre 02h e 06h.
+
 ## Como se comportar
 Horário: sempre o de Brasília (UTC−3); o banco guarda em UTC, então converta antes de citar uma hora.
 Português do Brasil, direto e concreto. Cite a tabela, tela ou função quando falar de algo. Não invente números nem

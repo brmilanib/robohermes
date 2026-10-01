@@ -41,6 +41,7 @@ import saber
 import estoque
 import meli
 import perseguir
+import monitor
 import precos
 import revisao
 import reuniao
@@ -1225,6 +1226,10 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"ok": True})
         if rota.startswith("mac_"):
             return _json(rota_mac(repo, metodo, rota, q, corpo, token))
+        if rota == "monitor_painel":                    # 01/10: 📟 Monitor (banco, memória, base de conhecimento e máquinas)
+            return _json(monitor.painel(repo))
+        if rota == "monitor_coletar" and metodo == "POST":
+            return _json({"ok": True, "resultado": monitor.coletar(repo, forcar=True)})
         if rota.startswith("ml_") or rota == "posicoes" or rota.startswith("rank_"):
             return _json(rota_posicoes(repo, metodo, rota, q, corpo))
         if rota.startswith("agentes"):
@@ -3273,7 +3278,7 @@ def resumos_marcas_pendentes(repo):
 # ---------------------------------------------------------------------------
 DIAS_SEM = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"]
 NO_MAC = ("coleta", "estoque", "gestor", "memoria")  # rodam no Mac mini (coletor); o servidor só diz se está na hora
-NO_SERVIDOR = ("rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "perseguir", "resumo_semana", "resumo_marcas", "nomes_marcas",
+NO_SERVIDOR = ("monitor", "rankeamento", "categorias_lote", "produtos_ia", "resumo_dia", "analise_foco", "analise_semana", "analise_estoque", "perseguir", "resumo_semana", "resumo_marcas", "nomes_marcas",
                "noticias", "auditoria", "reuniao", "design", "revisao", "agente")     # nesta ordem (o agente usa o tempo que sobrar)
 ROTINAS_TEXTO = ("resumo_dia", "resumo_semana", "resumo_marcas", "nomes_marcas", "noticias")   # texto sem conferência de número
 CAMPOS_ROTINA = ("nome", "descricao", "responsavel", "horario", "dias_semana", "dia_mes", "ativo", "observacao", "ordem")
@@ -3576,6 +3581,8 @@ def rodar_rotinas(repo, so=None):
                 res = conferir_nomes_marcas(repo)
             elif rid == "revisao":
                 res = revisar_agrupamento(repo, forcar=bool(so))
+            elif rid == "monitor":
+                res = monitor.coletar(repo, forcar=bool(so))
             elif rid == "resumo_marcas":
                 x = resumos_marcas_pendentes(repo)
                 res = "; ".join(f"{k.split('|')[1]} {k.split('|')[2]}: {v}" for k, v in x.items()) or "nada novo (análises do mês já feitas)"
@@ -3654,9 +3661,13 @@ def servidor_metricas_gravar(repo, m, agora=None):
         except (TypeError, ValueError):
             return None
         return round(v, 1) if lo <= v <= hi else None
-    reg = {"coletado_em": quando.isoformat(), "origem": str(m.get("origem") or "mac_mini")[:40],
+    reg = {"coletado_em": quando.isoformat(), "origem": re.sub(r"[^\w.-]", "", str(m.get("origem") or "mac_mini"))[:40] or "mac_mini",
            "cpu_pct": num("cpu_pct", 0, 100), "mem_pct": num("mem_pct", 0, 100), "disco_pct": num("disco_pct", 0, 100),
-           "temp_c": num("temp_c", 1, 150), "recebido_em": agora.isoformat()}
+           "temp_c": num("temp_c", 1, 150), "recebido_em": agora.isoformat(),
+           # 01/10 (Monitor): GPU (Dell com Quadro P4000; gamdias) — sem leitura fica None, nunca zero
+           "gpu_pct": num("gpu_pct", 0, 100), "gpu_mem_pct": num("gpu_mem_pct", 0, 100), "gpu_temp_c": num("gpu_temp_c", 1, 150)}
+    if isinstance(m.get("extras"), dict):
+        reg["extras"] = {str(k)[:40]: v for k, v in list(m["extras"].items())[:20] if isinstance(v, (str, int, float, bool)) or v is None}
     ag = {str(k)[:40]: bool(v) for k, v in (m.get("agentes") or {}).items()} if isinstance(m.get("agentes"), dict) else {}
     reg["agentes"] = ag
     reg["faltantes"] = [k for k, v in ag.items() if not v]
@@ -7071,9 +7082,12 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         if d.get("info") is not None and maq == "mac":
             repo._req("POST", "mac_estado", corpo=[{"id": 1, "visto_em": agora_, "info": d["info"]}],
                       prefer="resolution=merge-duplicates,return=minimal")
-        if d.get("metricas") and maq == "mac":
+        if d.get("metricas"):                          # 01/10: Mac e servidores (origem = nome da máquina) no Monitor
             try:
-                servidor_metricas_gravar(repo, d["metricas"])
+                m_ = dict(d["metricas"])
+                if maq == "servidor":
+                    m_["origem"] = nome
+                servidor_metricas_gravar(repo, m_)
             except Exception:  # noqa: BLE001 — a saúde do Mac não trava o despachante (ex.: tabela ainda não criada)
                 pass
         for sd in d.get("saidas") or []:
