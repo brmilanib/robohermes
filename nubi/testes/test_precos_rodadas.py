@@ -128,6 +128,33 @@ def test_pagina_do_anuncio_tags_e_calculadora():
         w._estoque_itens, meli.tarifa, meli.frete_do_vendedor, meli.tem_chave = antes
 
 
+def test_eventos_de_tags_full_estoque_posicao():
+    r = Repo()
+    precos.seguir(r, {"mlb": "MLB5141216661", "titulo": "Silver Scent Intense 200ml Jacques Bogart"})
+    pag = lambda **k: dict({"mlb": "MLB5141216661", "preco": 309.99, "status": "ativo", "estoque": 50, "full": True, "catalogo": True,
+                            "mais_vendido": "MAIS VENDIDO · 2º em Perfumes Jacques Bogart"}, **k)
+    precos.gravar_leitura(r, [pag()])                                          # 1ª leitura: ponto de partida, sem alerta
+    x = precos.lista(r)[0]
+    assert x["posicao_mv"] == 2 and precos.alertas(r) == [] and "1ª leitura" in x["eventos"][0]["texto"]
+    precos.gravar_leitura(r, [pag(mais_vendido="MAIS VENDIDO · 1º em Perfumes Jacques Bogart")])
+    precos.gravar_leitura(r, [pag(mais_vendido="", full=False)])
+    precos.gravar_leitura(r, [pag(mais_vendido="", full=False, estoque=0, status="esgotado")])
+    precos.gravar_leitura(r, [pag(mais_vendido="MAIS VENDIDO · 3º em Perfumes Jacques Bogart", full=True, estoque=12)])
+    tipos = [e["tipo"] for e in precos.lista(r)[0]["eventos"]]
+    assert tipos == ["mais_vendido_on", "posicao", "mais_vendido_off", "full_off", "estoque_zerou",
+                     "mais_vendido_on", "full_on", "estoque_voltou"], tipos
+    a = precos.alertas(r)
+    assert len(a) == 1 and len(a[0]["eventos"]) == 7 and "2º → 1º" in a[0]["eventos"][0]["texto"]
+    # a API (só preço) não mexe nas tags
+    precos.gravar_leitura(r, [{"mlb": "MLB5141216661", "preco": 309.99, "status": "ativo", "estoque": 12, "fonte": "api"}])
+    assert len(precos.lista(r)[0]["eventos"]) == 9 - 1
+    # histórico de mudanças (tela de detalhes) também mostra tag, posição e FULL
+    campos = {m["campo"] for m in precos.mudancas(precos.historico(r, "MLB5141216661"))}
+    assert {"mais_vendido", "posicao_mv", "full", "estoque"} <= campos, campos
+    precos.marcar_visto(r, "MLB5141216661")
+    assert precos.alertas(r) == []
+
+
 if __name__ == "__main__":
     for n, f in list(globals().items()):
         if n.startswith("test_"):

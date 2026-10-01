@@ -1263,6 +1263,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   estoque do UpSeller: SKU = GTIN, senão título com mesmo volume/tipo, `_calc_monitor`), tarifa do ML (`meli.tarifa`,
   cache 6 h), frete grátis (≥ R$ 79, `frete_do_vendedor`), imposto % (`precos|calc`, campo no topo, rota `ml_precos_calc`),
   recebo, lucro líquido, margem e ROI (`precos.contas`, mesma conta do `painel.js` da extensão).
+- **Histórico de tags no monitor (01/10, Bruno: "quando a tag MAIS VENDIDO aparecer e sumir, quando entrou e saiu do Full,
+  quando zerar o estoque, a posição — para o agente entender como o ML dá essas tags")**: `precos._eventos` (chamado no
+  `gravar_leitura` antes de trocar o `ultimo`) grava em `item.eventos` (até 200, `visto: False` = alerta): MAIS VENDIDO
+  ganhou/perdeu, posição "Nº em …" (`posicao_mais_vendido`, ⬆️/⬇️), entrou/saiu do FULL e do catálogo (só leitura da
+  PÁGINA; a API não sabe), sem estoque/voltou (estoque 0 ou esgotado/pausado/finalizado). A 1ª leitura com a tag só marca o
+  ponto de partida (visto). Cada ponto do histórico guarda `mais_vendido`, `posicao_mv`, `full`, `catalogo` (entram em
+  `mudancas`). `alertas` junta preço + eventos; o card mostra os novos no aviso e os 2 últimos embaixo; a página de
+  detalhes tem a linha do tempo e a coluna Tags nas leituras. Teste em `test_precos_rodadas.py`.
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

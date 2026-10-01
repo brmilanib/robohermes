@@ -125,12 +125,19 @@ def gravar_leitura(repo, itens, dia=None):
         ponto = {"dia": dia, "em": agora, "preco": _num(it.get("preco")), "preco_original": _num(it.get("preco_original")),
                  "status": str(it.get("status") or "")[:40], "estoque": it.get("estoque") if isinstance(it.get("estoque"), int) else None,
                  "fonte": str(it.get("fonte") or "navegador")[:20]}
+        if "mais_vendido" in it:                       # 01/10: tags e posição de cada leitura da página (histórico p/ o agente)
+            ponto["mais_vendido"] = bool(it.get("mais_vendido"))
+            ponto["posicao_mv"] = posicao_mais_vendido(it.get("mais_vendido"))[0]
+        for k in ("full", "catalogo"):
+            if isinstance(it.get(k), bool):
+                ponto[k] = it[k]
         # 01/10: leitura de hora em hora pela API: no mesmo dia, ponto igual ao último só atualiza a hora; se algo mudou
         # (preço, riscado, situação, estoque), entra um ponto novo com a hora (a mudança fica com a hora certa)
         h = historico(repo, mlb)
         antes = next((p for p in reversed(h) if p.get("preco")), None)
         mesmo_dia = [p for p in h if p.get("dia") == dia]
-        chave = lambda p: (p.get("preco"), p.get("preco_original"), p.get("status"), p.get("estoque"))
+        chave = lambda p: (p.get("preco"), p.get("preco_original"), p.get("status"), p.get("estoque"),
+                           p.get("mais_vendido"), p.get("posicao_mv"), p.get("full"))
         if mesmo_dia and chave(mesmo_dia[-1]) == chave(ponto):
             mesmo_dia[-1]["em"] = agora
         else:
@@ -139,6 +146,7 @@ def gravar_leitura(repo, itens, dia=None):
         _gravar(repo, HIST + mlb, h[-MAX_PONTOS:])
         if mlb in por:
             x = por[mlb]
+            _eventos(x, it, ponto, agora)                # antes de trocar o "ultimo": compara com a leitura anterior
             x["ultimo"] = {k: ponto[k] for k in ("dia", "preco", "preco_original", "status", "estoque")}
             # 01/10 (Bruno: "data e hora da última atualização, quantas atualizações já tivemos"): conta cada leitura
             x["leituras"] = int(x.get("leituras") or 0) + 1
@@ -167,6 +175,60 @@ def gravar_leitura(repo, itens, dia=None):
     return n
 
 
+# 01/10 (Bruno: "monitora a tag de MAIS VENDIDO: quando aparece e quando some; o Full, quando entrou e saiu; quando zerar o
+# estoque; e a posição — para o agente entender como o ML dá essas tags"). Cada mudança vira um evento no anúncio (fica no
+# histórico; `visto: False` = alerta piscando até o Bruno marcar "vi"). Só a leitura da PÁGINA sabe MAIS VENDIDO/FULL/catálogo.
+MAX_EVENTOS = 200
+
+
+def posicao_mais_vendido(txt):
+    """"MAIS VENDIDO · 2º em Perfumes Jacques Bogart" -> (2, "Perfumes Jacques Bogart")."""
+    m = re.search(r"(\d{1,3})\s*[º°o]?\s+em\s+(.+)$", str(txt or ""))
+    return (int(m.group(1)), m.group(2).strip()) if m else (None, "")
+
+
+def pn_ok(it):
+    return "mais_vendido" in it
+
+
+def _eventos(x, it, ponto, agora):
+    evs = x.setdefault("eventos", [])
+
+    def ev(tipo, texto, **extra):
+        evs.append(dict({"tipo": tipo, "texto": texto, "em": agora, "visto": False}, **extra))
+
+    pagina = ponto["fonte"] != "api"
+    if pagina and "mais_vendido" in it:
+        antes, agora_mv = x.get("mais_vendido") or "", it.get("mais_vendido") or ""
+        pa, ca = posicao_mais_vendido(antes)
+        pn, cn = posicao_mais_vendido(agora_mv)
+        if agora_mv and not antes and x.get("ultima_pagina_antes"):
+            ev("mais_vendido_on", f"🟠 Ganhou a tag MAIS VENDIDO{f' ({pn}º em {cn})' if pn else ''}", posicao=pn)
+        elif agora_mv and not x.get("ultima_pagina_antes"):              # 1ª leitura da página: só marca o ponto de partida
+            evs.append({"tipo": "mais_vendido_on", "texto": f"🟠 Já estava com MAIS VENDIDO na 1ª leitura{f' ({pn}º em {cn})' if pn else ''}",
+                        "em": agora, "visto": True, "posicao": pn})
+        elif antes and not agora_mv:
+            ev("mais_vendido_off", "⚪ Perdeu a tag MAIS VENDIDO" + (f" (estava {pa}º em {ca})" if pa else ""), posicao=pa)
+        elif pa and pn and pa != pn:
+            ev("posicao", f"{'⬆️' if pn < pa else '⬇️'} MAIS VENDIDO: {pa}º → {pn}º em {cn or ca}", de=pa, para=pn)
+    if pagina and pn_ok(it):
+        x["posicao_mv"] = posicao_mais_vendido(it.get("mais_vendido"))[0]
+    if pagina and isinstance(it.get("full"), bool) and isinstance(x.get("full"), bool) and it["full"] != x["full"]:
+        ev("full_on" if it["full"] else "full_off", "⚡ Entrou no FULL" if it["full"] else "📦 Saiu do FULL")
+    if pagina and isinstance(it.get("catalogo"), bool) and isinstance(x.get("catalogo"), bool) and it["catalogo"] != x["catalogo"]:
+        ev("catalogo_on" if it["catalogo"] else "catalogo_off", "🏷️ Entrou no catálogo" if it["catalogo"] else "🏷️ Saiu do catálogo")
+    ult = x.get("ultimo") or {}
+    sem = lambda e, st: e == 0 or st in ("esgotado", "pausado", "finalizado", "indisponível")
+    if ult and (ult.get("estoque") is not None or ult.get("status")):
+        if sem(ponto["estoque"], ponto["status"]) and not sem(ult.get("estoque"), ult.get("status")):
+            ev("estoque_zerou", f"🚫 Ficou sem estoque ({ponto['status'] or 'zerado'})")
+        elif not sem(ponto["estoque"], ponto["status"]) and sem(ult.get("estoque"), ult.get("status")) and ponto["preco"]:
+            ev("estoque_voltou", "✅ Voltou a ter estoque" + (f" ({ponto['estoque']} disponíveis)" if ponto["estoque"] else ""))
+    if pagina:
+        x["ultima_pagina_antes"] = True
+    del evs[:-MAX_EVENTOS]
+
+
 TITULOS_RUINS = {"classico", "clássico", "premium", "gratis", "grátis", "gratuito", "full", "catalogo", "catálogo"}
 
 
@@ -176,7 +238,8 @@ def titulo_ruim(t):
     return not t or t.lower() in TITULOS_RUINS or len(t) < 12
 
 
-CAMPOS_MUDANCA = (("preco", "Preço"), ("preco_original", "Preço riscado"), ("status", "Situação"), ("estoque", "Estoque"))
+CAMPOS_MUDANCA = (("preco", "Preço"), ("preco_original", "Preço riscado"), ("status", "Situação"), ("estoque", "Estoque"),
+                  ("mais_vendido", "Tag MAIS VENDIDO"), ("posicao_mv", "Posição no MAIS VENDIDO"), ("full", "FULL"), ("catalogo", "Catálogo"))
 
 
 def mudancas(h):
@@ -296,19 +359,32 @@ def pendente(repo, rotina, agora=None):
 
 
 def alertas(repo):
-    """Anúncios cujo preço mudou e o Bruno ainda não viu."""
-    return [{"mlb": x["mlb"], "titulo": x.get("titulo") or x["mlb"], "loja": x.get("loja") or "", "foto": x.get("foto") or "",
-             **{k: x["alerta"][k] for k in ("de", "para", "pct", "em")}}
-            for x in lista(repo) if (x.get("alerta") or {}).get("visto") is False]
+    """Anúncios com mudança que o Bruno ainda não viu: preço (de/para/pct) e/ou tags (`eventos` não vistos)."""
+    out = []
+    for x in lista(repo):
+        al = x.get("alerta") if (x.get("alerta") or {}).get("visto") is False else None
+        evs = [e for e in x.get("eventos") or [] if e.get("visto") is False]
+        if not al and not evs:
+            continue
+        out.append({"mlb": x["mlb"], "titulo": x.get("titulo") or x["mlb"], "loja": x.get("loja") or "", "foto": x.get("foto") or "",
+                    **({k: al[k] for k in ("de", "para", "pct", "em")} if al else {"em": evs[-1]["em"]}),
+                    "eventos": [{k: e.get(k) for k in ("tipo", "texto", "em")} for e in evs]})
+    return out
 
 
 def marcar_visto(repo, mlb=None):
     xs, n = lista(repo), 0
     alvo = normalizar_mlb(mlb) if mlb else None
     for x in xs:
-        if (x.get("alerta") or {}).get("visto") is False and (alvo is None or x.get("mlb") == alvo):
+        if alvo is not None and x.get("mlb") != alvo:
+            continue
+        if (x.get("alerta") or {}).get("visto") is False:
             x["alerta"]["visto"] = True
             n += 1
+        for e in x.get("eventos") or []:
+            if e.get("visto") is False:
+                e["visto"] = True
+                n += 1
     if n:
         _gravar(repo, LISTA, xs)
     return n

@@ -1238,6 +1238,9 @@ header.top{padding:7px 16px}
 .pm-c{display:flex;flex-direction:column;min-width:90px}.pm-c span{font-size:11.5px;color:var(--muted)}.pm-c b{font-size:14px}
 .pm-c.pos b{color:#059669}.pm-c.neg b{color:#dc2626}.pm-calc-obs{font-size:11.5px;width:100%}
 .pm-imposto{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0;font-size:13px}.pm-imposto input{width:70px}
+.pm-linha-tempo{display:flex;flex-direction:column;gap:6px}.pm-ev{display:flex;gap:12px;padding:6px 10px;border-radius:10px;background:var(--soft)}
+.pm-ev.novo{background:rgba(239,68,68,.1);border-left:3px solid #ef4444}.pm-evn{background:#fff3e6;border-radius:8px;padding:2px 8px}
+.pm-ult-ev{font-size:12px;margin-top:4px}
 </style>
 </head>
 <body>
@@ -4338,7 +4341,7 @@ async function telaVendasHoje() {
     <div class="es-cab"><h1>⚡ Vendas de hoje</h1><a class="btn small primary" href="#/analises-vendas/tv" title="Tela cheia para a TV, atualiza sozinha">📺 Modo TV</a>
       <span class="muted">${quando ? `lido no UpSeller às <b>${quando}</b> · o coletor lê a cada 10 min · guarda a cada meia hora` : "ainda sem leitura do UpSeller"}</span></div>
     ${ag.erro && (!ag.lido_em || ag.erro_em > ag.lido_em) ? `<div class="card vh-aviso">⚠️ Última tentativa: ${esc(ag.erro)}${ag.login ? " — entre no UpSeller pelo Mac (Central → entrar no UpSeller)." : ""}</div>` : ""}
-    ${(S.precosAlertas || []).length ? `<a class="card vh-aviso vh-precos" href="#/precos">🔔 ${nf0.format(S.precosAlertas.length)} concorrente(s) mudaram o preço — ver no Monitor de preços ›</a>` : ""}
+    ${(S.precosAlertas || []).length ? `<a class="card vh-aviso vh-precos" href="#/precos">🔔 ${nf0.format(S.precosAlertas.length)} anúncio(s) de concorrentes mudaram (preço, tags, FULL, estoque) — ver no Monitor de preços ›</a>` : ""}
     ${atrasado && hoje ? `<div class="card vh-aviso">⏳ A última leitura tem mais de 30 min (o Chrome do coletor pode estar ocupado com outra tarefa).</div>` : ""}
     <div class="card pad vh-filtros">
       <label>Dia <input type="date" id="vh-dia" value="${r.dia}" max="${r.hoje}"></label>
@@ -4439,9 +4442,9 @@ async function telaTV() {
       <div class="tv-k"><span>⏱️ Última hora (${String(r.ultima_hora.hora).padStart(2, "0")}h)</span><b>${r.ultima_hora.hoje != null ? rsES(r.ultima_hora.hoje) : "—"}</b>${tvSeta(r.ultima_hora.hoje, r.ultima_hora.ontem)}<small>mesma hora ontem ${r.ultima_hora.ontem != null ? rsES(r.ultima_hora.ontem) : "—"}</small></div>
       <div class="tv-k sac ${precisam ? "alerta" : ""}"><span>💬 Chats esperando</span><b>${sac ? nf0.format(precisam) : "—"}</b><small>${sac ? `${nf0.format(t.respondidas_hoje || 0)} respondidos hoje · ${nf0.format(t.sozinho_hoje || 0)} pela IA` : "SAC sem leitura"}</small></div>
     </div>
-    ${(S.tvPrecos || []).length ? `<div class="tv-precos"><b>🔔 Concorrentes mudaram o preço</b>${S.tvPrecos.slice(0, 5).map(x => `<span>
-        ${esc(String(x.titulo).slice(0, 38))}${String(x.titulo).length > 38 ? "…" : ""} <i>${esc(x.loja)}</i> <s>${rsES(x.de)}</s> → <b>${rsES(x.para)}</b>
-        <em class="${x.pct > 0 ? "sobe" : "cai"}">${x.pct > 0 ? "▲" : "▼"}${Math.abs(x.pct * 100).toFixed(0)}%</em></span>`).join("")}</div>` : ""}
+    ${(S.tvPrecos || []).length ? `<div class="tv-precos"><b>🔔 Concorrentes mudaram</b>${S.tvPrecos.slice(0, 5).map(x => `<span>
+        ${esc(String(x.titulo).slice(0, 38))}${String(x.titulo).length > 38 ? "…" : ""} <i>${esc(x.loja)}</i> ${x.de != null ? `<s>${rsES(x.de)}</s> → <b>${rsES(x.para)}</b>
+        <em class="${x.pct > 0 ? "sobe" : "cai"}">${x.pct > 0 ? "▲" : "▼"}${Math.abs(x.pct * 100).toFixed(0)}%</em>` : ""} ${(x.eventos || []).map(e => `<b>${esc(e.texto)}</b>`).join(" ")}</span>`).join("")}</div>` : ""}
     <div class="tv-meio">
       <div class="tv-card"><h3>Acumulado do dia <span><i style="background:#60a5fa"></i>hoje <i style="background:#34d399"></i>ontem <i style="background:#9ca3af"></i>semana passada</span></h3><div class="ch" id="tv-acum"></div></div>
       <div class="tv-card"><h3>🏪 Lojas hoje <span>× ontem no mesmo horário</span></h3>${lojas.map(l => `<div class="tv-loja">
@@ -8258,7 +8261,10 @@ async function telaPrecoDetalhe(mlb) {
   if (!location.hash.startsWith("#/precos/")) return;
   const it = r.item || {}, h = r.historico || [], mu = r.mudancas || [];
   const k = (l, v, o = "") => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
-  const val = (c, v) => v == null ? "—" : (c === "preco" || c === "preco_original") ? rsES(+v) : c === "estoque" ? nf0.format(v) : esc(String(v));
+  const val = (c, v) => v == null ? "—" : (c === "preco" || c === "preco_original") ? rsES(+v) : c === "estoque" ? nf0.format(v)
+    : v === true ? "sim" : v === false ? "não" : c === "posicao_mv" ? v + "º" : esc(String(v));
+  const evs = (it.eventos || []).slice().reverse();
+  const quandoEv = em => em ? new Date(em).toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "";
   const dif = m => m.diff == null ? "" : `<span class="${m.diff > 0 ? "neg" : "pos"}">${m.diff > 0 ? "+" : "−"}${m.campo === "estoque" ? nf0.format(Math.abs(m.diff)) : rsES(Math.abs(m.diff))}${m.pct != null ? ` (${FMT.var(m.pct)})` : ""}</span>`;
   const lojaL = it.seller_id ? `https://lista.mercadolivre.com.br/_CustId_${esc(it.seller_id)}` : "";
   const hh = em => em ? " " + new Date(em).toLocaleTimeString("pt-BR", {timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit"}) : "";
@@ -8273,6 +8279,9 @@ async function telaPrecoDetalhe(mlb) {
       ${k("Mínimo · máximo", r.minimo ? `${rsES(r.minimo)} · ${rsES(r.maximo)}` : "—", r.medio ? "médio " + rsES(r.medio) : "")}
       ${k("Mudanças de preço", nf0.format(mu.filter(m => m.campo === "preco").length), `${nf0.format(mu.length)} mudança(s) no total (preço, riscado, situação, estoque)`)}
     </div>
+    <div class="card pad" style="margin-top:12px"><h2>🏷️ Tags, Full, estoque e posição <span class="muted" style="font-weight:400;font-size:13px">— quando apareceu e quando sumiu</span></h2>
+      ${evs.length ? `<div class="pm-linha-tempo">${evs.map(e => `<div class="pm-ev ${e.visto === false ? "novo" : ""}"><span class="muted">${quandoEv(e.em)}</span><b>${esc(e.texto)}</b></div>`).join("")}</div>`
+        : `<div class="muted">Ainda sem mudanças de tag. O coletor lê a página ao meio-dia e às 19 h e anota aqui quando a tag MAIS VENDIDO aparece ou some, a posição muda, entra ou sai do FULL, ou o estoque zera.</div>`}</div>
     <div class="card pad" style="margin-top:12px"><h2>Preço por dia</h2>${h.filter(p => p.preco).length > 1 ? `<div class="ch" id="pd-graf"></div>` : `<div class="muted">O gráfico aparece a partir da 2ª leitura.</div>`}</div>
     <div class="ex-grid" style="grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)">
       <div class="card pad"><h2>Quando mudou</h2>
@@ -8280,9 +8289,10 @@ async function telaPrecoDetalhe(mlb) {
           ${mu.map(m => `<tr><td class="first">${esc(dataBR(m.dia))}${hh(m.em)}<div class="muted" style="font-size:11px">antes: ${esc(dataBR(m.dia_antes))}</div></td><td>${esc(m.nome)}</td>
             <td class="num">${val(m.campo, m.de)}</td><td class="num"><b>${val(m.campo, m.para)}</b></td><td class="num">${dif(m)}</td></tr>`).join("")}</tbody></table></div>`
           : `<div class="muted">Nenhuma mudança desde que começou a ser monitorado.</div>`}</div>
-      <div class="card pad"><h2>Todas as leituras</h2><div class="tw" style="max-height:52vh"><table class="t"><thead><tr><th>Dia</th><th class="num">Preço</th><th class="num">Riscado</th><th>Situação</th><th class="num">Estoque</th></tr></thead><tbody>
+      <div class="card pad"><h2>Todas as leituras</h2><div class="tw" style="max-height:52vh"><table class="t"><thead><tr><th>Dia</th><th class="num">Preço</th><th class="num">Riscado</th><th>Situação</th><th class="num">Estoque</th><th>Tags</th></tr></thead><tbody>
         ${h.slice().reverse().map(p => `<tr><td class="first">${esc(dataBR(p.dia))}<span class="muted">${hh(p.em)}</span>${p.fonte === "api" ? ` <span class="muted" style="font-size:10.5px">API</span>` : ""}</td><td class="num">${p.preco ? rsES(p.preco) : "—"}</td><td class="num muted">${p.preco_original ? rsES(p.preco_original) : "—"}</td>
-          <td>${p.status ? `<span class="st ${p.status === "ativo" ? "good" : "bad"}">${esc(p.status)}</span>` : ""}</td><td class="num">${p.estoque != null ? nf0.format(p.estoque) : "—"}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">Sem leituras ainda.</td></tr>`}</tbody></table></div></div>
+          <td>${p.status ? `<span class="st ${p.status === "ativo" ? "good" : "bad"}">${esc(p.status)}</span>` : ""}</td><td class="num">${p.estoque != null ? nf0.format(p.estoque) : "—"}</td>
+          <td>${p.mais_vendido ? `<span class="pm-tag mv">MAIS VENDIDO${p.posicao_mv ? ` <i>${p.posicao_mv}º</i>` : ""}</span>` : ""}${p.full ? ` <span class="pm-tag full">⚡ FULL</span>` : ""}${p.catalogo ? ` <span class="pm-tag cat">CATÁLOGO</span>` : ""}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">Sem leituras ainda.</td></tr>`}</tbody></table></div></div>
     </div>`;
   const pts = h.filter(p => p.preco);
   if (pts.length > 1) grafLinhas($("#pd-graf"), {rotulos: pts.map(p => dataBR(p.dia).slice(0, 5)), fmt: v => rsES(v), fmtEixo: v => "R$ " + nf0.format(v), pontos: true, rotFim: false,
@@ -8305,7 +8315,9 @@ async function telaPrecos() {
   const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
   const lidosHoje = xs.filter(x => x.ultimo_dia === hoje).length;
   const ultimaGeral = xs.map(x => x.ultima_em).filter(Boolean).sort().pop();
-  const alertaDe = x => (x.alerta && x.alerta.visto === false) ? x.alerta : null;
+  const evNovos = x => (x.eventos || []).filter(e => e.visto === false);
+  const alertaDe0 = x => (x.alerta && x.alerta.visto === false) ? x.alerta : null;
+  const alertaDe = x => alertaDe0(x) || (evNovos(x).length ? {} : null);
   // 01/10 (Bruno: "puxa o custo do meu estoque e coloca lucro líquido, margem e ROI vendendo no mesmo preço que ele")
   const pctTxt = v => v == null ? "—" : (v * 100).toFixed(1).replace(".", ",") + "%";
   const calcLinha = x => { const c = x.calc, m = x.meu;
@@ -8321,10 +8333,11 @@ async function telaPrecos() {
       ${it("Margem", pctTxt(c.margem), c.margem == null ? "" : c.margem >= 0.1 ? "pos" : c.margem >= 0 ? "" : "neg")}
       ${it("ROI", pctTxt(c.roi), c.roi == null ? "" : c.roi >= 0 ? "pos" : "neg")}
       ${c.sem_tarifa || c.sem_frete ? `<span class="muted pm-calc-obs">sem a tarifa/frete do ML ainda: a conta fica completa depois da próxima leitura</span>` : ""}</div>`; };
-  const cartao = x => { const ult = (x.historico || []).slice(-1)[0] || {}, al = alertaDe(x);
-    return `<div class="card pm-card ${al ? "pm-mudou" : ""}" data-mlb="${esc(x.mlb)}">
-      ${al ? `<div class="pm-aviso">🔔 O preço mudou ${quando(al.em)}: <s>${rsES(al.de)}</s> → <b>${rsES(al.para)}</b>
-        <span class="pm-var ${al.pct > 0 ? "sobe" : "desce"}">${al.pct > 0 ? "▲" : "▼"} ${FMT.var(Math.abs(al.pct))}</span>
+  const cartao = x => { const ult = (x.historico || []).slice(-1)[0] || {}, al = alertaDe0(x);
+    return `<div class="card pm-card ${alertaDe(x) ? "pm-mudou" : ""}" data-mlb="${esc(x.mlb)}">
+      ${al || evNovos(x).length ? `<div class="pm-aviso">${al ? `🔔 O preço mudou ${quando(al.em)}: <s>${rsES(al.de)}</s> → <b>${rsES(al.para)}</b>
+        <span class="pm-var ${al.pct > 0 ? "sobe" : "desce"}">${al.pct > 0 ? "▲" : "▼"} ${FMT.var(Math.abs(al.pct))}</span>` : ""}
+        ${evNovos(x).map(e => `<span class="pm-evn">${esc(e.texto)} <span class="muted">${quando(e.em)}</span></span>`).join("")}
         <button class="btn small" data-visto="${esc(x.mlb)}">✓ vi</button></div>` : ""}
       <div class="pm-lin">
         <a class="pm-foto" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${x.foto ? `<img src="${esc(urlML(x.foto))}" alt="" loading="lazy">` : "📦"}</a>
@@ -8335,6 +8348,7 @@ async function telaPrecos() {
             ${x.catalogo ? `<span class="pm-tag cat" title="Anúncio de catálogo (disputa o buy box)">CATÁLOGO</span>` : x.catalogo === false ? `<span class="pm-tag" title="Anúncio próprio, fora do catálogo">fora do catálogo</span>` : ""}
             ${x.full ? `<span class="pm-tag full" title="Armazenado e enviado pelo Full do Mercado Livre">⚡ FULL</span>` : ""}${x.status ? `<span class="st ${x.status === "ativo" ? "good" : "bad"}">${esc(x.status)}</span>` : ""}${x.estoque != null ? `<span class="pm-chip">${x.estoque_mais ? "+" : ""}${nf0.format(x.estoque)} disponíveis</span>` : ""}
             ${x.mudancas_preco ? `<span class="pm-chip">${nf0.format(x.mudancas_preco)} mudança(s) de preço</span>` : `<span class="pm-chip muted">preço sem mudança</span>`}</div>
+          ${(x.eventos || []).filter(e => e.visto !== false).length ? `<div class="pm-ult-ev muted">🕘 ${(x.eventos || []).filter(e => e.visto !== false).slice(-2).reverse().map(e => `${esc(e.texto)} (${quando(e.em)})`).join(" · ")}</div>` : ""}
         </div>
         <div class="pm-preco">${x.atual ? `<b>${rsES(x.atual)}</b>` : `<span class="muted">ainda não lido</span>`}
           ${ult.preco_original ? `<s class="muted">${rsES(ult.preco_original)}</s>` : ""}${varChip(x.var)}
@@ -8351,7 +8365,7 @@ async function telaPrecos() {
       <div class="pm-hist" id="pm-h-${esc(x.mlb)}" hidden></div></div>`; };
   main.innerHTML = `<div class="es-cab"><h1>📈 Monitor de preços</h1>
       <span class="muted">${nf0.format(xs.length)} anúncio(s) (máx. ${r.max}) · ${nf0.format(lidosHoje)} lido(s) hoje${ultimaGeral ? ` · última atualização ${quando(ultimaGeral)}` : ""}</span></div>
-    ${xs.some(alertaDe) ? `<div class="card pm-alertas"><b>🔔 ${nf0.format(xs.filter(alertaDe).length)} anúncio(s) mudaram de preço</b>
+    ${xs.some(alertaDe) ? `<div class="card pm-alertas"><b>🔔 ${nf0.format(xs.filter(alertaDe).length)} anúncio(s) com mudança (preço, tags, FULL, estoque)</b>
       <button class="btn small" id="pm-vi-todos">✓ marcar todos como vistos</button></div>` : ""}
     <div class="pm-imposto"><label>🧮 Imposto sobre a venda <input id="pm-imp" type="number" min="0" max="40" step="0.1" value="${r.calc?.imposto_pct ?? 0}">%</label>
       <span class="muted">usado na conta de lucro, margem e ROI (custo = custo médio do seu estoque no UpSeller)</span></div>
