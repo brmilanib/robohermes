@@ -1181,3 +1181,19 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   para aprender")**: Curva ABC e Relatório de Vendas do Gestor saem na 1ª rodada de estoque a partir de segunda
   (`gestor_semanal_devido`: último import ok, por relatório, em `cfg["gestor_semana"]`, antes da segunda desta semana).
   Falhou = tenta de novo no próximo estoque. Forçar: `cfg["gestor_forcar"]=True`. O estoque e o UpSeller seguem 3x/dia.
+- **🛍️ Bazar (01/10, card #137; planilha `docs/bazar/BAZAR_PURE_PERFUMARIA.xlsx` e prints do grupo "PURE | OFERTAS
+  EXCLUSIVAS")**: Minhas Lojas → 🛍️ Bazar (`#/bazar/avariada|promocao|vendas|whatsapp`, `telaBazar`), módulo `bazar.py`, rotas
+  `bazar*` (`rota_bazar`). Guardado em `ia_resumos` `bazar|produtos`, `bazar|vendas`, `bazar|textos` (sem tabela nova).
+  Cadastro igual à aba "Produtos Bazar" (código automático BZ001…, condição com lista, qtd. inicial, preço original,
+  DESCONTO editável na própria tabela, preço promo = original × (1 − desconto), vendidas/estoque pelas vendas não
+  canceladas, status DISPONÍVEL / ÚLTIMAS UNIDADES ≤2 / ESGOTADO, localização, observações, foto e vídeo no Storage
+  privado `anexos/bazar/<id>/…`). "📥 Importar planilha" traz a aba Produtos Bazar sem duplicar (23 itens na do Bruno).
+  Vendas (aba "Vendas": data, qtd, cliente, pagamento, status; cancelada devolve ao estoque). WhatsApp: mensagem fixada
+  editável + catálogo automático (mesmas linhas da planilha). 📣 Compartilhar: texto no formato do grupo (`bazar.post`,
+  números SEMPRE do código), "✨ Frase com IA" (`bazar_frase`: Gemini escreve só a frase e escolhe o coração; número
+  na frase é removido), "🎨 Criar arte com o Gemini" (`bazar_arte`: `ia.gemini_gerar_imagem(imagens=[foto])` edita a
+  foto SEM texto) e a tela desenha por cima o preço/desconto num canvas 1080×1350 (`bzDesenharArte`); baixar arte e
+  "📤 Enviar" (compartilhar do celular com a imagem, senão wa.me com o texto). Para promoção (Análises de Vendas) ganhou
+  "🛍️ Bazar" por linha e "Levar a lista ao Bazar" (`bazar_levar`: aba Promoção, 20% de desconto, preço = venda média do
+  SKU no UpSeller; não duplica SKU ainda à venda). Nada é apagado: produto é arquivado. Parte 2 (agente que posta no
+  grupo VIP e no Instagram) fica para depois. Teste: `testes/test_bazar.py`.

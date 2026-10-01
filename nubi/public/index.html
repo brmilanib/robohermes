@@ -1119,6 +1119,18 @@ header.top{padding:7px 16px}
 .lu-lojas{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.lu-lojas span{font-size:10.5px;padding:1px 6px;border-radius:999px;background:rgba(127,127,127,.12);white-space:nowrap}
 .lu-lojas span.on{background:rgba(37,99,235,.15);color:#1d4ed8}
 .lu-sit.todos{color:inherit}
+/* 🛍️ Bazar (card #137) */
+.bz-prod{display:flex;gap:10px;align-items:center;min-width:220px}.bz-prod img,.bz-sem{width:46px;height:46px;border-radius:8px;object-fit:cover;flex:none;background:var(--soft);display:grid;place-items:center}
+.bz-desc{width:58px;text-align:right;padding:4px 6px}
+.bz-ac{white-space:nowrap}.bz-ac .btn{margin-left:4px}.bz-tab td{padding-top:8px;padding-bottom:8px}
+.bz-st{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}.bz-st.ok{background:var(--good-bg);color:var(--good)}
+.bz-st.ult{background:var(--warn-bg);color:var(--warn)}.bz-st.esg{background:var(--bad-bg);color:var(--bad)}
+.bz-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}.bz-f{display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.bz-f span{color:var(--muted)}.bz-f input,.bz-f select,.bz-f textarea{width:100%}
+.bz-canc td{opacity:.5;text-decoration:line-through}.bz-canc td select{text-decoration:none}
+.bz-wa{display:grid;grid-template-columns:1fr 1fr;gap:12px}.bz-sh{display:grid;grid-template-columns:minmax(0,380px) 1fr;gap:16px}
+.bz-cv{width:100%;max-width:380px;border-radius:10px;display:block;background:#111}
+@media (max-width:760px){.bz-wa,.bz-sh{grid-template-columns:1fr}.bz-cv{max-width:100%}}
 </style>
 </head>
 <body>
@@ -1271,7 +1283,7 @@ const SECOES = [
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
   {id: "lojas", nome: "Minhas Lojas", desc: "Estoque e lojas do dono", icone: "📦"},
 ];
-function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac|analises-vendas)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml|precos|observados)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac|analises-vendas|bazar)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml|precos|observados)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -1613,6 +1625,7 @@ function desenharMenu() {
     ${it("#/estoque", "📦", "Estoque", h.startsWith("#/estoque"))}
     ${it("#/analises-vendas/anuncio", "📊", "Análises de Vendas", h.startsWith("#/analises-vendas"), seta("mv", true, mvAberto))}
     ${mvAberto ? sub(MV_MENU.map(([r, n]) => ({href: "#/analises-vendas/" + r, nome: n, on: h.startsWith("#/analises-vendas/" + r)}))) : ""}
+    ${it("#/bazar/avariada", "🛍️", "Bazar", h.startsWith("#/bazar"))}
     ${it("#/sac/tiktok", "💬", "SAC", h.startsWith("#/sac"), seta("sac", true, sacAberto))}
     ${sacAberto ? sub(SAC_MENU.map(([r, n]) => ({href: "#/sac/" + r, nome: n, on: h.startsWith("#/sac/" + r)}))) : ""}
     <div class="grupo">Central</div>
@@ -1677,6 +1690,7 @@ async function rotear() {
   if (/^#\/estoque\/(tiktok|shopee)/.test(location.hash)) {       // endereço antigo: o atendimento mudou para o menu SAC
     history.replaceState(null, "", location.hash.replace("#/estoque/", "#/sac/")); return rotear(); }
   if (location.hash.startsWith("#/analises-vendas")) return telaMinhasVendas();
+  if (location.hash.startsWith("#/bazar")) return telaBazar();
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
     return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
   if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/categorias") ? telaEstoqueCategorias() : telaEstoque();
@@ -3410,6 +3424,11 @@ async function telaLucroAds() {
 }
 // 01/10 (Bruno: "lista de produtos para promocionar caso passe de 60 dias sem vendas"): estoque do UpSeller × vendas de
 // 0–30 / 31–60 / 61–90 / 91–120 dias (o coletor baixa os blocos 1 vez por dia). Rota estoque_para_promocao.
+async function prLevarBazar(xs) {
+  try { const x = await api("bazar_levar", {}, {method: "POST", body: JSON.stringify({itens: xs.slice(0, 100).map(i => ({sku: i.sku, titulo: i.titulo, disponivel: i.disponivel, sem_venda_dias: i.sem_venda_dias}))})});
+    S.bz = null; toast(x.criados.length ? `${x.criados.length} produto(s) no Bazar (aba Promoção) com 20% de desconto: ajuste lá.` : "Já estavam no Bazar.", 6000); }
+  catch (e) { toast(e.message, 6000); }
+}
 async function telaParaPromocao() {
   const main = $("#main");
   main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Procurando o estoque parado</div></div>`;
@@ -3429,8 +3448,11 @@ async function telaParaPromocao() {
       <td class="num" data-l="Disponível"><b>${nf0.format(x.disponivel)}</b></td>
       <td class="num" data-l="Custo médio">${x.custo != null ? rsES(x.custo) : "—"}</td>
       <td class="num" data-l="Dinheiro parado"><b>${x.parado != null ? rsES(x.parado) : "—"}</b></td>
-      ${r.janelas.map(j => `<td class="num" data-l="${NOME[j]}">${nf0.format(x.vendas[j] || 0)}</td>`).join("")}</tr>`).join("")
-      || `<tr><td colspan="${5 + r.janelas.length}" class="empty">Nenhum produto com estoque parado há ${f.min}+ dias.</td></tr>`;
+      ${r.janelas.map(j => `<td class="num" data-l="${NOME[j]}">${nf0.format(x.vendas[j] || 0)}</td>`).join("")}
+      <td class="acoes"><button class="btn small" data-bzsku="${esc(x.sku)}" title="Cadastra no Bazar (aba Promoção) com o disponível e o preço médio de venda">🛍️ Bazar</button></td></tr>`).join("")
+      || `<tr><td colspan="${6 + r.janelas.length}" class="empty">Nenhum produto com estoque parado há ${f.min}+ dias.</td></tr>`;
+    S.prVis = xs;
+    main.querySelectorAll("[data-bzsku]").forEach(b => b.onclick = () => prLevarBazar(r.itens.filter(x => x.sku === b.dataset.bzsku)));
     $("#pr-n").textContent = `${nf0.format(xs.length)} produto(s) · ${rsES(parado)} parados`;
     main.querySelectorAll("[data-min]").forEach(b => b.classList.toggle("on", +b.dataset.min === f.min));
   };
@@ -3443,14 +3465,284 @@ async function telaParaPromocao() {
     ${r.janelas.length < 4 ? `<p class="muted" style="font-size:12.5px;margin:0 0 10px">Ainda faltam ${["31-60", "61-90", "91-120"].filter(j => !r.janelas.includes(j)).map(j => NOME[j]).join(", ")}:
       o coletor baixa esses períodos do Vendas por Anúncio do UpSeller 1 vez por dia, junto do estoque. Até lá a lista mostra o que conhece.</p>` : ""}
     <div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
-      <input type="search" id="pr-q" placeholder="Buscar SKU ou produto…" value="${esc(f.q)}" style="flex:1;min-width:200px"><span class="muted" id="pr-n"></span></div>
+      <input type="search" id="pr-q" placeholder="Buscar SKU ou produto…" value="${esc(f.q)}" style="flex:1;min-width:200px"><span class="muted" id="pr-n"></span><button class="btn" id="pr-bz" title="Cadastra todos os da lista no Bazar (aba Promoção)">🛍️ Levar a lista ao Bazar</button></div>
       <div class="rolar"><table class="t" id="pr-tab"><thead><tr><th>Produto</th><th class="num">Sem venda há</th><th class="num">Disponível</th><th class="num">Custo médio</th>
-        <th class="num" title="Disponível × custo médio">Dinheiro parado</th>${r.janelas.map(j => `<th class="num" title="Unidades vendidas de ${NOME[j]} atrás">${NOME[j]}</th>`).join("")}</tr></thead><tbody></tbody></table></div>
+        <th class="num" title="Disponível × custo médio">Dinheiro parado</th>${r.janelas.map(j => `<th class="num" title="Unidades vendidas de ${NOME[j]} atrás">${NOME[j]}</th>`).join("")}<th></th></tr></thead><tbody></tbody></table></div>
       <p class="muted" style="font-size:12px;margin:8px 0 0">Ordem: há mais tempo sem vender e, depois, mais dinheiro parado. Linha amarela 60+ dias, vermelha 90+.
         "ADS sem venda" = curva Z do Gestor Seller (gastou com anúncio patrocinado e não vendeu).</p></div>`;
   $("#pr-q").oninput = e => { f.q = e.target.value; desenhar(); };
   main.querySelectorAll("[data-min]").forEach(b => b.onclick = () => { f.min = +b.dataset.min; desenhar(); });
+  $("#pr-bz").onclick = () => { const xs = S.prVis || []; if (!xs.length) return toast("Lista vazia.");
+    if (confirm(`Cadastrar ${xs.length} produto(s) no Bazar (aba Promoção)? Os que já estão lá não duplicam.`)) prLevarBazar(xs); };
   desenhar();
+}
+// ---------- Minhas Lojas → 🛍️ Bazar (01/10, card #137; planilha BAZAR_PURE_PERFUMARIA.xlsx e prints do grupo PURE | OFERTAS EXCLUSIVAS):
+// caixa avariada e promoção (60+ dias sem venda), cadastro igual à planilha, vendas, texto do grupo e 📣 Compartilhar (frase e arte
+// do Gemini; preço desenhado por cima pela tela, nunca pela IA)
+const BZ_ABAS = [["avariada", "📦 Caixa avariada"], ["promocao", "🏷️ Promoção"], ["vendas", "🧾 Vendas"], ["whatsapp", "💬 WhatsApp"]];
+const bzPct = d => d == null ? "—" : Math.round(d * 100) + "%";
+const bzStatus = s => `<span class="bz-st ${s === "ESGOTADO" ? "esg" : s === "ÚLTIMAS UNIDADES" ? "ult" : "ok"}">${esc(s)}</span>`;
+async function bzLinks(caminhos) {
+  const cs = [...new Set(caminhos.filter(Boolean))];
+  if (!cs.length) return {};
+  try { const {data} = await sb.storage.from("anexos").createSignedUrls(cs, 3600);
+    return Object.fromEntries((data || []).filter(d => d.signedUrl).map(d => [d.path, d.signedUrl])); } catch { return {}; }
+}
+async function bzCopiar(t, msg) { try { await navigator.clipboard.writeText(t); toast(msg || "Copiado."); } catch { toast("Não deu para copiar; selecione e copie.", 5000); } }
+async function telaBazar() {
+  const main = $("#main");
+  const aba = (location.hash.split("/")[2] || "avariada").split("?")[0];
+  if (!S.bz) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo o Bazar</div></div>`;
+  let r;
+  try { r = S.bz = await api("bazar"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/bazar")) return;
+  const f = S.bzF || (S.bzF = {q: "", st: ""});
+  const cab = `<div class="es-cab"><h1>🛍️ Bazar</h1><span class="muted">Produtos originais com preço especial · cadastro, vendas e posts do grupo</span></div>
+    <div class="seg" style="margin:10px 0 12px;flex-wrap:wrap">${BZ_ABAS.map(([k, n]) => `<button data-bzaba="${k}" class="${k === aba ? "on" : ""}">${n}${r.por_aba[k] ? ` <span class="muted">${r.por_aba[k].produtos}</span>` : ""}</button>`).join("")}</div>`;
+  if (aba === "vendas") return bzVendas(main, r, cab);
+  if (aba === "whatsapp") return bzWhats(main, r, cab);
+  const k = r.por_aba[aba] || {produtos: 0, unidades: 0, valor_potencial: 0, esgotados: 0};
+  const links = await bzLinks(r.produtos.map(p => p.foto));
+  main.innerHTML = cab + `
+    <div class="kpis" style="margin:0 0 12px">
+      <div class="kpi"><div class="l">Produtos cadastrados</div><div class="v">${nf0.format(k.produtos)}</div></div>
+      <div class="kpi"><div class="l">Unidades disponíveis</div><div class="v">${nf0.format(k.unidades)}</div></div>
+      <div class="kpi"><div class="l">Valor potencial de venda</div><div class="v">${rsES(k.valor_potencial)}</div><div class="s">disponível × preço promo</div></div>
+      <div class="kpi"><div class="l">Itens esgotados</div><div class="v ${k.esgotados ? "neg" : ""}">${nf0.format(k.esgotados)}</div></div></div>
+    <div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <button class="btn primary" id="bz-novo">＋ Novo produto</button>
+      ${aba === "avariada" ? `<label class="btn" title="Traz os produtos da planilha BAZAR_PURE_PERFUMARIA.xlsx (aba Produtos Bazar), sem duplicar">📥 Importar planilha<input type="file" id="bz-plan" accept=".xlsx" hidden></label>` : `<a class="btn" href="#/analises-vendas/promocao" title="Escolha lá os produtos sem venda e clique em 🛍️ Bazar">🏷️ Trazer de "Para promoção"</a>`}
+      <input type="search" id="bz-q" placeholder="Buscar produto, marca ou código…" value="${esc(f.q)}" style="flex:1;min-width:180px">
+      <select id="bz-st"><option value="">Todos</option>${["DISPONÍVEL", "ÚLTIMAS UNIDADES", "ESGOTADO"].map(s => `<option ${f.st === s ? "selected" : ""}>${s}</option>`).join("")}</select></div>
+      <div class="rolar"><table class="t bz-tab"><thead><tr><th>Produto</th><th>Condição</th><th class="num">Qtd. inicial</th><th class="num">Vendidas</th><th class="num">Estoque</th>
+        <th class="num">Preço original</th><th class="num" title="Edite aqui: o preço promo recalcula na hora">Desconto %</th><th class="num">Preço promo</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Vendidas e estoque vêm das vendas registradas na aba 🧾 Vendas. Preço promo = original × (1 − desconto). Até ${2} un. = últimas unidades.</p></div>`;
+  const desenhar = () => {
+    const q = f.q.toLowerCase().trim();
+    const xs = r.produtos.filter(p => p.aba === aba && !p.arquivado && (!f.st || p.status === f.st) && (!q || `${p.produto} ${p.marca} ${p.codigo} ${p.sku}`.toLowerCase().includes(q)));
+    $(".bz-tab tbody").innerHTML = xs.map(p => `<tr>
+      <td data-l="Produto"><div class="bz-prod">${p.foto && links[p.foto] ? `<img src="${links[p.foto]}" alt="">` : `<span class="bz-sem">📷</span>`}
+        <div><b>${esc(p.produto)}</b><div class="muted" style="font-size:11.5px">${esc(p.codigo)}${p.marca ? " · " + esc(p.marca) : ""}${p.volume ? " · " + esc(p.volume) : ""}${p.video ? " · 🎬" : ""}${p.localizacao ? " · 📍" + esc(p.localizacao) : ""}</div></div></div></td>
+      <td data-l="Condição" style="font-size:12.5px">${esc(p.condicao || "—")}</td>
+      <td class="num" data-l="Qtd. inicial">${nf0.format(p.qtd_inicial || 0)}</td>
+      <td class="num" data-l="Vendidas">${nf0.format(p.qtd_vendida)}</td>
+      <td class="num" data-l="Estoque"><b>${nf0.format(p.estoque)}</b></td>
+      <td class="num" data-l="Preço original">${p.preco_original != null ? rsES(p.preco_original) : "—"}</td>
+      <td class="num" data-l="Desconto %"><input class="bz-desc" type="number" min="0" max="95" step="1" data-id="${p.id}" value="${p.desconto != null ? Math.round(p.desconto * 100) : ""}">%</td>
+      <td class="num" data-l="Preço promo"><b id="bz-pp-${p.id}">${p.preco_promo != null ? rsES(p.preco_promo) : "—"}</b></td>
+      <td data-l="Status">${bzStatus(p.status)}</td>
+      <td class="bz-ac"><button class="btn small primary" data-bzsh="${p.id}" title="Post no formato do grupo + arte">📣 Compartilhar</button><button class="btn small" data-bzed="${p.id}" title="Editar, foto e vídeo">✏️</button>${p.estoque > 0 ? `<button class="btn small" data-bzv="${p.id}" title="Registrar venda">💰</button>` : ""}</td></tr>`).join("")
+      || `<tr><td colspan="10" class="empty">${r.por_aba[aba]?.produtos ? "Nada com esse filtro." : aba === "avariada" ? "Nenhum produto ainda: clique em ＋ Novo produto ou 📥 Importar planilha." : "Nenhum produto em promoção: traga de Análises de Vendas → Para promoção."}</td></tr>`;
+    main.querySelectorAll(".bz-desc").forEach(i => i.onchange = async () => {
+      try { const x = await api("bazar_salvar", {}, {method: "POST", body: JSON.stringify({id: +i.dataset.id, desconto: i.value === "" ? null : +i.value / 100})});
+        Object.assign(r.produtos.find(p => p.id === x.produto.id), x.produto);
+        $("#bz-pp-" + i.dataset.id).textContent = x.produto.preco_promo != null ? rsES(x.produto.preco_promo) : "—"; toast("Desconto salvo.");
+      } catch (e) { toast(e.message, 6000); } });
+    main.querySelectorAll("[data-bzed]").forEach(b => b.onclick = () => bzEditar(r, r.produtos.find(p => p.id === +b.dataset.bzed), aba));
+    main.querySelectorAll("[data-bzsh]").forEach(b => b.onclick = () => bzCompartilhar(r.produtos.find(p => p.id === +b.dataset.bzsh)));
+    main.querySelectorAll("[data-bzv]").forEach(b => b.onclick = () => bzVender(r, +b.dataset.bzv));
+  };
+  main.querySelectorAll("[data-bzaba]").forEach(b => b.onclick = () => { location.hash = "#/bazar/" + b.dataset.bzaba; });
+  $("#bz-q").oninput = e => { f.q = e.target.value; desenhar(); };
+  $("#bz-st").onchange = e => { f.st = e.target.value; desenhar(); };
+  $("#bz-novo").onclick = () => bzEditar(r, null, aba);
+  const plan = $("#bz-plan");
+  if (plan) plan.onchange = async () => { const fl = plan.files[0]; if (!fl) return;
+    try { const x = await api("bazar_importar", {}, {method: "POST", body: await fl.arrayBuffer()}); toast(`${x.novos} produto(s) trazidos da planilha.`); telaBazar(); }
+    catch (e) { toast(e.message, 7000); } };
+  desenhar();
+}
+async function bzSubirArquivo(id, file, tipo) {
+  const ext = (file.name.match(/\.[A-Za-z0-9]{1,5}$/) || [tipo === "foto" ? ".jpg" : ".mp4"])[0].toLowerCase();
+  const base = `bazar/${id}/${tipo}-${Date.now()}`;
+  if (tipo === "foto") {
+    try { const bmp = await createImageBitmap(file); return await anxSubir(base + ".jpg", await anxCanvasJpeg(bmp, bmp.width, bmp.height, 1600), "image/jpeg"); }
+    catch { return anxSubir(base + ext, file, file.type); }          // HEIC etc.: vai o original
+  }
+  if (file.size > 50 * 1048576) throw new Error("Vídeo maior que 50 MB: corte ou comprima antes.");
+  return anxSubir(base + ext, file, file.type || "video/mp4");
+}
+function bzEditar(r, p, aba) {
+  p = p || {aba, produto: "", marca: "", categoria: "PERFUME", volume: "", condicao: aba === "promocao" ? "SEM AVARIA (PROMOÇÃO)" : "", qtd_inicial: 1, preco_original: null, desconto: aba === "promocao" ? 0.2 : 0.4, localizacao: "", observacoes: "", descricao: "", cor: "❤️"};
+  const campo = (k, n, extra = "") => `<label class="bz-f"><span>${n}</span><input id="bze-${k}" value="${esc(p[k] ?? "")}" ${extra}></label>`;
+  modal(`<h2 style="margin-top:0">${p.id ? "✏️ " + esc(p.produto) : "＋ Novo produto no Bazar"}</h2>
+    <div class="bz-form">
+      ${campo("produto", "Produto *")}${campo("marca", "Marca")}${campo("codigo", "Código", 'placeholder="automático (BZ001…)"')}
+      ${campo("categoria", "Categoria")}${campo("volume", "Volume / tamanho", 'placeholder="100 ml"')}
+      <label class="bz-f"><span>Aba</span><select id="bze-aba">${Object.entries(r.abas).map(([k, n]) => `<option value="${k}" ${p.aba === k ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="bz-f" style="grid-column:span 2"><span>Condição / avaria da caixa</span><input id="bze-condicao" list="bz-conds" value="${esc(p.condicao || "")}">
+        <datalist id="bz-conds">${r.condicoes.map(c => `<option value="${esc(c)}">`).join("")}</datalist></label>
+      ${campo("qtd_inicial", "Qtd. inicial", 'type="number" min="0"')}
+      ${campo("preco_original", "Preço original (cheio)", 'type="number" min="0" step="0.01"')}
+      <label class="bz-f"><span>Desconto %</span><input id="bze-desconto" type="number" min="0" max="95" value="${p.desconto != null ? Math.round(p.desconto * 100) : ""}"></label>
+      <label class="bz-f"><span>Preço promo (automático)</span><input id="bze-pp" disabled></label>
+      ${campo("localizacao", "Localização")}${campo("sku", "SKU no UpSeller")}
+      <label class="bz-f" style="grid-column:1/-1"><span>Observações</span><textarea id="bze-observacoes" rows="2">${esc(p.observacoes || "")}</textarea></label>
+      <label class="bz-f"><span>📷 Foto do produto</span><input type="file" id="bze-foto" accept="image/*">${p.foto ? `<small class="muted">já tem foto (enviar outra troca)</small>` : ""}</label>
+      <label class="bz-f"><span>🎬 Vídeo</span><input type="file" id="bze-video" accept="video/*">${p.video ? `<small class="muted">já tem vídeo</small>` : ""}</label>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:space-between;margin-top:14px;flex-wrap:wrap">
+      ${p.id ? `<button class="btn" id="bze-arq" title="Sai da lista (nada é apagado; as vendas ficam)">${p.arquivado ? "↩ Voltar para a lista" : "🗄️ Arquivar"}</button>` : "<span></span>"}
+      <span style="display:flex;gap:8px"><button class="btn" data-fechar>Cancelar</button><button class="btn primary" id="bze-ok">Salvar</button></span></div>
+    <div class="muted" id="bze-msg" style="margin-top:8px;font-size:12.5px"></div>`, bg => {
+    bg.querySelector(".modal").classList.add("larga");
+    const v = k => bg.querySelector("#bze-" + k).value;
+    const pp = () => { const o = +v("preco_original"), d = v("desconto"); bg.querySelector("#bze-pp").value = o && d !== "" ? rsES(Math.round(o * (1 - d / 100) * 100) / 100) : ""; };
+    bg.querySelector("#bze-preco_original").oninput = pp; bg.querySelector("#bze-desconto").oninput = pp; pp();
+    const msg = t => { bg.querySelector("#bze-msg").textContent = t; };
+    const arq = bg.querySelector("#bze-arq");
+    if (arq) arq.onclick = async () => { try { await api("bazar_salvar", {}, {method: "POST", body: JSON.stringify({id: p.id, arquivado: !p.arquivado})}); bg.remove(); telaBazar(); } catch (e) { msg(e.message); } };
+    bg.querySelector("#bze-ok").onclick = async () => {
+      const b = bg.querySelector("#bze-ok"); b.disabled = true;
+      try {
+        const corpo = {id: p.id, aba: v("aba"), produto: v("produto"), marca: v("marca"), categoria: v("categoria"), volume: v("volume"),
+          condicao: v("condicao"), qtd_inicial: v("qtd_inicial"), preco_original: v("preco_original") === "" ? null : v("preco_original"),
+          desconto: v("desconto") === "" ? null : +v("desconto") / 100, localizacao: v("localizacao"), sku: v("sku"), observacoes: v("observacoes")};
+        if (v("codigo")) corpo.codigo = v("codigo");
+        msg("salvando…");
+        let x = (await api("bazar_salvar", {}, {method: "POST", body: JSON.stringify(corpo)})).produto;
+        const extra = {};
+        const ff = bg.querySelector("#bze-foto").files[0], fv = bg.querySelector("#bze-video").files[0];
+        if (ff) { msg("enviando a foto…"); extra.foto = await bzSubirArquivo(x.id, ff, "foto"); }
+        if (fv) { msg(`enviando o vídeo (${(fv.size / 1048576).toFixed(0)} MB)…`); extra.video = await bzSubirArquivo(x.id, fv, "video"); }
+        if (ff || fv) x = (await api("bazar_salvar", {}, {method: "POST", body: JSON.stringify({id: x.id, ...extra, ...(ff ? {arte: ""} : {})})})).produto;
+        bg.remove(); toast("Produto salvo."); telaBazar();
+      } catch (e) { msg(e.message); b.disabled = false; }
+    };
+  });
+}
+function bzVender(r, pid) {
+  const p = r.produtos.find(x => x.id === pid);
+  modal(`<h2 style="margin-top:0">💰 Venda · ${esc(p.produto)}</h2>
+    <p class="muted" style="margin-top:0">${esc(p.codigo)} · ${nf0.format(p.estoque)} un. no Bazar · ${p.preco_promo != null ? rsES(p.preco_promo) : "sem preço"} cada</p>
+    <div class="bz-form">
+      <label class="bz-f"><span>Data</span><input type="date" id="bzv-data" value="${new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10)}"></label>
+      <label class="bz-f"><span>Quantidade</span><input type="number" id="bzv-qtd" min="1" max="${p.estoque}" value="1"></label>
+      <label class="bz-f"><span>Cliente</span><input id="bzv-cliente"></label>
+      <label class="bz-f"><span>Pagamento</span><select id="bzv-pag">${r.pagamentos.map(x => `<option>${x}</option>`).join("")}</select></label>
+      <label class="bz-f"><span>Status</span><select id="bzv-st">${r.status_venda.filter(x => x !== "Cancelado").map(x => `<option>${x}</option>`).join("")}</select></label>
+      <label class="bz-f"><span>Total</span><input id="bzv-tot" disabled></label>
+      <label class="bz-f" style="grid-column:1/-1"><span>Observações</span><input id="bzv-obs"></label></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn" data-fechar>Cancelar</button><button class="btn primary" id="bzv-ok">Registrar venda</button></div>
+    <div class="muted" id="bzv-msg" style="margin-top:8px"></div>`, bg => {
+    const tot = () => { bg.querySelector("#bzv-tot").value = p.preco_promo != null ? rsES(p.preco_promo * (+bg.querySelector("#bzv-qtd").value || 0)) : ""; };
+    bg.querySelector("#bzv-qtd").oninput = tot; tot();
+    bg.querySelector("#bzv-ok").onclick = async () => {
+      try { await api("bazar_venda", {}, {method: "POST", body: JSON.stringify({produto_id: pid, data: bg.querySelector("#bzv-data").value, qtd: bg.querySelector("#bzv-qtd").value,
+        cliente: bg.querySelector("#bzv-cliente").value, pagamento: bg.querySelector("#bzv-pag").value, status: bg.querySelector("#bzv-st").value, observacoes: bg.querySelector("#bzv-obs").value})});
+        bg.remove(); toast("Venda registrada; estoque do Bazar atualizado."); telaBazar(); }
+      catch (e) { bg.querySelector("#bzv-msg").textContent = e.message; } };
+  });
+}
+function bzVendas(main, r, cab) {
+  const k = r.kpis_vendas;
+  main.innerHTML = cab + `<div class="kpis" style="margin:0 0 12px">
+      <div class="kpi"><div class="l">Total vendido</div><div class="v">${rsES(k.total)}</div></div>
+      <div class="kpi"><div class="l">Nº de vendas</div><div class="v">${nf0.format(k.vendas)}</div></div>
+      <div class="kpi"><div class="l">Unidades vendidas</div><div class="v">${nf0.format(k.unidades)}</div></div></div>
+    <div class="card"><div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <select id="bzs-p" style="flex:1;min-width:220px"><option value="">Registrar venda de…</option>${r.produtos.filter(p => p.estoque > 0 && !p.arquivado).map(p => `<option value="${p.id}">${esc(p.codigo)} · ${esc(p.produto)} (${p.estoque} un.)</option>`).join("")}</select>
+      <button class="btn primary" id="bzs-nova">💰 Registrar venda</button></div>
+      <div class="rolar"><table class="t"><thead><tr><th>Data</th><th>Código</th><th>Produto</th><th class="num">Qtd.</th><th class="num">Preço unit.</th><th class="num">Total</th><th>Cliente</th><th>Pagamento</th><th>Status</th><th>Observações</th></tr></thead><tbody>
+      ${r.vendas.map(v => `<tr class="${v.status === "Cancelado" ? "bz-canc" : ""}"><td data-l="Data">${v.data.slice(8, 10)}/${v.data.slice(5, 7)}/${v.data.slice(0, 4)}</td><td data-l="Código">${esc(v.codigo)}</td><td data-l="Produto"><b>${esc(v.produto)}</b></td>
+        <td class="num" data-l="Qtd.">${v.qtd}</td><td class="num" data-l="Preço unit.">${rsES(v.preco_unit)}</td><td class="num" data-l="Total"><b>${rsES(v.total)}</b></td>
+        <td data-l="Cliente">${esc(v.cliente || "—")}</td><td data-l="Pagamento">${esc(v.pagamento || "—")}</td>
+        <td data-l="Status"><select data-bzst="${v.id}">${r.status_venda.map(s => `<option ${s === v.status ? "selected" : ""}>${s}</option>`).join("")}</select></td>
+        <td data-l="Observações" style="font-size:12.5px">${esc(v.observacoes || "")}</td></tr>`).join("") || `<tr><td colspan="10" class="empty">Nenhuma venda registrada ainda.</td></tr>`}</tbody></table></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Venda cancelada devolve as unidades ao estoque do Bazar. Produto e preço vêm do cadastro.</p></div>`;
+  main.querySelectorAll("[data-bzaba]").forEach(b => b.onclick = () => { location.hash = "#/bazar/" + b.dataset.bzaba; });
+  $("#bzs-nova").onclick = () => { const id = +$("#bzs-p").value; if (!id) return toast("Escolha o produto."); bzVender(r, id); };
+  main.querySelectorAll("[data-bzst]").forEach(s => s.onchange = async () => {
+    try { await api("bazar_venda", {}, {method: "POST", body: JSON.stringify({id: +s.dataset.bzst, status: s.value})}); toast("Status salvo."); telaBazar(); } catch (e) { toast(e.message, 6000); } });
+}
+function bzWhats(main, r, cab) {
+  main.innerHTML = cab + `<div class="bz-wa">
+    <div class="card"><h3 style="margin-top:0">📌 Mensagem fixada do grupo</h3>
+      <textarea id="bzw-msg" rows="12" style="width:100%">${esc(r.mensagem_fixada)}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px"><button class="btn" id="bzw-copm">📋 Copiar</button><button class="btn primary" id="bzw-salvar">Salvar mensagem</button></div></div>
+    <div class="card"><h3 style="margin-top:0">📚 Catálogo automático</h3>
+      <p class="muted" style="margin-top:0;font-size:12.5px">Só produtos com estoque. Atualiza sozinho a cada cadastro ou venda: copie e fixe no grupo.</p>
+      <textarea id="bzw-cat" rows="16" style="width:100%" readonly>${esc(r.catalogo)}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px"><button class="btn primary" id="bzw-copc">📋 Copiar catálogo</button>
+        <a class="btn" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(r.catalogo)}">💬 Abrir no WhatsApp</a></div></div></div>`;
+  main.querySelectorAll("[data-bzaba]").forEach(b => b.onclick = () => { location.hash = "#/bazar/" + b.dataset.bzaba; });
+  $("#bzw-copm").onclick = () => bzCopiar($("#bzw-msg").value, "Mensagem copiada.");
+  $("#bzw-copc").onclick = () => bzCopiar(r.catalogo, "Catálogo copiado.");
+  $("#bzw-salvar").onclick = async () => { try { await api("bazar_mensagem", {}, {method: "POST", body: JSON.stringify({texto: $("#bzw-msg").value})}); toast("Mensagem salva."); } catch (e) { toast(e.message, 6000); } };
+}
+// arte final: foto (ou a arte do Gemini) + faixa com o preço desenhado pela tela (números do sistema, nunca da IA)
+async function bzDesenharArte(canvas, p, url) {
+  const W = 1080, H = 1350, c = canvas.getContext("2d");
+  canvas.width = W; canvas.height = H;
+  c.fillStyle = "#111"; c.fillRect(0, 0, W, H);
+  if (url) {
+    try { const bmp = await createImageBitmap(await (await fetch(url)).blob());
+      const k = Math.max(W / bmp.width, 1010 / bmp.height), w = bmp.width * k, h = bmp.height * k;
+      c.drawImage(bmp, (W - w) / 2, (1010 - h) / 2, w, h); } catch { /* sem foto: fundo escuro */ }
+  }
+  const g = c.createLinearGradient(0, 0, 0, 170); g.addColorStop(0, "rgba(0,0,0,.72)"); g.addColorStop(1, "rgba(0,0,0,0)");
+  c.fillStyle = g; c.fillRect(0, 0, W, 170);
+  c.fillStyle = "#fff"; c.textAlign = "center"; c.font = "700 46px system-ui, -apple-system, Segoe UI, sans-serif";
+  c.fillText("🔥 OFERTA IMPERDÍVEL 🔥", W / 2, 72); c.font = "500 30px system-ui, sans-serif"; c.fillText("PURE PERFUMARIA", W / 2, 116);
+  c.fillStyle = "#14121a"; c.fillRect(0, 1000, W, 350);
+  c.fillStyle = "#fff"; c.textAlign = "left"; c.font = "700 44px system-ui, sans-serif";
+  const nome = p.produto + (p.marca ? " – " + p.marca : ""), larg = W - 330;   // não invade o selo do desconto
+  let tam = 44; c.font = `700 ${tam}px system-ui, sans-serif`;
+  while (c.measureText(nome).width > larg && tam > 28) { tam -= 2; c.font = `700 ${tam}px system-ui, sans-serif`; }
+  let n2 = nome; while (c.measureText(n2).width > larg && n2.length > 4) n2 = n2.slice(0, -2);
+  c.fillText(n2 === nome ? nome : n2.trimEnd() + "…", 60, 1075);
+  c.font = "400 36px system-ui, sans-serif"; c.fillStyle = "#b9b3c7";
+  const de = "De " + rsES(p.preco_original); c.fillText(de, 60, 1140);
+  const wDe = c.measureText(de).width; c.fillRect(60, 1127, wDe, 3);
+  c.fillStyle = "#ffd166"; c.font = "800 88px system-ui, sans-serif"; c.fillText("Por " + rsES(p.preco_promo), 60, 1240);
+  c.fillStyle = "#e63946"; c.beginPath(); c.arc(W - 150, 1150, 100, 0, Math.PI * 2); c.fill();
+  c.fillStyle = "#fff"; c.textAlign = "center"; c.font = "800 62px system-ui, sans-serif"; c.fillText("-" + bzPct(p.desconto), W - 150, 1165);
+  c.font = "500 26px system-ui, sans-serif"; c.fillStyle = "#b9b3c7"; c.textAlign = "left";
+  c.fillText(p.aba === "avariada" && p.condicao ? "Original e novo · " + p.condicao.toLowerCase() : "Economize " + rsES(p.economia) + " · estoque limitado", 60, 1300);
+}
+async function bzCompartilhar(p) {
+  let texto = "";
+  try { texto = (await api("bazar_post", {id: p.id})).texto; } catch (e) { return toast(e.message, 6000); }
+  modal(`<h2 style="margin-top:0">📣 Compartilhar · ${esc(p.produto)}</h2>
+    <div class="bz-sh"><div><canvas id="bzc-cv" class="bz-cv"></canvas>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn small" id="bzc-arte" ${p.foto ? "" : "disabled title='Envie a foto do produto no ✏️ Editar'"}>🎨 ${p.arte ? "Refazer" : "Criar"} arte com o Gemini</button>
+        <button class="btn small" id="bzc-orig" ${p.arte ? "" : "hidden"}>📷 Usar a foto original</button>
+        <button class="btn small primary" id="bzc-baixar">⬇️ Baixar arte</button></div>
+      <div class="muted" id="bzc-msg" style="font-size:12px;margin-top:6px">${p.foto ? "" : "Sem foto: envie a foto do produto no ✏️ Editar para a arte ficar completa."}</div></div>
+    <div><textarea id="bzc-txt" rows="15" style="width:100%">${esc(texto)}</textarea>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn small" id="bzc-frase" title="A IA escreve só a frase e escolhe o coração; preços são do sistema">✨ ${p.descricao ? "Outra frase" : "Frase com IA"}</button>
+        <button class="btn small primary" id="bzc-copiar">📋 Copiar texto</button>
+        <button class="btn small" id="bzc-share">📤 Enviar (WhatsApp…)</button>
+        <span id="bzc-video"></span></div></div></div>`, async bg => {
+    bg.querySelector(".modal").classList.add("larga");
+    const cv = bg.querySelector("#bzc-cv"), msg = t => { bg.querySelector("#bzc-msg").textContent = t; };
+    const links = await bzLinks([p.foto, p.arte, p.video]);
+    let usar = p.arte || p.foto;
+    const pintar = async () => { await bzDesenharArte(cv, p, links[usar]); bg.querySelector("#bzc-orig").hidden = !(p.arte && usar === p.arte); };
+    await pintar();
+    if (p.video && links[p.video]) bg.querySelector("#bzc-video").innerHTML = `<a class="btn small" href="${links[p.video]}" target="_blank" rel="noopener" download>🎬 Baixar vídeo</a>`;
+    const blobArte = () => new Promise(ok => cv.toBlob(ok, "image/jpeg", 0.9));
+    bg.querySelector("#bzc-orig").onclick = async () => { usar = p.foto; await pintar(); };
+    bg.querySelector("#bzc-baixar").onclick = async () => { const a = document.createElement("a"); a.href = URL.createObjectURL(await blobArte()); a.download = `bazar-${p.codigo}.jpg`; a.click(); };
+    bg.querySelector("#bzc-copiar").onclick = () => bzCopiar(bg.querySelector("#bzc-txt").value, "Texto copiado: cole no grupo junto da arte.");
+    bg.querySelector("#bzc-share").onclick = async () => {
+      const t = bg.querySelector("#bzc-txt").value, fl = new File([await blobArte()], `bazar-${p.codigo}.jpg`, {type: "image/jpeg"});
+      if (navigator.canShare && navigator.canShare({files: [fl]})) { try { await navigator.share({files: [fl], text: t}); } catch { /* cancelou */ } }
+      else { bzCopiar(t, "Texto copiado. Baixe a arte e mande junto no WhatsApp."); window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank", "noopener"); }
+    };
+    bg.querySelector("#bzc-frase").onclick = async () => {
+      const b = bg.querySelector("#bzc-frase"); b.disabled = true; msg("a IA está escrevendo a frase…");
+      try { const x = await api("bazar_frase", {}, {method: "POST", body: JSON.stringify({id: p.id})}); Object.assign(p, x);
+        bg.querySelector("#bzc-txt").value = (await api("bazar_post", {id: p.id})).texto; msg(""); }
+      catch (e) { msg(e.message); } b.disabled = false; };
+    bg.querySelector("#bzc-arte").onclick = async () => {
+      const b = bg.querySelector("#bzc-arte"); b.disabled = true; msg("o Gemini está fazendo a arte (até 1 min)…");
+      try { const x = await api("bazar_arte", {}, {method: "POST", body: JSON.stringify({id: p.id})}); p.arte = x.arte;
+        Object.assign(links, await bzLinks([x.arte])); usar = x.arte; await pintar(); msg("Arte pronta. O preço é colocado pelo nubi, não pela IA."); }
+      catch (e) { msg(e.message); } b.disabled = false; };
+  });
 }
 // barras das unidades por dia (SVG simples, sem biblioteca)
 function mvSerie(xs) {

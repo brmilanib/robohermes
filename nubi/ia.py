@@ -541,7 +541,7 @@ def perguntar_estruturado(pergunta, schema, nome="resposta", max_tokens=2500, qu
     raise SemIA(f"a IA não devolveu o JSON no formato pedido ({ultimo})")
 
 
-def gemini_gerar_imagem(prompt, modelo=None):
+def gemini_gerar_imagem(prompt, modelo=None, imagens=None):
     """Conector Gemini para as rotinas de criativo (imagem/post do Instagram, card #14): gera 1 imagem a partir de
     `prompt`. Teto mensal próprio (NUBI_TETO_GEMINI, regra do card #10) e custo por ia_precos, iguais aos outros
     provedores (_post_json cuida dos dois). Sem GEMINI_API_KEY: SemIA. Devolve (imagem_b64, texto, modelo).
@@ -549,7 +549,9 @@ def gemini_gerar_imagem(prompt, modelo=None):
     if not tem("gemini"):
         raise SemIA(f"falta a chave {CHAVES['gemini']}")
     modelo = modelo or os.environ.get("NUBI_IA_MODELO_GEMINI", "gemini-2.5-flash-image")
-    corpo = {"model": modelo, "contents": [{"parts": [{"text": prompt}]}]}
+    # 01/10 (Bazar): `imagens` = [(mime, base64)] para EDITAR a foto do produto (arte do post)
+    partes_in = [{"inlineData": {"mimeType": m, "data": b}} for m, b in (imagens or [])] + [{"text": prompt}]
+    corpo = {"model": modelo, "contents": [{"parts": partes_in}]}
     cab = {"x-goog-api-key": os.environ["GEMINI_API_KEY"], "Content-Type": "application/json"}
     try:
         r = _post_json(f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent", corpo, cab,

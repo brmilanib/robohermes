@@ -46,6 +46,7 @@ import observados
 import linhas_ia
 import trava_agrupamento
 import precos
+import bazar
 import revisao
 import reuniao
 import vend_bi
@@ -1427,6 +1428,11 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 404)
             except meli.ErroMeli as e:
                 raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 400)
+        if rota.startswith("bazar"):                 # 01/10 (card #137): 🛍️ Minhas Lojas → Bazar
+            try:
+                return _json(rota_bazar(repo, metodo, rota, q, corpo))
+            except bazar.ErroBazar as e:
+                raise ErroNuvem(str(e)[:1].upper() + str(e)[1:])
         if rota.startswith("estoque") or rota.startswith("gestor_") or rota == "coleta_pendente":
             return _json(rota_estoque(repo, metodo, rota, q, corpo))
         if rota == "conhecimento":
@@ -4605,6 +4611,93 @@ def vendas_blocos_pendentes(repo, agora=None):
         if tem.get("inicio") != ini or tem.get("fim") != fim:
             out.append({"bloco": nome, "inicio": ini, "fim": fim})
     return out
+
+
+def _bazar_arquivo(repo, caminho, limite=20 * 1024 * 1024):
+    """Foto do Bazar no Storage (bucket anexos, caminho bazar/…), com o login de quem pediu."""
+    caminho = str(caminho or "")
+    if not re.fullmatch(r"bazar/[A-Za-z0-9_./-]{3,250}", caminho) or ".." in caminho:
+        raise ErroNuvem("Arquivo do Bazar inválido.")
+    req = urllib.request.Request(f"{SUPABASE_URL}/storage/v1/object/authenticated/anexos/{urllib.parse.quote(caminho)}",
+                                 headers={"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {repo.token}"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        dados, tipo = r.read(limite + 1), r.headers.get("Content-Type") or "image/jpeg"
+    if len(dados) > limite:
+        raise ErroNuvem("Foto grande demais para a arte (máx. 20 MB).")
+    return dados, tipo.split(";")[0]
+
+
+def _bazar_subir(repo, caminho, dados, tipo):
+    req = urllib.request.Request(f"{SUPABASE_URL}/storage/v1/object/anexos/{caminho}", data=dados, method="POST",
+                                 headers={"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {repo.token}",
+                                          "Content-Type": tipo})
+    with urllib.request.urlopen(req, timeout=60):
+        pass
+    return caminho
+
+
+def _bazar_preco_sku(repo):
+    """Preço médio de venda por SKU (valor ÷ unidades) do relatório de 30 dias ou, sem venda nele, do bloco mais recente."""
+    out = {}
+    for chave in [VENDAS_CHAVE] + [f"{VENDAS_BLOCO_CHAVE}{n}" for n in VENDAS_BLOCOS]:
+        for x in ((_vendas_atuais(repo, chave) or {}).get("linhas") or []):
+            k = estoque._chave(x.get("sku") or "")
+            if k and k not in out and x.get("unidades") and x.get("valor"):
+                out[k] = round(float(x["valor"]) / float(x["unidades"]), 2)
+    return out
+
+
+def rota_bazar(repo, metodo, rota, q, corpo):
+    d = json.loads(corpo or b"{}") if metodo == "POST" and rota != "bazar_importar" else {}
+    quem = str(getattr(repo, "email", "") or "")
+    if rota == "bazar":
+        return bazar.painel(repo)
+    if rota == "bazar_salvar" and metodo == "POST":
+        return {"ok": True, "produto": bazar.salvar_produto(repo, d, quem)}
+    if rota == "bazar_venda" and metodo == "POST":
+        return {"ok": True, "venda": bazar.salvar_venda(repo, d, quem)}
+    if rota == "bazar_mensagem" and metodo == "POST":
+        return {"ok": True, "mensagem_fixada": bazar.salvar_mensagem(repo, d.get("texto"))}
+    if rota == "bazar_importar" and metodo == "POST":
+        return {"ok": True, "novos": bazar.importar_planilha(repo, corpo or b"", quem)}
+    if rota == "bazar_levar" and metodo == "POST":
+        precos_sku = _bazar_preco_sku(repo)
+        itens = [dict(x, preco=x.get("preco") or precos_sku.get(estoque._chave(str(x.get("sku") or "")))) for x in (d.get("itens") or [])]
+        return {"ok": True, "criados": bazar.levar_ao_bazar(repo, itens, quem)}
+    p = next((x for x in bazar.calcular(bazar.produtos(repo), bazar.vendas(repo)) if x["id"] == int(d.get("id") or q.get("id") or 0)), None)
+    if rota.startswith("bazar_") and rota in ("bazar_post", "bazar_frase", "bazar_arte") and not p:
+        raise ErroNuvem("Produto do Bazar não encontrado.")
+    if rota == "bazar_post":
+        return {"texto": bazar.post(p)}
+    if rota == "bazar_frase" and metodo == "POST":
+        # a IA só escreve a frase e escolhe o coração; números nunca vêm dela
+        try:
+            texto, _ = ia.gemini_texto(bazar.pedido_frase(p), web=False, max_tokens=200, timeout=60)
+        except ia.SemIA:
+            try:
+                texto = ia.perguntar(bazar.pedido_frase(p), web=False, max_tokens=200)[0]
+            except ia.SemIA:
+                texto = ""
+        cor, frase = bazar.ler_frase(texto)
+        if not frase:
+            raise ErroNuvem("A IA não devolveu a frase; escreva à mão.")
+        bazar.salvar_produto(repo, {"id": p["id"], "descricao": frase, "cor": cor}, quem)
+        return {"ok": True, "descricao": frase, "cor": cor}
+    if rota == "bazar_arte" and metodo == "POST":
+        if not p.get("foto"):
+            raise ErroNuvem("Envie a foto do produto antes de pedir a arte.")
+        import base64
+        foto, tipo = _bazar_arquivo(repo, p["foto"])
+        try:
+            img_b64, _, modelo = ia.gemini_gerar_imagem(bazar.pedido_arte(p), imagens=[(tipo, base64.b64encode(foto).decode())])
+        except ia.SemIA as e:
+            raise ErroNuvem(f"O Gemini não fez a arte: {e}")
+        img = base64.b64decode(img_b64)
+        mime = "image/png" if img.startswith(b"\x89PNG") else "image/jpeg"
+        caminho = _bazar_subir(repo, f"bazar/{p['id']}/arte-{int(time.time() * 1000)}.{'png' if mime == 'image/png' else 'jpg'}", img, mime)
+        bazar.salvar_produto(repo, {"id": p["id"], "arte": caminho}, quem)
+        return {"ok": True, "arte": caminho, "modelo": modelo}
+    raise ErroNuvem("Rota do Bazar desconhecida.", 404)
 
 
 def para_promocao(repo):
