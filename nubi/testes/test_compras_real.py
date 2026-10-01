@@ -139,13 +139,8 @@ try:
         sem_rolagem(cel, "cel", "estoque")
         cel.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "estoque_cel.png"), full_page=True)
         cel.close()
-        # 28/09 (Bruno): perseguir anúncios (sem a chave do Apify aqui: cadastra e avisa da chave)
-        pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/perseguir"); pg.wait_for_selector("#pg-form", timeout=15000)
-        assert "APIFY_TOKEN" in pg.inner_text("#main")
-        pg.fill("#pg-anuncio", "MLB4577439527"); pg.fill("#pg-termo", "ferrari black"); pg.fill("#pg-apelido", "Ferrari Black 125")
-        pg.click("#pg-form button"); pg.wait_for_selector("text=Ferrari Black 125", timeout=10000)
-        assert "“ferrari black”" in pg.inner_text("tbody") and "ainda não conferido" in pg.inner_text("tbody")
-        pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), "perseguir.png"), full_page=True)
+        # 01/10 (Bruno: "o monitoramento é o rastreamento"): a aba Perseguir saiu; o endereço antigo leva ao Monitor de preços
+        pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/perseguir"); pg.wait_for_function("location.hash === '#/precos'", timeout=15000)
         assert not erros, erros
         b.close()
 finally:
