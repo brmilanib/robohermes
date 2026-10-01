@@ -1725,7 +1725,7 @@ def _periodo_upseller(pg, ini, fim):
         raise Falha(f"o seletor de datas não aceitou {br(ini)} a {br(fim)} (ficou {lido[0]} a {lido[1]})")
 
 
-def baixar_vendas(pg, cfg, p=None, dia=None, relatorio="anuncio"):
+def baixar_vendas(pg, cfg, p=None, dia=None, relatorio="anuncio", periodo=None):
     """Baixa 'Vendas por Anúncio' (últimos 30 dias) do UpSeller. -> arquivo .xlsx (nome do UpSeller, sem renomear).
     dia='AAAA-MM-DD' (01/10): o relatório só desse dia, para o histórico por dia."""
     url = cfg.get("upseller_vendas_url") or UPSELLER_VENDAS
@@ -1774,11 +1774,13 @@ def baixar_vendas(pg, cfg, p=None, dia=None, relatorio="anuncio"):
           + a.getAttribute('href')).filter(t => /analy|analis|report|relat|statis|data|venda|sales/i.test(t)).slice(0, 25).join(' | ')""")
         raise Falha("não achei 'Análises → Vendas por Anúncio' no UpSeller. Links de análise na página: " + str(links)[:900]
                     + " · Na tela: " + str(pg.evaluate(JS_TEXTOS))[:500] + " " + diagnostico(pg))
-    if dia:
+    if periodo:                                  # 01/10: blocos 31–60, 61–90, 91–120 dias (lista de produtos para promoção)
+        _periodo_upseller(pg, periodo[0], periodo[1])
+    elif dia:
         _periodo_upseller(pg, dia, dia)
     else:
         _clicar_texto(pg, [r"^\s*[ÚU]ltimos 30 dias\s*$", r"^\s*30 dias\s*$"], 4)
-    destino = PASTA / ("vendas_dia" if dia else "vendas_abc" if relatorio == "abc" else "vendas")
+    destino = PASTA / ("vendas_bloco" if periodo else "vendas_dia" if dia else "vendas_abc" if relatorio == "abc" else "vendas")
     destino.mkdir(parents=True, exist_ok=True)
     # 29/09 (Mac): o Chrome fecha sozinho no download (como no estoque, 25/09): guarda o login e os links antes, deixa uma aba
     # extra aberta e, se cair, baixa pelo link com um cliente à parte (_baixar_link)
@@ -1826,7 +1828,45 @@ def baixar_vendas(pg, cfg, p=None, dia=None, relatorio="anuncio"):
         salvar_config(cfg)
     if dia and dia.replace("-", "") + "-" + dia.replace("-", "") not in arq.name:
         raise Falha(f"o arquivo baixado não é do dia {dia} ({arq.name}); o período não mudou")
+    if periodo and periodo[0].replace("-", "") + "-" + periodo[1].replace("-", "") not in arq.name:
+        raise Falha(f"o arquivo baixado não é de {periodo[0]} a {periodo[1]} ({arq.name}); o período não mudou")
     return arq
+
+
+def vendas_blocos(p, cfg, token):
+    """01/10 (Bruno: "lista de produtos para promocionar caso passe de 60 dias sem vendas"): 1 vez por dia, o Vendas por
+    Anúncio de 31–60, 61–90 e 91–120 dias atrás (o nubi diz quais faltam) → estoque_vendas_importar?bloco=. Nunca derruba nada."""
+    try:
+        blocos = (api(token, "estoque_vendas_blocos_pendentes") or {}).get("blocos") or []
+    except Exception as e:  # noqa: BLE001
+        return f"vendas em blocos: não consultei ({str(e)[:120]})"
+    if not blocos:
+        return ""
+    feitos, erro, ctx = [], "", None
+    try:
+        ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        for b in blocos[:3]:
+            try:
+                arq = baixar_vendas(pg, cfg, p, periodo=(b["inicio"], b["fim"]))
+                api(token, "estoque_vendas_importar", {"arquivo": arq.name, "bloco": b["bloco"]}, arq.read_bytes())
+                feitos.append(b["bloco"])
+                devagar(4)
+            except SessaoExpirada:
+                raise
+            except Exception as e:  # noqa: BLE001
+                erro = f"{b['bloco']} dias: {str(e)[:200]}"
+                log(f"  vendas em blocos {erro}")
+                break
+    except Exception as e:  # noqa: BLE001
+        erro = erro or str(e)[:200]
+    finally:
+        if ctx is not None:
+            try:
+                ctx.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return f"vendas em blocos: {', '.join(feitos) or 'nenhum'}" + (f" · parou em {erro}" if erro else "")
 
 
 VENDAS_DIAS_RODADA = 4          # ontem + até 3 dias que faltam dos últimos 30 (o histórico enche em ~10 dias)
@@ -1952,10 +1992,46 @@ def baixar_gestor_vendas(pg, cfg, p=None):
     return arq, ini, fim
 
 
+GESTOR_ABC = os.environ.get("NUBI_GESTOR_ABC", "")
+
+
+def baixar_gestor_abc(pg, cfg, p=None):
+    """01/10 (Bruno: "a Curva ABC do Gestor traz o custo de ADS e a margem de lucro líquido de cada produto"): Curva ABC →
+    Últimos 30 dias → "Solicitar Relatório" (só esse botão; nunca salvar/importar/excluir). -> arquivo .xlsx"""
+    url = cfg.get("gestor_abc_url") or GESTOR_ABC or f"{GESTOR}/abcCurve"
+    pg.goto(url, wait_until="domcontentloaded", timeout=90000)
+    devagar(6)
+    if "/auth" in urllib.parse.urlparse(pg.url).path or pg.locator("input[type=password]:visible").count():
+        raise SessaoExpirada(f"O Gestor Seller pediu login de novo (curva ABC). Rode {_onde_rodar('entrar-gestor')}")
+    if not pg.get_by_text(re.compile(r"Solicitar relat[óo]rio", re.I)).count():
+        _clicar_texto(pg, [r"^\s*Curva ABC\s*$"], 5)
+    botao = pg.get_by_text(re.compile(r"Solicitar relat[óo]rio", re.I))
+    if not botao.count():
+        raise Falha("não achei 'Curva ABC' → 'Solicitar Relatório' no Gestor Seller. Na tela: " + str(pg.evaluate(JS_TEXTOS))[:600])
+    alvo = botao.first
+    if GESTOR_NAO_CLICAR.search(alvo.inner_text() or ""):
+        raise Falha("o botão da curva ABC do Gestor tem texto proibido (salvar/importar/excluir); não cliquei")
+    destino = PASTA / "gestor_abc"
+    destino.mkdir(parents=True, exist_ok=True)
+    try:
+        with pg.expect_download(timeout=120000) as dl:
+            alvo.click(timeout=15000)
+    except Exception as e:  # noqa: BLE001
+        raise Falha(f"pedi a curva ABC ao Gestor, mas o arquivo não baixou ({e.__class__.__name__}). Na tela: "
+                    + str(pg.evaluate(JS_TEXTOS))[:500])
+    d = dl.value
+    arq = destino / (d.suggested_filename or "relatorio_curva_abc.xlsx")
+    _salvar_download(pg, d, arq)
+    if not cfg.get("gestor_abc_url") and "/auth" not in pg.url:
+        cfg["gestor_abc_url"] = pg.url
+        salvar_config(cfg)
+    return arq
+
+
 def coletar_estoque(p, cfg, token, enviar=True):
     ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("upseller_ver") else None)
     pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-    vendas, nota_vendas, abc = None, "", None
+    vendas, nota_vendas, abc, gestor_abc = None, "", None, None
     try:
         arq, esperado = baixar_estoque(pg, p)
         try:
@@ -2007,6 +2083,11 @@ def coletar_estoque(p, cfg, token, enviar=True):
         except Exception as ev:  # noqa: BLE001
             enviar_foto(pg3, f"gestor vendas: {str(ev)[:150]}", str(ev)[:3000])
             raise
+        try:                                    # 01/10: Curva ABC do Gestor (ADS e lucro pós ADS), falha não derruba nada
+            gestor_abc = baixar_gestor_abc(pg3, cfg, p)
+        except Exception as ea:  # noqa: BLE001
+            nota_gestor = f"curva ABC do Gestor: não baixou ({str(ea)[:200]})"
+            log("  " + nota_gestor)
     except Exception as ev:  # noqa: BLE001
         nota_gestor = f"vendas do Gestor: não baixou ({ev.__class__.__name__}: {str(ev)[:500]})"
         log("  " + nota_gestor)
@@ -2041,6 +2122,13 @@ def coletar_estoque(p, cfg, token, enviar=True):
         except Exception as ev:  # noqa: BLE001
             nota_gestor = f"vendas do Gestor: não importou ({str(ev)[:300]})"
             log("  " + nota_gestor)
+    if gestor_abc:
+        try:
+            for linha in api(token, "gestor_vendas_importar", {"arquivo": gestor_abc.name}, gestor_abc.read_bytes()).get("log") or []:
+                log("  " + linha)
+                nota_gestor = (nota_gestor + " · " if nota_gestor else "") + linha[:200]
+        except Exception as ea:  # noqa: BLE001
+            nota_gestor = (nota_gestor + " · " if nota_gestor else "") + f"curva ABC do Gestor: não importou ({str(ea)[:200]})"
     if nota_gestor:
         nota_vendas = (nota_vendas + " · " if nota_vendas else "") + nota_gestor
     if abc:
@@ -2050,7 +2138,7 @@ def coletar_estoque(p, cfg, token, enviar=True):
                 nota_vendas = (nota_vendas + " · " if nota_vendas else "") + linha[:200]
         except Exception as ea:  # noqa: BLE001
             nota_vendas = (nota_vendas + " · " if nota_vendas else "") + f"análise ABC: não importou ({str(ea)[:200]})"
-    nota_dia = vendas_por_dia(p, cfg, token)      # 01/10: histórico por dia (ontem + dias que faltam)
+    nota_dia = " · ".join(x for x in (vendas_por_dia(p, cfg, token), vendas_blocos(p, cfg, token)) if x)   # 01/10
     if nota_dia:
         log("  " + nota_dia)
         nota_vendas = (nota_vendas + " · " if nota_vendas else "") + nota_dia

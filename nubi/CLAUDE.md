@@ -1113,3 +1113,22 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   - **Atalho do Mapeamento do UpSeller (01/10)**: na lista "sem SKU", botão "🔗 Abrir o Mapeamento no UpSeller" (o endereço é
     colado pelo Bruno 1 vez e guardado em `upseller|links`, rota `estoque_upseller_links`; só aceita https://app.upseller.com/…;
     "trocar endereço" muda) e "📋 copiar ID" em cada anúncio sem SKU para colar na busca do Mapeamento.
+- **Gestor Seller em Análises de Vendas (01/10, Bruno mandou `relatorio_curva_abc.xlsx` e `reports_sales.csv`)**:
+  - Relatório de vendas do Gestor (CSV ";", 1 linha por pedido): `GESTOR_VENDAS_EXATOS` (nomes exatos vencem as regras por
+    palavra: antes o "Preço Unitário" virava valor, "SKU Externo" o SKU e "Marketplace" a conta) + data, status, marketplace,
+    estado, logística, recebido. Custo e imposto são do pedido inteiro (lucro = recebido − custo − imposto). Arquivo de
+    09/2026: 3.248 linhas, R$ 822.866, lucro R$ 141.003.
+  - Curva ABC do Gestor (`eh_abc_gestor`/`ler_abc_gestor`/`resumo_abc_gestor`, aba "Todas"): curva A/B/C/Z (Z = sem venda,
+    só ADS), ADS = lucro bruto − lucro pós ADS, MPA = lucro pós ADS ÷ faturamento (a coluna "Margem (%)" do arquivo vem /100
+    duas vezes e não é usada); conferida com a tela (A: 41 produtos, 2.372 un., R$ 657.229,60, 16,57% / 13,63%). Entra pela
+    mesma rota `gestor_vendas_importar` (reconhece o arquivo) → `gestor_abc|atual`. Coletor: `baixar_gestor_abc`
+    (Curva ABC → "Solicitar Relatório", espera o download 2 min; falha não derruba nada), junto das vendas do Gestor.
+  - Página `#/analises-vendas/lucro` (`telaLucroAds`, rota `estoque_analise_lucro` = `analise_lucro`): faturamento, lucro,
+    ADS, lucro pós ADS; 4 quadros das curvas; vendas por dia pela data do pedido; por conta, marketplace, Full × não Full
+    (só ML) e estado; por SKU com ADS, MPA (vermelho se negativa ou Z), 7d/15d pela data do pedido (`gestor_janelas_sku`,
+    pedidos cancelados/reembolsados/não pagos fora), disponível e cobertura.
+  - **Para promoção** (`#/analises-vendas/promocao`, rota `estoque_para_promocao` = `para_promocao`): o coletor baixa 1 vez
+    por dia o Vendas por Anúncio de 31–60, 61–90 e 91–120 dias atrás (`vendas_blocos` → `estoque_vendas_blocos_pendentes`,
+    `baixar_vendas(periodo=)`, `estoque_vendas_importar?bloco=` → `vendas_anuncio_bloco|<bloco>`); SKUs com disponível e sem
+    venda há 30+/60+/90+/120+ dias, dinheiro parado (disponível × custo) e "ADS sem venda" (curva Z do Gestor). Não precisa
+    raspar a tela "Vendas Por Anúncio" do Gestor (os blocos do UpSeller dão o mesmo 30/60/90/120). Teste: `test_gestor_lucro.py`.

@@ -1077,6 +1077,7 @@ header.top{padding:7px 16px}
 .abc{display:inline-block;min-width:20px;padding:1px 6px;border-radius:6px;font-size:11.5px;font-weight:700;text-align:center}
 .abc-A{background:rgba(37,99,235,.14);color:#2563eb}.abc-B{background:rgba(217,119,6,.15);color:#b45309}.abc-C{background:rgba(220,38,38,.12);color:#dc2626}
 #mv-semsku.on{outline:2px solid var(--warn,#d97706);outline-offset:-2px}
+#lu-tab tr.ec-urg td,#pr-tab tr.ec-urg td{background:rgba(220,38,38,.07)}#pr-tab tr.ec-alerta td{background:rgba(234,179,8,.10)}[data-min].on{outline:2px solid currentColor;outline-offset:-2px}.lu-curva.on{outline:2px solid currentColor;outline-offset:-2px}
 </style>
 </head>
 <body>
@@ -3170,7 +3171,7 @@ function abrirEcLista(campo, valor) {
 }
 // ---------- Minhas Lojas → 📊 Análises de Vendas (01/10; nome como o menu Análises do UpSeller, Bruno: "crie um menu Minhas Vendas com os dados do UpSeller Vendas por
 // Anúncio primeiro"). O coletor baixa o relatório de 30 dias junto do estoque; o servidor cruza com o estoque (só números).
-const MV_MENU = [["anuncio", "🧾 Vendas por Anúncio"], ["abc", "🔤 Curva ABC"]];
+const MV_MENU = [["anuncio", "🧾 Vendas por Anúncio"], ["abc", "🔤 Curva ABC"], ["lucro", "💰 Lucro e ADS (Gestor)"], ["promocao", "🏷️ Para promoção"]];
 // 01/10 (Bruno: "vendas ABC do UpSeller, separado"): a mesma conta da Análise ABC do UpSeller (A até 80% acumulado, B até
 // 95%, C o resto), por valor ou por volume, feita com o relatório Vendas por Anúncio (conferida: 59/95/166 = 79,71/15,23/5,06%)
 function telaCurvaABC(r) {
@@ -3225,6 +3226,123 @@ function telaCurvaABC(r) {
   };
   desenhar();
 }
+// 01/10 (Bruno: "a Curva ABC do Gestor traz o custo de ADS e a margem de lucro líquido de cada produto, ótimo pra melhorar a
+// margem"; relatório de vendas do Gestor com data, conta, estado e logística). Rota estoque_analise_lucro; só números.
+async function telaLucroAds() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o lucro e o ADS do Gestor Seller</div></div>`;
+  let r;
+  try { r = await api("estoque_analise_lucro"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/analises-vendas/lucro")) return;
+  if (r.vazio) { main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas · Lucro e ADS</h1></div><div class="card empty">Ainda não chegaram a Curva ABC e o relatório de vendas do Gestor Seller. O coletor baixa os dois junto do estoque (01:00, 12:00 e 19:00).</div>`; return; }
+  const t = r.totais, f = S.luF || (S.luF = {curva: "", q: "", ord: "mpa"});
+  const pct = v => v == null ? "—" : nf1.format(v) + "%";
+  const mpaCls = v => v == null ? "" : v < 0 ? "neg" : v < 8 ? "warn-t" : "pos";
+  const COR = {A: "#16a34a", B: "#2563eb", C: "#d97706", Z: "#475569"};
+  const ORD = {mpa: ["Pior MPA primeiro", (a, b) => (a.mpa_pct ?? (a.curva === "Z" ? -1e9 : 1e9)) - (b.mpa_pct ?? (b.curva === "Z" ? -1e9 : 1e9))],
+    ads: ["Mais ADS", (a, b) => b.ads - a.ads], valor: ["Faturamento", (a, b) => b.valor - a.valor],
+    lucro: ["Lucro pós ADS", (a, b) => b.lucro_pos_ads - a.lucro_pos_ads], ads_pct: ["ADS % do faturamento", (a, b) => (b.ads_pct ?? -1) - (a.ads_pct ?? -1)]};
+  const grupo = (titulo, xs, col) => `<div class="card"><h3 style="margin:0 0 8px">${titulo}</h3><table class="t"><thead><tr><th>${col}</th>
+    <th class="num">Pedidos</th><th class="num">Unidades</th><th class="num">Faturamento</th><th class="num">Lucro</th><th class="num">Margem</th></tr></thead><tbody>
+    ${xs.map(x => `<tr><td data-l="Nome"><b>${esc(x.nome)}</b></td><td class="num" data-l="Pedidos">${nf0.format(x.pedidos)}</td><td class="num" data-l="Unidades">${nf0.format(x.unidades)}</td>
+      <td class="num" data-l="Faturamento">${rsES(x.valor)}</td><td class="num" data-l="Lucro">${rsES(x.lucro)}</td>
+      <td class="num" data-l="Margem"><b class="${mpaCls(x.margem_pct)}">${pct(x.margem_pct)}</b></td></tr>`).join("")}</tbody></table></div>`;
+  const desenhar = () => {
+    const q = f.q.toLowerCase().trim();
+    const xs = r.produtos.filter(x => (!f.curva || x.curva === f.curva) && (!q || (x.sku + " " + x.produto).toLowerCase().includes(q))).sort(ORD[f.ord][1]);
+    $("#lu-tab tbody").innerHTML = xs.map(x => `<tr class="${x.mpa_pct != null && x.mpa_pct < 0 || x.curva === "Z" ? "ec-urg" : ""}">
+      <td data-l="Produto"><b>${esc(x.produto || x.sku)}</b><div class="muted" style="font-size:11.5px">${esc(x.sku)}</div></td>
+      <td data-l="Curva"><span class="abc" style="background:${COR[x.curva]}22;color:${COR[x.curva]}">${x.curva}</span></td>
+      <td class="num" data-l="Unidades">${nf0.format(x.unidades)}${x.un7 != null ? `<div class="muted" style="font-size:11px">7d: ${nf0.format(x.un7)} · 15d: ${nf0.format(x.un15)}</div>` : ""}</td>
+      <td class="num" data-l="Faturamento">${rsES(x.valor)}</td>
+      <td class="num" data-l="Lucro bruto">${rsES(x.lucro_bruto)}<div class="muted" style="font-size:11px">${pct(x.margem_pct)}</div></td>
+      <td class="num" data-l="ADS"><b>${rsES(x.ads)}</b><div class="muted" style="font-size:11px">${pct(x.ads_pct)} do fat.</div></td>
+      <td class="num" data-l="Lucro pós ADS"><b>${rsES(x.lucro_pos_ads)}</b></td>
+      <td class="num" data-l="MPA"><b class="${mpaCls(x.mpa_pct)}">${x.curva === "Z" ? "sem venda" : pct(x.mpa_pct)}</b></td>
+      <td class="num" data-l="Disponível">${x.disponivel == null ? "—" : `<b class="${x.disponivel > 0 ? "" : "neg"}">${nf0.format(x.disponivel)}</b>`}</td>
+      <td class="num" data-l="Cobertura">${x.cobertura_dias == null ? "—" : nf0.format(x.cobertura_dias) + " d"}</td></tr>`).join("")
+      || `<tr><td colspan="10" class="empty">Nenhum produto.</td></tr>`;
+    $("#lu-n").textContent = `${nf0.format(xs.length)} de ${nf0.format(r.produtos.length)} produto(s)`;
+    main.querySelectorAll(".lu-curva").forEach(b => b.classList.toggle("on", b.dataset.curva === f.curva));
+  };
+  const dia = x => x ? String(x).slice(8, 10) + "/" + String(x).slice(5, 7) : "";
+  main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas · Lucro e ADS</h1>
+      <span class="muted">Gestor Seller · ${r.abc ? `curva ${dia(r.abc.inicio)} a ${dia(r.abc.fim)}` : "sem curva ABC"} · ${r.vendas ? `${nf0.format(r.totais.pedidos)} pedidos até ${dia(r.ultimo_dia)}` : "sem relatório de vendas"}</span></div>
+    <div class="kpis" style="margin:12px 0">
+      <div class="kpi"><div class="l">Faturamento</div><div class="v">${rsES(t.valor)}</div><div class="s">${nf0.format(t.unidades)} un. · ${nf0.format(t.pedidos)} pedidos</div></div>
+      <div class="kpi"><div class="l">Lucro (antes do ADS)</div><div class="v">${rsES(t.lucro)}</div><div class="s">margem ${pct(t.margem_pct)}</div></div>
+      <div class="kpi"><div class="l">Gasto com ADS</div><div class="v warn-t">${rsES(t.ads)}</div><div class="s">${t.valor ? pct(t.ads / t.valor * 100) + " do faturamento" : ""}</div></div>
+      <div class="kpi"><div class="l">Lucro pós ADS</div><div class="v pos">${rsES(t.lucro_pos_ads)}</div><div class="s">curva ABC do Gestor</div></div>
+    </div>
+    ${r.abc ? `<div class="kpis" style="margin:0 0 12px">${r.abc.curvas.map(c => `<div class="kpi lu-curva" data-curva="${c.curva}" style="cursor:pointer;border-top:3px solid ${COR[c.curva]}" title="Filtrar a curva ${c.curva}">
+      <div class="l">Curva ${c.curva}${c.curva === "Z" ? " (gasto sem venda)" : ""}</div><div class="v">${c.curva === "Z" ? rsES(-c.ads) : rsES(c.valor)}</div>
+      <div class="s">${nf0.format(c.produtos)} produto(s) · ${nf0.format(c.unidades)} un.<br>lucro pós ADS ${rsES(c.lucro_pos_ads)} ${c.mpa_pct != null ? `(${pct(c.mpa_pct)})` : ""} · ADS ${rsES(c.ads)}</div></div>`).join("")}</div>` : ""}
+    ${(r.serie || []).length ? `<div class="card" style="margin-bottom:12px"><h3 style="margin:0 0 4px">Vendas por dia (data do pedido no Gestor)</h3>${mvSerie(r.serie)}</div>` : ""}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px;margin-bottom:12px">
+      ${grupo("Por conta", r.por_conta, "Conta")}${grupo("Por marketplace", r.por_marketplace, "Marketplace")}
+      ${r.por_logistica.length ? grupo("Mercado Livre: Full × não Full", r.por_logistica, "Logística") : ""}${grupo("Por estado (comprador)", r.por_estado, "UF")}</div>
+    ${r.produtos.length ? `<div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <input type="search" id="lu-q" placeholder="Buscar SKU ou produto…" value="${esc(f.q)}" style="flex:1;min-width:200px">
+      <select id="lu-curva"><option value="">Todas as curvas</option>${["A", "B", "C", "Z"].map(k => `<option ${f.curva === k ? "selected" : ""} value="${k}">Curva ${k}</option>`).join("")}</select>
+      <select id="lu-ord">${Object.entries(ORD).map(([k, [n]]) => `<option ${f.ord === k ? "selected" : ""} value="${k}">Ordenar: ${n}</option>`).join("")}</select>
+      <span class="muted" id="lu-n"></span></div>
+      <div class="rolar"><table class="t" id="lu-tab"><thead><tr><th>Produto</th><th>Curva</th><th class="num">Unidades</th><th class="num">Faturamento</th>
+        <th class="num">Lucro bruto</th><th class="num" title="Lucro bruto − lucro pós ADS">ADS</th><th class="num">Lucro pós ADS</th>
+        <th class="num" title="Margem pós ADS = lucro pós ADS ÷ faturamento">MPA</th><th class="num">Disponível</th><th class="num">Cobertura</th></tr></thead><tbody></tbody></table></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Linha vermelha: dá prejuízo depois do ADS (MPA negativa) ou é curva Z (gastou com ADS sem vender).
+        MPA verde ≥ 8%, amarela de 0 a 8%. Unidades de 7 e 15 dias pela data de cada pedido do Gestor.</p></div>` : ""}`;
+  if (r.produtos.length) {
+    $("#lu-q").oninput = e => { f.q = e.target.value; desenhar(); };
+    $("#lu-curva").onchange = e => { f.curva = e.target.value; desenhar(); };
+    $("#lu-ord").onchange = e => { f.ord = e.target.value; desenhar(); };
+    main.querySelectorAll(".lu-curva").forEach(b => b.onclick = () => { f.curva = f.curva === b.dataset.curva ? "" : b.dataset.curva; $("#lu-curva").value = f.curva; desenhar(); });
+    desenhar();
+  }
+}
+// 01/10 (Bruno: "lista de produtos para promocionar caso passe de 60 dias sem vendas"): estoque do UpSeller × vendas de
+// 0–30 / 31–60 / 61–90 / 91–120 dias (o coletor baixa os blocos 1 vez por dia). Rota estoque_para_promocao.
+async function telaParaPromocao() {
+  const main = $("#main");
+  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Procurando o estoque parado</div></div>`;
+  let r;
+  try { r = await api("estoque_para_promocao"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
+  if (!location.hash.startsWith("#/analises-vendas/promocao")) return;
+  const f = S.prF || (S.prF = {min: r.janelas.includes("31-60") ? 60 : 30, q: ""});
+  const NOME = {"0-30": "0–30 d", "31-60": "31–60 d", "61-90": "61–90 d", "91-120": "91–120 d"};
+  const corte = [30, 60, 90, 120].filter(n => r.janelas.some(j => j.endsWith("-" + n)));
+  const desenhar = () => {
+    const q = f.q.toLowerCase().trim();
+    const xs = r.itens.filter(x => x.sem_venda_dias >= f.min && (!q || (x.sku + " " + x.titulo).toLowerCase().includes(q)));
+    const parado = xs.reduce((a, x) => a + (x.parado || 0), 0);
+    $("#pr-tab tbody").innerHTML = xs.map(x => `<tr class="${x.sem_venda_dias >= 90 ? "ec-urg" : x.sem_venda_dias >= 60 ? "ec-alerta" : ""}">
+      <td data-l="Produto"><b>${esc(x.titulo || x.sku)}</b><div class="muted" style="font-size:11.5px">${esc(x.sku)}${x.ads_sem_venda ? ` · <span class="neg" title="Curva Z do Gestor: gastou com ADS sem vender">ADS sem venda ${rsES(x.ads_sem_venda)}</span>` : ""}</div></td>
+      <td class="num" data-l="Sem venda há"><b class="${x.sem_venda_dias >= 90 ? "neg" : "warn-t"}">${x.sem_venda_dias}+ dias</b></td>
+      <td class="num" data-l="Disponível"><b>${nf0.format(x.disponivel)}</b></td>
+      <td class="num" data-l="Custo médio">${x.custo != null ? rsES(x.custo) : "—"}</td>
+      <td class="num" data-l="Dinheiro parado"><b>${x.parado != null ? rsES(x.parado) : "—"}</b></td>
+      ${r.janelas.map(j => `<td class="num" data-l="${NOME[j]}">${nf0.format(x.vendas[j] || 0)}</td>`).join("")}</tr>`).join("")
+      || `<tr><td colspan="${5 + r.janelas.length}" class="empty">Nenhum produto com estoque parado há ${f.min}+ dias.</td></tr>`;
+    $("#pr-n").textContent = `${nf0.format(xs.length)} produto(s) · ${rsES(parado)} parados`;
+    main.querySelectorAll("[data-min]").forEach(b => b.classList.toggle("on", +b.dataset.min === f.min));
+  };
+  const dia = x => x ? String(x).slice(8, 10) + "/" + String(x).slice(5, 7) : "";
+  main.innerHTML = `<div class="es-cab"><h1>📊 Análises de Vendas · 🏷️ Para promoção</h1>
+      <span class="muted">Estoque do UpSeller com disponível e sem venda · vendas por anúncio do UpSeller (0–30 d: ${dia(r.vendas30.inicio)} a ${dia(r.vendas30.fim)})</span></div>
+    <div class="kpis" style="margin:12px 0">${corte.map(n => { const t = r.totais[r.janelas.find(j => j.endsWith("-" + n))] || {};
+      return `<div class="kpi" data-min="${n}" style="cursor:pointer" title="Mostrar os sem venda há ${n}+ dias"><div class="l">Sem venda há ${n}+ dias</div>
+        <div class="v ${n >= 90 ? "neg" : n >= 60 ? "warn-t" : ""}">${nf0.format(t.skus || 0)}</div><div class="s">${rsES(t.parado || 0)} parados</div></div>`; }).join("")}</div>
+    ${r.janelas.length < 4 ? `<p class="muted" style="font-size:12.5px;margin:0 0 10px">Ainda faltam ${["31-60", "61-90", "91-120"].filter(j => !r.janelas.includes(j)).map(j => NOME[j]).join(", ")}:
+      o coletor baixa esses períodos do Vendas por Anúncio do UpSeller 1 vez por dia, junto do estoque. Até lá a lista mostra o que conhece.</p>` : ""}
+    <div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <input type="search" id="pr-q" placeholder="Buscar SKU ou produto…" value="${esc(f.q)}" style="flex:1;min-width:200px"><span class="muted" id="pr-n"></span></div>
+      <div class="rolar"><table class="t" id="pr-tab"><thead><tr><th>Produto</th><th class="num">Sem venda há</th><th class="num">Disponível</th><th class="num">Custo médio</th>
+        <th class="num" title="Disponível × custo médio">Dinheiro parado</th>${r.janelas.map(j => `<th class="num" title="Unidades vendidas de ${NOME[j]} atrás">${NOME[j]}</th>`).join("")}</tr></thead><tbody></tbody></table></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Ordem: há mais tempo sem vender e, depois, mais dinheiro parado. Linha amarela 60+ dias, vermelha 90+.
+        "ADS sem venda" = curva Z do Gestor Seller (gastou com anúncio patrocinado e não vendeu).</p></div>`;
+  $("#pr-q").oninput = e => { f.q = e.target.value; desenhar(); };
+  main.querySelectorAll("[data-min]").forEach(b => b.onclick = () => { f.min = +b.dataset.min; desenhar(); });
+  desenhar();
+}
 // barras das unidades por dia (SVG simples, sem biblioteca)
 function mvSerie(xs) {
   const W = 900, H = 140, max = Math.max(1, ...xs.map(x => x.unidades || 0)), bw = W / xs.length;
@@ -3235,6 +3353,8 @@ function mvSerie(xs) {
         ${xs.length <= 31 ? `<text x="${(i * bw + bw / 2).toFixed(1)}" y="${H + 13}" font-size="10" text-anchor="middle" fill="currentColor" opacity=".6">${x.dia.slice(8, 10)}</text>` : ""}</g>`; }).join("")}</svg>`;
 }
 async function telaMinhasVendas() {
+  if (location.hash.startsWith("#/analises-vendas/lucro")) return telaLucroAds();
+  if (location.hash.startsWith("#/analises-vendas/promocao")) return telaParaPromocao();
   const main = $("#main");
   main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo as vendas por anúncio do UpSeller</div></div>`;
   let r;

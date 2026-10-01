@@ -349,7 +349,14 @@ GESTOR_VENDAS_CAMPOS = (("frete", r"frete|envio"), ("imposto", r"imposto|tribut|
                         ("valor", r"faturamento|valor|receita|total|pre[çc]o"), ("unidades", r"quantidade|qtd|unidades"),
                         ("sku", r"\bsku\b"), ("pedido", r"pedido|order"), ("conta", r"conta|marketplace|loja|canal"),
                         ("produto", r"produto|t[íi]tulo|an[úu]ncio|descri"))
-GESTOR_VENDAS_NUMEROS = ("unidades", "valor", "custo", "imposto", "taxa", "frete", "lucro", "margem")
+GESTOR_VENDAS_NUMEROS = ("unidades", "valor", "custo", "imposto", "taxa", "frete", "lucro", "margem", "recebido")
+# 01/10 (CSV "reports_sales" do Gestor mandado pelo Bruno): nomes exatos das colunas vencem as regras por palavra (antes o
+# "Preço Unitário" virava o valor, o "SKU Externo" o SKU e o "Marketplace" a conta). Custo e imposto são do pedido inteiro.
+GESTOR_VENDAS_EXATOS = {"id do pedido": "pedido", "marketplace": "marketplace", "status": "status", "data de compra": "data",
+                        "nome da conta": "conta", "sku interno": "sku", "título": "produto", "quantidade": "unidades",
+                        "preço total": "valor", "comissão": "taxa", "taxa de envio": "frete", "recebido do marketplace": "recebido",
+                        "preço de custo": "custo", "imposto": "imposto", "lucro": "lucro", "margem(%)": "margem",
+                        "estado do comprador": "estado", "logística": "logistica"}
 
 
 def _linhas_planilha(conteudo):
@@ -376,8 +383,12 @@ def ler_gestor_vendas(conteudo):
     rows = _linhas_planilha(conteudo)
     for n, row in enumerate(rows[:15]):                    # o cabeçalho pode vir depois de um título/período
         cab = [_cab(c) for c in row]
-        mapa = {}
+        mapa = {i: GESTOR_VENDAS_EXATOS[c] for i, c in enumerate(cab) if c in GESTOR_VENDAS_EXATOS}
+        if len(mapa) < 6:
+            mapa = {}
         for i, c in enumerate(cab):
+            if i in mapa:
+                continue
             campo = next((campo for campo, rx in GESTOR_VENDAS_CAMPOS if c and re.search(rx, c)), None)
             if campo and campo not in mapa.values():
                 mapa[i] = campo
@@ -395,11 +406,72 @@ def ler_gestor_vendas(conteudo):
         for c in GESTOR_VENDAS_NUMEROS:
             if c in it:
                 it[c] = _num(str(it[c]).replace("%", "")) if isinstance(it[c], str) else _num(it[c])
-        for c in ("pedido", "conta", "produto"):
-            it[c] = str(it.get(c) or "").strip()[:300]
+        for c in ("pedido", "conta", "produto", "marketplace", "status", "estado", "logistica"):
+            if c in it or c in ("pedido", "conta", "produto"):
+                it[c] = str(it.get(c) or "").strip()[:300]
+        if it.get("data") not in (None, ""):
+            d = it["data"]
+            it["data"] = d.strftime("%Y-%m-%d %H:%M:%S") if hasattr(d, "strftime") else str(d).strip()[:19]
         out.append(it)
     if not out:
         raise ErroEstoque("nenhuma venda na planilha")
+    return out
+
+
+GESTOR_ABC_EXATOS = {"sku interno": "sku", "título": "produto", "curva": "curva", "unidades vendidas": "unidades",
+                     "faturamento total": "valor", "lucro bruto": "lucro_bruto", "lucro pós ads": "lucro_pos_ads"}
+
+
+def eh_abc_gestor(conteudo):
+    """True se é a Curva ABC do Gestor Seller (colunas Curva e Lucro Pós Ads)."""
+    try:
+        cab = [_cab(c) for c in (_linhas_planilha(conteudo)[:1] or [[]])[0]]
+    except Exception:  # noqa: BLE001
+        return False
+    return "curva" in cab and "lucro pós ads" in cab
+
+
+def ler_abc_gestor(conteudo):
+    """01/10 (Bruno: "o Gestor traz o custo de ADS e a margem de lucro líquido de cada produto"): Curva ABC do Gestor (1ª aba,
+    "Todas"). Por SKU: curva A/B/C/Z (Z = sem venda no período, só gasto), unidades, faturamento, lucro bruto, lucro pós ADS.
+    ADS = lucro bruto − lucro pós ADS; MPA = lucro pós ADS ÷ faturamento (conferido: Ferrari 13.989,78 ÷ 86.427,04 = 16,19%).
+    A coluna "Margem (%)" do arquivo vem dividida por 100 duas vezes: não é usada."""
+    rows = _linhas_planilha(conteudo)
+    cab = [_cab(c) for c in rows[0]]
+    mapa = {i: GESTOR_ABC_EXATOS[c] for i, c in enumerate(cab) if c in GESTOR_ABC_EXATOS}
+    if not {"sku", "curva", "lucro_pos_ads"} <= set(mapa.values()):
+        raise ErroEstoque("não parece a Curva ABC do Gestor Seller (faltam SKU Interno, Curva e Lucro Pós Ads)")
+    out = []
+    for row in rows[1:]:
+        it = {campo: row[i] if i < len(row) else None for i, campo in mapa.items()}
+        sku = str(it.get("sku") or "").strip()
+        curva = str(it.get("curva") or "").strip().upper()[:1]
+        if not sku or curva not in ("A", "B", "C", "Z"):
+            continue
+        n = {c: _num(it.get(c)) for c in ("unidades", "valor", "lucro_bruto", "lucro_pos_ads")}
+        bruto, pos, val = n["lucro_bruto"] or 0.0, n["lucro_pos_ads"] or 0.0, n["valor"] or 0.0
+        out.append({"sku": sku, "produto": str(it.get("produto") or "").strip()[:300], "curva": curva,
+                    "unidades": n["unidades"] or 0.0, "valor": round(val, 2), "lucro_bruto": round(bruto, 2),
+                    "lucro_pos_ads": round(pos, 2), "ads": round(bruto - pos, 2),
+                    "margem_pct": round(bruto / val * 100, 2) if val else None,
+                    "mpa_pct": round(pos / val * 100, 2) if val else None,
+                    "ads_pct": round((bruto - pos) / val * 100, 2) if val else None})
+    if not out:
+        raise ErroEstoque("nenhum produto com curva na planilha")
+    return out
+
+
+def resumo_abc_gestor(linhas):
+    """Totais por curva (como os 4 quadros da tela do Gestor)."""
+    out = []
+    for k in ("A", "B", "C", "Z"):
+        xs = [x for x in linhas if x["curva"] == k]
+        val = sum(x["valor"] for x in xs)
+        bruto = sum(x["lucro_bruto"] for x in xs)
+        pos = sum(x["lucro_pos_ads"] for x in xs)
+        out.append({"curva": k, "produtos": len(xs), "unidades": round(sum(x["unidades"] for x in xs)), "valor": round(val, 2),
+                    "lucro_bruto": round(bruto, 2), "lucro_pos_ads": round(pos, 2), "ads": round(bruto - pos, 2),
+                    "margem_pct": round(bruto / val * 100, 2) if val else None, "mpa_pct": round(pos / val * 100, 2) if val else None})
     return out
 
 
