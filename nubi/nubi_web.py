@@ -4675,6 +4675,15 @@ def rota_decants(repo, metodo, rota, q, corpo):
         linha = next((x for x in decants_planilha(repo)["itens"] if x["sku"] == str(d.get("sku") or "")), None)
         if not linha:
             raise ErroNuvem("Perfume não encontrado na planilha de decants (sem custo ou sem ml?).")
+        # 01/10 (Bruno): a menina escolhe no quadro quais tamanhos vão (árabe barato só 15 ml; nicho também os menores)
+        if "tamanhos" in d:
+            escolha = {int(t) for t in d.get("tamanhos") or [] if str(t).isdigit()}
+            if not escolha:
+                raise ErroNuvem("Marque pelo menos um tamanho para mandar ao Bazar.")
+            decants.salvar_item(repo, {"sku": linha["sku"], "tamanhos_bazar": sorted(escolha)})
+            linha = dict(linha, decants=[x for x in linha["decants"] if x["ml"] in escolha])
+            if not linha["decants"]:
+                raise ErroNuvem("Nenhum dos tamanhos marcados existe na planilha.")
         return {"ok": True, "produto": bazar.decant_ao_bazar(repo, linha, str(getattr(repo, "email", "") or ""))}
     raise ErroNuvem("Rota de decants desconhecida.", 404)
 

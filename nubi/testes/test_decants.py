@@ -81,7 +81,10 @@ def test_tela():
         elif nome == "decants_item":
             out = {"ok": True, "item": decants.salvar_item(r, d)}
         elif nome == "decants_bazar":
-            out = {"ok": True, "produto": bazar.decant_ao_bazar(r, next(x for x in planilha()["itens"] if x["sku"] == d["sku"]))}
+            linha = next(x for x in planilha()["itens"] if x["sku"] == d["sku"])
+            decants.salvar_item(r, {"sku": d["sku"], "tamanhos_bazar": d["tamanhos"]})
+            linha = dict(linha, decants=[x for x in linha["decants"] if x["ml"] in d["tamanhos"]])
+            out = {"ok": True, "produto": bazar.decant_ao_bazar(r, linha)}
         elif nome == "bazar":
             out = bazar.painel(r)
         elif nome == "bazar_post":
@@ -125,11 +128,19 @@ def test_tela():
                     pg.wait_for_function("document.querySelector('.dc-tab').innerText.includes('Asad')", timeout=8000)
                     pg.screenshot(path=str(RAIZ / "testes" / "saida_decants_pc.png"))
                     pg.locator("[data-dcbz='YARA100']").click()
+                    pg.wait_for_selector(".dc-tam", timeout=5000)
+                    assert pg.locator(".dc-tam").count() == 3
+                    pg.locator(".dc-tam input[value='5']").uncheck()
+                    pg.locator(".dc-tam input[value='10']").uncheck()
+                    pg.screenshot(path=str(RAIZ / "testes" / "saida_decants_tamanhos.png"))
+                    pg.click("#dct-ok")
                     pg.wait_for_selector(".bz-tab tbody tr", timeout=8000)
                     assert "#/bazar/decant" in pg.url and "🧪 DECANT" in pg.inner_text("#main")
                     pg.locator("[data-bzsh]").first.click()
                     pg.wait_for_selector("#bzc-txt", timeout=5000)
-                    assert pg.input_value("#bzc-txt").startswith("✨ DECANT NA PURE PERFUMARIA! ✨")
+                    t = pg.input_value("#bzc-txt")
+                    assert t.startswith("✨ DECANT NA PURE PERFUMARIA! ✨") and "15 ml" in t and "5 ml" not in t.replace("15 ml", ""), t
+                    assert decants.itens_extra(r)["YARA100"]["tamanhos_bazar"] == [15]
                     pg.wait_for_timeout(400)
                     pg.screenshot(path=str(RAIZ / "testes" / "saida_decants_arte.png"))
                     pg.click(".modal [data-fechar]")

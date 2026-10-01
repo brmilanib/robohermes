@@ -1130,6 +1130,10 @@ header.top{padding:7px 16px}
 .bz-mods{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
 .bz-mod{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:10px;cursor:pointer;color:var(--ink)}
 .bz-mod input{grid-row:span 2;margin-top:3px}.bz-mod small{font-size:11.5px;line-height:1.35}.bz-mod:has(input:checked){border-color:var(--accent);background:var(--soft)}
+.dc-tams{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.dc-tam{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer}
+.dc-tam input{grid-row:span 3;width:20px;height:20px}.dc-tam b{font-size:16px}.dc-tam-p{font-size:20px;font-weight:800;color:var(--good)}
+.dc-tam small{font-size:11.5px}.dc-tam:has(input:checked){border-color:var(--accent);background:var(--soft)}
 .dc-cfg{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:end}.dc-cfg label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:3px}
 .dc-cfg input{width:96px}.dc-cfg #dc-tam{width:120px}.dc-in{width:70px;text-align:right;padding:4px 6px}.dc-foto{cursor:pointer}.dc-oc td{opacity:.5}
 .bz-canc td{opacity:.5;text-decoration:line-through}.bz-canc td select{text-decoration:none}
@@ -3775,6 +3779,27 @@ async function bzCompartilhar(p) {
 }
 // ---------- Minhas Lojas → 🧪 Decants (01/10, Bruno: "decant de 15, 10 e 5 ml; custo por ml + R$ 5 do frasco, R$ 1 do adesivo e
 // R$ 1 da caixa, padrão mas editável; markup 2,3; foto e botão para o Bazar gerar a arte"). Contas no servidor (decants.py).
+// 01/10 (Bruno: "abre um quadro para ela marcar se vai só 15, 10 ou 5 ml; árabe barato só 15 ml, nicho talvez menores")
+function dcEscolherTamanhos(x) {
+  const marcados = new Set(x.tamanhos_bazar || x.decants.map(d => d.ml));
+  modal(`<h2 style="margin-top:0">🛍️ Mandar ao Bazar</h2>
+    <p style="margin:0 0 4px"><b>${esc(x.titulo)}</b></p>
+    <p class="muted" style="margin:0 0 12px;font-size:12.5px">Marque os tamanhos que vão para o Bazar (a arte e o post mostram só esses). O nubi lembra a escolha deste perfume.</p>
+    <div class="dc-tams">${x.decants.slice().sort((a, b) => a.ml - b.ml).map(d => `<label class="dc-tam">
+      <input type="checkbox" value="${d.ml}" ${marcados.has(d.ml) ? "checked" : ""}>
+      <b>${d.ml} ml</b><span class="dc-tam-p">${rsES(d.preco)}</span><small class="muted">custo ${rsES(d.custo)} · lucro ${rsES(d.lucro)}</small></label>`).join("")}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn" data-fechar>Cancelar</button><button class="btn primary" id="dct-ok">Mandar ao Bazar</button></div>
+    <div class="muted" id="dct-msg" style="margin-top:8px"></div>`, bg => {
+    bg.querySelector("#dct-ok").onclick = async () => {
+      const tams = [...bg.querySelectorAll(".dc-tam input:checked")].map(i => +i.value);
+      if (!tams.length) { bg.querySelector("#dct-msg").textContent = "Marque pelo menos um tamanho."; return; }
+      const b = bg.querySelector("#dct-ok"); b.disabled = true;
+      try { const r = await api("decants_bazar", {}, {method: "POST", body: JSON.stringify({sku: x.sku, tamanhos: tams})}); S.bz = null;
+        bg.remove(); toast(`No Bazar como ${r.produto.codigo} (${tams.sort((a, b) => a - b).join(", ")} ml). Abrindo para gerar a arte…`); location.hash = "#/bazar/decant"; }
+      catch (e) { bg.querySelector("#dct-msg").textContent = e.message; b.disabled = false; }
+    };
+  });
+}
 async function telaDecants() {
   const main = $("#main");
   if (!S.dc) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando a planilha de decants</div></div>`;
@@ -3816,7 +3841,7 @@ async function telaDecants() {
     const xs = visiveis();
     $(".dc-tab tbody").innerHTML = xs.map(x => `<tr class="${x.oculto ? "dc-oc" : ""}">
       <td data-l="Perfume"><div class="bz-prod"><label class="dc-foto" title="${x.foto ? "Trocar a foto" : "Colocar a foto do decant"}">${x.foto && links[x.foto] ? `<img src="${links[x.foto]}" alt="">` : `<span class="bz-sem">📷</span>`}<input type="file" accept="image/*" hidden data-dcfoto="${esc(x.sku)}"></label>
-        <div><b>${esc(x.titulo)}</b><div class="muted" style="font-size:11.5px">${esc(x.sku)}${x.marca ? " · " + esc(x.marca) : ""}${x.bazar ? ` · <a href="#/bazar/decant">no Bazar ${esc(x.bazar)}</a>` : ""}</div></div></div></td>
+        <div><b>${esc(x.titulo)}</b><div class="muted" style="font-size:11.5px">${esc(x.sku)}${x.marca ? " · " + esc(x.marca) : ""}${x.bazar ? ` · <a href="#/bazar/decant">no Bazar ${esc(x.bazar)}</a>${x.tamanhos_bazar ? ` (${x.tamanhos_bazar.slice().sort((a, b) => a - b).join("/")} ml)` : ""}` : ""}</div></div></div></td>
       <td class="num" data-l="Disponível">${nf0.format(x.disponivel)}</td>
       <td class="num" data-l="Custo frasco">${rsES(x.custo)}</td>
       <td class="num" data-l="ml do frasco"><input class="dc-in" type="number" min="1" data-dcvol="${esc(x.sku)}" value="${x.volume_ml}" title="${x.volume_manual ? "digitado" : "lido no título"}"></td>
@@ -3841,11 +3866,7 @@ async function telaDecants() {
         catch { caminho = await anxSubir(base + ((fl.name.match(/\.[A-Za-z0-9]{1,5}$/) || [".jpg"])[0].toLowerCase()), fl, fl.type); }
         salvarItem({sku: i.dataset.dcfoto, foto: caminho}, "Foto salva.");
       } catch (e) { toast(e.message, 6000); } });
-    el.querySelectorAll("[data-dcbz]").forEach(b => b.onclick = async () => {
-      b.disabled = true;
-      try { const x = await api("decants_bazar", {}, {method: "POST", body: JSON.stringify({sku: b.dataset.dcbz})}); S.bz = null;
-        toast(`No Bazar como ${x.produto.codigo}. Abrindo para gerar a arte…`); location.hash = "#/bazar/decant"; }
-      catch (e) { toast(e.message, 6000); b.disabled = false; } });
+    el.querySelectorAll("[data-dcbz]").forEach(b => b.onclick = () => dcEscolherTamanhos(r.itens.find(y => y.sku === b.dataset.dcbz)));
   };
   $("#dc-q").oninput = e => { f.q = e.target.value; desenhar(); };
   $("#dc-est").onchange = e => { f.estoque = e.target.checked; desenhar(); };

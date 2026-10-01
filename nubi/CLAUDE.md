@@ -1211,4 +1211,6 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   atualiza (pelo SKU) o produto na aba 🧪 Decants do Bazar (`bazar.decant_ao_bazar`, nome sem "Perfume" e sem o ml do frasco,
   `decant` = [{ml, preco}]); post "✨ DECANT NA PURE PERFUMARIA! ✨" com 1 linha por tamanho, arte com os 3 preços e o
   catálogo do WhatsApp ganha a seção DECANTS. Estoque real 01/10: 645 SKUs, 456 com ml no título, 380 com custo.
-  Teste: `testes/test_decants.py`.
+  Quadro de tamanhos (01/10, Bruno: "árabe barato só 15 ml, nicho talvez menores"): "🛍️ Bazar" abre `dcEscolherTamanhos`
+  (cartões 5/10/15 ml com preço, custo e lucro); só os marcados vão (`decants_bazar` com `tamanhos`) e a escolha fica
+  guardada por SKU (`decants|itens` `tamanhos_bazar`, já vem marcada da próxima vez). Teste: `testes/test_decants.py`.

@@ -94,6 +94,9 @@ def salvar_item(repo, d):
         it["markup"] = _num(d["markup"], "markup", 1, 20)
     if "oculto" in d:
         it["oculto"] = bool(d["oculto"])
+    if "tamanhos_bazar" in d:                         # 01/10: quais tamanhos vão para o Bazar (árabe barato só 15 ml…)
+        ts = sorted({int(_num(t, "tamanho", 1, 100)) for t in d["tamanhos_bazar"] or []}, reverse=True)
+        it["tamanhos_bazar"] = ts or None
     if "foto" in d:
         f = str(d.get("foto") or "")
         if f and (not re.fullmatch(r"bazar/[A-Za-z0-9_./-]{3,250}", f) or ".." in f):
@@ -133,7 +136,7 @@ def planilha(itens_cat, cfg, extras):
         vol = ex.get("volume_ml") or (None if kit else volume_do_titulo(it.get("titulo")))
         base = {"sku": sku, "titulo": it.get("titulo") or "", "marca": it.get("marca") or "", "disponivel": it.get("disponivel") or 0,
                 "custo": it.get("custo"), "volume_ml": vol, "volume_manual": bool(ex.get("volume_ml")), "foto": ex.get("foto") or "",
-                "oculto": bool(ex.get("oculto")), "markup": ex.get("markup"), "categoria": it.get("categoria")}
+                "oculto": bool(ex.get("oculto")), "markup": ex.get("markup"), "tamanhos_bazar": ex.get("tamanhos_bazar"), "categoria": it.get("categoria")}
         if not it.get("custo"):
             sem_custo.append(base)
             continue
