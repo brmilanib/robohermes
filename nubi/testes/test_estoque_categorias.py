@@ -127,7 +127,12 @@ try:
                 assert ri.value.status == 200, ri.value.text()[:400]
                 pg.wait_for_function("() => !document.querySelector('#ec-astra') || document.body.innerText.includes('Astra leu') || document.body.innerText.includes('banco do nubi')", timeout=15000)
                 pg.wait_for_timeout(1500)
-                pg.click(".kpi.ec-clica[data-ev='Designer']"); pg.wait_for_selector(".modal .ec-marca", timeout=8000)
+                pg.click(".kpi.ec-clica[data-ev='Designer']"); pg.wait_for_selector(".modal table", timeout=8000)
+                # 01/10 (Bruno): o modo normal mostra disponível, custo médio e cobertura; marca/categoria só no "Editar"
+                cab = pg.inner_text(".modal thead")
+                assert "Disponível" in cab and "Custo médio" in cab and "Cobertura" in cab and "Categoria do produto" not in cab, cab
+                assert pg.query_selector(".modal .ec-marca") is None
+                pg.click(".modal #ec-editar"); pg.wait_for_selector(".modal .ec-marca", timeout=8000)
                 assert "KIT-DOLCE" in pg.inner_text(".modal"), pg.inner_text(".modal")[:800]      # Dolce & Gabbana pelo nome
                 pg.click(".modal [data-fechar]")
                 # 30/09 (Bruno): clicar na categoria abre os produtos dela; marca por SKU e categoria da marca editáveis.

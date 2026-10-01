@@ -3613,7 +3613,7 @@ def cmd_vigiar():
         if not motivo and _estoque_na_hora(cfg, token):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do estoque do UpSeller -> atualizando", flush=True)
             return _soltar("estoque")
-        if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas"):
+        if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas", por_hora=True):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Gestor Seller -> importando a planilha", flush=True)
             return _soltar("gestor")
         if not motivo and _fora_da_janela_coleta() and _na_hora(cfg, token, "ml_posicoes_pendente", "posicoes_tentativas"):
@@ -3751,8 +3751,9 @@ def _coleta_na_hora(cfg, token):
 
 
 def _estoque_na_hora(cfg, token):
-    """Rotina 'estoque' (madrugada): o nubi diz se está na hora e ainda não rodou hoje; no máximo 3 tentativas por dia."""
-    return _na_hora(cfg, token, "estoque_pendente", "estoque_tentativas")
+    """Rotina 'estoque': o nubi diz se está na hora (1ª do dia na madrugada e, depois, de hora em hora — 01/10, Bruno);
+    no máximo 2 tentativas por hora."""
+    return _na_hora(cfg, token, "estoque_pendente", "estoque_tentativas", por_hora=True)
 
 
 def _fora_da_janela_coleta():
@@ -3798,7 +3799,7 @@ def _vigiar_pausado(cfg, libera):
         if "estoque" in libera and _estoque_na_hora(cfg, token):
             print(f"{datetime.now():%d/%m %H:%M} vigia (pausado, estoque liberado): hora do estoque do UpSeller", flush=True)
             return _soltar("estoque")
-        if "gestor" in libera and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas"):
+        if "gestor" in libera and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas", por_hora=True):
             print(f"{datetime.now():%d/%m %H:%M} vigia (pausado, gestor liberado): hora do Gestor Seller", flush=True)
             return _soltar("gestor")
     except Exception as e:  # noqa: BLE001
@@ -3910,17 +3911,18 @@ def _param_maquina(cfg, rodizio=False):
     return p or None
 
 
-def _na_hora(cfg, token, rota, chave):
-    """Rotina do Mac com horário no nubi (estoque, gestor): está na hora e ainda não deu certo hoje? Máx. 3 tentativas/dia."""
+def _na_hora(cfg, token, rota, chave, por_hora=False):
+    """Rotina do Mac com horário no nubi (estoque, gestor): está na hora e ainda não deu certo hoje? Máx. 3 tentativas/dia
+    (por_hora: máx. 2 por hora — o estoque do UpSeller roda de hora em hora)."""
     try:
         r = api(token, rota, _param_maquina(cfg, rodizio=rota.startswith("ml_")), timeout=30)
     except Exception:  # noqa: BLE001
         return False
     if not r.get("rodar"):
         return False
-    hoje = date.today().isoformat()
+    hoje = datetime.now().strftime("%Y-%m-%dT%H") if por_hora else date.today().isoformat()
     tent = {k: v for k, v in (cfg.get(chave) or {}).items() if k == hoje}
-    if tent.get(hoje, 0) >= 3:
+    if tent.get(hoje, 0) >= (2 if por_hora else 3):
         return False
     tent[hoje] = tent.get(hoje, 0) + 1
     cfg[chave] = tent

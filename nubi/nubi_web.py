@@ -4469,6 +4469,29 @@ def estoque_analisar(repo, aid, d=None, itens=None):
 
 
 VENDAS_CHAVE = "vendas_anuncio|atual"
+GESTOR_HORARIOS = ("01:00", "12:00", "19:00")    # 01/10 (Bruno): madrugada, entregas da manhã, entregas da tarde
+
+
+def gestor_devido(repo, agora=None):
+    """O último horário do Gestor que já passou hoje; devido = nenhuma importação ok desde ele. estoque_ok = estoque do
+    UpSeller atualizado depois do horário (o Gestor precisa do estoque novo)."""
+    agora = agora or _agora_br()
+    rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.gestor"}) or [None])[0]
+    ativo = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora))
+    passados = [h for h in GESTOR_HORARIOS if agora.strftime("%H:%M") >= h]
+    if not passados:
+        return {"ativo": ativo, "devido": False, "feito": False, "estoque_ok": False, "horario": None}
+    h = passados[-1]
+    inicio = agora.replace(hour=int(h[:2]), minute=int(h[3:]), second=0, microsecond=0)
+    ok = (repo._req("GET", "coletor_execucoes", {"select": "iniciado_em", "tarefa": "eq.gestor", "ok": "eq.true", "order": "id.desc", "limit": 1})
+          or [None])[0]
+    feito = bool(ok and _br(ok["iniciado_em"]) >= inicio)
+    est = (repo._req("GET", "estoque_atualizacoes", {"select": "criado_em", "origem": "eq.coletor", "order": "id.desc", "limit": 1}) or [None])[0]
+    estoque_ok = bool(est and _br(est["criado_em"]) >= inicio)
+    return {"ativo": ativo, "devido": ativo and not feito, "feito": feito, "estoque_ok": estoque_ok, "horario": h}
+
+
+ESTOQUE_HORA_MIN = int(os.environ.get("NUBI_ESTOQUE_HORA_MIN", "60"))   # 01/10: estoque do UpSeller de hora em hora
 
 
 def vendas_importar(repo, conteudo, arquivo, origem="coletor"):
@@ -6583,23 +6606,17 @@ def rota_estoque(repo, metodo, rota, q, corpo):
                   prefer="resolution=merge-duplicates,return=minimal")
         return {"ok": True, "inicio": str(ini), "fim": str(fim)}
     if rota == "gestor_pendente":
-        # rotina 'gestor' (ex.: 00:40, 10 min depois do estoque): importa 1 vez por dia, só se o estoque de hoje já entrou
+        # 01/10 (Bruno): Gestor Seller 3 vezes por dia — 01:00, 12:00 (pega as entregas da manhã) e 19:00 (as da tarde),
+        # sempre com o estoque do UpSeller já atualizado DEPOIS do horário
         if q.get("maquina") == "servidor" and _so_no_mac(repo, "gestor"):
             return {"rodar": False, "no_mac": True}          # 28/09 (Bruno): "pode rodar no mac gestor seller"
-        rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.gestor"}) or [None])[0]
-        agora = _agora_br()
-        na_hora = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "00:40"))
-        ok = (repo._req("GET", "coletor_execucoes", {"select": "iniciado_em", "tarefa": "eq.gestor", "ok": "eq.true", "order": "id.desc", "limit": 1})
-              or [None])[0]
-        feito = bool(ok and _br(ok["iniciado_em"]).date() == agora.date())
-        est = (repo._req("GET", "estoque_atualizacoes", {"select": "criado_em", "origem": "eq.coletor", "order": "id.desc", "limit": 1}) or [None])[0]
-        estoque_hoje = bool(est and _br(est["criado_em"]).date() == agora.date())
-        return {"rodar": na_hora and not feito and estoque_hoje, "feito_hoje": feito, "estoque_hoje": estoque_hoje,
-                "horario": (rot or {}).get("horario")}
+        x = gestor_devido(repo)
+        return {"rodar": x["devido"] and x["estoque_ok"], "feito_hoje": x["feito"], "estoque_hoje": x["estoque_ok"],
+                "horario": x["horario"], "horarios": list(GESTOR_HORARIOS)}
     if rota == "gestor_auto":
-        # depois de cada estoque, o coletor pergunta se importa no Gestor Seller sozinho (rotina 'gestor' ligada)
-        rot = (repo._req("GET", "rotinas", {"select": "ativo", "id": "eq.gestor"}) or [None])[0]
-        return {"ligado": bool(rot and rot.get("ativo"))}
+        # depois de cada estoque o coletor pergunta se importa no Gestor Seller: só quando um dos 3 horários está devido
+        x = gestor_devido(repo)
+        return {"ligado": x["ativo"] and x["devido"], "horario": x["horario"]}
     if rota == "coleta_pendente":
         # o vigia do Mac segue o horário da rotina 'coleta' (Central → Rotinas): roda 1 vez por dia, do horário em diante
         rot = (repo._req("GET", "rotinas", {"select": "*", "id": "eq.coleta"}) or [None])[0]
@@ -6618,7 +6635,12 @@ def rota_estoque(repo, metodo, rota, q, corpo):
                or [None])[0]
         hoje_ok = bool(ult and _br(ult["criado_em"]).date() == agora.date())
         na_hora = bool(rot and rot.get("ativo") and rotina_no_dia(rot, agora) and agora.strftime("%H:%M") >= (rot.get("horario") or "03:00"))
-        return {"rodar": na_hora and not hoje_ok, "feito_hoje": hoje_ok, "horario": (rot or {}).get("horario")}
+        # 01/10 (Bruno: "UpSeller tem 3 Torino 21 disponíveis e o nubi mostra 8; a atualização tem que ser de hora em hora"):
+        # depois da 1ª do dia, roda de novo a cada ESTOQUE_HORA_MIN minutos (o Gestor Seller continua 1 vez, de madrugada)
+        idade = (agora - _br(ult["criado_em"])).total_seconds() / 60 if ult else None
+        de_hora = bool(hoje_ok and idade is not None and idade >= ESTOQUE_HORA_MIN)
+        return {"rodar": na_hora and (not hoje_ok or de_hora), "feito_hoje": hoje_ok, "horario": (rot or {}).get("horario"),
+                "de_hora_em_hora": True, "minutos_desde": round(idade) if idade is not None else None}
     if rota == "estoque":
         hist = repo._req("GET", "estoque_atualizacoes", {
             "select": "id,criado_em,origem,arquivo,skus,unidades,valor,zerados,resumo,analise_por", "order": "id.desc", "limit": 60}) or []

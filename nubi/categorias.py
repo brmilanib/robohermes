@@ -323,10 +323,15 @@ def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marc
         m.setdefault("categoria", cat)
         m.setdefault("tipos", {})
         m["tipos"][tipo] = m["tipos"].get(tipo, 0) + 1
+        # 01/10 (Bruno: "no UpSeller tenho 13 Naxos disponíveis e a tela mostrava 15"): o "atual" conta o que já está
+        # reservado em pedido (ocupado); o que dá para vender é o DISPONÍVEL — é ele que vai na lista e na cobertura
+        disp = float(it.get("disponivel")) if it.get("disponivel") not in (None, "") else atual
         lista.append({"sku": it.get("sku"), "titulo": it.get("titulo"), "marca": marca or "", "marca_manual": bool(manual),
-                      "categoria": cat, "categoria_fonte": fonte_cat, "tipo": tipo, "atual": atual, "custo": float(custo) if custo not in (None, "") else None,
-                      "valor": round(valor, 2), "vend_un": vu, "vend_valor": round(vv, 2),
-                      "cobertura_dias": round(atual / (vu / 30), 1) if vu else None})
+                      "categoria": cat, "categoria_fonte": fonte_cat, "tipo": tipo, "atual": atual, "disponivel": disp,
+                      "ocupado": float(it.get("ocupado") or 0), "transito": float(it.get("transito_compra") or 0),
+                      "custo": float(custo) if custo not in (None, "") else None,
+                      "valor": round(valor, 2), "vend_un": vu, "vend_valor": round(vv, 2), "media_dia": round(vu / 30, 2) if vu else 0,
+                      "cobertura_dias": round(disp / (vu / 30), 1) if vu else None})
         if not marca and atual > 0:
             sem.append({"sku": it.get("sku"), "titulo": it.get("titulo"), "atual": atual, "valor": round(valor, 2)})
         total["skus"] += 1

@@ -205,7 +205,7 @@ def test_gestor_liberado_no_mac_pausado():
     c._soltar = lambda t: soltos.append(t) or 0
     c._outra_rodando = lambda: False
     c._estoque_na_hora = lambda cfg, token: False
-    c._na_hora = lambda cfg, token, rota, chave: rota == "gestor_pendente"
+    c._na_hora = lambda cfg, token, rota, chave, **k: rota == "gestor_pendente"
     c.PASTA = Path(tempfile.mkdtemp())
     orig_open = c.urllib.request.urlopen
     c.urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(OSError("sem rede"))
