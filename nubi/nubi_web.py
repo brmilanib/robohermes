@@ -312,6 +312,12 @@ def _hash_ok(x):
 def _seguidos_por_hash(repo):
     """{hash do Explorador: nome do seguido} (o Explorador mostra o nome que o Bruno deu ao seguido)."""
     out = {}
+    try:                                                 # 02/10: pelo par de IDs guardado (nome fictício "." x "-")
+        for g in ligar_ids_seguidos(repo).values():
+            for vid in g.get("explorador") or []:
+                out.setdefault(str(vid), g.get("nome"))
+    except Exception:  # noqa: BLE001
+        pass
     try:
         nomes = {r["vendedor"] for r in _vend_rels(repo)}
         if nomes:
@@ -327,6 +333,10 @@ def _seguidos_por_hash(repo):
 def _hashes_seguidos(repo):
     """Hashes do Explorador dos vendedores seguidos (vend_relatorios.seller_hash + de-para meli|seguidos pelos nomes)."""
     hs = set()
+    try:                                                 # 02/10: pelo par de IDs guardado (AIRON-AMBAR x AIRON.AMBAR)
+        hs |= {str(v) for g in ligar_ids_seguidos(repo).values() for v in g.get("explorador") or []}
+    except Exception:  # noqa: BLE001
+        pass
     try:
         for r in _vend_rels(repo):
             if r.get("seller_hash"):
