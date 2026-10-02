@@ -2105,15 +2105,20 @@ def registrar_dia(repo, marca, df, dia, arquivo=""):
            "mesmo_inicio": dia.get("mesmo_inicio"), "busca": tipo_busca(arquivo),
            "por_vendedor": top("vendedor"), "por_produto": top("produto") if "produto" in v.columns else [],
            "em": datetime.now(timezone.utc).isoformat()}
+    # rodada repetida (nada novo) não apaga o dia que já foi registrado com venda: vazio só entra se o dia ainda não existe
+    vazio = not reg["un"] and not reg["anuncios_novos"] and not reg["vendedores_novos"]
     if hasattr(repo, "_req"):
         try:
             repo._req("POST", "ia_resumos", corpo=[{"chave": f"explorador|dia|{marca}|{dia['ate']}", "ia": "nubi (regra 14)",
                                                     "texto": json.dumps(reg, ensure_ascii=False, default=str)}],
-                      prefer="resolution=merge-duplicates,return=minimal")
+                      prefer=f"resolution={'ignore' if vazio else 'merge'}-duplicates,return=minimal")
         except Exception as e:  # noqa: BLE001
             avisar(f"    (não guardei o dia da regra 14: {str(e)[:100]})")
     else:
-        repo.__dict__.setdefault("dias", []).append(reg)
+        dias = repo.__dict__.setdefault("dias", [])
+        if vazio and any(x["marca"] == marca and x["ate"] == reg["ate"] for x in dias):
+            return reg
+        dias.append(reg)
     return reg
 
 

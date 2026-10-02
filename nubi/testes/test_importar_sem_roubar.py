@@ -216,6 +216,22 @@ def test_regra_14_card_vivo():
     repo.fechar()
 
 
+def test_rodada_repetida_nao_zera_o_dia():
+    """02/10 (produção): a 2ª rodada do encaminhar não tinha nada novo para a Ard Al Zaafaran e gravou o dia 30/09 com 0 un.
+    por cima do +61 da 1ª. Dia vazio só entra quando o dia ainda não existe (aí vale para a média de 30 dias)."""
+    class R:
+        pass
+    r = R()
+    dia = {"de": "2026-09-29", "ate": "2026-09-30", "novos": 0, "vendedores_novos": 0}
+    cheio = pd.DataFrame([{"anuncio": "A", "vendedor": "V", "vendedor_id": "1", "produto": "P", "tipo": "", "_du": 61, "_dfat": 100.0}])
+    vazio = cheio.assign(_du=0, _dfat=0.0)
+    nubi.registrar_dia(r, "ARD AL ZAAFARAN", cheio, dict(dia, novos=10), "x.csv")
+    nubi.registrar_dia(r, "ARD AL ZAAFARAN", vazio, dia, "x.csv")
+    assert [d["un"] for d in r.dias] == [61], r.dias
+    nubi.registrar_dia(r, "OUTRA", vazio, dia, "x.csv")
+    assert [(d["marca"], d["un"]) for d in r.dias] == [("ARD AL ZAAFARAN", 61), ("OUTRA", 0)]
+
+
 if __name__ == "__main__":
     test_expandido_nao_rouba_nem_soma()
     print("ok importar sem roubar nem somar")
@@ -225,3 +241,5 @@ if __name__ == "__main__":
     print("ok outras marcas no card certo")
     test_encaminhar_card_importado_antes_da_regra()
     print("ok encaminhar card antigo")
+    test_rodada_repetida_nao_zera_o_dia()
+    print("ok rodada repetida não zera o dia")
