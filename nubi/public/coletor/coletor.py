@@ -409,11 +409,61 @@ def _explorador_login(pg):
         raise SessaoExpirada(f"O Nubimetrics pediu login de novo. Rode {_onde_rodar('entrar')} " + diagnostico(pg))
 
 
-def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True):
+EXPLORADOR_CATEGORIA = "Beleza e Cuidado Pessoal"
+EXPLORADOR_MAX_EXPORT = 10000
+
+# o ícone de filtros (⫶) fica na linha do EXPORTAR, à esquerda: o clicável mais à esquerda nessa altura
+JS_BOTAO_FILTROS = """() => {
+  const exp = [...document.querySelectorAll('button')].find(b => /^\\s*EXPORTAR\\s*$/i.test(b.innerText) && b.offsetParent);
+  if (!exp) return false;
+  const y = exp.getBoundingClientRect().top + exp.getBoundingClientRect().height / 2;
+  const cands = [...document.querySelectorAll('button,[role=button],svg')].filter(e => {
+    const r = e.getBoundingClientRect(); return r.width > 8 && r.width < 60 && Math.abs(r.top + r.height / 2 - y) < 30 && r.left < 400; });
+  cands.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  const alvo = cands[0] && (cands[0].closest('button,[role=button]') || cands[0]);
+  if (!alvo) return false;
+  alvo.dispatchEvent(new MouseEvent('click', {bubbles: true})); return true; }"""
+
+
+def _n_resultados(pg):
+    m = re.search(r"de\s+([\d.]+)\s+resultados", pg.evaluate("() => document.body.innerText"), re.I)
+    return int(m.group(1).replace(".", "")) if m else None
+
+
+def _explorador_categoria(pg, categoria):
+    """Abre o painel de filtros (ícone ⫶ ao lado de "1–50 de N resultados") e clica na categoria; confere o selo."""
+    selo = pg.locator(":is(span,div,button,[role=button]):visible", has_text=re.compile(rf"^\s*{re.escape(categoria)}\s*$", re.I))
+    antes = _n_resultados(pg)
+    if not selo.count():
+        aberto = pg.locator(":visible", has_text=re.compile(r"^\s*Categoria\s*$|^\s*Cat[aá]logo\s*$")).count()
+        if not aberto:
+            if not pg.evaluate(JS_BOTAO_FILTROS):
+                enviar_foto(pg, "explorador: sem o ícone de filtros", resumo_tela(pg))
+                raise Falha("não achei o ícone de filtros do Explorador " + diagnostico(pg))
+            devagar(2)
+        item = pg.locator(":is(li,a,span,div,label,p,button):visible", has_text=re.compile(rf"^\s*{re.escape(categoria)}\s*(\(\s*[\d.]+\s*\))?\s*$", re.I))
+        if not item.count():
+            enviar_foto(pg, f"explorador: sem a categoria {categoria}", resumo_tela(pg))
+            raise Falha(f"não achei '{categoria}' no painel de filtros " + diagnostico(pg))
+        item.last.click()
+        try:
+            pg.wait_for_function("n => { const m = document.body.innerText.match(/de\\s+([\\d.]+)\\s+resultados/i);"
+                                 " return m && +m[1].replace(/\\./g, '') !== n; }", arg=antes or -1, timeout=60000)
+        except Exception:  # noqa: BLE001
+            log("  explorador: o número de resultados não mudou depois do filtro")
+        devagar(2)
+        pg.keyboard.press("Escape")                       # fecha o painel
+        devagar(1)
+    depois = _n_resultados(pg)
+    log(f"  explorador: filtro {categoria}: {antes} -> {depois} resultados")
+
+
+def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, categoria=EXPLORADOR_CATEGORIA):
     """02/10 (Bruno: "Explorador, pesquisa expandida, digitando a marca AL WATANIAH, para testar a técnica de atualizar só a
     diferença do período"). Busca a marca no Explorador de anúncios (busca do topo "Buscar por Anúncios"), escolhe
     Pesquisa expandida por IA (ou exata), lê o período da tela ("Anúncios com vendas: 01 set - 30 set 2026"), clica só em
-    EXPORTAR e manda para `importar` com marca, início e fim. O nubi junta pelo ID do anúncio (mesmo período = atualiza;
+    EXPORTAR e manda para `importar` com marca, início e fim. Filtro de categoria "Beleza e Cuidado Pessoal" (print do Bruno:
+    expandida sem filtro = 23.496 resultados, mais que os 10.000 do EXPORTAR; com o filtro, 4.497). O nubi junta pelo ID do anúncio (mesmo período = atualiza;
     mesmo início e fim maior = só cresce), nunca soma o mesmo anúncio duas vezes. Só lê; ritmo humano; para em verificação."""
     marca = marca.strip().upper()
     if not EXPLORADOR_MARCA_OK.match(marca):
@@ -463,6 +513,8 @@ def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True):
             pg.wait_for_function("() => /de\\s+[\\d.]+\\s+resultados/i.test(document.body.innerText)", timeout=60000)
         except Exception:  # noqa: BLE001
             log("  explorador: não vi 'N resultados' na tela; sigo")
+        if categoria:
+            _explorador_categoria(pg, categoria)
         texto = pg.evaluate("() => document.body.innerText")
         per = periodo_do_explorador(texto)
         if not per:
@@ -470,6 +522,10 @@ def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True):
             raise Falha("não achei 'Anúncios com vendas: …' na tela; não importo sem saber o período " + diagnostico(pg))
         mres = re.search(r"de\s+([\d.]+)\s+resultados", texto, re.I)
         n_res = int(mres.group(1).replace(".", "")) if mres else None
+        if n_res and n_res > EXPLORADOR_MAX_EXPORT:
+            enviar_foto(pg, f"explorador: {n_res} resultados", resumo_tela(pg))
+            raise Falha(f"{n_res} resultados: o EXPORTAR do Nubimetrics leva só {EXPLORADOR_MAX_EXPORT}; não importo pela metade "
+                        "(use o filtro de categoria) " + diagnostico(pg))
         log(f"  explorador {marca}: período {per[0]} a {per[1]}" + (f", {n_res} resultados" if n_res is not None else "")
             + (" (pesquisa exata)" if exata else " (pesquisa expandida)"))
         devagar(2)

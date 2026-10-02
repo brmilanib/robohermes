@@ -252,6 +252,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   por IA, lê "Anúncios com vendas: 01 set - 30 set 2026" (`periodo_do_explorador`), clica só em EXPORTAR e manda a
   `importar` com marca/início/fim. O endereço achado fica em `cfg["explorador_url"]`. O nubi junta pelo ID do anúncio
   (`_juntar_por_id`/`_absorver_periodo`). O comando `explorador_quinzena` da Central ainda não tinha o lado do coletor.
+  Filtro de categoria "Beleza e Cuidado Pessoal" (`EXPLORADOR_CATEGORIA`, prints do Bruno 02/10: expandida sem filtro = 23.496
+  resultados, com filtro 4.497): ícone ⫶ na linha do EXPORTAR (`JS_BOTAO_FILTROS`) → clica a categoria → confere o selo e o
+  nº de resultados. Mais de 10.000 resultados (limite do EXPORTAR) = não importa. O Explorador NÃO deixa escolher a data
+  (Bruno): o período é o que a tela mostra.
   Teste `test_explorador_marca.py`.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.

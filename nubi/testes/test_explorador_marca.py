@@ -21,8 +21,15 @@ TOPO = """<html><body><input placeholder="Buscar por Anúncios" id="b">
 EXPLORADOR = """<html><body><h1>Explorador de anúncios</h1><p><b>Anúncios com vendas:</b> 01 set - 30 set 2026</p>
 <label><input type="radio" name="t" checked> Pesquisa exata</label>
 <label><input type="radio" name="t" id="exp"> Pesquisa expandida por IA</label>
-<p id="n">1–50 de 1.664 resultados</p><button id="x">EXPORTAR</button>
-<script>document.getElementById('x').onclick = () => { if (!document.getElementById('exp').checked) return;
+<p id="n">1–50 de 23496 resultados</p>
+<div style="display:flex;justify-content:space-between;width:900px"><button id="f" style="width:24px;height:24px">⫶</button>
+<span id="selo"></span><button id="x">EXPORTAR</button></div>
+<div id="painel" style="display:none"><p>Categoria</p><ul><li id="bel">Beleza e Cuidado Pessoal (4497)</li><li>Casa (10)</li></ul></div>
+<script>let filtrado = false;
+document.getElementById('f').onclick = () => document.getElementById('painel').style.display = 'block';
+document.getElementById('bel').onclick = () => { filtrado = true; document.getElementById('n').innerText = '1–50 de 4497 resultados';
+  document.getElementById('selo').innerText = 'Beleza e Cuidado Pessoal'; document.getElementById('painel').style.display = 'none'; };
+document.getElementById('x').onclick = () => { if (!document.getElementById('exp').checked || !filtrado) return;
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['Titulo;Marca\\n' + 'x;AL WATANIAH\\n'.repeat(40)]));
   a.download = 'Explorador.csv'; document.body.appendChild(a); a.click(); };</script></body></html>"""
 
@@ -73,6 +80,25 @@ def test_exporta_e_manda_com_o_periodo():
     assert rota == "importar" and params == {"arquivo": "AL_WATANIAH__2026-09-01_2026-09-30.csv", "marca": "AL WATANIAH",
                                              "inicio": "2026-09-01", "fim": "2026-09-30"} and n > 200, enviados
     assert cfg["explorador_url"].endswith("/explorer")
+    assert "filtro Beleza e Cuidado Pessoal: 23496 -> 4497" in "\n".join(c.LOG)
+
+
+def test_sem_filtro_mais_de_10_mil_nao_importa():
+    from playwright.sync_api import sync_playwright
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    c.BASE = f"http://127.0.0.1:{srv.server_address[1]}"
+    exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+    with sync_playwright() as p:
+        nav = p.chromium.launch(executable_path=exe if os.path.exists(exe) else None)
+        c.abrir_navegador = lambda p_, cfg, **k: nav.new_context(accept_downloads=True)
+        try:
+            c.coletar_explorador_marca(p, {}, "T", "AL WATANIAH", categoria=None)
+            assert False, "devia recusar"
+        except c.Falha as e:
+            assert "23496 resultados" in str(e)
+        nav.close()
+    srv.shutdown()
 
 
 if __name__ == "__main__":
