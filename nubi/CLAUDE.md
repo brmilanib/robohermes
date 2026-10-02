@@ -283,6 +283,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Explorador e "-" no relatório) e guarda em `ia_resumos` `seguidos|ids` {seller_hash: {explorador: [ids], nome}}; daí em
   diante vale o ID (renomear não quebra). Só acrescenta; leitura que falha não grava. Conferido 02/10: os 17 seguidos com 1
   ID do Explorador cada.
+  NOVIDADES (02/10, Bruno: "anúncios novos e vendedores novos, marcar por dia; e se anúncios pausaram"): `novidades_explorador`
+  (na mesma rota/aba Diferença): anúncio novo = ID fora de TODOS os exports anteriores da marca, dia = "Data de criação" do
+  Explorador ("já existia" se criado antes do intervalo e vendeu pela 1ª vez); vendedor novo = ID fora de todos os anteriores,
+  dia = 1º anúncio dele; "saíram" = estavam no export anterior e não no novo (o Explorador só lista quem VENDEU: pausou, sem
+  estoque ou não vendeu — o export não diz qual). Guardado em `ia_resumos` `explorador|novidades|<marca>|<fim>`.
 - **Rodízio dos seguidos no Nubimetrics (02/10, Bruno: "para de seguir quem já foi atualizado e segue o próximo, revezando";
   "seguir de novo traz todo o passado"; "pode seguir/deixar de seguir quantas vezes quiser"; nome fixado não some)**:
   `rodizio.py` (servidor planeja) + `coletor rodizio` (comando da Central `rodizio_seguidos`, clica). FASE 1: só as vagas livres

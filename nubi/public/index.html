@@ -9625,6 +9625,7 @@ async function telaDiferenca(el) {
         ? `. Ainda sem a venda diária (ficam com o Explorador): ${esc(d.seguidos.faltam_dias.join(" · "))}` : ""}.</p>` : ""}
       <div class="muted" style="font-size:12px">${sit}</div>
     </div>
+    ${novidadesHTML(d.novidades)}
     <div class="grid2">
       <div class="card pad"><h2>Por vendedor</h2><div class="rolar"><table class="t" style="font-size:13px">
         <thead><tr><th>#</th><th>Vendedor</th><th class="num">Un.</th><th class="num">Faturamento</th><th class="num">Anúncios</th></tr></thead>
@@ -9638,6 +9639,37 @@ async function telaDiferenca(el) {
       <tbody>${d.anuncios.map(a => `<tr><td class="first">${esc(a.vendedor || "")}</td><td>${esc(a.titulo || "")}</td><td>${esc(a.produto || "")}</td>
         <td class="num">${nf0.format(a.du)}${a.erro ? ` <span class="muted">± ${nf0.format(a.erro)}</span>` : ""}</td><td class="num">R$ ${nf0.format(a.dfat)}</td><td class="muted">${esc(a.situacao)}${a.fonte === "venda diária do seguido" ? " ✓" : ""}</td></tr>`).join("")}</tbody>
     </table></div></div>`;
+}
+
+// 02/10 (Bruno: "anúncios novos e vendedores novos, marcar por dia; e se anúncios pausaram")
+function novidadesHTML(n) {
+  if (!n || n.erro) return n && n.erro ? `<div class="card pad muted">Novidades: ${esc(n.erro)}</div>` : "";
+  if (n.sem_base) return `<div class="card pad muted">Novidades: sem export anterior da marca para comparar.</div>`;
+  const sel = (x, s) => x.seguido ? ` <span class="pill">seguido</span>` : "";
+  return `<div class="card pad"><h2 style="margin-top:0">🆕 Novidades de ${dataBR(n.desde).slice(0, 5)} a ${dataBR(n.ate).slice(0, 5)}</h2>
+    <div class="kpis">
+      ${kpi("Anúncios novos", nf0.format(n.anuncios_novos), "criados no período · " + nf0.format(n.anuncios_ja_existiam) + " já existiam e venderam pela 1ª vez")}
+      ${kpi("Vendedores novos", nf0.format(n.vendedores_novos), "não estavam em nenhum export anterior")}
+      ${kpi("Saíram", nf0.format(n.sairam), "sem venda no período novo (pausou, sem estoque ou não vendeu) · " + nf0.format(n.sairam_un_antes) + " un. antes")}
+    </div>
+    <div class="grid2">
+      <div><h3>Anúncios novos por dia de criação</h3><div class="rolar"><table class="t" style="font-size:13px">
+        <thead><tr><th>Dia</th><th class="num">Anúncios</th><th class="num">Un.</th></tr></thead>
+        <tbody>${(n.por_dia || []).map(p => `<tr><td class="first">${dataBR(p.dia)}</td><td class="num">${nf0.format(p.anuncios)}</td><td class="num">${nf0.format(p.un)}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">nenhum</td></tr>`}</tbody></table></div></div>
+      <div><h3>Vendedores novos</h3><div class="rolar"><table class="t" style="font-size:13px">
+        <thead><tr><th>Vendedor</th><th class="num">Anúncios</th><th class="num">Un.</th><th>1º anúncio</th></tr></thead>
+        <tbody>${(n.vendedores || []).map(v => `<tr><td class="first">${esc(v.vendedor)}</td><td class="num">${nf0.format(v.anuncios)}</td><td class="num">${nf0.format(v.un)}</td><td>${v.primeiro_anuncio ? dataBR(v.primeiro_anuncio) : "—"}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">nenhum</td></tr>`}</tbody></table></div></div>
+    </div>
+    <details><summary>Anúncios novos (${nf0.format((n.anuncios || []).length)})</summary><div class="rolar"><table class="t" style="font-size:13px">
+      <thead><tr><th>Criado</th><th>Vendedor</th><th>Título</th><th>Produto</th><th class="num">Un.</th></tr></thead>
+      <tbody>${(n.anuncios || []).map(x => `<tr><td>${x.criado ? dataBR(x.criado) : "—"}${x.ja_existia ? ` <span class="muted">já existia</span>` : ""}</td>
+        <td class="first">${esc(x.vendedor || "")}${sel(x)}${x.vendedor_novo ? ` <span class="pill warn">vendedor novo</span>` : ""}</td><td>${esc(x.titulo || "")}</td>
+        <td>${esc(x.produto || "")}</td><td class="num">${nf0.format(x.un)}</td></tr>`).join("")}</tbody></table></div></details>
+    <details><summary>Saíram (${nf0.format(n.sairam)}): estavam no export anterior e não venderam no novo</summary><div class="rolar"><table class="t" style="font-size:13px">
+      <thead><tr><th>Vendedor</th><th>Título</th><th>Produto</th><th class="num">Un. antes</th><th>Criado</th></tr></thead>
+      <tbody>${(n.sairam_lista || []).map(x => `<tr><td class="first">${esc(x.vendedor || "")}${sel(x)}</td><td>${esc(x.titulo || "")}</td>
+        <td>${esc(x.produto || "")}</td><td class="num">${nf0.format(x.un_antes)}</td><td>${x.criado ? dataBR(x.criado) : "—"}</td></tr>`).join("")}</tbody></table></div></details>
+  </div>`;
 }
 
 // ---------- Períodos ----------

@@ -570,6 +570,80 @@ def seguidos_na_diferenca(repo, d, dias):
     return d.drop(columns=["_vid"]), info
 
 
+def _data_criacao(b):
+    t = str((b if isinstance(b, dict) else {}).get("Data de criação") or "").strip()[:10]
+    try:
+        return datetime.strptime(t, "%d/%m/%Y").date().isoformat()
+    except ValueError:
+        return None
+
+
+def novidades_explorador(repo, marca, s, novo, df_novo, seguidos_ids=()):
+    """02/10 (Bruno: "manda se entrou anúncios novos e vendedores novos, pra gente marcar por dia"). Anúncio novo = ID que
+    não estava em NENHUM export anterior da marca; o dia é a "Data de criação" dele no Explorador (anúncio antigo que vendeu
+    pela 1ª vez fica marcado "já existia"). Vendedor novo = ID do vendedor que não estava em nenhum export anterior; o dia é
+    o do 1º anúncio dele. Guardado em ia_resumos `explorador|novidades|<marca>|<fim>`."""
+    ant = s[(s["_fim"] < novo["_fim"]) & (s["id"].astype(int) != int(novo["id"]))]
+    ids_ant, vend_ant = set(), set()
+    for sid in ant["id"]:
+        a = repo.anuncios(int(sid))
+        if a is None or a.empty:
+            continue
+        ids_ant |= {nubi.chave_anuncio(b, v, t) for b, v, t in zip(a["bruto"], a["vendedor_id"], a["titulo"])}
+        vend_ant |= set(a["vendedor_id"].fillna("").astype(str))
+    if not len(ant):
+        return {"sem_base": True, "anuncios": [], "vendedores": [], "por_dia": []}
+    n = df_novo.assign(_k=[nubi.chave_anuncio(b, v, t) for b, v, t in zip(df_novo["bruto"], df_novo["vendedor_id"], df_novo["titulo"])],
+                       _criado=[_data_criacao(b) for b in df_novo["bruto"]],
+                       _vid=df_novo["vendedor_id"].fillna("").astype(str))
+    inicio_gap = str(ant["_fim"].max())
+    novos = n[~n["_k"].isin(ids_ant)]
+    num = lambda x: int(pd.to_numeric(x, errors="coerce").fillna(0).sum())
+    anuncios = sorted(({"vendedor": r["vendedor"], "titulo": r["titulo"], "produto": r.get("produto"), "criado": r["_criado"],
+                        "un": int(pd.to_numeric(r["un"], errors="coerce") or 0),
+                        "ja_existia": bool(r["_criado"] and r["_criado"] <= inicio_gap),
+                        "vendedor_novo": r["_vid"] not in vend_ant, "seguido": r["_vid"] in seguidos_ids}
+                       for _, r in novos.iterrows()), key=lambda x: (x["criado"] or "", x["un"]), reverse=True)
+    por_dia = {}
+    for x in anuncios:
+        if x["criado"] and not x["ja_existia"]:
+            p = por_dia.setdefault(x["criado"], {"dia": x["criado"], "anuncios": 0, "un": 0})
+            p["anuncios"] += 1
+            p["un"] += x["un"]
+    vendedores = []
+    for vid, g in n[~n["_vid"].isin(vend_ant) & (n["_vid"] != "")].groupby("_vid"):
+        vendedores.append({"vendedor": str(g["vendedor"].iloc[0]), "anuncios": int(len(g)), "un": num(g["un"]),
+                           "primeiro_anuncio": min([c for c in g["_criado"] if c] or [None]) if any(g["_criado"]) else None})
+    vendedores.sort(key=lambda x: -x["un"])
+    # 02/10 (Bruno: "e se anúncios pausaram"): o Explorador só lista quem VENDEU no período. Anúncio do export anterior que
+    # sumiu do novo = sem venda no período novo (pausou, acabou o estoque ou só não vendeu: o export não diz qual).
+    ult = ant.sort_values(["_fim", "id"]).iloc[-1]
+    a_ult = repo.anuncios(int(ult["id"]))
+    sairam = []
+    if a_ult is not None and not a_ult.empty:
+        k_novo = set(n["_k"])
+        for _, r in a_ult.iterrows():
+            k = nubi.chave_anuncio(r["bruto"], r["vendedor_id"], r["titulo"])
+            if k not in k_novo:
+                vid = str(r.get("vendedor_id") or "")
+                sairam.append({"vendedor": r["vendedor"], "titulo": r["titulo"], "produto": r.get("produto"),
+                               "un_antes": int(pd.to_numeric(r["un"], errors="coerce") or 0),
+                               "criado": _data_criacao(r["bruto"]), "seguido": vid in seguidos_ids})
+    sairam.sort(key=lambda x: -x["un_antes"])
+    out = {"desde": inicio_gap, "ate": novo["_fim"], "anuncios_novos": sum(1 for x in anuncios if not x["ja_existia"]),
+           "sairam": len(sairam), "sairam_lista": sairam[:200], "sairam_un_antes": sum(x["un_antes"] for x in sairam),
+           "anuncios_ja_existiam": sum(1 for x in anuncios if x["ja_existia"]), "vendedores_novos": len(vendedores),
+           "por_dia": sorted(por_dia.values(), key=lambda x: x["dia"], reverse=True)[:60],
+           "anuncios": anuncios[:300], "vendedores": vendedores[:200]}
+    try:
+        repo._req("POST", "ia_resumos", corpo=[{"chave": f"explorador|novidades|{marca}|{novo['_fim']}", "ia": "nubi (regras)",
+                                                "texto": json.dumps(out, ensure_ascii=False, default=str)}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
 def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
     """Diferença entre dois exports da marca (ver `nubi.diferenca_exports`): o que cada anúncio, vendedor e produto vendeu
     entre o fim do export antigo e o fim do novo. Padrão: o novo = o que termina por último; o antigo = o que termina antes
@@ -618,7 +692,11 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
                           for k, g in sorted(v.groupby(col), key=lambda kv: -kv[1]["du"].sum())][:100]
     vend_novos = sorted(set(d["vendedor_id"].fillna("").astype(str)) - ja_vend - {""})
     cols = [c for c in ("vendedor", "titulo", "produto", "un_hist", "du", "dfat", "erro", "situacao", "fonte", "preco") if c in v.columns]
-    return {"ok": True, "marca": marca, "dias": dias,
+    try:
+        novidades = novidades_explorador(repo, marca, s, novo, df_novo, seguidos_ids)
+    except Exception as e:  # noqa: BLE001
+        novidades = {"erro": str(e)[:200]}
+    return {"ok": True, "marca": marca, "dias": dias, "novidades": novidades,
             "antigo": {"id": int(antigo["id"]), "inicio": antigo["_ini"], "fim": antigo["_fim"], "anuncios": int(len(df_ant))},
             "novo": {"id": int(novo["id"]), "inicio": novo["_ini"], "fim": novo["_fim"], "anuncios": int(len(df_novo))},
             "arredondamento": {"un_exatas": int(d.loc[d["exato"], "du"].sum()), "anuncios_exatos": int((d["exato"] & (d["du"] > 0)).sum()),

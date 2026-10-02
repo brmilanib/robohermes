@@ -12,7 +12,7 @@ import nubi  # noqa: E402
 
 
 def linha(i, un, hist, dias_pub=200, vend="MNZIMPORTS P11", vid="v1"):
-    return {"bruto": {"ID do anúncio": f"id{i}"}, "vendedor_id": vid, "vendedor": vend, "titulo": f"t{i}", "un": un,
+    return {"bruto": {"ID do anúncio": f"id{i}", "Data de criação": "29/09/2026" if dias_pub <= 2 else "01/01/2026"}, "vendedor_id": vid, "vendedor": vend, "titulo": f"t{i}", "un": un,
             "fat": un * 100.0, "un_hist": hist, "fat_hist": hist * 100.0, "dias_pub": dias_pub}
 
 
@@ -67,6 +67,9 @@ def test_rota_da_diferenca():
     assert r["ok"] and r["dias"] == ["2026-09-29", "2026-09-30"], r
     assert r["totais"]["un"] == 67 and r["totais"]["vendedores_novos"] == 1, r["totais"]
     assert r["seguidos"]["sem_par"] == 2, r["seguidos"]       # ligado pelo ID; anúncios sem par ficam no Explorador
+    nv = r["novidades"]                                      # t4 = anúncio novo de vendedor novo; t2 saiu? não (está no novo)
+    assert nv["anuncios_novos"] == 1 and nv["vendedores_novos"] == 1 and nv["vendedores"][0]["vendedor"] == "GARCA.AMETISTA.LACTEO", nv
+    assert nv["sairam"] == 0
     pv = {x["nome"]: x for x in r["por_vendedor"]}
     assert pv["MNZIMPORTS P11"]["seguido"] and not pv["MNZIMPORTS P11"]["novo"]
     assert pv["GARCA.AMETISTA.LACTEO"]["novo"] and not pv["GARCA.AMETISTA.LACTEO"]["seguido"]
