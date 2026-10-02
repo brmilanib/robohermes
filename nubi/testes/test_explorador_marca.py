@@ -85,7 +85,8 @@ def test_exporta_e_manda_com_o_periodo():
     srv.shutdown()
     assert r[:3] == (1, 1, 0), r
     rota, params, n = enviados[0]
-    assert rota == "importar" and params == {"arquivo": "AL_WATANIAH__2026-09-01_2026-09-30.csv", "marca": "AL WATANIAH",
+    # 02/10: o nome do arquivo diz a busca (expandida + filtro Beleza): a Diferença usa isso para saber se é a mesma busca
+    assert rota == "importar" and params == {"arquivo": "AL_WATANIAH__expandida+beleza__2026-09-01_2026-09-30.csv", "marca": "AL WATANIAH",
                                              "inicio": "2026-09-01", "fim": "2026-09-30"} and n > 200, enviados
     assert cfg["explorador_url"].endswith("/market/publicationsexplorer")
     assert "filtro Beleza e Cuidado Pessoal: 23496 -> 4497" in "\n".join(c.LOG)

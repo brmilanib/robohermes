@@ -67,6 +67,95 @@ def test_expandido_nao_rouba_nem_soma():
     repo.fechar()
 
 
+def _novo_banco():
+    tmp = Path(tempfile.mkdtemp())
+    nubi.DADOS, nubi.BANCO, nubi.CONFIG, nubi.ARQ_GTINS = tmp, tmp / "base.db", tmp / "marcas.json", tmp / "gtins.json"
+    nubi.definir_gtin_global({})
+    nubi.INFO_GTIN.clear()
+    return nubi.RepoLocal()
+
+
+def _importador(repo, cfg):
+    return lambda nome, dados, marca, ini, fim: nubi.importar_dados(
+        repo, cfg, nome, dados, lambda s: (marca, date.fromisoformat(ini), date.fromisoformat(fim)))
+
+
+def ids_do(repo, marca, ini):
+    """{ID do anúncio: tipo} do card da marca que começa em `ini`."""
+    s = repo.snapshots()
+    sn = s[(s["marca"] == marca) & (s["inicio"].astype(str).str[:10] == ini)]
+    if sn.empty:
+        return None
+    a = repo.anuncios(int(sn["id"].iloc[0]))
+    return {b.get("ID do anúncio"): t for b, t in zip(a["bruto"], a["tipo"])}
+
+
+def test_outras_marcas_vao_para_o_card_certo():
+    """02/10 (Bruno: "os anúncios das outras marcas que vêm têm que ser colocados nos cards das marcas corretas"; Al Wataniah
+    set/26 mostrava R$ 12,4 mi com 2.576 anúncios de outras marcas): marca com card do MESMO período recebe o anúncio dela;
+    marca sem card: o anúncio espera no card de quem importou, fora da conta, e passa quando o export dela entra."""
+    import nubi_web
+    repo, cfg = _novo_banco(), {}
+    imp = _importador(repo, cfg)
+    # LATTAFA já tem setembro (com L1); AL HARAMAIN não tem card de setembro
+    imp("lattafa.csv", csv(lin("Perfume Lattafa Yara Edp 100ml", "LATTAFA", "L1", 800, 4000)), "LATTAFA", "2026-09-01", "2026-09-30")
+    imp("alw_set.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 450, 5060),
+                           lin("Perfume Lattafa Yara Edp 100ml", "LATTAFA", "L1", 800, 4000),
+                           lin("Perfume Lattafa Asad Edp 100ml", "LATTAFA", "L2", 300, 900),
+                           lin("Perfume Al Haramain Amber Oud Edp 60ml", "AL HARAMAIN", "H1", 120, 500)),
+        "AL WATANIAH", "2026-09-01", "2026-09-30")
+    assert set(ids_do(repo, "LATTAFA", "2026-09-01")) == {"L1", "L2"}      # L2 veio na busca expandida: card da Lattafa
+    alw = ids_do(repo, "AL WATANIAH", "2026-09-01")
+    assert set(alw) == {"W1", "H1"} and alw["H1"] == nubi.TIPO_OUTRA, alw  # H1 espera aqui (Al Haramain sem card de setembro)
+    # a página da marca conta SÓ a marca (450 un. do W1) e lista a Al Haramain em "Outras marcas"
+    r = nubi_web.relatorio(repo, "AL WATANIAH")
+    z = r["resumo"]
+    assert z["un"] == 450 and z["anuncios"] == 1 and z["vendedores"] == 1 and z["fat"] == 45000, z
+    assert z["un_outras_marcas"] == 120 and z["anuncios_outras_marcas"] == 1 and z["fat_outras_marcas"] == 12000
+    o = r["tabelas"]["outras"]
+    assert len(o) == 1 and o[0]["marca"] == "AL HARAMAIN" and o[0]["un"] == 120 and o[0]["situacao"] == nubi_web.SIT_OUTRA_ESPERA, o
+    assert [v["vendedor"] for v in r["tabelas"]["vendedores"]] == ["VEND.W1"]
+    assert all(p["produto"].startswith("Al Wataniah") for p in r["tabelas"]["produtos"]), r["tabelas"]["produtos"]
+    # chega o export de setembro da AL HARAMAIN (busca exata, SEM o H1): o H1 que esperava passa para o card dela
+    imp("alh.csv", csv(lin("Perfume Al Haramain Lavender Oud Edp 100ml", "AL HARAMAIN", "H2", 60, 200)),
+        "AL HARAMAIN", "2026-09-01", "2026-09-30")
+    assert set(ids_do(repo, "AL HARAMAIN", "2026-09-01")) == {"H1", "H2"}
+    assert set(ids_do(repo, "AL WATANIAH", "2026-09-01")) == {"W1"}
+    assert set(ids_do(repo, "LATTAFA", "2026-09-01")) == {"L1", "L2"}
+    assert nubi_web.relatorio(repo, "AL HARAMAIN")["resumo"]["un"] == 180
+    repo.fechar()
+
+
+def test_encaminhar_card_importado_antes_da_regra():
+    """Card importado antes desta regra (o 1008 da Al Wataniah): `encaminhar_outras_marcas` (rota `explorador_encaminhar`,
+    botão da aba Outras marcas) leva os anúncios de outra marca para o card dela no mesmo período."""
+    repo, cfg = _novo_banco(), {}
+    imp = _importador(repo, cfg)
+    imp("klassey.csv", csv(lin("Perfume Klassey Noir Edp 100ml", "KLASSEY", "K1", 100, 300)), "KLASSEY", "2026-09-01", "2026-09-30")
+    juntar = nubi._juntar_por_id
+    nubi._juntar_por_id = lambda repo_, cfg_, marca, ini, fim, df, recem=(): nubi._ids(df)      # como a importação era antes
+    try:
+        imp("alw.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 450, 5060),
+                           lin("Perfume Klassey Noir Edp 100ml", "KLASSEY", "K1", 100, 300),
+                           lin("Perfume Klassey Rouge Edp 100ml", "KLASSEY", "K2", 40, 90)),
+            "AL WATANIAH", "2026-09-01", "2026-09-30")
+    finally:
+        nubi._juntar_por_id = juntar
+    assert set(ids_do(repo, "AL WATANIAH", "2026-09-01")) == {"W1", "K1", "K2"}
+    s = repo.snapshots()
+    sid = int(s[s["marca"] == "AL WATANIAH"]["id"].iloc[0])
+    r = nubi.encaminhar_outras_marcas(repo, cfg, "AL WATANIAH", sid)
+    assert r == {"marcas": {"KLASSEY": 1}, "saiu": 2}, r       # K1 já estava lá (a cópia sai daqui); K2 entra no card da Klassey
+    assert set(ids_do(repo, "KLASSEY", "2026-09-01")) == {"K1", "K2"}
+    assert set(ids_do(repo, "AL WATANIAH", "2026-09-01")) == {"W1"}
+    assert nubi.encaminhar_outras_marcas(repo, cfg, "AL WATANIAH", int(repo.snapshots().query("marca == 'AL WATANIAH'")["id"].iloc[0])) == {"marcas": {}, "saiu": 0}
+    repo.fechar()
+
+
 if __name__ == "__main__":
     test_expandido_nao_rouba_nem_soma()
     print("ok importar sem roubar nem somar")
+    test_outras_marcas_vao_para_o_card_certo()
+    print("ok outras marcas no card certo")
+    test_encaminhar_card_importado_antes_da_regra()
+    print("ok encaminhar card antigo")

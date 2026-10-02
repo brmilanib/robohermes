@@ -7650,7 +7650,7 @@ document.addEventListener("click", e => {
 const ABAS = [
   ["oportunidades", "Oportunidades"], ["evolucao", "Evolução"], ["historico", "Histórico"], ["produtos", "Produtos"],
   ["precos", "Preços"], ["vendedores", "Vendedores"], ["gtins", "GTINs"], ["duvidas", "Dúvidas"],
-  ["anuncios", "Anúncios"], ["diferenca", "Diferença"], ["config", "Configuração"], ["periodos", "Períodos"],
+  ["anuncios", "Anúncios"], ["outras", "Outras marcas"], ["diferenca", "Diferença"], ["config", "Configuração"], ["periodos", "Períodos"],
 ];
 
 function telaMarca() {
@@ -7673,7 +7673,7 @@ function telaMarca() {
       ${kpi("Referências", nf0.format(z.referencias), nf0.format(z.anuncios) + " anúncios · " + nf0.format(z.gtins) + " GTINs")}
       ${kpi("Em catálogo / FULL", FMT.pct(z.pct_catalogo) + " / " + FMT.pct(z.pct_full))}
       ${kpi("GTINs em dúvida", z.gtins_duvida ? `<span class="pill warn">${z.gtins_duvida}</span>` : "0",
-            nf0.format(z.un_sem_gtin) + " un. sem GTIN · " + nf0.format(z.un_outras_marcas) + " de outras marcas" + (z.un_low_price ? " · " + nf0.format(z.un_low_price) + " low price (decant/contratipo)" : ""))}
+            nf0.format(z.un_sem_gtin) + " un. sem GTIN · " + nf0.format(z.un_outras_marcas) + " un. de outras marcas (fora desta conta)" + (z.un_low_price ? " · " + nf0.format(z.un_low_price) + " low price (decant/contratipo)" : ""))}
     </div>
     <div class="grid2">
       <div class="card pad">
@@ -7699,6 +7699,7 @@ function telaMarca() {
     <nav class="tabs" id="tabs">${ABAS.map(([k, l]) => {
       const n = k === "duvidas" ? r.tabelas.duvidas.length : null;
       if ((k === "evolucao" || k === "historico") && !ant) return "";
+      if (k === "outras" && !(r.tabelas.outras || []).length) return "";
       return `<button class="tab ${S.aba === k ? "on" : ""}" data-k="${k}">${l}${n ? `<span class="n warn">${n}</span>` : ""}</button>`;
     }).join("")}</nav>
     <div id="conteudo" class="painel"></div>`;
@@ -7712,6 +7713,7 @@ function telaMarcaAba() {
   if (k === "config") return telaConfig(c);
   if (k === "periodos") return telaPeriodos(c);
   if (k === "diferenca") return telaDiferenca(c);
+  if (k === "outras") return telaOutras(c);
   if (k === "historico") return telaHistorico(c);
   // 29/09: anúncios de outro vendedor com a marca trocada (mesmo GTIN) entram no produto certo; a nota avisa quanto é
   const trocada = (S.rel.resumo || {}).un_marca_trocada, ex = {...(EXTRAS[k] || {})};
@@ -7762,7 +7764,36 @@ const COLUNAS = {
     ["anuncios","Anúncios","int"],["titulos_diferentes","Títulos diferentes","int"],["titulos","Principais títulos","wrap","txt"],
     ["pesquisa","Pesquisa automática","txt","txt"],["link","","link"],["editar","","editar"]],
   anuncios: null,   // montada com as colunas do arquivo importado (ver colunasAnuncios)
+  // 02/10: o que a pesquisa expandida trouxe de outras marcas (fora da conta da marca do card)
+  outras: [["marca","Marca (coluna do arquivo)","txt","txt"],["situacao","Onde conta","txt","sel"],["anuncios","Anúncios","int"],
+    ["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],["preco_medio","Preço médio","moeda2"],
+    ["produto_top","Produto que mais vende","wrap","txt"]],
 };
+
+// 02/10 (Bruno: "os anúncios das outras marcas que vêm têm que ser colocados nos cards das marcas corretas")
+async function telaOutras(el) {
+  const rows = S.rel.tabelas.outras || [], z = S.rel.resumo || {};
+  const podeIr = rows.filter(x => x.situacao && x.situacao.startsWith("tem card"));
+  const nIr = podeIr.reduce((a, x) => a + x.anuncios, 0);
+  el.innerHTML = `<div class="card pad" style="margin-bottom:12px">
+      <p class="muted" style="margin:0">A pesquisa expandida do Explorador trouxe ${nf0.format(z.anuncios_outras_marcas || 0)} anúncios de outras marcas
+        (${nf0.format(z.un_outras_marcas || 0)} un. · R$ ${nf0.format(z.fat_outras_marcas || 0)}). Eles ficam guardados neste período (contam nos
+        Observados, uma vez só pelo ID do anúncio) mas <b>não entram nos números de ${esc(S.rel.nome)}</b>. Marca com card deste mesmo período:
+        o anúncio vai para o card dela (na importação isso já é automático). Marca sem card: espera aqui até o export dela entrar.</p>
+      ${nIr ? `<p style="margin:10px 0 0"><button class="btn primary" id="btn-encaminhar">📤 Levar ${nf0.format(nIr)} anúncio(s) para o card da marca deles</button>
+        <span class="muted"> ${podeIr.map(x => esc(x.marca)).join(", ")}</span></p>` : ""}
+    </div><div id="outras-tab"></div>`;
+  tabela($("#outras-tab", el), "outras", rows, COLUNAS.outras, {ordem: ["un", -1]});
+  const b = $("#btn-encaminhar", el);
+  if (b) b.onclick = async () => {
+    b.disabled = true;
+    try {
+      const r = await api("explorador_encaminhar", {marca: S.rel.marca, periodo: S.rel.atual.id}, {method: "POST"});
+      toast(`${nf0.format(r.saiu || 0)} anúncio(s) foram para: ${Object.entries(r.marcas || {}).map(([m, n]) => `${m} (${n})`).join(", ") || "nenhum card"}`);
+      S.rel = await api("relatorio", {marca: S.rel.marca, periodo: S.rel.atual.id}); telaMarca();
+    } catch (e) { toast(e.message); b.disabled = false; }
+  };
+}
 const EXTRAS = {
   oportunidades: {ordem: ["nota", -1], nota: "Nota = 100 × √(giro ÷ maior giro) × (0,40 + 0,25 × pouca concorrência + 0,15 × FULL livre + 0,10 × líder fraco + 0,10 × aceleração). A demanda multiplica: sem venda, sem nota. Verde = sinal a favor; vermelho = atenção."},
   produtos: {nota: "Curva ABC pelo acumulado: até 80% = A, até 95% = B, resto = C. Un. por anúncio alto = poucos anúncios levando muito volume."},
@@ -9608,8 +9639,15 @@ async function telaDiferenca(el) {
       <h2 style="margin-top:0">Vendido em ${esc(dias)} <span class="muted" style="font-weight:400">(${d.dias.length} dia${d.dias.length > 1 ? "s" : ""})</span></h2>
       <p class="muted" style="margin:0 0 10px">Export antigo ${dataBR(d.antigo.inicio)} a ${dataBR(d.antigo.fim)} (${nf0.format(d.antigo.anuncios)} anúncios) × novo
         ${dataBR(d.novo.inicio)} a ${dataBR(d.novo.fim)} (${nf0.format(d.novo.anuncios)}). Conta: "unidades históricas" de cada anúncio no novo − no antigo
-        (mesmo ID do anúncio, nunca soma duas vezes); anúncio que não estava no antigo = o que vendeu no novo. Vendedor "seguido" já
+        (mesmo ID do anúncio, nunca soma duas vezes); anúncio criado nos dias novos = tudo o que vendeu${d.mesma_busca ? "; anúncio que não estava no antigo (mesma busca) = o que vendeu no novo" : ""}. Vendedor "seguido" já
         está aqui pelo anúncio dele: a venda diária dos seguidos é outra fonte do mesmo anúncio e não entra nesta soma.</p>
+      ${d.outras_marcas_no_export ? `<p class="muted" style="margin:0 0 10px">${nf0.format(d.outras_marcas_no_export)} anúncios de outras marcas vieram na pesquisa expandida e ficaram fora desta conta (contam no card da marca deles).</p>` : ""}
+      ${d.nao_medidos && d.nao_medidos.anuncios ? `<p class="aviso">⚠️ ${nf0.format(d.nao_medidos.anuncios)} anúncios mais velhos que os dias novos não estavam no export antigo
+        (busca antiga: ${esc(d.nao_medidos.busca_antigo)}; nova: ${esc(d.nao_medidos.busca_novo)}): ${nf0.format(d.nao_medidos.un)} un. que eles venderam no período novo
+        <b>ficam fora da conta</b> — não dá para saber quanto foi nos dias novos. <a href="#" id="dif-nm">ver quais</a></p>
+        <details id="dif-nm-lista" style="margin:0 0 10px"><summary class="muted">Anúncios fora da medida (${nf0.format(d.nao_medidos.anuncios)})</summary>
+        <div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th>Vendedor</th><th>Título</th><th>Produto</th><th class="num">Un. no período novo</th><th class="num">Dias publicado</th></tr></thead>
+        <tbody>${d.nao_medidos.lista.map(x => `<tr><td class="first">${esc(x.vendedor || "")}</td><td>${esc(x.titulo || "")}</td><td>${esc(x.produto || "")}</td><td class="num">${nf0.format(x.un)}</td><td class="num">${nf0.format(x.dias_pub)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
       ${d.aviso ? `<p class="aviso">⚠️ ${esc(d.aviso)}</p>` : ""}
       ${d.arredondamento ? `<p class="aviso">O Nubimetrics arredonda no próprio arquivo (149.000, 33.600): anúncio com histórico acima de 1.000
         tem erro de ± meio degrau. Exato: ${nf0.format(d.arredondamento.un_exatas)} un. em ${nf0.format(d.arredondamento.anuncios_exatos)} anúncios;
@@ -9639,6 +9677,8 @@ async function telaDiferenca(el) {
       <tbody>${d.anuncios.map(a => `<tr><td class="first">${esc(a.vendedor || "")}</td><td>${esc(a.titulo || "")}</td><td>${esc(a.produto || "")}</td>
         <td class="num">${nf0.format(a.du)}${a.erro ? ` <span class="muted">± ${nf0.format(a.erro)}</span>` : ""}</td><td class="num">R$ ${nf0.format(a.dfat)}</td><td class="muted">${esc(a.situacao)}${a.fonte === "venda diária do seguido" ? " ✓" : ""}</td></tr>`).join("")}</tbody>
     </table></div></div>`;
+  const nm = $("#dif-nm", el);
+  if (nm) nm.onclick = e => { e.preventDefault(); const dt = $("#dif-nm-lista", el); dt.open = true; dt.scrollIntoView({behavior: "smooth"}); };
 }
 
 // 02/10 (Bruno: "anúncios novos e vendedores novos, marcar por dia; e se anúncios pausaram")

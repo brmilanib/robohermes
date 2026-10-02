@@ -473,6 +473,12 @@ def _explorador_categoria(pg, categoria):
     log(f"  explorador: filtro {categoria}: {antes} -> {depois} resultados")
 
 
+def nome_busca(exata, categoria):
+    """"expandida+beleza" / "exata" — vai no nome do arquivo do export (lido por `nubi_web._tipo_busca`)."""
+    cat = re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFD", str(categoria or "").split()[0].lower()).encode("ascii", "ignore").decode()) if categoria else ""
+    return ("exata" if exata else "expandida") + (f"+{cat}" if cat else "")
+
+
 def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, categoria=EXPLORADOR_CATEGORIA, _de_novo=True):
     """02/10 (Bruno: "Explorador, pesquisa expandida, digitando a marca AL WATANIAH, para testar a técnica de atualizar só a
     diferença do período"). Busca a marca no Explorador de anúncios (busca do topo "Buscar por Anúncios"), escolhe
@@ -560,7 +566,9 @@ def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, cat
             ext = Path(dl.suggested_filename or "x.csv").suffix or ".csv"
         except Exception:  # noqa: BLE001
             ext = ".csv"
-        arq = destino / f"{marca.replace(' ', '_')}__{per[0]}_{per[1]}{ext}"
+        # 02/10: o nome diz qual busca gerou o export (expandida/exata + filtro): a Diferença do nubi só conta anúncio
+        # que não estava no export antigo quando os dois exports são a MESMA busca
+        arq = destino / f"{marca.replace(' ', '_')}__{nome_busca(exata, categoria)}__{per[0]}_{per[1]}{ext}"
         try:
             dl.save_as(str(arq))
         except Exception as e:  # noqa: BLE001

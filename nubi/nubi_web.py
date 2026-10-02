@@ -570,12 +570,29 @@ def seguidos_na_diferenca(repo, d, dias):
     return d.drop(columns=["_vid"]), info
 
 
+def _so_da_marca(df):
+    """Só os anúncios que são da marca do card (tira os "Outra marca" que a pesquisa expandida traz)."""
+    if df is None or df.empty or "tipo" not in df.columns:
+        return df
+    return df[df["tipo"].fillna("") != nubi.TIPO_OUTRA]
+
+
 def _data_criacao(b):
+    """"Data de criação" do Explorador: o export do coletor veio "09-05-2026" (hífen), o manual "09/05/2026"."""
     t = str((b if isinstance(b, dict) else {}).get("Data de criação") or "").strip()[:10]
-    try:
-        return datetime.strptime(t, "%d/%m/%Y").date().isoformat()
-    except ValueError:
-        return None
+    for f in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(t, f).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _tipo_busca(arquivo):
+    """Qual busca gerou o export, pelo nome do arquivo que o coletor dá (`MARCA__expandida+beleza__ini_fim.csv`).
+    Export manual ou antigo = None (não dá para saber)."""
+    m = re.search(r"__(expandida|exata)(\+[a-z0-9]+)?__", str(arquivo or ""))
+    return (m.group(1) + (m.group(2) or "")) if m else None
 
 
 def novidades_explorador(repo, marca, s, novo, df_novo, seguidos_ids=()):
@@ -586,7 +603,7 @@ def novidades_explorador(repo, marca, s, novo, df_novo, seguidos_ids=()):
     ant = s[(s["_fim"] < novo["_fim"]) & (s["id"].astype(int) != int(novo["id"]))]
     ids_ant, vend_ant = set(), set()
     for sid in ant["id"]:
-        a = repo.anuncios(int(sid))
+        a = _so_da_marca(repo.anuncios(int(sid)))
         if a is None or a.empty:
             continue
         ids_ant |= {nubi.chave_anuncio(b, v, t) for b, v, t in zip(a["bruto"], a["vendedor_id"], a["titulo"])}
@@ -618,7 +635,7 @@ def novidades_explorador(repo, marca, s, novo, df_novo, seguidos_ids=()):
     # 02/10 (Bruno: "e se anúncios pausaram"): o Explorador só lista quem VENDEU no período. Anúncio do export anterior que
     # sumiu do novo = sem venda no período novo (pausou, acabou o estoque ou só não vendeu: o export não diz qual).
     ult = ant.sort_values(["_fim", "id"]).iloc[-1]
-    a_ult = repo.anuncios(int(ult["id"]))
+    a_ult = _so_da_marca(repo.anuncios(int(ult["id"])))
     sairam = []
     if a_ult is not None and not a_ult.empty:
         k_novo = set(n["_k"])
@@ -667,7 +684,15 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
     dias = [(d0 + timedelta(days=i)).isoformat() for i in range(1, gap + 1)]
     df_novo = nubi.ler_snapshot(repo, int(novo["id"]), marca)
     df_ant = repo.anuncios(int(antigo["id"]))
-    d = nubi.diferenca_exports(df_ant, df_novo, gap)
+    # 02/10 (1º export expandido real: 4.497 anúncios, só 1.834 da Al Wataniah; 960 da Lattafa…): a Diferença é da MARCA.
+    # Anúncio de outra marca que veio na busca (tipo "Outra marca") fica fora dos dois lados; o ID dele continua valendo
+    # no card da marca dona (Observados sem repetir)
+    outras = int((df_novo["tipo"].fillna("") == nubi.TIPO_OUTRA).sum()) if "tipo" in df_novo.columns else 0
+    df_novo, df_ant = _so_da_marca(df_novo), _so_da_marca(df_ant)
+    # 02/10: anúncio velho que não está no antigo só conta se os dois exports são a MESMA busca (nome do arquivo do coletor)
+    busca_a, busca_n = _tipo_busca(antigo.get("arquivo")), _tipo_busca(novo.get("arquivo"))
+    mesma_busca = bool(busca_a) and busca_a == busca_n
+    d = nubi.diferenca_exports(df_ant, df_novo, gap, mesma_busca=mesma_busca)
     d, seg = seguidos_na_diferenca(repo, d, dias)
     v = d[d["du"] > 0]
     cont = d["situacao"].value_counts().to_dict()
@@ -677,6 +702,14 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
     if total and un_fora / total > 0.5:
         aviso = (f"{un_fora / total * 100:.0f}% das unidades vêm de anúncios que não estavam no export antigo: ele parece "
                  "incompleto (outra busca ou export cortado). A diferença desses anúncios é o mês inteiro, não só os dias novos.")
+    nm = d[d["situacao"] == nubi.SIT_NAO_MEDIDO]
+    nao_medidos = {"anuncios": int(len(nm)), "un": int(nm["du_max"].sum()) if len(nm) else 0,
+                   "fat": round(float(pd.to_numeric(nm.get("fat"), errors="coerce").fillna(0).sum()), 2) if len(nm) else 0.0,
+                   "vendedores": int(nm["vendedor"].nunique()) if len(nm) else 0,
+                   "busca_antigo": busca_a or "manual/antiga", "busca_novo": busca_n or "manual/antiga",
+                   "lista": [{"vendedor": r["vendedor"], "titulo": r["titulo"], "produto": r.get("produto"), "un": int(r["du_max"]),
+                              "dias_pub": int(pd.to_numeric(r.get("dias_pub"), errors="coerce") or 0)}
+                             for _, r in nm.sort_values("du_max", ascending=False).head(60).iterrows()]}
     # 02/10 (Bruno: "vendedores novos entram em observados; anúncios novos ficam linkados ao vendedor já cadastrado"): o
     # vendedor é o hash do Nubimetrics (vendedor_id); quem não estava no export antigo é vendedor novo
     ja_vend = set(df_ant["vendedor_id"].fillna("").astype(str))
@@ -696,7 +729,8 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
         novidades = novidades_explorador(repo, marca, s, novo, df_novo, seguidos_ids)
     except Exception as e:  # noqa: BLE001
         novidades = {"erro": str(e)[:200]}
-    return {"ok": True, "marca": marca, "dias": dias, "novidades": novidades,
+    return {"ok": True, "marca": marca, "dias": dias, "novidades": novidades, "outras_marcas_no_export": outras,
+            "mesma_busca": mesma_busca, "nao_medidos": nao_medidos,
             "antigo": {"id": int(antigo["id"]), "inicio": antigo["_ini"], "fim": antigo["_fim"], "anuncios": int(len(df_ant))},
             "novo": {"id": int(novo["id"]), "inicio": novo["_ini"], "fim": novo["_fim"], "anuncios": int(len(df_novo))},
             "arredondamento": {"un_exatas": int(d.loc[d["exato"], "du"].sum()), "anuncios_exatos": int((d["exato"] & (d["du"] > 0)).sum()),
@@ -710,6 +744,42 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
                          for _, r in v.sort_values("du", ascending=False).head(limite).iterrows()]}
 
 
+SIT_OUTRA_DESTA = "marca desta, GTIN de outra (conta no produto da dona)"
+SIT_OUTRA_TEM_CARD = "tem card deste período: pode ir para lá"
+SIT_OUTRA_ESPERA = "sem card deste período: vai para o card dela quando o export entrar"
+
+
+def _outras_marcas(repo, df, atual, marca):
+    """02/10: o que a pesquisa expandida trouxe de OUTRAS marcas, por marca (coluna Marca do arquivo), fora da conta da
+    marca do card. Diz onde cada uma conta: marca com card do mesmo período (pode ir para lá: rota `explorador_encaminhar`),
+    sem card (fica guardada aqui até o export dela entrar) ou anúncio desta marca com GTIN de outra (etapa 4)."""
+    if df is None or df.empty or "tipo" not in df.columns:
+        return []
+    o = df[df["tipo"].fillna("") == nubi.TIPO_OUTRA]
+    if o.empty:
+        return []
+    cards = set()
+    try:
+        s = repo.snapshots()
+        mesmos = s[(s["marca"] != marca) & (s["inicio"].astype(str).str[:10] == str(atual["inicio"])[:10])
+                   & (s["fim"].astype(str).str[:10] == str(atual["fim"])[:10])]
+        cards = {nubi._chave_grupo(m) for m in mesmos["marca"]}
+    except Exception:  # noqa: BLE001
+        pass
+    minha = nubi._chave_grupo(marca)
+    out = []
+    for g, sub in o.groupby(o["marca_anuncio"].fillna("").map(nubi._chave_grupo)):
+        nome = sub["marca_anuncio"].fillna("").map(str.strip).replace("", "(sem marca)").value_counts().index[0]
+        sit = SIT_OUTRA_DESTA if g == minha else SIT_OUTRA_TEM_CARD if g in cards else SIT_OUTRA_ESPERA
+        un = int(pd.to_numeric(sub["un"], errors="coerce").fillna(0).sum())
+        out.append({"marca": nome, "situacao": sit, "anuncios": int(len(sub)), "vendedores": int(sub["vendedor_id"].nunique()),
+                    "un": un, "fat": float(pd.to_numeric(sub["fat"], errors="coerce").fillna(0).sum()),
+                    "preco_medio": _div(float(pd.to_numeric(sub["fat"], errors="coerce").fillna(0).sum()), un),
+                    "produto_top": str(sub.sort_values("un", ascending=False)["produto"].iloc[0] or "")})
+    out.sort(key=lambda x: -x["un"])
+    return out
+
+
 def relatorio(repo, marca, periodo=None):
     snaps = repo.snapshots(marca)
     if snaps.empty:
@@ -717,9 +787,14 @@ def relatorio(repo, marca, periodo=None):
     atual, anterior = escolher_periodo(snaps, periodo)
     df = nubi.ler_snapshot(repo, atual["id"], marca)
     df, un_trocada = _com_marca_trocada(repo, df, atual, marca)
+    # 02/10 (Bruno, Al Wataniah set/26: "faturamento total da marca no Ranking 6,4 mi, o Explorador mostrando 12; tem algo
+    # erradíssimo"): a pesquisa expandida traz anúncios de OUTRAS marcas (2.576 dos 4.497; Lattafa 953…). Eles ficam
+    # guardados no card (Observados, Outras marcas) mas NÃO contam nos números da marca: tudo abaixo é só da marca.
+    outras_marcas = _outras_marcas(repo, df, atual, marca)
+    df = _so_da_marca(df).copy()
     dias = int(atual["dias"])
     df.attrs["dias"] = dias
-    df_ant = nubi.ler_snapshot(repo, anterior["id"], marca) if anterior is not None else None
+    df_ant = _so_da_marca(nubi.ler_snapshot(repo, anterior["id"], marca)).copy() if anterior is not None else None
     attrs = nubi.atributos_produto(df)
     vend = nubi.codigos_vendedor(df)
     df["cod"] = df["vendedor_id"].map(vend["cod"])
@@ -947,7 +1022,8 @@ def relatorio(repo, marca, periodo=None):
         "gtins": int(df.loc[df["gtin"] != "", "gtin"].nunique()),
         "vend_loja_oficial": int(df.groupby("vendedor_id")["loja_oficial"].max().sum()),
         "pct_catalogo": _div(df["catalogo"].sum(), n), "pct_full": _div(df["full"].sum(), n),
-        "un_outras_marcas": int(df.loc[df["tipo"] == nubi.TIPO_OUTRA, "un"].sum()),
+        "un_outras_marcas": int(sum(x["un"] for x in outras_marcas)), "fat_outras_marcas": float(sum(x["fat"] for x in outras_marcas)),
+        "anuncios_outras_marcas": int(sum(x["anuncios"] for x in outras_marcas)),
         "un_nao_perfume": int(df.loc[df["tipo"] == nubi.TIPO_FORA, "un"].sum()),
         "un_low_price": int(df.loc[df["tipo"].isin(nubi.TIPOS_LOW), "un"].sum()),
         "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada}
@@ -959,7 +1035,7 @@ def relatorio(repo, marca, periodo=None):
         "tabelas": {"oportunidades": _registros(oport), "produtos": _registros(produtos),
                     "evolucao": _registros(evolucao), "precos": _registros(precos),
                     "vendedores": _registros(vendedores), "gtins": _registros(gtins),
-                    "duvidas": _registros(duvidas), "anuncios": _registros(anuncios)},
+                    "duvidas": _registros(duvidas), "anuncios": _registros(anuncios), "outras": _registros(outras_marcas)},
         "historico": historico,
         "vendedores_produto": {k: _registros(v) for k, v in vend_prod.items()},
         "produtos_vendedor": {k: _registros(v) for k, v in prod_vend.items()},
@@ -2265,6 +2341,17 @@ def atender(metodo, rota, q, corpo, token):
         if rota == "relatorio":
             _preparar(repo)
             return _json(relatorio(repo, q["marca"], q.get("periodo")))
+        if rota == "explorador_encaminhar" and metodo == "POST":   # 02/10: outras marcas do export → cards delas (mesmo período)
+            _preparar(repo)
+            cfg = repo.carregar_config()
+            pedido = json.loads(corpo or b"{}") if corpo else {}
+            marca = nubi.chave_marca(pedido.get("marca") or q.get("marca") or "")
+            snaps = repo.snapshots(marca)
+            if snaps.empty:
+                raise ErroNuvem(f"Nenhum período importado para {marca}.", 404)
+            atual, _ = escolher_periodo(snaps, pedido.get("periodo") or q.get("periodo"))
+            r = nubi.encaminhar_outras_marcas(repo, cfg, marca, int(atual["id"]))
+            return _json({"ok": True, **r})
 
         if rota == "importar" and metodo == "POST":
             log = _preparar(repo)

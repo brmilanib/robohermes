@@ -311,6 +311,30 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   arquivo novo); senão fica no card dele e sai do arquivo novo (mesmo ID = contado uma vez). Antes, o export expandido da
   AL WATANIAH 01/09–30/09 tiraria do card da ARMAF (mesmo período) os anúncios Armaf que viessem na busca (e apagaria o
   card se ficasse vazio). Teste `test_importar_sem_roubar.py` (SQLite temporário, também confere que o período antigo não muda).
+- **Página da marca conta SÓ a marca (02/10, Bruno: "faturamento total da marca no Ranking de setembro 6,4 mi, o Explorador
+  mostrando 12; tem algo erradíssimo")**: o export expandido da Al Wataniah (1008) trouxe 4.497 anúncios, 2.576 de OUTRAS
+  marcas (Lattafa 953, Ard Al Zaafaran 234, Al Haramain 202…, tipo "Outra marca"), e `relatorio()` somava tudo (87.170 un.,
+  R$ 12,4 mi, 979 vendedores). Agora `relatorio` e a planilha filtram `tipo != TIPO_OUTRA` (`_so_da_marca`) antes de
+  qualquer número; a SQL `painel()` (Painel geral) também (`supabase/painel_so_da_marca.sql`, aplicada 02/10). Conferido:
+  coluna Marca = AL WATANIAH → 1.834 anúncios, 45.033 un., R$ 6.364.030, 414 vendedores = Ranking set/26 (46.000 / R$ 6,4 mi
+  / 414); "da marca" pela regra do nubi (+ marca trocada LIPX/Hannity, GTIN dela) → 1.921 / 54.831 / R$ 7.730.800 / 450.
+  Aba **Outras marcas** na página da marca (`tabelas.outras`, `_outras_marcas`): por marca, com "onde conta" (tem card deste
+  período / sem card: espera / marca desta com GTIN de outra). `resumo.un/fat/anuncios_outras_marcas`.
+  **Anúncio de outra marca vai para o card dela (02/10, Bruno: "os anúncios das outras marcas que vêm têm que ser colocados
+  nos cards das marcas corretas")**: em `_juntar_por_id`, anúncio do arquivo novo cuja coluna Marca é de outra marca COM card
+  do mesmo período entra no card dela pelo ID (o que já está lá fica, o que falta é acrescentado, card reagrupado); marca
+  SEM card do período: fica no card de quem importou como "Outra marca" (fora da conta) e, quando o export dela do período
+  entra, passa para lá mesmo que não venha no arquivo dela (`esperando`). NÃO cria card parcial (960 anúncios de Lattafa
+  virariam "o setembro da Lattafa"). Card importado antes da regra: rota POST `explorador_encaminhar` (botão "📤 Levar…" na
+  aba Outras marcas) = `nubi.encaminhar_outras_marcas`. Em set/26 só a HANNITY COSMETICOS tem card do período (2 anúncios).
+  Teste `test_importar_sem_roubar.py` (3 casos).
+  **Diferença: anúncio velho fora do export antigo (02/10)**: a LAGARTIXA tinha 2.400 un. de setembro num anúncio de julho
+  que não estava no export de 59 dias feito à mão (busca exata) e a conta punha tudo em 29–30/09. `diferenca_exports(...,
+  mesma_busca)`: só se os dois exports são a MESMA busca (nome do arquivo do coletor `MARCA__expandida+beleza__ini_fim.csv`,
+  `coletor.nome_busca`, lido por `_tipo_busca`) o anúncio velho fora do antigo conta inteiro ("sem venda no export antigo");
+  busca diferente/manual = `SIT_NAO_MEDIDO` (du 0, `du_max` = o que vendeu no novo) → `nao_medidos` na rota e aviso na aba.
+  Resultado real 29–30/09 (93 × 1008): 3.242 un. medidas (2.842 exatas), 134 anúncios/2.959 un. fora da medida.
+  `_data_criacao` aceita "09-05-2026" (export do coletor vem com hífen): as novidades por dia funcionam.
 - **Ranking de marcas ≠ Explorador (02/10, Bruno: "ranking só traz os totais do mês fechado, importa uma vez por mês")**: no
   `diario`, o Ranking de cada mês sai quando o mês TERMINA no calendário (`meses_ranking`), sem esperar a venda diária dos
   seguidos (que atrasa 2 dias) chegar ao último dia; antes setembro só entraria no dia 3.

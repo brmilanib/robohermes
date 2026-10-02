@@ -23,13 +23,29 @@ def test_diferenca_pelo_historico():
                          linha(4, 7, 7, dias_pub=1, vend="GARCA.AMETISTA.LACTEO", vid="v9"),   # anúncio novo
                          linha(5, 3, 40, dias_pub=300),              # sem venda no período antigo: as 3 são do intervalo
                          linha(3, 5, 45)])                           # histórico diminuiu: 0, nunca negativo
-    d = nubi.diferenca_exports(antigo, novo, 2).set_index("titulo")
+    d = nubi.diferenca_exports(antigo, novo, 2, mesma_busca=True).set_index("titulo")
     assert d.at["t1", "du"] == 60 and d.at["t1", "dfat"] == 6000
     assert d.at["t2", "du"] == 0
     assert d.at["t4", "du"] == 7 and d.at["t4", "situacao"] == "anúncio novo"
     assert d.at["t5", "du"] == 3 and d.at["t5", "situacao"] == "sem venda no export antigo"
     assert d.at["t3", "du"] == 0 and "diminuiu" in d.at["t3", "situacao"]
     assert d["du"].sum() == 70
+    # 02/10 (LAGARTIXA: 2.400 un. de setembro num anúncio de julho que não estava no export de 59 dias feito à mão): busca
+    # diferente = o anúncio velho fora do antigo NÃO entra na conta (não dá para saber quanto foi nos dias novos)
+    d = nubi.diferenca_exports(antigo, novo, 2).set_index("titulo")
+    assert d.at["t5", "du"] == 0 and d.at["t5", "du_max"] == 3 and d.at["t5", "situacao"] == nubi.SIT_NAO_MEDIDO
+    assert d.at["t4", "du"] == 7 and d.at["t1", "du"] == 60 and d["du"].sum() == 67
+
+
+def test_data_criacao_e_tipo_de_busca():
+    import nubi_web as w
+    assert w._data_criacao({"Data de criação": "09-05-2026"}) == "2026-05-09"       # export do coletor (hífen)
+    assert w._data_criacao({"Data de criação": "09/05/2026"}) == "2026-05-09"       # export manual
+    assert w._data_criacao({"Data de criação": "2026-05-09 10:00"}) == "2026-05-09"
+    assert w._data_criacao({"Data de criação": ""}) is None and w._data_criacao(None) is None
+    assert w._tipo_busca("AL_WATANIAH__expandida+beleza__2026-09-01_2026-09-30.csv") == "expandida+beleza"
+    assert w._tipo_busca("ARMAF__exata__2026-09-01_2026-09-30.csv") == "exata"
+    assert w._tipo_busca("AL_WATANIAH__2026-09-01_2026-09-30.csv") is None and w._tipo_busca("ALWATANIAH (1).csv") is None
 
 
 
@@ -42,9 +58,11 @@ def test_rota_da_diferenca():
                                   produto="Al Wataniah Sabah Al Ward EDP 100 ml", **x) for i, x in enumerate(xs)])
 
     class R:
+        arquivos = ("ALWATANIAH (1).csv", "AL_WATANIAH__expandida+beleza__2026-09-01_2026-09-30.csv")
+
         def snapshots(self, marca=None):
-            return pd.DataFrame([{"id": 93, "marca": "AL WATANIAH", "inicio": "2026-08-01", "fim": "2026-09-28", "dias": 59},
-                                 {"id": 1000, "marca": "AL WATANIAH", "inicio": "2026-09-01", "fim": "2026-09-30", "dias": 30}])
+            return pd.DataFrame([{"id": 93, "marca": "AL WATANIAH", "inicio": "2026-08-01", "fim": "2026-09-28", "dias": 59, "arquivo": self.arquivos[0]},
+                                 {"id": 1000, "marca": "AL WATANIAH", "inicio": "2026-09-01", "fim": "2026-09-30", "dias": 30, "arquivo": self.arquivos[1]}])
 
         def _todos(self, t, q=None):                     # MNZ é seguido (ID v1 ligado), sem venda nesses dias casada
             if t == "vend_relatorios":
@@ -62,17 +80,29 @@ def test_rota_da_diferenca():
         def anuncios(self, sid):
             if sid == 93:
                 return ans(93, [linha(1, 900, 5000), linha(2, 10, 300)])
-            return ans(1000, [linha(1, 610, 5060), linha(2, 4, 300), linha(4, 7, 7, dias_pub=1, vend="GARCA.AMETISTA.LACTEO", vid="v9")])
+            # t6 = anúncio de julho (80 dias) que não estava no export de 59 dias feito à mão: fora da medida (LAGARTIXA)
+            return ans(1000, [linha(1, 610, 5060), linha(2, 4, 300), linha(4, 7, 7, dias_pub=1, vend="GARCA.AMETISTA.LACTEO", vid="v9"),
+                              dict(linha(6, 2400, 2500, dias_pub=80, vend="LAGARTIXA.ALIZARINA.INDESCRITIVEL", vid="v6"),
+                                   bruto={"ID do anúncio": "id6", "Data de criação": "14-07-2026"})])
     r = w.explorador_diferenca(R(), "AL WATANIAH")
     assert r["ok"] and r["dias"] == ["2026-09-29", "2026-09-30"], r
-    assert r["totais"]["un"] == 67 and r["totais"]["vendedores_novos"] == 1, r["totais"]
+    assert r["totais"]["un"] == 67 and r["totais"]["vendedores_novos"] == 2, r["totais"]
+    assert not r["mesma_busca"] and r["nao_medidos"]["anuncios"] == 1 and r["nao_medidos"]["un"] == 2400, r["nao_medidos"]
+    assert r["nao_medidos"]["lista"][0]["vendedor"] == "LAGARTIXA.ALIZARINA.INDESCRITIVEL" and r["nao_medidos"]["busca_novo"] == "expandida+beleza"
     assert r["seguidos"]["sem_par"] == 2, r["seguidos"]       # ligado pelo ID; anúncios sem par ficam no Explorador
     nv = r["novidades"]                                      # t4 = anúncio novo de vendedor novo; t2 saiu? não (está no novo)
-    assert nv["anuncios_novos"] == 1 and nv["vendedores_novos"] == 1 and nv["vendedores"][0]["vendedor"] == "GARCA.AMETISTA.LACTEO", nv
+    assert nv["anuncios_novos"] == 1 and nv["vendedores_novos"] == 2 and nv["vendedores"][0]["vendedor"] == "LAGARTIXA.ALIZARINA.INDESCRITIVEL", nv
+    assert nv["anuncios_ja_existiam"] == 1 and nv["por_dia"] == [{"dia": "2026-09-29", "anuncios": 1, "un": 7}], nv["por_dia"]
     assert nv["sairam"] == 0
     pv = {x["nome"]: x for x in r["por_vendedor"]}
     assert pv["MNZIMPORTS P11"]["seguido"] and not pv["MNZIMPORTS P11"]["novo"]
     assert pv["GARCA.AMETISTA.LACTEO"]["novo"] and not pv["GARCA.AMETISTA.LACTEO"]["seguido"]
+    assert "LAGARTIXA.ALIZARINA.INDESCRITIVEL" not in pv                     # fora da conta
+    # os dois exports da MESMA busca (coletor, expandida + Beleza): o anúncio velho fora do antigo não vendeu no antigo = conta
+    R.arquivos = ("AL_WATANIAH__expandida+beleza__2026-08-01_2026-09-28.csv", "AL_WATANIAH__expandida+beleza__2026-09-01_2026-09-30.csv")
+    r2 = w.explorador_diferenca(R(), "AL WATANIAH")
+    assert r2["mesma_busca"] and r2["totais"]["un"] == 2467 and r2["nao_medidos"]["anuncios"] == 0, r2["totais"]
+    R.arquivos = ("ALWATANIAH (1).csv", "AL_WATANIAH__expandida+beleza__2026-09-01_2026-09-30.csv")
 
 
 
@@ -136,6 +166,7 @@ def test_seguido_troca_pela_venda_diaria_sem_somar():
 
 if __name__ == "__main__":
     test_diferenca_pelo_historico()
+    test_data_criacao_e_tipo_de_busca()
     test_rota_da_diferenca()
     print("ok diferença")
     test_arredondamento_do_nubimetrics()
