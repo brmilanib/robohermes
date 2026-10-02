@@ -466,13 +466,15 @@ def seguidos_na_diferenca(repo, d, dias):
         linhas = _vendas_dias(repo, dias[0], dias[-1])
     except Exception:  # noqa: BLE001
         return d, {}
+    # 02/10: o mesmo seguido vem "AIRON-AMBAR-INQUIETANTE" na venda diária e "AIRON.AMBAR.INQUIETANTE" no Explorador
     por_vend = {}
     for r in linhas:
-        por_vend.setdefault(str(r["vendedor"]), {})[str(r["data"])[:10]] = r.get("itens") or []
+        por_vend.setdefault(nubi.compacta(r["vendedor"]), {})[str(r["data"])[:10]] = r.get("itens") or []
     d = d.assign(fonte="Explorador (histórico)")
     info = {"seguidos": 0, "faltam_dias": [], "anuncios_trocados": 0, "sem_par": 0}
+    info["nomes"] = sorted(por_vend)
     for vend, idx in d.groupby("vendedor").groups.items():
-        dd = por_vend.get(str(vend))
+        dd = por_vend.get(nubi.compacta(vend))
         if not dd:
             continue
         info["seguidos"] += 1
@@ -543,13 +545,15 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
     # 02/10 (Bruno: "vendedores novos entram em observados; anúncios novos ficam linkados ao vendedor já cadastrado"): o
     # vendedor é o hash do Nubimetrics (vendedor_id); quem não estava no export antigo é vendedor novo
     ja_vend = set(df_ant["vendedor_id"].fillna("").astype(str))
+    # seguido = tem venda diária (vend_vendas_dia) — com o nome dado pelo Bruno ou o fictício (AIRON-AMBAR-INQUIETANTE)
+    seguidos_nomes = set(seg.pop("nomes", []) or [])
     agrupa = lambda col: [{"nome": k, "un": int(g["du"].sum()), "fat": round(float(g["dfat"].sum()), 2), "anuncios": int(len(g)),
                            "anuncios_novos": int((g["situacao"] == "anúncio novo").sum()),
                            **({"novo": not bool(set(g["vendedor_id"].fillna("").astype(str)) & ja_vend),
                                # seguido = o Explorador mostra o nome que o Bruno deu ("MNZIMPORTS P11"), não o fictício
                                # ("GARCA.AMETISTA.LACTEO"). A venda diária dele (vend_vendas_dia) é OUTRA fonte do mesmo
                                # anúncio: só para conferir, nunca soma aqui
-                               "seguido": not re.fullmatch(r"[A-Z]+(\.[A-Z]+){2}", str(k or ""))} if col == "vendedor" else {})}
+                               "seguido": nubi.compacta(k) in seguidos_nomes} if col == "vendedor" else {})}
                           for k, g in sorted(v.groupby(col), key=lambda kv: -kv[1]["du"].sum())][:100]
     vend_novos = sorted(set(d["vendedor_id"].fillna("").astype(str)) - ja_vend - {""})
     cols = [c for c in ("vendedor", "titulo", "produto", "un_hist", "du", "dfat", "erro", "situacao", "fonte", "preco") if c in v.columns]

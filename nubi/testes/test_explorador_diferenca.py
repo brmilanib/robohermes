@@ -46,6 +46,9 @@ def test_rota_da_diferenca():
             return pd.DataFrame([{"id": 93, "marca": "AL WATANIAH", "inicio": "2026-08-01", "fim": "2026-09-28", "dias": 59},
                                  {"id": 1000, "marca": "AL WATANIAH", "inicio": "2026-09-01", "fim": "2026-09-30", "dias": 30}])
 
+        def _todos(self, t, q=None):                     # MNZ é seguido (tem venda diária), sem venda nesses dias casada
+            return [{"vendedor": "MNZIMPORTS-P11", "data": d, "u": 0, "v": 0, "itens": []} for d in ("2026-09-29", "2026-09-30")]
+
         def anuncios(self, sid):
             if sid == 93:
                 return ans(93, [linha(1, 900, 5000), linha(2, 10, 300)])
@@ -53,6 +56,7 @@ def test_rota_da_diferenca():
     r = w.explorador_diferenca(R(), "AL WATANIAH")
     assert r["ok"] and r["dias"] == ["2026-09-29", "2026-09-30"], r
     assert r["totais"]["un"] == 67 and r["totais"]["vendedores_novos"] == 1, r["totais"]
+    assert r["seguidos"]["sem_par"] == 2, r["seguidos"]       # nome com hífen x espaço casou; anúncios sem par ficam no Explorador
     pv = {x["nome"]: x for x in r["por_vendedor"]}
     assert pv["MNZIMPORTS P11"]["seguido"] and not pv["MNZIMPORTS P11"]["novo"]
     assert pv["GARCA.AMETISTA.LACTEO"]["novo"] and not pv["GARCA.AMETISTA.LACTEO"]["seguido"]
