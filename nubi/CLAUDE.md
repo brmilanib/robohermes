@@ -283,6 +283,19 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Explorador e "-" no relatório) e guarda em `ia_resumos` `seguidos|ids` {seller_hash: {explorador: [ids], nome}}; daí em
   diante vale o ID (renomear não quebra). Só acrescenta; leitura que falha não grava. Conferido 02/10: os 17 seguidos com 1
   ID do Explorador cada.
+- **Rodízio dos seguidos no Nubimetrics (02/10, Bruno: "para de seguir quem já foi atualizado e segue o próximo, revezando";
+  "seguir de novo traz todo o passado"; "pode seguir/deixar de seguir quantas vezes quiser"; nome fixado não some)**:
+  `rodizio.py` (servidor planeja) + `coletor rodizio` (comando da Central `rodizio_seguidos`, clica). FASE 1: só as vagas livres
+  (`MAX_VAGAS`=3, e nunca passa de 20 − seguidos de hoje que não são do rodízio: `seguidos_agora` = quem tem venda diária nos
+  últimos 5 dias); os seguidos de antes nunca são mexidos (só solta quem ele mesmo seguiu, `ativos`). Fila = observados que
+  mais vendem (`nubi_observados`), não seguidos (IDs), com codinome, fora dos últimos 30 dias. Solta quando `baixado`: venda
+  diária até o último dia coletado de todos e 28+ dias. Caminho na tela (vídeo do Bruno 02/10): Explorador
+  (`/market/publicationsexplorer`, busca "codinome do vendedor", Pesquisa exata) → ícone do vendedor na linha dele (roxo = não
+  seguido → quadro "Adicionar Grupo" → ADICIONAR no grupo "perfumes" vira REMOVER; check verde = seguido → menu "Parar de
+  seguir"). Soltar confere abrindo o ícone de novo (ADICIONAR de volta). Só clica ADICIONAR/REMOVER do grupo certo e "Parar
+  de seguir". Estado em `ia_resumos` `rodizio|estado` (ligado, vagas, ativos, feitos, histórico); rotas `rodizio` (estado +
+  fila), `rodizio_plano`, `rodizio_feito`, `rodizio_config` {ligado, vagas}. Depois de seguir, pede a coleta (`coletor_pedir`).
+  Começa DESLIGADO. Teste `test_rodizio_seguidos.py`. O export do Explorador também abre direto em `/market/publicationsexplorer`.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 

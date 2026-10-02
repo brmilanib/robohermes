@@ -473,23 +473,15 @@ def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, cat
     ctx = abrir_navegador(p, cfg)
     try:
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-        ir(pg, f"{BASE}/market/sellerranking", "body")
-        busca = pg.locator('input[placeholder*="Buscar por An" i]:visible').first
-        if not busca.count():
-            enviar_foto(pg, "explorador: sem a busca do topo", resumo_tela(pg))
-            raise Falha("não achei a busca 'Buscar por Anúncios' no topo " + diagnostico(pg))
+        # 02/10 (vídeo do Bruno): o Explorador é /market/publicationsexplorer, com busca própria ("codinome do vendedor…")
+        ir(pg, f"{BASE}{EXPLORADOR_URL}", 'input[placeholder*="codinome" i]')
+        busca = pg.locator('input[placeholder*="codinome" i]:visible').first
         busca.click()
         devagar(1)
         busca.fill("")
         busca.type(marca, delay=90)
         devagar(1)
         busca.press("Enter")
-        try:
-            pg.wait_for_function("() => /Explorador de an[uú]ncios/i.test(document.body.innerText)", timeout=60000)
-        except Exception:  # noqa: BLE001
-            _explorador_login(pg)
-            enviar_foto(pg, "explorador: a busca não abriu o Explorador", resumo_tela(pg))
-            raise Falha("a busca do topo não abriu o Explorador de anúncios " + diagnostico(pg))
         _explorador_login(pg)
         if re.search(r"captcha|verif", pg.url or "", re.I):
             raise Falha("o Nubimetrics pediu verificação; parei " + diagnostico(pg))
@@ -555,6 +547,180 @@ def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, cat
         return 1, 1, 0, f"Explorador {marca} {per[0]}–{per[1]} importado" + (f" ({n_res} resultados)" if n_res else "")
     finally:
         ctx.close()
+
+
+EXPLORADOR_URL = "/market/publicationsexplorer"
+
+# ícone do VENDEDOR no Explorador (vídeo do Bruno, 02/10): na linha do anúncio, à direita do nome do vendedor, na mesma
+# altura (o de cima, na altura do título, é outro). Roxo = não seguido (abre "Adicionar Grupo"); check verde = seguido
+# (abre o menu "Parar de seguir"). Marca o alvo com data-nubi-alvo para o clique de verdade do Playwright.
+JS_ICONE_VENDEDOR = """cod => {
+  document.querySelectorAll('[data-nubi-alvo]').forEach(e => e.removeAttribute('data-nubi-alvo'));
+  const alvo = cod.trim().toUpperCase();
+  const nome = [...document.querySelectorAll('a,span,p,div')].find(e => e.offsetParent && e.children.length === 0 &&
+    (e.innerText || '').trim().toUpperCase() === alvo);
+  if (!nome) return 'sem-nome';
+  const r = nome.getBoundingClientRect(), y = r.top + r.height / 2;
+  const cands = [...document.querySelectorAll('button,[role=button],svg')].filter(e => {
+    const q = e.getBoundingClientRect();
+    return q.width > 6 && q.width < 60 && Math.abs(q.top + q.height / 2 - y) < 16 && q.left > r.right - 2 && q.left < r.right + 320; });
+  cands.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  const c = cands.find(e => !e.closest('[data-nubi-pular]'));
+  if (!c) return 'sem-icone';
+  (c.closest('button,[role=button]') || c).setAttribute('data-nubi-alvo', '1');
+  return 'ok'; }"""
+
+# o botão do grupo dentro do quadro "Adicionar Grupo": a linha com o nome do grupo e o botão ADICIONAR/REMOVER dela
+JS_BOTAO_GRUPO = """g => {
+  document.querySelectorAll('[data-nubi-grupo]').forEach(e => e.removeAttribute('data-nubi-grupo'));
+  const nomes = [...document.querySelectorAll('*')].filter(e => e.offsetParent && e.children.length === 0 &&
+    (e.innerText || '').trim().toLowerCase() === g.toLowerCase());
+  for (const n of nomes) {
+    let p = n.parentElement;
+    for (let i = 0; i < 4 && p; i++, p = p.parentElement) {
+      const b = [...p.querySelectorAll('button')].find(x => /^(ADICIONAR|REMOVER)$/i.test((x.innerText || '').trim()));
+      if (b) { b.setAttribute('data-nubi-grupo', '1'); return (b.innerText || '').trim().toUpperCase(); }
+    }
+  }
+  return ''; }"""
+
+
+def _buscar_codinome(pg, codinome):
+    campo = pg.locator('input[placeholder*="codinome" i]:visible').first
+    if not campo.count():
+        raise Falha("não achei a busca do Explorador " + diagnostico(pg))
+    exata = pg.locator("label:visible", has_text=re.compile(r"Pesquisa exata", re.I)).first
+    if exata.count():
+        r = exata.locator("input[type=radio]")
+        if not (r.count() and r.first.is_checked()):
+            exata.click()
+            devagar(1)
+    campo.click()
+    campo.fill("")
+    campo.type(codinome, delay=80)
+    campo.press("Enter")
+    try:
+        pg.wait_for_function("c => [...document.querySelectorAll('a,span,p,div')].some(e => e.offsetParent && "
+                             "e.children.length === 0 && (e.innerText || '').trim().toUpperCase() === c)",
+                             arg=codinome.upper(), timeout=60000)
+    except Exception:  # noqa: BLE001
+        return False
+    devagar(2)
+    return True
+
+
+def _abrir_icone(pg, codinome):
+    estado = pg.evaluate(JS_ICONE_VENDEDOR, codinome)
+    if estado != "ok":
+        return estado
+    pg.locator('[data-nubi-alvo="1"]').first.click()
+    devagar(2)
+    if pg.locator(":visible", has_text=re.compile(r"^\s*Adicionar Grupo\s*$", re.I)).count():
+        return "quadro"
+    if pg.locator(":visible", has_text=re.compile(r"^\s*Parar de seguir\s*$", re.I)).count():
+        return "menu"
+    return "nada"
+
+
+def _fechar(pg):
+    pg.keyboard.press("Escape")
+    devagar(1)
+
+
+def seguir_vendedor(pg, codinome, grupo):
+    """Segue pelo quadro "Adicionar Grupo" (ADICIONAR no grupo). Já seguido = ok. Só clica ADICIONAR do grupo certo."""
+    if not _buscar_codinome(pg, codinome):
+        return f"{codinome}: não achei no Explorador"
+    aberto = _abrir_icone(pg, codinome)
+    if aberto == "menu":                                  # check verde: já é seguido
+        _fechar(pg)
+        return None
+    if aberto != "quadro":
+        _fechar(pg)
+        return f"{codinome}: o ícone do vendedor não abriu o quadro ({aberto})"
+    botao = pg.evaluate(JS_BOTAO_GRUPO, grupo)
+    if botao == "REMOVER":                                # já está no grupo
+        _fechar(pg)
+        return None
+    if botao != "ADICIONAR":
+        _fechar(pg)
+        return f"{codinome}: não achei o grupo '{grupo}' no quadro"
+    pg.locator('[data-nubi-grupo="1"]').first.click()
+    try:
+        pg.wait_for_function("g => document.querySelector('[data-nubi-grupo]') && "
+                             "/REMOVER/i.test(document.querySelector('[data-nubi-grupo]').innerText)", arg=grupo, timeout=20000)
+    except Exception:  # noqa: BLE001
+        if pg.evaluate(JS_BOTAO_GRUPO, grupo) != "REMOVER":
+            _fechar(pg)
+            return f"{codinome}: cliquei em ADICIONAR e não virou REMOVER"
+    _fechar(pg)
+    return None
+
+
+def soltar_vendedor(pg, codinome, grupo):
+    """Para de seguir pelo menu "Parar de seguir" (ou REMOVER no quadro) e confere abrindo o ícone de novo."""
+    if not _buscar_codinome(pg, codinome):
+        return f"{codinome}: não achei no Explorador"
+    aberto = _abrir_icone(pg, codinome)
+    if aberto == "menu":
+        pg.locator(":visible", has_text=re.compile(r"^\s*Parar de seguir\s*$", re.I)).last.click()
+        devagar(2)
+        conf = pg.locator("[role=dialog] button:visible", has_text=re.compile(r"^\s*(Sim|Confirmar|Parar de seguir|OK)\s*$", re.I))
+        if conf.count():
+            conf.first.click()
+            devagar(2)
+    elif aberto == "quadro":
+        if pg.evaluate(JS_BOTAO_GRUPO, grupo) == "REMOVER":
+            pg.locator('[data-nubi-grupo="1"]').first.click()
+            devagar(3)
+        _fechar(pg)
+    else:
+        return f"{codinome}: o ícone do vendedor não abriu ({aberto})"
+    _fechar(pg)
+    if _abrir_icone(pg, codinome) == "quadro" and pg.evaluate(JS_BOTAO_GRUPO, grupo) == "ADICIONAR":
+        _fechar(pg)
+        return None
+    _fechar(pg)
+    return f"{codinome}: depois de parar de seguir, o vendedor ainda aparece como seguido"
+
+
+def coletar_rodizio(p, cfg, token):
+    """02/10: rodízio dos seguidos (só as vagas livres; o servidor planeja em `rodizio_plano`). Solta primeiro quem já foi
+    baixado, depois segue os próximos; conta tudo ao nubi (`rodizio_feito`) e pede a coleta para baixar os novos."""
+    plano = api(token, "rodizio_plano")
+    if not plano.get("ligado"):
+        return 0, 0, 0, "rodízio desligado"
+    if not plano.get("seguir") and not plano.get("soltar"):
+        return 0, 0, 0, "rodízio: nada para trocar agora"
+    grupo = plano.get("grupo") or "perfumes"
+    feito = {"seguiu": [], "soltou": [], "erros": []}
+    ctx = abrir_navegador(p, cfg)
+    try:
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        ir(pg, f"{BASE}{EXPLORADOR_URL}", 'input[placeholder*="codinome" i]')
+        for cod in plano.get("soltar") or []:
+            erro = soltar_vendedor(pg, cod, grupo)
+            (feito["erros"].append(erro) if erro else feito["soltou"].append(cod))
+            log(f"  rodízio: soltar {cod}: {erro or 'ok'}")
+            devagar(4)
+        for s in plano.get("seguir") or []:
+            erro = seguir_vendedor(pg, s["codinome"], grupo)
+            (feito["erros"].append(erro) if erro else feito["seguiu"].append(s["codinome"]))
+            log(f"  rodízio: seguir {s['codinome']}: {erro or 'ok'}")
+            devagar(4)
+        guardar_sessao(ctx)
+    finally:
+        ctx.close()
+    api(token, "rodizio_feito", corpo=feito)
+    if feito["seguiu"]:
+        try:
+            api(token, "coletor_pedir", corpo={"motivo": "rodízio: baixar o histórico dos novos seguidos", "tarefa": "diario"})
+        except Exception:  # noqa: BLE001
+            pass
+    n = len(feito["seguiu"]) + len(feito["soltou"])
+    msg = (f"rodízio: seguiu {', '.join(feito['seguiu']) or 'ninguém'}; soltou {', '.join(feito['soltou']) or 'ninguém'}"
+           + (f"; {len(feito['erros'])} erro(s): {' | '.join(feito['erros'])[:300]}" if feito["erros"] else ""))
+    return n, n, len(feito["erros"]), msg
 
 
 FOTOS_ENVIADAS = [0]
@@ -3857,7 +4023,7 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
                  "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos",
-                 "ml_busca_foto", "explorador_marca")
+                 "ml_busca_foto", "explorador_marca", "rodizio_seguidos")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -3913,7 +4079,7 @@ def comando_mac(chave, arg=""):
         "navegador_status": [*c, "navegar", "0"],
         "ml_lojas": [*c, "ml-lojas"], "ml_posicoes": [*c, "ml-posicoes"], "entrar_ml": [*c, "entrar-ml"],
         "vend_fotos": [*c, "fotos-vendedores"], "vitrine_seguidos": [*c, "vitrine-seguidos"], "ml_precos": [*c, "ml-precos"],
-        "ml_busca_foto": [*c, "ml-busca-foto"],
+        "ml_busca_foto": [*c, "ml-busca-foto"], "rodizio_seguidos": [*c, "rodizio"],
         "vigia_status": ["/bin/launchctl", "list"],
         "log_vigia": ["/usr/bin/tail", "-n", "80", str(PASTA / "vigia.log")],
         "log_coleta": ["/usr/bin/tail", "-n", "120", str(PASTA / "coletor.log")],
@@ -8266,6 +8432,7 @@ def main():
     bf = sub.add_parser("ml-busca-foto", help="Mercado Livre: achar a loja dos seguidos sem loja pela foto do anúncio na busca, só lê")
     bf.add_argument("--so", default=None, help="só este vendedor seguido")
     bf.add_argument("--rodizio", action="store_true", help="só a parte desta máquina (vigia; Mac / Dell / gamdias)")
+    sub.add_parser("rodizio", help="Nubimetrics: rodízio dos seguidos (segue/solta nas vagas livres do grupo, plano do nubi)")
     exm = sub.add_parser("explorador-marca", help="Nubimetrics: exporta o Explorador de anúncios de UMA marca e importa no nubi")
     exm.add_argument("marca")
     exm.add_argument("--exata", action="store_true", help="Pesquisa exata (padrão: expandida por IA)")
@@ -8400,6 +8567,8 @@ def main():
         return executar("ml_busca_foto", lambda p, cfg, token: coletar_busca_foto(p, cfg, token, args.so, args.rodizio))
     if args.cmd == "ml-pagina":
         return executar("ml_pagina", lambda p, cfg, token: coletar_ml_pagina(p, cfg, token, args.url))
+    if args.cmd == "rodizio":
+        return executar("rodizio_seguidos", coletar_rodizio)
     if args.cmd == "explorador-marca":
         return executar("explorador_marca", lambda p, cfg, token: coletar_explorador_marca(p, cfg, token, args.marca, args.exata))
     if args.cmd == "fotos-vendedores":

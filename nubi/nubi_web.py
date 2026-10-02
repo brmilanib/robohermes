@@ -43,6 +43,7 @@ import meli
 import perseguir
 import monitor
 import observados
+import rodizio
 import linhas_ia
 import trava_agrupamento
 import precos
@@ -2154,6 +2155,22 @@ def atender(metodo, rota, q, corpo, token):
             nubi.reconsolidar(repo, cfg, [marca])
             return _json({"ok": True, "linhas": cfg[marca]["linhas"], "log": log})
 
+        if rota.startswith("rodizio"):                  # 02/10: rodízio dos seguidos no Nubimetrics (só as vagas livres)
+            d_ = json.loads(corpo or b"{}") if metodo == "POST" else {}
+            if rota == "rodizio_feito" and metodo == "POST":
+                return _json(rodizio.registrar(repo, d_))
+            if rota == "rodizio_config" and metodo == "POST":
+                return _json(rodizio.configurar(repo, d_))
+            ids = set(_hashes_seguidos(repo))
+            try:
+                ids |= {v for g in ligar_ids_seguidos(repo).values() for v in g.get("explorador") or []}
+            except Exception:  # noqa: BLE001
+                pass
+            if rota == "rodizio_plano":
+                return _json(rodizio.plano(repo, ids))
+            if rota == "rodizio":
+                e = rodizio.ler(repo)
+                return _json({"estado": e, "fila": rodizio.fila(repo, e, ids, n=15), "max_vagas": rodizio.MAX_VAGAS})
         if rota == "explorador_diferenca":           # 02/10: o que vendeu entre dois exports (pelo histórico de cada anúncio)
             _preparar(repo)
             return _json(explorador_diferenca(repo, nubi.chave_marca(q.get("marca") or ""), q.get("de"), q.get("para")))
@@ -8602,6 +8619,7 @@ COMANDOS_MAC = {
     "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
     "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora", "ml_pagina": "Mercado Livre: salvar uma página (busca ou anúncio) no nubi para análise, só lê",
     "explorador_quinzena": "Nubimetrics: exportar o Explorador da última quinzena de todas as marcas e importar no nubi",
+    "rodizio_seguidos": "Nubimetrics: rodízio dos seguidos (solta quem já foi baixado e segue os próximos observados nas vagas livres)",
     "explorador_marca": "Nubimetrics: exportar o Explorador de anúncios de UMA marca (pesquisa expandida; arg = MARCA ou MARCA|exata) e importar",
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
     "vitrine_seguidos": "Mercado Livre: ler a vitrine (_CustId_) das lojas dos vendedores seguidos e gravar todos os anúncios, só lê",

@@ -18,7 +18,7 @@ c.enviar_foto = lambda *a, **k: None
 TOPO = """<html><body><input placeholder="Buscar por Anúncios" id="b">
 <script>document.getElementById('b').onkeydown = e => { if (e.key === 'Enter') location.href = '/explorer?q=' + encodeURIComponent(e.target.value); };</script>
 </body></html>"""
-EXPLORADOR = """<html><body><h1>Explorador de anúncios</h1><p><b>Anúncios com vendas:</b> 01 set - 30 set 2026</p>
+EXPLORADOR = """<html><body><h1>Explorador de anúncios</h1><input placeholder="Buscar anúncios, codinome do vendedor, marcas e muito mais"><p><b>Anúncios com vendas:</b> 01 set - 30 set 2026</p>
 <label><input type="radio" name="t" checked> Pesquisa exata</label>
 <label><input type="radio" name="t" id="exp"> Pesquisa expandida por IA</label>
 <p id="n">1–50 de 23496 resultados</p>
@@ -36,7 +36,7 @@ document.getElementById('x').onclick = () => { if (!document.getElementById('exp
 
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        corpo = (EXPLORADOR if self.path.startswith("/explorer") else TOPO).encode()
+        corpo = (EXPLORADOR if self.path.startswith(("/explorer", "/market/publicationsexplorer")) else TOPO).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -79,7 +79,7 @@ def test_exporta_e_manda_com_o_periodo():
     rota, params, n = enviados[0]
     assert rota == "importar" and params == {"arquivo": "AL_WATANIAH__2026-09-01_2026-09-30.csv", "marca": "AL WATANIAH",
                                              "inicio": "2026-09-01", "fim": "2026-09-30"} and n > 200, enviados
-    assert cfg["explorador_url"].endswith("/explorer")
+    assert cfg["explorador_url"].endswith("/market/publicationsexplorer")
     assert "filtro Beleza e Cuidado Pessoal: 23496 -> 4497" in "\n".join(c.LOG)
 
 
