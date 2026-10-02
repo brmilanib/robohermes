@@ -473,7 +473,7 @@ def _explorador_categoria(pg, categoria):
     log(f"  explorador: filtro {categoria}: {antes} -> {depois} resultados")
 
 
-def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, categoria=EXPLORADOR_CATEGORIA):
+def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, categoria=EXPLORADOR_CATEGORIA, _de_novo=True):
     """02/10 (Bruno: "Explorador, pesquisa expandida, digitando a marca AL WATANIAH, para testar a técnica de atualizar só a
     diferença do período"). Busca a marca no Explorador de anúncios (busca do topo "Buscar por Anúncios"), escolhe
     Pesquisa expandida por IA (ou exata), lê o período da tela ("Anúncios com vendas: 01 set - 30 set 2026"), clica só em
@@ -540,19 +540,60 @@ def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, cat
         if not botao.count():
             enviar_foto(pg, "explorador: sem EXPORTAR", resumo_tela(pg))
             raise Falha("não achei o botão EXPORTAR do Explorador " + diagnostico(pg))
+        # 02/10 (Mac: "Download.failure: Target page, context or browser has been closed"): o Chrome do Mac fecha sozinho
+        # no download. Guarda a resposta do arquivo enquanto chega e o login; se o save_as falhar, usa a cópia ou o link.
+        estado = ctx.storage_state()
+        copia = {}
+
+        def _guarda(resp):
+            try:
+                h = {k.lower(): v for k, v in (resp.headers or {}).items()}
+                if "attachment" in h.get("content-disposition", "") or re.search(r"csv|spreadsheet|octet-stream", h.get("content-type", "")):
+                    copia["corpo"] = resp.body()
+            except Exception:  # noqa: BLE001
+                pass
+        pg.on("response", _guarda)
         with pg.expect_download(timeout=180000) as d:
             clicar_exportar(pg, exportar_alcancavel(botao), f"explorador {marca}")
         dl = d.value
-        falhou = dl.failure()
-        if falhou:
-            raise Falha(f"o download do Explorador falhou ({falhou})")
-        ext = Path(dl.suggested_filename or "x.csv").suffix or ".csv"
+        try:
+            ext = Path(dl.suggested_filename or "x.csv").suffix or ".csv"
+        except Exception:  # noqa: BLE001
+            ext = ".csv"
         arq = destino / f"{marca.replace(' ', '_')}__{per[0]}_{per[1]}{ext}"
-        dl.save_as(str(arq))
+        try:
+            dl.save_as(str(arq))
+        except Exception as e:  # noqa: BLE001
+            log(f"  explorador {marca}: o Chrome fechou no download ({e.__class__.__name__}); usando a cópia/o link")
+            if copia.get("corpo") and len(copia["corpo"]) > 200:
+                arq.write_bytes(copia["corpo"])
+            else:
+                url = getattr(dl, "url", "") or ""
+                if not url.startswith("http"):
+                    if not _de_novo:
+                        raise
+                    log(f"  explorador {marca}: sem link do arquivo; exportando de novo num Chrome novo")
+                    try:
+                        ctx.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    devagar(8)
+                    return coletar_explorador_marca(p, cfg, token, marca, exata, enviar, categoria, _de_novo=False)
+                req = p.request.new_context(storage_state=estado)
+                try:
+                    r = req.get(url, timeout=180000)
+                    if not r.ok:
+                        raise Falha(f"não consegui baixar o arquivo do Explorador pelo link (HTTP {r.status})")
+                    arq.write_bytes(r.body())
+                finally:
+                    req.dispose()
         if not arq.exists() or arq.stat().st_size < 200:
             raise Falha("o arquivo do Explorador veio vazio")
         log(f"  explorador {marca}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
-        guardar_sessao(ctx)
+        try:
+            guardar_sessao(ctx)
+        except Exception:  # noqa: BLE001
+            pass
         salvar_config(cfg)
         if not enviar:
             return 1, 0, 0, f"Explorador {marca} {per[0]}–{per[1]}: baixado, não enviado"
@@ -561,7 +602,10 @@ def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, cat
             log("    " + str(linha))
         return 1, 1, 0, f"Explorador {marca} {per[0]}–{per[1]} importado" + (f" ({n_res} resultados)" if n_res else "")
     finally:
-        ctx.close()
+        try:
+            ctx.close()
+        except Exception:  # noqa: BLE001 (o Chrome do Mac pode já ter fechado sozinho)
+            pass
 
 
 EXPLORADOR_URL = "/market/publicationsexplorer"

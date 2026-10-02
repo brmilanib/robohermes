@@ -256,6 +256,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   resultados, com filtro 4.497): ícone ⫶ na linha do EXPORTAR (`JS_BOTAO_FILTROS`) → clica a categoria → confere o selo e o
   nº de resultados. Mais de 10.000 resultados (limite do EXPORTAR) = não importa. O Explorador NÃO deixa escolher a data
   (Bruno): o período é o que a tela mostra.
+  1ª rodada real no Mac (02/10, 00h25): o painel de filtros era dado como aberto pela palavra "Catálogo" das etiquetas dos
+  anúncios (agora procura o item da categoria e clica no ícone ⫶ com o mouse de verdade); o Chrome do Mac fecha sozinho no
+  download ("Download.failure: Target page … closed"): a resposta do arquivo é copiada enquanto chega (`pg.on("response")`),
+  senão o link é baixado com os cookies, senão exporta de novo num Chrome novo (1 vez). `explorador-marca` e `rodizio` esperam
+  a coleta em andamento em vez de recusar.
   Teste `test_explorador_marca.py`.
 - **Diferença entre dois exports (02/10, Bruno: "no nubi temos até 28/09; só queremos a diferença dos dias 29 e 30")**: o
   Explorador não deixa escolher a data, mas "Unidades/Vendas em $ históricas" é o total da VIDA do anúncio:
