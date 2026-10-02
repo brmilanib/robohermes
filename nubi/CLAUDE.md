@@ -1321,6 +1321,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (≥75% das palavras, mesmo volume, tipo e gênero; mais palavras batendo vence: Silver Scent Intense ≠ Silver Scent). GTIN
   também do meu anúncio no ML (atributo GTIN). "Ver todos os vendedores ›" abre a marca no Explorador com o quadro do
   produto aberto (`S.abrirProd` em `abrirMarca`).
+  02/10 (2º print: "o 1º é a MNZIMPORTS e não aparece"; "meu anúncio está a 259 e mostrou 275,99"): `_calc_mercado` usa o
+  MESMO `relatorio()` da página da marca (`_relatorio_mem`, 15 min; período padrão, marca trocada somada), produto pelo GTIN
+  (aba GTINs) ou `_produto_pelo_nome`; minhas lojas (`ml_lojas`) marcadas "minha loja" e, fora do top 5, a posição delas.
+  Meu anúncio: loja (nickname da conta conectada), link e o preço com a promoção (`meli.preco_de_venda` = /sale_price).
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

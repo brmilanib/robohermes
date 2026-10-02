@@ -6802,7 +6802,7 @@ def _calc_ml(repo, d):
         traceback.print_exc()
     return {"categoria": cat, "origem_categoria": origem_cat, "tipo": tipo, "tarifas": tarifas, "dimensoes": dims, "full": full,
             "frete": frete, "origem_frete": origem_frete, "aviso": aviso, "mercado": mercado, "minhas_vendas": minhas,
-            "meu": {k: meu.get(k) for k in ("mlb", "titulo", "categoria", "tipo_id", "preco", "full", "dimensoes", "status")} if meu else None}
+            "meu": {k: meu.get(k) for k in ("mlb", "titulo", "categoria", "tipo_id", "preco", "preco_cheio", "full", "dimensoes", "status", "link", "loja")} if meu else None}
 
 
 def _minhas_vendas_sku(repo, sku):
@@ -6823,11 +6823,54 @@ def _minhas_vendas_sku(repo, sku):
                                 for x in ls], key=lambda x: -(x["unidades"] or 0))[:6]}
 
 
+_REL_MEM = {}
+
+
+def _relatorio_mem(repo, marca):
+    """relatorio() da marca guardado 15 min na memória do servidor (a calculadora reabre várias vezes)."""
+    x = _REL_MEM.get(marca)
+    if x and time.time() - x[0] < 900:
+        return x[1]
+    r = relatorio(repo, marca)
+    _REL_MEM[marca] = (time.time(), r)
+    if len(_REL_MEM) > 40:
+        _REL_MEM.pop(min(_REL_MEM, key=lambda k: _REL_MEM[k][0]), None)
+    return r
+
+
+def _produto_pelo_nome(titulo, produtos, marcas):
+    """O produto do nubi cujo nome bate com o título: ≥75% das palavras, mesmo volume, tipo e gênero; empate = mais
+    palavras batendo, depois mais unidades. produtos = {nome: unidades}."""
+    GEN = {"edt", "edp", "edc", "eau", "parfum", "toilette", "cologne", "extrait", "man", "men", "woman", "women", "masculino",
+           "feminino", "homme", "femme", "pour", "for", "him", "her", "unissex", "unisex"}
+    FEM, MAS = {"woman", "women", "feminino", "femme", "her"}, {"man", "men", "masculino", "homme", "him"}
+    tt, vt = _tokens_produto(titulo)
+    tipo_t = _tipo_tok(titulo)
+    sem_marca = {p for m in marcas for p in nubi.normalizar(m).split()}
+    pal_t = set(nubi.normalizar(titulo).split())
+    melhor = None
+    for p, un in produtos.items():
+        if not p or "outros" in str(p).lower().split():
+            continue
+        tp0, vp = _tokens_produto(p)
+        pal_p = set(nubi.normalizar(p).split())
+        if (pal_t & FEM and pal_p & MAS) or (pal_t & MAS and pal_p & FEM):    # gênero trocado
+            continue
+        tp = tp0 - sem_marca - GEN
+        if not tp or (vt and vp and vt != vp) or (tipo_t and _tipo_tok(p) and tipo_t != _tipo_tok(p)):
+            continue
+        nota = len(tt & tp) / len(tp)
+        chave = (nota, len(tt & tp), un)                       # mais palavras batendo vence (Silver Scent Intense x Silver Scent)
+        if nota >= 0.75 and (not melhor or chave > melhor[0]):
+            melhor = (chave, p)
+    return melhor[1] if melhor else None
+
+
 def _calc_mercado(repo, it, gtin):
-    """01/10 (Bruno: "no Explorador, na marca do produto, a gente acha os 5 primeiros vendedores; nós temos esses dados"):
-    último export do Explorador da marca do produto. Com GTIN: os anúncios desse GTIN; sem GTIN (a maioria dos monitorados):
-    o produto do nubi cujo nome bate com o título (mesmas palavras, mesmo volume e tipo). Vendedores somados, preço médio =
-    faturamento ÷ unidades. A busca vai pelo snapshot da marca (tem índice; por GTIN sozinho leva 5 s)."""
+    """01/10 (Bruno: "no Explorador, na marca do produto, a gente acha os 5 primeiros vendedores; nós temos esses dados";
+    2º print: "o 1º é a MNZIMPORTS e não aparece"): usa o MESMO relatório da página da marca (período padrão, marca trocada
+    somada, produto consolidado), então os vendedores batem com o quadro do produto. Produto: pelo GTIN (aba GTINs do
+    relatório) ou pelo nome. Minha posição: as minhas lojas (ml_lojas) na lista de vendedores do produto."""
     g = re.sub(r"\D", "", str(gtin or ""))
     gs = sorted({g, g.lstrip("0"), g.zfill(13), g.zfill(14)} - {""}) if re.fullmatch(r"\d{8,14}", g) else []
     marcas = {r["marca"] for r in (repo._req("GET", "gtin_info", {"select": "marca", "gtin": f"in.({','.join(gs)})"}) or [] if gs else [])
@@ -6839,71 +6882,46 @@ def _calc_mercado(repo, it, gtin):
     tit = nubi.normalizar(f"{it.get('titulo') or ''} {it.get('titulo_meu') or ''}")
     nomes = {nubi.normalizar(m): m for m in snaps["marca"]}
     marcas |= {m for n, m in nomes.items() if n and len(n) >= 3 and re.search(rf"(^|\s){re.escape(n)}(\s|$)", tit)}
-    sel = snaps[snaps["marca"].astype(str).str.upper().isin({str(m).upper() for m in marcas})]
-    if sel.empty:
+    reais = [m for m in snaps["marca"] if str(m).upper() in {str(x).upper() for x in marcas}]
+    if not reais:
         return {"sem": "não achei a marca deste produto no Explorador"}
-    ids = [int(i) for i in sel["id"]]
-    base = {"select": "vendedor,vendedor_id,un,fat,snapshot_id,produto", "snapshot_id": f"in.({','.join(map(str, ids))})"}
-    rows, como = [], None
-    if gs:
-        rows, como = repo._todos("anuncios", dict(base, gtin=f"in.({','.join(gs)})")), "gtin"
-    if not rows:                                       # sem GTIN: o produto do nubi pelo nome
-        todos = repo._todos("anuncios", base)
-        GEN = {"edt", "edp", "edc", "eau", "parfum", "toilette", "cologne", "extrait", "man", "men", "woman", "women", "masculino",
-               "feminino", "homme", "femme", "pour", "for", "him", "her", "unissex", "unisex"}
-        FEM, MAS = {"woman", "women", "feminino", "femme", "her"}, {"man", "men", "masculino", "homme", "him"}
-        tt, vt = _tokens_produto(it.get("titulo") or "")
-        tipo_t = _tipo_tok(it.get("titulo") or "")
-        sem_marca = {p for m in marcas for p in nubi.normalizar(m).split()}
-        pal_t = set(nubi.normalizar(it.get("titulo") or "").split())
-        un_p = {}
-        for r in todos:
-            un_p[r.get("produto")] = un_p.get(r.get("produto"), 0) + float(r.get("un") or 0)
-        melhor = None
-        for p, un in un_p.items():
-            if not p or "outros" in str(p).lower().split():
-                continue
-            tp0, vp = _tokens_produto(p)
-            pal_p = set(nubi.normalizar(p).split())
-            if (pal_t & FEM and pal_p & MAS) or (pal_t & MAS and pal_p & FEM):   # gênero trocado
-                continue
-            tp = tp0 - sem_marca - GEN
-            if not tp or (vt and vp and vt != vp) or (tipo_t and _tipo_tok(p) and tipo_t != _tipo_tok(p)):
-                continue
-            nota = len(tt & tp) / len(tp)
-            chave = (nota, len(tt & tp), un)                   # mais palavras batendo vence (Silver Scent Intense x Silver Scent)
-            if nota >= 0.75 and (not melhor or chave > melhor[0]):
-                melhor = (chave, p)
-        if melhor:
-            rows, como = [r for r in todos if r.get("produto") == melhor[1]], "nome"
-    if not rows:
-        return {"sem": "não achei este produto no último export da marca", "marcas": sorted(marcas)}
-    lojas = meli.ler_hash_lojas(repo)
-    por = {}
-    for r in rows:
-        k = str(r.get("vendedor_id") or r.get("vendedor"))
-        v = por.setdefault(k, {"vendedor": r.get("vendedor"), "un": 0.0, "fat": 0.0, "anuncios": 0})
-        v["un"] += float(r.get("un") or 0); v["fat"] += float(r.get("fat") or 0); v["anuncios"] += 1
-    top = []
-    for k, v in sorted(por.items(), key=lambda kv: -kv[1]["un"]):
-        if v["un"] <= 0:
-            continue
-        real = (_hash_ok(lojas.get(k)) or {}) if isinstance(lojas.get(k), dict) else {}
-        top.append({"vendedor": real.get("nome") or v["vendedor"], "nubimetrics": v["vendedor"], "real": bool(real.get("nome")),
-                    "unidades": round(v["un"]), "faturamento": round(v["fat"], 2), "preco_medio": round(v["fat"] / v["un"], 2),
-                    "anuncios": v["anuncios"]})
-    # produto do nubi e a marca do export onde ele mais vende (o "ver mais" abre esse quadro no Explorador)
-    marca_de = {int(r["id"]): r["marca"] for _, r in sel.iterrows()}
-    peso = {}
-    for r in rows:
-        k = (marca_de.get(int(r.get("snapshot_id") or 0)), r.get("produto"))
-        peso[k] = peso.get(k, 0) + float(r.get("un") or 0)
-    marca_p, produto_p = max(peso, key=peso.get) if peso else (None, None)
-    s0 = sel.sort_values("fim").iloc[-1]
-    un_t = sum(v["un"] for v in por.values()); fat_t = sum(v["fat"] for v in por.values())
-    return {"top": top[:5], "vendedores": len(top), "unidades": round(un_t), "preco_medio": round(fat_t / un_t, 2) if un_t else None,
-            "inicio": str(s0.get("inicio"))[:10], "fim": str(s0.get("fim"))[:10], "marcas": sorted(marcas),
-            "marca": marca_p, "produto": produto_p, "como": como}
+    achado = None
+    for marca in reais[:3]:
+        rel = _relatorio_mem(repo, marca)
+        vp = rel.get("vendedores_produto") or {}
+        prod, como = None, None
+        if gs:
+            gt = [x for x in (rel.get("tabelas") or {}).get("gtins") or [] if str(x.get("gtin")) in gs]
+            if gt:
+                prod, como = max(gt, key=lambda x: x.get("un") or 0)["produto"], "gtin"
+        if not prod:
+            prod = _produto_pelo_nome(it.get("titulo") or it.get("titulo_meu") or "", {p: sum(v["un"] for v in l) for p, l in vp.items()}, reais)
+            como = "nome" if prod else None
+        if prod and prod in vp and (not achado or sum(v["un"] for v in vp[prod]) > achado[3]):
+            achado = (marca, rel, prod, sum(v["un"] for v in vp[prod]), como)
+    if not achado:
+        return {"sem": "não achei este produto no Explorador da marca", "marcas": sorted(marcas)}
+    marca, rel, prod, un_t, como = achado
+    lista = sorted(rel["vendedores_produto"][prod], key=lambda v: -v["un"])
+    lojas = rel.get("lojas_ml") or {}
+    try:
+        minhas = {re.sub(r"[^a-z0-9]", "", nubi.normalizar(l["nome"])) for l in repo._todos("ml_lojas", {"select": "nome", "ativo": "is.true"})}
+    except Exception:  # noqa: BLE001
+        minhas = set()
+    def linha(i, v):
+        real = (lojas.get(v.get("vid")) or {}).get("nome")
+        nome = real or v["vendedor"]
+        chave = {re.sub(r"[^a-z0-9]", "", nubi.normalizar(x)) for x in (nome, v["vendedor"]) if x}
+        return {"pos": i + 1, "vendedor": nome, "nubimetrics": v["vendedor"], "real": bool(real), "eu": bool(chave & minhas),
+                "unidades": int(v["un"]), "faturamento": round(float(v["fat"]), 2),
+                "preco_medio": round(float(v["fat"]) / v["un"], 2) if v["un"] else None, "anuncios": v.get("anuncios")}
+    todas = [linha(i, v) for i, v in enumerate(lista) if v["un"] > 0]
+    fat_t = sum(float(v["fat"]) for v in lista)
+    per = rel.get("atual") or {}
+    return {"top": todas[:5], "eu": [x for x in todas if x["eu"] and x["pos"] > 5], "vendedores": len(todas),
+            "unidades": int(un_t), "preco_medio": round(fat_t / un_t, 2) if un_t else None,
+            "inicio": str(per.get("inicio") or "")[:10], "fim": str(per.get("fim") or "")[:10], "dias": per.get("dias"),
+            "marcas": sorted(marcas), "marca": marca, "produto": prod, "como": como}
 
 
 def _seguir_pelo_gtin(repo, d):

@@ -185,7 +185,7 @@ a.plink{color:inherit;text-decoration:none;border-bottom:1px dashed var(--muted)
 a.plink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .modal.larga{max-width:1080px}
 .modal.larga.pq{max-width:min(1440px,100%)}
-.modal-bg:has(> .modal.pq){align-items:center}
+.modal-bg:has(> .modal.pq){align-items:flex-start}  /* 02/10 (Bruno: "cortando lá em cima"): centralizado, o quadro alto perdia o topo */
 .pq-sec{font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:14px 0 0}
 .pq .kpis.pq-kpis{grid-template-columns:repeat(5,minmax(0,1fr));margin:6px 0 0}
 .pq .kpi .v{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1155,6 +1155,9 @@ header.top{padding:7px 16px}
 .pc-vt i{display:block;height:5px;border-radius:9px;background:linear-gradient(90deg,#2563eb,#22d3ee);margin-top:4px}
 .pc-vu{color:#64748b;font-size:13px}.pc-vp{font-weight:800;font-size:16px}
 .pc-mais{display:flex;justify-content:flex-end;margin-top:8px}
+.pc-v.eu{background:#eff6ff;border-radius:10px;padding-left:4px;padding-right:4px}.pc-vt em{font-style:normal;font-size:11px;background:#2563eb;color:#fff;border-radius:999px;padding:1px 7px;margin-left:6px}
+.pc-vsep{font-size:12px;color:#64748b;padding:6px 0 2px;text-align:center}
+.pc-eu s{color:#94a3b8;font-size:13px}.pc-eu .pc-loja{font-size:13px!important;color:#1e3a8a!important}
 .pc-eu{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 .pc-eu>div{display:flex;align-items:center;gap:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:8px 12px}
 .pc-eu>div span{flex:1;font-size:13px;color:#1e3a8a}.pc-eu>div b{font-size:18px;color:#1d4ed8}.pc-eu small{color:#64748b;font-size:12px}
@@ -8592,11 +8595,15 @@ function pmCalc(x, cfg) {
       const dt = d => d ? d.slice(8, 10) + "/" + d.slice(5, 7) : "";
       const usar = p => p ? `<button class="btn small" data-usar="${p}">usar</button>` : "";
       const mx = Math.max(1, ...(mc.top || []).map(t => t.unidades));
-      box.innerHTML = `<div class="pc-merc-t">🏆 Quem mais vende este produto <span>${mc.top ? `Nubimetrics · ${dt(mc.inicio)} a ${dt(mc.fim)} · ${nf0.format(mc.vendedores)} vendedores · ${nf0.format(mc.unidades)} un · preço médio do mercado <b>${rsES(mc.preco_medio)}</b>` : esc(mc.sem || "sem dados do Nubimetrics")}</span></div>
-        ${(mc.top || []).map((t, i) => `<div class="pc-v"><span class="pc-vn">${i + 1}º</span><div class="pc-vt"><b>${esc(t.vendedor)}</b>${t.real ? "" : `<small>nome no Nubimetrics</small>`}
-            <i style="width:${t.unidades / mx * 100}%"></i></div><span class="pc-vu">${nf0.format(t.unidades)} un</span><span class="pc-vp">${rsES(t.preco_medio)}</span>${usar(t.preco_medio)}</div>`).join("")}
+      box.innerHTML = `<div class="pc-merc-t">🏆 Quem mais vende este produto <span>${mc.top ? `Nubimetrics · ${dt(mc.inicio)} a ${dt(mc.fim)}${mc.dias ? ` (${mc.dias} dias)` : ""} · ${nf0.format(mc.vendedores)} vendedores · ${nf0.format(mc.unidades)} un · preço médio do mercado <b>${rsES(mc.preco_medio)}</b>` : esc(mc.sem || "sem dados do Nubimetrics")}</span></div>
+        ${(() => { const lin = t => `<div class="pc-v ${t.eu ? "eu" : ""}"><span class="pc-vn">${t.pos}º</span><div class="pc-vt"><b>${esc(t.vendedor)}${t.eu ? ` <em>minha loja</em>` : ""}</b>${t.real || t.eu ? "" : `<small>nome no Nubimetrics</small>`}
+            <i style="width:${Math.max(1, t.unidades / mx * 100)}%"></i></div><span class="pc-vu">${nf0.format(t.unidades)} un</span><span class="pc-vp">${rsES(t.preco_medio)}</span>${usar(t.preco_medio)}</div>`;
+          return (mc.top || []).map(lin).join("") + ((mc.eu || []).length ? `<div class="pc-vsep">⋯ minha posição</div>` + mc.eu.map(lin).join("") : "")
+            + (mc.top && !(mc.top || []).some(t => t.eu) && !(mc.eu || []).length ? `<div class="pc-vsep">Minhas lojas não aparecem entre os vendedores deste período no Nubimetrics.</div>` : ""); })()}
         ${mc.marca && mc.produto ? `<div class="pc-mais"><button class="btn small primary" id="pc-vermais">Ver todos os vendedores de ${esc(mc.produto)} ›</button></div>` : ""}
-        <div class="pc-eu">${eu && eu.preco ? `<div><span>🙋 Meu anúncio no ML agora</span><b>${rsES(eu.preco)}</b>${usar(eu.preco)}</div>` : ""}
+        <div class="pc-eu">${eu && eu.preco ? `<div><span>🙋 Meu anúncio no ML agora${eu.loja ? ` · <b class="pc-loja">${esc(eu.loja)}</b>` : ""}
+            ${eu.link ? ` · <a href="${esc(eu.link)}" target="_blank" rel="noopener">${esc(eu.mlb)} ↗</a>` : ""}${eu.status && eu.status !== "active" ? ` · <i>${esc(eu.status)}</i>` : ""}</span>
+            ${eu.preco_cheio && eu.preco_cheio > eu.preco ? `<s>${rsES(eu.preco_cheio)}</s>` : ""}<b>${rsES(eu.preco)}</b>${usar(eu.preco)}</div>` : ""}
           ${mv ? `<div><span>🧾 Minhas vendas (${dt(mv.inicio)} a ${dt(mv.fim)}): ${nf0.format(mv.unidades)} un · preço médio</span><b>${mv.preco_medio != null ? rsES(mv.preco_medio) : "—"}</b>${usar(mv.preco_medio)}</div>
             ${(mv.anuncios || []).length > 1 ? `<small>${mv.anuncios.map(a => `${esc(a.loja || "")}: ${a.preco != null ? rsES(a.preco) : "—"} (${nf0.format(a.unidades || 0)} un)`).join(" · ")}</small>` : ""}` : (eu ? "" : `<small>Não achei venda minha deste SKU nos últimos 30 dias do UpSeller.</small>`)}</div>`;
       box.querySelectorAll("[data-usar]").forEach(b => b.onclick = () => { $i("#pc-preco").value = n(+b.dataset.usar); desenhar(); depois(true); });

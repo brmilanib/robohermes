@@ -737,9 +737,24 @@ def categoria_pelo_titulo(titulo):
     return x.get("category_id") or None
 
 
+def _minha_conta_dados():
+    u = _mem("conta|me", 3600, lambda: _get("/users/me") or {})
+    return u if isinstance(u, dict) else {}
+
+
 def _minha_conta():
     """Nº da conta do ML conectada (a do Bruno); None sem a conta."""
-    return _mem("conta|id", 3600, lambda: (_get("/users/me") or {}).get("id"))
+    return _minha_conta_dados().get("id")
+
+
+def preco_de_venda(mlb):
+    """01/10 (Bruno: "meu anúncio está a 259 e mostrou 275,99"): o preço que o comprador paga agora (com a promoção), por
+    /items/{id}/sale_price; o `price` do item às vezes é o cheio. None se o ML não responder."""
+    try:
+        r = _get(f"/items/{mlb}/sale_price", {"context": "channel_marketplace"}) or {}
+    except ErroMeli:
+        return None
+    return _num(r.get("amount"))
 
 
 def _medida(v, unidade):
@@ -785,8 +800,12 @@ def meu_anuncio_por_sku(sku):
             continue
         if not b.get("category_id"):
             continue
+        venda = preco_de_venda(b.get("id") or mlb)
         return {"mlb": b.get("id") or mlb, "titulo": b.get("title"), "categoria": b.get("category_id"),
-                "tipo_id": b.get("listing_type_id"), "preco": _num(b.get("price")), "status": b.get("status"),
+                "tipo_id": b.get("listing_type_id"), "preco": venda or _num(b.get("price")),
+                "preco_cheio": _num(b.get("original_price")) or (_num(b.get("price")) if venda and venda != _num(b.get("price")) else None),
+                "status": b.get("status"), "link": b.get("permalink") or link_do_item(b.get("id") or mlb),
+                "loja": _minha_conta_dados().get("nickname"),
                 "full": (b.get("shipping") or {}).get("logistic_type") == "fulfillment", "dimensoes": dimensoes_do_item(b),
                 "gtin": next((m.group(0) for a in b.get("attributes") or [] if a.get("id") == "GTIN"
                               for m in [re.search(r"\d{8,14}", str(a.get("value_name") or ""))] if m), None)}

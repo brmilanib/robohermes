@@ -249,13 +249,15 @@ def test_calculadora_com_o_meu_anuncio_do_ml():
     def get(caminho, params=None, timeout=20):
         chamadas.append((caminho, params))
         if caminho == "/users/me":
-            return {"id": 77}
+            return {"id": 77, "nickname": "AURASCENT"}
         if caminho == "/users/77/items/search":
             assert params["seller_sku"] == "SILVER-200"
             return {"results": ["MLB111"]}
         if caminho == "/items/MLB111":
             return {"id": "MLB111", "category_id": "MLB6284", "listing_type_id": "gold_pro", "price": 299,
                     "shipping": {"logistic_type": "fulfillment", "dimensions": "10x8x20,600"}}
+        if caminho == "/items/MLB111/sale_price":
+            return {"amount": 259, "regular_amount": 299}
         if caminho == "/sites/MLB/listing_prices":
             pct = 14 if params["listing_type_id"] == "gold_special" else 19
             return {"sale_fee_amount": round(params["price"] * pct / 100, 2), "sale_fee_details": {"percentage_fee": pct, "fixed_fee": 0}}
@@ -271,6 +273,7 @@ def test_calculadora_com_o_meu_anuncio_do_ml():
         assert r["categoria"] == "MLB6284" and r["origem_categoria"] == "meu anúncio" and r["tipo"] == "gold_pro" and r["full"]
         assert r["tarifas"]["gold_special"]["pct"] == 14 and r["tarifas"]["gold_pro"]["pct"] == 19
         assert r["frete"] == 21.9 and "medidas" in r["origem_frete"] and r["meu"]["mlb"] == "MLB111"
+        assert r["meu"]["preco"] == 259 and r["meu"]["preco_cheio"] == 299 and r["meu"]["loja"] == "AURASCENT"   # preço com a promoção
         r2 = w._calc_ml(None, {"mlb": "MLB7285008092", "sku": "SILVER-200", "preco": 60, "tipo": "gold_special"})
         assert r2["frete"] == 0 and r2["tipo"] == "gold_special"                 # abaixo de R$ 79 o comprador paga
     finally:
@@ -279,49 +282,47 @@ def test_calculadora_com_o_meu_anuncio_do_ml():
 
 
 def test_cinco_maiores_vendedores_do_produto():
-    """01/10 (Bruno: "os 5 maiores vendedores dos últimos 30 dias e o preço médio deles"): pelo último export da marca no
-    Explorador (busca pelo snapshot, que tem índice), vendedores do GTIN somados, preço = faturamento ÷ unidades."""
+    """01/10 (Bruno: "os 5 maiores vendedores e o preço médio"; 2º print: "o 1º é a MNZIMPORTS e não aparece; e a minha
+    loja tem que aparecer na posição dela"): o MESMO relatório da página da marca; produto pelo GTIN ou pelo nome (volume,
+    tipo e gênero); minhas lojas (ml_lojas) marcadas e, fora do top 5, a posição delas."""
     import pandas as pd
     import nubi_web as w
-    import meli
+    vp = {"Armaf Club De Nuit Intense Man EDT 105 ml": [
+              {"vendedor": "MNZIMPORTS P11", "vid": "h0", "un": 19600, "fat": 4960000, "anuncios": 1},
+              {"vendedor": "MAMS ECOMMERCE TOP14", "vid": "h1", "un": 15900, "fat": 3345000, "anuncios": 2},
+              {"vendedor": "PAPAGAIO", "vid": "h2", "un": 2780, "fat": 742500, "anuncios": 3},
+              {"vendedor": "WATHIQPARFUMS P8", "vid": "h3", "un": 1720, "fat": 407400, "anuncios": 2},
+              {"vendedor": "DUGONGO", "vid": "h4", "un": 670, "fat": 159900, "anuncios": 5},
+              {"vendedor": "ANOA", "vid": "h5", "un": 550, "fat": 121100, "anuncios": 2},
+              {"vendedor": "AURA SCENT", "vid": "h6", "un": 8, "fat": 1905.5, "anuncios": 1}],
+          "Armaf Club De Nuit Intense Woman EDP 105 ml": [{"vendedor": "Z", "vid": "h7", "un": 99999, "fat": 1, "anuncios": 1}],
+          "Armaf Club De Nuit EDT 105 ml": [{"vendedor": "W", "vid": "h8", "un": 88888, "fat": 1, "anuncios": 1}]}
+    rel = {"vendedores_produto": vp, "lojas_ml": {"h1": {"nome": "MAMS ECOMMERCE"}},
+           "atual": {"inicio": "2026-08-01", "fim": "2026-09-29", "dias": 60},
+           "tabelas": {"gtins": [{"gtin": "6085010044712", "produto": "Armaf Club De Nuit Intense Man EDT 105 ml", "un": 30000}]}}
     class R:
         def snapshots(self, marca=None):
-            return pd.DataFrame([{"id": 1, "marca": "ARMAF", "inicio": "2026-08-01", "fim": "2026-08-31"},
-                                 {"id": 2, "marca": "ARMAF", "inicio": "2026-09-01", "fim": "2026-09-30"},
+            return pd.DataFrame([{"id": 2, "marca": "ARMAF", "inicio": "2026-08-01", "fim": "2026-09-29"},
                                  {"id": 3, "marca": "LATTAFA", "inicio": "2026-09-01", "fim": "2026-09-30"}])
         def _req(self, metodo, tab, params=None, corpo=None, prefer=None):
-            assert tab in ("gtin_info", "ia_resumos"), tab
             return []
         def _todos(self, tab, params=None):
-            assert tab == "anuncios" and params["snapshot_id"] == "in.(2)", params      # só o último export da marca
-            if "gtin" not in params:                                                      # sem GTIN: o export inteiro da marca
-                return [{"vendedor": "MAMS", "vendedor_id": "h1", "un": 300, "fat": 64000, "snapshot_id": 2, "produto": "Armaf Club De Nuit Intense EDT 105 ml"},
-                        {"vendedor": "X", "vendedor_id": "h9", "un": 900, "fat": 90000, "snapshot_id": 2, "produto": "Armaf Club De Nuit Intense EDT 200 ml"},
-                        {"vendedor": "Y", "vendedor_id": "h8", "un": 999, "fat": 99000, "snapshot_id": 2, "produto": "Armaf Odyssey Homme EDP 100 ml"},
-                        {"vendedor": "Z", "vendedor_id": "h7", "un": 5000, "fat": 9e5, "snapshot_id": 2, "produto": "Armaf Club De Nuit Intense Woman EDT 105 ml"},
-                        {"vendedor": "W", "vendedor_id": "h6", "un": 8000, "fat": 9e5, "snapshot_id": 2, "produto": "Armaf Club De Nuit EDT 105 ml"}]
-            return [{"vendedor": "MAMS", "vendedor_id": "h1", "un": 200, "fat": 43000, "snapshot_id": 2, "produto": "Armaf Club De Nuit Intense EDT 105 ml"},
-                    {"vendedor": "MAMS", "vendedor_id": "h1", "un": 100, "fat": 21000, "snapshot_id": 2},
-                    {"vendedor": "OUTRA", "vendedor_id": "h2", "un": 50, "fat": 11500, "snapshot_id": 2},
-                    {"vendedor": "ZERO", "vendedor_id": "h3", "un": 0, "fat": 0, "snapshot_id": 2}]
-    antes = meli.ler_hash_lojas
-    meli.ler_hash_lojas = lambda repo, chave=None: {"h1": {"nome": "MAMS ECOMMERCE", "confianca": "manual"}}
+            assert tab == "ml_lojas"
+            return [{"nome": "AURASCENT"}, {"nome": "ESSENCE PRIME"}]
+    antes = w._relatorio_mem
+    w._relatorio_mem = lambda repo, marca: rel
     try:
-        m = w._calc_mercado(R(), {"titulo": "Perfume Club De Nuit Intense Da Armaf Edt 105ml"}, "6085010044644")
+        m = w._calc_mercado(R(), {"titulo": "Perfume Club De Nuit Intense Da Armaf Edt 105ml Masculino"}, "")
+        m2 = w._calc_mercado(R(), {"titulo": "qualquer coisa armaf"}, "6085010044712")
+        sem = w._calc_mercado(R(), {"titulo": "x"}, "")
     finally:
-        meli.ler_hash_lojas = antes
-    assert [t["vendedor"] for t in m["top"]] == ["MAMS ECOMMERCE", "OUTRA"] and m["top"][0]["real"] and not m["top"][1]["real"]
-    assert m["top"][0]["unidades"] == 300 and m["top"][0]["preco_medio"] == 213.33 and m["top"][1]["preco_medio"] == 230.0
-    assert m["vendedores"] == 2 and m["unidades"] == 350 and m["preco_medio"] == 215.71 and m["fim"] == "2026-09-30"
-    assert m["marca"] == "ARMAF" and m["produto"] == "Armaf Club De Nuit Intense EDT 105 ml"   # "ver mais" abre esse quadro
-    # sem GTIN (a maioria dos monitorados): o produto pelo nome, com o mesmo volume (105 ml, não o de 200 ml)
-    meli.ler_hash_lojas = lambda repo, chave=None: {}
-    try:
-        m2 = w._calc_mercado(R(), {"titulo": "Perfume Club De Nuit Intense Da Armaf Edt 105ml Masculino"}, "")
-    finally:
-        meli.ler_hash_lojas = antes
-    assert m2["como"] == "nome" and m2["produto"] == "Armaf Club De Nuit Intense EDT 105 ml" and m2["top"][0]["unidades"] == 300, m2
-    assert w._calc_mercado(R(), {"titulo": "x"}, "")["sem"]
+        w._relatorio_mem = antes
+    assert m["como"] == "nome" and m["produto"] == "Armaf Club De Nuit Intense Man EDT 105 ml" and m["marca"] == "ARMAF"
+    assert [t["vendedor"] for t in m["top"]][:2] == ["MNZIMPORTS P11", "MAMS ECOMMERCE"] and m["top"][1]["real"]
+    assert m["top"][0]["preco_medio"] == 253.06 and m["vendedores"] == 7 and m["dias"] == 60
+    assert m["eu"] == [dict(m["eu"][0], pos=7, vendedor="AURA SCENT", eu=True)] and m["eu"][0]["unidades"] == 8   # minha loja, 7º
+    assert m2["como"] == "gtin" and m2["produto"] == m["produto"]
+    assert sem["sem"]
 
 
 if __name__ == "__main__":
