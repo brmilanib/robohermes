@@ -11,6 +11,10 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
    a cada 15 min) vê a versão nova, atualiza e roda `diario`, que completa só o que falta.
    Para forçar uma coleta sem versão nova: inserir um pedido em `coletor_pedidos` (ou o botão
    "Rodar coleta agora" em Central → 📥 Coletor).
+   **Sempre, depois de publicar mudança no coletor (02/10, Bruno: "tem hora que você manda rodar e tem hora que não;
+   manda rodar o atualizar")**: não esperar o vigia nem pedir ao Bruno — com o Mac online (`mac_estado.visto_em` < 3 min),
+   inserir `mac_comandos (comando='atualizar', pedido_por='Bruno', status='pendente')`, esperar `status='ok'`
+   ("OK: coletor atualizado") e, se a mudança é de uma coleta nova, pôr o comando dela na fila também.
 2. **Servidor (resumos, produtos iguais, auditoria, categorias)**: depois do deploy, pôr
    `rotinas.ultima_execucao` de ontem na tarefa afetada (roda no próximo cron da hora) e, se o dado gravado
    estava errado, apagar o registro errado (ex.: `ia_resumos`) para ele ser refeito.
