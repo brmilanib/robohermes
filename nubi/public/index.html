@@ -784,6 +784,8 @@ header.top{flex-wrap:nowrap;min-height:var(--header-h)}
 .rp-mix-leg{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:6px}.rp-mix-leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .rp-mix .cA{background:#2563eb}.rp-mix .cB{background:#f59e0b}.rp-mix .cC{background:#94a3b8}
 .rp-t tr.rp-curva td{font-size:13.5px;padding:9px 10px;border-top:3px solid #94a3b8;background:var(--card)}.rp-t tr.rp-curva-A td{border-top-color:#2563eb}.rp-t tr.rp-curva-B td{border-top-color:#f59e0b}
+.gp-msg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-size:12.5px}.gp-msg label{display:flex;flex-direction:column;gap:3px}.gp-msg textarea{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;background:var(--card);color:inherit;resize:vertical}@media (max-width:640px){.gp-msg{grid-template-columns:1fr}}
+.lc-marca .gp-bts{margin-left:auto;display:inline-flex;gap:6px}.lc-marca{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .rp-gerar{position:sticky;bottom:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end;padding:10px 0 2px;background:var(--card);border-top:1px solid var(--line);margin-top:8px}.rp-gerar #rp-tot{margin-right:auto}
 .hd-calc{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:999px;border:1px solid rgba(255,255,255,.28);background:transparent;color:#fff;cursor:pointer;flex:none}.hd-calc:hover{background:rgba(255,255,255,.12)}
 .lc-t input.lc-q{width:68px;text-align:right;border:1px solid var(--line);border-radius:7px;padding:4px 6px;background:var(--card);color:inherit;font:inherit;font-weight:700}
@@ -3695,32 +3697,43 @@ function regrasReposicao(r, salvar) {
 // o pedido que sai da Reposição (só o que tem quantidade): por marca ou categoria, para imprimir, WhatsApp ou copiar (cotação)
 function gerarPedido(itens) {
   if (!itens.length) { toast("Digite as quantidades na coluna Comprar"); return; }
-  S.gp = S.gp || {por: "marca", custo: false};
+  S.gp = S.gp || {por: "grupo", custo: false};
+  // 02/10 (Bruno: "tem fornecedor que só vende perfume árabe, outro só nicho, outro só eletrônico; eu copio separado e mando o
+  // pedido de cotação; tem que estar escrito; não precisa do total"): por fornecedor, cada grupo com Copiar e WhatsApp
+  let msg = {}; try { msg = JSON.parse(localStorage.getItem("nubi-gp-msg") || "{}"); } catch (e) { msg = {}; }
+  const abre = () => msg.abre ?? "Olá, tudo bem? Gostaria de uma cotação dos itens abaixo:", fecha = () => msg.fecha ?? "Se tiver algum em falta, me avisa por favor. Obrigado!";
   const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), titulo = `Pedido de compra — ${hoje.slice(8, 10)}/${hoje.slice(5, 7)}/${hoje.slice(0, 4)}`;
   const un = v => nf0.format(v || 0);
   const bg = modal(`<h2 style="margin-top:0">🧾 ${esc(titulo)}</h2>
     <div style="display:flex;gap:10px 14px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:10px">
-      <div class="seg"><button data-gpor="curva">Por curva</button><button data-gpor="marca">Por marca</button><button data-gpor="categoria">Por categoria</button></div>
+      <div class="seg"><button data-gpor="grupo">Por fornecedor</button><button data-gpor="curva">Por curva</button><button data-gpor="marca">Por marca</button><button data-gpor="categoria">Por categoria (UpSeller)</button></div>
       <label><input type="checkbox" id="gp-custo"> pôr o último custo</label></div>
+    <div class="gp-msg"><label>Começo da mensagem<textarea id="gp-abre" rows="2"></textarea></label><label>Final da mensagem<textarea id="gp-fecha" rows="2"></textarea></label></div>
     <div id="gp-corpo"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px">
-      <button class="btn primary" id="gp-print">🖨️ Imprimir</button><button class="btn" id="gp-zap">💬 WhatsApp</button><button class="btn" id="gp-copiar">📋 Copiar</button><button class="btn ghost" data-fechar>Fechar</button></div>`);
+      <button class="btn" id="gp-print">🖨️ Imprimir</button><button class="btn" id="gp-zap" title="Todos os grupos numa mensagem">💬 WhatsApp (tudo)</button><button class="btn" id="gp-copiar" title="Todos os grupos numa mensagem">📋 Copiar tudo</button><button class="btn" data-fechar>Fechar</button></div>`);
   let grupos = [];
-  const texto = gs => `*${titulo}*\n` + gs.map(g => `\n*${g.nome}*\n` + g.itens.map(l => `${l.q} un. — ${nomeCurto(l.titulo)}${S.gp.custo && l.custo_un ? ` (últ. R$ ${nf2.format(l.custo_un)})` : ""}`).join("\n")).join("\n")
-    + `\n\nTotal: ${un(gs.reduce((a, g) => a + g.itens.length, 0))} produtos · ${un(gs.reduce((a, g) => a + g.itens.reduce((b, l) => b + l.q, 0), 0))} un.`;
+  const linhaTxt = l => `${l.q} un. — ${nomeCurto(l.titulo)}${S.gp.custo && l.custo_un ? ` (últ. R$ ${nf2.format(l.custo_un)})` : ""}`;
+  // um grupo = a mensagem pronta para um fornecedor; vários = cada grupo com o seu título (sem total)
+  const texto = gs => gs.length === 1
+    ? [abre(), "", `*${gs[0].nome}*`, ...gs[0].itens.map(linhaTxt), "", fecha()].join("\n").trim()
+    : [abre(), ...gs.flatMap(g => ["", `*${g.nome}*`, ...g.itens.map(linhaTxt)]), "", fecha()].join("\n").trim();
   const desenhar = () => {
-    const nomeG = l => S.gp.por === "categoria" ? (l.categoria || "Sem categoria") : S.gp.por === "curva" ? ({A: "Curva A (campeões)", B: "Curva B"}[l.classe] || "Curva C") : (l.marca || "Outras marcas"), por = {};
+    const nomeG = l => S.gp.por === "grupo" ? (l.grupo || "Outros") : S.gp.por === "categoria" ? (l.categoria || "Sem categoria") : S.gp.por === "curva" ? ({A: "Curva A (campeões)", B: "Curva B"}[l.classe] || "Curva C") : (l.marca || "Outras marcas"), por = {};
     itens.forEach(l => (por[nomeG(l)] = por[nomeG(l)] || []).push(l));
-    grupos = Object.keys(por).sort((a, b) => a.localeCompare(b, "pt-BR")).map(n => ({nome: n, itens: por[n].sort((a, b) => nomeCurto(a.titulo).localeCompare(nomeCurto(b.titulo), "pt-BR"))}));
+    grupos = Object.keys(por).sort((a, b) => a.localeCompare(b, "pt-BR")).map(n => ({nome: n, itens: por[n].sort((a, b) => (a.marca || "").localeCompare(b.marca || "", "pt-BR") || nomeCurto(a.titulo).localeCompare(nomeCurto(b.titulo), "pt-BR"))}));
     bg.querySelectorAll("[data-gpor]").forEach(b => b.classList.toggle("on", b.dataset.gpor === S.gp.por));
     bg.querySelector("#gp-custo").checked = S.gp.custo;
     bg.querySelector("#gp-corpo").innerHTML = `<div class="lc-lista">${grupos.map((g, i) => `<div class="lc-grupo"><div class="lc-marca"><b>${esc(g.nome)}</b> <span class="muted">${g.itens.length} itens · ${un(g.itens.reduce((a, l) => a + l.q, 0))} un.</span>
-      <button class="btn small ghost" data-gpz="${i}" title="Mandar só este grupo no WhatsApp">💬</button></div>
+      <span class="gp-bts"><button class="btn small" data-gpc="${i}" title="Copiar a mensagem só deste grupo">📋 Copiar</button><button class="btn small" data-gpz="${i}" title="Mandar só este grupo no WhatsApp">💬 WhatsApp</button></span></div>
       ${g.itens.map(l => `<div class="lc-item"><b>${un(l.q)}</b><span>${esc(nomeCurto(l.titulo))} <small class="muted">${esc(l.sku)}</small></span>${S.gp.custo && l.custo_un ? `<small class="muted">${FMT.moeda(l.custo_un)}</small>` : ""}</div>`).join("")}</div>`).join("")}</div>`;
     bg.querySelectorAll("[data-gpz]").forEach(b => b.onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent(texto([grupos[+b.dataset.gpz]])), "_blank"));
+    bg.querySelectorAll("[data-gpc]").forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(texto([grupos[+b.dataset.gpc]])); toast(grupos[+b.dataset.gpc].nome + " copiado"); } catch (e) { toast("Não consegui copiar"); } });
   };
   bg.querySelectorAll("[data-gpor]").forEach(b => b.onclick = () => { S.gp.por = b.dataset.gpor; desenhar(); });
   bg.querySelector("#gp-custo").onchange = e => { S.gp.custo = e.target.checked; desenhar(); };
+  const ta = (id, k, val) => { const el = bg.querySelector(id); el.value = val; el.oninput = () => { msg[k] = el.value; try { localStorage.setItem("nubi-gp-msg", JSON.stringify(msg)); } catch (e) { /* sem armazenamento */ } }; };
+  ta("#gp-abre", "abre", abre()); ta("#gp-fecha", "fecha", fecha());
   bg.querySelector("#gp-zap").onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent(texto(grupos)), "_blank");
   bg.querySelector("#gp-copiar").onclick = async () => { try { await navigator.clipboard.writeText(texto(grupos)); toast("Pedido copiado"); } catch (e) { toast("Não consegui copiar"); } };
   bg.querySelector("#gp-print").onclick = () => {
@@ -3732,7 +3745,7 @@ function gerarPedido(itens) {
       h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #ccc;padding-bottom:3px}table{border-collapse:collapse;width:100%}td,th{padding:3px 6px;border-bottom:1px dotted #ddd;vertical-align:top;text-align:left}
       th{font-size:11px;color:#777;font-weight:600}.q{width:70px;text-align:right;font-weight:700;white-space:nowrap}.s{color:#777;font-size:12px;white-space:nowrap}.c{text-align:right;white-space:nowrap;width:110px}.ok{width:22px;color:#999}
       @media print{body{margin:10mm}h2{break-after:avoid}tr{break-inside:avoid}}</style></head><body>
-      <h1>${esc(titulo)}</h1><p>${un(itens.length)} produtos · ${un(tot)} unidades</p>
+      <h1>${esc(titulo)}</h1>
       ${grupos.map(g => `<h2>${esc(g.nome)} <small style="font-weight:400;color:#777">${un(g.itens.reduce((a, l) => a + l.q, 0))} un.</small></h2><table>
         <tr><th class="ok"></th><th class="q">Qtd.</th><th>Produto</th><th>SKU</th>${cc ? `<th class="c">Último custo</th>` : ""}<th class="c">Cotação R$</th></tr>
         ${g.itens.map(l => `<tr><td class="ok">☐</td><td class="q">${un(l.q)} un.</td><td>${esc(nomeCurto(l.titulo))}</td><td class="s">${esc(l.sku)}</td>${cc ? `<td class="c">${l.custo_un ? FMT.moeda(l.custo_un) : ""}</td>` : ""}<td class="c">______</td></tr>`).join("")}</table>`).join("")}

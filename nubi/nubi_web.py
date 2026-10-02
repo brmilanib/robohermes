@@ -5700,6 +5700,22 @@ def reposicao_config_salvar(repo, d):
     return {"ok": True, "cfg": cfg}
 
 
+GRUPOS_FORNECEDOR = {"Árabe": "Perfumes árabes", "Nicho": "Perfumes de nicho", "Designer": "Perfumes importados (grifes)",
+                     "Nacional": "Nacionais", "Importados low ticket": "Importados low ticket"}
+
+
+def grupo_fornecedor(categoria, tipo):
+    """02/10 (Bruno: "tem fornecedor que só vende perfume árabe, outro só nicho, outro só eletrônico"): o grupo do pedido de
+    cotação = a categoria da marca (Árabe, Nicho, Designer…) ou, para o que não é perfume, o tipo do produto (Eletrônicos…)."""
+    if tipo and tipo not in ("Perfume", "Body splash", "Outros") and (not categoria or categoria in ("Outros", "Sem categoria")):
+        return tipo
+    if tipo == "Eletrônicos":
+        return "Eletrônicos"
+    if categoria and categoria not in ("Outros", "Sem categoria"):
+        return GRUPOS_FORNECEDOR.get(categoria, categoria)
+    return tipo if tipo and tipo != "Outros" else "Outros"
+
+
 def _reposicao_dados(repo, dias=30):
     """Estoque de hoje (sem as marcas paradas), estoque de cada dia e venda de cada dia por SKU."""
     ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": 1}) or [None])[0]
@@ -5707,10 +5723,11 @@ def _reposicao_dados(repo, dias=30):
         return None
     itens = _num_itens(_estoque_itens(repo, ult["id"]))
     paradas = marcas_paradas(repo)
-    marca_de = {}
+    marca_de, grupo_de = {}, {}
     try:
         for x in estoque_categorias(repo).get("itens") or []:
             marca_de[estoque._chave(x.get("sku") or "")] = x.get("marca")
+            grupo_de[estoque._chave(x.get("sku") or "")] = grupo_fornecedor(x.get("categoria"), x.get("tipo"))
     except ErroNuvem:
         pass
     ks = {nubi.compacta(m) for m in paradas}
@@ -5757,7 +5774,7 @@ def _reposicao_dados(repo, dias=30):
         base.append({"sku": it["sku"], "titulo": it.get("titulo"), "disponivel": it.get("disponivel"),
                      "transito": (it.get("transito_compra") or 0) + (it.get("transito_transf") or 0), "custo": c})
     return {"itens": base, "estoque_dia": estoque_dia, "vendas_dia": vendas_dia, "marca_de": marca_de,
-            "estoque_em": ult["criado_em"], "paradas": paradas, "cadastro": cad}
+            "estoque_em": ult["criado_em"], "paradas": paradas, "cadastro": cad, "grupo_de": grupo_de}
 
 
 def reposicao_painel(repo, caixa=None, semana=None):
@@ -5785,6 +5802,7 @@ def reposicao_painel(repo, caixa=None, semana=None):
     cad = dd.get("cadastro") or {}
     for l in r["pedido"] + r["campeoes"] + r["precos"]:
         l["marca"] = dd["marca_de"].get(l["chave"]) or "Outras marcas"
+        l["grupo"] = (dd.get("grupo_de") or {}).get(l["chave"]) or "Outros"
         c = cad.get(l["chave"]) or {}
         # 02/10 (Bruno: "e o último preço que eu paguei, o último custo"): custo de compra do cadastro do UpSeller; sem ele, o médio
         l["ultimo_custo"] = c.get("custo_compra") or l.get("custo")

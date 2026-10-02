@@ -144,7 +144,7 @@ try:
                     resp = route.fetch(); j = resp.json()
                     if j.get("pedido") is not None and not j["pedido"]:
                         base = {"classe": "A", "disponivel": 2, "transito": 3, "nivel_max": 20, "media_dia": 1.0, "venda_base": 1.4,
-                                "faixa": 1, "cabe_no_caixa": True, "custo": 50.0, "ultimo_custo": 48.0, "categoria": "Perfumes › Árabe",
+                                "faixa": 1, "cabe_no_caixa": True, "custo": 50.0, "ultimo_custo": 48.0, "categoria": "Perfumes › Árabe", "grupo": "Perfumes árabes",
                                 "mercado": {"un_dia": 12.5, "preco_lider": 199.9, "preco_top5": 205.3}}
                         j["pedido"] = [dict(base, sku="TESTE-1", chave="TESTE1", titulo="Perfume Teste Um 100ml", marca="Lattafa", compra=15),
                                        dict(base, sku="TESTE-2", chave="TESTE2", titulo="Perfume Teste Dois 100ml", marca="Armaf", compra=4, mercado=None, classe="B", faixa=2)]
@@ -177,7 +177,11 @@ try:
                     pg.fill("[data-q='TESTE-1']", "7"); pg.dispatch_event("[data-q='TESTE-1']", "input")
                     assert "Campeões: 1 produtos · 7 un." in pg.inner_text("#rp-tot"), pg.inner_text("#rp-tot")
                     pg.click("#rp-gerar"); pg.wait_for_selector("#gp-corpo .lc-item", timeout=8000)
-                    assert "Pedido de compra" in pg.inner_text(".modal")
+                    assert "Pedido de compra" in pg.inner_text(".modal") and "Perfumes árabes" in pg.inner_text("#gp-corpo")
+                    # 02/10 (Bruno: "separado por fornecedor: árabes, nicho, eletrônicos; escrito e sem o total")
+                    assert pg.query_selector("[data-gpc='0']") and pg.query_selector("[data-gpz='0']")
+                    txt = pg.evaluate("() => { let t = ''; navigator.clipboard.writeText = x => { t = x; return Promise.resolve(); }; document.querySelector('[data-gpc=\\'0\\']').click(); return t; }")
+                    assert txt.startswith("Olá") and "*Perfumes árabes*" in txt and "7 un. —" in txt and "Total" not in txt, txt
                     pg.click("[data-gpor='categoria']"); pg.wait_for_selector("[data-gpor='categoria'].on", timeout=5000)
                     pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"gerar_pedido_{nome}.png"), full_page=False)
                     pg.click(".modal [data-fechar]")

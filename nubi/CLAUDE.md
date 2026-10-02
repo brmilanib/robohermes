@@ -446,7 +446,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Venda base (02/10 à noite, Bruno: "a minha venda dos últimos 7 dias, só que 7 dias COM estoque"): regra 12 de
   `reposicao.py` — média dos últimos `DIAS_BASE`=7 dias SABIDOS com estoque (pula os zerados); os dias de antes do
   histórico de estoque (24/09) só completam quando há menos de 3 sabidos. Vendas sem SKU Principal (TikTok: 81 de 704 un.
-  na semana, Sabah 39) entram pelo título igual (`_reposicao_dados`: título de outra loja com SKU ou do estoque). Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
+  na semana, Sabah 39) entram pelo título igual (`_reposicao_dados`: título de outra loja com SKU ou do estoque).
+  Gerar pedido (02/10, Bruno: "fornecedor só de árabe, só de nicho, só de eletrônico; copio separado; escrito; sem o
+  total"): padrão "Por fornecedor" = `grupo_fornecedor(categoria da marca, tipo do produto)` (Perfumes árabes, de nicho,
+  importados (grifes), Nacionais, Eletrônicos, Casa…); cada grupo com 📋 Copiar e 💬 WhatsApp só dele, mensagem com
+  começo e final editáveis (guardados no navegador) e sem total; também por curva, marca ou categoria do UpSeller. Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
   Coletor, `calcLivre` = `pmCalc` com `solo`, sem buscar nada no ML).
 - **Marca "Perfume Árabe" (02/10)**: "árabe", "masculina", "alta fixação"… estão em `categorias.GENERICAS` (palavra de
   anúncio nunca é marca). No Por marca, cada produto tem 🔗 vincular (`estoque_marca_salvar`, vence o título). O KPI de
