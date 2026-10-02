@@ -7650,7 +7650,7 @@ document.addEventListener("click", e => {
 const ABAS = [
   ["oportunidades", "Oportunidades"], ["evolucao", "Evolução"], ["historico", "Histórico"], ["produtos", "Produtos"],
   ["precos", "Preços"], ["vendedores", "Vendedores"], ["gtins", "GTINs"], ["duvidas", "Dúvidas"],
-  ["anuncios", "Anúncios"], ["config", "Configuração"], ["periodos", "Períodos"],
+  ["anuncios", "Anúncios"], ["diferenca", "Diferença"], ["config", "Configuração"], ["periodos", "Períodos"],
 ];
 
 function telaMarca() {
@@ -7711,6 +7711,7 @@ function telaMarcaAba() {
   const k = S.aba;
   if (k === "config") return telaConfig(c);
   if (k === "periodos") return telaPeriodos(c);
+  if (k === "diferenca") return telaDiferenca(c);
   if (k === "historico") return telaHistorico(c);
   // 29/09: anúncios de outro vendedor com a marca trocada (mesmo GTIN) entram no produto certo; a nota avisa quanto é
   const trocada = (S.rel.resumo || {}).un_marca_trocada, ex = {...(EXTRAS[k] || {})};
@@ -9587,6 +9588,50 @@ async function telaConfig(el) {
     };
   };
   desenhar();
+}
+
+// ---------- Diferença entre dois exports (02/10, Bruno: "só queremos a diferença, os dias 29 e 30") ----------
+async function telaDiferenca(el) {
+  el.innerHTML = `<div class="card pad muted">Comparando os dois últimos exports pelo histórico de cada anúncio…</div>`;
+  let d;
+  try { d = await api("explorador_diferenca", {marca: S.rel.marca}); }
+  catch (e) { el.innerHTML = `<div class="card pad">${esc(e.message)}</div>`; return; }
+  if (!d.ok) { el.innerHTML = `<div class="card pad">${esc(d.erro || "Sem dois exports para comparar.")}</div>`; return; }
+  const t = d.totais, dias = d.dias.map(x => dataBR(x).slice(0, 5)).join(", ");
+  const sit = Object.entries(d.checagem || {}).map(([k, n]) => `<span class="sinal">${esc(k)}: ${nf0.format(n)}</span>`).join(" ");
+  const linhasAgr = (xs, vend) => xs.map((x, i) => `<tr><td class="num muted">${i + 1}</td>
+    <td class="first">${esc(x.nome || "—")}${vend && x.seguido ? ` <span class="pill">seguido</span>` : ""}${vend && x.novo ? ` <span class="pill warn">novo</span>` : ""}</td>
+    <td class="num">${nf0.format(x.un)}</td><td class="num">R$ ${nf0.format(x.fat)}</td>
+    <td class="num">${nf0.format(x.anuncios)}${x.anuncios_novos ? ` <span class="muted">(${x.anuncios_novos} novo${x.anuncios_novos > 1 ? "s" : ""})</span>` : ""}</td></tr>`).join("");
+  el.innerHTML = `
+    <div class="card pad">
+      <h2 style="margin-top:0">Vendido em ${esc(dias)} <span class="muted" style="font-weight:400">(${d.dias.length} dia${d.dias.length > 1 ? "s" : ""})</span></h2>
+      <p class="muted" style="margin:0 0 10px">Export antigo ${dataBR(d.antigo.inicio)} a ${dataBR(d.antigo.fim)} (${nf0.format(d.antigo.anuncios)} anúncios) × novo
+        ${dataBR(d.novo.inicio)} a ${dataBR(d.novo.fim)} (${nf0.format(d.novo.anuncios)}). Conta: "unidades históricas" de cada anúncio no novo − no antigo
+        (mesmo ID do anúncio, nunca soma duas vezes); anúncio que não estava no antigo = o que vendeu no novo. Vendedor "seguido" já
+        está aqui pelo anúncio dele: a venda diária dos seguidos é outra fonte do mesmo anúncio e não entra nesta soma.</p>
+      ${d.aviso ? `<p class="aviso">⚠️ ${esc(d.aviso)}</p>` : ""}
+      <div class="kpis">
+        ${kpi("Unidades", nf0.format(t.un), d.dias.length > 1 ? nf1.format(t.un / d.dias.length) + "/dia" : "")}
+        ${kpi("Faturamento", "R$ " + nf0.format(t.fat))}
+        ${kpi("Anúncios com venda", nf0.format(t.anuncios_com_venda))}
+        ${kpi("Vendedores", nf0.format(t.vendedores), t.vendedores_novos ? nf0.format(t.vendedores_novos) + " novo(s) no export" : "")}
+      </div>
+      <div class="muted" style="font-size:12px">${sit}</div>
+    </div>
+    <div class="grid2">
+      <div class="card pad"><h2>Por vendedor</h2><div class="rolar"><table class="t" style="font-size:13px">
+        <thead><tr><th>#</th><th>Vendedor</th><th class="num">Un.</th><th class="num">Faturamento</th><th class="num">Anúncios</th></tr></thead>
+        <tbody>${linhasAgr(d.por_vendedor, true)}</tbody></table></div></div>
+      <div class="card pad"><h2>Por produto</h2><div class="rolar"><table class="t" style="font-size:13px">
+        <thead><tr><th>#</th><th>Produto</th><th class="num">Un.</th><th class="num">Faturamento</th><th class="num">Anúncios</th></tr></thead>
+        <tbody>${linhasAgr(d.por_produto, false)}</tbody></table></div></div>
+    </div>
+    <div class="card pad"><h2>Por anúncio</h2><div class="rolar"><table class="t" style="font-size:13px">
+      <thead><tr><th>Vendedor</th><th>Título</th><th>Produto</th><th class="num">Un.</th><th class="num">Faturamento</th><th>Situação</th></tr></thead>
+      <tbody>${d.anuncios.map(a => `<tr><td class="first">${esc(a.vendedor || "")}</td><td>${esc(a.titulo || "")}</td><td>${esc(a.produto || "")}</td>
+        <td class="num">${nf0.format(a.du)}</td><td class="num">R$ ${nf0.format(a.dfat)}</td><td class="muted">${esc(a.situacao)}</td></tr>`).join("")}</tbody>
+    </table></div></div>`;
 }
 
 // ---------- Períodos ----------

@@ -257,6 +257,15 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   nº de resultados. Mais de 10.000 resultados (limite do EXPORTAR) = não importa. O Explorador NÃO deixa escolher a data
   (Bruno): o período é o que a tela mostra.
   Teste `test_explorador_marca.py`.
+- **Diferença entre dois exports (02/10, Bruno: "no nubi temos até 28/09; só queremos a diferença dos dias 29 e 30")**: o
+  Explorador não deixa escolher a data, mas "Unidades/Vendas em $ históricas" é o total da VIDA do anúncio:
+  `nubi.diferenca_exports` = histórico novo − antigo pelo ID do anúncio (anúncio fora do antigo = `un` do novo: "anúncio novo"
+  se publicado dentro do intervalo, senão "sem venda no export antigo"; histórico que diminui vira 0). Rota
+  `explorador_diferenca?marca=` (antigo = termina antes e cobre o começo do novo), aba **Diferença** na página da marca: por
+  vendedor (selos "seguido" = nome dado pelo Bruno, "novo" = hash fora do antigo), por produto e por anúncio. Aviso se >50%
+  das unidades vêm de anúncios fora do antigo (export antigo incompleto, ex.: Armaf 851 com 247 anúncios). A venda diária
+  dos seguidos (`vend_vendas_dia`) é outra fonte do MESMO anúncio: nunca soma com isto. Conferido na Armaf (851 × 999,
+  225 anúncios em comum): 0 negativos, MNZ 300 un. no dia 30 (média dela 303/dia). Teste `test_explorador_diferenca.py`.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 

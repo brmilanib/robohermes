@@ -445,6 +445,62 @@ def escolher_periodo(snaps, periodo=None):
     return atual, anterior
 
 
+def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
+    """Diferença entre dois exports da marca (ver `nubi.diferenca_exports`): o que cada anúncio, vendedor e produto vendeu
+    entre o fim do export antigo e o fim do novo. Padrão: o novo = o que termina por último; o antigo = o que termina antes
+    dele e começa no mesmo dia ou antes (cobre o começo do novo), o mais recente."""
+    snaps = repo.snapshots(marca)
+    if snaps.empty:
+        raise ErroNuvem(f"Nenhum período importado para {marca}.", 404)
+    s = snaps.assign(_fim=snaps["fim"].astype(str).str[:10], _ini=snaps["inicio"].astype(str).str[:10])
+    novo = s[s["id"].astype(str) == str(para)].iloc[0] if para else s.sort_values(["_fim", "id"]).iloc[-1]
+    if de:
+        antigo = s[s["id"].astype(str) == str(de)].iloc[0]
+    else:
+        c = s[(s["_fim"] < novo["_fim"]) & (s["_ini"] <= novo["_ini"])].sort_values(["_fim", "dias", "id"])
+        if c.empty:
+            return {"ok": False, "erro": "Falta um export anterior que termine antes e comece no mesmo dia ou antes do último."}
+        antigo = c.iloc[-1]
+    if not (antigo["_fim"] < novo["_fim"] and antigo["_ini"] <= novo["_ini"]):
+        return {"ok": False, "erro": "O export antigo tem que terminar antes do novo e cobrir o começo dele."}
+    d0, d1 = date.fromisoformat(antigo["_fim"]), date.fromisoformat(novo["_fim"])
+    gap = (d1 - d0).days
+    dias = [(d0 + timedelta(days=i)).isoformat() for i in range(1, gap + 1)]
+    df_novo = nubi.ler_snapshot(repo, int(novo["id"]), marca)
+    df_ant = repo.anuncios(int(antigo["id"]))
+    d = nubi.diferenca_exports(df_ant, df_novo, gap)
+    v = d[d["du"] > 0]
+    cont = d["situacao"].value_counts().to_dict()
+    un_fora = float(d.loc[d["situacao"] == "sem venda no export antigo", "du"].sum())
+    total = float(d["du"].sum())
+    aviso = None
+    if total and un_fora / total > 0.5:
+        aviso = (f"{un_fora / total * 100:.0f}% das unidades vêm de anúncios que não estavam no export antigo: ele parece "
+                 "incompleto (outra busca ou export cortado). A diferença desses anúncios é o mês inteiro, não só os dias novos.")
+    # 02/10 (Bruno: "vendedores novos entram em observados; anúncios novos ficam linkados ao vendedor já cadastrado"): o
+    # vendedor é o hash do Nubimetrics (vendedor_id); quem não estava no export antigo é vendedor novo
+    ja_vend = set(df_ant["vendedor_id"].fillna("").astype(str))
+    agrupa = lambda col: [{"nome": k, "un": int(g["du"].sum()), "fat": round(float(g["dfat"].sum()), 2), "anuncios": int(len(g)),
+                           "anuncios_novos": int((g["situacao"] == "anúncio novo").sum()),
+                           **({"novo": not bool(set(g["vendedor_id"].fillna("").astype(str)) & ja_vend),
+                               # seguido = o Explorador mostra o nome que o Bruno deu ("MNZIMPORTS P11"), não o fictício
+                               # ("GARCA.AMETISTA.LACTEO"). A venda diária dele (vend_vendas_dia) é OUTRA fonte do mesmo
+                               # anúncio: só para conferir, nunca soma aqui
+                               "seguido": not re.fullmatch(r"[A-Z]+(\.[A-Z]+){2}", str(k or ""))} if col == "vendedor" else {})}
+                          for k, g in sorted(v.groupby(col), key=lambda kv: -kv[1]["du"].sum())][:100]
+    vend_novos = sorted(set(d["vendedor_id"].fillna("").astype(str)) - ja_vend - {""})
+    cols = [c for c in ("vendedor", "titulo", "produto", "un_hist", "du", "dfat", "situacao", "preco") if c in v.columns]
+    return {"ok": True, "marca": marca, "dias": dias,
+            "antigo": {"id": int(antigo["id"]), "inicio": antigo["_ini"], "fim": antigo["_fim"], "anuncios": int(len(df_ant))},
+            "novo": {"id": int(novo["id"]), "inicio": novo["_ini"], "fim": novo["_fim"], "anuncios": int(len(df_novo))},
+            "totais": {"un": int(total), "fat": round(float(d["dfat"].sum()), 2), "anuncios_com_venda": int(len(v)),
+                       "vendedores": int(v["vendedor"].nunique()) if len(v) else 0, "vendedores_novos": len(vend_novos)},
+            "checagem": {k: int(x) for k, x in cont.items()}, "aviso": aviso,
+            "por_vendedor": agrupa("vendedor"), "por_produto": agrupa("produto"),
+            "anuncios": [{k: (r[k].item() if hasattr(r[k], "item") else r[k]) for k in cols}
+                         for _, r in v.sort_values("du", ascending=False).head(limite).iterrows()]}
+
+
 def relatorio(repo, marca, periodo=None):
     snaps = repo.snapshots(marca)
     if snaps.empty:
@@ -1978,6 +2034,9 @@ def atender(metodo, rota, q, corpo, token):
             nubi.reconsolidar(repo, cfg, [marca])
             return _json({"ok": True, "linhas": cfg[marca]["linhas"], "log": log})
 
+        if rota == "explorador_diferenca":           # 02/10: o que vendeu entre dois exports (pelo histórico de cada anúncio)
+            _preparar(repo)
+            return _json(explorador_diferenca(repo, nubi.chave_marca(q.get("marca") or ""), q.get("de"), q.get("para")))
         if rota == "relatorio":
             _preparar(repo)
             return _json(relatorio(repo, q["marca"], q.get("periodo")))

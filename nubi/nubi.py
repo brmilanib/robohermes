@@ -2625,6 +2625,36 @@ def aba_anuncios(ws, df, vend):
     tabela(ws, 1, cols, [fazer(reg) for reg in registros])
 
 
+def diferenca_exports(antigo, novo, dias_gap):
+    """02/10 (Bruno: "no nubi temos até 28/09; só queremos a diferença, os dias 29 e 30"). O Explorador não deixa escolher a
+    data, mas "Unidades/Vendas em $ históricas" é o total da VIDA do anúncio: histórico do novo − histórico do antigo = o que
+    vendeu entre o fim de um e o fim do outro, anúncio por anúncio (pelo ID do anúncio). Anúncio que não está no antigo não
+    vendeu nada no período antigo: o que ele vendeu no período novo é todo do intervalo. Devolve o df do novo com `du`,
+    `dfat` e `situacao`."""
+    def chaves(df):
+        return [chave_anuncio(b, v, t) for b, v, t in zip(df["bruto"], df["vendedor_id"], df["titulo"])]
+    num = lambda s: pd.to_numeric(s, errors="coerce").fillna(0)
+    a = antigo.assign(_k=chaves(antigo))
+    hist_u = dict(zip(a["_k"], num(a["un_hist"])))
+    hist_f = dict(zip(a["_k"], num(a["fat_hist"])))
+    n = novo.assign(_k=chaves(novo))
+    tem = n["_k"].isin(hist_u)
+    du = pd.Series(0.0, index=n.index)
+    dfat = pd.Series(0.0, index=n.index)
+    du[tem] = num(n.loc[tem, "un_hist"]) - n.loc[tem, "_k"].map(hist_u)
+    dfat[tem] = num(n.loc[tem, "fat_hist"]) - n.loc[tem, "_k"].map(hist_f)
+    du[~tem] = num(n.loc[~tem, "un"])
+    dfat[~tem] = num(n.loc[~tem, "fat"])
+    dias_pub = num(n.get("dias_pub", pd.Series(0, index=n.index)))
+    sit = pd.Series("nos dois exports", index=n.index)
+    sit[~tem & (dias_pub <= dias_gap)] = "anúncio novo"
+    sit[~tem & (dias_pub > dias_gap)] = "sem venda no export antigo"
+    neg = du < 0
+    sit[neg] = "histórico diminuiu (zerado)"
+    du[neg], dfat[neg] = 0, dfat[neg].clip(lower=0)
+    return n.drop(columns=["_k"]).assign(du=du, dfat=dfat.clip(lower=0), situacao=sit)
+
+
 def ler_snapshot(repo, sid, marca=""):
     return campos_do_arquivo(preparar(repo.anuncios(sid)), marca)
 
