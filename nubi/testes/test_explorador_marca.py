@@ -21,7 +21,7 @@ TOPO = """<html><body><input placeholder="Buscar por Anúncios" id="b">
 EXPLORADOR = """<html><body><h1>Explorador de anúncios</h1><input placeholder="Buscar anúncios, codinome do vendedor, marcas e muito mais"><p><b>Anúncios com vendas:</b> 01 set - 30 set 2026</p>
 <label><input type="radio" name="t" checked> Pesquisa exata</label>
 <label><input type="radio" name="t" id="exp"> Pesquisa expandida por IA</label>
-<p id="n">1–50 de 23496 resultados</p>
+<p id="n">1–50 de 23496 resultados</p><span style="text-transform:uppercase">Catálogo</span><span>Categoria</span>
 <div style="display:flex;justify-content:space-between;width:900px"><button id="f" style="width:24px;height:24px">⫶</button>
 <span id="selo"></span><button id="x">EXPORTAR</button></div>
 <div id="painel" style="display:none"><p>Categoria</p><ul><li id="bel">Beleza e Cuidado Pessoal (4497)</li><li>Casa (10)</li></ul></div>

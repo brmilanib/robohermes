@@ -434,33 +434,41 @@ def _n_resultados(pg):
 
 
 def _explorador_categoria(pg, categoria):
-    """Abre o painel de filtros (ícone ⫶ ao lado de "1–50 de N resultados") e clica na categoria; confere o selo."""
-    selo = pg.locator(":is(span,div,button,[role=button]):visible", has_text=re.compile(rf"^\s*{re.escape(categoria)}\s*$", re.I))
+    """Abre o painel de filtros (ícone ⫶ ao lado de "1–50 de N resultados") e clica na categoria; confere o nº de resultados.
+    02/10 (1ª rodada real no Mac): conferir "painel aberto" pela palavra "Catálogo" dava falso positivo (as etiquetas
+    CATÁLOGO dos anúncios) e o ícone nem era clicado. Agora procura o próprio item da categoria; sem ele, clica no ícone."""
+    rx_item = re.compile(rf"^\s*{re.escape(categoria)}\s*(\(\s*[\d.]+\s*\))?\s*$", re.I)
+    item = lambda: pg.locator(":is(li,a,span,div,label,p,button,h6,h5)", has_text=rx_item).filter(visible=True)
     antes = _n_resultados(pg)
-    if not selo.count():
-        aberto = pg.locator(":visible", has_text=re.compile(r"^\s*Categoria\s*$|^\s*Cat[aá]logo\s*$")).count()
-        if not aberto:
-            # 02/10 (1ª rodada real no Mac): o clique por código (dispatchEvent) não abria o painel; agora é o mouse de
-            # verdade no meio do ícone ⫶
+    # selo da categoria já aplicado (com o "x" para tirar): nada a fazer
+    if antes is not None and antes <= EXPLORADOR_MAX_EXPORT and item().count():
+        log(f"  explorador: filtro {categoria} já aplicado ({antes} resultados)")
+        return
+    if not item().count():
+        for _ in range(2):
             pos = pg.evaluate(JS_BOTAO_FILTROS)
             if not pos:
                 enviar_foto(pg, "explorador: sem o ícone de filtros", resumo_tela(pg))
                 raise Falha("não achei o ícone de filtros do Explorador " + diagnostico(pg))
             pg.mouse.click(pos["x"], pos["y"])
-            devagar(2)
-        item = pg.locator(":is(li,a,span,div,label,p,button):visible", has_text=re.compile(rf"^\s*{re.escape(categoria)}\s*(\(\s*[\d.]+\s*\))?\s*$", re.I))
-        if not item.count():
-            enviar_foto(pg, f"explorador: sem a categoria {categoria}", resumo_tela(pg))
-            raise Falha(f"não achei '{categoria}' no painel de filtros " + diagnostico(pg))
-        item.last.click()
-        try:
-            pg.wait_for_function("n => { const m = document.body.innerText.match(/de\\s+([\\d.]+)\\s+resultados/i);"
-                                 " return m && +m[1].replace(/\\./g, '') !== n; }", arg=antes or -1, timeout=60000)
-        except Exception:  # noqa: BLE001
-            log("  explorador: o número de resultados não mudou depois do filtro")
-        devagar(2)
-        pg.keyboard.press("Escape")                       # fecha o painel
-        devagar(1)
+            try:
+                item().first.wait_for(timeout=8000)
+                break
+            except Exception:  # noqa: BLE001
+                devagar(2)
+    if not item().count():
+        enviar_foto(pg, f"explorador: sem a categoria {categoria}", resumo_tela(pg) + " || " +
+                    (pg.evaluate("() => document.body.innerText") or "")[:1200])
+        raise Falha(f"não achei '{categoria}' no painel de filtros " + diagnostico(pg))
+    item().last.click()
+    try:
+        pg.wait_for_function("n => { const m = document.body.innerText.match(/de\\s+([\\d.]+)\\s+resultados/i);"
+                             " return m && +m[1].replace(/\\./g, '') !== n; }", arg=antes or -1, timeout=60000)
+    except Exception:  # noqa: BLE001
+        log("  explorador: o número de resultados não mudou depois do filtro")
+    devagar(2)
+    pg.keyboard.press("Escape")                       # fecha o painel
+    devagar(1)
     depois = _n_resultados(pg)
     log(f"  explorador: filtro {categoria}: {antes} -> {depois} resultados")
 
