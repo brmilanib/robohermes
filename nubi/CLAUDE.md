@@ -621,6 +621,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
 - `/items` de outras lojas não vem para o token do app: depois de 3 falhas seguidas o nubi para de pedir por 30 min.
 
 ## Quadro do produto no Explorador (30/09, pedido do Bruno) — `abrirVendedoresProduto` + rota `estoque_produto`
+- **Sempre os últimos 30 dias (02/10, Bruno: "unidades, faturamento e vendedores dos últimos 30 dias, para comparar mês a
+  mês")**: o quadro mostra unidades e faturamento "· 30 dias" e a tabela "Un. 30 dias"/"Faturamento 30 dias". Todos os exports
+  do Explorador hoje têm 53–60 dias: o número é proporcional (`f30` = 30 ÷ dias, com "≈" e a nota); export de 28–31 dias = exato.
 - Quadro largo (`.modal.larga.pq`): cabeçalho com o mercado (un., faturamento, preço médio e faixa, vendedores, líder) e
   o MEU lado vindo de `produto_meu`: vendo? (vendas por anúncio do UpSeller, 30 dias, por loja), meu preço médio vs.
   mercado, estoque (disponível, trânsito, mínimo, quantos dias dura), custo e margem antes das taxas, minha posição

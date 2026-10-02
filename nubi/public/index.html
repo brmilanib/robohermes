@@ -9192,6 +9192,11 @@ function abrirVendedoresProduto(prod) {
   const med = precos.length ? precos[Math.floor(precos.length / 2)] : null;
   const lider = comVenda[0];
   const dias = (S.rel.resumo || {}).dias || 30, mes30 = tot.un / dias * 30;
+  // 02/10 (Bruno: "a gente trata sempre os últimos 30 dias: unidades, faturamento e vendedores dos últimos 30 dias, para
+  // comparar mês a mês"): o export do Explorador é de ~60 dias; tudo vira "por 30 dias" (proporcional) até termos o export
+  // de 30 dias — com ele (28 a 31 dias) o número é o exato
+  const f30 = dias >= 28 && dias <= 31 ? 1 : 30 / dias, prop = f30 !== 1;
+  const n30 = v => nf0.format(Math.round((v || 0) * f30));
   // 01/10 (Bruno): média por dia desde a criação dos anúncios (histórico ÷ dias publicados) x média do período exportado
   const mediaHist = lista.reduce((a, v) => a + (v.media_dia_hist || 0), 0), mediaPer = tot.un / dias;
   const tend = mediaHist > 0 ? mediaPer / mediaHist - 1 : null;
@@ -9211,13 +9216,13 @@ function abrirVendedoresProduto(prod) {
     </div>
     <div class="pq-sec">Mercado (Nubimetrics)</div>
     <div class="kpis pq-kpis">
-      ${kpi("Unidades vendidas", nf0.format(tot.un), `≈ ${nf0.format(mes30)} por 30 dias · ${nf1.format(mediaPer)}/dia no período`)}
+      ${kpi("Unidades vendidas · 30 dias", (prop ? "≈ " : "") + n30(tot.un), prop ? `proporcional: ${nf0.format(tot.un)} no export de ${dias} dias · ${nf1.format(mediaPer)}/dia` : `${nf1.format(mediaPer)}/dia`)}
       ${kpi("Média/dia desde a criação", mediaHist > 0 ? nf1.format(mediaHist) + "/dia" : "—",
             mediaHist > 0 ? `histórico ÷ dias publicados · período ${tend >= 0 ? "+" : ""}${nf0.format(tend * 100)}% vs. média de vida` : "sem histórico no arquivo",
             tend == null ? "" : tend > 0.15 ? "good" : tend < -0.15 ? "bad" : "")}
-      ${kpi("Faturamento", "R$ " + nf0.format(tot.fat), "aproximado (faixas)")}
+      ${kpi("Faturamento · 30 dias", (prop ? "≈ " : "") + "R$ " + n30(tot.fat), prop ? `proporcional: R$ ${nf0.format(tot.fat)} em ${dias} dias · aproximado (faixas)` : "aproximado (faixas)")}
       ${kpi("Preço médio", R(pm), precos.length ? `preço atual de ${R(precos[0])} a ${R(precos[precos.length - 1])} · mediana ${R(med)}` : "")}
-      ${kpi("Vendedores", `${nf0.format(comVenda.length)} <small class="muted">de ${nf0.format(lista.length)}</small>`, `${nf0.format(tot.an)} anúncios · ${FMT.pct(row.pct_full)} FULL · ${FMT.pct(row.pct_catalogo)} catálogo`)}
+      ${kpi("Vendedores", `${nf0.format(comVenda.length)} <small class="muted">de ${nf0.format(lista.length)}</small>`, `${prop ? `no export de ${dias} dias (o de 30 dias diz quem vendeu no mês) · ` : ""}${nf0.format(tot.an)} anúncios · ${FMT.pct(row.pct_full)} FULL · ${FMT.pct(row.pct_catalogo)} catálogo`)}
       ${kpi("Líder", lider ? esc(lider.vendedor) : "—", lider ? `${FMT.pct(lider.share)} das vendas · ${R(lider.preco_medio)}` : "")}
     </div>
     <div class="pq-sec">Eu <span class="muted" id="pq-fonte" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
@@ -9226,12 +9231,12 @@ function abrirVendedoresProduto(prod) {
     <div id="pq-ml">${gtins.length ? `<button class="btn small ml-laranja" id="pq-ml-abrir">🛰️ Ver quem vende agora no Mercado Livre</button>`
       : `<div class="muted" style="font-size:13px">Este produto não tem GTIN nos anúncios: não dá para achar no catálogo do Mercado Livre.</div>`}</div>
     <div class="tw" style="margin-top:12px;max-height:48vh"><table class="t"><thead><tr>
-      <th class="num">#</th><th>Código</th><th>Vendedor</th><th class="num">Un. vendidas</th><th class="num">Faturamento</th>
+      <th class="num">#</th><th>Código</th><th>Vendedor</th><th class="num" title="${prop ? `Proporcional: unidades do export de ${dias} dias × 30 ÷ ${dias}` : ""}">Un. 30 dias</th><th class="num">Faturamento 30 dias</th>
       <th class="num">Share</th><th class="num" title="Faturamento ÷ unidades">Preço médio</th><th class="num" title="Mediana do último preço dos anúncios do vendedor">Preço atual</th>
       <th class="num">Anúncios</th><th class="num" title="Anúncios em FULL">FULL</th><th class="num" title="Anúncios em catálogo">Catál.</th><th>Loja of.</th></tr></thead><tbody>
       ${lista.map((v, i) => `<tr data-vnome="${esc(normNome(v.vendedor))}">
         <td class="num">${i + 1}</td><td>${esc(v.codigo)}</td><td class="first">${vendLink(v.codigo, v.vendedor)}<div class="ml-real" data-mlvid="${esc(v.vid || "")}">${realML(v.vid)}</div></td>
-        <td class="num">${nf0.format(v.un)}</td><td class="num">R$ ${nf0.format(v.fat)}</td>
+        <td class="num">${n30(v.un)}</td><td class="num">R$ ${n30(v.fat)}</td>
         <td class="num"><div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
           <div style="width:60px;background:var(--soft);border-radius:3px;height:8px"><div style="width:${(v.share * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:3px"></div></div>
           ${FMT.pct(v.share)}</div></td>
@@ -9240,7 +9245,7 @@ function abrirVendedoresProduto(prod) {
         <td>${v.loja_oficial ? '<span class="pill good">sim</span>' : ""}</td></tr>`).join("")
         || `<tr><td colspan="12" class="empty">Nenhum vendedor.</td></tr>`}
     </tbody></table></div>
-    <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).</p>`);
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).${prop ? ` Unidades e faturamento em 30 dias = export de ${dias} dias (${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)}) × 30 ÷ ${dias}; o preço médio e o share não mudam.` : ""}</p>`);
   $(".modal", bg).classList.add("larga", "pq");
   // 01/10 (Bruno: "Sabah Al Ward só existe EDP 100 ml; confirme pela API do ML antes de juntar")
   $("#pq-ficha", bg).onclick = async e => { e.preventDefault(); const el = $("#pq-ficha-res", bg); el.innerHTML = `<span class="muted">lendo as características no Mercado Livre…</span>`;
