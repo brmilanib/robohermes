@@ -58,6 +58,35 @@ PAGINA_G = PAGINA_B.replace('<button id="per">', '<span id="solta" onclick="res.
 PAGINA_H = PAGINA_C.replace('<button id="prox">›</button>', '<button id="prox">›</button><button id="x" onclick="res.dataset.errado=1">×</button>')
 
 
+# I (card #144): react-day-picker v9 em modo intervalo (rótulo em inglês, data-day, setas sem texto), cabeçalho com o período e
+# intervalo antigo já escolhido (01/08 → 31/08): o 1º clique não basta, tem de limpar e refazer
+PAGINA_I = """<html><body><button id="per">01 AGO - 31 AGO</button><div id="res"></div>
+<div id="cal" style="display:none;position:fixed;top:60px;left:20px;background:#fff">
+ <div><span id="h1">01/08/2026</span><svg></svg><span id="h2">31/08/2026</span></div>
+ <div class="rdp-root" data-mode="range"><nav><button class="rdp-button_previous" aria-label="Go to the Previous Month" id="ant"></button>
+ <button class="rdp-button_next" aria-label="Go to the Next Month" id="prox"></button></nav><span id="mes"></span><div id="g" style="display:flex;flex-wrap:wrap;width:280px"></div></div>
+ <button id="ap">APLICAR</button></div><button id="pag">1</button>
+<script>
+ const iso=(y,m,d)=>y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+ const br=s=>s.slice(8)+'/'+s.slice(5,7)+'/'+s.slice(0,4);
+ let m=7,y=2026,from='2026-08-01',to='2026-08-31';
+ function cab(){h1.textContent=from?br(from):'';h2.textContent=to?br(to):'';}
+ function clique(d){ // regra do react-day-picker (addToRange)
+   if(!from){from=d;to=null;} else if(from&&!to){ if(d<from){to=from;from=d;} else to=d; }
+   else { if(d===to&&d===from){from=null;to=null;} else if(d===to){from=d;to=null;} else if(d===from){from=null;to=null;}
+          else if(d<from)from=d; else to=d; } cab(); }
+ function des(){ mes.textContent='August 2026'; g.innerHTML=''; const n=new Date(y,m+1,0).getDate();
+   // dia de fora (mês anterior) com o mesmo número 1: não pode ser clicado
+   g.innerHTML='<div class="rdp-outside" data-day="'+iso(y,m-1,1)+'" data-outside="true"><button>1</button></div>';
+   for(let d=1;d<=n;d++){const td=document.createElement('div'); td.dataset.day=iso(y,m,d); const b=document.createElement('button'); b.textContent=d;
+     b.onclick=()=>clique(td.dataset.day); td.appendChild(b); g.appendChild(td);} }
+ ant.onclick=()=>{m--; if(m<0){m=11;y--;} des();}; prox.onclick=()=>{m++; if(m>11){m=0;y++;} des();};
+ pag.onclick=()=>{res.dataset.errado='pag'};
+ per.onclick=()=>{cal.style.display='block'; des();};
+ ap.onclick=()=>{res.textContent=h1.textContent+'|'+h2.textContent;};
+</script></body></html>"""
+
+
 def main():
     with sync_playwright() as p:
         exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
@@ -99,6 +128,9 @@ def main():
         except c.Falha:
             pass
         assert not pg.evaluate("res.dataset.errado"), "clicou o botão extra"
+        pg = nav.new_page(); pg.set_content(PAGINA_I)
+        c.aplicar_periodo(pg, "2026-09-01", "2026-09-30")
+        assert pg.inner_text("#res") == "01/09/2026|30/09/2026" and not pg.evaluate("res.dataset.errado"), pg.inner_text("#res")
         nav.close()
     print("ok: calendário em painel fixo")
 

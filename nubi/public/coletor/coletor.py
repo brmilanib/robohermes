@@ -1285,8 +1285,8 @@ def _html_do_calendario(pg):
         return pg.evaluate("""() => { const e = [...document.querySelectorAll('*')].find(x => x.children.length === 0 &&
             /^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(((x.value !== undefined ? x.value : x.innerText) || '').trim()));
           if (!e) return '(sem datas na tela)'; let p = e;
-          for (let i = 0; i < 4 && p.parentElement; i++) p = p.parentElement;
-          return p.outerHTML.replace(/\\s+/g, ' ').slice(0, 1200); }""")
+          for (let i = 0; i < 6 && p.parentElement; i++) p = p.parentElement;
+          return p.outerHTML.replace(/\\s+/g, ' ').slice(0, 3500); }""")
     except Exception as ex:  # noqa: BLE001
         return f"(sem html: {ex})"
 
@@ -1387,6 +1387,59 @@ def _periodo_pelos_dias(pg, ini, fim):
         return False
 
 
+def _periodo_pelo_rdp(pg, ini, fim):
+    """Plano B4 (card #144): o calendário novo do Nubimetrics é um react-day-picker (`.rdp-root`, modo intervalo) com o período
+    escrito no cabeçalho (dd/mm/aaaa → dd/mm/aaaa) e rótulo do mês em inglês. Cada dia traz `data-day="aaaa-mm-dd"`; as setas
+    de mês são `button.rdp-button_previous/next`. Clica só DENTRO do painel que tem o APLICAR e só dá certo se o cabeçalho
+    ficar com o período pedido (se o intervalo antigo atrapalhar, clica a data inicial antiga para limpar e refaz)."""
+    br = lambda d: f"{d[8:10]}/{d[5:7]}/{d[:4]}"
+    try:
+        raiz = pg.locator(".rdp-root:visible")
+        if raiz.count() != 1:
+            return False
+        painel = raiz.first.locator("xpath=ancestor::*[.//button[normalize-space(.)='APLICAR'] or "
+                                    ".//*[@role='button'][normalize-space(.)='APLICAR']][1]").first
+        if not painel.count():
+            return False
+        seta = {"ant": raiz.first.locator("button.rdp-button_previous, button[name='previous-month'], "
+                                          "button[aria-label^='Go to the Previous' i], button[aria-label*='mês anterior' i]"),
+                "prox": raiz.first.locator("button.rdp-button_next, button[name='next-month'], "
+                                           "button[aria-label^='Go to the Next' i], button[aria-label*='próximo mês' i]")}
+
+        def cabecalho():
+            return painel.evaluate("""p => [...p.querySelectorAll('*')].filter(e => e.children.length === 0 &&
+                /^\\d{2}\\/\\d{2}\\/\\d{4}$/.test((e.innerText || '').trim())).map(e => e.innerText.trim())""")[:2]
+
+        def clicar_dia(d):
+            for _ in range(30):
+                dia = raiz.first.locator(f"[data-day='{d}']:not([data-outside='true']) button:not([disabled])")
+                if dia.count() == 1:
+                    dia.first.click(timeout=4000)
+                    devagar(0.7)
+                    return True
+                visiveis = sorted(raiz.first.evaluate("r => [...r.querySelectorAll('[data-day]:not([data-outside=\\'true\\'])')].map(e => e.getAttribute('data-day'))"))
+                if not visiveis:
+                    return False
+                lado = "ant" if d < visiveis[0] else "prox" if d > visiveis[-1] else None
+                if lado is None or seta[lado].count() != 1 or seta[lado].first.is_disabled():
+                    return False
+                seta[lado].first.click(timeout=3000)
+                devagar(0.5)
+            return False
+
+        for tentativa in range(3):
+            if tentativa:                                  # intervalo antigo atrapalhou: clica a data inicial antiga (limpa)
+                antiga = cabecalho()
+                if len(antiga) == 2:
+                    a = antiga[0]
+                    clicar_dia(f"{a[6:]}-{a[3:5]}-{a[:2]}")
+            if clicar_dia(ini) and clicar_dia(fim) and cabecalho() == [br(ini), br(fim)]:
+                return True
+        return False
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def aplicar_periodo(pg, ini, fim):
     """
     Plano B: escolher o período no calendário da tela. Abre o seletor de período; se aparecerem só os atalhos
@@ -1430,7 +1483,8 @@ def aplicar_periodo(pg, ini, fim):
             campo.fill(valor if tipo == "date" else br(valor))
             campo.press("Tab")
             devagar(1)
-    elif not _periodo_pelos_textos(pg, ini, fim) and not _periodo_pelos_dias(pg, ini, fim):
+    elif (not _periodo_pelos_textos(pg, ini, fim) and not _periodo_pelos_dias(pg, ini, fim)
+          and not _periodo_pelo_rdp(pg, ini, fim)):
         tela = resumo_tela(pg) + " || HTML: " + _html_do_calendario(pg)
         enviar_foto(pg, f"calendário sem campos ({ini} a {fim})", tela)
         raise Falha(f"o calendário não mostrou os campos de data. Na tela: {tela[:400]} " + diagnostico(pg))
