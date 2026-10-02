@@ -236,8 +236,18 @@ def api(token, rota, params=None, corpo=None, metodo=None, timeout=300, _de_novo
     req = urllib.request.Request(f"{NUBI}/api/app?{q}", data=dados, method=metodo or ("POST" if dados else "GET"),
                                  headers={"Authorization": f"Bearer {token}"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode() or "{}")
+        for tentativa in range(3):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    return json.loads(r.read().decode() or "{}")
+            except urllib.error.HTTPError:
+                raise
+            except OSError as e:                      # 02/10: TimeoutError cru derrubou o explorador_marca; rede oscila
+                # POST que estourou na leitura pode ter sido gravado: não reenvia (evita dado em dobro); só GET ou falha de conexão
+                if tentativa == 2 or (req.get_method() != "GET" and isinstance(e, TimeoutError)):
+                    raise Falha(f"nubi não respondeu ({rota}): {e}")
+                log(f"  nubi: {rota} sem resposta ({type(e).__name__}); tento de novo")
+                time.sleep(5 * (tentativa + 1))
     except urllib.error.HTTPError as e:
         if e.code == 401 and _de_novo and TOKEN["cfg"] is not None:
             # login vencido no meio da coleta: entra de novo e repete o envio (antes, tudo depois de 1 h dava erro)
