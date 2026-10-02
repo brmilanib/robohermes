@@ -807,7 +807,7 @@ def resumo_tela(pg):
     """Os botões, opções e campos visíveis (texto curto), para entender uma tela que mudou sem ver o Mac."""
     try:
         return pg.evaluate("""() => {
-          const vis = e => e.offsetParent !== null && getComputedStyle(e).visibility !== 'hidden';
+          const vis = e => (e.offsetParent !== null || e.getClientRects().length > 0) && getComputedStyle(e).visibility !== 'hidden';
           const t = [...document.querySelectorAll('button,[role=button],[role=option],[role=menuitem],[role=tab],li,label,input,select')]
             .filter(vis).map(e => e.tagName === 'INPUT' ? `[input ${e.type} ph="${e.placeholder || ''}" v="${e.value || ''}"]`
               : (e.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 40)).filter(Boolean);
@@ -1266,6 +1266,127 @@ def reenviar_dias(cfg, token):
     return n
 
 
+JS_DATA_TELA = """() => { const r = /^\\d{2}\\/\\d{2}\\/\\d{4}$/;
+    document.querySelectorAll('[data-nubi-data]').forEach(e => e.removeAttribute('data-nubi-data'));
+    const folha = e => { const t = ((e.value !== undefined ? e.value : e.innerText) || '').trim();
+      return r.test(t) && e.getClientRects().length && e.children.length === 0; };
+    const aplicar = [...document.querySelectorAll('button,[role=button]')].filter(b => /^\\s*APLICAR\\s*$/i.test(b.innerText) &&
+      b.getClientRects().length);
+    for (const b of aplicar) { let p = b.parentElement;                 // só dentro do painel que tem o APLICAR
+      for (let i = 0; i < 6 && p && p !== document.body; i++, p = p.parentElement) {
+        const o = [...p.querySelectorAll('input,textarea,[contenteditable],[role=textbox],span,div,p')].filter(folha);
+        if (o.length >= 2) { o.slice(0, 2).forEach((e, n) => e.setAttribute('data-nubi-data', n)); return 2; } } }
+    return 0; }"""
+
+
+def _html_do_calendario(pg):
+    """HTML do pedaço da tela que tem as datas do período (para entender um calendário novo sem ver o Mac)."""
+    try:
+        return pg.evaluate("""() => { const e = [...document.querySelectorAll('*')].find(x => x.children.length === 0 &&
+            /^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(((x.value !== undefined ? x.value : x.innerText) || '').trim()));
+          if (!e) return '(sem datas na tela)'; let p = e;
+          for (let i = 0; i < 4 && p.parentElement; i++) p = p.parentElement;
+          return p.outerHTML.replace(/\\s+/g, ' ').slice(0, 1200); }""")
+    except Exception as ex:  # noqa: BLE001
+        return f"(sem html: {ex})"
+
+
+def _periodo_pelos_textos(pg, ini, fim):
+    """Plano B2: os campos de data não são <input> visíveis (painel fixo, texto editável...): acha o elemento (folha) que mostra
+    dd/mm/aaaa, clica, apaga e digita no teclado; só vale se o texto mudou para o período pedido."""
+    br = lambda d: f"{d[8:10]}/{d[5:7]}/{d[:4]}"
+    lido = lambda i: pg.locator(f"[data-nubi-data='{i}']").first.evaluate(
+        "e => ((e.value !== undefined ? e.value : e.innerText) || '').trim()")
+    try:
+        if pg.evaluate(JS_DATA_TELA) < 2:
+            return False
+        for i, valor in enumerate((ini, fim)):
+            pg.locator(f"[data-nubi-data='{i}']").first.click(click_count=3)
+            pg.keyboard.press("Control+A")
+            pg.keyboard.type(br(valor), delay=40)
+            pg.keyboard.press("Tab")
+            devagar(1)
+        return lido(0) == br(ini) and lido(1) == br(fim)
+    except Exception:  # noqa: BLE001
+        return False
+    finally:
+        try:
+            pg.evaluate("() => document.querySelectorAll('[data-nubi-data]').forEach(e => e.removeAttribute('data-nubi-data'))")
+        except Exception:  # noqa: BLE001
+            pass
+
+
+MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro",
+            "dezembro"]
+
+
+def _periodo_pelos_dias(pg, ini, fim):
+    """Plano B3: clica o dia inicial e o dia final na grade do calendário. Só clica DENTRO do calendário (o painel que tem o
+    rótulo do mês e o APLICAR): os dias (texto = só o número, habilitados) e as setas de mês (botões sem número, na mesma
+    linha do rótulo do mês). Nunca mexe em nada fora dele."""
+    rotulo = re.compile(r"^(" + "|".join(MESES_PT) + r")\s+(\d{4})$", re.I)
+
+    def painel():
+        lab = pg.get_by_text(rotulo)
+        if lab.count() != 1:
+            return None, None
+        cal = lab.first.locator("xpath=ancestor::*[.//button[normalize-space(.)='APLICAR'] or "
+                                ".//*[@role='button'][normalize-space(.)='APLICAR']][1]")
+        return (lab.first, cal.first) if cal.count() else (None, None)
+
+    def mes_na_tela():
+        lab, _ = painel()
+        if lab is None:
+            return None
+        m = rotulo.match(lab.inner_text().strip())
+        return (int(m.group(2)), MESES_PT.index(m.group(1).lower()) + 1) if m else None
+
+    def seta(lab, cal, ant):
+        caixa = lab.bounding_box()
+        achados = []
+        for b in cal.locator("button,[role=button]").all():
+            t = (b.inner_text() or "").strip()
+            bb = b.bounding_box()
+            if not bb or not caixa or re.fullmatch(r"\d{1,2}", t) or re.fullmatch(r"APLICAR", t, re.I):
+                continue
+            if abs((bb["y"] + bb["height"] / 2) - (caixa["y"] + caixa["height"] / 2)) <= max(caixa["height"], bb["height"]):
+                achados.append((bb["x"], b))
+        achados.sort(key=lambda x: x[0])
+        if len(achados) != 2:                  # só as 2 setas na linha do mês (nada de fechar, HOJE, ano...)
+            return None
+        return achados[0][1] if ant else achados[1][1]
+
+    def ir_ao_mes(ano, mes):
+        for _ in range(30):
+            atual = mes_na_tela()
+            if atual is None:
+                return False
+            if atual == (ano, mes):
+                return True
+            lab, cal = painel()
+            b = seta(lab, cal, atual > (ano, mes))
+            if b is None:
+                return False
+            b.click(timeout=3000)
+            devagar(0.6)
+        return False
+
+    try:
+        for d in (ini, fim):
+            if not ir_ao_mes(int(d[:4]), int(d[5:7])):
+                return False
+            _, cal = painel()
+            dias = cal.locator("button:not([disabled]),[role=button]:not([aria-disabled=true])").filter(
+                has_text=re.compile(rf"^\s*{int(d[8:10])}\s*$"))
+            if dias.count() != 1:
+                return False
+            dias.first.click(timeout=4000)
+            devagar(0.8)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def aplicar_periodo(pg, ini, fim):
     """
     Plano B: escolher o período no calendário da tela. Abre o seletor de período; se aparecerem só os atalhos
@@ -1278,7 +1399,7 @@ def aplicar_periodo(pg, ini, fim):
         raise Falha("não achei o botão do período (ex.: '15 SET - 21 SET') " + diagnostico(pg))
     botao.click()
     devagar(1.5)
-    campos_js = """() => [...document.querySelectorAll('input')].map((i, n) => [n, i]).filter(([n, i]) => i.offsetParent &&
+    campos_js = """() => [...document.querySelectorAll('input')].map((i, n) => [n, i]).filter(([n, i]) => (i.offsetParent || i.getClientRects().length) &&
         (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(i.value) || i.type === 'date' ||
          /dd|aaaa|yyyy|data|date|in[ií]cio|fim|desde|até/i.test([i.placeholder, i.name, i.id,
            i.getAttribute('aria-label')].join(' ')))).map(([n, i]) => [n, i.type])"""
@@ -1302,16 +1423,17 @@ def aplicar_periodo(pg, ini, fim):
         except Exception:  # noqa: BLE001 — é só um rótulo, não um botão
             pass
         campos = esperar_campos(8)
-    if len(campos) < 2:
-        tela = resumo_tela(pg)
+    if len(campos) >= 2:
+        for (n, tipo), valor in zip(campos[:2], (ini, fim)):
+            campo = pg.locator("input").nth(n)
+            campo.click(click_count=3)
+            campo.fill(valor if tipo == "date" else br(valor))
+            campo.press("Tab")
+            devagar(1)
+    elif not _periodo_pelos_textos(pg, ini, fim) and not _periodo_pelos_dias(pg, ini, fim):
+        tela = resumo_tela(pg) + " || HTML: " + _html_do_calendario(pg)
         enviar_foto(pg, f"calendário sem campos ({ini} a {fim})", tela)
         raise Falha(f"o calendário não mostrou os campos de data. Na tela: {tela[:400]} " + diagnostico(pg))
-    for (n, tipo), valor in zip(campos[:2], (ini, fim)):
-        campo = pg.locator("input").nth(n)
-        campo.click(click_count=3)
-        campo.fill(valor if tipo == "date" else br(valor))
-        campo.press("Tab")
-        devagar(1)
     aplicar = pg.locator("button, [role=button]", has_text=re.compile(r"^\s*(APLICAR|OK|CONFIRMAR|FILTRAR)\s*$", re.I))
     if not aplicar.count():
         tela = resumo_tela(pg)
