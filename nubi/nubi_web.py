@@ -277,6 +277,12 @@ def _com_marca_trocada(repo, df, atual, marca):
         rows = [r for r in todas if nubi.compacta((nubi.GTIN_GLOBAL.get(r.get("gtin")) or {}).get("marca", "")) == alvo]
     except Exception:  # noqa: BLE001  (extra: sem isso o relatório sai como antes)
         return df, 0
+    # 02/10 (Bruno: "é o mesmo anúncio, tem que bater os números, não pode somar"): anúncio que já está no relatório
+    # (mesmo ID do anúncio do Nubimetrics, o hash) não entra de novo
+    if rows and "bruto" in df.columns:
+        ja = {nubi.chave_anuncio(b, v, t) for b, v, t in zip(df["bruto"], df.get("vendedor_id", [""] * len(df)),
+                                                             df.get("titulo", [""] * len(df)))}
+        rows = [r for r in rows if nubi.chave_anuncio(r.get("bruto"), r.get("vendedor_id", ""), r.get("titulo", "")) not in ja]
     if not rows:
         return df, 0
     for r in rows:                                       # no relatório da dona ele é produto dela (tipo real, não "outra")

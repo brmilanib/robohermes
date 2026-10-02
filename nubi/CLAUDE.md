@@ -234,6 +234,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   nome da UPCitemdb diz "3.4 oz./100ml". Etapa 3d do `consolidar`: volume que veio SÓ do nome pesquisado (nenhum título do
   GTIN diz volume) e fica a até 10% do volume que mais vende na mesma linha/tipo/gênero vira esse volume (105 ml).
   `REGRA_ATUAL` = regra 13. Teste `test_gtin_oncas.py`.
+  Não somar o mesmo anúncio (02/10, Bruno): o ID do anúncio do Nubimetrics (hash de 64) é o MESMO em todos os exports
+  (conferido: MNZ 899f0e33… em 851 e 999) e é a chave (`nubi.chave_anuncio`): a importação junta por ele
+  (`_juntar_por_id`, `_absorver_periodo`) e `_com_marca_trocada` não traz anúncio que já está no relatório.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 

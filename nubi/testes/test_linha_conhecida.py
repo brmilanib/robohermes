@@ -348,6 +348,15 @@ def test_relatorio_da_dona_traz_o_anuncio_com_a_marca_trocada():
         novo, un = w._com_marca_trocada(R(), df, {"inicio": "2026-08-01", "fim": "2026-09-27"}, "LATTAFA")
         assert un == 1300 and len(novo) == 2 and set(novo["produto"]) == {"Lattafa Asad Elixir EDP 100 ml"}
         assert list(novo["tipo"]) == ["EDP", "EDP"] and list(novo["marca_prod"]) == ["Lattafa", "Lattafa"], novo[["tipo", "marca_prod"]]
+        # 02/10: o MESMO anúncio (mesmo ID do anúncio) no export da LIPX e no da Lattafa não soma duas vezes
+        R._todos_velho = R._todos
+        def _com_id(self, t, q=None):
+            return [dict(r, bruto={"ID do anúncio": "abc123"}) for r in R._todos_velho(self, t, q)]
+        R._todos = _com_id
+        df2 = pd.concat([df, df.assign(bruto=[{"ID do anúncio": "abc123"}], vendedor="ICARBONXX P3", un=1300)], ignore_index=True)
+        novo2, un2 = w._com_marca_trocada(R(), df2, {"inicio": "2026-08-01", "fim": "2026-09-27"}, "LATTAFA")
+        assert un2 == 0 and len(novo2) == 2, (un2, len(novo2))
+        R._todos = R._todos_velho
         # na LIPX, a coluna Marca mostra a dona do GTIN
         lipx = nubi.campos_do_arquivo(nubi.preparar(pd.DataFrame(R()._todos("a", {"snapshot_id": "in.(2)", "confianca": f"eq.{nubi.CONF_GTIN_OUTRA}"}))), "LIPX")
         assert lipx.at[0, "marca_prod"] == "Lattafa"
