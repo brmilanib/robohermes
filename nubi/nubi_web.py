@@ -5712,7 +5712,7 @@ def _reposicao_dados(repo, dias=30):
             "estoque_em": ult["criado_em"], "paradas": paradas}
 
 
-def reposicao_painel(repo, caixa=None):
+def reposicao_painel(repo, caixa=None, semana=None):
     """02/10 (Bruno): Estoque → 🔁 Reposição. As regras estão em reposicao.py."""
     dd = _reposicao_dados(repo)
     if not dd:
@@ -5722,6 +5722,8 @@ def reposicao_painel(repo, caixa=None):
     c = {k: cfg[k] for k in ("prazo", "campeao", "caixa", "meta_margem", "ml_galpao", "meta_fat") if cfg.get(k) is not None}
     if caixa is not None:
         c["caixa"] = caixa or None
+    if semana:                                   # 02/10 (Bruno): "compra do dia" até o próximo pedido (ex.: segunda = 3 dias)
+        c["semana"] = max(1, min(30, int(semana)))
     manuais = {k: (v or {}).get("nota") for k, v in (cfg.get("manuais") or {}).items()}
     # 02/10 (Bruno: "margem saudável, 18–20% já tirando o ADS"): margem pós ADS por SKU da Curva ABC do Gestor Seller
     abc = _vendas_atuais(repo, GESTOR_ABC_CHAVE) or {}
@@ -5732,6 +5734,8 @@ def reposicao_painel(repo, caixa=None):
     r = reposicao.calcular(dd["itens"], dd["estoque_dia"], dd["vendas_dia"], c, (merc or {}).get("itens") or {}, manuais, margens,
                            cfg.get("ranque") or {})
     r["margens_de"] = {"inicio": abc.get("inicio"), "fim": abc.get("fim")} if margens else None
+    for l in r["pedido"] + r["campeoes"] + r["precos"]:
+        l["marca"] = dd["marca_de"].get(l["chave"]) or "Outras marcas"
     r.update({"estoque_em": dd["estoque_em"], "mercado_em": (merc or {}).get("dia"), "paradas": dd["paradas"],
               "regras": {"semana": r["cfg"]["semana"], "prazo": r["cfg"]["prazo"], "campeao": r["cfg"]["campeao"],
                          "full_dias": reposicao.DIAS_FULL, "top_full": reposicao.TOP_FULL}})
@@ -8528,8 +8532,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         d = json.loads(corpo or b"{}")
         return marcas_paradas_salvar(repo, d.get("marca"), bool(d.get("parada", True)))
     if rota == "estoque_reposicao":
-        cx = q.get("caixa")
-        return reposicao_painel(repo, float(cx) if cx not in (None, "") else None)
+        cx, sem = q.get("caixa"), q.get("semana")
+        return reposicao_painel(repo, float(cx) if cx not in (None, "") else None, int(sem) if str(sem or "").isdigit() else None)
     if rota == "estoque_reposicao_config" and metodo == "POST":
         return reposicao_config_salvar(repo, json.loads(corpo or b"{}"))
     if rota == "estoque_reposicao_mercado" and metodo == "POST":

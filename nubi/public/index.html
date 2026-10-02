@@ -1084,6 +1084,8 @@ header.top{padding:7px 16px}
 .mv-b:hover i{opacity:1}.mv-bv{font-size:10.5px;opacity:.65;margin-bottom:2px;white-space:nowrap}
 .mv-bd{position:absolute;bottom:-16px;font-size:10.5px;opacity:.55}
 @media (max-width:600px){.mv-bv{display:none}.mv-b:nth-child(odd) .mv-bd{display:none}}
+.lc-lista{max-height:60vh;overflow:auto}.lc-grupo{margin-bottom:12px}.lc-marca{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:4px 0;margin-bottom:4px}
+.lc-marca .btn{margin-left:auto}.lc-item{display:flex;gap:10px;align-items:baseline;padding:2px 0;font-size:13.5px}.lc-item b{min-width:46px;text-align:right}.lc-item span{flex:1}
 @media (min-width:641px){.rp-t{min-width:900px}}@media (max-width:640px){.rp-t tr.rp-faixa td,.rp-t tr.rp-corte td{display:block!important;text-align:left!important}.rp-t tr.rp-faixa,.rp-t tr.rp-corte{background:var(--soft)!important}}.rp-cfg input{height:auto;padding:4px 7px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-size:13px;margin:0 3px}
 .rp-t .rp-faixa td{background:var(--soft);font-size:13px}.rp-t .rp-corte td{color:var(--neg,#dc2626);font-weight:600;border-top:2px dashed currentColor}
 .rp-t tr.rp-fora{opacity:.45}.pill.neg{color:#b42318;border-color:#fda29b}.pill.warn-t{color:#b54708}
@@ -3540,6 +3542,7 @@ async function telaReposicao() {
       <label>Do ML que sai do galpão <input type="number" id="rp-mlg" value="${Math.round(cfg.ml_galpao * 100)}" min="0" max="100" step="5" style="width:52px"> %</label>
       <label>Meta de faturamento/mês R$ <input type="number" id="rp-metafat" value="${cfg.meta_fat}" min="0" step="100000" style="width:110px"></label>
       <label>Caixa para o pedido R$ <input type="number" id="rp-caixa" value="${cfg.caixa || ""}" min="0" step="1000" placeholder="sem limite" style="width:110px"></label>
+      <button class="btn small primary" id="rp-lista">🧾 Lista de compra</button>
       <button class="btn small" id="rp-merc">🔄 Atualizar mercado</button>
       <span class="muted">compra para ${g.semana} dias + ${g.prazo} de prazo · venda medida nos dias com estoque · o mercado é só referência, nunca aumenta a compra · ordem por lucro/dia${r.margens_de ? ` · margens do Gestor de ${dm(r.margens_de.inicio)} a ${dm(r.margens_de.fim)}` : " · sem Curva ABC do Gestor: margem não entra"}</span></div>
     <div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${[["pedido", "🛒 Pedido"], ["precos", "📣 Preço (" + r.precos.length + ")"], ["full", "🚚 Full (top " + g.top_full + ")"], ["campeoes", "🏆 Campeões"], ["parado", "💰 Dinheiro parado"], ["mao", "✋ Na mão (" + r.manuais.length + ")"]].map(([k, t]) => `<button data-rpa="${k}" class="${aba === k ? "on" : ""}">${t}</button>`).join("")}</div>
@@ -3554,6 +3557,7 @@ async function telaReposicao() {
   $("#rp-metafat").onchange = e => salvar({meta_fat: parseFloat(e.target.value) || 0});
   main.querySelectorAll("[data-rk]").forEach(b => b.onclick = () => salvar({ranque: {sku: b.dataset.rk, desde: b.dataset.on === "1" ? "" : new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10)}}));
   $("#rp-caixa").onchange = e => salvar({caixa: parseFloat(e.target.value) || null});
+  $("#rp-lista").onclick = () => abrirListaCompra();
   $("#rp-merc").onclick = async ev => { ev.target.disabled = true; ev.target.textContent = "Lendo o Explorador…";
     try { const x = await api("estoque_reposicao_mercado", {}, {method: "POST", body: "{}"}); toast(`Mercado de ${x.casados} campeões atualizado`); telaReposicao(); }
     catch (e) { toast(e.message); ev.target.disabled = false; ev.target.textContent = "🔄 Atualizar mercado"; } };
@@ -3561,6 +3565,63 @@ async function telaReposicao() {
     if (nota) salvar({manual: {sku: b.dataset.mao, nota}}); });
   main.querySelectorAll("[data-volta]").forEach(b => b.onclick = () => salvar({manual: {sku: b.dataset.volta, nota: ""}}));
   desenharMenu();
+}
+// 02/10 (Bruno: "um botão de compra do dia para a semana e uma lista bonitinha para imprimir ou mandar no WhatsApp: o nome do
+// produto e a quantidade; fica mais fácil de cotar"). Agrupada por marca (cada fornecedor recebe a sua parte).
+const nomeCurto = t => String(t || "").replace(/\b(perfumes?|masculino|feminino|unissex|unisex|original|importado|lacrado|nicho|árabe|arabe|perfume árabe|100% original|alta fixação|presente)\b/gi, " ")
+  .replace(/\s+/g, " ").trim().slice(0, 70);
+async function abrirListaCompra() {
+  const r0 = S.rp || {}, cfg = r0.cfg || {};
+  S.lc = S.lc || {dias: cfg.semana || 7, caixa: false, custo: false};
+  const bg = modal(`<h2 style="margin-top:0">🧾 Lista de compra</h2>
+    <div class="rp-cfg" style="display:flex;gap:10px 14px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:10px">
+      <label>Próximo pedido em <input type="number" id="lc-dias" value="${S.lc.dias}" min="1" max="30" style="width:52px"> dias</label>
+      <label><input type="checkbox" id="lc-caixa" ${S.lc.caixa ? "checked" : ""} ${r0.resumo && r0.resumo.caixa ? "" : "disabled"}> só o que cabe no caixa</label>
+      <label><input type="checkbox" id="lc-custo" ${S.lc.custo ? "checked" : ""}> mostrar custo</label></div>
+    <div id="lc-corpo" class="muted">Calculando…</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px">
+      <button class="btn" id="lc-print">🖨️ Imprimir</button><button class="btn" id="lc-zap">💬 WhatsApp</button><button class="btn" id="lc-copiar">📋 Copiar</button><button class="btn ghost" data-fechar>Fechar</button></div>`);
+  let grupos = [], titulo = "";
+  const texto = gs => `*${titulo}*\n` + gs.map(g => `\n*${g.marca}*\n` + g.itens.map(l => `${l.compra} un. — ${nomeCurto(l.titulo)}${S.lc.custo && l.custo ? ` (R$ ${nf0.format(l.custo)})` : ""}`).join("\n")).join("\n") +
+    `\n\nTotal: ${nf0.format(gs.reduce((s, g) => s + g.un, 0))} un.${S.lc.custo ? " · " + FMT.moeda(gs.reduce((s, g) => s + g.valor, 0)) + " ao custo" : ""}`;
+  const desenhar = async () => {
+    const corpo = bg.querySelector("#lc-corpo");
+    corpo.innerHTML = `<span class="muted">Calculando…</span>`;
+    let r;
+    try { r = await api("estoque_reposicao", {semana: S.lc.dias}); } catch (e) { corpo.innerHTML = esc(e.message); return; }
+    const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+    titulo = `Pedido de compra — ${hoje.slice(8, 10)}/${hoje.slice(5, 7)}/${hoje.slice(0, 4)}`;
+    const xs = r.pedido.filter(l => l.compra > 0 && (!S.lc.caixa || l.cabe_no_caixa));
+    const por = {};
+    xs.forEach(l => { const g = por[l.marca] || (por[l.marca] = {marca: l.marca, itens: [], un: 0, valor: 0}); g.itens.push(l); g.un += l.compra; g.valor += l.compra_valor || 0; });
+    grupos = Object.values(por).sort((a, b) => a.marca.localeCompare(b.marca, "pt-BR"));
+    grupos.forEach(g => g.itens.sort((a, b) => nomeCurto(a.titulo).localeCompare(nomeCurto(b.titulo), "pt-BR")));
+    corpo.innerHTML = grupos.length ? `<p class="muted" style="margin:0 0 8px">${esc(titulo)} · cobre até o próximo pedido em ${S.lc.dias} dia(s) + ${r.cfg.prazo} de entrega · ${nf0.format(xs.length)} produtos · ${nf0.format(grupos.reduce((s, g) => s + g.un, 0))} un.${S.lc.custo ? " · " + FMT.moeda(grupos.reduce((s, g) => s + g.valor, 0)) : ""}</p>
+      <div class="lc-lista">${grupos.map((g, i) => `<div class="lc-grupo"><div class="lc-marca"><b>${esc(g.marca)}</b> <span class="muted">${g.itens.length} itens · ${nf0.format(g.un)} un.${S.lc.custo ? " · " + FMT.moeda(g.valor) : ""}</span>
+        <button class="btn small ghost" data-lcz="${i}" title="Mandar só esta marca no WhatsApp">💬</button></div>
+        ${g.itens.map(l => `<div class="lc-item"><b>${nf0.format(l.compra)}</b><span>${esc(nomeCurto(l.titulo))} <small class="muted">${esc(l.sku)}</small></span>${S.lc.custo && l.custo ? `<small class="muted">${FMT.moeda(l.custo)}</small>` : ""}</div>`).join("")}</div>`).join("")}</div>`
+      : `<p class="muted">Nada a comprar com esse prazo.</p>`;
+    corpo.querySelectorAll("[data-lcz]").forEach(b => b.onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent(texto([grupos[+b.dataset.lcz]])), "_blank"));
+  };
+  bg.querySelector("#lc-dias").onchange = e => { S.lc.dias = Math.max(1, Math.min(30, parseInt(e.target.value) || 7)); desenhar(); };
+  bg.querySelector("#lc-caixa").onchange = e => { S.lc.caixa = e.target.checked; desenhar(); };
+  bg.querySelector("#lc-custo").onchange = e => { S.lc.custo = e.target.checked; desenhar(); };
+  bg.querySelector("#lc-zap").onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent(texto(grupos)), "_blank");
+  bg.querySelector("#lc-copiar").onclick = async () => { try { await navigator.clipboard.writeText(texto(grupos)); toast("Lista copiada"); } catch (e) { toast("Não consegui copiar"); } };
+  bg.querySelector("#lc-print").onclick = () => {
+    const w = window.open("", "_blank");
+    if (!w) { toast("Libere a janela para imprimir"); return; }
+    w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>
+      body{font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111;margin:24px}h1{font-size:18px;margin:0 0 4px}p{color:#555;margin:0 0 16px}
+      h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #ccc;padding-bottom:3px}table{border-collapse:collapse;width:100%}td{padding:3px 6px;border-bottom:1px dotted #ddd;vertical-align:top}
+      td.q{width:70px;text-align:right;font-weight:700;white-space:nowrap}td.s{color:#777;font-size:12px;white-space:nowrap}td.c{text-align:right;white-space:nowrap}td.ok{width:28px;color:#999}
+      @media print{body{margin:10mm}h2{break-after:avoid}tr{break-inside:avoid}}</style></head><body>
+      <h1>${esc(titulo)}</h1><p>${nf0.format(grupos.reduce((s, g) => s + g.itens.length, 0))} produtos · ${nf0.format(grupos.reduce((s, g) => s + g.un, 0))} unidades${S.lc.custo ? " · " + FMT.moeda(grupos.reduce((s, g) => s + g.valor, 0)) + " ao custo" : ""}</p>
+      ${grupos.map(g => `<h2>${esc(g.marca)} <small style="font-weight:400;color:#777">${nf0.format(g.un)} un.</small></h2><table>${g.itens.map(l => `<tr><td class="ok">☐</td><td class="q">${nf0.format(l.compra)} un.</td><td>${esc(nomeCurto(l.titulo))}</td><td class="s">${esc(l.sku)}</td>${S.lc.custo ? `<td class="c">${l.custo ? FMT.moeda(l.custo) : ""}</td>` : ""}</tr>`).join("")}</table>`).join("")}
+      </body></html>`);
+    w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
+  };
+  desenhar();
 }
 // ---------- 💰 Financeiro (02/10, Bruno: DRE Simplificado do Gestor Seller mês fechado + Resumo analítico toda semana; markup médio) ----------
 const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";

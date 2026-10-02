@@ -144,6 +144,11 @@ try:
                 assert "Reposição" in pg.inner_text(".es-cab") and "Pedido completo" in pg.inner_text(".kpis")
                 for a in ("precos", "full", "campeoes", "parado", "mao", "pedido"):
                     pg.click(f"[data-rpa='{a}']"); pg.wait_for_selector(f"[data-rpa='{a}'].on", timeout=15000)
+                # 02/10 (Bruno): lista de compra para imprimir / WhatsApp, por marca
+                pg.click("#rp-lista"); pg.wait_for_function("() => { const c = document.querySelector('#lc-corpo'); return c && !c.innerText.includes('Calculando'); }", timeout=20000)
+                assert "Pedido de compra" in pg.inner_text(".modal") or "Nada a comprar" in pg.inner_text(".modal"), pg.inner_text(".modal")[:400]
+                pg.fill("#lc-dias", "3"); pg.dispatch_event("#lc-dias", "change"); pg.wait_for_timeout(800)
+                pg.click(".modal [data-fechar]")
                 pg.fill("#rp-caixa", "50000"); pg.dispatch_event("#rp-caixa", "change")
                 pg.wait_for_function("() => document.querySelector('.kpis') && document.querySelector('.kpis').innerText.includes('Cabe no caixa')", timeout=15000)
                 with pg.expect_response(lambda r_: "estoque_reposicao_mercado" in r_.url, timeout=60000) as rm:
