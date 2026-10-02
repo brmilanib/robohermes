@@ -3062,7 +3062,23 @@ def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=()):
                    f"{len(novos & set(antigo['anuncio']))} atualizado(s), {len(novos - set(antigo['anuncio']))} novo(s), "
                    f"{len(resto)} mantido(s) do arquivo anterior.")
             continue
-        fora = antigo["anuncio"].str.startswith("ID:") & antigo["anuncio"].isin(novos)
+        repetidos = antigo["anuncio"].str.startswith("ID:") & antigo["anuncio"].isin(novos)
+        if not repetidos.any():
+            continue
+        # 02/10 (Bruno: "não pode somar nem tirar"): a pesquisa expandida de uma marca traz anúncios de outras. Só passa
+        # para esta marca o anúncio que É dela (coluna Marca do arquivo novo); o da outra marca fica no card dela e sai
+        # do arquivo novo (mesmo ID = mesmo anúncio: contado uma vez só). Antes, o export expandido da AL WATANIAH
+        # (01/09–30/09) tiraria do card da ARMAF (mesmo período) todos os anúncios Armaf que viessem junto.
+        grupo = _chave_grupo(marca)
+        marca_novo = dict(zip(df["anuncio"], df["marca_anuncio"].fillna("")))
+        e_desta = antigo["anuncio"].map(lambda k: _chave_grupo(marca_novo.get(k, "")) == grupo)
+        fica_la = repetidos & ~e_desta
+        if fica_la.any():
+            df = df[~df["anuncio"].isin(set(antigo.loc[fica_la, "anuncio"]))]
+            novos = set(df["anuncio"])
+            avisar(f"    {int(fica_la.sum())} anúncio(s) de {sn['marca']} vieram na busca e ficaram no card de {sn['marca']} "
+                   "(mesmo ID: não conta duas vezes).")
+        fora = repetidos & e_desta
         if not fora.any():
             continue
         fica = antigo[~fora].drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in antigo.columns])

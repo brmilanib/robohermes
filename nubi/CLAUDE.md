@@ -296,6 +296,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   de seguir". Estado em `ia_resumos` `rodizio|estado` (ligado, vagas, ativos, feitos, histórico); rotas `rodizio` (estado +
   fila), `rodizio_plano`, `rodizio_feito`, `rodizio_config` {ligado, vagas}. Depois de seguir, pede a coleta (`coletor_pedir`).
   Começa DESLIGADO. Teste `test_rodizio_seguidos.py`. O export do Explorador também abre direto em `/market/publicationsexplorer`.
+- **Importar o Explorador sem roubar de outra marca (02/10, Bruno: "faça o teste antes")**: em `_juntar_por_id`, anúncio que
+  já está no card de OUTRA marca no mesmo período só passa para a marca que está entrando se for dela (coluna Marca do
+  arquivo novo); senão fica no card dele e sai do arquivo novo (mesmo ID = contado uma vez). Antes, o export expandido da
+  AL WATANIAH 01/09–30/09 tiraria do card da ARMAF (mesmo período) os anúncios Armaf que viessem na busca (e apagaria o
+  card se ficasse vazio). Teste `test_importar_sem_roubar.py` (SQLite temporário, também confere que o período antigo não muda).
+- **Ranking de marcas ≠ Explorador (02/10, Bruno: "ranking só traz os totais do mês fechado, importa uma vez por mês")**: no
+  `diario`, o Ranking de cada mês sai quando o mês TERMINA no calendário (`meses_ranking`), sem esperar a venda diária dos
+  seguidos (que atrasa 2 dias) chegar ao último dia; antes setembro só entraria no dia 3.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 

@@ -829,6 +829,19 @@ def periodos(cfg, hoje=None):
     return saida
 
 
+def meses_ranking(cfg, hoje=None):
+    """Meses do Ranking de marcas: de 'desde' até o mês passado (o mês que já terminou no calendário)."""
+    hoje = hoje or date.today()
+    a, m = map(int, (cfg.get("desde") or "2026-01").split("-"))
+    saida = []
+    while (a, m) < (hoje.year, hoje.month):
+        saida.append(f"{a}-{m:02d}")
+        m += 1
+        if m == 13:
+            a, m = a + 1, 1
+    return saida
+
+
 def periodo_comparativo(cfg, hoje=None):
     """Do dia 1 ao mesmo dia do mês anterior (01/08–22/08 quando os dados vão até 22/09). None no fim do mês."""
     d = ultimo_dia_liberado(cfg, hoje)
@@ -8614,8 +8627,10 @@ def main():
             partes = [f"dados até {d:%d/%m}"]
             # MARCAS: todo mês fechado (último dia já liberado) que ainda não está no nubi
             # (30/09) em cada categoria do relatório: Perfumes e as extras (Maquiagem)
-            faltam = [(cat_, nomes_, per) for cat_, nomes_ in categorias_marcas(cfg, pend) for per in pers
-                      if not per["ate"] and per["mes"] not in set(pend["ranking"].get(cat_, []))]
+            # 02/10 (Bruno, print do Ranking de mercado "Setembro 2026" já fechado em 01/10): o ranking do mês sai quando o
+            # mês TERMINA no calendário; não espera a venda diária (que atrasa 2 dias) chegar ao último dia
+            faltam = [(cat_, nomes_, {"mes": m_}) for cat_, nomes_ in categorias_marcas(cfg, pend) for m_ in meses_ranking(cfg)
+                      if m_ not in set(pend["ranking"].get(cat_, []))]
             ao_vivo(True, total=len(faltam))
             for cat_, nomes_, per in faltam:
                 rot_cat = (nomes_ or [cat_])[-1]
