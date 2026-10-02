@@ -1180,8 +1180,11 @@ def consolidar(df, marca, cfg, info=None):
     # pelas linhas configuradas da marca; se nenhuma casar, pelo próprio texto do título
     # (o que sobra tirando marca, tipo, volume e palavras de anúncio, ex. "212 Men").
     com_gtin = df[(df["gtin"] != "") & ~fora]
+    vol_so_pesquisa = []                                 # GTINs cujo volume veio só do nome pesquisado (etapa 3d)
     for gtin, grupo in com_gtin.groupby("gtin"):
         p = pesquisados.get(gtin, {})
+        if p.get("volume") not in NEUTROS | {None} and lido.loc[grupo.index, "volume"].isin(NEUTROS).all():
+            vol_so_pesquisa.append(gtin)
         for coluna in ("linha", "volume", "tipo", "genero"):
             vencedor = p.get(coluna) if p.get(coluna) not in NEUTROS | {None} else None
             if vencedor is None:
@@ -1313,6 +1316,30 @@ def consolidar(df, marca, cfg, info=None):
             vencedor = _mais_vendido(grupo, "genero")
             if vencedor is not None:
                 df.loc[faltando, "genero"] = vencedor
+
+    # 3d (02/10, Bruno: "Armaf Club de Nuit Intense Man repetindo dois e o MNZ nem aparece"): o anúncio da MNZIMPORTS
+    #     (9,1 mil un.) tem título cortado sem volume ("Perfume Club De Nuit Intense Da Armaf Ed") e o GTIN 6085010094144
+    #     pesquisado na UPCitemdb diz "3.6 oz ... 3.4 oz./100ml" — conversão de onças, não o frasco. Virava um produto
+    #     "EDT 100 ml" à parte do "EDT 105 ml" de todo o mercado. Volume que veio SÓ do nome pesquisado (nenhum título do
+    #     GTIN diz o volume) e fica a até 10% do volume que mais vende na mesma linha, tipo e gênero = o mesmo frasco.
+    def _ml(v):
+        m = re.match(r"\s*(\d+(?:[.,]\d+)?)", str(v))
+        return float(m.group(1).replace(",", ".")) if m else None
+    for gtin in vol_so_pesquisa:
+        idx = df.index[(df["gtin"] == gtin) & ~fora]
+        if not len(idx):
+            continue
+        l, t, g, v = (df.at[idx[0], c] for c in ("linha", "tipo", "genero", "volume"))
+        mv = _ml(v)
+        if mv is None or l in NEUTROS:
+            continue
+        irmaos = df[~fora & (df["linha"] == l) & (df["tipo"] == t) & (df["genero"] == g) & (df["volume"] != v)
+                    & (df["gtin"] != gtin)]
+        perto = irmaos[[(_ml(x) is not None and abs(_ml(x) - mv) <= 0.1 * max(_ml(x), mv)) for x in irmaos["volume"]]]
+        if len(perto):
+            vencedor = _mais_vendido(perto, "volume")
+            if vencedor is not None:
+                df.loc[idx, "volume"] = vencedor
 
     # Ficha fixa da linha (01/10): o perfume só existe num tipo/volume; o que o vendedor digitou diferente é erro
     # (perfume inteiro; decant, body splash, kit, outra marca e fora de perfumaria ficam como estão)
