@@ -56,9 +56,6 @@ header.top select option{color:#000}
 .btn:disabled{opacity:.55;cursor:default}
 main{margin:0 auto;padding:20px clamp(16px,1.6vw,40px)}
 /* Telas grandes (2K/4K): usa a largura toda e aumenta tudo na mesma proporção. */
-@media (min-width:2200px){body{zoom:1.2}}
-@media (min-width:2800px){body{zoom:1.4}}
-@media (min-width:3400px){body{zoom:1.6}}
 @media (min-width:1800px){.grid2{grid-template-columns:1.25fr 1fr}.tw{max-height:74vh}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
 .pad{padding:16px 18px}
@@ -133,8 +130,8 @@ table.t td.first{font-weight:500}
 .log{background:var(--soft);border-radius:8px;padding:10px 12px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;max-height:300px;overflow:auto;margin-top:10px}
 .modal-bg{position:fixed;inset:0;background:rgba(10,15,25,.45);display:flex;align-items:flex-start;justify-content:center;z-index:50;
   padding:clamp(12px,3dvh,32px) 16px calc(clamp(12px,3dvh,32px) + env(safe-area-inset-bottom,0px));overflow:auto}
-.modal{max-width:640px;width:100%;padding:18px;max-height:calc(100vh - (clamp(24px,6vh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
-  max-height:calc(100dvh - (clamp(24px,6dvh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
+.modal{max-width:640px;width:100%;padding:18px;max-height:calc(calc(100vh / var(--z, 1)) - (clamp(24px,6vh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
+  max-height:calc(calc(100dvh / var(--z, 1)) - (clamp(24px,6dvh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
   overflow:auto;overscroll-behavior:contain}
 .form-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px}
 @media (max-width:600px){.form-row{grid-template-columns:1fr}}
@@ -168,9 +165,9 @@ label.f input,label.f select{border:1px solid var(--line);border-radius:8px;padd
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;z-index:60;max-width:90vw}
 svg.spark{display:block}
 .top5 li{margin:6px 0}
-.layout{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:calc(100vh - 54px)}
+.layout{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:calc(calc(100vh / var(--z, 1)) - 54px)}
 .layout>main{margin:0;min-width:0}
-aside.side{background:var(--card);border-right:1px solid var(--line);padding:14px 10px;position:sticky;top:54px;height:calc(100vh - 54px);overflow:auto}
+aside.side{background:var(--card);border-right:1px solid var(--line);padding:14px 10px;position:sticky;top:54px;height:calc(calc(100vh / var(--z, 1)) - 54px);overflow:auto}
 .navi{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;color:var(--ink);text-decoration:none;font-weight:600;margin-bottom:4px}
 .navi:hover{background:var(--soft)}
 .navi.on{background:var(--soft);color:var(--accent)}
@@ -416,7 +413,7 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
 .cc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .cc-seg button{border:0;background:var(--card);color:var(--muted);padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
 .cc-seg button.on{background:var(--soft);color:var(--ink);font-weight:600}
-.wa-wrap{display:flex;height:calc(100dvh - 150px);min-height:360px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card)}
+.wa-wrap{display:flex;height:calc(calc(100dvh / var(--z, 1)) - 150px);min-height:360px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card)}
 .wa-list{width:280px;flex:0 0 auto;overflow-y:auto;border-right:1px solid var(--line);background:var(--card)}
 .wa-li{display:flex;gap:10px;align-items:center;padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--line)}
 .wa-li:hover{background:var(--soft)}
@@ -681,8 +678,8 @@ details.vd-it summary::before{content:"▸";color:var(--muted)} details.vd-it[op
    Quem rola é a própria janela do card (uma única área de rolagem); a altura segue a mesma conta de margem do .modal
    genérico (linha 129) para sobrar espaço em cima/embaixo também. No celular (abaixo) volta a ocupar a tela quase toda. */
 .modal-bg.tarefa .modal{max-width:min(760px,100%);width:100%;
-  height:calc(100vh - (clamp(24px,6vh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
-  height:calc(100dvh - (clamp(24px,6dvh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
+  height:calc(calc(100vh / var(--z, 1)) - (clamp(24px,6vh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
+  height:calc(calc(100dvh / var(--z, 1)) - (clamp(24px,6dvh,64px) + env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px)));
   display:block;padding:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .tf{display:flex;flex-direction:column;min-height:100%}
 .tf pre{white-space:pre-wrap;overflow-wrap:anywhere}
@@ -690,7 +687,7 @@ html:has(.modal-bg.tarefa){overflow:hidden}   /* quadro atrás não rola com o c
 @media (max-width:600px){.modal-bg.tarefa{padding:0}
   /* o .modal genérico (linha 129) tem max-height com a mesma conta de margem; sem isso o card ficava com a
      margem do desktop mesmo aqui, sem ocupar a tela toda (achado do teste automatizado, card #95) */
-  .modal-bg.tarefa .modal{max-width:none;width:100vw;height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;border-radius:0}}
+  .modal-bg.tarefa .modal{max-width:none;width:calc(100vw / var(--z, 1));height:calc(100vh / var(--z, 1));height:calc(100dvh / var(--z, 1));max-height:calc(100vh / var(--z, 1));max-height:calc(100dvh / var(--z, 1));border-radius:0}}
 .tf-cab{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
 .tf-cab-l1{display:flex;align-items:baseline;gap:6px;min-width:0}
 .tf-cab-l1 b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:15.5px}
@@ -745,7 +742,7 @@ select.catsel{border:1px solid var(--line);border-radius:6px;padding:3px 6px;bac
 .nnome{font-size:24px;font-weight:600;letter-spacing:.2px;color:var(--ink)}
 .nnome b{font-weight:700;background:linear-gradient(90deg,var(--accent),#7aa7ff,var(--accent));background-size:200% 100%;
   -webkit-background-clip:text;background-clip:text;color:transparent;animation:nbrilho 2s linear infinite}
-.nload{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;min-height:calc(100vh - 160px);text-align:center}
+.nload{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;min-height:calc(calc(100vh / var(--z, 1)) - 160px);text-align:center}
 .modal .nload{min-height:40vh}
 .nmsg{font-size:14px;color:var(--muted)}
 .nload .nmsg::after,.nover:not(.feito) .nmsg::after{content:"";display:inline-block;width:1.2em;text-align:left;animation:npontos 1.2s steps(4) infinite}
@@ -810,7 +807,7 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 /* Minhas Lojas → TikTok Shop → Atendimento (26/09) */
-.atx{display:grid;grid-template-columns:300px minmax(0,1fr) 290px;height:calc(100vh - 230px);min-height:480px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+.atx{display:grid;grid-template-columns:300px minmax(0,1fr) 290px;height:calc(calc(100vh / var(--z, 1)) - 230px);min-height:480px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
 .atx-lista{border-right:1px solid var(--line);overflow:auto}
 .atx-busca{display:flex;gap:6px;padding:8px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}
 .atx-busca select{flex:1;min-width:0}
@@ -906,7 +903,7 @@ details.conta .menu{position:absolute;right:0;top:calc(100% + 6px);padding:10px;
 @media (prefers-reduced-motion:reduce){.sp-agora div{animation:none}}
 .sp-tab{border-collapse:collapse;margin-top:6px}.sp-tab td,.sp-tab th{padding:3px 12px 3px 0;text-align:left;font-variant-numeric:tabular-nums}
 @media (max-width:1100px){.atx{grid-template-columns:280px minmax(0,1fr)} .atx-info{display:none}}
-@media (max-width:700px){.atx{grid-template-columns:1fr;height:calc(100vh - 250px)} .atx.com-conv .atx-lista{display:none} .atx:not(.com-conv) .atx-chat{display:none} .atx-voltar{display:inline-block}}
+@media (max-width:700px){.atx{grid-template-columns:1fr;height:calc(calc(100vh / var(--z, 1)) - 250px)} .atx.com-conv .atx-lista{display:none} .atx:not(.com-conv) .atx-chat{display:none} .atx-voltar{display:inline-block}}
 .es-seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
 .es-seg button{white-space:nowrap;flex:0 0 auto}
 .at-num{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px}
@@ -1068,10 +1065,15 @@ header.top{padding:7px 16px}
 .ec-barra i{display:block;height:100%}
 .ec-leg{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:12px;color:var(--muted)}
 .ec-leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
-/* telas grandes: aumenta menos (antes 1.2/1.4/1.6 deixava tudo enorme) */
-@media (min-width:2200px){body{zoom:1.05}}
-@media (min-width:2800px){body{zoom:1.2}}
-@media (min-width:3400px){body{zoom:1.35}}
+/* telas grandes: aumenta menos (antes 1.2/1.4/1.6 deixava tudo enorme).
+   02/10 (Bruno: "diminui 10% a proporção das telas de todo o sistema, tá muito grande"): computador em 90%; o celular
+   fica como está. --z é o zoom do body: as alturas de tela inteira (100vh) são divididas por ele para não sobrar faixa. */
+:root{--z:1}
+@media (min-width:768px){:root{--z:.9}}
+@media (min-width:2200px){:root{--z:.95}}
+@media (min-width:2800px){:root{--z:1.08}}
+@media (min-width:3400px){:root{--z:1.2}}
+body{zoom:var(--z)}
 /* 01/10: lista do estoque por categoria — mais larga e linha pintada pela cobertura */
 .modal.ec-modal{max-width:min(1500px,96vw);width:96vw}
 .ec-modal tr.ec-urg td,#mv-tab tr.ec-urg td{background:rgba(220,38,38,.07)}
@@ -1279,7 +1281,7 @@ header.top{padding:7px 16px}
 .vh-sem{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin-top:10px}
 .tv-tela{position:fixed;inset:0;z-index:9999;background:#0b1220;color:#e5e7eb;overflow:auto;
   --card:#111a2e;--ink:#e5e7eb;--muted:#94a3b8;--line:#1f2a44;--soft:#16213a}
-.tv{padding:18px 22px;display:flex;flex-direction:column;gap:14px;min-height:100vh;box-sizing:border-box;font-size:15px}
+.tv{padding:18px 22px;display:flex;flex-direction:column;gap:14px;min-height:calc(100vh / var(--z, 1));box-sizing:border-box;font-size:15px}
 .tv-topo{display:flex;align-items:center;gap:16px;padding:12px 18px;border-radius:24px;
   background:linear-gradient(110deg,#1e3a8a 0%,#2563eb 45%,#7c3aed 80%,#db2777 100%);background-size:200% 100%;animation:tvceu 14s ease-in-out infinite;
   box-shadow:0 10px 30px rgba(37,99,235,.35),inset 0 1px 0 rgba(255,255,255,.2)}
@@ -2123,6 +2125,7 @@ function passos(lo, hi, n = 4) {
   for (let v = Math.floor(lo / st) * st; v <= Math.ceil(hi / st) * st + st / 2; v += st) out.push(+v.toPrecision(12));
   return out;
 }
+const zoomTela = () => parseFloat(getComputedStyle(document.body).zoom) || 1;
 // Tooltip único; fica fora do <body> para não sofrer o zoom das telas 4K.
 function mostrarTip(ev, titulo, linhas) {
   let t = document.getElementById("dvtip");
@@ -3919,7 +3922,7 @@ function telaCurvaABC(r) {
     const gr = $("#abc-graf"), dica = $("#abc-dica");
     gr.onmousemove = e => { const b = gr.getBoundingClientRect(), fx = (e.clientX - b.left) / b.width;
       const x = c.itens[Math.min(c.itens.length - 1, Math.max(0, Math.round(fx * n) - 1))]; if (!x) return;
-      dica.hidden = false; dica.style.left = Math.min(b.width - 260, Math.max(0, e.clientX - b.left + 12)) + "px";
+      const z = zoomTela(); dica.hidden = false; dica.style.left = Math.min(b.width - 260 * z, Math.max(0, e.clientX - b.left + 12)) / z + "px";
       dica.innerHTML = `<b>${esc((x.produto || x.sku).slice(0, 60))}</b><br>${esc(x.sku)} · <span class="abc abc-${x.classe}">${x.classe}</span><br>${fmt(ehValor ? x.valor : x.unidades)} · ${nf1.format(x.pct)}% · acumulado ${nf1.format(x.acum)}%`; };
     gr.onmouseleave = () => { dica.hidden = true; };
     main.querySelectorAll("[data-por]").forEach(b => b.onclick = () => { f.por = b.dataset.por; desenhar(); });
@@ -5832,8 +5835,9 @@ async function niveisES() {
     dica.innerHTML = `<b>${dia(d.dia)}</b><div>Estoque: <b>${fmt(d[kE])}</b></div><div>Vendas: <b>${fmt(d[kV])}</b></div>
       <div class="muted">Cobertura: ${d.cobertura_dias != null ? nf0.format(d.cobertura_dias) + " dias" : "—"}</div>`;
     const bb = box.getBoundingClientRect(), gx = rc.left - bb.left + cx;
-    dica.style.left = Math.max(4, Math.min(bb.width - dica.offsetWidth - 4, gx + 12)) + "px";
-    dica.style.top = (rc.top - bb.top) + "px";
+    const z = zoomTela();                       // getBoundingClientRect vem na tela; o left/top é no CSS do body (zoom)
+    dica.style.left = Math.max(4, Math.min(bb.width - dica.offsetWidth * z - 4, gx + 12)) / z + "px";
+    dica.style.top = (rc.top - bb.top) / z + "px";
   };
   const esconder = () => { dica.hidden = true; box.querySelectorAll(".nv-cruz,.nv-ponto").forEach(e => e.hidden = true); };
   box.querySelectorAll(".nv-g").forEach(g => { g.onmousemove = mostrar; g.ontouchstart = mostrar; g.ontouchmove = mostrar; g.onmouseleave = esconder; });
