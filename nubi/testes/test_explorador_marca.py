@@ -24,6 +24,7 @@ EXPLORADOR = """<html><body><h1>Explorador de anúncios</h1><input placeholder="
 <p id="n">1–50 de 23496 resultados</p>
 <div style="display:flex;justify-content:space-between;width:900px"><button id="f" style="width:24px;height:24px">⫶</button>
 <span id="selo"></span><button id="x">EXPORTAR</button></div>
+<table><tr><td>Al Wataniah Sabah Al Ward</td><td><span style="text-transform:uppercase">Catálogo</span></td></tr></table>
 <div id="painel" style="display:none"><p>Categoria</p><ul><li id="bel">Beleza e Cuidado Pessoal (4497)</li><li>Casa (10)</li></ul></div>
 <script>let filtrado = false;
 document.getElementById('f').onclick = () => document.getElementById('painel').style.display = 'block';

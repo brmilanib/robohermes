@@ -435,13 +435,18 @@ def _explorador_categoria(pg, categoria):
     selo = pg.locator(":is(span,div,button,[role=button]):visible", has_text=re.compile(rf"^\s*{re.escape(categoria)}\s*$", re.I))
     antes = _n_resultados(pg)
     if not selo.count():
-        aberto = pg.locator(":visible", has_text=re.compile(r"^\s*Categoria\s*$|^\s*Cat[aá]logo\s*$")).count()
-        if not aberto:
+        item = pg.locator(":is(li,a,span,div,label,p,button):visible", has_text=re.compile(rf"^\s*{re.escape(categoria)}\s*(\(\s*[\d.]+\s*\))?\s*$", re.I))
+        # card #140: "aberto" era qualquer texto "Catálogo" na tela, e a tabela tem a pílula CATÁLOGO em cada anúncio de
+        # catálogo: o ícone nunca era clicado. Aberto = a própria categoria já aparece.
+        if not item.count():
             if not pg.evaluate(JS_BOTAO_FILTROS):
                 enviar_foto(pg, "explorador: sem o ícone de filtros", resumo_tela(pg))
                 raise Falha("não achei o ícone de filtros do Explorador " + diagnostico(pg))
             devagar(2)
-        item = pg.locator(":is(li,a,span,div,label,p,button):visible", has_text=re.compile(rf"^\s*{re.escape(categoria)}\s*(\(\s*[\d.]+\s*\))?\s*$", re.I))
+            try:
+                item.first.wait_for(timeout=15000)
+            except Exception:  # noqa: BLE001
+                pass
         if not item.count():
             enviar_foto(pg, f"explorador: sem a categoria {categoria}", resumo_tela(pg))
             raise Falha(f"não achei '{categoria}' no painel de filtros " + diagnostico(pg))
