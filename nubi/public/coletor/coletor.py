@@ -1830,10 +1830,11 @@ def _outra_rodando():
 def executar(tarefa, func):
     """Roda uma coleta com registro no nubi e aviso no Mac em caso de erro."""
     if _outra_rodando():
-        if tarefa != "diario":
+        # 02/10: o Explorador e o rodízio também esperam a coleta (o Bruno rodava na mão e recebia "Já tem uma coleta")
+        if tarefa not in ("diario", "explorador_marca", "rodizio_seguidos"):
             log("Já tem uma coleta rodando neste Mac. Espere ela terminar e rode de novo.")
             return 1
-        log("Outra coleta está rodando (histórico de vendas diárias?): esperando ela terminar…")
+        log("Outra coleta está rodando: esperando ela terminar (pode deixar a janela aberta)…")
         fim = time.time() + 4 * 3600
         while _outra_rodando() and time.time() < fim:
             time.sleep(60)
