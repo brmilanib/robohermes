@@ -865,9 +865,9 @@ def ultimo_dia_liberado(cfg, hoje=None):
 
 
 def periodo_fechado(mes, hoje=None):
+    # sempre com as datas (card #143): no dia 2 o "MÊS ANTERIOR" do Nubimetrics ainda é o mês de antes (atraso de 2 dias)
     ini, fim = limites(mes)
-    return {"mes": mes, "ini": ini, "fim": fim, "ate": None,
-            "rng": "PREVMONTH" if mes == mes_anterior(hoje) else "CUSTOM"}
+    return {"mes": mes, "ini": ini, "fim": fim, "ate": None, "rng": "CUSTOM"}
 
 
 def periodos(cfg, hoje=None):
