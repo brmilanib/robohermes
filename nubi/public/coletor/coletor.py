@@ -6162,14 +6162,14 @@ def _alerta_repetido_hoje(chave):
     """Verdadeiro só da 2ª vez em diante que essa chave aparece no mesmo dia; guarda só o dia de hoje (não cresce à toa)."""
     hoje = date.today().isoformat()
     try:
-        estado = json.loads(ALERTAS_DEDUP.read_text()) if ALERTAS_DEDUP.exists() else {}
+        estado = json.loads(ALERTAS_DEDUP.read_text(encoding="utf-8", errors="replace")) if ALERTAS_DEDUP.exists() else {}
     except (OSError, ValueError):
         estado = {}
     vistas = estado.get(hoje, [])
     repetido = chave in vistas
     if not repetido:
         try:
-            ALERTAS_DEDUP.write_text(json.dumps({hoje: vistas + [chave]}, ensure_ascii=False))
+            ALERTAS_DEDUP.write_text(json.dumps({hoje: vistas + [chave]}, ensure_ascii=False), encoding="utf-8")
         except OSError:
             pass
     return repetido
@@ -6177,20 +6177,20 @@ def _alerta_repetido_hoje(chave):
 
 def anotar_falha(tarefa, msg):
     try:
-        lista = json.loads(FALHAS.read_text()) if FALHAS.exists() else []
+        lista = json.loads(FALHAS.read_text(encoding="utf-8", errors="replace")) if FALHAS.exists() else []
     except (OSError, ValueError):
         lista = []
     lista.append({"tarefa": tarefa, "erro": str(msg)[:600], "quando": datetime.now().isoformat(timespec="seconds"),
                   "log": "\n".join(LOG[-15:])[-2500:]})
     try:
-        FALHAS.write_text(json.dumps(lista[-30:], ensure_ascii=False))
+        FALHAS.write_text(json.dumps(lista[-30:], ensure_ascii=False), encoding="utf-8")
     except OSError:
         pass
 
 
 def _falhas_pendentes():
     try:
-        lista = json.loads(FALHAS.read_text()) if FALHAS.exists() else []
+        lista = json.loads(FALHAS.read_text(encoding="utf-8", errors="replace")) if FALHAS.exists() else []
     except (OSError, ValueError):
         return []
     limite = (datetime.now() - timedelta(hours=6)).isoformat()
@@ -8138,13 +8138,13 @@ def _hermes_vigia(cfg):
     if not pend:
         return 0
     try:
-        lista = json.loads(FALHAS.read_text())
+        lista = json.loads(FALHAS.read_text(encoding="utf-8", errors="replace"))
     except (OSError, ValueError):
         return 0
     for f in lista:                                        # trata só a mais recente de cada tarefa
         if not f.get("tratada"):
             f["tratada"] = True
-    FALHAS.write_text(json.dumps(lista, ensure_ascii=False))
+    FALHAS.write_text(json.dumps(lista, ensure_ascii=False), encoding="utf-8")
     ultimas = {}
     for f in pend:
         ultimas[f["tarefa"]] = f
