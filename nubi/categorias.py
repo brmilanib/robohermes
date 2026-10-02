@@ -279,15 +279,18 @@ def marca_do_titulo(titulo, conhecidas):
 
 
 CRESCIMENTO_PADRAO = 0.20
+MARKUP_PADRAO = 1.85     # 02/10 (Bruno): "coloca 1,85, que é a média anual a última vez que eu vi"; editável na tela
 
 
-def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO, markup=None):
+def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO, markup=MARKUP_PADRAO):
     """02/10 (Bruno: "ranking de marcas dentro do meu estoque: SKUs, unidades, custo total, potencial de vendas; ao clicar,
     os produtos com custo, estoque, trânsito e sugestão de compra pela venda com crescimento de 20%"). Entra a `lista` de
-    `estoque_por_categoria` (1 linha por SKU). Por SKU: potencial = disponível × preço de venda (média das vendas de 30
-    dias; sem venda, sem potencial); sugestão = venda 30d × (1 + crescimento) − disponível − trânsito, nunca negativa,
-    arredondada para cima; custo da sugestão = sugestão × custo médio. Devolve {marcas: [...], itens: {marca: [...]}}."""
+    `estoque_por_categoria` (1 linha por SKU). Por SKU: potencial = custo em estoque × markup médio (Bruno: "tem que pegar
+    o custo vezes 1,85", não o preço de venda do SKU, que às vezes está baixo porque estou rankeando); sugestão = venda 30d
+    × (1 + crescimento) − disponível − trânsito, nunca negativa, arredondada para cima; custo da sugestão = sugestão × custo
+    médio. Devolve {marcas: [...], itens: {marca: [...]}}."""
     import math
+    markup = float(markup or MARKUP_PADRAO)
     por = {}
     itens = {}
     for x in lista:
@@ -297,10 +300,7 @@ def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO, markup=None):
         vu = float(x.get("vend_un") or 0)
         pv = x.get("preco_venda")
         custo = x.get("custo")
-        # 02/10 (Bruno: "potencial pelo markup médio do DRE; às vezes estou rankeando um produto e vendo mais barato mesmo"):
-        # com markup = custo em estoque × markup; sem DRE, o preço médio de venda de 30 dias
-        potencial = (round(disp * float(custo) * markup, 2) if markup and custo is not None
-                     else round(disp * float(pv), 2) if pv else None)
+        potencial = round(max(disp, 0) * float(custo) * markup, 2) if custo is not None else None
         sug = max(0, math.ceil(vu * (1 + crescimento) - disp - trans)) if vu > 0 else 0
         it = {"sku": x.get("sku"), "titulo": x.get("titulo"), "custo": custo, "disponivel": disp, "transito": trans,
               "valor": round(disp * float(custo), 2) if custo is not None else 0.0, "vend_un": vu, "vend_valor": float(x.get("vend_valor") or 0),
@@ -308,7 +308,7 @@ def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO, markup=None):
               "sugestao": sug, "sugestao_custo": round(sug * float(custo), 2) if custo is not None and sug else 0.0}
         itens.setdefault(m, []).append(it)
         g = por.setdefault(m, {"marca": m, "categoria": x.get("categoria"), "skus": 0, "com_estoque": 0, "unidades": 0.0, "transito": 0.0,
-                               "custo": 0.0, "potencial": 0.0, "skus_com_preco": 0, "vend_un": 0.0, "vend_valor": 0.0,
+                               "custo": 0.0, "potencial": 0.0, "skus_sem_custo": 0, "vend_un": 0.0, "vend_valor": 0.0,
                                "sugestao": 0, "sugestao_custo": 0.0})
         g["skus"] += 1
         g["com_estoque"] += 1 if disp > 0 else 0
@@ -317,7 +317,8 @@ def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO, markup=None):
         g["custo"] += it["valor"]
         if potencial is not None:
             g["potencial"] += potencial
-            g["skus_com_preco"] += 1
+        elif disp > 0:
+            g["skus_sem_custo"] += 1
         g["vend_un"] += vu
         g["vend_valor"] += it["vend_valor"]
         g["sugestao"] += sug
@@ -330,7 +331,7 @@ def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO, markup=None):
         g["pct_custo"] = round(g["custo"] / total_custo, 4)
         g["pct_vendas"] = round(g["vend_valor"] / total_vend, 4)
         g["cobertura_dias"] = round(g["unidades"] / (g["vend_un"] / 30), 1) if g["vend_un"] else None
-        g["margem_potencial"] = round(g["potencial"] - g["custo"], 2) if g["skus_com_preco"] else None
+        g["margem_potencial"] = round(g["potencial"] - g["custo"], 2)
         marcas.append(g)
     marcas.sort(key=lambda g: (-g["custo"], -g["unidades"]))
     for i, g in enumerate(marcas, 1):

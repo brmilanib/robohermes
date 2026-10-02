@@ -114,6 +114,21 @@ try:
                 pg.evaluate("""async e => { const buf = s => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
                   await api('estoque_importar', {arquivo: 'Lista_de_Estoque.xlsx', origem: 'manual'}, {method: 'POST', body: buf(e)}); }""",
                             base64.b64encode(_xlsx()).decode())
+            if nome == "pc":
+                # 02/10 (Bruno): gráfico estoque × vendas no Estoque (1 atualização só = aviso de poucos dias, sem erro)
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque?x=1"); pg.wait_for_selector("#es-niveis", timeout=15000)
+                pg.wait_for_function("() => !document.querySelector('#es-niveis').innerText.includes('Carregando')", timeout=15000)
+                nv = pg.inner_text("#es-niveis")
+                assert "Estoque × vendas" in nv and ("Poucos dias" in nv or "Vendas do dia" in nv), nv
+                # 02/10 (Bruno: "potencial = custo × 1,85, editável; em todos os cards e o total")
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/marcas"); pg.wait_for_selector("#em-mk", timeout=15000)
+                assert pg.input_value("#em-mk") == "1.85", pg.input_value("#em-mk")
+                assert "custo total × markup 1,85×" in pg.inner_text(".kpis")
+                pg.fill("#em-mk", "2"); pg.dispatch_event("#em-mk", "change")
+                pg.wait_for_function("() => document.querySelector('.kpis') && document.querySelector('.kpis').innerText.includes('markup 2,00×')", timeout=15000)
+                assert "sem venda em 30 d" not in pg.inner_text("#main")
+                pg.fill("#em-mk", "1.85"); pg.dispatch_event("#em-mk", "change")
+                pg.wait_for_function("() => document.querySelector('.kpis') && document.querySelector('.kpis').innerText.includes('markup 1,85×')", timeout=15000)
             pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/categorias")
             pg.wait_for_selector("text=Estoque por categoria", timeout=15000); pg.wait_for_selector("#ec-marcas table", timeout=15000)
             txt = pg.inner_text("#main")
@@ -167,9 +182,10 @@ finally:
 # 02/10 (Bruno: "ranking de marcas dentro do meu estoque… sugestão de compra baseada na venda com crescimento de 20%")
 rk = categorias.ranking_marcas(r["itens"], 0.20)
 m = {x["marca"]: x for x in rk["marcas"]}
-assert m["LATTAFA"]["skus"] == 1 and m["LATTAFA"]["unidades"] == 10 and m["LATTAFA"]["custo"] == 1000 and m["LATTAFA"]["potencial"] == 2000, m["LATTAFA"]
+assert m["LATTAFA"]["skus"] == 1 and m["LATTAFA"]["unidades"] == 10 and m["LATTAFA"]["custo"] == 1000 and m["LATTAFA"]["potencial"] == 1850, m["LATTAFA"]   # custo × 1,85
 assert m["LATTAFA"]["sugestao"] == 26 and m["LATTAFA"]["sugestao_custo"] == 2600          # 30 × 1,2 − 10 disponíveis = 26
-assert m["FERRARI"]["potencial"] == 0 and m["FERRARI"]["sugestao"] == 0 and m["FERRARI"]["skus_com_preco"] == 0
+assert m["FERRARI"]["potencial"] == round(m["FERRARI"]["custo"] * 1.85, 2) > 0 and m["FERRARI"]["sugestao"] == 0   # sem venda também tem potencial
+assert rk["total"]["potencial"] == round(rk["total"]["custo"] * 1.85, 2) and rk["markup_usado"] == 1.85
 assert rk["marcas"][0]["marca"] == "LATTAFA" and rk["marcas"][0]["posicao"] == 1           # ranking pelo custo em estoque
 it = rk["itens"]["LATTAFA"][0]
 assert (it["sku"], it["disponivel"], it["transito"], it["sugestao"], it["preco_venda"]) == ("ASAD-100", 10.0, 0.0, 26, 200.0), it

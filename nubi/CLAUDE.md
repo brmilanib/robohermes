@@ -381,10 +381,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   DRE e aproximado pelo Resumo nos outros; `markup_medio` = últimos 12 meses com DRE; `markup_ano` = exato nos meses com DRE, aproximado pelo Resumo nos
   outros (custo ≈ líquido − lucro bruto − 2,4% de imposto; set/26 dá 1,647 x 1,649). Tela `#/financeiro` (Minhas Lojas).
   Estoque → 🏆 Por marca (`#/estoque/marcas`, rota `estoque_marcas`, `categorias.ranking_marcas`): por marca SKUs,
-  unidades, custo total, **potencial = custo em estoque × markup médio** (Bruno: "às vezes estou rankeando um produto e vendo
-  mais barato mesmo", então o preço do SKU não serve; sem DRE cai para disponível × preço médio de 30 d), vendas 30 d e
+  unidades, custo total, **potencial = custo em estoque × markup** em TODOS os SKUs (com ou sem venda), e o total; o markup é
+  o que o Bruno digita na tela (ia_resumos `estoque|markup`, padrão `categorias.MARKUP_PADRAO` = 1,85, "a média anual a
+  última vez que eu vi"); o markup dos DREs só aparece ao lado como referência (Bruno: "às vezes estou rankeando um
+  produto e vendo mais barato mesmo", então o preço do SKU não serve), vendas 30 d e
   sugestão de compra = venda 30 d × (1 + crescimento, padrão 20%) − disponível − trânsito; clique no card = produtos.
-  Teste `test_financeiro.py`.
+  Teste `test_financeiro.py`. **Estoque → 📈 Estoque × vendas** (`estoque_niveis`): por dia, o estoque da última
+  atualização do dia (unidades/custo) e as vendas do dia (`vendas_anuncio_dia|`), em dois painéis com as mesmas datas
+  (nunca dois eixos), cobertura = estoque ÷ média de venda de 7 dias.
 - **Ranking de marcas ≠ Explorador (02/10, Bruno: "ranking só traz os totais do mês fechado, importa uma vez por mês")**: no
   `diario`, o Ranking de cada mês sai quando o mês TERMINA no calendário (`meses_ranking`), sem esperar a venda diária dos
   seguidos (que atrasa 2 dias) chegar ao último dia; antes setembro só entraria no dia 3.

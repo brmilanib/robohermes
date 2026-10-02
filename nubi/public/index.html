@@ -1084,6 +1084,14 @@ header.top{padding:7px 16px}
 .mv-b:hover i{opacity:1}.mv-bv{font-size:10.5px;opacity:.65;margin-bottom:2px;white-space:nowrap}
 .mv-bd{position:absolute;bottom:-16px;font-size:10.5px;opacity:.55}
 @media (max-width:600px){.mv-bv{display:none}.mv-b:nth-child(odd) .mv-bd{display:none}}
+.nv-p{margin-top:10px}.nv-t{font-size:13px;margin-bottom:4px}
+.nv-g{position:relative;height:130px;margin:10px 0 0 44px;border-bottom:1px solid var(--line,#e5e7eb);cursor:crosshair;touch-action:pan-y}
+.nv-g svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.nv-y{position:absolute;left:0;right:0;border-top:1px dashed var(--line,#e5e7eb)}.nv-y span{position:absolute;right:calc(100% + 6px);top:-8px;font-size:11px;color:var(--muted);white-space:nowrap}
+.nv-cruz{position:absolute;top:0;bottom:0;width:1px;background:var(--muted);opacity:.6;pointer-events:none}
+.nv-ponto{position:absolute;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;border:2px solid;background:var(--card,#fff);box-shadow:0 0 0 2px var(--card,#fff);pointer-events:none}
+.nv-x{position:relative;height:18px;margin-left:44px;font-size:11px;color:var(--muted)}.nv-x span{position:absolute;transform:translateX(-50%);top:3px}.nv-x span:first-child{transform:none}.nv-x span:last-child{transform:translateX(-100%)}
+#es-niveis{position:relative}.nv-dica{position:absolute;z-index:5;background:var(--card,#fff);border:1px solid var(--line,#e5e7eb);border-radius:8px;padding:6px 9px;font-size:12.5px;box-shadow:0 4px 14px rgba(0,0,0,.12);pointer-events:none;min-width:130px}
 .abc-graf{position:relative;height:240px;margin:6px 0 4px 36px;border-left:1px solid var(--line,#e5e7eb);border-bottom:1px solid var(--line,#e5e7eb);cursor:crosshair}
 .abc-graf svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .abc-y{position:absolute;left:0;right:0;border-top:1px dashed rgba(127,127,127,.18)}
@@ -3389,18 +3397,21 @@ async function telaEstoqueMarcas() {
   const t = r.total, temV = !!r.vendas;
   const q = (S.emBusca || "").toUpperCase();
   const ms = r.marcas.filter(m => m.skus && (!q || m.marca.toUpperCase().includes(q)));
-  const pot = m => m.potencial ? FMT.moeda(m.potencial) + (m.skus_com_preco < m.skus ? ` <small class="muted">(${m.skus_com_preco} de ${m.skus} SKUs c/ preço)</small>` : "") : `<span class="muted">sem venda em 30 d</span>`;
+  const mkv = (r.markup && r.markup.markup) || 1.85, mkTx = v => v.toFixed(2).replace(".", ",");
+  const pot = m => FMT.moeda(m.potencial || 0) + (m.skus_sem_custo ? ` <small class="muted">(${m.skus_sem_custo} SKU(s) sem custo)</small>` : "");
   main.innerHTML = `<div class="es-pg">${esAbas("marcas")}
     <div class="es-cab"><h1>🏆 Ranking de marcas no meu estoque</h1><span class="muted">estoque de ${esc(quandoES(r.estoque_em))}${temV ? ` · vendas de ${nf0.format(r.vendas.dias || 30)} dias do UpSeller` : " · sem relatório de vendas"}</span></div>
     <div class="kpis">
       ${kpi("Marcas", nf0.format(ms.length), nf0.format(t.skus) + " SKUs")}
       ${kpi("Unidades disponíveis", nf0.format(t.unidades))}
       ${kpi("Custo total do estoque", FMT.moeda(t.custo))}
-      ${kpi("Potencial de vendas", FMT.moeda(t.potencial), r.markup && r.markup.markup ? `custo × markup médio ${r.markup.markup.toFixed(2).replace(".", ",")}× (${esc(r.markup.fonte)})` : "disponível × preço médio de venda (30 d) · importe o DRE em 💰 Financeiro para usar o markup")}
+      ${kpi("Potencial de vendas", FMT.moeda(t.potencial), `custo total × markup ${mkTx(mkv)}×`)}
       ${kpi("Sugestão de compra", nf0.format(t.sugestao) + " un.", FMT.moeda(t.sugestao_custo) + " ao custo médio")}
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 10px">
       <input type="search" id="em-busca" placeholder="Buscar marca…" value="${esc(S.emBusca || "")}" style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--card);min-width:220px">
+      <label class="muted" title="Potencial de vendas = custo em estoque × markup. ${r.markup_dre ? "Pelos DREs importados: " + mkTx(r.markup_dre.markup) + "× (" + esc(r.markup_dre.fonte) + ")" : "Sem DRE importado ainda."}">Markup médio: <input type="number" id="em-mk" value="${mkv}" min="0.5" max="10" step="0.01" style="width:72px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--card)"> ×
+        <small>${esc(r.markup ? r.markup.fonte : "")}${r.markup_dre ? " · DRE diz " + mkTx(r.markup_dre.markup) + "×" : ""}</small></label>
       <label class="muted">Crescimento da venda: <input type="number" id="em-cres" value="${cres}" min="0" max="300" step="5" style="width:64px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--card)"> %</label>
       <span class="muted">sugestão = venda de 30 dias × (1 + crescimento) − disponível − em trânsito</span></div>
     <div class="cards">${ms.map(m => `<div class="card bcard em-card" data-m="${esc(m.marca)}" role="button" tabindex="0" title="Ver os produtos">
@@ -3414,6 +3425,11 @@ async function telaEstoqueMarcas() {
         <div>Sugestão de compra<b class="${m.sugestao ? "" : "muted"}">${m.sugestao ? nf0.format(m.sugestao) + " un. · " + FMT.moeda(m.sugestao_custo) : "nada"}</b></div>` : ""}
       </div></div>`).join("") || `<div class="card empty">Nenhuma marca.</div>`}</div></div>`;
   $("#em-busca").oninput = e => { S.emBusca = e.target.value; const pos = e.target.selectionStart; telaEstoqueMarcas().then(() => { const n = $("#em-busca"); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); };
+  $("#em-mk").onchange = async e => {
+    const v = parseFloat(String(e.target.value).replace(",", "."));
+    if (!(v >= 0.5 && v <= 10)) { toast("Markup entre 0,5 e 10"); e.target.value = mkv; return; }
+    try { await api("estoque_markup_salvar", {}, {method: "POST", body: JSON.stringify({markup: v})}); toast("Markup " + mkTx(v) + "× guardado"); telaEstoqueMarcas(); }
+    catch (er) { toast(er.message); } };
   $("#em-cres").onchange = e => { S.emCres = Math.max(0, Math.min(300, parseFloat(e.target.value) || 0)); telaEstoqueMarcas(); };
   main.querySelectorAll(".em-card").forEach(c => c.onclick = () => abrirEmMarca(c.dataset.m));
   desenharMenu();
@@ -5488,6 +5504,7 @@ async function telaEstoque() {
       ${kpiES("zerados", "Zerados", `<span class="${t.zerados ? "neg" : ""}">${nf0.format(t.zerados || 0)}</span>`, dif("zerados", unES, true))}
       ${kpiES("baixo", "Abaixo do mínimo", `<span class="${t.baixo ? "neg" : ""}">${nf0.format(t.baixo || 0)}</span>`, "estoque ≤ mínimo do UpSeller")}
       ${kpiES("transito", "Em trânsito (compra)", unES(r.itens.reduce((s, it) => s + (+it.transito_compra || 0), 0)), `${nf0.format(r.itens.filter(it => +it.transito_compra > 0).length)} SKU(s) comprados e chegando`)}</div>
+    <div class="card pad" id="es-niveis" style="margin-bottom:14px"><h2>📈 Estoque × vendas, dia a dia</h2><p class="muted">Carregando…</p></div>
     <div class="es-grade">
       <div class="card pad"><h2>📋 Log da atualização</h2><ul class="es-log">${(a.resumo || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
         <p class="muted" style="font-size:12px;margin:8px 0 0">Arquivo: ${esc(a.arquivo || "—")}</p></div>
@@ -5510,7 +5527,68 @@ async function telaEstoque() {
         <span class="muted">${nf0.format(h.skus || 0)} SKUs · ${unES(h.unidades)} un · ${rsES(h.valor)} · ${nf0.format(h.zerados || 0)} zerados</span></a>`).join("")}</div></div>`;
   S.esMud = {d, custoES, transitoES};
   main.querySelectorAll("[data-esmud]").forEach(b => b.onclick = () => abrirMudancasES(b.dataset.esmud));
-  desenharTabEstoque(); ligarEstoque(); desenharMenu();
+  desenharTabEstoque(); ligarEstoque(); desenharMenu(); niveisES();
+}
+// 02/10 (Bruno: "um gráfico no estoque com a linha das vendas comparada com o estoque, os níveis, dia a dia"). Dois painéis
+// com as MESMAS datas (nunca dois eixos no mesmo gráfico): estoque (última atualização do dia) em cima, vendas do dia embaixo;
+// a linha vertical acompanha o dedo nos dois e mostra a cobertura (estoque ÷ média de venda de 7 dias).
+async function niveisES() {
+  const box = $("#es-niveis"); if (!box) return;
+  let r;
+  try { r = S.esNiveis || (S.esNiveis = await api("estoque_niveis", {dias: 60})); } catch (e) { box.innerHTML = `<h2>📈 Estoque × vendas, dia a dia</h2><p class="muted">${esc(e.message)}</p>`; return; }
+  const ds = r.dias || [];
+  if (ds.length < 2) { box.innerHTML = `<h2>📈 Estoque × vendas, dia a dia</h2><p class="muted">Poucos dias guardados ainda; o gráfico aparece a partir de 2 dias.</p>`; return; }
+  const em = S.esNivEm || "un", rs = em === "rs";
+  const kE = rs ? "estoque_custo" : "estoque_un", kV = rs ? "vendas_valor" : "vendas_un";
+  const fmt = v => v == null ? "—" : rs ? abrev(v) : nf0.format(v) + " un.";
+  const dia = d => d.slice(8, 10) + "/" + d.slice(5, 7);
+  const W = 1000, H = 100, n = ds.length, x = i => i / (n - 1) * W;
+  const painel = (k, cor, zero, titulo, nota) => {
+    const vs = ds.map(d => d[k]).filter(v => v != null);
+    if (!vs.length) return `<div class="nv-p"><div class="nv-t"><b>${titulo}</b> <span class="muted">sem dados</span></div></div>`;
+    let lo = zero ? 0 : Math.min(...vs), hi = Math.max(...vs);
+    if (!zero) { const pad = (hi - lo) * 0.15 || hi * 0.05 || 1; lo = Math.max(0, lo - pad); hi += pad; }
+    if (hi === lo) hi = lo + 1;
+    const y = v => H - (v - lo) / (hi - lo) * H;
+    const seg = []; let cur = [];
+    ds.forEach((d, i) => { if (d[k] == null) { if (cur.length) seg.push(cur); cur = []; } else cur.push(x(i).toFixed(1) + "," + y(d[k]).toFixed(1)); });
+    if (cur.length) seg.push(cur);
+    const linhas = seg.map(p => p.length > 1 ? `<polyline points="${p.join(" ")}" fill="none" stroke="${cor}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>`
+      : `<circle cx="${p[0].split(",")[0]}" cy="${p[0].split(",")[1]}" r="2.5" fill="${cor}"/>`).join("");
+    const grade = [0, .5, 1].map(f => { const v = lo + (hi - lo) * f; return `<div class="nv-y" style="bottom:${f * 100}%"><span>${rs ? abrev(v) : nf0.format(v)}</span></div>`; }).join("");
+    const ult = [...ds].reverse().find(d => d[k] != null);
+    return `<div class="nv-p"><div class="nv-t"><b>${titulo}</b> <span class="muted">${nota} · último ${dia(ult.dia)}: <b style="color:var(--ink)">${fmt(ult[k])}</b></span></div>
+      <div class="nv-g" data-k="${k}" data-lo="${lo}" data-hi="${hi}">${grade}<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="${titulo}">${linhas}</svg>
+        <div class="nv-cruz" hidden></div><div class="nv-ponto" style="border-color:${cor}" hidden></div></div></div>`;
+  };
+  const marcas = [0, Math.floor((n - 1) / 2), n - 1].map(i => `<span style="left:${x(i) / 10}%">${dia(ds[i].dia)}</span>`).join("");
+  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">📈 Estoque × vendas, dia a dia</h2>
+      <div class="seg"><button data-nv="un" class="${rs ? "" : "on"}">Unidades</button><button data-nv="rs" class="${rs ? "on" : ""}">R$</button></div></div>
+    ${painel(kE, "#2563eb", false, "Estoque", rs ? "custo do estoque (última atualização do dia)" : "unidades (última atualização do dia)")}
+    ${painel(kV, "#d97706", true, "Vendas do dia", rs ? "faturamento do UpSeller" : "unidades vendidas (UpSeller)")}
+    <div class="nv-x">${marcas}</div><div class="nv-dica" hidden></div>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">Toque ou passe o mouse para ver o dia. Cobertura = estoque ÷ média de venda dos 7 dias até ali. As vendas de hoje entram amanhã.</p>`;
+  box.querySelectorAll("[data-nv]").forEach(b => b.onclick = () => { S.esNivEm = b.dataset.nv; niveisES(); });
+  const dica = box.querySelector(".nv-dica");
+  const mostrar = ev => {
+    const g = ev.currentTarget, rc = g.getBoundingClientRect(), cx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rc.left;
+    const i = Math.max(0, Math.min(n - 1, Math.round(cx / rc.width * (n - 1)))), d = ds[i], left = (i / (n - 1) * 100) + "%";
+    box.querySelectorAll(".nv-g").forEach(gg => {
+      const k = gg.dataset.k, lo = +gg.dataset.lo, hi = +gg.dataset.hi, cz = gg.querySelector(".nv-cruz"), pt = gg.querySelector(".nv-ponto");
+      if (!cz) return;
+      cz.hidden = false; cz.style.left = left;
+      pt.hidden = d[k] == null;
+      if (d[k] != null) { pt.style.left = left; pt.style.top = ((1 - (d[k] - lo) / (hi - lo)) * 100) + "%"; }
+    });
+    dica.hidden = false;
+    dica.innerHTML = `<b>${dia(d.dia)}</b><div>Estoque: <b>${fmt(d[kE])}</b></div><div>Vendas: <b>${fmt(d[kV])}</b></div>
+      <div class="muted">Cobertura: ${d.cobertura_dias != null ? nf0.format(d.cobertura_dias) + " dias" : "—"}</div>`;
+    const bb = box.getBoundingClientRect(), gx = rc.left - bb.left + cx;
+    dica.style.left = Math.max(4, Math.min(bb.width - dica.offsetWidth - 4, gx + 12)) + "px";
+    dica.style.top = (rc.top - bb.top) + "px";
+  };
+  const esconder = () => { dica.hidden = true; box.querySelectorAll(".nv-cruz,.nv-ponto").forEach(e => e.hidden = true); };
+  box.querySelectorAll(".nv-g").forEach(g => { g.onmousemove = mostrar; g.ontouchstart = mostrar; g.ontouchmove = mostrar; g.onmouseleave = esconder; });
 }
 // card #122 (Bruno): "Estoque total" no topo, só com os números de estoque.listas/encalhados (servidor); sem dado = "sem dados"
 function painelES(p) {

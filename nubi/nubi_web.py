@@ -5524,6 +5524,69 @@ def vendas_dias_guardados(repo):
     return sorted(r["chave"][len(VENDAS_DIA_CHAVE):] for r in rs)
 
 
+ESTOQUE_MARKUP = "estoque|markup"
+
+
+def estoque_markup(repo):
+    """O markup do potencial de vendas do estoque: o que o Bruno digitou na tela (Estoque → Por marca) ou o padrão 1,85."""
+    r = (repo._req("GET", "ia_resumos", {"select": "texto,criado_em", "chave": f"eq.{ESTOQUE_MARKUP}"}) or [None])[0]
+    try:
+        v = float(json.loads(r["texto"])["markup"]) if r and r.get("texto") else None
+    except (ValueError, TypeError, KeyError):
+        v = None
+    if v and 0.5 <= v <= 10:
+        return {"markup": v, "fonte": "definido por você", "em": r.get("criado_em")}
+    return {"markup": categorias.MARKUP_PADRAO, "fonte": "padrão (média anual que você passou)", "em": None}
+
+
+def estoque_markup_salvar(repo, valor):
+    try:
+        v = round(float(str(valor).replace(",", ".")), 4)
+    except (TypeError, ValueError):
+        raise ErroNuvem("Markup inválido.")
+    if not 0.5 <= v <= 10:
+        raise ErroNuvem("Markup tem que ficar entre 0,5 e 10.")
+    repo._req("POST", "ia_resumos", corpo=[{"chave": ESTOQUE_MARKUP, "ia": "Bruno", "criado_em": datetime.now(timezone.utc).isoformat(),
+                                            "texto": json.dumps({"markup": v})}], prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True, "markup": v}
+
+
+def estoque_niveis(repo, dias=60, agora=None):
+    """02/10 (Bruno: "um gráfico no estoque com a linha das vendas comparada com o estoque, os níveis, dia a dia"): por dia
+    (horário de Brasília) o estoque da ÚLTIMA atualização do dia (unidades e custo) e as vendas do dia do UpSeller
+    (unidades e R$). Cobertura = estoque ÷ média de venda dos 7 dias até ali."""
+    hoje = (agora or _agora_br()).date()
+    desde = hoje - timedelta(days=dias)
+    est = {}
+    for a in repo._todos("estoque_atualizacoes", {"select": "criado_em,unidades,valor", "order": "criado_em.asc",
+                                                    "criado_em": f"gte.{(desde - timedelta(days=1)).isoformat()}"}) or []:
+        try:
+            d = _br(a["criado_em"]).date()
+        except (TypeError, ValueError):
+            continue
+        if d >= desde:
+            est[d.isoformat()] = {"un": float(a.get("unidades") or 0), "custo": float(a.get("valor") or 0)}
+    vend = {}
+    for dia, v in vendas_por_dia(repo, dias, agora).items():
+        if isinstance(v, dict):
+            vend[dia] = {"un": float(v.get("unidades") or 0), "valor": float(v.get("valor") or 0)}
+    todos = sorted(set(est) | set(vend))
+    out, janela = [], []
+    if todos:
+        d, fim = date.fromisoformat(todos[0]), date.fromisoformat(todos[-1])
+        while d <= fim:
+            k = d.isoformat()
+            e, v = est.get(k), vend.get(k)
+            if v is not None:
+                janela = (janela + [v["un"]])[-7:]
+            media = sum(janela) / len(janela) if janela else None
+            out.append({"dia": k, "estoque_un": e["un"] if e else None, "estoque_custo": round(e["custo"], 2) if e else None,
+                        "vendas_un": v["un"] if v else None, "vendas_valor": round(v["valor"], 2) if v else None,
+                        "cobertura_dias": round(e["un"] / media, 1) if e and media else None})
+            d += timedelta(days=1)
+    return {"dias": out}
+
+
 def vendas_dias_pendentes(repo, agora=None):
     """Ontem primeiro (se falta), depois os dias que faltam dos últimos VENDAS_DIAS_HIST, do mais recente para trás."""
     hoje = (agora or _agora_br()).date()
@@ -8209,13 +8272,20 @@ def rota_estoque(repo, metodo, rota, q, corpo):
             cres = max(0.0, min(3.0, float(q.get("crescimento") or categorias.CRESCIMENTO_PADRAO)))
         except ValueError:
             cres = categorias.CRESCIMENTO_PADRAO
-        try:                                     # 02/10 (Bruno): potencial de vendas pelo MARKUP MÉDIO do DRE, não pelo preço do SKU
-            mk = financeiro.markup_para_estoque(repo)
+        # 02/10 (Bruno): potencial = custo × markup que ELE define (padrão 1,85, "a média anual a última vez que eu vi");
+        # o markup dos DREs aparece só como referência ao lado
+        mk = estoque_markup(repo)
+        try:
+            ref = financeiro.markup_para_estoque(repo)
         except Exception:  # noqa: BLE001
-            mk = None
-        r = categorias.ranking_marcas(ec.get("itens") or [], cres, (mk or {}).get("markup"))
-        r.update({"estoque_em": ec.get("estoque_em"), "vendas": ec.get("vendas"), "markup": mk})
+            ref = None
+        r = categorias.ranking_marcas(ec.get("itens") or [], cres, mk["markup"])
+        r.update({"estoque_em": ec.get("estoque_em"), "vendas": ec.get("vendas"), "markup": mk, "markup_dre": ref})
         return r
+    if rota == "estoque_markup_salvar" and metodo == "POST":
+        return estoque_markup_salvar(repo, json.loads(corpo or b"{}").get("markup"))
+    if rota == "estoque_niveis":
+        return estoque_niveis(repo, int(q.get("dias") or 60))
     if rota == "estoque_marcas_astra" and metodo == "POST":
         return estoque_marcas_astra(repo)
     if rota == "estoque_categoria_sku_salvar" and metodo == "POST":

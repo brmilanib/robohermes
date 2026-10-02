@@ -160,7 +160,7 @@ def test_potencial_pelo_markup():
               "vend_un": 30, "vend_valor": 3000.0, "preco_venda": 100.0, "cobertura_dias": 10}]
     rk = categorias.ranking_marcas(lista, 0.2, 1.6491)
     assert rk["marcas"][0]["potencial"] == 1649.1 and rk["markup_usado"] == 1.6491      # custo em estoque × markup, não o preço de agora (100)
-    assert categorias.ranking_marcas(lista, 0.2)["marcas"][0]["potencial"] == 1000.0
+    assert categorias.ranking_marcas(lista, 0.2)["marcas"][0]["potencial"] == 1850.0     # padrão 1,85 (Bruno)
 
 
 if __name__ == "__main__":
