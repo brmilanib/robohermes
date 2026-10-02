@@ -4588,7 +4588,8 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
                  "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos",
-                 "ml_busca_foto", "explorador_marca", "explorador_diario", "rodizio_seguidos", "gestor_financeiro", "gestor_painel")
+                 "ml_busca_foto", "explorador_marca", "explorador_diario", "rodizio_seguidos")
+# 02/10: gestor_financeiro e gestor_painel ficam no Mac (a senha do Gestor está no Chaveiro do Mac; no PC não há)
 COLETAS = ("diario", "estoque", "gestor")
 
 
