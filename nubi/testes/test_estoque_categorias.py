@@ -163,3 +163,14 @@ try:
     print("ok estoque por categoria (tela)")
 finally:
     srv.terminate()
+
+# 02/10 (Bruno: "ranking de marcas dentro do meu estoque… sugestão de compra baseada na venda com crescimento de 20%")
+rk = categorias.ranking_marcas(r["itens"], 0.20)
+m = {x["marca"]: x for x in rk["marcas"]}
+assert m["LATTAFA"]["skus"] == 1 and m["LATTAFA"]["unidades"] == 10 and m["LATTAFA"]["custo"] == 1000 and m["LATTAFA"]["potencial"] == 2000, m["LATTAFA"]
+assert m["LATTAFA"]["sugestao"] == 26 and m["LATTAFA"]["sugestao_custo"] == 2600          # 30 × 1,2 − 10 disponíveis = 26
+assert m["FERRARI"]["potencial"] == 0 and m["FERRARI"]["sugestao"] == 0 and m["FERRARI"]["skus_com_preco"] == 0
+assert rk["marcas"][0]["marca"] == "LATTAFA" and rk["marcas"][0]["posicao"] == 1           # ranking pelo custo em estoque
+it = rk["itens"]["LATTAFA"][0]
+assert (it["sku"], it["disponivel"], it["transito"], it["sugestao"], it["preco_venda"]) == ("ASAD-100", 10.0, 0.0, 26, 200.0), it
+assert rk["total"]["sugestao"] == 26 and rk["total"]["custo"] == 1680

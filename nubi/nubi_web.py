@@ -157,9 +157,12 @@ class RepoSupabase:
     def gravar_snapshot(self, marca, inicio, fim, dias, arquivo, hash_, df):
         # Mesmo marca+período vindo num arquivo diferente: substitui o antigo
         # (os anúncios vão junto, pelo "on delete cascade").
-        apagados = self._req("DELETE", "snapshots",
-                             {"marca": self._eq(marca), "inicio": self._eq(inicio), "fim": self._eq(fim)},
-                             prefer="return=representation") or []
+        apagados = self._req("GET", "snapshots", {"select": "id", "marca": self._eq(marca), "inicio": self._eq(inicio),
+                                                  "fim": self._eq(fim)}) or []
+        for a in apagados:                   # em lotes (um card de 8 mil anúncios apagado de uma vez estourava o tempo do banco)
+            self._apagar_anuncios(a["id"])
+        if apagados:
+            self._req("DELETE", "snapshots", {"id": f"in.({','.join(str(a['id']) for a in apagados)})"}, prefer="return=minimal")
         novo = self._req("POST", "snapshots", corpo=[{
             "marca": marca, "inicio": inicio, "fim": fim, "dias": int(dias), "arquivo": arquivo,
             "hash": hash_}], prefer="return=representation")
@@ -227,7 +230,19 @@ class RepoSupabase:
                  for g in gtins]
         self._req("POST", "gtin_info", corpo=corpo, prefer="resolution=merge-duplicates,return=minimal")
 
+    def _apagar_anuncios(self, sid):
+        """02/10 (regra 14 na Lattafa: apagar o card de 8.303 anúncios de uma vez deu "statement timeout" no banco):
+        apaga os anúncios em lotes antes de apagar o período."""
+        while True:
+            ids = [r["id"] for r in (self._req("GET", "anuncios", {"select": "id", "snapshot_id": self._eq(int(sid)), "limit": 1000}) or [])]
+            if not ids:
+                return
+            self._req("DELETE", "anuncios", {"id": f"in.({','.join(str(i) for i in ids)})"}, prefer="return=minimal")
+            if len(ids) < 1000:
+                return
+
     def apagar_snapshot(self, sid):
+        self._apagar_anuncios(sid)
         self._req("DELETE", "snapshots", {"id": self._eq(int(sid))})
 
     def painel(self):
@@ -8155,6 +8170,17 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         return estoque_compras(repo)
     if rota == "estoque_categorias":
         return estoque_categorias(repo)
+    if rota == "estoque_marcas":                 # 02/10 (Bruno): ranking de marcas dentro do meu estoque + sugestão de compra
+        ec = estoque_categorias(repo)
+        if ec.get("vazio"):
+            return ec
+        try:
+            cres = max(0.0, min(3.0, float(q.get("crescimento") or categorias.CRESCIMENTO_PADRAO)))
+        except ValueError:
+            cres = categorias.CRESCIMENTO_PADRAO
+        r = categorias.ranking_marcas(ec.get("itens") or [], cres)
+        r.update({"estoque_em": ec.get("estoque_em"), "vendas": ec.get("vendas")})
+        return r
     if rota == "estoque_marcas_astra" and metodo == "POST":
         return estoque_marcas_astra(repo)
     if rota == "estoque_categoria_sku_salvar" and metodo == "POST":

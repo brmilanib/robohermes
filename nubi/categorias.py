@@ -278,6 +278,68 @@ def marca_do_titulo(titulo, conhecidas):
     return conhecidas[melhor] if melhor else None
 
 
+CRESCIMENTO_PADRAO = 0.20
+
+
+def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO):
+    """02/10 (Bruno: "ranking de marcas dentro do meu estoque: SKUs, unidades, custo total, potencial de vendas; ao clicar,
+    os produtos com custo, estoque, trânsito e sugestão de compra pela venda com crescimento de 20%"). Entra a `lista` de
+    `estoque_por_categoria` (1 linha por SKU). Por SKU: potencial = disponível × preço de venda (média das vendas de 30
+    dias; sem venda, sem potencial); sugestão = venda 30d × (1 + crescimento) − disponível − trânsito, nunca negativa,
+    arredondada para cima; custo da sugestão = sugestão × custo médio. Devolve {marcas: [...], itens: {marca: [...]}}."""
+    import math
+    por = {}
+    itens = {}
+    for x in lista:
+        m = x.get("marca") or "(marca não identificada)"
+        disp = float(x.get("disponivel") if x.get("disponivel") is not None else x.get("atual") or 0)
+        trans = float(x.get("transito") or 0)
+        vu = float(x.get("vend_un") or 0)
+        pv = x.get("preco_venda")
+        custo = x.get("custo")
+        potencial = round(disp * float(pv), 2) if pv else None
+        sug = max(0, math.ceil(vu * (1 + crescimento) - disp - trans)) if vu > 0 else 0
+        it = {"sku": x.get("sku"), "titulo": x.get("titulo"), "custo": custo, "disponivel": disp, "transito": trans,
+              "valor": round(disp * float(custo), 2) if custo is not None else 0.0, "vend_un": vu, "vend_valor": float(x.get("vend_valor") or 0),
+              "preco_venda": pv, "potencial": potencial, "cobertura_dias": x.get("cobertura_dias"),
+              "sugestao": sug, "sugestao_custo": round(sug * float(custo), 2) if custo is not None and sug else 0.0}
+        itens.setdefault(m, []).append(it)
+        g = por.setdefault(m, {"marca": m, "categoria": x.get("categoria"), "skus": 0, "com_estoque": 0, "unidades": 0.0, "transito": 0.0,
+                               "custo": 0.0, "potencial": 0.0, "skus_com_preco": 0, "vend_un": 0.0, "vend_valor": 0.0,
+                               "sugestao": 0, "sugestao_custo": 0.0})
+        g["skus"] += 1
+        g["com_estoque"] += 1 if disp > 0 else 0
+        g["unidades"] += disp
+        g["transito"] += trans
+        g["custo"] += it["valor"]
+        if potencial is not None:
+            g["potencial"] += potencial
+            g["skus_com_preco"] += 1
+        g["vend_un"] += vu
+        g["vend_valor"] += it["vend_valor"]
+        g["sugestao"] += sug
+        g["sugestao_custo"] += it["sugestao_custo"]
+    total_custo = sum(g["custo"] for g in por.values()) or 1.0
+    total_vend = sum(g["vend_valor"] for g in por.values()) or 1.0
+    marcas = []
+    for g in por.values():
+        g = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in g.items()}
+        g["pct_custo"] = round(g["custo"] / total_custo, 4)
+        g["pct_vendas"] = round(g["vend_valor"] / total_vend, 4)
+        g["cobertura_dias"] = round(g["unidades"] / (g["vend_un"] / 30), 1) if g["vend_un"] else None
+        g["margem_potencial"] = round(g["potencial"] - g["custo"], 2) if g["skus_com_preco"] else None
+        marcas.append(g)
+    marcas.sort(key=lambda g: (-g["custo"], -g["unidades"]))
+    for i, g in enumerate(marcas, 1):
+        g["posicao"] = i
+    for xs in itens.values():
+        xs.sort(key=lambda it: (-it["sugestao"], -it["valor"]))
+    return {"marcas": marcas, "itens": itens, "crescimento": crescimento,
+            "total": {"skus": sum(g["skus"] for g in marcas), "unidades": round(sum(g["unidades"] for g in marcas), 2),
+                      "custo": round(sum(g["custo"] for g in marcas), 2), "potencial": round(sum(g["potencial"] for g in marcas), 2),
+                      "sugestao": sum(g["sugestao"] for g in marcas), "sugestao_custo": round(sum(g["sugestao_custo"] for g in marcas), 2)}}
+
+
 def estoque_por_categoria(itens, conhecidas, manuais=None, vendas_sku=None, marca_sku=None, marca_ia=None,
                           categoria_sku=None, categoria_ia=None):
     """itens do estoque (sku, titulo, atual, custo_medio) -> totais por categoria, por tipo de produto e por marca.

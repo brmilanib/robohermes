@@ -1928,7 +1928,7 @@ async function rotear() {
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
     return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
   if (location.hash.startsWith("#/estoque/perseguir")) { history.replaceState(null, "", "#/precos"); return rotear(); }   // 01/10: virou o Monitor
-  if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/categorias") ? telaEstoqueCategorias() : telaEstoque();
+  if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/categorias") ? telaEstoqueCategorias() : location.hash.startsWith("#/estoque/marcas") ? telaEstoqueMarcas() : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -3313,6 +3313,7 @@ function esFiltrar(k) {
 }
 const esAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px"><button class="${ativa === "estoque" ? "on" : ""}" onclick="location.hash='#/estoque'">📦 Estoque</button>
   <button class="${ativa === "categorias" ? "on" : ""}" onclick="location.hash='#/estoque/categorias'">🏷️ Por categoria</button>
+  <button class="${ativa === "marcas" ? "on" : ""}" onclick="location.hash='#/estoque/marcas'">🏆 Por marca</button>
   <button class="${ativa === "compras" ? "on" : ""}" onclick="location.hash='#/estoque/compras'">🛒 Compras e vendas</button>
   <button class="${ativa === "gestor" ? "on" : ""}" onclick="location.hash='#/estoque/gestor'">🧾 Planilha do Gestor Seller</button>
   <button class="${ativa === "posicoes" ? "on" : ""}" onclick="location.hash='#/estoque/posicoes'">📈 Posição do anúncio</button>
@@ -3371,6 +3372,65 @@ async function telaEstoqueCategorias() {
      ...(temV ? [["vend_un", "Vendas 30d (un.)", "int"], ["vend_valor", "Vendas 30d (R$)", "moeda"], ["pct_vendas", "% das vendas", "pct"], ["cob", "Cobertura (dias)", "int"]] : [])],
     {ordem: ["valor", -1]});
   desenharMenu();
+}
+// 02/10 (Bruno: "ranking de marcas dentro do meu estoque: SKUs, unidades, custo total e potencial de vendas; clicou no card,
+// lista os produtos com custo, estoque, trânsito e uma sugestão de compra baseada na venda com crescimento de 20%")
+async function telaEstoqueMarcas() {
+  const main = $("#main");
+  const cres = S.emCres ?? 20;
+  main.innerHTML = `<div class="es-pg">${esAbas("marcas")}<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Ranqueando as marcas do estoque</div></div></div>`;
+  let r;
+  try { r = await api("estoque_marcas", {crescimento: cres / 100}); } catch (e) { main.innerHTML = `<div class="es-pg">${esAbas("marcas")}<div class="card empty">${esc(e.message)}</div></div>`; return; }
+  if (!location.hash.startsWith("#/estoque/marcas")) return;
+  if (r.vazio) { main.innerHTML = `<div class="es-pg">${esAbas("marcas")}<div class="card empty">Nenhuma atualização do estoque ainda.</div></div>`; return; }
+  S.emark = r;
+  const t = r.total, temV = !!r.vendas;
+  const q = (S.emBusca || "").toUpperCase();
+  const ms = r.marcas.filter(m => m.skus && (!q || m.marca.toUpperCase().includes(q)));
+  const pot = m => m.potencial ? FMT.moeda(m.potencial) + (m.skus_com_preco < m.skus ? ` <small class="muted">(${m.skus_com_preco} de ${m.skus} SKUs c/ preço)</small>` : "") : `<span class="muted">sem venda em 30 d</span>`;
+  main.innerHTML = `<div class="es-pg">${esAbas("marcas")}
+    <div class="es-cab"><h1>🏆 Ranking de marcas no meu estoque</h1><span class="muted">estoque de ${esc(quandoES(r.estoque_em))}${temV ? ` · vendas de ${nf0.format(r.vendas.dias || 30)} dias do UpSeller` : " · sem relatório de vendas"}</span></div>
+    <div class="kpis">
+      ${kpi("Marcas", nf0.format(ms.length), nf0.format(t.skus) + " SKUs")}
+      ${kpi("Unidades disponíveis", nf0.format(t.unidades))}
+      ${kpi("Custo total do estoque", FMT.moeda(t.custo))}
+      ${kpi("Potencial de vendas", FMT.moeda(t.potencial), "disponível × preço médio de venda (30 d)")}
+      ${kpi("Sugestão de compra", nf0.format(t.sugestao) + " un.", FMT.moeda(t.sugestao_custo) + " ao custo médio")}
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 10px">
+      <input type="search" id="em-busca" placeholder="Buscar marca…" value="${esc(S.emBusca || "")}" style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--card);min-width:220px">
+      <label class="muted">Crescimento da venda: <input type="number" id="em-cres" value="${cres}" min="0" max="300" step="5" style="width:64px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--card)"> %</label>
+      <span class="muted">sugestão = venda de 30 dias × (1 + crescimento) − disponível − em trânsito</span></div>
+    <div class="cards">${ms.map(m => `<div class="card bcard em-card" data-m="${esc(m.marca)}" role="button" tabindex="0" title="Ver os produtos">
+      <div class="nm">#${m.posicao} ${esc(m.marca)} ${m.categoria && m.categoria !== "Sem categoria" ? `<span class="pill">${esc(m.categoria)}</span>` : ""}</div>
+      <div class="mini">
+        <div>SKUs<b>${nf0.format(m.skus)}${m.com_estoque < m.skus ? ` <small class="muted">(${m.com_estoque} c/ estoque)</small>` : ""}</b></div>
+        <div>Unidades<b>${nf0.format(m.unidades)}${m.transito ? ` <small class="muted">+${nf0.format(m.transito)} trânsito</small>` : ""}</b></div>
+        <div>Custo total<b>${FMT.moeda(m.custo)}</b></div>
+        <div>Potencial de vendas<b>${pot(m)}</b></div>
+        ${temV ? `<div>Vendas 30d<b>${nf0.format(m.vend_un)} un. · ${FMT.moeda(m.vend_valor)}</b></div>
+        <div>Sugestão de compra<b class="${m.sugestao ? "" : "muted"}">${m.sugestao ? nf0.format(m.sugestao) + " un. · " + FMT.moeda(m.sugestao_custo) : "nada"}</b></div>` : ""}
+      </div></div>`).join("") || `<div class="card empty">Nenhuma marca.</div>`}</div></div>`;
+  $("#em-busca").oninput = e => { S.emBusca = e.target.value; const pos = e.target.selectionStart; telaEstoqueMarcas().then(() => { const n = $("#em-busca"); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); };
+  $("#em-cres").onchange = e => { S.emCres = Math.max(0, Math.min(300, parseFloat(e.target.value) || 0)); telaEstoqueMarcas(); };
+  main.querySelectorAll(".em-card").forEach(c => c.onclick = () => abrirEmMarca(c.dataset.m));
+  desenharMenu();
+}
+function abrirEmMarca(marca) {
+  const r = S.emark; if (!r) return;
+  const m = r.marcas.find(x => x.marca === marca) || {}, xs = r.itens[marca] || [], cres = Math.round((r.crescimento || 0) * 100);
+  const cobCls = d => d == null ? "" : d < 15 ? "neg" : d < 30 ? "warn-t" : "pos";
+  modal(`<h2 style="margin-top:0">#${m.posicao || "—"} ${esc(marca)} <span class="muted" style="font-weight:400;font-size:14px">${nf0.format(m.skus || 0)} SKUs · ${nf0.format(m.unidades || 0)} un. · custo ${FMT.moeda(m.custo || 0)} · potencial ${m.potencial ? FMT.moeda(m.potencial) : "—"}</span></h2>
+    <p class="muted" style="margin:0 0 8px">Sugestão de compra = venda de 30 dias × ${(1 + cres / 100).toFixed(2).replace(".", ",")} (crescimento de ${cres}%) − disponível − em trânsito. Total: <b>${nf0.format(m.sugestao || 0)} un. · ${FMT.moeda(m.sugestao_custo || 0)}</b> ao custo médio.</p>
+    <div class="rolar" style="max-height:65vh"><table class="t" style="font-size:13px"><thead><tr><th>SKU · produto</th><th class="num">Custo médio</th><th class="num">Disponível</th><th class="num">Em trânsito</th>
+      <th class="num">Custo em estoque</th><th class="num">Vendas 30d</th><th class="num">Preço de venda</th><th class="num">Cobertura</th><th class="num">Sugestão de compra</th></tr></thead>
+      <tbody>${xs.map(x => `<tr class="${x.sugestao ? "ec-alerta" : ""}"><td class="ec-prod"><b>${esc(x.sku)}</b><div class="muted">${esc(x.titulo || "")}</div></td>
+        <td class="num">${x.custo != null ? FMT.moeda(x.custo) : "—"}</td><td class="num"><b class="${x.disponivel > 0 ? "" : "neg"}">${nf0.format(x.disponivel)}</b></td>
+        <td class="num">${x.transito ? nf0.format(x.transito) : `<span class="muted">—</span>`}</td><td class="num">${FMT.moeda(x.valor)}</td>
+        <td class="num">${nf0.format(x.vend_un)}</td><td class="num">${x.preco_venda != null ? FMT.moeda(x.preco_venda) : "—"}</td>
+        <td class="num ${cobCls(x.cobertura_dias)}">${x.cobertura_dias == null ? "—" : nf0.format(x.cobertura_dias) + " d"}</td>
+        <td class="num">${x.sugestao ? `<b>${nf0.format(x.sugestao)}</b> <small class="muted">${FMT.moeda(x.sugestao_custo)}</small>` : `<span class="muted">0</span>`}</td></tr>`).join("")}</tbody></table></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn" data-fechar>Fechar</button></div>`, () => {});
 }
 // 30/09 (Bruno: "o botão ser clicável para ver a listagem dos produtos da categoria e poder editar a marca e a categoria"):
 // a marca é de cada SKU (estoque_marca_salvar, vazia = volta ao título); a categoria é da MARCA (a mesma do Ranking de marcas).

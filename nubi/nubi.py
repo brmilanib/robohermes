@@ -1979,8 +1979,8 @@ def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes, recem
     garantir_config(cfg, marca, df, repo)
     df = consolidar(df, marca, cfg)
     substituiu = repo.gravar_snapshot(marca, ini.isoformat(), fim.isoformat(), dias, nome, hash_, df)
-    for sid in apagar:                   # card esticado: o antigo sai (se já cobria o período, foi substituído e isto não faz nada)
-        repo.apagar_snapshot(sid)
+    if apagar:                           # card esticado: o antigo (e qualquer cópia velha com o mesmo começo) sai
+        apagar_cobertos(repo, marca, ini.isoformat(), fim.isoformat())
     if dia and not dia["cobre"]:
         registrar_dia(repo, marca, df, dia, nome)
     if substituiu:
@@ -2004,6 +2004,21 @@ def juntar_nomes(antigo, novo):
     while len(" + ".join(partes)) > 200 and len(partes) > 2:
         partes.pop(1)
     return " + ".join(partes)
+
+
+def apagar_cobertos(repo, marca, ini, fim):
+    """Depois de gravar o card esticado (marca, ini, fim): apaga os cards da marca com o MESMO começo que terminam antes
+    (o card de antes da regra 14 e cópias velhas: a Lattafa ficou com 733 e 1230 quando o apagar estourou o tempo)."""
+    try:
+        snaps = repo.snapshots(marca)
+    except Exception:  # noqa: BLE001
+        return 0
+    if snaps is None or snaps.empty:
+        return 0
+    velhos = snaps[(snaps["marca"] == marca) & (snaps["inicio"].astype(str).str[:10] == ini) & (snaps["fim"].astype(str).str[:10] < fim)]
+    for sid in velhos["id"]:
+        repo.apagar_snapshot(int(sid))
+    return int(len(velhos))
 
 
 def card_vivo(repo, marca, ini_arq, fim_arq):
@@ -2144,7 +2159,7 @@ def _levar_para_marca(repo, cfg, outra, ini_arq, fim_arq, rows, arquivo):
     # hash derivado (o hash é único por card; o card velho ainda existe até o novo estar gravado)
     hash_ = hashlib.sha256(f"{card['hash']}|{arquivo}|{dia['ate']}".encode()).hexdigest()
     repo.gravar_snapshot(outra, ini_c, dia["ate"], dias, juntar_nomes(card["arquivo"], arquivo), hash_, junto)
-    repo.apagar_snapshot(int(card["id"]))
+    apagar_cobertos(repo, outra, ini_c, dia["ate"])
     if not dia["cobre"]:
         registrar_dia(repo, outra, junto, dia, arquivo)
     return int(len(rows)), True
@@ -3312,11 +3327,7 @@ def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=(), ini_arq=None, fim_a
     for m in sorted(set(snaps["marca"]) | set(cfg)):
         nomes.setdefault(_chave_grupo(m), m)
     grupos = df["marca_anuncio"].fillna("").map(_chave_grupo)
-    for g in [x for x in grupos.unique() if x and x != grupo]:
-        sub = df[grupos == g]
-        outra, criar = destino_carona(marca, nomes, str(sub["marca_anuncio"].fillna("").map(str.strip).value_counts().index[0]), sub)
-        if not outra or outra in set(recem) - {marca}:
-            continue
+    for outra, criar, sub in destinos_carona(marca, nomes, df, grupos, set(recem) - {marca}):
         n, tinha = _levar_para_marca(repo, cfg, outra, ini_arq, fim_arq, sub, arquivo)
         if not tinha:
             if not criar:
@@ -3324,11 +3335,27 @@ def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=(), ini_arq=None, fim_a
             # 02/10 (Bruno: "marca sem card? cria o card dela, é marca nova; quando vier de novo vai agregando a diferença")
             n = _criar_card(repo, cfg, outra, ini_arq, fim_arq, sub, arquivo)
             nomes.setdefault(_chave_grupo(outra), outra)
-        df = df[grupos != g]
-        grupos = grupos[df.index]
+        df = df[~df.index.isin(sub.index)]
         avisar(f"    {len(sub)} anúncio(s) com a marca {outra} vieram na busca: {n} entraram no card de {outra}"
                + ("" if tinha else " (card novo)") + f" ({len(sub) - n} já estavam lá). Não contam duas vezes.")
     return df
+
+
+def destinos_carona(marca, nomes, df, grupos, pular=()):
+    """Junta os anúncios de carona POR DESTINO (LATAFFA, "LATTAFA GLORY EDP" e ASDAAF LATTAFA vão todos para a Lattafa de
+    uma vez: o card da Lattafa tem 8 mil anúncios e cada regravação custa; 02/10 a 1ª rodada regravou várias vezes e
+    estourou o tempo do banco). Devolve [(marca destino, criar?, sub)]."""
+    grupo = _chave_grupo(marca)
+    por = {}
+    for g in [x for x in grupos.unique() if x and x != grupo]:
+        sub = df[grupos == g]
+        outra, criar = destino_carona(marca, nomes, str(sub["marca_anuncio"].fillna("").map(str.strip).value_counts().index[0]), sub)
+        if not outra or outra in pular:
+            continue
+        d = por.setdefault(outra, {"criar": criar, "subs": []})
+        d["criar"] = d["criar"] or criar
+        d["subs"].append(sub)
+    return [(outra, d["criar"], pd.concat(d["subs"])) for outra, d in por.items()]
 
 
 # 02/10 (lista do card 1008 da Al Wataniah: 470 anúncios de carona de "marcas" sem card — quase tudo erro de digitação de
@@ -3398,12 +3425,8 @@ def encaminhar_outras_marcas(repo, cfg, marca, sid):
     for m in sorted(set(snaps["marca"]) | set(cfg)):
         nomes.setdefault(_chave_grupo(m), m)
     feito, saiu = {}, set()
-    for g, sub in outras.groupby(outras["marca_anuncio"].fillna("").map(_chave_grupo)):
-        if not g or g == _chave_grupo(marca):
-            continue
-        outra, criar = destino_carona(marca, nomes, str(sub["marca_anuncio"].fillna("").map(str.strip).value_counts().index[0]), sub)
-        if not outra:
-            continue
+    grupos = outras["marca_anuncio"].fillna("").map(_chave_grupo)
+    for outra, criar, sub in destinos_carona(marca, nomes, outras, grupos):
         sub = sub.drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in sub.columns])
         n, tinha = _levar_para_marca(repo, cfg, outra, ini, fim, sub, s["arquivo"])
         if not tinha:
@@ -3411,7 +3434,7 @@ def encaminhar_outras_marcas(repo, cfg, marca, sid):
                 continue
             n = _criar_card(repo, cfg, outra, ini, fim, sub, s["arquivo"])
             nomes.setdefault(_chave_grupo(outra), outra)
-        feito[outra] = feito.get(outra, 0) + int(n)
+        feito[outra] = int(n)
         saiu |= set(sub["anuncio"])
     if saiu:
         resto = df[~df["anuncio"].isin(saiu)].drop(columns=[c for c in ("rid", "snapshot_id", "id", "anuncio") if c in df.columns])
