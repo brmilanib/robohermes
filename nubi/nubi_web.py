@@ -2358,6 +2358,16 @@ def atender(metodo, rota, q, corpo, token):
 
         if rota == "inicio":
             return _json(tela_inicio(repo))
+        if rota == "icones_salvar" and metodo == "POST":
+            # 02/10: ícones oficiais das lojas em alta (o coletor do Mac baixa); só imagem data: até ~800 KB cada
+            d = json.loads(corpo or b"{}")
+            ic = {str(k)[:40]: v for k, v in (d.get("icones") or {}).items()
+                  if isinstance(v, str) and re.match(r"^data:image/(png|svg\+xml|x-icon|vnd\.microsoft\.icon|webp|jpeg);base64,", v) and len(v) < 800_000}
+            _ia_gravar(repo, "icones|alta", ic, "coletor")
+            return _json({"ok": len(ic)})
+        if rota == "icones_alta":
+            t, _ = _ia_json(repo, "icones|alta")
+            return _json(t or {})
         if rota == "ferreiro_teto":
             # 02/10 (Bruno: "pode liberar limite pro Ferreiro, quero terminar hoje"): teto extra só no dia gravado
             t, _ = _ia_json(repo, "ferreiro|teto")
@@ -9459,6 +9469,7 @@ COMANDOS_MAC = {
     "explorador_diario": "Nubimetrics: exportar agora o Explorador das marcas da lista diária que ainda não entraram hoje (regra 14)",
     "gestor_financeiro": "Gestor Seller: ler o Resumo analítico e o DRE de cada mês do ano (Financeiro, markup), só lê",
     "gestor_painel": "Gestor Seller: ler o painel de hoje e as vendas com margem (Dashboard), só lê",
+    "icones": "Baixar os ícones oficiais das lojas em alta resolução",
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
     "vitrine_seguidos": "Mercado Livre: ler a vitrine (_CustId_) das lojas dos vendedores seguidos e gravar todos os anúncios, só lê",
     "ml_precos": "Mercado Livre: ler agora o preço dos anúncios do monitor de preços, só lê",

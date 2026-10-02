@@ -1278,7 +1278,8 @@ body{zoom:var(--z)}
 .ft-prod{border-radius:10px;object-fit:cover;background:#fff;border:1px solid #e5e7eb;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:20px}
 .ft-prod.vazio{background:#f3f4f6}
 .vh-prod{display:flex;gap:12px;align-items:center}.vh-prod>div{min-width:0}.vh-pl{font-size:12px}
-.tv-ft{position:relative;width:46px;height:46px}.tv-ft .pl-ico{position:absolute;right:-6px;bottom:-6px}
+.tv-ft{position:relative;width:46px;height:46px}.tv-ft .pl-ico.alta{border-radius:22%;object-fit:contain;background:#fff}
+.pl-ico{position:absolute;right:-6px;bottom:-6px}
 .tv-tela .ft-prod{border-color:#1f2a44}.tv-tela .ft-prod.vazio{background:#16213a}
 .vh-loja{display:inline-flex;align-items:center;gap:12px}.vh-loja>span{display:flex;flex-direction:column;line-height:1.35}
 .vh-loja b{font-weight:600;font-size:14px}.vh-loja small{color:var(--muted,#6b7280);font-size:12.5px}
@@ -5024,9 +5025,12 @@ function vhHorarios(hz) {
 // se estamos crescendo ou caindo"). Tela cheia escura por cima de tudo; vendas a cada 60 s, SAC a cada 2 min, relógio. ----------
 // 01/10 (Bruno: "o ícone do Mercado Livre na frente da loja, o da Shopee na loja da Shopee"): selo da plataforma
 function platIco(p, tam = 22) {
+  const k = /mercado ?pago/i.test(p || "") ? "mp" : /mercado/i.test(p || "") ? "ml" : /shopee/i.test(p || "") ? "sp" : /tiktok/i.test(p || "") ? "tt" : /amazon/i.test(p || "") ? "am" : /magalu|magazine/i.test(p || "") ? "mg" : /shein/i.test(p || "") ? "sh" : "x";
+  // 02/10 (Bruno: "ícones em alta resolução"): o oficial do site, baixado pelo coletor do Mac (icones|alta), vem primeiro
+  const alta = (S.iconesAlta || {})[{ml: "Mercado Libre", sp: "Shopee", tt: "TikTok Shop", am: "Amazon", mg: "Magalu", sh: "Shein", mp: "Mercado Pago"}[k]];
+  if (alta && /^data:image\//.test(alta)) return `<img class="pl-ico of alta" src="${esc(alta)}" width="${tam}" height="${tam}" alt="${esc(p)}" title="${esc(p)}">`;
   const of = (S.icones || {})[p || ""];             // o ícone oficial que a tela do UpSeller mostra (o coletor copia)
   if (of && /^data:image\//.test(of)) return `<img class="pl-ico of" src="${esc(of)}" width="${tam}" height="${tam}" alt="${esc(p)}" title="${esc(p)}">`;
-  const k = /mercado/i.test(p || "") ? "ml" : /shopee/i.test(p || "") ? "sp" : /tiktok/i.test(p || "") ? "tt" : /amazon/i.test(p || "") ? "am" : /magalu|magazine/i.test(p || "") ? "mg" : "x";
   const nota = "M27 8h6c.5 4 3 7 7 7.5v6c-2.8 0-5.2-.9-7-2.3v11.3c0 6-4.8 10.5-10.5 10.5S12 36.5 12 31s4.8-10.5 10.5-10.5c.6 0 1.2 0 1.8.1v6.3c-.6-.2-1.2-.3-1.8-.3-2.4 0-4.3 2-4.3 4.4s1.9 4.4 4.3 4.4 4.5-2 4.5-4.4z";
   const svg = {
     ml: `<rect width="48" height="48" rx="11" fill="#FFE600"/><ellipse cx="24" cy="24.5" rx="16.5" ry="11.5" fill="#fff" stroke="#2D3277" stroke-width="2.2"/>
@@ -5041,6 +5045,8 @@ function platIco(p, tam = 22) {
       <path d="M12.5 17h23l-1.6 19.2q-.2 2.3-2.5 2.3H16.6q-2.3 0-2.5-2.3z" fill="#fff"/>
       <text x="24" y="33.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="900" fill="#EE4D2D">S</text>`,
     mg: `<rect width="48" height="48" rx="11" fill="#0086FF"/><text x="24" y="32" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="22" font-weight="900" fill="#fff">M</text>`,
+    sh: `<rect width="48" height="48" rx="11" fill="#000"/><text x="24" y="31" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="900" fill="#fff">SHEIN</text>`,
+    mp: `<rect width="48" height="48" rx="11" fill="#00B1EA"/><text x="24" y="31" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="18" font-weight="900" fill="#fff">MP</text>`,
     x: `<rect width="48" height="48" rx="11" fill="#E5E7EB"/><path d="M12 20l3-8h18l3 8M13 20h22v16H13zM20 36v-8h8v8" fill="none" stroke="#475569" stroke-width="2.4" stroke-linejoin="round"/>`};
   return `<svg class="pl-ico" viewBox="0 0 48 48" width="${tam}" height="${tam}" role="img" aria-label="${esc(p || "loja")}"><title>${esc(p || "loja")}</title>${svg[k]}</svg>`;
 }
@@ -10577,6 +10583,7 @@ async function verificarVersao() {
 document.addEventListener("visibilitychange", () => { if (!document.hidden && S.sessao) verificarVersao(); });
 // 01/10 (Bruno: "quando mudar o preço, que fique piscando no menu Monitor de preços"): avisos não vistos, a cada 5 min
 async function carregarAlertasPrecos() {
+  if (!S.iconesAlta) api("icones_alta").then(x => { S.iconesAlta = x || {}; }).catch(() => { S.iconesAlta = {}; });
   try { const r = await api("ml_precos_alertas"); const antes = (S.precosAlertas || []).length; S.precosAlertas = r.itens || [];
     if (antes !== S.precosAlertas.length) desenharMenu(); } catch { /* sem monitor */ }
   clearTimeout(S.precosAlT); S.precosAlT = setTimeout(carregarAlertasPrecos, 5 * 60e3);

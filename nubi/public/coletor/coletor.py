@@ -4385,6 +4385,59 @@ def coletar_gestor_painel(p, cfg, token):
     return len(telas), len(telas), 0, msg + (f" · {r.get('resumo')}" if r.get("resumo") else "")
 
 
+ICONES_SITES = {"Mercado Libre": "https://www.mercadolivre.com.br", "Shopee": "https://shopee.com.br",
+                "Amazon": "https://www.amazon.com.br", "TikTok Shop": "https://www.tiktok.com", "Magalu": "https://www.magazineluiza.com.br",
+                "Shein": "https://br.shein.com", "Mercado Pago": "https://www.mercadopago.com.br"}
+
+
+def cmd_icones(args, cfg):
+    """02/10 (Bruno: "pega os ícones das lojas em alta resolução"): de cada site, o maior ícone oficial que a página
+    declara (apple-touch-icon / icon com sizes), ou o do serviço de favicons do Google em 256 px; manda ao nubi como
+    imagem (data:) para `icones_salvar`. Só lê páginas públicas; sem login."""
+    import base64
+    ua = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"}
+
+    def baixar(url, limite=600_000):
+        req = urllib.request.Request(url, headers=ua)
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.read(limite + 1), (r.headers.get("content-type") or "").split(";")[0].strip()
+    saida, falhas = {}, []
+    for nome, site in ICONES_SITES.items():
+        cands = []
+        try:
+            html, _ = baixar(site, 3_000_000)
+            html = html.decode("utf-8", "replace")
+            for m in re.finditer(r"<link[^>]+>", html, re.I):
+                tag = m.group(0)
+                rel = (re.search(r'rel=["\']([^"\']+)', tag, re.I) or [None, ""])[1].lower()
+                href = (re.search(r'href=["\']([^"\']+)', tag, re.I) or [None, ""])[1]
+                if "icon" not in rel or not href:
+                    continue
+                tam = max([int(x) for x in re.findall(r"(\d+)x\d+", tag)] or [180 if "apple" in rel else 32])
+                cands.append((tam + (1000 if href.lower().endswith(".svg") else 0), urllib.parse.urljoin(site, href)))
+        except Exception as e:  # noqa: BLE001
+            log(f"  {nome}: página não abriu ({str(e)[:80]})")
+        host = urllib.parse.urlparse(site).netloc
+        # o ícone oficial da página primeiro (o maior); o serviço de favicons do Google só se nenhum servir
+        for tam, url in sorted(cands, reverse=True) + [(0, f"https://www.google.com/s2/favicons?domain={host}&sz=256")]:
+            try:
+                dado, tipo = baixar(url)
+                if len(dado) > 600_000 or len(dado) < 200:
+                    continue
+                tipo = tipo if tipo.startswith("image/") else ("image/svg+xml" if url.lower().endswith(".svg") else "image/png")
+                saida[nome] = f"data:{tipo};base64," + base64.b64encode(dado).decode()
+                log(f"  {nome}: {url[:90]} ({len(dado) // 1024} KB)")
+                break
+            except Exception:  # noqa: BLE001
+                continue
+        if nome not in saida:
+            falhas.append(nome)
+    token = token_nubi(cfg)
+    r = api(token, "icones_salvar", corpo={"icones": saida}, timeout=120)
+    print(f"OK: {len(saida)} ícone(s) em alta enviados" + (f"; sem ícone: {', '.join(falhas)}" if falhas else "") + f" · {r.get('ok')}")
+    return 0 if saida else 1
+
+
 def coletar_gestor(p, cfg, token):
     dados, nome = baixar_do_nubi(token, "estoque_gestor")
     destino = PASTA / "gestor"
@@ -4706,6 +4759,8 @@ def comando_mac(chave, arg=""):
         return [*c, "gestor-financeiro"]
     if chave == "gestor_painel":
         return [*c, "gestor-painel"]
+    if chave == "icones":
+        return [*c, "icones"]
     if chave == "explorador_marca":                  # 02/10: arg = "MARCA" ou "MARCA|exata"
         marca, _, modo = str(arg or "").partition("|")
         if not EXPLORADOR_MARCA_OK.match(marca.strip()):
@@ -9028,6 +9083,7 @@ def main():
     exm.add_argument("marca")
     exm.add_argument("--exata", action="store_true", help="Pesquisa exata (padrão: expandida por IA)")
     sub.add_parser("explorador-diario", help="Nubimetrics: Explorador das marcas da lista diária que ainda não entraram hoje")
+    sub.add_parser("icones", help="baixa os ícones oficiais das lojas em alta resolução para o nubi")
     sub.add_parser("gestor-painel", help="Gestor Seller: lê o painel (Hoje) e as Vendas com margem (Dashboard do nubi), só lê")
     sub.add_parser("gestor-financeiro", help="Gestor Seller: lê o Resumo analítico e o DRE de cada mês (Financeiro do nubi), só lê")
     mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
@@ -9171,6 +9227,8 @@ def main():
         return executar("explorador_diario", coletar_explorador_diario)
     if args.cmd == "gestor-financeiro":
         return executar("gestor_financeiro", coletar_gestor_financeiro)
+    if args.cmd == "icones":
+        return cmd_icones(args, cfg)
     if args.cmd == "gestor-painel":
         return executar("gestor_painel", coletar_gestor_painel)
     if args.cmd == "fotos-vendedores":
