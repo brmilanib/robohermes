@@ -281,7 +281,7 @@ def marca_do_titulo(titulo, conhecidas):
 CRESCIMENTO_PADRAO = 0.20
 
 
-def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO):
+def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO, markup=None):
     """02/10 (Bruno: "ranking de marcas dentro do meu estoque: SKUs, unidades, custo total, potencial de vendas; ao clicar,
     os produtos com custo, estoque, trânsito e sugestão de compra pela venda com crescimento de 20%"). Entra a `lista` de
     `estoque_por_categoria` (1 linha por SKU). Por SKU: potencial = disponível × preço de venda (média das vendas de 30
@@ -297,7 +297,10 @@ def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO):
         vu = float(x.get("vend_un") or 0)
         pv = x.get("preco_venda")
         custo = x.get("custo")
-        potencial = round(disp * float(pv), 2) if pv else None
+        # 02/10 (Bruno: "potencial pelo markup médio do DRE; às vezes estou rankeando um produto e vendo mais barato mesmo"):
+        # com markup = custo em estoque × markup; sem DRE, o preço médio de venda de 30 dias
+        potencial = (round(disp * float(custo) * markup, 2) if markup and custo is not None
+                     else round(disp * float(pv), 2) if pv else None)
         sug = max(0, math.ceil(vu * (1 + crescimento) - disp - trans)) if vu > 0 else 0
         it = {"sku": x.get("sku"), "titulo": x.get("titulo"), "custo": custo, "disponivel": disp, "transito": trans,
               "valor": round(disp * float(custo), 2) if custo is not None else 0.0, "vend_un": vu, "vend_valor": float(x.get("vend_valor") or 0),
@@ -334,7 +337,7 @@ def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO):
         g["posicao"] = i
     for xs in itens.values():
         xs.sort(key=lambda it: (-it["sugestao"], -it["valor"]))
-    return {"marcas": marcas, "itens": itens, "crescimento": crescimento,
+    return {"marcas": marcas, "itens": itens, "crescimento": crescimento, "markup_usado": markup,
             "total": {"skus": sum(g["skus"] for g in marcas), "unidades": round(sum(g["unidades"] for g in marcas), 2),
                       "custo": round(sum(g["custo"] for g in marcas), 2), "potencial": round(sum(g["potencial"] for g in marcas), 2),
                       "sugestao": sum(g["sugestao"] for g in marcas), "sugestao_custo": round(sum(g["sugestao_custo"] for g in marcas), 2)}}

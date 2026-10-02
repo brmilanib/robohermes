@@ -1513,7 +1513,7 @@ const SECOES = [
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
   {id: "lojas", nome: "Minhas Lojas", desc: "Estoque e lojas do dono", icone: "📦"},
 ];
-function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac|analises-vendas|bazar|decants)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml|precos|observados)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
+function secaoAtual() { return /^#\/(inicio|desafio)/.test(location.hash) ? "inicio" :/^#\/(estoque|sac|analises-vendas|bazar|decants|financeiro)/.test(location.hash) ? "lojas" : /^#\/ranking/.test(location.hash) ? "ranking" : /^#\/(vendedores|nomes-vendedores|alertas|vendas-dia|produtos-iguais|concorrentes|ml|precos|observados)/.test(location.hash) ? "vendedores" : /^#\/(nomes-marcas|coletor|auditoria|reuniao|central)/.test(location.hash) ? "nomes" : "explorador"; }
 function moldura() {
   const email = S.sessao?.user?.email || "";
   const sec = secaoAtual();
@@ -1857,6 +1857,7 @@ function desenharMenu() {
     ${mvAberto ? sub(MV_MENU.map(([r, n]) => ({href: "#/analises-vendas/" + r, nome: n, on: h.startsWith("#/analises-vendas/" + r)}))) : ""}
     ${it("#/bazar/sem_caixa", "🛍️", "Bazar", h.startsWith("#/bazar"))}
     ${it("#/decants", "🧪", "Decants", h.startsWith("#/decants"))}
+    ${it("#/financeiro", "💰", "Financeiro", h.startsWith("#/financeiro"))}
     ${it("#/sac/tiktok", "💬", "SAC", h.startsWith("#/sac"), seta("sac", true, sacAberto))}
     ${sacAberto ? sub(SAC_MENU.map(([r, n]) => ({href: "#/sac/" + r, nome: n, on: h.startsWith("#/sac/" + r)}))) : ""}
     <div class="grupo">Central</div>
@@ -1925,6 +1926,7 @@ async function rotear() {
   if (location.hash.startsWith("#/analises-vendas")) return telaMinhasVendas();
   if (location.hash.startsWith("#/bazar")) return telaBazar();
   if (location.hash.startsWith("#/decants")) return telaDecants();
+  if (location.hash.startsWith("#/financeiro")) return telaFinanceiro();
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
     return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
   if (location.hash.startsWith("#/estoque/perseguir")) { history.replaceState(null, "", "#/precos"); return rotear(); }   // 01/10: virou o Monitor
@@ -3394,7 +3396,7 @@ async function telaEstoqueMarcas() {
       ${kpi("Marcas", nf0.format(ms.length), nf0.format(t.skus) + " SKUs")}
       ${kpi("Unidades disponíveis", nf0.format(t.unidades))}
       ${kpi("Custo total do estoque", FMT.moeda(t.custo))}
-      ${kpi("Potencial de vendas", FMT.moeda(t.potencial), "disponível × preço médio de venda (30 d)")}
+      ${kpi("Potencial de vendas", FMT.moeda(t.potencial), r.markup && r.markup.markup ? `custo × markup médio ${r.markup.markup.toFixed(2).replace(".", ",")}× (${esc(r.markup.fonte)})` : "disponível × preço médio de venda (30 d) · importe o DRE em 💰 Financeiro para usar o markup")}
       ${kpi("Sugestão de compra", nf0.format(t.sugestao) + " un.", FMT.moeda(t.sugestao_custo) + " ao custo médio")}
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 10px">
@@ -3431,6 +3433,77 @@ function abrirEmMarca(marca) {
         <td class="num ${cobCls(x.cobertura_dias)}">${x.cobertura_dias == null ? "—" : nf0.format(x.cobertura_dias) + " d"}</td>
         <td class="num">${x.sugestao ? `<b>${nf0.format(x.sugestao)}</b> <small class="muted">${FMT.moeda(x.sugestao_custo)}</small>` : `<span class="muted">0</span>`}</td></tr>`).join("")}</tbody></table></div>
     <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn" data-fechar>Fechar</button></div>`, () => {});
+}
+// ---------- 💰 Financeiro (02/10, Bruno: DRE Simplificado do Gestor Seller mês fechado + Resumo analítico toda semana; markup médio) ----------
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+async function textoDoPdf(f) {
+  if (!window.pdfjsLib) {
+    await new Promise((ok, err) => { const s = document.createElement("script"); s.src = PDFJS + "pdf.min.js"; s.onload = ok; s.onerror = () => err(new Error("não carregou o leitor de PDF")); document.head.appendChild(s); });
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + "pdf.worker.min.js";
+  }
+  const pdf = await window.pdfjsLib.getDocument({data: await f.arrayBuffer()}).promise;
+  const linhas = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const tc = await (await pdf.getPage(p)).getTextContent();
+    let y = null, linha = [];
+    for (const it of tc.items) {
+      const yy = Math.round(it.transform[5]);
+      if (y !== null && Math.abs(yy - y) > 2) { linhas.push(linha.join(" ")); linha = []; }
+      y = yy; if (it.str.trim()) linha.push(it.str.trim());
+    }
+    if (linha.length) linhas.push(linha.join(" "));
+  }
+  return linhas.join("\n");
+}
+async function telaFinanceiro() {
+  const main = $("#main");
+  main.innerHTML = `<h1>💰 Financeiro</h1><div class="card pad muted">Carregando…</div>`;
+  let r;
+  try { r = await api("financeiro"); } catch (e) { main.innerHTML = `<h1>💰 Financeiro</h1><div class="card pad">${esc(e.message)}</div>`; return; }
+  const mk = r.markup_medio, ma = r.markup_ano || {}, ms = r.meses || [], res = r.resumo;
+  const mesBR = m => m ? m.slice(5, 7) + "/" + m.slice(0, 4) : "";
+  const x = (v, f = FMT.moeda) => v == null ? "—" : f(v);
+  const pct = v => v == null ? "—" : (v * 100).toFixed(1).replace(".", ",") + "%";
+  const mkf = v => v == null ? "—" : v.toFixed(2).replace(".", ",") + "×";
+  const linhasRes = ["faturamento", "liquido", "lucro_bruto", "margem", "ads", "lucro_pos_ads", "mpa"];
+  const rotRes = {faturamento: "Faturamento", liquido: "Líq. do marketplace", lucro_bruto: "Lucro bruto", margem: "Margem", ads: "Custo de ads", lucro_pos_ads: "Lucro bruto pós ads", mpa: "MPA"};
+  const ico = {"Mercado Livre": "🟡", "Shopee": "🟠", "TikTok Shop": "⚫", "Amazon": "🟤"};
+  main.innerHTML = `<h1>💰 Financeiro</h1>
+    <p class="aviso">DRE Simplificado do Gestor Seller (mês fechado) e Resumo analítico (toda semana pelo coletor, ou <b>Central → Coletor → gestor_financeiro</b>).
+      Markup = faturamento ÷ custo dos produtos vendidos: é ele que vale no potencial de vendas de Estoque → Por marca.</p>
+    <div class="kpis">
+      ${kpi("Markup médio", mkf(mk && mk.markup), mk ? `DRE de ${mk.meses.map(mesBR).join(", ")} · líquido ${mkf(mk.markup_liquido)}` : "importe o DRE de um mês")}
+      ${kpi("Markup do ano " + (ma.ano || ""), mkf(ma.markup), ma.meses && ma.meses.length ? `${ma.meses_exatos} mês(es) exato(s) pelo DRE · ${ma.meses.length - ma.meses_exatos} aproximado(s) pelo Resumo` : "sem dados")}
+      ${kpi("Faturamento no ano", x(ma.faturamento), ma.custo ? "custo dos produtos " + FMT.moeda(ma.custo) : "")}
+      ${ms[0] ? kpi("Último DRE: " + mesBR(ms[0].mes), x(ms[0].lucro_liquido), `lucro líquido ${pct(ms[0].lucro_liquido_pct)} · bruto ${pct(ms[0].lucro_bruto_pct)}`) : ""}
+    </div>
+    <div class="card pad" style="margin-bottom:12px"><h2 style="margin-top:0">📄 DRE Simplificado por mês</h2>
+      <p class="muted" style="margin:0 0 8px">Gestor Seller → Financeiro → DRE Simplificado → exporte o PDF do mês fechado e solte aqui. O texto do PDF é lido no seu navegador.</p>
+      <label class="btn">📥 Importar PDF do DRE<input type="file" id="fin-pdf" accept=".pdf,application/pdf" hidden multiple></label> <span class="muted" id="fin-st"></span>
+      <div class="rolar" style="margin-top:10px"><table class="t" style="font-size:13px"><thead><tr><th>Mês</th><th class="num">Faturamento</th><th class="num">Líquido mkt</th><th class="num">Custo produtos</th><th class="num">Imposto</th>
+        <th class="num">Lucro bruto</th><th class="num">ADS</th><th class="num">Pós ADS</th><th class="num">Despesas</th><th class="num">Lucro líquido</th><th class="num">Markup</th><th>Origem</th></tr></thead>
+        <tbody>${ms.map(d => `<tr><td class="first"><b>${mesBR(d.mes)}</b></td><td class="num">${x(d.faturamento)}</td><td class="num">${x(d.liquido)}</td><td class="num">${x(d.custo_produtos)}</td><td class="num">${x(d.imposto)}</td>
+          <td class="num">${x(d.lucro_bruto)} <small class="muted">${pct(d.lucro_bruto_pct)}</small></td><td class="num">${x(d.ads)}</td><td class="num">${x(d.lucro_pos_ads)} <small class="muted">${pct(d.lucro_pos_ads_pct)}</small></td>
+          <td class="num">${x(d.despesas)}</td><td class="num"><b>${x(d.lucro_liquido)}</b> <small class="muted">${pct(d.lucro_liquido_pct)}</small></td><td class="num"><b>${mkf(d.markup)}</b></td><td class="muted">${esc(d.origem || "")}</td></tr>`).join("") || `<tr><td colspan="12" class="muted">nenhum DRE ainda</td></tr>`}</tbody></table></div></div>
+    <div class="card pad"><h2 style="margin-top:0">📊 Resumo analítico por canal <span class="muted" style="font-weight:400;font-size:13px">${res && res.em ? "lido em " + esc(quandoES ? quandoES(res.em) : res.em) : "ainda não lido pelo coletor"}</span></h2>
+      ${res ? `<div class="rolar"><table class="t" style="font-size:12.5px"><thead><tr><th></th>${res.meses.map(m => `<th class="num">${mesBR(m)}</th>`).join("")}</tr></thead><tbody>
+        ${Object.entries(res.canais).map(([c, mm]) => linhasRes.map((k, i) => `<tr${i === 0 ? ' style="border-top:2px solid var(--line)"' : ""}><td class="first">${i === 0 ? `<b>${ico[c] || ""} ${esc(c)}</b> · ` : ""}${rotRes[k]}</td>
+          ${res.meses.map(m => `<td class="num">${mm[m] && mm[m][k] != null ? (k === "margem" || k === "mpa" ? pct(mm[m][k]) : FMT.moeda(mm[m][k])) : "—"}</td>`).join("")}</tr>`).join("")).join("")}
+        <tr style="border-top:2px solid var(--line)"><td class="first"><b>Total · Faturamento</b></td>${res.meses.map(m => `<td class="num"><b>${res.por_mes[m] ? FMT.moeda(res.por_mes[m].faturamento) : "—"}</b></td>`).join("")}</tr>
+        <tr><td class="first">Total · Lucro bruto pós ads</td>${res.meses.map(m => `<td class="num">${res.por_mes[m] ? FMT.moeda(res.por_mes[m].lucro_pos_ads) + ` <small class="muted">${pct(res.por_mes[m].mpa)}</small>` : "—"}</td>`).join("")}</tr>
+        <tr><td class="first">Markup ≈ (líquido − lucro bruto − imposto 2,4%)</td>${res.meses.map(m => { const e = (ma.meses || []).find(z => z.mes === m); return `<td class="num">${e ? mkf(e.markup) + (e.exato ? " <small class='muted' title='pelo DRE'>✓</small>" : " <small class='muted'>≈</small>") : "—"}</td>`; }).join("")}</tr>
+      </tbody></table></div>` : `<p class="muted">O coletor lê a tela Analítico → Resumo do Gestor Seller toda semana (comando <b>gestor_financeiro</b> na Central para ler agora).</p>`}</div>`;
+  $("#fin-pdf").onchange = async e => {
+    const st = $("#fin-st"); const fs = [...e.target.files];
+    for (const f of fs) {
+      st.textContent = `lendo ${f.name}…`;
+      try { const texto = await textoDoPdf(f); const r2 = await api("financeiro_importar", {}, {method: "POST", body: JSON.stringify({tipo: "dre", texto})});
+        toast(`DRE ${mesBR(r2.mes)}: faturamento ${FMT.moeda(r2.faturamento)} · custo ${FMT.moeda(r2.custo_produtos)} · markup ${mkf(r2.markup)}`); }
+      catch (err) { toast(`${f.name}: ${err.message}`, 6000); }
+    }
+    telaFinanceiro();
+  };
+  desenharMenu();
 }
 // 30/09 (Bruno: "o botão ser clicável para ver a listagem dos produtos da categoria e poder editar a marca e a categoria"):
 // a marca é de cada SKU (estoque_marca_salvar, vazia = volta ao título); a categoria é da MARCA (a mesma do Ranking de marcas).

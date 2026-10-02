@@ -365,6 +365,19 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   das 05:00 de Brasília: marcas da lista sem snapshot importado hoje com busca do coletor no nome) roda
   `coletar_explorador_marca` uma a uma (falha de uma não derruba as outras). A trava de 10.000 resultados caiu (Bruno: "já
   importei com mais de 10 mil"; silverscent.csv = 15.489): `EXPLORADOR_MAX_EXPORT`=30.000 só avisa no log.
+- **💰 Financeiro + Estoque → Por marca (02/10, Bruno)**: `financeiro.py`. DRE Simplificado do Gestor Seller (PDF do mês
+  fechado: o texto é lido no navegador com pdf.js e vai em `financeiro_importar`; `ler_dre` por blocos) e Resumo analítico
+  (`/analytics/invoices`, 4 canais × meses × 7 linhas; o coletor troca as imagens por "[IMG:nome]" e manda o texto:
+  `coletor gestor-financeiro`, comando `gestor_financeiro`, vigia `financeiro_pendente` toda semana = Resumo com 6+ dias +
+  meses fechados sem DRE pela página `/invoices/financial-summary?date=MM/AAAA`). ia_resumos `financeiro|dre|AAAA-MM`
+  e `financeiro|resumo`. **Markup** = faturamento ÷ custo dos produtos vendidos (set/26: 820.464 ÷ 497.530 = 1,65×);
+  `markup_medio` = últimos 3 meses com DRE (ponderado); `markup_ano` = exato nos meses com DRE, aproximado pelo Resumo nos
+  outros (custo ≈ líquido − lucro bruto − 2,4% de imposto; set/26 dá 1,647 x 1,649). Tela `#/financeiro` (Minhas Lojas).
+  Estoque → 🏆 Por marca (`#/estoque/marcas`, rota `estoque_marcas`, `categorias.ranking_marcas`): por marca SKUs,
+  unidades, custo total, **potencial = custo em estoque × markup médio** (Bruno: "às vezes estou rankeando um produto e vendo
+  mais barato mesmo", então o preço do SKU não serve; sem DRE cai para disponível × preço médio de 30 d), vendas 30 d e
+  sugestão de compra = venda 30 d × (1 + crescimento, padrão 20%) − disponível − trânsito; clique no card = produtos.
+  Teste `test_financeiro.py`.
 - **Ranking de marcas ≠ Explorador (02/10, Bruno: "ranking só traz os totais do mês fechado, importa uma vez por mês")**: no
   `diario`, o Ranking de cada mês sai quando o mês TERMINA no calendário (`meses_ranking`), sem esperar a venda diária dos
   seguidos (que atrasa 2 dias) chegar ao último dia; antes setembro só entraria no dia 3.

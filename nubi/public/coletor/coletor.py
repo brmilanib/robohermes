@@ -4109,6 +4109,56 @@ def conferir_gestor(pg, amostra, token=None):
     return "custo conferido no Gestor: " + ", ".join(ok) if ok else ""
 
 
+JS_TEXTO_COM_IMAGENS = """() => { document.querySelectorAll('img').forEach(i => { try { i.replaceWith(document.createTextNode(' [IMG:' +
+  (i.alt || (i.src || '').split('/').pop().split('?')[0]) + '] ')); } catch (e) {} }); return document.body.innerText; }"""
+
+
+def coletar_gestor_financeiro(p, cfg, token):
+    """02/10 (Bruno: "quero que atualize em Financeiro esses números e essa tabela toda semana"): lê a tela Analítico →
+    Resumo (/analytics/invoices) e o DRE Simplificado de cada mês que o nubi pede (/invoices/financial-summary?date=MM/AAAA)
+    e manda o TEXTO para `financeiro_pagina_salvar`. Só lê; nunca clica em salvar/importar/excluir."""
+    pend = api(token, "financeiro_pendente", timeout=60)
+    if not pend.get("rodar"):
+        return 0, 0, 0, "Financeiro: nada a fazer (Resumo recente e DREs em dia)"
+    feitos, erros = [], []
+    for tentativa in (1, 2):
+        ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("gestor_ver") else None)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        try:
+            paginas = ([("resumo", f"{GESTOR}/analytics/invoices", None)] if pend.get("resumo") else []) + \
+                      [("dre", f"{GESTOR}/invoices/financial-summary?date={m[5:7]}/{m[:4]}", m) for m in pend.get("meses") or []]
+            for tipo, url, mes in paginas:
+                pg.goto(url, wait_until="domcontentloaded", timeout=90000)
+                devagar(6)
+                if "/auth" in urllib.parse.urlparse(pg.url).path or pg.locator("input[type=password]:visible").count():
+                    raise SessaoExpirada(f"O Gestor Seller pediu login de novo (financeiro). Rode {_onde_rodar('entrar-gestor')}")
+                texto = pg.evaluate(JS_TEXTO_COM_IMAGENS) or ""
+                if len(texto) < 200:
+                    erros.append(f"{tipo} {mes or ''}: tela vazia")
+                    continue
+                try:
+                    r = api(token, "financeiro_pagina_salvar", corpo={"tipo": tipo, "texto": texto, "mes": mes}, timeout=120)
+                    feitos.append(f"{tipo} {r.get('mes') or ''}".strip() + (f" markup {r['markup']}" if r.get("markup") else ""))
+                except Exception as e:  # noqa: BLE001
+                    erros.append(f"{tipo} {mes or ''}: {str(e)[:120]}")
+                    enviar_foto(pg, f"financeiro {tipo} {mes or ''}: {str(e)[:100]}", resumo_tela(pg))
+            guardar_sessao(ctx)
+            break
+        except SessaoExpirada:
+            if tentativa == 2:
+                raise
+        finally:
+            ctx.close()
+        log("  Gestor Seller pediu login: tentando entrar sozinho")
+        if not entrar_sozinho(p, cfg, "gestor"):
+            raise SessaoExpirada("O Gestor Seller pediu login de novo e não entrei sozinho. "
+                                 f"Rode {_onde_rodar('entrar-gestor')} (ou guarde a senha: {_onde_rodar('guardar-senha gestor')})")
+    msg = f"Financeiro do Gestor: {', '.join(feitos) or 'nada lido'}" + (f"; falhou: {'; '.join(erros)}" if erros else "")
+    if erros and not feitos:
+        raise Falha(msg)
+    return len(feitos) + len(erros), len(feitos), len(erros), msg
+
+
 def coletar_gestor(p, cfg, token):
     dados, nome = baixar_do_nubi(token, "estoque_gestor")
     destino = PASTA / "gestor"
@@ -4312,7 +4362,7 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
                  "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos",
-                 "ml_busca_foto", "explorador_marca", "explorador_diario", "rodizio_seguidos")
+                 "ml_busca_foto", "explorador_marca", "explorador_diario", "rodizio_seguidos", "gestor_financeiro")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -4425,6 +4475,8 @@ def comando_mac(chave, arg=""):
         return [*c, "ml-pagina", arg] if ML_PAGINA_OK.match(str(arg or "")) else None
     if chave == "explorador_diario":
         return [*c, "explorador-diario"]
+    if chave == "gestor_financeiro":
+        return [*c, "gestor-financeiro"]
     if chave == "explorador_marca":                  # 02/10: arg = "MARCA" ou "MARCA|exata"
         marca, _, modo = str(arg or "").partition("|")
         if not EXPLORADOR_MARCA_OK.match(marca.strip()):
@@ -4806,6 +4858,10 @@ def cmd_vigiar():
         if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas", por_hora=True):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Gestor Seller -> importando a planilha", flush=True)
             return _soltar("gestor")
+        # 02/10 (Bruno): Financeiro do Gestor Seller (Resumo analítico + DRE dos meses) toda semana, só lê
+        if not motivo and not _outra_rodando() and _fora_da_janela_coleta() and _na_hora(cfg, token, "financeiro_pendente", "financeiro_tentativas"):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Financeiro do Gestor Seller (Resumo e DRE)", flush=True)
+            return _soltar("gestor-financeiro")
         # 02/10 (Bruno): Explorador das marcas que ele vende, todo dia a partir das 05:00 (regra 14: entra no card pela diferença)
         if not motivo and not _outra_rodando() and _na_hora(cfg, token, "explorador_diario_pendente", "explorador_diario_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Explorador diário das marcas da lista", flush=True)
@@ -8732,6 +8788,7 @@ def main():
     exm.add_argument("marca")
     exm.add_argument("--exata", action="store_true", help="Pesquisa exata (padrão: expandida por IA)")
     sub.add_parser("explorador-diario", help="Nubimetrics: Explorador das marcas da lista diária que ainda não entraram hoje")
+    sub.add_parser("gestor-financeiro", help="Gestor Seller: lê o Resumo analítico e o DRE de cada mês (Financeiro do nubi), só lê")
     mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
     mlp.add_argument("url")
     fv = sub.add_parser("fotos-vendedores", help="Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML)")
@@ -8869,6 +8926,8 @@ def main():
         return executar("explorador_marca", lambda p, cfg, token: coletar_explorador_marca(p, cfg, token, args.marca, args.exata))
     if args.cmd == "explorador-diario":
         return executar("explorador_diario", coletar_explorador_diario)
+    if args.cmd == "gestor-financeiro":
+        return executar("gestor_financeiro", coletar_gestor_financeiro)
     if args.cmd == "fotos-vendedores":
         return executar("vend_fotos", lambda p, cfg, token: coletar_fotos_vendedores(p, cfg, token, args.so))
     if args.cmd == "vitrine-seguidos":

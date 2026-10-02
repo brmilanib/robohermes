@@ -49,6 +49,7 @@ import trava_agrupamento
 import precos
 import bazar
 import decants
+import financeiro
 import marketing
 import vendas_hoje
 import revisao
@@ -1891,6 +1892,8 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 404)
             except meli.ErroMeli as e:
                 raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 400)
+        if rota.startswith("financeiro"):            # 02/10: 💰 Minhas Lojas → Financeiro (DRE e Resumo do Gestor Seller, markup)
+            return _json(rota_financeiro(repo, metodo, rota, q, corpo))
         if rota.startswith("decants"):               # 01/10: 🧪 Minhas Lojas → Decants (15/10/5 ml, custo por ml, markup)
             try:
                 return _json(rota_decants(repo, metodo, rota, q, corpo))
@@ -5216,6 +5219,34 @@ def decants_planilha(repo):
     return r
 
 
+def rota_financeiro(repo, metodo, rota, q, corpo):
+    """02/10 (Bruno: "abre uma aba em Minhas Lojas → Financeiro; vou exportar todo mês fechado o DRE; o coletor atualiza o
+    Resumo Analítico toda semana; calcule meu markup médio"). GET financeiro = painel; POST financeiro_importar {texto} =
+    texto do PDF do DRE lido no navegador; POST financeiro_pagina_salvar {tipo: resumo|dre, texto} = o coletor;
+    GET financeiro_pendente = o que o coletor tem a fazer."""
+    d = json.loads(corpo or b"{}") if metodo == "POST" and corpo else {}
+    if rota == "financeiro":
+        return financeiro.painel(repo, _hoje_br())
+    if rota == "financeiro_pendente":
+        return financeiro.pendente(repo, _hoje_br())
+    if rota in ("financeiro_importar", "financeiro_pagina_salvar") and metodo == "POST":
+        texto = str(d.get("texto") or "")[:200000]
+        if not texto.strip():
+            raise ErroNuvem("Sem texto: mande o texto do DRE (PDF) ou da tela do Resumo.")
+        tipo = d.get("tipo") or "dre"
+        origem = "coletor" if rota == "financeiro_pagina_salvar" else "manual"
+        try:
+            if tipo == "resumo":
+                r = financeiro.gravar_resumo(repo, financeiro.ler_resumo(texto, _hoje_br()), origem)
+                return {"ok": True, "tipo": "resumo", "meses": r["meses"], "canais": sorted(r["canais"])}
+            r = financeiro.gravar_dre(repo, financeiro.ler_dre(texto), origem)
+        except ValueError as e:
+            raise ErroNuvem(f"Não entendi o texto: {e}.")
+        return {"ok": True, "tipo": "dre", "mes": r["mes"], "faturamento": r["faturamento"], "custo_produtos": r["custo_produtos"],
+                "markup": r["markup"], "lucro_liquido": r["lucro_liquido"]}
+    raise ErroNuvem("Rota do financeiro desconhecida.", 404)
+
+
 def rota_decants(repo, metodo, rota, q, corpo):
     d = json.loads(corpo or b"{}") if metodo == "POST" else {}
     if rota == "decants":
@@ -8178,8 +8209,12 @@ def rota_estoque(repo, metodo, rota, q, corpo):
             cres = max(0.0, min(3.0, float(q.get("crescimento") or categorias.CRESCIMENTO_PADRAO)))
         except ValueError:
             cres = categorias.CRESCIMENTO_PADRAO
-        r = categorias.ranking_marcas(ec.get("itens") or [], cres)
-        r.update({"estoque_em": ec.get("estoque_em"), "vendas": ec.get("vendas")})
+        try:                                     # 02/10 (Bruno): potencial de vendas pelo MARKUP MÉDIO do DRE, não pelo preço do SKU
+            mk = financeiro.markup_para_estoque(repo)
+        except Exception:  # noqa: BLE001
+            mk = None
+        r = categorias.ranking_marcas(ec.get("itens") or [], cres, (mk or {}).get("markup"))
+        r.update({"estoque_em": ec.get("estoque_em"), "vendas": ec.get("vendas"), "markup": mk})
         return r
     if rota == "estoque_marcas_astra" and metodo == "POST":
         return estoque_marcas_astra(repo)
@@ -8937,6 +8972,7 @@ COMANDOS_MAC = {
     "rodizio_seguidos": "Nubimetrics: rodízio dos seguidos (solta quem já foi baixado e segue os próximos observados nas vagas livres)",
     "explorador_marca": "Nubimetrics: exportar o Explorador de anúncios de UMA marca (pesquisa expandida; arg = MARCA ou MARCA|exata) e importar",
     "explorador_diario": "Nubimetrics: exportar agora o Explorador das marcas da lista diária que ainda não entraram hoje (regra 14)",
+    "gestor_financeiro": "Gestor Seller: ler o Resumo analítico e o DRE de cada mês do ano (Financeiro, markup), só lê",
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
     "vitrine_seguidos": "Mercado Livre: ler a vitrine (_CustId_) das lojas dos vendedores seguidos e gravar todos os anúncios, só lê",
     "ml_precos": "Mercado Livre: ler agora o preço dos anúncios do monitor de preços, só lê",
