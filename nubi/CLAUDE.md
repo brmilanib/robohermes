@@ -277,6 +277,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   soma) a conta do Explorador pela venda diária exata quando todos os dias do intervalo do vendedor já foram coletados;
   liga vendedor + GTIN + título (36 letras normalizadas) + tipo (Clássico/Premium) + Full; 2º anúncio igual = 0 ("contado no
   anúncio igual"); sem par = fica com o Explorador (marcado); dias faltando = aviso na tela.
+  LIGAÇÃO PELO ID (02/10, Bruno: "tem que linkar pelo ID do vendedor; o nome a gente renomeia, o objetivo é desvendar o nome
+  verdadeiro no ML"): o ID do vendedor no Explorador (64) e o `seller_hash` do relatório do seguido (128) são códigos
+  diferentes, sem conversão. `ligar_ids_seguidos` pega o par uma vez (mesmo nome nos dois lados; o fictício vem com "." no
+  Explorador e "-" no relatório) e guarda em `ia_resumos` `seguidos|ids` {seller_hash: {explorador: [ids], nome}}; daí em
+  diante vale o ID (renomear não quebra). Só acrescenta; leitura que falha não grava. Conferido 02/10: os 17 seguidos com 1
+  ID do Explorador cada.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 

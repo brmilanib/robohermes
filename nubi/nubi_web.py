@@ -454,6 +454,48 @@ def _tipo_pub(t):
     return "premium" if t.startswith("prem") else "classico" if t.startswith("cl") else ""
 
 
+IDS_SEGUIDOS = "seguidos|ids"
+
+
+def ligar_ids_seguidos(repo):
+    """02/10 (Bruno: "tem que linkar pelo ID do vendedor; o nome a gente renomeia a hora que quiser — o objetivo é desvendar
+    o nome verdadeiro no ML"). O ID do vendedor no Explorador (64) e o do relatório do seguido (seller_hash, 128) são códigos
+    diferentes, sem conversão. O par é pego UMA vez, quando os dois aparecem com o mesmo nome (o Explorador mostra o nome
+    que o seguido tem no Nubimetrics; o fictício vem com "." no Explorador e "-" no relatório), e fica guardado em
+    ia_resumos `seguidos|ids` {seller_hash: {"explorador": [ids], "nome": ...}}. Daí em diante só os IDs valem (renomear não
+    quebra). Só acrescenta; nunca apaga um par."""
+    # leitura que falha NÃO vira {}: gravar por cima apagaria os pares já guardados (o erro sobe; quem chama segue sem eles)
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(IDS_SEGUIDOS)}) or [None])[0]
+    guardado = json.loads(r["texto"]) if r and r.get("texto") else {}
+    rels = [x for x in _vend_rels(repo) if x.get("seller_hash")]
+    atual = {}
+    for x in rels:                                       # nome mais recente de cada seller_hash
+        atual[str(x["seller_hash"])] = x["vendedor"]
+    variantes = {}
+    for sh, nome in atual.items():
+        for v in {nome, nome.replace("-", "."), nome.replace(".", "-")}:
+            variantes[v] = sh
+    mudou = False
+    if variantes:
+        for a in repo._todos("anuncios", {"select": "vendedor_id,vendedor",
+                                          "vendedor": f"in.({','.join(json.dumps(n) for n in variantes)})"}) or []:
+            sh, vid = variantes.get(a.get("vendedor")), str(a.get("vendedor_id") or "")
+            if sh and vid:
+                g = guardado.setdefault(sh, {"explorador": [], "nome": atual[sh]})
+                if vid not in g["explorador"]:
+                    g["explorador"].append(vid)
+                    mudou = True
+    for sh, nome in atual.items():
+        if sh in guardado and guardado[sh].get("nome") != nome:
+            guardado[sh]["nome"] = nome
+            mudou = True
+    if mudou:
+        repo._req("POST", "ia_resumos", corpo=[{"chave": IDS_SEGUIDOS, "ia": "nubi (regras)",
+                                                "texto": json.dumps(guardado, ensure_ascii=False)}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+    return guardado
+
+
 def seguidos_na_diferenca(repo, d, dias):
     """02/10 (Bruno, export da PHTEC P7 de 29–30/09: "o anúncio é o mesmo, você tem o ID dele, não pode somar"): no
     anúncio de vendedor SEGUIDO, a venda dos dias vem da venda diária dele (`vend_vendas_dia`, exata) no lugar da
@@ -466,17 +508,25 @@ def seguidos_na_diferenca(repo, d, dias):
         linhas = _vendas_dias(repo, dias[0], dias[-1])
     except Exception:  # noqa: BLE001
         return d, {}
-    # 02/10: o mesmo seguido vem "AIRON-AMBAR-INQUIETANTE" na venda diária e "AIRON.AMBAR.INQUIETANTE" no Explorador
     por_vend = {}
     for r in linhas:
-        por_vend.setdefault(nubi.compacta(r["vendedor"]), {})[str(r["data"])[:10]] = r.get("itens") or []
+        por_vend.setdefault(str(r["vendedor"]), {})[str(r["data"])[:10]] = r.get("itens") or []
+    # pelo ID: ID do vendedor no Explorador -> seller_hash do seguido -> nome ATUAL dele na venda diária
+    try:
+        ids = ligar_ids_seguidos(repo)
+    except Exception:  # noqa: BLE001
+        ids = {}
+    nome_do_id = {vid: g.get("nome") for g in ids.values() for vid in g.get("explorador") or []}
     d = d.assign(fonte="Explorador (histórico)")
     info = {"seguidos": 0, "faltam_dias": [], "anuncios_trocados": 0, "sem_par": 0}
-    info["nomes"] = sorted(por_vend)
-    for vend, idx in d.groupby("vendedor").groups.items():
-        dd = por_vend.get(nubi.compacta(vend))
-        if not dd:
+    info["ids"] = sorted(nome_do_id)
+    d["_vid"] = d["vendedor_id"].fillna("").astype(str)
+    for vid, idx in d.groupby("_vid").groups.items():
+        nome = nome_do_id.get(vid)
+        if not nome:
             continue
+        vend = nome
+        dd = por_vend.get(nome) or {}
         info["seguidos"] += 1
         if any(x not in dd for x in dias):
             info["faltam_dias"].append(f"{vend}: {', '.join(x[8:10] + '/' + x[5:7] for x in dias if x not in dd)}")
@@ -506,7 +556,7 @@ def seguidos_na_diferenca(repo, d, dias):
             else:
                 d.at[i, "situacao"] = "seguido sem par na venda diária (Explorador)"
                 info["sem_par"] += 1
-    return d, info
+    return d.drop(columns=["_vid"]), info
 
 
 def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
@@ -545,15 +595,15 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
     # 02/10 (Bruno: "vendedores novos entram em observados; anúncios novos ficam linkados ao vendedor já cadastrado"): o
     # vendedor é o hash do Nubimetrics (vendedor_id); quem não estava no export antigo é vendedor novo
     ja_vend = set(df_ant["vendedor_id"].fillna("").astype(str))
-    # seguido = tem venda diária (vend_vendas_dia) — com o nome dado pelo Bruno ou o fictício (AIRON-AMBAR-INQUIETANTE)
-    seguidos_nomes = set(seg.pop("nomes", []) or [])
+    # seguido = o ID do vendedor do Explorador está ligado a um seguido (seguidos|ids), qualquer que seja o nome
+    seguidos_ids = set(seg.pop("ids", []) or [])
     agrupa = lambda col: [{"nome": k, "un": int(g["du"].sum()), "fat": round(float(g["dfat"].sum()), 2), "anuncios": int(len(g)),
                            "anuncios_novos": int((g["situacao"] == "anúncio novo").sum()),
                            **({"novo": not bool(set(g["vendedor_id"].fillna("").astype(str)) & ja_vend),
                                # seguido = o Explorador mostra o nome que o Bruno deu ("MNZIMPORTS P11"), não o fictício
                                # ("GARCA.AMETISTA.LACTEO"). A venda diária dele (vend_vendas_dia) é OUTRA fonte do mesmo
                                # anúncio: só para conferir, nunca soma aqui
-                               "seguido": nubi.compacta(k) in seguidos_nomes} if col == "vendedor" else {})}
+                               "seguido": bool(set(g["vendedor_id"].fillna("").astype(str)) & seguidos_ids)} if col == "vendedor" else {})}
                           for k, g in sorted(v.groupby(col), key=lambda kv: -kv[1]["du"].sum())][:100]
     vend_novos = sorted(set(d["vendedor_id"].fillna("").astype(str)) - ja_vend - {""})
     cols = [c for c in ("vendedor", "titulo", "produto", "un_hist", "du", "dfat", "erro", "situacao", "fonte", "preco") if c in v.columns]

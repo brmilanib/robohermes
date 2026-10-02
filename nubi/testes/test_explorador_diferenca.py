@@ -46,8 +46,18 @@ def test_rota_da_diferenca():
             return pd.DataFrame([{"id": 93, "marca": "AL WATANIAH", "inicio": "2026-08-01", "fim": "2026-09-28", "dias": 59},
                                  {"id": 1000, "marca": "AL WATANIAH", "inicio": "2026-09-01", "fim": "2026-09-30", "dias": 30}])
 
-        def _todos(self, t, q=None):                     # MNZ é seguido (tem venda diária), sem venda nesses dias casada
-            return [{"vendedor": "MNZIMPORTS-P11", "data": d, "u": 0, "v": 0, "itens": []} for d in ("2026-09-29", "2026-09-30")]
+        def _todos(self, t, q=None):                     # MNZ é seguido (ID v1 ligado), sem venda nesses dias casada
+            if t == "vend_relatorios":
+                return [{"vendedor": "MNZIMPORTS P11", "seller_hash": "H" * 128}]
+            if t == "anuncios":
+                return [{"vendedor": "MNZIMPORTS P11", "vendedor_id": "v1"}]
+            return [{"vendedor": "MNZIMPORTS P11", "data": d, "u": 0, "v": 0, "itens": []} for d in ("2026-09-29", "2026-09-30")]
+
+        def _eq(self, v):
+            return f"eq.{v}"
+
+        def _req(self, *a, **k):
+            return []
 
         def anuncios(self, sid):
             if sid == 93:
@@ -56,7 +66,7 @@ def test_rota_da_diferenca():
     r = w.explorador_diferenca(R(), "AL WATANIAH")
     assert r["ok"] and r["dias"] == ["2026-09-29", "2026-09-30"], r
     assert r["totais"]["un"] == 67 and r["totais"]["vendedores_novos"] == 1, r["totais"]
-    assert r["seguidos"]["sem_par"] == 2, r["seguidos"]       # nome com hífen x espaço casou; anúncios sem par ficam no Explorador
+    assert r["seguidos"]["sem_par"] == 2, r["seguidos"]       # ligado pelo ID; anúncios sem par ficam no Explorador
     pv = {x["nome"]: x for x in r["por_vendedor"]}
     assert pv["MNZIMPORTS P11"]["seguido"] and not pv["MNZIMPORTS P11"]["novo"]
     assert pv["GARCA.AMETISTA.LACTEO"]["novo"] and not pv["GARCA.AMETISTA.LACTEO"]["seguido"]
@@ -81,18 +91,42 @@ def test_seguido_troca_pela_venda_diaria_sem_somar():
     it = lambda u: [{"k": "5055810013110", "t": "Perfume Sedutor Árabe Sabah 100ml Origin", "u": u, "v": u * 142.0,
                      "l": [{"t": "Perfume Sedutor Árabe Sabah 100ml Origin", "u": u, "v": u * 142.0, "tp": "Clássico", "f": True}]}]
 
+    gravado = {}
+
     class R:
+        nome_atual = "PHTEC P7"
+
         def _todos(self, t, q=None):
-            return [{"vendedor": "PHTEC P7", "data": "2026-09-29", "u": 400, "v": 0, "itens": it(400)},
-                    {"vendedor": "PHTEC P7", "data": "2026-09-30", "u": 430, "v": 0, "itens": it(430)}]
+            if t == "vend_relatorios":
+                return [{"vendedor": self.nome_atual, "seller_hash": "P" * 128}]
+            if t == "anuncios":                          # o Explorador mostrou o nome do seguido com o ID v1
+                return [{"vendedor": "PHTEC P7", "vendedor_id": "v1"}] if self.nome_atual == "PHTEC P7" else []
+            return [{"vendedor": self.nome_atual, "data": "2026-09-29", "u": 400, "v": 0, "itens": it(400)},
+                    {"vendedor": self.nome_atual, "data": "2026-09-30", "u": 430, "v": 0, "itens": it(430)}]
+
+        def _eq(self, v):
+            return f"eq.{v}"
+
+        def _req(self, metodo, tabela, params=None, corpo=None, **k):
+            if metodo == "POST":
+                gravado["ids"] = corpo[0]["texto"]
+                return []
+            return [{"texto": gravado["ids"]}] if gravado.get("ids") else []
     r, info = w.seguidos_na_diferenca(R(), d, ["2026-09-29", "2026-09-30"])
     assert r.at[0, "du"] == 830 and r.at[0, "fonte"] == "venda diária do seguido" and r.at[0, "exato"], r
     assert r.at[1, "du"] == 9 and r.at[1, "fonte"].startswith("Explorador")
     assert info["anuncios_trocados"] == 1 and not info["faltam_dias"]
 
-    class R2:                                            # dia 30 ainda não coletado: fica com o Explorador
+    # o Bruno renomeou o seguido: o par de IDs guardado continua valendo
+    R.nome_atual = "PHTEC LOJA REAL"
+    r3, info3 = w.seguidos_na_diferenca(R(), d, ["2026-09-29", "2026-09-30"])
+    assert r3.at[0, "du"] == 830 and r3.at[0, "fonte"] == "venda diária do seguido", info3
+    R.nome_atual = "PHTEC P7"
+
+    class R2(R):                                         # dia 30 ainda não coletado: fica com o Explorador
         def _todos(self, t, q=None):
-            return R()._todos(t, q)[:1]
+            xs = R._todos(self, t, q)
+            return xs[:1] if t == "vend_vendas_dia" else xs
     r2, info2 = w.seguidos_na_diferenca(R2(), d, ["2026-09-29", "2026-09-30"])
     assert r2.at[0, "du"] == 1000 and info2["faltam_dias"] == ["PHTEC P7: 30/09"]
 
