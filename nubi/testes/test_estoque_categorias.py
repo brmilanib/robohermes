@@ -261,7 +261,13 @@ try:
                 assert "SERUM-X" in m and "Zeta" in m, m[:800]                       # continua Skincare, com a marca
                 pg.click(".modal [data-fechar]")
             # 02/10 (Bruno: "refaz a Início para um Dashboard, tudo organizado e clicável")
+            alerta = {"itens": [{"mlb": "MLB1", "titulo": "Lattafa Asad 100ml", "loja": "LOJA X", "foto": "", "de": 210.0, "para": 189.9, "pct": -9.6,
+                                 "em": "2026-10-02T20:00:00+00:00", "eventos": [{"tipo": "full", "texto": "entrou no FULL", "em": "2026-10-02T20:00:00+00:00"}]}]}
+            pg.route(lambda u: "r=ml_precos_alertas" in u, lambda r: r.fulfill(json=alerta))
             pg.goto(f"http://127.0.0.1:{PORTA}/#/inicio"); pg.wait_for_selector(".dash-topo", timeout=15000)
+            pg.wait_for_selector("#ds-precos .dash-pr", timeout=15000)
+            pr = pg.inner_text("#ds-precos")
+            assert "Monitor de preços" in pr and "Lattafa Asad" in pr and "189,90" in pr and "entrou no FULL" in pr, pr
             pg.wait_for_function("() => !document.querySelector('#ds-meus').innerText.includes('Carregando') && !document.querySelector('#ds-hoje').innerText.includes('Lendo')", timeout=30000)
             pg.wait_for_function("() => !document.querySelector('#ds-repo b') || document.querySelector('#ds-repo b').innerText !== '…'", timeout=30000)
             pg.wait_for_timeout(1500)

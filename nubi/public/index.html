@@ -1414,7 +1414,8 @@ img.pl-ico.of{object-fit:contain;background:#fff}
 .dash-an .v,.dash-tl .v{display:flex;flex-direction:column;align-items:flex-end;white-space:nowrap;font-size:13px}
 .pos-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--line);font-size:11.5px;font-weight:700}
 .pos-n.cA{background:#dbeafe;color:#1d4ed8}.pos-n.cB{background:#fef3c7;color:#b45309}.pos-n.cC{background:#e2e8f0;color:#475569}
-.dash-top{display:grid;gap:2px}.dash-seg{margin-bottom:6px}
+.dash-top{display:grid;gap:2px}
+.dash-pr{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1.2fr);gap:10px;align-items:center;padding:6px 4px;border-radius:8px;text-decoration:none;color:inherit}.dash-pr:hover{box-shadow:0 2px 10px rgba(15,23,42,.08)}.dash-pr .n{display:flex;flex-direction:column;min-width:0}.dash-pr .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.dash-pr small{color:var(--muted);font-size:11.5px}.dash-pr .mot{display:flex;flex-wrap:wrap;gap:4px;font-size:12.5px;justify-content:flex-end}@media (max-width:760px){.dash-pr{grid-template-columns:auto minmax(0,1fr)}.dash-pr .mot{grid-column:1/-1;justify-content:flex-start}}.dash-seg{margin-bottom:6px}
 .dash-frases{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13.5px}.dash-frase{margin:0 0 8px;font-size:13.5px}
 .dash-li{display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:2px 0;text-decoration:none;color:inherit}.dash-mini{gap:14px;margin-bottom:8px}
 .dash-md{font-size:13px}.dash-sis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
@@ -1696,6 +1697,7 @@ async function telaInicio() {
       <a class="card dash-card" id="ds-repo" href="#/estoque/reposicao"><span class="l">🔁 Reposição da semana</span><b>…</b></a>
       <div class="card dash-card" id="ds-ads"><span class="l">📣 ADS por canal</span><b>…</b></div>
     </section>
+    <section class="card pad dash-bloco" id="ds-precos"><div class="muted">📈 Lendo o Monitor de preços…</div></section>
     <section class="dash-2">
       <div class="card pad dash-bloco" id="ds-meus"><h2>🏆 Meus destaques do mês</h2><p class="muted">Carregando…</p></div>
       <div class="card pad dash-bloco" id="ds-conc"><h2>👀 Mais vendidos de quem eu sigo · 7 dias</h2><p class="muted">Carregando…</p></div>
@@ -1776,6 +1778,20 @@ async function telaInicio() {
     $("#ds-estoque").innerHTML = `<span class="l">📦 Estoque</span><b>${FMT.moeda(rs.parado_bc || 0)}</b>
       <span class="o">parado em B, C e sem venda</span><span class="o">${FMT.moeda(rs.acima_do_nivel || 0)} acima do nível ideal</span>`;
     montarLoja(); }).catch(e => { const el = $("#ds-repo"); if (el) el.innerHTML = `<span class="l">🔁 Reposição</span><span class="o muted">sem dados</span>`; });
+
+  // 📈 02/10 (Bruno: "o alerta do Monitor de preços no card: as 5 primeiras mudanças e o motivo da mudança do anúncio que
+  // estou seguindo"): os não vistos, mais recentes primeiro; o motivo = preço de → para e os eventos (tags, FULL, estoque)
+  api("ml_precos_alertas").then(r => { if (!vivo()) return; const xs = [...(r.itens || [])].sort((a, b) => String(b.em || "").localeCompare(String(a.em || "")));
+    S.precosAlertas = r.itens || []; const el = $("#ds-precos"); if (!el) return;
+    const quando = x => x ? new Date(x).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "";
+    const motivos = a => [a.de != null && a.para != null ? `<span class="${a.para < a.de ? "neg" : "pos"}">${a.para < a.de ? "▼" : "▲"} preço ${rsES(a.de)} → <b>${rsES(a.para)}</b>${a.pct != null ? ` (${a.pct > 0 ? "+" : ""}${nf1.format(a.pct)}%)` : ""}</span>` : "",
+      ...(a.eventos || []).map(e => `<span class="pill">${esc(e.texto || e.tipo || "")}</span>`)].filter(Boolean).join(" ");
+    el.innerHTML = `<div class="dash-cab"><h2>📈 Monitor de preços</h2><span class="muted">${xs.length ? `${nf0.format(xs.length)} anúncio(s) que você segue mudaram` : "nenhuma mudança nova"}</span><a class="btn small" href="#/precos">Ver todos ›</a></div>
+      ${xs.length ? `<div class="dash-top">${xs.slice(0, 5).map(a => `<a class="dash-pr" href="#/precos">${fotoProd(a.foto, 38)}
+        <span class="n"><span class="t">${esc(a.titulo)}</span><small>${esc(a.loja || a.mlb)} · ${quando(a.em)}</small></span>
+        <span class="mot">${motivos(a) || `<span class="muted">mudou</span>`}</span></a>`).join("")}</div>`
+        : `<p class="muted">Quando um anúncio que você segue mudar de preço, tag, FULL ou estoque, aparece aqui com o motivo.</p>`}`;
+    desenharMenu(); }).catch(() => { const el = $("#ds-precos"); if (el) el.innerHTML = `<h2>📈 Monitor de preços</h2><p class="muted">sem dados</p>`; });
 
   // 🏆 destaques do mês (Curva ABC do Gestor) e 👀 concorrentes 7 dias
   api("dashboard_listas").then(x => { if (!vivo()) return; S.dashL = x;

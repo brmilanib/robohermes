@@ -100,7 +100,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (concorrentes do último dia + resumo da IA), cards Alertas / Estoque / Reposição sugerida (% por curva) / ADS (mês da
   Curva ABC; por canal de hora em hora = a fazer), 🏆 Meus destaques do mês (Curva ABC do Gestor, top 10 geral e por
   curva, margem pós ADS), 👀 top 10 dos vendedores seguidos em 7 dias (`vend_vendas_dia`), tempo, datas e uma linha de
-  sistema. Cada bloco carrega em paralelo (`vendas_hoje`, `inicio`, `inicio_extras`, `estoque_reposicao`,
+  sistema; 📈 Monitor de preços (as 5 mudanças não vistas mais recentes, motivo: preço de→para e eventos, `ml_precos_alertas`).
+  Cada bloco carrega em paralelo (`vendas_hoje`, `inicio`, `inicio_extras`, `estoque_reposicao`,
   `dashboard_listas`) e a tela se atualiza a cada 5 min. "⚡ Vendas de hoje" saiu do menu (a tela de detalhe por hora
   continua em `#/analises-vendas/hoje`, link no Dashboard).
 - Margens em tempo real do Gestor (fase 2): `coletor gestor-painel` (comando `gestor_painel`) abre o painel e /sales do
