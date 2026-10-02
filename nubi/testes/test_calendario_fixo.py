@@ -60,7 +60,8 @@ PAGINA_H = PAGINA_C.replace('<button id="prox">›</button>', '<button id="prox"
 
 def main():
     with sync_playwright() as p:
-        nav = p.chromium.launch(executable_path=os.environ.get("CHROMIUM", "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"))
+        exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
+        nav = p.chromium.launch(executable_path=exe if os.path.exists(exe) else None)
         pg = nav.new_page()
         pg = nav.new_page(); pg.set_content(PAGINA)
         c.aplicar_periodo(pg, "2026-09-01", "2026-09-30")
