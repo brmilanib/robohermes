@@ -442,7 +442,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   só da curva escolhida); cabeçalho da tabela fixo (`.rp-scroll`, rola dentro). Foco do Bruno agora: queimar os ~R$ 209
   mil parados em B/C e levar para a profundidade dos campeões. Em "Todos" cada curva tem a sua faixa (`tr.rp-curva`, borda azul A /
   laranja B / cinza C) e em cima o resumo "Este pedido por curva" (% do valor da coluna Comprar × último custo, barra +
-  R$, un. e produtos por curva; atualiza ao digitar). Gerar pedido também agrupa "Por curva". Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
+  R$, un. e produtos por curva; atualiza ao digitar). Gerar pedido também agrupa "Por curva".
+  Venda base (02/10 à noite, Bruno: "a minha venda dos últimos 7 dias, só que 7 dias COM estoque"): regra 12 de
+  `reposicao.py` — média dos últimos `DIAS_BASE`=7 dias SABIDOS com estoque (pula os zerados); os dias de antes do
+  histórico de estoque (24/09) só completam quando há menos de 3 sabidos. Vendas sem SKU Principal (TikTok: 81 de 704 un.
+  na semana, Sabah 39) entram pelo título igual (`_reposicao_dados`: título de outra loja com SKU ou do estoque). Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
   Coletor, `calcLivre` = `pmCalc` com `solo`, sem buscar nada no ML).
 - **Marca "Perfume Árabe" (02/10)**: "árabe", "masculina", "alta fixação"… estão em `categorias.GENERICAS` (palavra de
   anúncio nunca é marca). No Por marca, cada produto tem 🔗 vincular (`estoque_marca_salvar`, vence o título). O KPI de

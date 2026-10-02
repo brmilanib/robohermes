@@ -3518,7 +3518,8 @@ async function telaReposicao() {
     l.sem_custo ? `<span class="pill warn-t" title="sem custo médio no UpSeller">sem custo</span>` : ""].join(" ");
   // 02/10 (Bruno: "o que é 2,8 → 8,1?"): o número grande é a venda por dia NOS DIAS COM ESTOQUE (o que vende quando tem);
   // embaixo, a média contando os dias em que estava zerado (puxada para baixo pela ruptura)
-  const vend = l => `<b>${num1(l.venda_base)}</b>${l.venda_base > l.media_dia + 0.05 ? `<small class="muted rp-sub" title="média do período contando os dias em que estava zerado">${num1(l.media_dia)} c/ dias zerados</small>` : ""}`;
+  // 02/10 (Bruno: "a minha venda dos últimos 7 dias COM estoque"): embaixo, quantos dias com estoque entraram na conta
+  const vend = l => `<b>${num1(l.venda_base)}</b><small class="muted rp-sub" title="média dos últimos ${l.base_dias || 7} dias em que o produto tinha estoque (dias zerados ficam fora); a média dos ${rs.dias_vendas} dias contando os zerados é ${num1(l.media_dia)}">${l.base_dias && l.base_dias < 7 ? `só ${l.base_dias} dias c/ estoque` : "7 dias c/ estoque"}</small>`;
   // 02/10 (Bruno: "a lista de compra ficou redundante com o pedido; junta tudo no pedido, coloca para eu digitar, e lá
   // embaixo 'gerar pedido'; o que eu não for comprar deixo zerado"): a coluna Comprar vem com a sugestão e é editável
   // (fica guardada neste navegador no dia); o pedido impresso/WhatsApp sai só do que tiver quantidade.
@@ -3561,7 +3562,7 @@ async function telaReposicao() {
   const pedido = curva !== "todos" ? linhasFaixas(ped) : ["A", "B", "C"].map(k => { const xs = ped.filter(l => curvaDe(l) === k); if (!xs.length) return "";
     const c = somaCurva(k);
     return `<tr class="rp-curva rp-curva-${k}"><td colspan="12" data-l=""><b>${NOME_CURVA[k]}</b> · ${un(xs.length)} SKUs · no pedido <span data-cv="${k}">${un(c.u)} un. · ${FMT.moeda(c.v)}</span></td></tr>` + linhasFaixas(xs); }).join("");
-  const cab = `<thead><tr><th>Produto</th><th class="num" title="a MINHA venda por dia nos dias em que tinha estoque (embaixo, a média contando os dias zerados)">Minha venda/dia</th>
+  const cab = `<thead><tr><th>Produto</th><th class="num" title="a MINHA venda por dia nos últimos 7 dias em que tinha estoque (os dias zerados ficam fora)">Minha venda/dia</th>
     <th class="num" title="unidades que EU vendi nos últimos 7, 15 e 30 dias (todas as lojas)">Vendi 7 · 15 · 30 dias</th>
     <th class="num" title="todos os vendedores do produto no Explorador (Nubimetrics), por dia">Mercado/dia</th><th class="num" title="preço de quem mais vende o produto">Preço do líder</th>
     <th class="num" title="preço médio (faturamento ÷ unidades) dos 5 vendedores que mais venderam">Média dos 5 primeiros</th><th class="num">Estoque</th>
@@ -3664,7 +3665,7 @@ function regrasReposicao(r, salvar) {
   const bg = modal(`<h2 style="margin-top:0">⚙️ Regras da reposição</h2>
     <div class="rg-info">
       <b class="rg-t">Como o nubi calcula</b>
-      <div>• <b>Minha venda/dia</b> = a média só dos dias em que o produto <b>tinha estoque</b> (dia zerado não conta, senão a ruptura esconde a venda).</div>
+      <div>• <b>Minha venda/dia</b> = a média dos <b>últimos 7 dias em que o produto tinha estoque</b>: se ficou zerado, volta no tempo até achar 7 dias com estoque (dia zerado não conta, senão a ruptura esconde a venda). Venda sem SKU (TikTok) entra pelo título igual.</div>
       <div>• <b>Nível máximo</b> = venda/dia × (dias que o estoque tem que durar + dias de entrega) + estoque de segurança. Campeões (curva A) duram ${cfg.dura_a} dias; curva B e C, ${cfg.dura_bc}. A segurança é maior na A, menor na B e pouca na C.</div>
       <div>• <b>Sugestão</b> = nível máximo − (estoque + o que está chegando). Se já tem o suficiente, a sugestão é 0.</div>
       <div>• <b>Margem</b> abaixo de 10% (e o anúncio não está ranqueando): dura só os dias da curva B/C e vai para o fim da fila. Ranqueando, a margem baixa é de propósito e não corta a compra.</div>

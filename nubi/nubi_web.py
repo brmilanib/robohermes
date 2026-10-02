@@ -5728,12 +5728,22 @@ def _reposicao_dados(repo, dias=30):
         for r in repo._todos("estoque_itens", {"select": "atualizacao_id,sku,disponivel", "atualizacao_id": f"in.({ids})"}) or []:
             estoque_dia.setdefault(dia_de[r["atualizacao_id"]], {})[estoque._chave(r["sku"])] = float(r.get("disponivel") or 0)
     vendas_dia = {}
-    for dia, v in vendas_por_dia(repo, dias).items():
+    vpd = vendas_por_dia(repo, dias)
+    # 02/10 (planilha do Bruno: 81 de 704 un. da semana sem SKU, quase todas TikTok — Sabah 39 un.): a venda sem SKU Principal
+    # é ligada ao SKU pelo TÍTULO igual (o mesmo anúncio em outra loja tem SKU, ou o título do produto no estoque)
+    sku_do_titulo = {nubi.compacta(it.get("titulo") or ""): it["sku"] for it in itens if it.get("titulo")}
+    for v in vpd.values():
+        for l in (v or {}).get("linhas") or []:
+            if l.get("sku") and l.get("produto"):
+                sku_do_titulo.setdefault(nubi.compacta(l["produto"]), l["sku"])
+    sku_do_titulo.pop("", None)
+    for dia, v in vpd.items():
         dd = vendas_dia.setdefault(dia, {})
         for l in (v or {}).get("linhas") or []:
-            if not l.get("sku"):
+            sku = l.get("sku") or sku_do_titulo.get(nubi.compacta(l.get("produto") or ""))
+            if not sku:
                 continue
-            k = estoque._chave(l["sku"])
+            k = estoque._chave(sku)
             x = dd.setdefault(k, {"un": 0.0, "valor": 0.0, "ml": 0.0})
             u = float(l.get("unidades") or 0)
             x["un"] += u

@@ -40,6 +40,10 @@ REGRAS (combinadas com o Bruno em 02/10, no doc "Estudo de estoque"):
    para B e C, ajustáveis. Isso substitui o "até o próximo pedido" e o +20% dos campeões no nível (o +20% fica só no
    Full). Margem abaixo de 10% sem estar ranqueando: dura só `dura_bc`, sem segurança, e vai para o fim da fila (antes
    era só a semana: o Club Woman, 6,4/dia, ia durar 2 dias).
+12. (02/10 à noite, Bruno: "acho que deveria ser a minha venda dos últimos sete dias, só que os sete dias com estoque") a
+   VENDA BASE (regra 1) passou a ser a média dos últimos 7 dias em que o SKU tinha estoque: volta no tempo pulando os
+   dias zerados até juntar 7; antes do histórico de estoque do nubi, o dia conta como "tinha". Reage ao que vende agora
+   (a média de 25 dias segurava quem acelerou e inflava quem caiu).
 9. O mercado do Explorador é só referência (fatia e preço do líder): a compra NUNCA sobe por causa do mercado (Bruno: "não
    vou pegar o mercado inteiro de uma vez na primeira semana; compro a média que venho vendendo quando tenho estoque").
 """
@@ -60,7 +64,9 @@ ML_GALPAO = 0.3          # parte da venda do ML que sai do galpão (despacho pr�
 RANK_UN = 40             # unidades para ranquear um anúncio que voltou ou é novo (Bruno: 30 a 50)
 QUEDA, ALTA = 0.7, 1.3   # venda dos últimos 7 dias ÷ as 2 semanas antes
 RANK_MIN_DIA = 1.0       # ranqueamento automático só para curva A/B que vende 1+/dia (perfume caro e lento não ranqueia por volume)
-RANK_MAX_DIAS = 21       # a compra para ranquear não passa de 3 semanas de venda
+RANK_MAX_DIAS = 21
+DIAS_BASE = 7            # venda base = últimos 7 dias COM estoque (Bruno 02/10)
+BASE_MIN_DIAS = 3        # com menos de 3 dias sabidos com estoque, completa com os dias de antes do histórico       # a compra para ranquear não passa de 3 semanas de venda
 
 
 def _chave(sku):
@@ -157,20 +163,31 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
         md = t["un"] / n
         # 1. venda nos dias com estoque (só onde o estoque do dia é conhecido)
         dc_un, dc_dias, ruptura = 0.0, 0, 0
+        com_estoque = {}                             # dia -> tinha estoque? (None = o nubi não sabe o estoque daquele dia)
         for i, d in enumerate(dias):
+            vend = (vendas_dia.get(d, {}).get(k) or {}).get("un") or 0
             if d not in estoque_dia:
+                com_estoque[d] = True if vend > 0 else None
                 continue
             ant = dias_est[dias_est.index(d) - 1] if d in dias_est and dias_est.index(d) > 0 else d
-            vend = (vendas_dia.get(d, {}).get(k) or {}).get("un") or 0
             tinha = (estoque_dia.get(ant, {}).get(k) or 0) > 0 or (estoque_dia[d].get(k) or 0) > 0 or vend > 0
+            com_estoque[d] = tinha
             if tinha:
                 dc_dias += 1
                 dc_un += vend
             elif t["un"] > 0:
                 ruptura += 1
         dc = dc_un / dc_dias if dc_dias else None
-        peso = min(1.0, dc_dias / 8)
-        base = max(md, (dc * peso + md * (1 - peso)) if dc is not None else md)
+        # 12. (02/10, Bruno: "o cálculo pela minha venda dos últimos 7 dias, só que 7 dias COM estoque; se ficou sem estoque,
+        # acha os dias que teve estoque") venda base = média dos últimos 7 dias em que SEI que tinha estoque, voltando no
+        # tempo e pulando os dias zerados. Dia de antes do histórico de estoque (sem venda: não sei se tinha) só completa a
+        # conta quando há menos de 3 dias conhecidos com estoque
+        vend_de = lambda d: (vendas_dia.get(d, {}).get(k) or {}).get("un") or 0
+        sabidos = [d for d in reversed(dias) if com_estoque.get(d) is True][:DIAS_BASE]
+        if len(sabidos) < BASE_MIN_DIAS:
+            sabidos += [d for d in reversed(dias) if com_estoque.get(d) is None][:DIAS_BASE - len(sabidos)]
+        b_dias = len(sabidos)
+        base = sum(vend_de(d) for d in sabidos) / b_dias if b_dias else md
         classe = abc.get(k, "-")
         preco = t["valor"] / t["un"] if t["un"] else None
         ml_share = t["ml"] / t["un"] if t["un"] else 1.0
@@ -227,7 +244,7 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
             "disponivel": disp, "transito": trans, "custo": custo, "preco": round(preco, 2) if preco else None,
             "vendas_un": t["un"], "vendas_valor": round(t["valor"], 2), "dias_venda": t["dias_venda"],
             "media_dia": round(md, 2), "dia_com_estoque": round(dc, 2) if dc is not None else None, "dias_com_estoque": dc_dias,
-            "venda_base": round(base, 2), "ruptura_dias": ruptura, "intermitente": intermit,
+            "venda_base": round(base, 2), "base_dias": b_dias, "ruptura_dias": ruptura, "intermitente": intermit,
             "v7": (ultimos.get(k) or {}).get(7, 0.0), "v15": (ultimos.get(k) or {}).get(15, 0.0), "v30": (ultimos.get(k) or {}).get(30, 0.0),
             "fat_dia": round(base * preco, 2) if preco else 0.0, "ml_share": round(ml_share, 3),
             "margem_pct": mg, "margem": margem, "ranqueando": rank, "alerta": alerta,

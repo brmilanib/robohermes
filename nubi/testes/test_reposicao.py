@@ -33,8 +33,9 @@ def test_venda_nos_dias_com_estoque():
     r = reposicao.calcular(itens, est, vendas)
     por = {l["sku"]: l for l in r["campeoes"] + r["pedido"]}
     z = por["ZERADO"]
-    # média de 25 dias = 9/25 = 0,36; com estoque só nos 3 últimos dias = 3/dia, peso 3/8 → 0,36 × 5/8 + 3 × 3/8 = 1,35
-    assert z["media_dia"] == 0.36 and z["dia_com_estoque"] == 3.0 and z["venda_base"] == 1.35, z
+    # média de 25 dias = 9/25 = 0,36; 02/10 (Bruno: "os últimos 7 dias COM estoque"): só 3 dias sabidos com estoque, 3/dia
+    # (os dias de antes do histórico, sem venda, não entram: não dá para saber se tinha)
+    assert z["media_dia"] == 0.36 and z["dia_com_estoque"] == 3.0 and z["venda_base"] == 3.0 and z["base_dias"] == 3, z
     assert z["ruptura_dias"] == 5 and z["classe"] == "A", z
     c = por["CAMPEAO"]
     assert c["venda_base"] == 10 and c["ruptura_dias"] == 0
@@ -50,7 +51,7 @@ def test_prateleira_minima_e_classe_c():
     itens[2]["disponivel"] = 0
     r = reposicao.calcular(itens, est, vendas)
     l = next(l for l in r["pedido"] if l["sku"] == "LENTO")
-    assert l["intermitente"] and l["nivel_max"] == 5 and l["compra"] == 5, l   # teve estoque e vende pouco: 0,25/dia × (15 + 5) dias, sem segurança
+    assert l["intermitente"] and l["nivel_max"] == 6 and l["compra"] == 6, l   # vende pouco: 2 em 7 dias = 0,29/dia × (15 + 5) = 5,7 → 6, sem segurança
 
 
 def test_faixas_caixa_manual_e_full():
@@ -108,8 +109,8 @@ def test_ranqueamento_e_alertas_de_preco():
     z = next(l for l in r["pedido"] if l["sku"] == "ZERADO")
     # ficou 5 dias zerado e voltou em 29/09: ranqueando com 9 vendidos de 40; margem baixa não manda para o fim da fila
     assert z["ranqueando"] == {"desde": "2026-09-29", "vendidos": 9, "meta": 40, "motivo": "voltou de ruptura"}, z["ranqueando"]
-    # ranqueando com margem baixa: a margem não corta a profundidade do campeão (30 dias): 1,35 × 35 + 1,65 × 1,3 × √47,25 = 62
-    assert z["faixa"] == 1 and z["nivel_max"] == 62, z
+    # ranqueando com margem baixa: a margem não corta a profundidade do campeão (30 dias): 3 × 35 + 1,65 × 1,3 × √105 = 127
+    assert z["faixa"] == 1 and z["nivel_max"] == 127, z
     assert any(l["sku"] == "ZERADO" for l in r["precos"])
     # marcado na mão
     r = reposicao.calcular(itens, est, vendas, ranque={"MEIO": "2026-09-25"})
@@ -139,8 +140,8 @@ def test_dinheiro_parado_e_meta():
     itens[2]["disponivel"] = 300                                       # LENTO (curva C): 300 un. × R$ 20 = R$ 6.000 parados
     r = reposicao.calcular(itens, est, vendas, margens={"CAMPEAO": 20.0, "MEIO": 10.0})
     p = {x["classe"]: x for x in r["parado"]}
-    assert p["C"]["custo"] == 6000 and p["C"]["acima_do_nivel"] == 5900, p["C"]                # nível da prateleira: 5 un. (15 + 5 dias)
-    assert r["sobras"][0]["sku"] == "LENTO" and r["sobras"][0]["acima_valor"] == 5900
+    assert p["C"]["custo"] == 6000 and p["C"]["acima_do_nivel"] == 5880, p["C"]                # nível da prateleira: 6 un.
+    assert r["sobras"][0]["sku"] == "LENTO" and r["sobras"][0]["acima_valor"] == 5880
     rs = r["resumo"]
     assert rs["parado_bc"] >= 6000 and rs["meta_fat"] == 2_000_000
     # faturamento de 25 dias levado a 30; margem média ponderada pelo faturamento dos que têm margem
