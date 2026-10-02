@@ -54,7 +54,23 @@ def test_volume_bem_diferente_continua_separado():
     assert any("200 ml" in p for p in r["produto"]), set(r["produto"])
 
 
+
+def test_familia_club_de_nuit_perde_para_o_modelo():
+    # 02/10 (Bruno): Overdose, Lionheart e Private Key são outros perfumes, não o Club de Nuit Intense Man
+    linhas = [["club de nuit intense man", "Club de Nuit Intense Man"], ["club de nuit intense woman", "Club de Nuit Intense Woman"],
+              ["club de nuit sillage", "Club de Nuit Sillage"], ["club de nuit intense", "Club de Nuit Intense Man"],
+              ["club de nuit", "Club de Nuit Intense Man"], ["private key to my dreams", "Private Key To My Dreams"],
+              ["lionheart", "Club de Nuit Lionheart"]]
+    pm = nubi.palavras_da_marca("ARMAF")
+    ach = lambda t: nubi.achar_linha(nubi.normalizar(t), linhas, pm)
+    assert ach("Extrato De Perfume Em Spray Armaf Club De Nuit Private Key To My Dreams 100ml") == "Private Key To My Dreams"
+    assert ach("Club De Nuit Lionheart Armaf Man 100 Ml") == "Club de Nuit Lionheart"
+    assert ach("Perfume Club De Nuit Intense Da Armaf Ed") == "Club de Nuit Intense Man"
+    assert ach("Perfume Armaf Club De Nuit Sillage 105ml") == "Club de Nuit Sillage"
+
+
 if __name__ == "__main__":
     test_volume_em_oncas_do_gtin_pesquisado_nao_parte_o_produto()
     test_volume_bem_diferente_continua_separado()
+    test_familia_club_de_nuit_perde_para_o_modelo()
     print("ok volume em onças")

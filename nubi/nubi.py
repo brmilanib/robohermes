@@ -483,6 +483,20 @@ def garantir_config(cfg, marca, df, repo=None):
 # Consolidação: anúncios -> referências reais
 # ---------------------------------------------------------------------------
 
+_FAMILIAS = {}
+
+
+def _familias(linhas):
+    """Chaves que são o começo (palavras inteiras) de 2 ou mais outras chaves: "club de nuit" na Armaf."""
+    ks = tuple(normalizar(k) for k, _ in linhas)
+    if ks not in _FAMILIAS:
+        if len(_FAMILIAS) > 2000:
+            _FAMILIAS.clear()
+        _FAMILIAS[ks] = {k for k in set(ks) if k and len(k.split()) >= 2
+                         and sum(1 for o in set(ks) if o != k and o.startswith(k + " ")) >= 2}
+    return _FAMILIAS[ks]
+
+
 def achar_linha(titulo_norm, linhas, palavras_marca):
     """
     Procura as chaves do marcas.json no título normalizado.
@@ -493,6 +507,7 @@ def achar_linha(titulo_norm, linhas, palavras_marca):
       só vale se nada mais casar, porque o nome da marca está em quase todo título.
     """
     alvo = f" {titulo_norm} "
+    familias = _familias(linhas)
     achados = []
     for ordem, (chave, rotulo) in enumerate(linhas):
         k = normalizar(chave)
@@ -500,7 +515,9 @@ def achar_linha(titulo_norm, linhas, palavras_marca):
             continue
         pos = alvo.find(f" {k} ")
         if pos >= 0:
-            reserva = set(k.split()) <= palavras_marca
+            # 02/10 (Bruno: "Club de Nuit Overdose, Lionheart e Private Key são outros perfumes"): chave de FAMÍLIA ("club de
+            # nuit", começo de 2+ outras chaves) também é reserva: qualquer modelo citado no título ganha dela
+            reserva = set(k.split()) <= palavras_marca or k in familias
             achados.append((pos, pos + len(k), ordem, rotulo, reserva))
     if not achados:
         return "Outros"
