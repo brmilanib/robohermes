@@ -8423,6 +8423,7 @@ COMANDOS_MAC = {
     "entrar_ml": "Mercado Livre: abrir a janela no Mac para passar pela verificação (você resolve o 'não sou um robô')",
     "ml_lojas": "Mercado Livre: achar os anúncios das minhas lojas", "ml_posicoes": "Mercado Livre: posição dos meus anúncios agora", "ml_pagina": "Mercado Livre: salvar uma página (busca ou anúncio) no nubi para análise, só lê",
     "explorador_quinzena": "Nubimetrics: exportar o Explorador da última quinzena de todas as marcas e importar no nubi",
+    "explorador_marca": "Nubimetrics: exportar o Explorador de anúncios de UMA marca (pesquisa expandida; arg = MARCA ou MARCA|exata) e importar",
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
     "vitrine_seguidos": "Mercado Livre: ler a vitrine (_CustId_) das lojas dos vendedores seguidos e gravar todos os anúncios, só lê",
     "ml_precos": "Mercado Livre: ler agora o preço dos anúncios do monitor de preços, só lê",

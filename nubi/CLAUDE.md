@@ -246,6 +246,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (vendedores, campo de vendidos), /items de outra loja, visitas, vitrine por seller_id, /users e /highlights. Rota
   `meli_teste_marca?marca=`; pedido pelo banco: `ia_resumos` `meli|teste_marca|pedido` = marca → roda no começo do cron da
   hora; resultado em `meli|teste_marca|<marca>`. Teste `test_meli_marca.py`.
+- **Explorador de UMA marca pelo coletor (02/10, Bruno: "pesquisa expandida digitando AL WATANIAH, testar a técnica de
+  atualizar só a diferença")**: `coletor explorador-marca <MARCA> [--exata]` (comando da Central `explorador_marca`, arg
+  "MARCA" ou "MARCA|exata"; também no servidor): busca do topo "Buscar por Anúncios" → Explorador, opção Pesquisa expandida
+  por IA, lê "Anúncios com vendas: 01 set - 30 set 2026" (`periodo_do_explorador`), clica só em EXPORTAR e manda a
+  `importar` com marca/início/fim. O endereço achado fica em `cfg["explorador_url"]`. O nubi junta pelo ID do anúncio
+  (`_juntar_por_id`/`_absorver_periodo`). O comando `explorador_quinzena` da Central ainda não tinha o lado do coletor.
+  Teste `test_explorador_marca.py`.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 

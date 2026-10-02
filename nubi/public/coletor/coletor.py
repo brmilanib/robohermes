@@ -384,6 +384,123 @@ def guardar_sessao(ctx):
         pass
 
 
+EXPLORADOR_MARCA_OK = re.compile(r"^[\w &'.+-]{2,40}$")
+RE_PERIODO_EXPLORADOR = re.compile(r"An[uú]ncios com vendas:\s*(\d{1,2})\s+([a-zç]{3})\w*\.?\s*(?:de\s+)?(\d{4})?\s*[-–a]\s*"
+                                   r"(\d{1,2})\s+([a-zç]{3})\w*\.?\s*(?:de\s+)?(\d{4})", re.I)
+
+
+def periodo_do_explorador(texto):
+    """'Anúncios com vendas: 01 set - 30 set 2026' -> ('2026-09-01', '2026-09-30'). None se a tela não disser."""
+    m = RE_PERIODO_EXPLORADOR.search(texto or "")
+    if not m:
+        return None
+    d1, m1, a1, d2, m2, a2 = m.groups()
+    n1, n2 = MES_ABREV_MIN.get(m1.lower()[:3]), MES_ABREV_MIN.get(m2.lower()[:3])
+    if not n1 or not n2:
+        return None
+    a2 = int(a2)
+    a1 = int(a1) if a1 else (a2 - 1 if n1 > n2 else a2)
+    return date(a1, n1, int(d1)).isoformat(), date(a2, n2, int(d2)).isoformat()
+
+
+def _explorador_login(pg):
+    """O endereço do Explorador não é /competition nem /market: aqui só a tela de login conta como sessão vencida."""
+    if re.search(r"/account/login|/login\b", urllib.parse.urlparse(pg.url).path or "", re.I):
+        raise SessaoExpirada(f"O Nubimetrics pediu login de novo. Rode {_onde_rodar('entrar')} " + diagnostico(pg))
+
+
+def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True):
+    """02/10 (Bruno: "Explorador, pesquisa expandida, digitando a marca AL WATANIAH, para testar a técnica de atualizar só a
+    diferença do período"). Busca a marca no Explorador de anúncios (busca do topo "Buscar por Anúncios"), escolhe
+    Pesquisa expandida por IA (ou exata), lê o período da tela ("Anúncios com vendas: 01 set - 30 set 2026"), clica só em
+    EXPORTAR e manda para `importar` com marca, início e fim. O nubi junta pelo ID do anúncio (mesmo período = atualiza;
+    mesmo início e fim maior = só cresce), nunca soma o mesmo anúncio duas vezes. Só lê; ritmo humano; para em verificação."""
+    marca = marca.strip().upper()
+    if not EXPLORADOR_MARCA_OK.match(marca):
+        raise Falha(f"marca inválida: {marca!r}")
+    destino = PASTA / "arquivos" / "explorador"
+    destino.mkdir(parents=True, exist_ok=True)
+    ctx = abrir_navegador(p, cfg)
+    try:
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        ir(pg, f"{BASE}/market/sellerranking", "body")
+        busca = pg.locator('input[placeholder*="Buscar por An" i]:visible').first
+        if not busca.count():
+            enviar_foto(pg, "explorador: sem a busca do topo", resumo_tela(pg))
+            raise Falha("não achei a busca 'Buscar por Anúncios' no topo " + diagnostico(pg))
+        busca.click()
+        devagar(1)
+        busca.fill("")
+        busca.type(marca, delay=90)
+        devagar(1)
+        busca.press("Enter")
+        try:
+            pg.wait_for_function("() => /Explorador de an[uú]ncios/i.test(document.body.innerText)", timeout=60000)
+        except Exception:  # noqa: BLE001
+            _explorador_login(pg)
+            enviar_foto(pg, "explorador: a busca não abriu o Explorador", resumo_tela(pg))
+            raise Falha("a busca do topo não abriu o Explorador de anúncios " + diagnostico(pg))
+        _explorador_login(pg)
+        if re.search(r"captcha|verif", pg.url or "", re.I):
+            raise Falha("o Nubimetrics pediu verificação; parei " + diagnostico(pg))
+        u = urllib.parse.urlparse(pg.url)
+        cfg["explorador_url"] = f"{u.scheme}://{u.netloc}{u.path}"          # para conferir depois (sem a busca)
+        try:
+            pg.add_style_tag(content=ESCONDER)
+        except Exception:  # noqa: BLE001
+            pass
+        devagar(3)
+        tipo = re.compile(r"Pesquisa exata" if exata else r"Pesquisa expandida", re.I)
+        opc = pg.locator("label:visible", has_text=tipo).first
+        if opc.count():
+            marcado = opc.locator("input[type=radio]")
+            if not (marcado.count() and marcado.first.is_checked()):
+                opc.click()
+                devagar(3)
+        else:
+            log("  explorador: não achei a opção " + ("Pesquisa exata" if exata else "Pesquisa expandida por IA") + "; sigo com a da tela")
+        try:
+            pg.wait_for_function("() => /de\\s+[\\d.]+\\s+resultados/i.test(document.body.innerText)", timeout=60000)
+        except Exception:  # noqa: BLE001
+            log("  explorador: não vi 'N resultados' na tela; sigo")
+        texto = pg.evaluate("() => document.body.innerText")
+        per = periodo_do_explorador(texto)
+        if not per:
+            enviar_foto(pg, "explorador: sem o período", resumo_tela(pg))
+            raise Falha("não achei 'Anúncios com vendas: …' na tela; não importo sem saber o período " + diagnostico(pg))
+        mres = re.search(r"de\s+([\d.]+)\s+resultados", texto, re.I)
+        n_res = int(mres.group(1).replace(".", "")) if mres else None
+        log(f"  explorador {marca}: período {per[0]} a {per[1]}" + (f", {n_res} resultados" if n_res is not None else "")
+            + (" (pesquisa exata)" if exata else " (pesquisa expandida)"))
+        devagar(2)
+        botao = botao_exportar(pg)
+        if not botao.count():
+            enviar_foto(pg, "explorador: sem EXPORTAR", resumo_tela(pg))
+            raise Falha("não achei o botão EXPORTAR do Explorador " + diagnostico(pg))
+        with pg.expect_download(timeout=180000) as d:
+            clicar_exportar(pg, exportar_alcancavel(botao), f"explorador {marca}")
+        dl = d.value
+        falhou = dl.failure()
+        if falhou:
+            raise Falha(f"o download do Explorador falhou ({falhou})")
+        ext = Path(dl.suggested_filename or "x.csv").suffix or ".csv"
+        arq = destino / f"{marca.replace(' ', '_')}__{per[0]}_{per[1]}{ext}"
+        dl.save_as(str(arq))
+        if not arq.exists() or arq.stat().st_size < 200:
+            raise Falha("o arquivo do Explorador veio vazio")
+        log(f"  explorador {marca}: baixado {arq.name} ({arq.stat().st_size // 1024} KB)")
+        guardar_sessao(ctx)
+        salvar_config(cfg)
+        if not enviar:
+            return 1, 0, 0, f"Explorador {marca} {per[0]}–{per[1]}: baixado, não enviado"
+        r = api(token, "importar", {"arquivo": arq.name, "marca": marca, "inicio": per[0], "fim": per[1]}, arq.read_bytes())
+        for linha in r.get("log", [])[-12:]:
+            log("    " + str(linha))
+        return 1, 1, 0, f"Explorador {marca} {per[0]}–{per[1]} importado" + (f" ({n_res} resultados)" if n_res else "")
+    finally:
+        ctx.close()
+
+
 FOTOS_ENVIADAS = [0]
 
 
@@ -3684,7 +3801,7 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
                  "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos",
-                 "ml_busca_foto")
+                 "ml_busca_foto", "explorador_marca")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -3795,6 +3912,11 @@ def comando_mac(chave, arg=""):
         return [*c, "programar-astra", arg] if str(arg).isdigit() else None
     if chave == "ml_pagina":
         return [*c, "ml-pagina", arg] if ML_PAGINA_OK.match(str(arg or "")) else None
+    if chave == "explorador_marca":                  # 02/10: arg = "MARCA" ou "MARCA|exata"
+        marca, _, modo = str(arg or "").partition("|")
+        if not EXPLORADOR_MARCA_OK.match(marca.strip()):
+            return None
+        return [*c, "explorador-marca", marca.strip()] + (["--exata"] if modo.strip() == "exata" else [])
     if chave == "programar_deepseek":
         return [*c, "programar-deepseek", arg] if str(arg).isdigit() else None
     return tabela.get(chave)
@@ -8088,6 +8210,9 @@ def main():
     bf = sub.add_parser("ml-busca-foto", help="Mercado Livre: achar a loja dos seguidos sem loja pela foto do anúncio na busca, só lê")
     bf.add_argument("--so", default=None, help="só este vendedor seguido")
     bf.add_argument("--rodizio", action="store_true", help="só a parte desta máquina (vigia; Mac / Dell / gamdias)")
+    exm = sub.add_parser("explorador-marca", help="Nubimetrics: exporta o Explorador de anúncios de UMA marca e importa no nubi")
+    exm.add_argument("marca")
+    exm.add_argument("--exata", action="store_true", help="Pesquisa exata (padrão: expandida por IA)")
     mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
     mlp.add_argument("url")
     fv = sub.add_parser("fotos-vendedores", help="Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML)")
@@ -8219,6 +8344,8 @@ def main():
         return executar("ml_busca_foto", lambda p, cfg, token: coletar_busca_foto(p, cfg, token, args.so, args.rodizio))
     if args.cmd == "ml-pagina":
         return executar("ml_pagina", lambda p, cfg, token: coletar_ml_pagina(p, cfg, token, args.url))
+    if args.cmd == "explorador-marca":
+        return executar("explorador_marca", lambda p, cfg, token: coletar_explorador_marca(p, cfg, token, args.marca, args.exata))
     if args.cmd == "fotos-vendedores":
         return executar("vend_fotos", lambda p, cfg, token: coletar_fotos_vendedores(p, cfg, token, args.so))
     if args.cmd == "vitrine-seguidos":
