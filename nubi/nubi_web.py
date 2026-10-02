@@ -5761,21 +5761,27 @@ def reposicao_mercado(repo, n=REPOSICAO_TOP_MERCADO):
         if k not in snaps or str(s["fim"]) > str(snaps[k]["fim"]):
             snaps[k] = s
     cache, out, sem = {}, {}, []
-    for it in alvo:
+    pend = []
+    for it in alvo:                                  # 1º carrega os cards (o vocabulário de produto vem de todos eles)
         k = estoque._chave(it["sku"])
         sn = snaps.get(nubi.compacta(dd["marca_de"].get(k) or ""))
+        if sn and sn["id"] not in cache:
+            cache[sn["id"]] = repo._todos("anuncios", {"select": "produto,tipo,titulo,un,fat,preco,vendedor",
+                                                        "snapshot_id": f"eq.{sn['id']}"}) or []
+        pend.append((it, k, sn))
+    vocab = set()
+    for s_ in snaps.values():                        # nomes dos cards ("BELARA - LATTAFA YARA CANDY") também contam
+        vocab |= _tokens_produto(s_["marca"])[0]
+    for ans in cache.values():
+        for nome in {str(a.get("produto") or "") for a in ans}:
+            vocab |= _tokens_produto(nome)[0]
+    for it, k, sn in pend:
         if not sn:
             sem.append(it["sku"])
             continue
-        if sn["id"] not in cache:
-            ans = repo._todos("anuncios", {"select": "titulo,un,fat,preco,vendedor", "snapshot_id": f"eq.{sn['id']}"}) or []
-            for a in ans:
-                a["_tok"] = _tokens_produto(a.get("titulo"))
-                a["_tipo"] = _tipo_tok(a.get("titulo"))
-            cache[sn["id"]] = ans
-        _, vol = _tokens_produto(it.get("titulo"))
-        m = reposicao.mercado_do_produto(it.get("titulo"), cache[sn["id"]], int(sn.get("dias") or 0),
-                                         lambda t, xs: _casar_varios(t, xs, 100000, vol_fixo=vol))
+        # 02/10: casa pelo PRODUTO consolidado do Explorador (o título longo do SKU não casava com o título curto do anúncio)
+        m = reposicao.mercado_por_produto(it.get("titulo"), cache[sn["id"]], int(sn.get("dias") or 0), _tokens_produto, _tipo_tok,
+                                          sn["marca"], vocab)
         if m:
             m.update({"marca": sn["marca"], "card_fim": str(sn["fim"])[:10]})
             out[k] = m

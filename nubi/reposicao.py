@@ -306,3 +306,87 @@ def mercado_do_produto(titulo, anuncios, dias, casar):
             "preco_lider": round(float(lider["preco"]), 2) if lider else None,
             "lider_un_dia": round(float(lider["un"]) / dias, 2) if lider else None,
             "preco_medio": round(sum(float(a.get("fat") or 0) for a in xs) / un, 2) if un else None}
+
+
+FORMATOS_FORA = ("outra marca", "decant", "kit", "body splash", "splash", "deo", "miniatura", "amostra")
+GENERICAS = {"arabe", "arabes", "original", "originais", "importado", "importada", "feminino", "feminina", "masculino",
+             "masculina", "unissex", "unisex", "nicho", "lacrado", "edp", "edt", "parfum", "toilette", "extrait", "perfume",
+             "fragrancia", "spray", "novo", "nova", "presente", "alta", "fixacao", "intenso"}
+
+
+GENERO = {"man", "men", "homme", "him", "woman", "women", "femme", "her", "masculino", "feminino"}
+
+
+def _genero(pal):
+    m = bool(pal & {"man", "men", "homme", "him"})
+    f = bool(pal & {"woman", "women", "femme", "her"})
+    return "m" if m and not f else "f" if f and not m else None
+
+
+def mercado_por_produto(titulo, anuncios, dias, tokens, tipo_tok, marca="", vocab_extra=frozenset()):
+    """02/10 (casamento pelo PRODUTO consolidado do Explorador): agrupa os anúncios do card pelo nome do produto
+    ("Armaf Club de Nuit Intense Man EDT 105 ml"), e o SKU casa com o produto cujas palavras estão no título do SKU (≥ 75%),
+    mesmo volume e sem EDP × EDT. Decant/kit/splash/deo/outra marca só casam com SKU do mesmo formato. Anúncio com preço
+    abaixo de metade do mediano do produto não entra no preço (decant mal classificado). `tokens(t)` -> (palavras, volume);
+    `tipo_tok(t)` -> 'edp'|'edt'|''."""
+    s_pal, s_vol = tokens(titulo)
+    s_tipo = tipo_tok(titulo)
+    m_pal, _ = tokens(marca) if marca else (set(), None)
+    proprias = {p for p in s_pal if p not in GENERICAS and p not in m_pal}   # palavras que dizem QUAL produto é
+    t_low = str(titulo or "").lower()
+    if len(s_pal) < 2 or not dias:
+        return None
+    grupos = {}
+    for a in anuncios:
+        nome = str(a.get("produto") or "").strip()
+        if not nome:
+            continue
+        fmt = str(a.get("tipo") or "").lower()
+        if any(f in fmt or f in nome.lower() for f in FORMATOS_FORA) and not any(f in t_low for f in FORMATOS_FORA if f in fmt or f in nome.lower()):
+            continue
+        grupos.setdefault(nome, []).append(a)
+    # só contam as palavras do SKU que o Explorador usa em algum nome de produto da marca ("elixir" conta; "amadeirado" não)
+    vocab = set(vocab_extra)                 # palavras de produto de todos os cards lidos ("candy" está no card da Belara)
+    for nome in grupos:
+        vocab |= tokens(nome)[0]
+    proprias = proprias & vocab
+    melhor = None
+    for nome, xs in grupos.items():
+        p_pal, p_vol = tokens(nome)
+        if len(p_pal) < 2:
+            continue
+        if s_vol and p_vol and s_vol != p_vol:
+            continue
+        p_tipo = tipo_tok(nome)
+        if s_tipo and p_tipo and s_tipo != p_tipo:
+            continue
+        comum = len(p_pal & s_pal)
+        nota = comum / len(p_pal)
+        # todas as palavras do produto no título do SKU ("Delilah VIOLA" não é o Delilah Blanc); com 5+ palavras, falta 1,
+        # mas nunca a de gênero (Intense MAN × Intense WOMAN)
+        falta = p_pal - s_pal
+        if len(falta) > (1 if len(p_pal) >= 5 else 0) or falta & GENERO:
+            continue
+        gp, gs = _genero(p_pal), _genero(s_pal)
+        if gp and gs and gp != gs:
+            continue
+        # e o contrário: o que o título do SKU diz do produto ("Yara ELIXIR") tem que estar no nome do produto
+        if proprias and len(proprias & p_pal) / len(proprias) < 0.75:
+            continue
+        un = sum(float(a.get("un") or 0) for a in xs)
+        chave = (nota, comum, un)
+        if not melhor or chave > melhor[0]:
+            melhor = (chave, nome, xs)
+    if not melhor:
+        return None
+    _, nome, xs = melhor
+    un = sum(float(a.get("un") or 0) for a in xs)
+    precos = sorted(float(a["preco"]) for a in xs if a.get("preco"))
+    mediana = precos[len(precos) // 2] if precos else None
+    com = [a for a in xs if float(a.get("un") or 0) > 0 and a.get("preco") and (not mediana or float(a["preco"]) >= mediana / 2)]
+    lider = max(com, key=lambda a: float(a.get("un") or 0)) if com else None
+    return {"produto": nome, "un_dia": round(un / dias, 2), "anuncios": len(xs), "vendedores": len({a.get("vendedor") for a in xs}),
+            "preco_min": round(min(float(a["preco"]) for a in com), 2) if com else None,
+            "preco_lider": round(float(lider["preco"]), 2) if lider else None,
+            "lider_un_dia": round(float(lider["un"]) / dias, 2) if lider else None,
+            "preco_medio": round(sum(float(a.get("fat") or 0) for a in xs) / un, 2) if un else None}

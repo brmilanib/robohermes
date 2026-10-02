@@ -148,6 +148,26 @@ def test_dinheiro_parado_e_meta():
     assert rs["margem_media"] == round((25000 * 20 + 5000 * 10) / 30000, 2), rs["margem_media"]
 
 
+def test_mercado_pelo_nome_do_produto():
+    """02/10 (conferência do cron): o título longo do SKU casa com o PRODUTO consolidado do Explorador, nos dois sentidos."""
+    import nubi_web as w
+    ans = [{"produto": "Lattafa Yara EDP 100 ml", "tipo": "EDP", "un": 8000, "fat": 1_400_000, "preco": 180, "vendedor": "A"},
+           {"produto": "Lattafa Asad Elixir EDP 100 ml", "tipo": "EDP", "un": 2800, "fat": 640_000, "preco": 230, "vendedor": "B"},
+           {"produto": "Lattafa Asad Elixir Decant 5 ml", "tipo": "Decant", "un": 50, "fat": 2_000, "preco": 40, "vendedor": "C"},
+           {"produto": "Maison Alhambra Delilah Viola EDP 100 ml", "tipo": "EDP", "un": 40, "fat": 11_000, "preco": 290, "vendedor": "D"},
+           {"produto": "Armaf Club de Nuit Intense Woman EDP 105 ml", "tipo": "EDP", "un": 1450, "fat": 350_000, "preco": 246, "vendedor": "E"},
+           {"produto": "Armaf Club de Nuit Intense Man EDT 105 ml", "tipo": "EDT", "un": 25000, "fat": 5_000_000, "preco": 221, "vendedor": "F"}]
+    m = lambda t, marca="LATTAFA", vocab=frozenset(): reposicao.mercado_por_produto(t, ans, 30, w._tokens_produto, w._tipo_tok, marca, vocab)
+    a = m("Perfume Asad Elixir Lattafa 100 Ml Perfume Árabe Masculino Original")
+    assert a["produto"] == "Lattafa Asad Elixir EDP 100 ml" and a["un_dia"] == round(2800 / 30, 2), a      # o decant não entra
+    assert m("Perfume Feminino Yara Elixir Lattafa Eau De Parfum 100 Ml") is None, "Yara Elixir não é o Yara"
+    assert m("Perfume Feminino Delilah Blanc Maison Alhambra Eau De Parfum 100ml", "MAISON ALHAMBRA") is None
+    w2 = m("Perfume Club De Nuit Woman Armaf Eau De Parfum 105ml", "ARMAF")
+    assert w2["produto"] == "Armaf Club de Nuit Intense Woman EDP 105 ml", w2                                   # 5 palavras: falta 1
+    assert m("Perfume Club De Nuit Intense Man Armaf Eau De Parfum 105ml", "ARMAF") is None                     # EDP × EDT
+    assert m("Perfume Lattafa Yara Candy Eau De Parfum 100 Ml", vocab=frozenset({"candy"})) is None             # candy é outro produto
+
+
 if __name__ == "__main__":
     test_venda_nos_dias_com_estoque()
     test_prateleira_minima_e_classe_c()
@@ -156,4 +176,5 @@ if __name__ == "__main__":
     test_margem_pos_ads()
     test_ranqueamento_e_alertas_de_preco()
     test_dinheiro_parado_e_meta()
+    test_mercado_pelo_nome_do_produto()
     print("ok reposição")
