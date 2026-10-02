@@ -778,6 +778,7 @@ header.top{flex-wrap:nowrap;min-height:var(--header-h)}
 .rg-info{background:var(--bg2,rgba(37,99,235,.06));border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.5;margin-bottom:12px}.rg-info .rg-t{display:block;margin-bottom:2px}
 .rg-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 14px}.rg-c{display:flex;flex-direction:column;gap:3px;font-size:13px}.rg-c input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--card);color:inherit;font:inherit}
 .modal.rg-modal{max-width:760px}.rp-sub{display:block;font-size:11px;font-weight:400}.rp-v{white-space:nowrap}
+.rp-scroll{max-height:calc(100vh / var(--z, 1) - 150px);overflow:auto;border:1px solid var(--line);border-radius:8px}.card.pad .rp-scroll table.rp-t thead th{position:sticky;top:0;z-index:3;background:var(--card);box-shadow:0 1px 0 var(--line)}.rp-curvas small{opacity:.7;font-weight:400;margin-left:4px}
 .rp-gerar{position:sticky;bottom:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end;padding:10px 0 2px;background:var(--card);border-top:1px solid var(--line);margin-top:8px}.rp-gerar #rp-tot{margin-right:auto}
 .hd-calc{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:999px;border:1px solid rgba(255,255,255,.28);background:transparent;color:#fff;cursor:pointer;flex:none}.hd-calc:hover{background:rgba(255,255,255,.12)}
 .lc-t input.lc-q{width:68px;text-align:right;border:1px solid var(--line);border-radius:7px;padding:4px 6px;background:var(--card);color:inherit;font:inherit;font-weight:700}
@@ -3532,9 +3533,17 @@ async function telaReposicao() {
       <td class="num" data-l="Custo un.">${ult(l) != null ? FMT.moeda(ult(l)) : "—"}</td>
       <td class="num" data-l="Comprar"><input type="number" min="0" step="1" class="lc-q" data-q="${esc(l.sku)}" value="${quer(l) || ""}" placeholder="0"></td>
       <td class="num lc-tot" data-l="Total" data-t="${esc(l.sku)}">${quer(l) && ult(l) ? FMT.moeda(quer(l) * ult(l)) : ""}</td></tr>`;
+  // 02/10 (Bruno: "embaixo do pedido, sub-botões: campeões A, curva B e curva C, e eu faço pedido separado"): a tabela, os
+  // totais, o zerar e o Gerar pedido valem só para a curva escolhida
+  const curva = S.rpCurva || "A", daCurva = l => curva === "todos" || (curva === "C" ? l.classe !== "A" && l.classe !== "B" : l.classe === curva);
+  const ped = r.pedido.filter(daCurva);
+  const curvas = [["A", "🏆 Campeões (curva A)"], ["B", "Curva B"], ["C", "Curva C"], ["todos", "Todos"]].map(([k, t]) => {
+    const xs = r.pedido.filter(l => k === "todos" || (k === "C" ? l.classe !== "A" && l.classe !== "B" : l.classe === k));
+    return `<button data-rpc="${k}" class="${curva === k ? "on" : ""}">${t} <small>${un(xs.length)} · ${FMT.moeda(xs.reduce((a, l) => a + (+quer(l) || 0) * (ult(l) || 0), 0))}</small></button>`; }).join("");
   let corte = false;
-  const pedido = r.faixas.map(f => `<tr class="rp-faixa"><td colspan="12" data-l=""><b>Faixa ${f.faixa}</b> · ${esc(f.nome)} · ${un(f.skus)} SKUs · sugestão ${un(f.unidades)} un. · ${FMT.moeda(f.valor)}</td></tr>` +
-    r.pedido.filter(l => l.faixa === f.faixa).map(l => { let sep = ""; if (!l.cabe_no_caixa && !corte) { corte = true; sep = `<tr class="rp-corte"><td colspan="12" data-l="">✂️ Aqui acaba o caixa de ${FMT.moeda(rs.caixa)}</td></tr>`; } return sep + linhaPedido(l); }).join("")).join("");
+  const pedido = r.faixas.filter(f => ped.some(l => l.faixa === f.faixa)).map(f => { const xs = ped.filter(l => l.faixa === f.faixa);
+    return `<tr class="rp-faixa"><td colspan="12" data-l=""><b>Faixa ${f.faixa}</b> · ${esc(f.nome)} · ${un(xs.length)} SKUs · sugestão ${un(xs.reduce((a, l) => a + l.compra, 0))} un. · ${FMT.moeda(xs.reduce((a, l) => a + (l.compra_valor || 0), 0))}</td></tr>` +
+    xs.map(l => { let sep = ""; if (!l.cabe_no_caixa && !corte) { corte = true; sep = `<tr class="rp-corte"><td colspan="12" data-l="">✂️ Aqui acaba o caixa de ${FMT.moeda(rs.caixa)}</td></tr>`; } return sep + linhaPedido(l); }).join(""); }).join("");
   const cab = `<thead><tr><th>Produto</th><th class="num" title="a MINHA venda por dia nos dias em que tinha estoque (embaixo, a média contando os dias zerados)">Minha venda/dia</th>
     <th class="num" title="unidades que EU vendi nos últimos 7, 15 e 30 dias (todas as lojas)">Vendi 7 · 15 · 30 dias</th>
     <th class="num" title="todos os vendedores do produto no Explorador (Nubimetrics), por dia">Mercado/dia</th><th class="num" title="preço de quem mais vende o produto">Preço do líder</th>
@@ -3579,32 +3588,36 @@ async function telaReposicao() {
       ${kpi("Campeões com margem baixa", `<span class="${rs.margem_ruim ? "neg" : ""}">${un(rs.margem_ruim)}</span> abaixo de 10%`, `${un(rs.margem_abaixo)} entre 10% e a meta de ${nf0.format(rs.meta_margem)}%`)}
     </div>
     <div class="card pad rp-cfg" style="margin-bottom:12px;display:flex;gap:10px 14px;flex-wrap:wrap;align-items:center;font-size:13px">
-      <label title="quantos dias até o próximo pedido (ex.: hoje sexta, pede de novo segunda = 3)">Próximo pedido em <input type="number" id="rp-sem" value="${g.semana}" min="1" max="30" style="width:52px"> dias</label>
+      <label title="quantos dias o estoque do campeão tem que durar depois que a compra chega">Campeões duram <input type="number" id="rp-dura-a" value="${cfg.dura_a}" min="7" max="120" style="width:56px"> dias</label>
+      <label title="curva B e C vendem mais devagar: menos dinheiro parado">Curva B e C <input type="number" id="rp-dura-bc" value="${cfg.dura_bc}" min="3" max="90" style="width:52px"> dias</label>
       <span class="muted">+ ${g.prazo} de entrega${cfg.caixa ? ` · caixa ${FMT.moeda(cfg.caixa)}` : ""}</span>
       <button class="btn small primary" id="rp-regras">⚙️ Regras da reposição</button>
       <button class="btn small" id="rp-merc">🔄 Atualizar mercado</button>
       <label class="btn small" title="UpSeller → Produtos → Exportar (export_warehouse_products…xlsx): código de barras e custo de compra">📦 Cadastro UpSeller${r.cadastro ? ` (${r.cadastro.skus})` : ""}<input type="file" id="rp-cad" accept=".xlsx" hidden></label></div>
     <div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${[["pedido", "🛒 Pedido"], ["precos", "📣 Preço (" + r.precos.length + ")"], ["full", "🚚 Full (top " + g.top_full + ")"], ["campeoes", "🏆 Campeões"], ["parado", "💰 Dinheiro parado"], ["mao", "✋ Na mão (" + r.manuais.length + ")"]].map(([k, t]) => `<button data-rpa="${k}" class="${aba === k ? "on" : ""}">${t}</button>`).join("")}</div>
-    <div class="card pad">${aba === "pedido" ? (r.pedido.length ? `<div class="rolar"><table class="t rp-t lc-t" style="font-size:13px">${cab}<tbody>${pedido}</tbody></table></div>
+    <div class="card pad">${aba === "pedido" ? (r.pedido.length ? `<div class="seg rp-curvas" style="margin-bottom:8px;flex-wrap:wrap">${curvas}</div>
+      ${ped.length ? `<div class="rp-scroll"><table class="t rp-t lc-t" style="font-size:13px">${cab}<tbody>${pedido}</tbody></table></div>` : `<p class="muted">Nada a comprar nesta curva.</p>`}
       <div class="rp-gerar"><span id="rp-tot" class="muted"></span><button class="btn small" id="rp-zerar" title="Zera a coluna Comprar para você digitar só o que vai comprar">0 zerar tudo</button>
         <button class="btn small" id="rp-sug" title="Volta a coluna Comprar para a sugestão">↺ usar a sugestão</button><button class="btn primary" id="rp-gerar">🧾 Gerar pedido</button></div>` : `<p class="muted">Nada a comprar.</p>`)
       : aba === "precos" ? precos : aba === "parado" ? parado : aba === "full" ? full : aba === "campeoes" ? camp : mao}</div></div>`;
   main.querySelectorAll("[data-rpa]").forEach(b => b.onclick = () => { S.rpAba = b.dataset.rpa; telaReposicao(); });
   const salvar = async corpo => { try { await api("estoque_reposicao_config", {}, {method: "POST", body: JSON.stringify(corpo)}); telaReposicao(); } catch (e) { toast(e.message); } };
   main.querySelectorAll("[data-rk]").forEach(b => b.onclick = () => salvar({ranque: {sku: b.dataset.rk, desde: b.dataset.on === "1" ? "" : new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10)}}));
-  $("#rp-sem").onchange = e => { const v = Math.max(1, Math.min(30, parseInt(e.target.value) || 7)); if (v === g.semana) return; setTimeout(() => salvar({semana: v})); };
+  $("#rp-dura-a").onchange = e => { const v = Math.max(7, Math.min(120, parseInt(e.target.value) || 30)); if (v === cfg.dura_a) return; setTimeout(() => salvar({dura_a: v})); };
+  $("#rp-dura-bc").onchange = e => { const v = Math.max(3, Math.min(90, parseInt(e.target.value) || 15)); if (v === cfg.dura_bc) return; setTimeout(() => salvar({dura_bc: v})); };
+  main.querySelectorAll("[data-rpc]").forEach(b => b.onclick = () => { S.rpCurva = b.dataset.rpc; telaReposicao(); });
   $("#rp-regras").onclick = () => regrasReposicao(r, salvar);
-  const totais = () => { let n = 0, u = 0, v = 0; r.pedido.forEach(l => { const q = +quer(l) || 0; if (q > 0) { n++; u += q; v += q * (ult(l) || 0); } }); return {n, u, v}; };
-  const mostraTot = () => { const t = totais(), el = $("#rp-tot"); if (el) el.innerHTML = `No pedido: <b>${un(t.n)}</b> produtos · <b>${un(t.u)}</b> un. · <b>${FMT.moeda(t.v)}</b> pelo último custo${rs.caixa && t.v > rs.caixa ? ` <span class="neg">(passa o caixa em ${FMT.moeda(t.v - rs.caixa)})</span>` : ""}`; };
+  const totais = () => { let n = 0, u = 0, v = 0; ped.forEach(l => { const q = +quer(l) || 0; if (q > 0) { n++; u += q; v += q * (ult(l) || 0); } }); return {n, u, v}; };
+  const mostraTot = () => { const t = totais(), el = $("#rp-tot"); if (el) el.innerHTML = `${{A: "Campeões", B: "Curva B", C: "Curva C", todos: "Todas as curvas"}[curva]}: <b>${un(t.n)}</b> produtos · <b>${un(t.u)}</b> un. · <b>${FMT.moeda(t.v)}</b> pelo último custo${rs.caixa && t.v > rs.caixa ? ` <span class="neg">(passa o caixa em ${FMT.moeda(t.v - rs.caixa)})</span>` : ""}`; };
   mostraTot();
   main.querySelectorAll("[data-q]").forEach(inp => inp.oninput = () => {
     const l = r.pedido.find(z => z.sku === inp.dataset.q), v = Math.max(0, parseInt(inp.value) || 0);
     qtd[inp.dataset.q] = v; lcGravar({dia: hoje, q: qtd});
     const td = main.querySelector(`[data-t="${CSS.escape(inp.dataset.q)}"]`); if (td) td.textContent = v && ult(l) ? FMT.moeda(v * ult(l)) : "";
     mostraTot(); });
-  if ($("#rp-zerar")) $("#rp-zerar").onclick = () => { r.pedido.forEach(l => { qtd[l.sku] = 0; }); lcGravar({dia: hoje, q: qtd}); telaReposicao(); };
-  if ($("#rp-sug")) $("#rp-sug").onclick = () => { lcGravar({dia: hoje, q: {}}); telaReposicao(); };
-  if ($("#rp-gerar")) $("#rp-gerar").onclick = () => gerarPedido(r.pedido.map(l => ({...l, q: +quer(l) || 0, custo_un: ult(l)})).filter(l => l.q > 0));
+  if ($("#rp-zerar")) $("#rp-zerar").onclick = () => { ped.forEach(l => { qtd[l.sku] = 0; }); lcGravar({dia: hoje, q: qtd}); telaReposicao(); };
+  if ($("#rp-sug")) $("#rp-sug").onclick = () => { ped.forEach(l => { delete qtd[l.sku]; }); lcGravar({dia: hoje, q: qtd}); telaReposicao(); };
+  if ($("#rp-gerar")) $("#rp-gerar").onclick = () => gerarPedido(ped.map(l => ({...l, q: +quer(l) || 0, custo_un: ult(l)})).filter(l => l.q > 0));
   $("#rp-merc").onclick = async ev => { ev.target.disabled = true; ev.target.textContent = "Lendo o Explorador…";
     try { const x = await api("estoque_reposicao_mercado", {}, {method: "POST", body: "{}"}); toast(`Mercado de ${x.casados} campeões atualizado`); telaReposicao(); }
     catch (e) { toast(e.message); ev.target.disabled = false; ev.target.textContent = "🔄 Atualizar mercado"; } };
@@ -3634,15 +3647,18 @@ function regrasReposicao(r, salvar) {
     <div class="rg-info">
       <b class="rg-t">Como o nubi calcula</b>
       <div>• <b>Minha venda/dia</b> = a média só dos dias em que o produto <b>tinha estoque</b> (dia zerado não conta, senão a ruptura esconde a venda).</div>
-      <div>• <b>Nível máximo</b> = venda/dia × (dias até o próximo pedido + dias de entrega) + estoque de segurança. A segurança é maior na curva A, menor na B e pouca na C.</div>
+      <div>• <b>Nível máximo</b> = venda/dia × (dias que o estoque tem que durar + dias de entrega) + estoque de segurança. Campeões (curva A) duram ${cfg.dura_a} dias; curva B e C, ${cfg.dura_bc}. A segurança é maior na A, menor na B e pouca na C.</div>
       <div>• <b>Sugestão</b> = nível máximo − (estoque + o que está chegando). Se já tem o suficiente, a sugestão é 0.</div>
-      <div>• <b>Campeões</b> (curva A) compram mais para não romper no Full; com margem abaixo da meta, sem esse extra; abaixo de 10%, só a semana e vão para o fim da fila.</div>
+      <div>• <b>Margem</b> abaixo de 10% (e o anúncio não está ranqueando): dura só os dias da curva B/C e vai para o fim da fila. Ranqueando, a margem baixa é de propósito e não corta a compra.</div>
+      <div>• <b>Curva C</b> só compra quando zera: o foco é tirar dinheiro parado da C e levar para a profundidade dos campeões.</div>
       <div>• A fila é por <b>lucro por dia</b>; com caixa definido, o que não cabe fica abaixo da linha ✂️. O mercado do Explorador é só referência: nunca aumenta a compra.</div>
     </div>
     <div class="rg-g">
-      ${campo("rg-sem", "Próximo pedido em (dias)", g.semana, "intervalo até a próxima compra", 'min="1" max="30"')}
+      ${campo("rg-dura-a", "Campeões (curva A) duram (dias)", cfg.dura_a, "estoque depois que a compra chega; depois pode ir a 60", 'min="7" max="120"')}
+      ${campo("rg-dura-bc", "Curva B e C duram (dias)", cfg.dura_bc, "vendem mais devagar: menos dinheiro parado", 'min="3" max="90"')}
+      ${campo("rg-sem", "Próximo pedido em (dias)", g.semana, "marca o que acaba antes do próximo pedido (faixa 1 e 2)", 'min="1" max="30"')}
       ${campo("rg-prazo", "Entrega do fornecedor (dias)", cfg.prazo, "do pedido até chegar no galpão", 'min="1" max="60"')}
-      ${campo("rg-camp", "Campeões compram a mais (%)", Math.round((cfg.campeao - 1) * 100), "folga extra da curva A", 'min="0" max="200" step="5"')}
+      ${campo("rg-camp", "Full: campeões a mais (%)", Math.round((cfg.campeao - 1) * 100), "folga extra do que vai para o Full", 'min="0" max="200" step="5"')}
       ${campo("rg-meta", "Meta de margem pós ADS (%)", cfg.meta_margem, "abaixo dela o campeão perde o extra", 'min="0" max="80"')}
       ${campo("rg-mlg", "Do ML que sai do galpão (%)", Math.round(cfg.ml_galpao * 100), "o resto vai para o Full (top " + g.top_full + ", " + g.full_dias + " dias)", 'min="0" max="100" step="5"')}
       ${campo("rg-metafat", "Meta de faturamento/mês (R$)", cfg.meta_fat, "aparece no topo da Reposição", 'min="0" step="100000"')}
@@ -3652,7 +3668,7 @@ function regrasReposicao(r, salvar) {
   bg.querySelector(".modal").classList.add("rg-modal");
   bg.querySelector("#rg-salvar").onclick = () => {
     const v = id => bg.querySelector("#" + id).value, n = id => parseFloat(String(v(id)).replace(",", "."));
-    const corpo = {semana: parseInt(v("rg-sem")) || g.semana, prazo: parseInt(v("rg-prazo")) || cfg.prazo, campeao: 1 + (n("rg-camp") || 0) / 100,
+    const corpo = {dura_a: parseInt(v("rg-dura-a")) || cfg.dura_a, dura_bc: parseInt(v("rg-dura-bc")) || cfg.dura_bc, semana: parseInt(v("rg-sem")) || g.semana, prazo: parseInt(v("rg-prazo")) || cfg.prazo, campeao: 1 + (n("rg-camp") || 0) / 100,
       meta_margem: n("rg-meta") || 0, ml_galpao: (n("rg-mlg") || 0) / 100, meta_fat: n("rg-metafat") || 0, caixa: n("rg-caixa") || null};
     bg.querySelector("[data-fechar]").click(); salvar(corpo); toast("Regras guardadas");
   };

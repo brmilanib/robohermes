@@ -151,7 +151,7 @@ try:
                         j["faixas"] = [{"faixa": 1, "nome": "Campeões", "skus": 2, "unidades": 19, "valor": 950.0}]
                     route.fulfill(response=resp, json=j)
                 pg.route(lambda u: "/api/app?" in u and re.search(r"[?&]r=estoque_reposicao(&|$)", u), com_pedido)
-                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/reposicao"); pg.wait_for_selector("#rp-sem", timeout=20000)
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/reposicao"); pg.wait_for_selector("#rp-dura-a", timeout=20000)
                 assert "Reposição" in pg.inner_text(".es-cab") and "Pedido completo" in pg.inner_text(".kpis")
                 for a in ("precos", "full", "campeoes", "parado", "mao", "pedido"):
                     pg.click(f"[data-rpa='{a}']"); pg.wait_for_selector(f"[data-rpa='{a}'].on", timeout=15000)
@@ -167,16 +167,23 @@ try:
                     assert pg.input_value("[data-q='TESTE-1']") == "15" and "R$ 205" in pg.inner_text(".rp-t"), pg.inner_text(".rp-t")[:800]
                     pg.fill("[data-q='TESTE-2']", "0"); pg.dispatch_event("[data-q='TESTE-2']", "input")
                     pg.fill("[data-q='TESTE-1']", "7"); pg.dispatch_event("[data-q='TESTE-1']", "input")
-                    assert "No pedido: 1 produtos · 7 un." in pg.inner_text("#rp-tot"), pg.inner_text("#rp-tot")
+                    assert "Campeões: 1 produtos · 7 un." in pg.inner_text("#rp-tot"), pg.inner_text("#rp-tot")
                     pg.click("#rp-gerar"); pg.wait_for_selector("#gp-corpo .lc-item", timeout=8000)
                     assert "Pedido de compra" in pg.inner_text(".modal")
                     pg.click("[data-gpor='categoria']"); pg.wait_for_selector("[data-gpor='categoria'].on", timeout=5000)
                     pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"gerar_pedido_{nome}.png"), full_page=False)
                     pg.click(".modal [data-fechar]")
                     pg.click("#rp-zerar"); pg.wait_for_selector("#rp-tot", timeout=15000)
-                    assert "No pedido: 0" in pg.inner_text("#rp-tot"), pg.inner_text("#rp-tot")
+                    assert "Campeões: 0" in pg.inner_text("#rp-tot"), pg.inner_text("#rp-tot")
                     pg.click("#rp-sug"); pg.wait_for_selector("#rp-tot", timeout=15000)
-                pg.fill("#rp-sem", "3"); pg.dispatch_event("#rp-sem", "change"); pg.wait_for_selector("#rp-sem[value='3']", timeout=15000)
+                # 02/10 (Bruno: "campeão dura 30 dias, B e C 15; pedido separado por curva; cabeçalho fixo")
+                assert pg.input_value("#rp-dura-a") == "30" and pg.input_value("#rp-dura-bc") == "15"
+                assert pg.evaluate("getComputedStyle(document.querySelector('.rp-t thead th')).position") == "sticky"
+                pg.click("[data-rpc='B']"); pg.wait_for_selector("[data-rpc='B'].on", timeout=15000)
+                assert "Nada a comprar nesta curva" in pg.inner_text("#main") and "Curva B:" in pg.inner_text("#rp-tot")
+                pg.click("[data-rpc='A']"); pg.wait_for_selector("[data-rpc='A'].on", timeout=15000)
+                pg.fill("#rp-dura-a", "45"); pg.dispatch_event("#rp-dura-a", "change"); pg.wait_for_selector("#rp-dura-a[value='45']", timeout=15000)
+                pg.fill("#rp-dura-a", "30"); pg.dispatch_event("#rp-dura-a", "change"); pg.wait_for_selector("#rp-dura-a[value='30']", timeout=15000)
                 assert "Vendi 7 · 15 · 30 dias" in pg.inner_text(".rp-t thead") and "🚀" not in pg.inner_text(".rp-t") and "🧮" not in pg.inner_text(".rp-t")
                 pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"reposicao_{nome}.png"), full_page=False)
                 # 02/10: calculadora livre no cabeçalho, sem buscar produto
@@ -195,7 +202,7 @@ try:
                 with pg.expect_response(lambda r_: "estoque_reposicao_mercado" in r_.url, timeout=60000) as rm:
                     pg.click("#rp-merc")
                 assert rm.value.status == 200, rm.value.text()[:400]
-                pg.wait_for_selector("#rp-sem", timeout=20000)
+                pg.wait_for_selector("#rp-dura-a", timeout=20000)
                 pg.click("#rp-regras"); pg.wait_for_selector("#rg-caixa", timeout=8000)
                 pg.fill("#rg-caixa", ""); pg.click("#rg-salvar"); pg.wait_for_timeout(1500)
             pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/categorias")

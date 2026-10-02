@@ -38,8 +38,8 @@ def test_venda_nos_dias_com_estoque():
     assert z["ruptura_dias"] == 5 and z["classe"] == "A", z
     c = por["CAMPEAO"]
     assert c["venda_base"] == 10 and c["ruptura_dias"] == 0
-    # nível = (10 × 12 + 1,65 × 1,3 × √120) × 1,2 = 172,2 → 173 (sempre para cima) → compra 143
-    assert c["nivel_max"] == 173 and c["compra"] == 143, c
+    # 02/10 (Bruno: "o campeão tem que durar 30 dias"): nível = 10 × (30 + 5) + 1,65 × 1,3 × √350 = 390,1 → 391 → compra 361
+    assert c["nivel_max"] == 391 and c["compra"] == 361 and c["dura_alvo"] == 30, c
 
 
 def test_prateleira_minima_e_classe_c():
@@ -50,7 +50,7 @@ def test_prateleira_minima_e_classe_c():
     itens[2]["disponivel"] = 0
     r = reposicao.calcular(itens, est, vendas)
     l = next(l for l in r["pedido"] if l["sku"] == "LENTO")
-    assert l["intermitente"] and l["nivel_max"] == 3 and l["compra"] == 3, l   # teve estoque e vende pouco: 0,25/dia × 12 dias, sem segurança
+    assert l["intermitente"] and l["nivel_max"] == 5 and l["compra"] == 5, l   # teve estoque e vende pouco: 0,25/dia × (15 + 5) dias, sem segurança
 
 
 def test_faixas_caixa_manual_e_full():
@@ -80,14 +80,14 @@ def test_margem_pos_ads():
     r = reposicao.calcular(itens, est, vendas, margens={"CAMPEAO": 3.8, "ZERADO": 20.7, "MEIO": 14.0})
     por = {l["sku"]: l for l in r["pedido"]}
     c = por["CAMPEAO"]
-    assert c["margem"] == "ruim" and c["faixa"] == 4 and c["nivel_max"] == 70 and c["compra"] == 40, c   # só a semana: 10 × 7
+    assert c["margem"] == "ruim" and c["faixa"] == 4 and c["nivel_max"] == 200 and c["compra"] == 170, c   # dura só 15 dias: 10 × (15 + 5)
     assert por["ZERADO"]["margem"] == "ok" and por["ZERADO"]["nivel_max"] == base["ZERADO"]["nivel_max"]
     assert r["pedido"][0]["sku"] == "ZERADO" and r["pedido"][-1]["sku"] == "CAMPEAO"              # lucro primeiro, margem ruim no fim
     assert r["resumo"]["margem_ruim"] == 1 and r["resumo"]["meta_margem"] == 18.0
-    # entre 10% e a meta: campeão sem o +20% e com a segurança da classe B
+    # entre 10% e a meta: campeão com a segurança da classe B
     r3 = reposicao.calcular(itens, est, vendas, margens={"CAMPEAO": 15.0})
     c3 = next(l for l in r3["pedido"] if l["sku"] == "CAMPEAO")
-    assert c3["margem"] == "abaixo" and c3["nivel_max"] == 135, c3                               # 120 + 1,0 × 1,3 × √120 = 134,2 → 135
+    assert c3["margem"] == "abaixo" and c3["nivel_max"] == 375, c3                               # 350 + 1,0 × 1,3 × √350 = 374,3 → 375
 
 
 def test_mercado_do_produto():
@@ -108,7 +108,8 @@ def test_ranqueamento_e_alertas_de_preco():
     z = next(l for l in r["pedido"] if l["sku"] == "ZERADO")
     # ficou 5 dias zerado e voltou em 29/09: ranqueando com 9 vendidos de 40; margem baixa não manda para o fim da fila
     assert z["ranqueando"] == {"desde": "2026-09-29", "vendidos": 9, "meta": 40, "motivo": "voltou de ruptura"}, z["ranqueando"]
-    assert z["faixa"] == 1 and z["nivel_max"] == 29, z               # faltam 31, limitado a 3 semanas: 1,35 × 21 = 28,4 → 29
+    # ranqueando com margem baixa: a margem não corta a profundidade do campeão (30 dias): 1,35 × 35 + 1,65 × 1,3 × √47,25 = 62
+    assert z["faixa"] == 1 and z["nivel_max"] == 62, z
     assert any(l["sku"] == "ZERADO" for l in r["precos"])
     # marcado na mão
     r = reposicao.calcular(itens, est, vendas, ranque={"MEIO": "2026-09-25"})
@@ -138,8 +139,8 @@ def test_dinheiro_parado_e_meta():
     itens[2]["disponivel"] = 300                                       # LENTO (curva C): 300 un. × R$ 20 = R$ 6.000 parados
     r = reposicao.calcular(itens, est, vendas, margens={"CAMPEAO": 20.0, "MEIO": 10.0})
     p = {x["classe"]: x for x in r["parado"]}
-    assert p["C"]["custo"] == 6000 and p["C"]["acima_do_nivel"] == 5940, p["C"]                # nível da prateleira: 3 un.
-    assert r["sobras"][0]["sku"] == "LENTO" and r["sobras"][0]["acima_valor"] == 5940
+    assert p["C"]["custo"] == 6000 and p["C"]["acima_do_nivel"] == 5900, p["C"]                # nível da prateleira: 5 un. (15 + 5 dias)
+    assert r["sobras"][0]["sku"] == "LENTO" and r["sobras"][0]["acima_valor"] == 5900
     rs = r["resumo"]
     assert rs["parado_bc"] >= 6000 and rs["meta_fat"] == 2_000_000
     # faturamento de 25 dias levado a 30; margem média ponderada pelo faturamento dos que têm margem

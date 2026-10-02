@@ -434,7 +434,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   continua; ✋ e 🚀 ficam na aba Preço/Na mão); "Minha venda/dia" mostra só a venda nos dias com estoque e embaixo a média
   com os dias zerados; coluna "Vendi 7 · 15 · 30 dias" (`v7/v15/v30`) e "dura X d" no estoque; as regras (próximo pedido,
   entrega, campeões, meta de margem, ML no galpão, meta de faturamento, caixa) ficam no botão ⚙️ Regras da reposição
-  (janela no meio com "Como o nubi calcula"); "Próximo pedido em" fica na tela e é guardado (`semana` no config). Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
+  (janela no meio com "Como o nubi calcula"); "Próximo pedido em" fica na tela e é guardado (`semana` no config).
+  02/10 à noite (Bruno: "o campeão tem que durar 30 dias; B e C 15; pedido separado por curva; cabeçalho fixo"): regra 11
+  de `reposicao.py` — nível = venda base × (`dura_a` 30 na curva A / `dura_bc` 15 na B e C + prazo) + segurança; o +20%
+  dos campeões ficou só no Full; margem < 10% sem ranquear dura só `dura_bc`. Na tela: "Campeões duram N dias / Curva B e
+  C N dias" no topo; sub-abas do Pedido 🏆 Campeões (A) · Curva B · Curva C · Todos (tabela, totais, zerar e Gerar pedido
+  só da curva escolhida); cabeçalho da tabela fixo (`.rp-scroll`, rola dentro). Foco do Bruno agora: queimar os ~R$ 209
+  mil parados em B/C e levar para a profundidade dos campeões. Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
   Coletor, `calcLivre` = `pmCalc` com `solo`, sem buscar nada no ML).
 - **Marca "Perfume Árabe" (02/10)**: "árabe", "masculina", "alta fixação"… estão em `categorias.GENERICAS` (palavra de
   anúncio nunca é marca). No Por marca, cada produto tem 🔗 vincular (`estoque_marca_salvar`, vence o título). O KPI de

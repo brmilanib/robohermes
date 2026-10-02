@@ -5662,6 +5662,10 @@ def reposicao_config_salvar(repo, d):
     try:
         if d.get("prazo") is not None:
             cfg["prazo"] = max(1, min(60, int(d["prazo"])))
+        if d.get("dura_a") is not None:                # 02/10: quantos dias o estoque do campeão tem que durar (30, depois 60)
+            cfg["dura_a"] = max(7, min(120, int(d["dura_a"])))
+        if d.get("dura_bc") is not None:
+            cfg["dura_bc"] = max(3, min(90, int(d["dura_bc"])))
         if d.get("semana") is not None:                # 02/10: dias até o próximo pedido (UpSeller: "intervalo de compra")
             cfg["semana"] = max(1, min(30, int(d["semana"])))
         if d.get("campeao") is not None:
@@ -5753,7 +5757,7 @@ def reposicao_painel(repo, caixa=None, semana=None):
         return {"vazio": True}
     cfg, _ = _ia_json(repo, REPOSICAO_CFG)
     merc, merc_em = _ia_json(repo, REPOSICAO_MERCADO)
-    c = {k: cfg[k] for k in ("prazo", "semana", "campeao", "caixa", "meta_margem", "ml_galpao", "meta_fat") if cfg.get(k) is not None}
+    c = {k: cfg[k] for k in ("prazo", "semana", "dura_a", "dura_bc", "campeao", "caixa", "meta_margem", "ml_galpao", "meta_fat") if cfg.get(k) is not None}
     if caixa is not None:
         c["caixa"] = caixa or None
     if semana:                                   # 02/10 (Bruno): "compra do dia" até o próximo pedido (ex.: segunda = 3 dias)

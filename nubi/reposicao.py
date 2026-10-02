@@ -34,6 +34,12 @@ REGRAS (combinadas com o Bruno em 02/10, no doc "Estudo de estoque"):
    ranquear vai no máximo a 3 semanas de venda; enquanto ranqueia a margem baixa não pesa e a compra garante o
    que falta para completar. ALERTAS DE PREÇO todo dia: venda dos últimos 7 dias × as 2 semanas antes (só dias com
    estoque): caiu ≥ 30% → baixar um pouco; subiu ≥ 30% com margem abaixo da meta → subir; ranqueou → subir aos poucos.
+11. (02/10 à noite, Bruno: "o campeão tem que durar 30 dias no estoque; curva B e C pode ser mais tranquilo, 15 dias,
+   porque vende mais devagar; depois a gente pode aumentar para 60") PROFUNDIDADE POR CURVA: o nível máximo é a venda
+   base × (dias que o estoque tem que durar + prazo de entrega) + segurança; `dura_a` (30) para a curva A e `dura_bc` (15)
+   para B e C, ajustáveis. Isso substitui o "até o próximo pedido" e o +20% dos campeões no nível (o +20% fica só no
+   Full). Margem abaixo de 10% sem estar ranqueando: dura só `dura_bc`, sem segurança, e vai para o fim da fila (antes
+   era só a semana: o Club Woman, 6,4/dia, ia durar 2 dias).
 9. O mercado do Explorador é só referência (fatia e preço do líder): a compra NUNCA sobe por causa do mercado (Bruno: "não
    vou pegar o mercado inteiro de uma vez na primeira semana; compro a média que venho vendendo quando tenho estoque").
 """
@@ -41,6 +47,8 @@ import math
 
 SEMANA = 7
 PRAZO = 5
+DURA_A = 30              # dias que o estoque do campeão tem que durar (Bruno 02/10; depois pode ir a 60)
+DURA_BC = 15             # curva B e C: mais devagar, menos dinheiro parado
 CAMPEAO = 1.2
 Z = {"A": 1.65, "B": 1.0, "C": 0.5}   # 02/10 (Bruno): B e C saudáveis, mas com menos dinheiro parado
 META_FAT = 2_000_000                  # R$/mês em todas as lojas (Bruno: 2 a 2,5 milhões com 18–20% líquido depois do ADS)
@@ -116,6 +124,7 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
     caixa, meta_margem, ml_galpao; mercado: {chave: {...}}; manuais: {chave: nota} (decide na mão, fora do pedido);
     margens: {chave: margem % depois do ADS}; ranque: {chave: AAAA-MM-DD} (início do ranqueamento marcado na mão)."""
     cfg = dict({"prazo": PRAZO, "semana": SEMANA, "campeao": CAMPEAO, "caixa": None, "meta_margem": META_MARGEM,
+                "dura_a": DURA_A, "dura_bc": DURA_BC,
                 "ml_galpao": ML_GALPAO, "rank_un": RANK_UN, "meta_fat": META_FAT}, **{k: v for k, v in (cfg or {}).items() if v is not None or k == "caixa"})
     mercado, manuais, margens, ranque = mercado or {}, manuais or {}, margens or {}, ranque or {}
     dias = sorted(vendas_dia)
@@ -175,22 +184,23 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
         margem = ("ruim" if mg is not None and mg < MARGEM_RUIM else "abaixo" if mg is not None and mg < cfg["meta_margem"]
                   else "ok" if mg is not None else None)
         mx = 0
+        # 11. quanto o estoque tem que durar depois que chega: campeão 30 dias, B e C 15
+        dura = cfg["dura_a"] if classe == "A" else cfg["dura_bc"]
+        Td = dura + cfg["prazo"]
         if t["un"] > 0:
             if rank:                                 # 10. ranqueando: margem baixa de propósito; garante o que falta vender
-                seg = Z.get(classe, Z["B"]) * 1.3 * math.sqrt(base * T)
+                seg = Z.get(classe, Z["B"]) * 1.3 * math.sqrt(base * Td)
                 falta = min(cfg["rank_un"] - rank["vendidos"], base * RANK_MAX_DIAS)    # no máximo 3 semanas de venda
-                mx = max(math.ceil(base * T + seg), math.ceil(falta))
-            elif margem == "ruim":                   # 8. margem ruim: só a semana, sem segurança
-                mx = math.ceil(base * cfg["semana"])
+                mx = max(math.ceil(base * Td + seg), math.ceil(falta))
+            elif margem == "ruim":                   # 8/11. margem ruim: dura só o das curvas B/C, sem segurança
+                dura = min(dura, cfg["dura_bc"])
+                mx = math.ceil(base * (dura + cfg["prazo"]))
             elif intermit:
-                mx = max(1, math.ceil(base * T)) + (1 if classe == "A" else 0)
+                mx = max(1, math.ceil(base * Td)) + (1 if classe == "A" else 0)
             else:
                 z = Z["B"] if classe == "A" and margem == "abaixo" else Z.get(classe, Z["C"])
-                seg = z * 1.3 * math.sqrt(base * T)
-                mx = base * T + seg
-                if classe == "A" and margem != "abaixo":
-                    mx *= cfg["campeao"]
-                mx = math.ceil(mx)
+                seg = z * 1.3 * math.sqrt(base * Td)
+                mx = math.ceil(base * Td + seg)
         compra = max(0, math.ceil(mx - disp - trans)) if t["un"] > 0 else 0
         if classe == "C" and disp + trans > 0:
             compra = 0
@@ -222,7 +232,7 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
             "fat_dia": round(base * preco, 2) if preco else 0.0, "ml_share": round(ml_share, 3),
             "margem_pct": mg, "margem": margem, "ranqueando": rank, "alerta": alerta,
             "lucro_dia": round(base * preco * (mg if mg is not None else cfg["meta_margem"]) / 100, 2) if preco else 0.0,
-            "nivel_max": mx, "compra": compra, "compra_valor": round(compra * custo, 2) if custo and compra else 0.0,
+            "nivel_max": mx, "dura_alvo": dura, "compra": compra, "compra_valor": round(compra * custo, 2) if custo and compra else 0.0,
             "sem_custo": compra > 0 and not custo, "cobertura_dias": round(cobertura, 1) if cobertura is not None else None,
             "manual": motivo_fora, "mercado": m,
             "share_mercado": round(base / m["un_dia"], 3) if m and m.get("un_dia") else None,
@@ -244,7 +254,7 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
         l["cabe_no_caixa"] = caixa is None or ac <= caixa
     faixas = []
     for f, nome in ((1, "Campeões que acabam antes da próxima entrega"), (2, "Classe B que acaba antes da próxima entrega"),
-                    (3, "Campeões completando o nível"), (4, "O resto (e margem abaixo de 10%: só a semana)")):
+                    (3, "Campeões completando o nível"), (4, "O resto (e margem abaixo de 10%: dura só os dias da curva B/C)")):
         xs = [l for l in pedido if l["faixa"] == f]
         if xs:
             faixas.append({"faixa": f, "nome": nome, "skus": len(xs), "unidades": sum(l["compra"] for l in xs),
