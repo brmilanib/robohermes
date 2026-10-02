@@ -260,6 +260,15 @@ try:
                 m = pg.inner_text(".modal")
                 assert "SERUM-X" in m and "Zeta" in m, m[:800]                       # continua Skincare, com a marca
                 pg.click(".modal [data-fechar]")
+            # 02/10 (Bruno: "refaz a Início para um Dashboard, tudo organizado e clicável")
+            pg.goto(f"http://127.0.0.1:{PORTA}/#/inicio"); pg.wait_for_selector(".dash-topo", timeout=15000)
+            pg.wait_for_function("() => !document.querySelector('#ds-meus').innerText.includes('Carregando') && !document.querySelector('#ds-hoje').innerText.includes('Lendo')", timeout=30000)
+            pg.wait_for_function("() => !document.querySelector('#ds-repo b') || document.querySelector('#ds-repo b').innerText !== '…'", timeout=30000)
+            pg.wait_for_timeout(1500)
+            t = pg.inner_text("#main")
+            assert "Dashboard" in t and "Minha loja" in t and "Mercado" in t and "Meus destaques do mês" in t and "quem eu sigo" in t, t[:1500]
+            assert "Dashboard" in pg.inner_text("#side")
+            pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"dashboard_{nome}.png"), full_page=True)
             assert not erros, erros
             pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"estoque_categorias_{nome}.png"), full_page=True)
         b.close()

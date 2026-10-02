@@ -4335,6 +4335,56 @@ def coletar_gestor_financeiro(p, cfg, token):
     return len(feitos) + len(erros), len(feitos), len(erros), msg
 
 
+def coletar_gestor_painel(p, cfg, token):
+    """02/10 (Bruno: "a página inicial do Gestor traz os itens com as margens em tempo real, e /sales as vendas em tempo real
+    com margens; pega lá para o Dashboard"): abre o painel (Hoje) e as Vendas, SÓ LÊ (nunca clica em nada), guarda o TEXTO
+    de cada tela e as respostas JSON que a própria tela pede ao servidor do Gestor, e manda tudo para
+    `gestor_painel_salvar`. O nubi lê os números de lá (1ª vez: bruto, para montar o leitor)."""
+    telas, erros = [], []
+    for tentativa in (1, 2):
+        ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("gestor_ver") else None)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        jsons = []
+
+        def ouvir(resp):
+            try:
+                if len(jsons) >= 40 or "gestorseller" not in resp.url or "json" not in (resp.headers.get("content-type") or ""):
+                    return
+                if resp.request.method != "GET":
+                    return
+                corpo = resp.text()
+                if 20 < len(corpo) < 400_000:
+                    jsons.append({"url": resp.url.split("?")[0][-200:], "q": (resp.url.split("?") + [""])[1][:300], "corpo": corpo})
+            except Exception:  # noqa: BLE001
+                pass
+        pg.on("response", ouvir)
+        try:
+            for nome, url in (("painel", f"{GESTOR}/"), ("vendas", f"{GESTOR}/sales")):
+                n0 = len(jsons)
+                pg.goto(url, wait_until="domcontentloaded", timeout=90000)
+                devagar(10)
+                if "/auth" in urllib.parse.urlparse(pg.url).path or pg.locator("input[type=password]:visible").count():
+                    raise SessaoExpirada(f"O Gestor Seller pediu login de novo (painel). Rode {_onde_rodar('entrar-gestor')}")
+                texto = pg.evaluate(JS_TEXTO_COM_IMAGENS) or ""
+                telas.append({"tela": nome, "url": pg.url, "texto": texto[:60000], "jsons": jsons[n0:]})
+            guardar_sessao(ctx)
+            break
+        except SessaoExpirada:
+            if tentativa == 2:
+                raise
+        finally:
+            ctx.close()
+        log("  Gestor Seller pediu login: tentando entrar sozinho")
+        telas = []
+        if not entrar_sozinho(p, cfg, "gestor"):
+            raise SessaoExpirada("O Gestor Seller pediu login de novo e não entrei sozinho. "
+                                 f"Rode {_onde_rodar('entrar-gestor')} (ou guarde a senha: {_onde_rodar('guardar-senha gestor')})")
+    r = api(token, "gestor_painel_salvar", corpo={"telas": telas}, timeout=120)
+    partes = ["%s (%d letras, %d respostas)" % (t["tela"], len(t["texto"]), len(t["jsons"])) for t in telas]
+    msg = "Painel do Gestor: " + ", ".join(partes)
+    return len(telas), len(telas), 0, msg + (f" · {r.get('resumo')}" if r.get("resumo") else "")
+
+
 def coletar_gestor(p, cfg, token):
     dados, nome = baixar_do_nubi(token, "estoque_gestor")
     destino = PASTA / "gestor"
@@ -4538,7 +4588,7 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
                  "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos",
-                 "ml_busca_foto", "explorador_marca", "explorador_diario", "rodizio_seguidos", "gestor_financeiro")
+                 "ml_busca_foto", "explorador_marca", "explorador_diario", "rodizio_seguidos", "gestor_financeiro", "gestor_painel")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -4653,6 +4703,8 @@ def comando_mac(chave, arg=""):
         return [*c, "explorador-diario"]
     if chave == "gestor_financeiro":
         return [*c, "gestor-financeiro"]
+    if chave == "gestor_painel":
+        return [*c, "gestor-painel"]
     if chave == "explorador_marca":                  # 02/10: arg = "MARCA" ou "MARCA|exata"
         marca, _, modo = str(arg or "").partition("|")
         if not EXPLORADOR_MARCA_OK.match(marca.strip()):
@@ -8965,6 +9017,7 @@ def main():
     exm.add_argument("marca")
     exm.add_argument("--exata", action="store_true", help="Pesquisa exata (padrão: expandida por IA)")
     sub.add_parser("explorador-diario", help="Nubimetrics: Explorador das marcas da lista diária que ainda não entraram hoje")
+    sub.add_parser("gestor-painel", help="Gestor Seller: lê o painel (Hoje) e as Vendas com margem (Dashboard do nubi), só lê")
     sub.add_parser("gestor-financeiro", help="Gestor Seller: lê o Resumo analítico e o DRE de cada mês (Financeiro do nubi), só lê")
     mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
     mlp.add_argument("url")
@@ -9107,6 +9160,8 @@ def main():
         return executar("explorador_diario", coletar_explorador_diario)
     if args.cmd == "gestor-financeiro":
         return executar("gestor_financeiro", coletar_gestor_financeiro)
+    if args.cmd == "gestor-painel":
+        return executar("gestor_painel", coletar_gestor_painel)
     if args.cmd == "fotos-vendedores":
         return executar("vend_fotos", lambda p, cfg, token: coletar_fotos_vendedores(p, cfg, token, args.so))
     if args.cmd == "vitrine-seguidos":

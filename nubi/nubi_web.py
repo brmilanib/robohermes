@@ -2358,6 +2358,16 @@ def atender(metodo, rota, q, corpo, token):
 
         if rota == "inicio":
             return _json(tela_inicio(repo))
+        if rota == "dashboard_listas":
+            return _json(dashboard_listas(repo))
+        if rota == "gestor_painel_salvar" and metodo == "POST":
+            # 02/10: o coletor manda o texto do painel e das Vendas do Gestor + as respostas JSON da própria tela (bruto)
+            d = json.loads(corpo or b"{}")
+            telas = [{"tela": str(t.get("tela"))[:20], "url": str(t.get("url"))[:300], "texto": str(t.get("texto") or "")[:60000],
+                      "jsons": [{k: str(j.get(k) or "")[:400000 if k == "corpo" else 300] for k in ("url", "q", "corpo")}
+                                for j in (t.get("jsons") or [])[:40]]} for t in (d.get("telas") or [])[:4]]
+            _ia_gravar(repo, "gestor_painel|bruto", {"em": datetime.now(timezone.utc).isoformat(), "telas": telas}, "coletor")
+            return _json({"ok": True, "resumo": f"{sum(len(t['jsons']) for t in telas)} respostas guardadas"})
         if rota == "inicio_extras":
             return _json(inicio_extras(repo))
         if rota == "inicio_decisoes":
@@ -3285,6 +3295,48 @@ def _dados_resumo_dia(repo):
     except Exception:  # noqa: BLE001
         pass
     return d1, "\n".join(linhas), pnl
+
+
+def dashboard_listas(repo, agora=None):
+    """02/10 (Bruno: "refaz a Início para um Dashboard: os produtos em destaque do mês, curva A, B e C, só os top 10; dos
+    vendedores que eu sigo, o ranking dos produtos mais vendidos dos últimos 7 dias"). Tudo já está no banco:
+    - meus: Curva ABC do Gestor Seller do último mês importado (`gestor_abc|atual`: faturamento, margem pós ADS, ADS);
+    - concorrentes: `vend_vendas_dia` dos vendedores seguidos, somado por produto nos últimos 7 dias com coleta."""
+    out = {"meus": None, "concorrentes": None}
+    abc = _vendas_atuais(repo, GESTOR_ABC_CHAVE) or {}
+    ls = [l for l in abc.get("linhas") or [] if float(l.get("valor") or 0) > 0]
+    if ls:
+        enx = lambda l: {k: l.get(k) for k in ("sku", "produto", "curva", "unidades", "valor", "lucro_pos_ads", "mpa_pct", "ads")}
+        top = lambda xs: [enx(l) for l in sorted(xs, key=lambda l: -float(l.get("valor") or 0))[:10]]
+        out["meus"] = {"inicio": abc.get("inicio"), "fim": abc.get("fim"), "todos": top(ls),
+                       "curvas": {c: top([l for l in ls if (l.get("curva") or "").upper() == c]) for c in ("A", "B", "C")},
+                       "total": round(sum(float(l.get("valor") or 0) for l in ls), 2),
+                       "lucro_pos_ads": round(sum(float(l.get("lucro_pos_ads") or 0) for l in ls), 2),
+                       "ads": round(sum(float(l.get("ads") or 0) for l in ls), 2)}
+    try:
+        ult = (repo._req("GET", "vend_vendas_dia", {"select": "data", "order": "data.desc", "limit": 1}) or [None])[0]
+        if ult:
+            fim = date.fromisoformat(str(ult["data"])[:10])
+            ini = fim - timedelta(days=6)
+            por = {}
+            for r in repo._todos("vend_vendas_dia", {"select": "vendedor,data,itens", "data": f"gte.{ini.isoformat()}"}) or []:
+                for x in r.get("itens") or []:
+                    k = str(x.get("k") or x.get("t") or "")
+                    if not k:
+                        continue
+                    p = por.setdefault(k, {"produto": x.get("t") or "", "marca": x.get("m") or "", "u": 0, "v": 0.0, "vendedores": set()})
+                    p["u"] += int(x.get("u") or 0)
+                    p["v"] += float(x.get("v") or 0)
+                    p["vendedores"].add(r["vendedor"])
+                    if len(str(x.get("t") or "")) > len(p["produto"]):
+                        p["produto"] = x.get("t")
+            top = sorted(por.items(), key=lambda kv: -kv[1]["u"])[:10]
+            out["concorrentes"] = {"inicio": ini.isoformat(), "fim": fim.isoformat(), "itens": [
+                {"chave": k, "produto": p["produto"], "marca": p["marca"], "unidades": p["u"], "valor": round(p["v"], 2),
+                 "preco_medio": round(p["v"] / p["u"], 2) if p["u"] else None, "vendedores": len(p["vendedores"])} for k, p in top]}
+    except ErroNuvem:
+        pass
+    return out
 
 
 def tela_inicio(repo):
@@ -9402,6 +9454,7 @@ COMANDOS_MAC = {
     "explorador_marca": "Nubimetrics: exportar o Explorador de anúncios de UMA marca (pesquisa expandida; arg = MARCA ou MARCA|exata) e importar",
     "explorador_diario": "Nubimetrics: exportar agora o Explorador das marcas da lista diária que ainda não entraram hoje (regra 14)",
     "gestor_financeiro": "Gestor Seller: ler o Resumo analítico e o DRE de cada mês do ano (Financeiro, markup), só lê",
+    "gestor_painel": "Gestor Seller: ler o painel de hoje e as vendas com margem (Dashboard), só lê",
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
     "vitrine_seguidos": "Mercado Livre: ler a vitrine (_CustId_) das lojas dos vendedores seguidos e gravar todos os anúncios, só lê",
     "ml_precos": "Mercado Livre: ler agora o preço dos anúncios do monitor de preços, só lê",

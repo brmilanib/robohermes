@@ -1391,6 +1391,36 @@ img.pl-ico.of{object-fit:contain;background:#fff}
 .pv-lista{display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow:auto}
 .pv-it{display:grid;grid-template-columns:1fr auto;gap:2px 10px;text-align:left;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer;color:inherit}
 .pv-it:hover,.pv-it.on{border-color:#2563eb;background:rgba(37,99,235,.06)}.pv-it span.muted{font-size:12px}.pv-c{grid-row:1/3;grid-column:2;align-self:center;font-weight:700}
+
+/* 📊 Dashboard (02/10) */
+.dash{display:grid;gap:12px;max-width:1500px}
+.dash-topo{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap}.dash-topo h1{margin:0}
+.dash-chips{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.dash-saud{font-weight:600}.dash-rel{font-variant-numeric:tabular-nums;color:var(--muted)}
+.dash-chip{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12.5px;background:var(--card);color:inherit;text-decoration:none}
+.dash-cab{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin-bottom:8px}.dash-cab h2{margin:0}.dash-cab .btn:first-of-type{margin-left:auto}.dash-acoes{margin-left:auto;display:flex;gap:6px}
+.dash-ks{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:12px}
+.dash-k{display:grid;gap:2px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;text-decoration:none;color:inherit;background:var(--card)}
+.dash-k b{font-size:22px}.dash-k .l,.dash-card .l{font-size:12.5px;color:var(--muted)}.dash-k .o,.dash-card .o{font-size:12px;color:var(--muted)}
+.dash-k:hover,.dash-card:hover,.dash-tl:hover,.dash-loja:hover,.dash-an:hover{box-shadow:0 2px 10px rgba(15,23,42,.08)}
+.dash-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.dash-hoje-2{gap:18px}
+.dash-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.dash-card{display:grid;gap:3px;align-content:start;padding:12px 14px;text-decoration:none;color:inherit}.dash-card b{font-size:22px}
+.dash-cv{display:inline-block;border-radius:6px;padding:0 6px;font-weight:600;font-size:11.5px;color:#fff}.dash-cv.cA{background:#2563eb}.dash-cv.cB{background:#f59e0b}.dash-cv.cC{background:#94a3b8}
+.dash-loja{display:grid;grid-template-columns:auto minmax(0,1.4fr) minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-radius:8px;text-decoration:none;color:inherit}
+.dash-loja .n,.dash-an .n,.dash-tl .n{display:flex;flex-direction:column;min-width:0}.dash-loja small,.dash-an small,.dash-tl small{color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dash-loja .barra{height:8px;background:var(--line);border-radius:6px;overflow:hidden}.dash-loja .barra i{display:block;height:100%;background:#2563eb}.dash-loja .v{font-size:13px;white-space:nowrap}
+.dash-an,.dash-tl{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-radius:8px;text-decoration:none;color:inherit}
+.dash-tl{grid-template-columns:auto minmax(0,1fr) auto}.dash-an .t,.dash-tl .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.dash-an .v,.dash-tl .v{display:flex;flex-direction:column;align-items:flex-end;white-space:nowrap;font-size:13px}
+.pos-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--line);font-size:11.5px;font-weight:700}
+.pos-n.cA{background:#dbeafe;color:#1d4ed8}.pos-n.cB{background:#fef3c7;color:#b45309}.pos-n.cC{background:#e2e8f0;color:#475569}
+.dash-top{display:grid;gap:2px}.dash-seg{margin-bottom:6px}
+.dash-frases{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13.5px}.dash-frase{margin:0 0 8px;font-size:13.5px}
+.dash-li{display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:2px 0;text-decoration:none;color:inherit}.dash-mini{gap:14px;margin-bottom:8px}
+.dash-md{font-size:13px}.dash-sis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.dash-sis-i{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;text-decoration:none;color:inherit;font-size:12.5px}
+@media (max-width:1100px){.dash-4{grid-template-columns:repeat(2,minmax(0,1fr))}.dash-sis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:760px){.dash-2,.dash-4{grid-template-columns:1fr}.dash-sis{grid-template-columns:repeat(2,minmax(0,1fr))}.dash-loja{grid-template-columns:auto minmax(0,1fr) auto}.dash-loja .barra{display:none}}
 </style>
 </head>
 <body>
@@ -1537,7 +1567,7 @@ function trocarSenha() {
 // Menu lateral: cada função do nubi é uma seção. Explorador (#/ e #/MARCA) e
 // Ranking mensal de marcas (#/ranking e #/ranking/CATEGORIA/AAAA-MM).
 const SECOES = [
-  {id: "inicio", nome: "Início", desc: "Resumo de tudo", icone: "🏠"},
+  {id: "inicio", nome: "Dashboard", desc: "Resumo de tudo", icone: "📊"},
   {id: "explorador", nome: "Explorador de anúncios", desc: "Anúncios por marca", icone: "🔎"},
   {id: "ranking", nome: "Ranking mensal de marcas", desc: "Relatório do mês, sem produtos", icone: "🏆"},
   {id: "vendedores", nome: "Vendedores monitorados", desc: "Mês fechado de cada vendedor", icone: "🏪"},
@@ -1587,7 +1617,7 @@ function desenharBarraBaixo() {
   const i = (href, ic, t, on) => `<a href="${href}" class="${on ? "on" : ""}"><span class="ic">${ic}</span><span>${t}</span></a>`;
   // Fase 1 do card #26 (Astra, 26/09): 4 itens fixos — Início · Concorrentes · Lojas · Mais.
   // "Mais" abre a mesma gaveta do menu lateral (Ranking, Explorador, Central, Ajustes) e destaca quando a tela ativa está lá.
-  b.innerHTML = i("#/inicio", "🏠", "Início", sec === "inicio") + i("#/concorrentes", "⚖️", "Concorrentes", sec === "vendedores")
+  b.innerHTML = i("#/inicio", "📊", "Dashboard", sec === "inicio") + i("#/concorrentes", "⚖️", "Concorrentes", sec === "vendedores")
     + i("#/estoque", "📦", "Lojas", sec === "lojas")
     + `<a href="#" id="bb-menu" class="${sec === "ranking" || sec === "explorador" || sec === "nomes" ? "on" : ""}"><span class="ic">☰</span><span>Mais</span></a>`;
   $("#bb-menu").onclick = e => { e.preventDefault(); e.stopPropagation(); document.body.classList.toggle("menu-aberto"); };
@@ -1641,180 +1671,165 @@ async function carregarTempo(box) {
     } catch { toast("Não consegui buscar a cidade agora."); }
   };
 }
+// 02/10 (Bruno: "refaz a Início para um Dashboard: junta Vendas de hoje, uma análise resumida do mercado e uma da minha loja,
+// alertas, estoque, reposição sugerida da semana, previsão do tempo, dólar, ADS por canal (depois), os produtos em destaque do
+// mês (curva A, B e C, top 10) e o top 10 dos últimos 7 dias dos vendedores que eu sigo — tudo organizado e clicável").
+// Cada bloco carrega sozinho (as consultas vão em paralelo); o que faltar aparece como "sem dados", nunca como zero.
 async function telaInicio() {
-  const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Preparando o resumo</div></div>`;
-  let r;
-  try { r = await api("inicio"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  if (!location.hash.startsWith("#/inicio")) return;
-  let ex = {};
-  try { ex = await api("inicio_extras"); } catch { /* dólar/datas/notícias viram "sem dados" nos widgets */ }
-  let dec = null;
-  try { dec = await api("inicio_decisoes"); } catch { /* painel de decisões avisa erro em vez de sumir */ }
-  const agora = new Date(), hr = agora.getHours();
+  const main = $("#main"), D = S.dash || (S.dash = {top: "todos"});
+  const hr = new Date().getHours();
   const saud = (hr < 12 ? "Bom dia" : hr < 18 ? "Boa tarde" : "Boa noite") + (/^brmilani@/.test(S.sessao?.user?.email || "") ? ", Bruno" : "");
-  const d = r.dia || {}, t = d.total || {}, c = r.contagens || {}, tf = r.tarefas || {}, col = r.coleta, ops = S.opsRes || {};
-  const pct = v => v == null ? "" : `<span class="${v >= 0 ? "pos" : "neg"}">${v >= 0 ? "▲" : "▼"} ${nf1.format(Math.abs(v) * 100)}%</span>`;
-  const ddmm = x => x ? x.slice(8, 10) + "/" + x.slice(5, 7) : "—";
-  const lin = x => `<li><a href="#/concorrentes/${encodeURIComponent(x.vendedor)}">${esc(x.vendedor)}</a><span>${abrev(x.v)}</span>
-    <span class="${(x.dif || 0) < 0 ? "neg" : "pos"}" title="diferença contra a média de 7 dias">${x.dif == null ? "" : (x.dif >= 0 ? "+" : "−") + abrev(Math.abs(x.dif)).replace("R$ ", "")}</span></li>`;
-  // Card #24: painel "Decisões de hoje" (risco de dado, oportunidade de preço, execução) — bloco null = "sem dados"
-  // (nunca consultado ou consulta falhou); bloco.total === 0 = consultado com sucesso e vazio de verdade.
-  const decBloco = (bloco, vazio, item) => !bloco ? `<p class="muted" style="font-size:12.5px">sem dados</p>`
-    : !bloco.total ? `<p class="muted" style="font-size:12.5px">${vazio}</p>`
-    : `<ul class="in-lista">${bloco.itens.map(item).join("")}</ul>${bloco.total > bloco.itens.length ? `<p class="muted" style="font-size:11px;margin-top:4px">e mais ${bloco.total - bloco.itens.length}…</p>` : ""}`;
-  const decFonte = bloco => bloco ? `<p class="muted" style="font-size:11px;margin-top:4px">Fonte: ${esc(bloco.fonte)} · ${ddmm(bloco.referencia)}</p>` : "";
-  const decisoesHtml = !dec ? `<section class="card pad"><h2>Decisões de hoje</h2><p class="muted">Não foi possível carregar o painel de decisões agora.</p></section>` : `
-    <section class="card pad">
-      <h2>Decisões de hoje</h2>
-      <div class="in-decisoes">
-        <div>
-          <div class="in-sub">Risco de dado</div>
-          ${decBloco(dec.risco?.pendentes, "✅ Nenhuma pendência", x => `<li><a href="#/coletor">${esc(x.vendedor)}</a><span>${ddmm(x.dia)}</span></li>`)}
-          ${decFonte(dec.risco?.pendentes)}
-          <div style="margin-top:10px"></div>
-          ${decBloco(dec.risco?.alertas, "✅ Nenhum alerta", a => `<li><a href="#/auditoria">${esc(a.titulo)}</a><span>${esc(a.nivel)}</span></li>`)}
-          ${decFonte(dec.risco?.alertas)}
-        </div>
-        <div>
-          <div class="in-sub">Oportunidade de preço</div>
-          <p class="muted" style="font-size:12.5px">sem dados</p>
-          <p class="muted" style="font-size:11px">${esc(dec.preco?.motivo || "")}</p>
-        </div>
-        <div>
-          <div class="in-sub">Execução</div>
-          <b style="font-size:11.5px">Esperando aprovação</b>
-          ${decBloco(dec.execucao?.aguardando_aprovacao, "✅ Nada esperando aprovação", x => `<li><a href="#/central">#${x.id} ${esc(x.titulo)}</a><span>${esc(x.responsavel || "—")}</span></li>`)}
-          ${decFonte(dec.execucao?.aguardando_aprovacao)}
-          <div style="margin-top:10px"></div>
-          <b style="font-size:11.5px">Travadas por custo</b>
-          ${decBloco(dec.execucao?.travadas_por_custo, "✅ Nenhuma tarefa nesta situação", x => `<li>${esc(x.titulo)}</li>`)}
-          <p class="muted" style="font-size:11px;margin-top:4px">Custo hoje: ${dec.execucao?.travadas_por_custo?.custo_hoje == null ? "sem dados" : "US$ " + dec.execucao.travadas_por_custo.custo_hoje.toFixed(2).replace(".", ",")} · Fonte: agentes_uso (log #17)</p>
-        </div>
-      </div>
-    </section>`;
-  const colTxt = !col ? ["", "sem coleta registrada"] : col.em_andamento ? ["warn", "rodando agora"]
-    : col.ok ? ["good", "ok · " + new Date(col.terminado_em || col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})]
-    : ["bad", "falhou · " + new Date(col.iniciado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})];
-  // Card #92: saúde do Mac mini servidor (última leitura; sem leitura = "sem dados", nunca zero)
-  const sv = r.servidor, horaBr = x => new Date(x).toLocaleString("pt-BR", {timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
-  const svVal = (v, un, lim) => v == null ? `<b class="muted" style="font-size:13px">sem dados</b>` : `<b class="${v >= lim ? "neg" : ""}">${nf1.format(v)}${un}</b>`;
-  const svAg = Object.entries(sv?.agentes || {});
-  const servidorHtml = `<section class="card pad"><div class="in-dev-cab"><h2>Servidor Mac mini</h2>
-      ${!sv ? "" : sv.atrasado ? `<span class="in-chip warn">⚠️ sem dados desde ${horaBr(sv.coletado_em)}</span>`
-        : `<span class="st ${sv.status === "ok" ? "good" : "bad"}">${sv.status === "ok" ? "ok" : "alerta"} · ${horaBr(sv.coletado_em)}</span>`}</div>
-    ${!sv ? `<p class="muted">sem dados: o coletor do Mac ainda não mandou nenhuma leitura</p>` : `
-      <div class="in-ops in-sv">
-        <div class="card in-op"><span class="l">CPU</span>${svVal(sv.cpu_pct, "%", 90)}</div>
-        <div class="card in-op"><span class="l">Memória</span>${svVal(sv.mem_pct, "%", 90)}</div>
-        <div class="card in-op"><span class="l">Disco</span>${svVal(sv.disco_pct, "%", 90)}</div>
-        <div class="card in-op"><span class="l">Temperatura</span>${svVal(sv.temp_c, "°C", 85)}</div>
-      </div>
-      <p style="font-size:12.5px;margin:10px 0 0">Agentes: ${svAg.length ? `${svAg.length - (sv.faltantes || []).length} de ${svAg.length} ativos · ${svAg.map(([n, ok]) => `<span class="sinal ${ok ? "good" : "bad"}">${ok ? "●" : "○"} ${esc(n)}</span>`).join("")}` : `<span class="muted">sem dados</span>`}</p>
-      ${(sv.alertas || []).length ? `<ul class="in-lista">${sv.alertas.map(a => `<li class="neg">🚨 ${esc(a)}</li>`).join("")}</ul>` : `<p class="muted" style="font-size:12px;margin:6px 0 0">✅ Nenhum alerta</p>`}`}
-    </section>`;
-  const resumoLinhas = r.resumo ? r.resumo.texto.split("\n").filter(x => x.trim() && !/^#/.test(x.trim())).slice(0, 5).join("\n") : "";
-  const semDado = "sem dados";
-  // Fase 1 do card #26: Início orientada à decisão — título/data/status da coleta primeiro,
-  // saudação/relógio/clima (informação secundária) por último. Ordem revisada pelo Astra (26/09).
-  main.innerHTML = `<div class="inicio">
-    <section class="in-topo">
-      <div class="in-ola"><h1>Início</h1><span class="muted in-data">dados de ${ddmm(d.data)} · <span class="st ${colTxt[0]}">${esc(colTxt[1])}</span></span></div>
+  main.innerHTML = `<div class="dash">
+    <section class="dash-topo">
+      <div><h1>📊 Dashboard</h1><span class="muted" id="ds-data"></span></div>
+      <div class="dash-chips"><span class="dash-saud">${esc(saud)}</span><span class="dash-rel" id="ds-rel"></span>
+        <a class="dash-chip" id="ds-dolar" href="#/inicio" title="Dólar comercial (AwesomeAPI)">💵 …</a><span class="dash-chip" id="ds-coleta">coleta …</span></div>
     </section>
-
-    <a class="card pad in-vendas-hoje" href="#/vendas-dia">
-      <div class="in-vh-cab"><span class="l">Vendas dos concorrentes · ${ddmm(d.data)}</span>
-        ${d.tem ? (d.pendentes ? `<span class="in-chip warn">⚠️ ${d.pendentes} de ${d.total_vendedores} vendedor(es) pendente(s)</span>` : `<span class="in-chip">coleta completa</span>`) : ""}</div>
-      <b>${d.tem ? abrev(t.v) : "—"}</b>
-      <span class="o">${d.tem ? `${nf0.format(t.u || 0)} un · ${pct(t.var)} vs média de 7 dias` : "as vendas do dia aparecem aqui quando o coletor trouxer o primeiro dia"}</span>
-    </a>
-    <section class="in-status3">
-      <a class="card in-kpi" href="#/vendedores"><span class="l">Vendedores monitorados</span><b>${nf0.format(c.vendedores || 0)}</b><span class="o">com venda nos últimos 30 dias</span></a>
-      <a class="card in-kpi" href="#/alertas"><span class="l">Alertas de estoque</span><b class="${S.alertasN ? "neg" : ""}">${nf0.format(S.alertasN || 0)}</b><span class="o">produtos parados nos concorrentes</span></a>
-      <a class="card in-kpi" href="#/coletor"><span class="l">Coletas</span><b class="st ${colTxt[0]}" style="font-size:15px">${esc(colTxt[1])}</b></a>
+    <section class="card pad dash-bloco" id="ds-hoje"><div class="muted">⚡ Lendo as vendas de hoje…</div></section>
+    <section class="dash-2">
+      <div class="card pad dash-bloco" id="ds-loja"><h2>🏪 Minha loja</h2><p class="muted">Montando a análise…</p></div>
+      <div class="card pad dash-bloco" id="ds-mercado"><h2>🌎 Mercado</h2><p class="muted">Montando a análise…</p></div>
     </section>
-
-    <section class="in-grade">
-      <div class="card pad"><h2>O dia em ${ddmm(d.data)}</h2>
-        ${d.tem ? `<div class="in-duas"><div><div class="in-sub">Mais venderam</div><ul class="in-lista">${(d.top || []).map(x => lin(x)).join("") || "<li class='muted'>—</li>"}</ul></div>
-          <div><div class="in-sub">Mais caíram</div><ul class="in-lista">${(d.queda || []).map(x => lin(x)).join("") || "<li class='muted'>ninguém caiu 👏</li>"}</ul></div></div>
-          ${(d.produto || []).length ? `<div class="in-sub" style="margin-top:10px">Produtos que puxaram</div><ul class="in-lista">${d.produto.map(p => `<li><span class="in-trunc">${esc(p.t || "")}</span><span>${nf0.format(p.u || 0)} un</span><span>${abrev(p.v)}</span></li>`).join("")}</ul>` : ""}
-          ${(d.sem_coleta || []).length ? `<p class="muted" style="font-size:12px;margin:8px 0 0">⚠️ ${d.sem_coleta.length} vendedor(es) com o dia ainda não coletado (fora dos totais).</p>` : ""}`
-        : `<p class="muted">As vendas do dia aparecem aqui quando o coletor trouxer o primeiro dia.</p>`}
-        <a class="in-mais" href="#/vendas-dia">Ver vendas diárias →</a></div>
-      <div class="card pad in-resumo-lado">${r.resumo ? `<h2>Resumo da IA · dados até ${ddmm(r.resumo.data)}</h2><div class="md">${mdSimples(resumoLinhas)}</div>
-        <a class="in-mais" href="#/vendedores">Ler o resumo completo →</a>` : `<h2>Resumo da IA</h2><p class="muted">O resumo do dia aparece aqui quando for gerado.</p>`}</div>
+    <section class="dash-4" id="ds-cards">
+      <a class="card dash-card" id="ds-alertas" href="#/estoque/reposicao"><span class="l">🔔 Alertas</span><b>…</b></a>
+      <a class="card dash-card" id="ds-estoque" href="#/estoque"><span class="l">📦 Estoque</span><b>…</b></a>
+      <a class="card dash-card" id="ds-repo" href="#/estoque/reposicao"><span class="l">🔁 Reposição da semana</span><b>…</b></a>
+      <div class="card dash-card" id="ds-ads"><span class="l">📣 ADS por canal</span><b>…</b></div>
     </section>
-
-    <section class="in-grade">
-      <div class="card pad in-agentes">
-        <div class="in-dev-cab"><h2>Ações dos agentes</h2></div>
-        ${r.foco ? `<div><div class="in-dev-cab"><b style="font-size:13.5px">🐋 Onde focar hoje · DeepSeek</b>
-            <span class="muted" style="font-size:11.5px">concorrentes de ${esc((r.foco.mes || "").slice(5, 7) + "/" + (r.foco.mes || "").slice(0, 4))} × seu estoque · ${esc(desde(r.foco.criado_em))}</span></div>
-          <div class="in-foco-grade"><div class="md">${mdSimples(r.foco.texto)}</div>
-            <div><div class="in-sub">Mais vendidos nos concorrentes</div><ul class="in-lista in-foco-lista">${(r.foco.produtos || []).map(p => `<li>
-              <span class="in-trunc" title="${esc(p.produto)}">${esc(p.produto)}</span><span>${p.preco_medio == null ? "—" : abrev(p.preco_medio)}</span>
-              <span class="st ${p.situacao === "tenho" ? "good" : p.situacao === "zerado" ? "warn" : "bad"}" title="${p.meu_sku ? esc(p.meu_sku + " · " + p.meu_disponivel + " un.") : "não achei no seu estoque (confira)"}">${esc(p.situacao)}</span></li>`).join("")}</ul>
-              <p class="muted" style="font-size:11.5px;margin:6px 0 0">Preço = preço médio nos concorrentes. Estoque cruzado pelo GTIN e, sem GTIN, pelo título: confira antes de decidir.</p></div></div></div>` : ""}
-        ${r.plano_semana ? `<div><div class="in-dev-cab"><b style="font-size:13.5px">📅 Plano da semana · DeepSeek</b>
-            <span class="muted" style="font-size:11.5px">feito no sábado ${esc((r.plano_semana.data || "").split("-").reverse().join("/"))} · ${esc(desde(r.plano_semana.criado_em))}</span></div>
-          <div class="md">${mdSimples(r.plano_semana.texto)}</div></div>` : ""}
-        ${!r.foco && !r.plano_semana ? `<p class="muted">Ainda sem análise dos agentes hoje.</p>` : ""}
-      </div>
-      <a class="card pad in-estoque-link" href="#/estoque"><h2>Estoque das minhas lojas</h2>
-        ${r.estoque ? `<div class="in-duas"><div><b style="font-size:26px">${nf0.format(r.estoque.zerados || 0)}</b><div class="o">zerados</div></div>
-            <div><b style="font-size:26px">${r.estoque.baixo == null ? "—" : nf0.format(r.estoque.baixo)}</b><div class="o">baixos</div></div></div>
-          <p class="muted" style="font-size:11.5px;margin-top:10px">foto de ${new Date(r.estoque.criado_em).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}</p>`
-        : `<p class="muted">ainda sem atualização de estoque</p>`}
-      </a>
+    <section class="dash-2">
+      <div class="card pad dash-bloco" id="ds-meus"><h2>🏆 Meus destaques do mês</h2><p class="muted">Carregando…</p></div>
+      <div class="card pad dash-bloco" id="ds-conc"><h2>👀 Mais vendidos de quem eu sigo · 7 dias</h2><p class="muted">Carregando…</p></div>
     </section>
-
-    ${(r.aguardando_voce || []).length ? `<a class="in-pede" href="#/central">⏳ ${r.aguardando_voce.length} tarefa(s) esperando sua resposta: ${r.aguardando_voce.map(t => esc("#" + t.id + " " + t.titulo)).join(" · ")}</a>` : ""}
-    ${decisoesHtml}
-
-    ${(r.andamento || []).length ? `<section class="card pad in-dev"><div class="in-dev-cab"><h2>Time em ação</h2><a class="in-mais" style="margin:0" href="#/central">Ver o desenvolvimento →</a></div>
-      ${r.andamento.map(t => { const a = agInfo(t.responsavel || "claude_code"); return `<a class="in-dev-it vivo" href="#/central"><span class="dc-av" style="--c:${a[2]}">${a[0]}</span>
-        <span><b>${esc(t.titulo)}</b><span class="muted"> · em execução com ${esc(a[1])}</span></span><span class="dc-dig"><i></i><i></i><i></i></span></a>`; }).join("")}</section>` : ""}
-
-    <section class="in-ops">
-      <a class="card in-op" href="#/central"><span class="l">Esperando você aprovar</span><b>${nf0.format(tf.proposta || 0)}</b></a>
-      <a class="card in-op" href="#/central"><span class="l">Na fila / em código</span><b>${nf0.format((tf.aprovada || 0) + (tf.em_desenvolvimento || 0))}</b></a>
-      <a class="card in-op" href="#/central/erros"><span class="l">Erros hoje</span><b class="${ops.erros_hoje ? "neg" : ""}">${nf0.format(ops.erros_hoje || 0)}</b></a>
-      <a class="card in-op" href="#/central/agentes"><span class="l">IA hoje · mês</span><b>US$ ${(r.ia?.custo_hoje || 0).toFixed(2).replace(".", ",")}</b><span class="muted">· US$ ${(r.ia?.custo_mes || 0).toFixed(2).replace(".", ",")}</span></a>
-    </section>
-    ${servidorHtml}
-
-    <div class="card pad"><h2>Próximas datas de vendas</h2><ul class="in-datas">${datasVendas(agora).map(x => `<li><span class="in-dias ${x.dias <= 15 ? "perto" : ""}">${x.dias === 0 ? "hoje" : x.dias + (x.dias === 1 ? " dia" : " dias")}</span>
+    <section class="dash-2">
+      <div class="card pad dash-bloco dash-tempo" id="in-tempo"><div class="muted">Carregando a previsão…</div></div>
+      <div class="card pad dash-bloco" id="ds-datas"><h2>📅 Próximas datas de vendas</h2><ul class="in-datas">${datasVendas(new Date()).slice(0, 5).map(x => `<li><span class="in-dias ${x.dias <= 15 ? "perto" : ""}">${x.dias === 0 ? "hoje" : x.dias + (x.dias === 1 ? " dia" : " dias")}</span>
         <b>${esc(x.n)}</b><span class="muted">${x.dt.toLocaleDateString("pt-BR", {day: "2-digit", month: "short", weekday: "short"})}</span></li>`).join("")}</ul></div>
-
-    <section class="in-topo">
-      <div class="in-ola"><h1>${esc(saud)}</h1><span class="muted in-data" id="in-data"></span></div>
-      <div class="in-hora"><span class="in-relogio" id="in-relogio"></span><span class="in-agora" id="in-agora"></span></div>
     </section>
-    <section class="in-grade in-baixo">
-      <div class="card pad in-dolar"><h2>Dólar hoje</h2>
-        ${ex.dolar ? `<b>R$ ${ex.dolar.venda.toFixed(4).replace(".", ",")}</b>
-          <span class="o">compra R$ ${ex.dolar.compra.toFixed(4).replace(".", ",")}${ex.dolar.variacao == null ? "" : ` · <span class="${ex.dolar.variacao >= 0 ? "pos" : "neg"}">${ex.dolar.variacao >= 0 ? "▲" : "▼"} ${nf1.format(Math.abs(ex.dolar.variacao))}%</span>`}</span>
-          <p class="muted" style="font-size:11px;margin-top:8px">USD/BRL · AwesomeAPI${ex.dolar.quando ? " · " + new Date(ex.dolar.quando.replace(" ", "T")).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : ""}</p>`
-        : `<p class="muted">${semDado}</p>`}</div>
-      <section class="card pad in-tempo" id="in-tempo"><div class="muted">Carregando a previsão…</div></section>
-    </section>
-
-    ${ex.noticias && (ex.noticias.itens || []).length ? `<section class="card pad in-noticias"><div class="in-dev-cab"><h2>Notícias dos marketplaces</h2><span class="muted" style="font-size:11.5px">${ddmm(ex.noticias.data)}</span></div>
-      <ul>${ex.noticias.itens.map(n => `<li><div class="in-not-cab">${n.marketplace ? `<span class="in-chip">${esc(n.marketplace)}</span>` : ""}${n.fonte ? `<span>${esc(hostname(n.fonte))}</span>` : ""}</div>
-        <a href="${esc(urlHttp(n.fonte || ""))}" target="_blank" rel="noopener"><b>${esc(n.titulo || "")}</b></a>${n.resumo ? `<span class="muted">${esc(n.resumo)}</span>` : ""}</li>`).join("")}</ul></section>` : ""}
-    </div>`;
-  const tic = () => {
-    const x = $("#in-relogio"); if (!x) return clearInterval(S.relT);
-    const n = new Date();
-    x.textContent = n.toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit", second: "2-digit"});
-    const dt = n.toLocaleDateString("pt-BR", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
-    $("#in-data").textContent = dt[0].toUpperCase() + dt.slice(1);
-  };
-  tic(); clearInterval(S.relT); S.relT = setInterval(tic, 1000);
+    <section class="dash-sis" id="ds-sis"></section>
+  </div>`;
+  const tic = () => { const x = $("#ds-rel"); if (!x) return clearInterval(S.relT); const n = new Date();
+    x.textContent = n.toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
+    const dt = n.toLocaleDateString("pt-BR", {weekday: "long", day: "numeric", month: "long"}); $("#ds-data").textContent = dt[0].toUpperCase() + dt.slice(1); };
+  tic(); clearInterval(S.relT); S.relT = setInterval(tic, 15000);
   carregarTempo($("#in-tempo"));
-  if (!S.opsRes) api("ops_resumo").then(x => { S.opsRes = x; if (location.hash.startsWith("#/inicio")) telaInicioOps(); }).catch(() => {});
   desenharMenu();
+  const vivo = () => location.hash.startsWith("#/inicio") || location.hash === "#/dashboard";
+  const pct = (a, b) => a != null && b ? (a / b - 1) : null;
+  const seta = v => v == null ? "" : `<span class="${v >= 0 ? "pos" : "neg"}">${v >= 0 ? "▲" : "▼"} ${nf1.format(Math.abs(v) * 100)}%</span>`;
+  const mgPill = m => m == null ? `<span class="muted">—</span>` : `<span class="pill ${m < 10 ? "neg" : m < 18 ? "warn-t" : "pos"}">${nf1.format(m)}%</span>`;
+  const fazer = (nome, p, f) => p.then(x => { if (vivo()) f(x); }).catch(e => { if (vivo()) { const el = $(nome); if (el) el.querySelector("b, p, div")?.replaceWith(Object.assign(document.createElement("p"), {className: "muted", textContent: "sem dados (" + e.message + ")"})); } });
+
+  // ⚡ vendas de hoje (UpSeller, a cada 10 min)
+  const pHoje = api("vendas_hoje", {});
+  fazer("#ds-hoje", pHoje, r => {
+    if (r.icones) S.icones = r.icones;
+    const ag = r.agora || {}, a = r.ate_agora || {}, b = r.ate_agora_comparar || {};
+    const quando = ag.lido_em ? new Date(ag.lido_em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}) : null;
+    const tk = x => x && x.pedidos ? x.valor / x.pedidos : null;
+    const k = (ic, nome, va, vb, fmt, sub) => `<a class="dash-k" href="#/analises-vendas/hoje"><span class="l">${ic} ${nome}</span><b>${va != null ? fmt(va) : "—"}</b><span class="o">${seta(pct(va, vb))} ${sub}</span></a>`;
+    const lojas = [...(r.lojas || [])].sort((p, q) => (q.valor || 0) - (p.valor || 0)).slice(0, 6), mxL = Math.max(1, ...lojas.map(l => l.valor || 0));
+    $("#ds-hoje").innerHTML = `<div class="dash-cab"><h2>⚡ Minhas vendas hoje</h2><span class="muted">${quando ? `UpSeller às <b>${quando}</b> · todas as lojas` : "ainda sem leitura do UpSeller hoje"}</span>
+        <span class="dash-acoes"><a class="btn small" href="#/analises-vendas/hoje">Detalhes por hora ›</a><a class="btn small" href="#/analises-vendas/tv">📺 Modo TV</a></span></div>
+      <div class="dash-ks">
+        ${k("💰", "Faturamento", a.valor, b.valor, rsES, `vs ontem até agora (${b.valor != null ? rsES(b.valor) : "—"})`)}
+        ${k("🧾", "Pedidos", a.pedidos, b.pedidos, nf0.format, `ontem até agora: ${b.pedidos != null ? nf0.format(b.pedidos) : "—"}`)}
+        ${k("🎯", "Ticket médio", tk(a), tk(b), rsES, "vs ontem")}
+        ${ag.valor_ontem != null ? `<a class="dash-k" href="#/analises-vendas/hoje"><span class="l">📅 Ontem inteiro</span><b>${rsES(ag.valor_ontem)}</b><span class="o">${nf0.format(ag.pedidos_ontem || 0)} pedidos</span></a>` : ""}
+      </div>
+      <div class="dash-2 dash-hoje-2">
+        <div><div class="in-sub">🏪 Lojas hoje</div>${lojas.length ? lojas.map(l => `<a class="dash-loja" href="#/analises-vendas/hoje">${platIco(l.plataforma, 28)}<span class="n"><b>${esc(l.loja)}</b><small>${esc(l.plataforma || "")} · ${nf0.format(l.pedidos || 0)} pedidos</small></span>
+          <span class="barra"><i style="width:${((l.valor || 0) / mxL * 100).toFixed(1)}%"></i></span><b class="v">${rsES(l.valor || 0)}</b></a>`).join("") : `<p class="muted">Sem lojas ainda.</p>`}</div>
+        <div><div class="in-sub">🔥 Anúncios que mais venderam hoje</div>${(r.anuncios || []).slice(0, 6).map((x, i) => `<a class="dash-an" href="#/analises-vendas/hoje"><span class="pos-n">${i + 1}</span>${fotoProd(x.foto, 34)}
+          <span class="n"><span class="t">${esc(x.titulo)}</span><small>${platIco(x.plataforma, 14)} ${esc(x.loja || "")}</small></span><span class="v"><b>${x.unidades != null ? nf0.format(x.unidades) + " un" : ""}</b><small>${x.valor != null ? rsES(x.valor) : ""}</small></span></a>`).join("") || `<p class="muted">Sem vendas ainda hoje.</p>`}</div>
+      </div>`;
+    S.dashHoje = r; montarLoja();
+  });
+
+  // 💵 dólar, notícias · 🖥️ sistema (mesma consulta da Início antiga)
+  api("inicio_extras").then(ex => { if (!vivo()) return; const el = $("#ds-dolar");
+    if (el) el.innerHTML = ex.dolar ? `💵 <b>R$ ${ex.dolar.venda.toFixed(2).replace(".", ",")}</b>${ex.dolar.variacao == null ? "" : ` <span class="${ex.dolar.variacao >= 0 ? "pos" : "neg"}">${ex.dolar.variacao >= 0 ? "▲" : "▼"}${nf1.format(Math.abs(ex.dolar.variacao))}%</span>`}` : "💵 sem dados"; }).catch(() => { const el = $("#ds-dolar"); if (el) el.textContent = "💵 sem dados"; });
+  api("inicio").then(r => { if (!vivo()) return; S.dashIni = r;
+    const col = r.coleta, cEl = $("#ds-coleta");
+    if (cEl) { const [cl, tx] = !col ? ["", "sem coleta"] : col.em_andamento ? ["warn", "coleta rodando"] : col.ok ? ["good", "coleta ok"] : ["bad", "coleta falhou"]; cEl.className = "dash-chip st " + cl; cEl.textContent = tx; }
+    const tf = r.tarefas || {}, sv = r.servidor;
+    $("#ds-sis").innerHTML = [
+      ["#/coletor", "🛰️ Coletor", col ? (col.ok ? "ok" : col.em_andamento ? "rodando" : "falhou") : "—"],
+      ["#/central", "⏳ Esperando você", nf0.format((r.aguardando_voce || []).length + (tf.proposta || 0))],
+      ["#/central", "🛠️ Time em ação", nf0.format((r.andamento || []).length)],
+      ["#/central/agentes", "🤖 IA hoje", "US$ " + (r.ia?.custo_hoje || 0).toFixed(2).replace(".", ",")],
+      ["#/central", "🖥️ Mac mini", !sv ? "sem dados" : sv.atrasado ? "sem sinal" : sv.status === "ok" ? "ok" : "alerta"]]
+      .map(([h, n, v]) => `<a class="card dash-sis-i" href="${h}"><span>${n}</span><b>${v}</b></a>`).join("");
+    montarMercado(); montarLoja(); }).catch(() => {});
+
+  // 🔁 reposição, alertas, estoque, ADS
+  api("estoque_reposicao").then(rp => { if (!vivo() || rp.vazio) return; S.dashRp = rp;
+    const rs = rp.resumo || {}, ped = rp.pedido || [];
+    const cv = k => ped.filter(l => (k === "C" ? l.classe !== "A" && l.classe !== "B" : l.classe === k)).reduce((a, l) => a + (l.compra_valor || 0), 0);
+    const tot = cv("A") + cv("B") + cv("C");
+    $("#ds-repo").innerHTML = `<span class="l">🔁 Reposição sugerida</span><b>${FMT.moeda(tot)}</b>
+      <span class="o">${["A", "B", "C"].map(k => `<span class="dash-cv c${k}">${k} ${tot ? Math.round(cv(k) / tot * 100) : 0}%</span>`).join(" ")}</span>
+      <span class="o">${nf0.format(ped.filter(l => l.compra > 0).length)} produtos · campeões duram ${rp.cfg?.dura_a || 30} dias</span>`;
+    const nAl = (rp.precos || []).length;
+    $("#ds-alertas").innerHTML = `<span class="l">🔔 Alertas</span><b class="${(rs.campeoes_zerados || nAl) ? "neg" : ""}">${nf0.format((rs.campeoes_zerados || 0) + nAl)}</b>
+      <span class="o">${nf0.format(rs.campeoes_zerados || 0)} campeões zerados · ${nf0.format(nAl)} de preço</span>
+      <span class="o">${nf0.format(rs.margem_ruim || 0)} campeões com margem &lt; 10%${S.alertasN ? ` · ${nf0.format(S.alertasN)} nos concorrentes` : ""}</span>`;
+    $("#ds-estoque").innerHTML = `<span class="l">📦 Estoque</span><b>${FMT.moeda(rs.parado_bc || 0)}</b>
+      <span class="o">parado em B, C e sem venda</span><span class="o">${FMT.moeda(rs.acima_do_nivel || 0)} acima do nível ideal</span>`;
+    montarLoja(); }).catch(e => { const el = $("#ds-repo"); if (el) el.innerHTML = `<span class="l">🔁 Reposição</span><span class="o muted">sem dados</span>`; });
+
+  // 🏆 destaques do mês (Curva ABC do Gestor) e 👀 concorrentes 7 dias
+  api("dashboard_listas").then(x => { if (!vivo()) return; S.dashL = x;
+    const m = x.meus;
+    $("#ds-ads").innerHTML = `<span class="l">📣 ADS</span><b>${m ? FMT.moeda(m.ads) : "—"}</b><span class="o">${m ? `no mês ${m.inicio?.slice(5, 7)}/${m.inicio?.slice(0, 4)} (Curva ABC do Gestor)` : "sem Curva ABC importada"}</span>
+      <span class="o muted">por canal, de hora em hora: em breve</span>`;
+    desenharMeus(); montarLoja();
+    const c = x.concorrentes, dm = d => d ? d.slice(8, 10) + "/" + d.slice(5, 7) : "";
+    $("#ds-conc").innerHTML = `<div class="dash-cab"><h2>👀 Mais vendidos de quem eu sigo</h2><span class="muted">${c ? `${dm(c.inicio)} a ${dm(c.fim)} · por unidades` : ""}</span><a class="btn small" href="#/vendas-dia">Vendas diárias ›</a></div>
+      ${c && c.itens.length ? `<div class="dash-top">${c.itens.map((p, i) => `<a class="dash-tl" href="#/vendas-dia" title="${esc(p.produto)}"><span class="pos-n">${i + 1}</span>
+        <span class="n"><span class="t">${esc(p.produto)}</span><small>${esc(p.marca || "")} · ${nf0.format(p.vendedores)} vendedor(es)</small></span>
+        <span class="v"><b>${nf0.format(p.unidades)} un</b><small>${p.preco_medio != null ? "médio " + rsES(p.preco_medio) : ""}</small></span></a>`).join("")}</div>` : `<p class="muted">Sem vendas dos vendedores seguidos nos últimos 7 dias.</p>`}`;
+  }).catch(e => { const el = $("#ds-meus"); if (el) el.innerHTML = `<h2>🏆 Meus destaques do mês</h2><p class="muted">sem dados (${esc(e.message)})</p>`; });
+
+  function desenharMeus() {
+    const m = (S.dashL || {}).meus, el = $("#ds-meus"); if (!el) return;
+    if (!m) { el.innerHTML = `<h2>🏆 Meus destaques do mês</h2><p class="muted">Importe a Curva ABC do Gestor Seller (Análises de Vendas → Curva ABC) para ver os destaques com margem.</p>`; return; }
+    const xs = D.top === "todos" ? m.todos : (m.curvas[D.top] || []);
+    el.innerHTML = `<div class="dash-cab"><h2>🏆 Meus destaques do mês</h2><span class="muted">${m.inicio?.slice(8, 10)}/${m.inicio?.slice(5, 7)} a ${m.fim?.slice(8, 10)}/${m.fim?.slice(5, 7)} · Gestor Seller</span><a class="btn small" href="#/analises-vendas/abc">Curva ABC ›</a></div>
+      <div class="seg dash-seg">${[["todos", "Top 10"], ["A", "Curva A"], ["B", "Curva B"], ["C", "Curva C"]].map(([k, t]) => `<button data-dtop="${k}" class="${D.top === k ? "on" : ""}">${t}</button>`).join("")}</div>
+      <div class="dash-top">${xs.map((p, i) => `<a class="dash-tl" href="#/estoque/reposicao" title="${esc(p.produto)}"><span class="pos-n c${p.curva || ""}">${i + 1}</span>
+        <span class="n"><span class="t">${esc(p.produto || p.sku)}</span><small>${esc(p.sku || "")} · curva ${esc(p.curva || "—")} · ${nf0.format(p.unidades || 0)} un</small></span>
+        <span class="v"><b>${rsES(p.valor || 0)}</b><small>${mgPill(p.mpa_pct)} pós ADS</small></span></a>`).join("") || `<p class="muted">Nada nesta curva.</p>`}</div>`;
+    el.querySelectorAll("[data-dtop]").forEach(b => b.onclick = () => { D.top = b.dataset.dtop; desenharMeus(); });
+  }
+
+  // 🌎 análise do mercado: o resumo da IA dos concorrentes + quem mais vendeu/caiu no último dia coletado
+  function montarMercado() {
+    const r = S.dashIni, el = $("#ds-mercado"); if (!r || !el) return;
+    const d = r.dia || {}, t = d.total || {}, linhas = r.resumo ? r.resumo.texto.split("\n").filter(x => x.trim() && !/^#/.test(x.trim())).slice(0, 4).join("\n") : "";
+    const ddmm = x => x ? x.slice(8, 10) + "/" + x.slice(5, 7) : "—";
+    el.innerHTML = `<div class="dash-cab"><h2>🌎 Mercado</h2><span class="muted">concorrentes seguidos · ${ddmm(d.data)}</span><a class="btn small" href="#/vendedores">Ver tudo ›</a></div>
+      ${d.tem ? `<p class="dash-frase"><b>${abrev(t.v)}</b> vendidos pelos ${nf0.format(d.total_vendedores || 0)} vendedores seguidos ${t.var != null ? `(${seta(t.var)} vs média de 7 dias)` : ""}.</p>
+        <div class="dash-2 dash-mini"><div><div class="in-sub">▲ Subiram</div>${(d.top || []).slice(0, 3).map(x => `<a class="dash-li" href="#/concorrentes/${encodeURIComponent(x.vendedor)}"><span>${esc(x.vendedor)}</span><b>${abrev(x.v)}</b></a>`).join("") || "<span class='muted'>—</span>"}</div>
+          <div><div class="in-sub">▼ Caíram</div>${(d.queda || []).slice(0, 3).map(x => `<a class="dash-li" href="#/concorrentes/${encodeURIComponent(x.vendedor)}"><span>${esc(x.vendedor)}</span><b class="neg">${abrev(x.v)}</b></a>`).join("") || "<span class='muted'>ninguém caiu</span>"}</div></div>` : ""}
+      ${linhas ? `<div class="md dash-md">${mdSimples(linhas)}</div>` : `<p class="muted">O resumo da IA aparece aqui quando for gerado.</p>`}`;
+  }
+  // 🏪 análise da minha loja: frases diretas montadas com os números (sem IA)
+  function montarLoja() {
+    const el = $("#ds-loja"); if (!el) return;
+    const h = S.dashHoje, rp = S.dashRp, m = (S.dashL || {}).meus, fr = [];
+    if (h && h.ate_agora && h.ate_agora.valor != null) { const v = pct(h.ate_agora.valor, (h.ate_agora_comparar || {}).valor);
+      fr.push(`Hoje: <b>${rsES(h.ate_agora.valor)}</b> em ${nf0.format(h.ate_agora.pedidos || 0)} pedidos${v != null ? `, ${seta(v)} contra ontem no mesmo horário` : ""}.`); }
+    if (rp) { const rs = rp.resumo || {};
+      if (rs.fat_mes) fr.push(`Ritmo do mês: <b>${FMT.moeda(rs.fat_mes)}</b>, ${rs.meta_fat ? Math.round(rs.fat_mes / rs.meta_fat * 100) : 0}% da meta de ${FMT.moeda(rs.meta_fat)}.`);
+      if (rs.margem_media != null) fr.push(`Margem média pós ADS <b class="${rs.margem_media < rs.meta_margem ? "neg" : "pos"}">${nf1.format(rs.margem_media)}%</b> (meta ${nf0.format(rs.meta_margem)}%)${rs.margem_ruim ? `; <a href="#/estoque/reposicao">${nf0.format(rs.margem_ruim)} campeões abaixo de 10%</a>` : ""}.`);
+      if (rs.campeoes_zerados) fr.push(`<a href="#/estoque/reposicao" class="neg">${nf0.format(rs.campeoes_zerados)} campeões zerados</a> sem estoque nem trânsito: repor primeiro.`);
+      if (rs.parado_bc) fr.push(`<b>${FMT.moeda(rs.parado_bc)}</b> parados em B, C e sem venda: <a href="#/estoque/reposicao">queimar e levar para os campeões</a>.`); }
+    if (m) { const best = m.todos[0]; fr.push(`Mês ${m.inicio?.slice(5, 7)}: <b>${FMT.moeda(m.total)}</b> faturados, lucro pós ADS ${FMT.moeda(m.lucro_pos_ads)} (${m.total ? nf1.format(m.lucro_pos_ads / m.total * 100) : 0}%)${best ? `; campeão: ${esc((best.produto || best.sku || "").slice(0, 40))}` : ""}.`); }
+    el.innerHTML = `<div class="dash-cab"><h2>🏪 Minha loja</h2><span class="muted">análise direta dos números</span><a class="btn small" href="#/estoque/reposicao">Reposição ›</a></div>
+      ${fr.length ? `<ul class="dash-frases">${fr.map(f => `<li>${f}</li>`).join("")}</ul>` : `<p class="muted">Montando a análise…</p>`}`;
+  }
+  clearTimeout(S.dashT);
+  S.dashT = setTimeout(() => { if (vivo() && !document.hidden) telaInicio(); }, 5 * 60e3);     // atualiza sozinho a cada 5 min
 }
 function telaInicioOps() {
   const b = document.querySelector('.in-op[href="#/central/erros"] b'); if (b && S.opsRes) { b.textContent = nf0.format(S.opsRes.erros_hoje || 0); b.className = S.opsRes.erros_hoje ? "neg" : ""; }
@@ -1865,7 +1880,7 @@ function desenharMenu() {
   const sacAberto = ab.sac ?? h.startsWith("#/sac");
   const mvAberto = ab.mv ?? h.startsWith("#/analises-vendas");
   $("#side").innerHTML = `
-    ${it("#/inicio", "🏠", "Início", h.startsWith("#/inicio") || (sec === "inicio" && !h.startsWith("#/desafio")))}
+    ${it("#/inicio", "📊", "Dashboard", h.startsWith("#/inicio") || (sec === "inicio" && !h.startsWith("#/desafio")))}
     ${it("#/desafio", "🎯", "Desafio", h.startsWith("#/desafio"))}
     ${it("#/ranking", "🏆", "Ranking de marcas", sec === "ranking", seta("ranking", cats.length > 0, rkAberto))}
     ${rkAberto && cats.length ? sub(cats) : ""}
@@ -3923,7 +3938,7 @@ function abrirEcLista(campo, valor) {
 }
 // ---------- Minhas Lojas → 📊 Análises de Vendas (01/10; nome como o menu Análises do UpSeller, Bruno: "crie um menu Minhas Vendas com os dados do UpSeller Vendas por
 // Anúncio primeiro"). O coletor baixa o relatório de 30 dias junto do estoque; o servidor cruza com o estoque (só números).
-const MV_MENU = [["hoje", "⚡ Vendas de hoje"], ["tv", "📺 Modo TV"], ["anuncio", "🧾 Vendas por Anúncio"], ["abc", "🔤 Curva ABC"], ["lucro", "💰 Lucro e ADS (Gestor)"], ["promocao", "🏷️ Para promoção"]];
+const MV_MENU = [["tv", "📺 Modo TV"], ["anuncio", "🧾 Vendas por Anúncio"], ["abc", "🔤 Curva ABC"], ["lucro", "💰 Lucro e ADS (Gestor)"], ["promocao", "🏷️ Para promoção"]];
 // 01/10 (Bruno: "vendas ABC do UpSeller, separado"): a mesma conta da Análise ABC do UpSeller (A até 80% acumulado, B até
 // 95%, C o resto), por valor ou por volume, feita com o relatório Vendas por Anúncio (conferida: 59/95/166 = 79,71/15,23/5,06%)
 function telaCurvaABC(r) {

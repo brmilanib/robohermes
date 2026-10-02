@@ -93,6 +93,21 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Junto, o **Hermes** faz a 2ª pesquisa, grátis (`pesquisa_hermes`: busca na web do Ollama, até 8 páginas, + relatório do
   gpt-oss grátis), postada na Sala como Hermes e guardada em `saber`; 1 vez por pedido (`dados.hermes`). `NUBI_PESQUISA_HERMES=0` desliga.
 
+## 📊 Dashboard (02/10, Bruno: "refaz a Início para um Dashboard; junta Vendas de hoje; tudo organizado e clicável")
+
+- `telaInicio` (rota `#/inicio`, menu "📊 Dashboard"): vendas de hoje (UpSeller: faturamento, pedidos, ticket × ontem
+  no mesmo horário, lojas e anúncios), 🏪 Minha loja (frases diretas montadas com os números, sem IA), 🌎 Mercado
+  (concorrentes do último dia + resumo da IA), cards Alertas / Estoque / Reposição sugerida (% por curva) / ADS (mês da
+  Curva ABC; por canal de hora em hora = a fazer), 🏆 Meus destaques do mês (Curva ABC do Gestor, top 10 geral e por
+  curva, margem pós ADS), 👀 top 10 dos vendedores seguidos em 7 dias (`vend_vendas_dia`), tempo, datas e uma linha de
+  sistema. Cada bloco carrega em paralelo (`vendas_hoje`, `inicio`, `inicio_extras`, `estoque_reposicao`,
+  `dashboard_listas`) e a tela se atualiza a cada 5 min. "⚡ Vendas de hoje" saiu do menu (a tela de detalhe por hora
+  continua em `#/analises-vendas/hoje`, link no Dashboard).
+- Margens em tempo real do Gestor (fase 2): `coletor gestor-painel` (comando `gestor_painel`) abre o painel e /sales do
+  Gestor, SÓ LÊ, e manda texto + respostas JSON da tela para `gestor_painel_salvar` (`gestor_painel|bruto`); o leitor
+  desses números entra depois de ver o bruto.
+- Ícones das lojas em alta: card #148 para o Ferreiro (logos oficiais em `public/icones/`, usados por `platIco`).
+
 ## Compras e vendas do estoque (28/09, pedido do Bruno) — Estoque → 🛒 Compras e vendas (`#/estoque/compras`)
 
 - Relatório do UpSeller **Análises → Vendas por Anúncio, últimos 30 dias** ("Vendas_por_Produtos_AAAAMMDD-AAAAMMDD_….xlsx":
