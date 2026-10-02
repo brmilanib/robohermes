@@ -1325,6 +1325,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   MESMO `relatorio()` da página da marca (`_relatorio_mem`, 15 min; período padrão, marca trocada somada), produto pelo GTIN
   (aba GTINs) ou `_produto_pelo_nome`; minhas lojas (`ml_lojas`) marcadas "minha loja" e, fora do top 5, a posição delas.
   Meu anúncio: loja (nickname da conta conectada), link e o preço com a promoção (`meli.preco_de_venda` = /sale_price).
+  02/10 (Bruno: "monitorar = robô lê na hora"; "na calculadora, os 5 em tempo real"; "30 dias, preço médio e preço atual,
+  minha posição"): `ml_precos_seguir`/`_gtin` chamam `_ler_monitorado_ja` (`precos.pedir_leitura` → `ler_ja` no item, que
+  entra no `pendente` fora da rodada, só os novos; + `mac_comandos` `ml_precos` sem duplicar). `_precos_agora`: preço de
+  agora dos vendedores com loja real (ofertas do catálogo pela API, cache 10 min; senão a vitrine `vend_anuncios_ml`);
+  sem loja conhecida, o preço do dia do export. Período: o export de 30 dias da marca (`_relatorio_mem(marca, periodo)`);
+  sem ele, unidades proporcionais (`un30`, `base30`). Minha loja também pelo id da conta conectada; se não aparece, posição
+  estimada pelas minhas vendas de 30 dias no ML (UpSeller) entre as unidades de 30 dias (`minha_estimada`).
 - **📈 Monitorar pelo GTIN (01/10, Bruno: "preciso monitorar o Cuba e o Silver Scent do SIENO e não tem a opção")**: o
   botão só aparecia na foto casada com a vitrine (`vend_anuncios_ml`), e a vitrine do SIENO P13 leu 51 anúncios (49 de
   catálogo) dos 500 do Nubimetrics. Foto sem casar + loja ligada + `Gtin` → `gtin_mon` e "📈 Monitorar", que chama

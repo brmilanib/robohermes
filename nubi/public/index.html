@@ -1149,20 +1149,23 @@ header.top{padding:7px 16px}
 .pc-lucro.pos .pc-dois>div:first-child b{color:#047857}.pc-lucro.neg .pc-dois>div:first-child b{color:#b91c1c}
 .pc-merc{margin-top:16px;border:1px solid #e2e8f0;border-radius:18px;padding:12px 14px;background:linear-gradient(180deg,#fff,#f8fafc)}
 .pc-merc-t{font-weight:800;font-size:15px;margin-bottom:8px}.pc-merc-t span{display:block;font-weight:400;font-size:12px;color:#64748b;margin-top:2px}
-.pc-v{display:grid;grid-template-columns:34px 1fr auto auto auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #eef2f7}
+.pc-v{display:grid;grid-template-columns:40px minmax(0,1fr) 92px 104px 118px 56px;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #eef2f7}
 .pc-vn{font-weight:900;color:#f59e0b;font-size:16px;text-align:center}.pc-vt{min-width:0;position:relative}
 .pc-vt b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}.pc-vt small{color:#94a3b8;font-size:11px}
 .pc-vt i{display:block;height:5px;border-radius:9px;background:linear-gradient(90deg,#2563eb,#22d3ee);margin-top:4px}
-.pc-vu{color:#64748b;font-size:13px}.pc-vp{font-weight:800;font-size:16px}
+.pc-vu{color:#64748b;font-size:13px}.pc-vp{font-weight:800;font-size:16px;text-align:right;display:flex;flex-direction:column;line-height:1.15}
+.pc-vp a{color:#047857;text-decoration:none}.pc-vp a:hover{text-decoration:underline}.pc-vp small{font-weight:500;font-size:11px;color:#94a3b8}
 .pc-mais{display:flex;justify-content:flex-end;margin-top:8px}
 .pc-v.eu{background:#eff6ff;border-radius:10px;padding-left:4px;padding-right:4px}.pc-vt em{font-style:normal;font-size:11px;background:#2563eb;color:#fff;border-radius:999px;padding:1px 7px;margin-left:6px}
+.pc-vcab{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid #e2e8f0}
+.pc-vcab span:nth-child(n+3){text-align:right}.pc-vu{text-align:right}.pc-va a{color:#047857}
 .pc-vsep{font-size:12px;color:#64748b;padding:6px 0 2px;text-align:center}
 .pc-eu s{color:#94a3b8;font-size:13px}.pc-eu .pc-loja{font-size:13px!important;color:#1e3a8a!important}
 .pc-eu{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 .pc-eu>div{display:flex;align-items:center;gap:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:8px 12px}
 .pc-eu>div span{flex:1;font-size:13px;color:#1e3a8a}.pc-eu>div b{font-size:18px;color:#1d4ed8}.pc-eu small{color:#64748b;font-size:12px}
 @keyframes pcEntra{from{opacity:.4;transform:scale(.985)}to{opacity:1;transform:none}}
-@media (max-width:760px){.pc-2{grid-template-columns:1fr}.pc-dois b,.pc-mg b{font-size:34px}.pc-v{grid-template-columns:28px 1fr auto auto}.pc-v .btn{display:none}.pc-topo{padding:14px}.pc-corpo{padding:12px 14px}}
+@media (max-width:760px){.pc-2{grid-template-columns:1fr}.pc-dois b,.pc-mg b{font-size:34px}.pc-v{grid-template-columns:30px minmax(0,1fr) 60px 84px 92px}.pc-v .btn,.pc-v>span:last-child:empty{display:none}.pc-topo{padding:14px}.pc-corpo{padding:12px 14px}}
 .pm-calcbtn{border:0;background:linear-gradient(135deg,#2563eb,#22d3ee);color:#fff;border-radius:10px;width:34px;height:34px;margin-right:8px;cursor:pointer;
   font-size:18px;flex:none;box-shadow:0 3px 10px rgba(37,99,235,.35);display:inline-flex;align-items:center;justify-content:center;transition:transform .15s}
 .pm-calcbtn:hover{transform:scale(1.08)}
@@ -8425,14 +8428,16 @@ async function fotosNubiSeguido(nomeV) {
       const x = await api("ml_precos_seguir_gtin", {}, {method: "POST", body: JSON.stringify({vendedor: nomeV, gtin: b.dataset.mong, titulo: b.dataset.t,
         preco: b.dataset.p || null, foto: b.dataset.f, full: !!b.dataset.full, tipo_id: b.dataset.tipo})});
       b.outerHTML = `<a class="muted ml-foto-mlb" href="${esc(urlML(x.link))}" target="_blank" rel="noopener">${esc(x.mlb)} ↗</a>` + tagMonitor(x.mlb, {preco: x.preco, dia: null});
+      if (x.robo) toast("📈 No monitor: " + x.robo, 5000);
     } catch (e) { b.disabled = false; b.textContent = "📈 Monitorar"; alert(e.message); }
   });
   box.querySelectorAll("button[data-mon]").forEach(b => b.onclick = async () => {
     const loja = r.loja || {};
     b.disabled = true;
     try {
-      await api("ml_precos_seguir", {}, {method: "POST", body: JSON.stringify({mlb: b.dataset.mon, titulo: b.dataset.t, preco: b.dataset.p || null, foto: b.dataset.f,
+      const rs = await api("ml_precos_seguir", {}, {method: "POST", body: JSON.stringify({mlb: b.dataset.mon, titulo: b.dataset.t, preco: b.dataset.p || null, foto: b.dataset.f,
         link: b.dataset.l, loja: loja.nome || "", seller_id: loja.id || "", vendedor: nomeV})});
+      if (rs.robo) toast("📈 No monitor: " + rs.robo, 5000);
       b.outerHTML = tagMonitor(b.dataset.mon, {preco: b.dataset.p ? +b.dataset.p : null, dia: null});
     } catch (e) { b.disabled = false; alert(e.message); }
   });
@@ -8595,11 +8600,20 @@ function pmCalc(x, cfg) {
       const dt = d => d ? d.slice(8, 10) + "/" + d.slice(5, 7) : "";
       const usar = p => p ? `<button class="btn small" data-usar="${p}">usar</button>` : "";
       const mx = Math.max(1, ...(mc.top || []).map(t => t.unidades));
-      box.innerHTML = `<div class="pc-merc-t">🏆 Quem mais vende este produto <span>${mc.top ? `Nubimetrics · ${dt(mc.inicio)} a ${dt(mc.fim)}${mc.dias ? ` (${mc.dias} dias)` : ""} · ${nf0.format(mc.vendedores)} vendedores · ${nf0.format(mc.unidades)} un · preço médio do mercado <b>${rsES(mc.preco_medio)}</b>` : esc(mc.sem || "sem dados do Nubimetrics")}</span></div>
-        ${(() => { const lin = t => `<div class="pc-v ${t.eu ? "eu" : ""}"><span class="pc-vn">${t.pos}º</span><div class="pc-vt"><b>${esc(t.vendedor)}${t.eu ? ` <em>minha loja</em>` : ""}</b>${t.real || t.eu ? "" : `<small>nome no Nubimetrics</small>`}
-            <i style="width:${Math.max(1, t.unidades / mx * 100)}%"></i></div><span class="pc-vu">${nf0.format(t.unidades)} un</span><span class="pc-vp">${rsES(t.preco_medio)}</span>${usar(t.preco_medio)}</div>`;
-          return (mc.top || []).map(lin).join("") + ((mc.eu || []).length ? `<div class="pc-vsep">⋯ minha posição</div>` + mc.eu.map(lin).join("") : "")
-            + (mc.top && !(mc.top || []).some(t => t.eu) && !(mc.eu || []).length ? `<div class="pc-vsep">Minhas lojas não aparecem entre os vendedores deste período no Nubimetrics.</div>` : ""); })()}
+      box.innerHTML = `<div class="pc-merc-t">🏆 Quem mais vende este produto <span>${mc.top ? `Nubimetrics · ${mc.base30 === "proporcional" ? `≈ 30 dias (proporcional ao export de ${mc.dias} dias, ${dt(mc.inicio)} a ${dt(mc.fim)})` : `últimos 30 dias (${dt(mc.inicio)} a ${dt(mc.fim)})`} · ${nf0.format(mc.vendedores)} vendedores · ${nf0.format(mc.un30 ?? mc.unidades)} un · preço médio do mercado <b>${rsES(mc.preco_medio)}</b>` : esc(mc.sem || "sem dados do Nubimetrics")}</span></div>
+        ${(() => { const mx3 = Math.max(1, ...(mc.top || []).map(t => t.un30 ?? t.unidades));
+          const atual = t => t.preco_agora != null ? `<a href="${esc(t.link_agora || "#")}" target="_blank" rel="noopener" title="${esc(t.fonte_agora || "")}">${rsES(t.preco_agora)}</a><small>${esc(t.fonte_agora || "")}</small>`
+            : t.preco_export != null ? `${rsES(t.preco_export)}<small>no dia do export</small>` : "—";
+          const lin = (t, i) => `<div class="pc-v ${t.eu ? "eu" : ""}"><span class="pc-vn">${t.pos ?? i + 1}º</span><div class="pc-vt"><b>${esc(t.vendedor)}${t.eu ? ` <em>minha loja</em>` : ""}</b>${t.real || t.eu ? "" : `<small>nome no Nubimetrics</small>`}
+            <i style="width:${Math.max(1, (t.un30 ?? t.unidades) / mx3 * 100)}%"></i></div><span class="pc-vu">${nf0.format(t.un30 ?? t.unidades)} un</span>
+            <span class="pc-vp">${rsES(t.preco_medio)}</span><span class="pc-vp pc-va">${atual(t)}</span>${usar(t.preco_agora ?? t.preco_medio)}</div>`;
+          const cab = `<div class="pc-v pc-vcab"><span></span><span>Vendedor</span><span>Un. 30 dias</span><span>Preço médio</span><span>Preço atual</span><span></span></div>`;
+          const est = mc.minha_estimada;
+          return cab + (mc.top || []).map(lin).join("") + ((mc.eu || []).length ? `<div class="pc-vsep">⋯ minha posição</div>` + mc.eu.map(lin).join("") : "")
+            + (est ? `<div class="pc-v eu"><span class="pc-vn">≈${est.pos}º</span><div class="pc-vt"><b>Minhas lojas no ML <em>minha loja</em></b><small>posição estimada pelas minhas vendas de 30 dias no UpSeller (o Nubimetrics embaralha o nome) · de ${nf0.format(est.de)} vendedores</small></div>
+                <span class="pc-vu">${nf0.format(est.unidades)} un</span><span class="pc-vp">${ml.minhas_vendas && ml.minhas_vendas.preco_medio != null ? rsES(ml.minhas_vendas.preco_medio) : "—"}</span>
+                <span class="pc-vp pc-va">${eu && eu.preco ? rsES(eu.preco) + "<small>meu anúncio agora</small>" : "—"}</span><span></span></div>`
+              : mc.top && !(mc.top || []).some(t => t.eu) && !(mc.eu || []).length ? `<div class="pc-vsep">Minhas lojas não aparecem entre os vendedores deste período no Nubimetrics.</div>` : ""); })()}
         ${mc.marca && mc.produto ? `<div class="pc-mais"><button class="btn small primary" id="pc-vermais">Ver todos os vendedores de ${esc(mc.produto)} ›</button></div>` : ""}
         <div class="pc-eu">${eu && eu.preco ? `<div><span>🙋 Meu anúncio no ML agora${eu.loja ? ` · <b class="pc-loja">${esc(eu.loja)}</b>` : ""}
             ${eu.link ? ` · <a href="${esc(eu.link)}" target="_blank" rel="noopener">${esc(eu.mlb)} ↗</a>` : ""}${eu.status && eu.status !== "active" ? ` · <i>${esc(eu.status)}</i>` : ""}</span>

@@ -320,9 +320,63 @@ def test_cinco_maiores_vendedores_do_produto():
     assert m["como"] == "nome" and m["produto"] == "Armaf Club De Nuit Intense Man EDT 105 ml" and m["marca"] == "ARMAF"
     assert [t["vendedor"] for t in m["top"]][:2] == ["MNZIMPORTS P11", "MAMS ECOMMERCE"] and m["top"][1]["real"]
     assert m["top"][0]["preco_medio"] == 253.06 and m["vendedores"] == 7 and m["dias"] == 60
+    assert m["base30"] == "proporcional" and m["top"][0]["un30"] == 9800                 # sem export de 30 dias: 60 → 30
     assert m["eu"] == [dict(m["eu"][0], pos=7, vendedor="AURA SCENT", eu=True)] and m["eu"][0]["unidades"] == 8   # minha loja, 7º
     assert m2["como"] == "gtin" and m2["produto"] == m["produto"]
     assert sem["sem"]
+
+
+def test_anuncio_novo_e_lido_na_hora_e_preco_agora_dos_5():
+    """02/10 (Bruno: "toda vez que adicionar no monitorar, o robô vai buscar os dados na mesma hora"; "na calculadora, ler os
+    5 primeiros em tempo real"): o anúncio novo entra no pendente fora da rodada (só ele) e o `ml_precos` vai para a fila do
+    Mac; a calculadora traz o preço de agora dos vendedores com loja conhecida (catálogo pela API, senão a vitrine)."""
+    import nubi_web as w
+    import meli
+    r = Repo()
+    precos.seguir(r, {"mlb": "MLB4000000111", "titulo": "Perfume Club De Nuit Intense Man Edt 105ml"})
+    precos.gravar_leitura(r, [{"mlb": "MLB4000000111", "preco": 10}])           # já lido (página)
+    precos.seguir(r, {"mlb": "MLB6230997792", "titulo": "Perfume Club De Nuit Intense Da Armaf Edt 105ml Masculino"})
+    fora = datetime(2026, 10, 2, 9, 0, tzinfo=BR)                              # longe das 12h e 19h
+    assert precos.pendente(r, {"ativo": True}, fora)["novos"] == []            # sem pedido, não é urgente
+    pedidos = []
+    r._req_orig = r._req
+    def req(metodo, tabela, params=None, corpo=None, prefer=None):
+        if tabela == "mac_comandos":
+            if metodo == "POST":
+                pedidos.extend(corpo)
+            return [] if metodo == "GET" else None
+        return r._req_orig(metodo, tabela, params, corpo, prefer)
+    r._req = req
+    assert "agora" in w._ler_monitorado_ja(r, "MLB6230997792")
+    assert [p["comando"] for p in pedidos] == ["ml_precos"]
+    p = precos.pendente(r, {"ativo": True}, datetime.now(BR))
+    assert p["rodar"] and p["novos"] == ["MLB6230997792"] and "MLB6230997792" in [i["mlb"] for i in p["itens"]]
+    precos.gravar_leitura(r, [{"mlb": "MLB6230997792", "preco": 245}])          # o robô leu: sai do pendente urgente
+    assert precos.pendente(r, {"ativo": True}, fora)["novos"] == []
+    # preço de agora: catálogo (API) para a loja 111, vitrine para a 222, sem loja conhecida fica sem
+    rel = {"lojas_ml": {"h1": {"id": "111"}, "h2": {"id": "222"}},
+           "tabelas": {"gtins": [{"gtin": "6085010044712", "produto": "Armaf Club De Nuit Intense Man EDT 105 ml", "un": 9}]}}
+    antes = (meli.ofertas_por_gtin, meli.tem_chave)
+    meli.ofertas_por_gtin = lambda gts, limite_produtos=2, max_gtins=2: [
+        {"vendedor_id": 111, "preco": 249.9, "link": "https://x/MLB1"}, {"vendedor_id": 111, "preco": 239.0, "link": "https://x/MLB2"},
+        {"vendedor_id": 999, "preco": 1.0, "link": "https://x/MLB3"}]
+    meli.tem_chave = lambda: True
+    meli._CACHE.clear()
+    class R2:
+        def _todos(self, tab, params=None):
+            assert tab == "vend_anuncios_ml" and params["seller_id"] == "in.(222)"
+            return [{"seller_id": "222", "mlb": "MLB5", "titulo": "Perfume Armaf Club De Nuit Intense Man Edt 105ml", "preco": 233.5,
+                     "link": "https://x/MLB5", "visto_em": "2026-10-01T10:00:00+00:00"},
+                    {"seller_id": "222", "mlb": "MLB6", "titulo": "Armaf Club De Nuit Intense Woman EDP 105ml", "preco": 199, "link": "",
+                     "visto_em": "2026-10-01T11:00:00+00:00"}]
+    try:
+        ag = w._precos_agora(R2(), rel, "Armaf Club De Nuit Intense Man EDT 105 ml", "ARMAF",
+                             [{"vid": "h1"}, {"vid": "h2"}, {"vid": "h3"}])
+    finally:
+        meli.ofertas_por_gtin, meli.tem_chave = antes
+        meli._CACHE.clear()
+    assert ag["h1"]["preco_agora"] == 239.0 and "catálogo" in ag["h1"]["fonte_agora"]
+    assert ag["h2"]["preco_agora"] == 233.5 and ag["h2"]["fonte_agora"].startswith("vitrine") and "h3" not in ag
 
 
 if __name__ == "__main__":

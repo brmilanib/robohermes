@@ -432,10 +432,38 @@ def pendente(repo, rotina, agora=None):
     faltam = [{"mlb": x["mlb"], "link": x.get("link") or link_de(x["mlb"]), "produto": x.get("produto_catalogo") or "",
                "busca": x.get("busca") or ("" if titulo_ruim(x.get("titulo")) else termo_busca(x.get("titulo")))} for x in xs
               if not _lido_desde(dict(x, ultima_leitura=x.get("ultima_pagina")), ini)]
+    # 02/10 (Bruno: "toda vez que adicionar no monitorar, o robô vai lá buscar os dados na mesma hora"): o anúncio recém
+    # posto no monitor (`ler_ja`) e ainda sem leitura de página entra já, fora do horário da rodada
+    def urgente(x):
+        if not x.get("ler_ja"):
+            return False
+        try:
+            return not _lido_desde(dict(x, ultima_leitura=x.get("ultima_pagina")), datetime.fromisoformat(x["ler_ja"]))
+        except ValueError:
+            return False
+    novos = [x["mlb"] for x in xs if urgente(x)]
+    ja_tem = {f["mlb"] for f in faltam}
+    for x in xs:
+        if x["mlb"] in novos and x["mlb"] not in ja_tem:
+            faltam.append({"mlb": x["mlb"], "link": x.get("link") or link_de(x["mlb"]), "produto": x.get("produto_catalogo") or "",
+                           "busca": x.get("busca") or ("" if titulo_ruim(x.get("titulo")) else termo_busca(x.get("titulo")))})
     # dá 20 min para a API (cron da hora) ler primeiro; o coletor pega só o que sobrar
     na_hora = bool(rotina is None or rotina.get("ativo", True)) and agora >= ini + timedelta(minutes=20)
-    return {"rodar": na_hora and bool(faltam), "itens": faltam, "total": len(xs), "horario": " e ".join(HORARIOS),
+    if novos and not na_hora:                          # fora da rodada: só os novos (não relê os outros)
+        faltam = [f for f in faltam if f["mlb"] in novos]
+    return {"rodar": (na_hora or bool(novos)) and bool(faltam), "itens": faltam, "novos": novos, "total": len(xs), "horario": " e ".join(HORARIOS),
             "rodada": ini.isoformat()}
+
+
+def pedir_leitura(repo, mlb, agora=None):
+    """Marca o anúncio para o coletor ler a página já (ver `pendente`)."""
+    alvo, xs = normalizar_mlb(mlb), lista(repo)
+    for x in xs:
+        if x.get("mlb") == alvo:
+            x["ler_ja"] = (agora or datetime.now(timezone.utc)).isoformat()
+            _gravar(repo, LISTA, xs)
+            return True
+    return False
 
 
 def alertas(repo):

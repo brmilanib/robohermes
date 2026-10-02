@@ -6800,6 +6800,15 @@ def _calc_ml(repo, d):
         minhas = _minhas_vendas_sku(repo, sku)
     except Exception:  # noqa: BLE001 — o quadro de vendedores nunca derruba a calculadora
         traceback.print_exc()
+    # 02/10 (Bruno: "faltou a minha posição"): se a minha loja não aparece pelo nome no Explorador (o Nubimetrics embaralha),
+    # a posição estimada pelas MINHAS vendas de 30 dias no Mercado Livre (UpSeller) entre as unidades de 30 dias dos vendedores
+    if mercado and mercado.get("top") and not any(t.get("eu") for t in mercado["top"]) and not mercado.get("eu") and minhas:
+        un_ml = sum(a.get("unidades") or 0 for a in minhas.get("anuncios") or [] if "mercado" in str(a.get("loja") or "").lower())
+        if un_ml:
+            mercado["minha_estimada"] = {"unidades": round(un_ml), "pos": 1 + sum(1 for u in mercado.get("uns30") or [] if u > un_ml),
+                                         "de": len(mercado.get("uns30") or [])}
+    if mercado:
+        mercado.pop("uns30", None)
     return {"categoria": cat, "origem_categoria": origem_cat, "tipo": tipo, "tarifas": tarifas, "dimensoes": dims, "full": full,
             "frete": frete, "origem_frete": origem_frete, "aviso": aviso, "mercado": mercado, "minhas_vendas": minhas,
             "meu": {k: meu.get(k) for k in ("mlb", "titulo", "categoria", "tipo_id", "preco", "preco_cheio", "full", "dimensoes", "status", "link", "loja")} if meu else None}
@@ -6826,13 +6835,14 @@ def _minhas_vendas_sku(repo, sku):
 _REL_MEM = {}
 
 
-def _relatorio_mem(repo, marca):
+def _relatorio_mem(repo, marca, periodo=None):
     """relatorio() da marca guardado 15 min na memória do servidor (a calculadora reabre várias vezes)."""
-    x = _REL_MEM.get(marca)
+    k = f"{marca}|{periodo or ''}"
+    x = _REL_MEM.get(k)
     if x and time.time() - x[0] < 900:
         return x[1]
-    r = relatorio(repo, marca)
-    _REL_MEM[marca] = (time.time(), r)
+    r = relatorio(repo, marca, periodo) if periodo else relatorio(repo, marca)
+    _REL_MEM[k] = (time.time(), r)
     if len(_REL_MEM) > 40:
         _REL_MEM.pop(min(_REL_MEM, key=lambda k: _REL_MEM[k][0]), None)
     return r
@@ -6864,6 +6874,41 @@ def _produto_pelo_nome(titulo, produtos, marcas):
         if nota >= 0.75 and (not melhor or chave > melhor[0]):
             melhor = (chave, p)
     return melhor[1] if melhor else None
+
+
+def _precos_agora(repo, rel, prod, marca, vendedores):
+    """02/10 (Bruno: "quando clico na calculadora, ler os 5 primeiros em tempo real"): para cada vendedor com a loja real
+    conhecida, o preço de agora do anúncio desse produto: 1º as ofertas do catálogo pela API oficial (na hora, cache 10 min),
+    2º o anúncio dele na vitrine lida pelo coletor (`vend_anuncios_ml`, com a data). {vid: {preco_agora, link_agora, fonte_agora}}."""
+    lojas = rel.get("lojas_ml") or {}
+    sid_de = {v.get("vid"): str((lojas.get(v.get("vid")) or {}).get("id") or "") for v in vendedores}
+    sid_de = {k: x for k, x in sid_de.items() if x}
+    if not sid_de:
+        return {}
+    out = {}
+    gts = [x["gtin"] for x in sorted((rel.get("tabelas") or {}).get("gtins") or [], key=lambda x: -(x.get("un") or 0))
+           if x.get("produto") == prod and x.get("gtin")][:2]
+    if gts and meli.tem_chave():
+        try:
+            ofs = meli._mem(f"ofertas_calc|{','.join(gts)}", 600, lambda: meli.ofertas_por_gtin(gts, limite_produtos=2, max_gtins=2))
+        except meli.ErroMeli:
+            ofs = []
+        for vid, sid in sid_de.items():
+            mins = sorted((o for o in ofs if str(o.get("vendedor_id")) == sid and o.get("preco")), key=lambda o: o["preco"])
+            if mins:
+                out[vid] = {"preco_agora": mins[0]["preco"], "link_agora": mins[0]["link"], "fonte_agora": "ML agora (catálogo)"}
+    falta = {vid: sid for vid, sid in sid_de.items() if vid not in out}
+    if falta:
+        rows = repo._todos("vend_anuncios_ml", {"select": "seller_id,mlb,titulo,preco,link,visto_em",
+                                                "seller_id": f"in.({','.join(sorted(set(falta.values())))})"})
+        for vid, sid in falta.items():
+            meus = [r for r in rows if str(r.get("seller_id")) == sid and r.get("preco")
+                    and _produto_pelo_nome(r.get("titulo") or "", {prod: 1}, [marca]) == prod]
+            if meus:
+                r = max(meus, key=lambda r: str(r.get("visto_em") or ""))
+                out[vid] = {"preco_agora": float(r["preco"]), "link_agora": r.get("link") or meli.link_do_item(r.get("mlb")),
+                            "fonte_agora": "vitrine " + (_br(str(r["visto_em"])).strftime("%d/%m") if r.get("visto_em") else "")}
+    return out
 
 
 def _calc_mercado(repo, it, gtin):
@@ -6902,26 +6947,72 @@ def _calc_mercado(repo, it, gtin):
     if not achado:
         return {"sem": "não achei este produto no Explorador da marca", "marcas": sorted(marcas)}
     marca, rel, prod, un_t, como = achado
+    # 02/10 (Bruno: "o período está 60 dias; o que importa é o preço médio e as unidades dos últimos 30 dias"): o export de
+    # 30 dias da marca quando existe; senão as unidades do período viram "≈ por 30 dias" (proporcional)
+    fator, base30 = 1.0, "export"
+    p30 = sorted([p for p in rel.get("periodos") or [] if 28 <= int(p.get("dias") or 0) <= 31], key=lambda p: p["fim"])
+    if p30 and p30[-1]["id"] != (rel.get("atual") or {}).get("id"):
+        try:
+            r30 = _relatorio_mem(repo, marca, p30[-1]["id"])
+            if prod in (r30.get("vendedores_produto") or {}):
+                rel = r30
+                un_t = sum(v["un"] for v in rel["vendedores_produto"][prod])
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+    dias_p = int((rel.get("atual") or {}).get("dias") or 30)
+    if not 28 <= dias_p <= 31:
+        fator, base30 = 30 / dias_p, "proporcional"
     lista = sorted(rel["vendedores_produto"][prod], key=lambda v: -v["un"])
     lojas = rel.get("lojas_ml") or {}
     try:
         minhas = {re.sub(r"[^a-z0-9]", "", nubi.normalizar(l["nome"])) for l in repo._todos("ml_lojas", {"select": "nome", "ativo": "is.true"})}
     except Exception:  # noqa: BLE001
         minhas = set()
+    try:
+        minhas_ids = {str(meli._minha_conta() or "")} - {""} if meli.tem_chave() else set()
+    except Exception:  # noqa: BLE001
+        minhas_ids = set()
     def linha(i, v):
         real = (lojas.get(v.get("vid")) or {}).get("nome")
         nome = real or v["vendedor"]
         chave = {re.sub(r"[^a-z0-9]", "", nubi.normalizar(x)) for x in (nome, v["vendedor"]) if x}
-        return {"pos": i + 1, "vendedor": nome, "nubimetrics": v["vendedor"], "real": bool(real), "eu": bool(chave & minhas),
-                "unidades": int(v["un"]), "faturamento": round(float(v["fat"]), 2),
-                "preco_medio": round(float(v["fat"]) / v["un"], 2) if v["un"] else None, "anuncios": v.get("anuncios")}
+        sid = str((lojas.get(v.get("vid")) or {}).get("id") or "")
+        return {"pos": i + 1, "vendedor": nome, "nubimetrics": v["vendedor"], "real": bool(real),
+                "eu": bool(chave & minhas) or bool(sid and sid in minhas_ids),
+                "unidades": int(v["un"]), "un30": round(v["un"] * fator), "faturamento": round(float(v["fat"]), 2),
+                "preco_medio": round(float(v["fat"]) / v["un"], 2) if v["un"] else None, "anuncios": v.get("anuncios"),
+                "preco_export": v.get("ultimo_preco")}
     todas = [linha(i, v) for i, v in enumerate(lista) if v["un"] > 0]
+    try:                                               # 02/10: o preço de AGORA dos 5 primeiros (e o meu), não só o médio
+        agora_ = _precos_agora(repo, rel, prod, marca, [lista[x["pos"] - 1] for x in todas if x["pos"] <= 5 or x["eu"]])
+        for x in todas:
+            x.update(agora_.get(lista[x["pos"] - 1].get("vid")) or {})
+    except Exception:  # noqa: BLE001 — sem o preço de agora, fica o médio
+        traceback.print_exc()
     fat_t = sum(float(v["fat"]) for v in lista)
     per = rel.get("atual") or {}
     return {"top": todas[:5], "eu": [x for x in todas if x["eu"] and x["pos"] > 5], "vendedores": len(todas),
-            "unidades": int(un_t), "preco_medio": round(fat_t / un_t, 2) if un_t else None,
+            "unidades": int(un_t), "un30": round(un_t * fator), "base30": base30, "uns30": [x["un30"] for x in todas],
+            "preco_medio": round(fat_t / un_t, 2) if un_t else None,
             "inicio": str(per.get("inicio") or "")[:10], "fim": str(per.get("fim") or "")[:10], "dias": per.get("dias"),
             "marcas": sorted(marcas), "marca": marca, "produto": prod, "como": como}
+
+
+def _ler_monitorado_ja(repo, mlb):
+    """02/10 (Bruno: "toda vez que adicionar no monitorar, acionar o robô para buscar os dados na mesma hora"): marca o
+    anúncio (`precos.pedir_leitura`) e põe o `ml_precos` na fila do Mac (o tique pega em até 1 min); sem duplicar pedido
+    pendente. A leitura abre só os anúncios novos (fora da rodada das 12h/19h)."""
+    try:
+        precos.pedir_leitura(repo, mlb)
+        ja = repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.ml_precos", "status": "in.(pendente,rodando)", "limit": 1})
+        if not ja:
+            repo._req("POST", "mac_comandos", corpo=[{"comando": "ml_precos", "arg": None, "pedido_por": "monitor de preços (anúncio novo)",
+                                                      "status": "pendente", "criado_em": datetime.now(timezone.utc).isoformat()}],
+                      prefer="return=minimal")
+        return "o robô vai ler a página agora (1 a 3 min)"
+    except Exception:  # noqa: BLE001 — sem a fila, a leitura fica para a próxima rodada
+        traceback.print_exc()
+        return "a leitura fica para a próxima rodada (12h ou 19h)"
 
 
 def _seguir_pelo_gtin(repo, d):
@@ -8826,11 +8917,14 @@ def rota_posicoes(repo, metodo, rota, q, corpo):
             return dict(precos.detalhe(repo, q.get("mlb")), mlb=precos.normalizar_mlb(q.get("mlb")))
         if rota == "ml_precos_seguir" and metodo == "POST":
             try:
-                return {"ok": True, "item": precos.seguir(repo, d), "total": len(precos.lista(repo))}
+                item = precos.seguir(repo, d)
             except precos.ErroPrecos as e:
                 raise ErroNuvem(str(e))
+            return {"ok": True, "item": item, "total": len(precos.lista(repo)), "robo": _ler_monitorado_ja(repo, item["mlb"])}
         if rota == "ml_precos_seguir_gtin" and metodo == "POST":
-            return _seguir_pelo_gtin(repo, d)
+            r = _seguir_pelo_gtin(repo, d)
+            r["robo"] = _ler_monitorado_ja(repo, r["mlb"])
+            return r
         if rota == "ml_precos_parar" and metodo == "POST":
             return {"ok": True, "tirou": precos.parar(repo, d.get("mlb"))}
         if rota == "ml_precos_pendente":

@@ -67,7 +67,8 @@ def test_tela():
                       "mercado": {"top": [{"vendedor": "MAMS ECOMMERCE", "real": True, "unidades": 320, "preco_medio": 214.5},
                                           {"vendedor": "ICARBONXX P3", "real": False, "unidades": 150, "preco_medio": 219.9}],
                                   "vendedores": 12, "unidades": 610, "preco_medio": 217.3, "inicio": "2026-09-01", "fim": "2026-09-30",
-                                  "marca": "ARMAF", "produto": "Armaf Club De Nuit Intense EDT 105 ml"},
+                                  "marca": "ARMAF", "produto": "Armaf Club De Nuit Intense EDT 105 ml", "un30": 305,
+                                  "minha_estimada": {"unidades": 31, "pos": 9, "de": 48}},
                       "minhas_vendas": {"inicio": "2026-09-01", "fim": "2026-09-30", "unidades": 41, "preco_medio": 226.4, "anuncios": []}}
                 pg.route("**/api/app?r=ml_precos_calc_ml*", lambda rt: rt.fulfill(content_type="application/json", body=json.dumps(ML)))
                 pg.goto(f"http://127.0.0.1:{porta}/#/precos")
@@ -86,6 +87,8 @@ def test_tela():
                 merc = pg.inner_text("#pc-merc")                                       # 5 maiores vendedores + o meu preço
                 assert "MAMS ECOMMERCE" in merc and "R$ 214,50" in merc and "R$ 217,30" in merc and "R$ 229,90" in merc and "R$ 226,40" in merc, merc
                 assert "Ver todos os vendedores de Armaf Club De Nuit Intense EDT 105 ml" in merc
+                pg.locator("#pc-merc").screenshot(path=os.path.join(os.path.dirname(os.path.abspath(__file__)), f"saida_merc_{nome}.png"))
+                assert "≈9º" in merc and "Preço atual" in merc.replace("PREÇO ATUAL", "Preço atual")       # minha posição estimada
                 assert pg.input_value("#pc-g") == "600" and "Clássico 14%" in pg.inner_text("#pc-ml")
                 assert "R$ -11,05" in pg.inner_text("#pc-res") or "-R$ 11,05" in pg.inner_text("#pc-res"), pg.inner_text("#pc-res")
                 pg.fill("#pc-preco", "250")
