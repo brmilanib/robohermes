@@ -1482,6 +1482,89 @@ def testar(mlb="MLB4577439527", gtin="6290362346548"):
     return {"chaves": True, "passos": passos}
 
 
+def testar_marca(marca="armaf", max_produtos=1000, sondar=40):
+    """02/10 (Bruno: "pela API do ML dá para trazer todos os itens da marca, vendidos por dia e todos os vendedores? Aí a
+    gente exporta do ML em vez do Nubimetrics"). Só LEITURA: tenta cada caminho e conta o que vem (nunca token)."""
+    passos, achado = [], {"marca": marca}
+
+    def passo(nome, f):
+        t = time.time()
+        try:
+            r = f()
+            passos.append({"passo": nome, "ok": True, "ms": int((time.time() - t) * 1000), "detalhe": r})
+            return r
+        except ErroMeli as e:
+            passos.append({"passo": nome, "ok": False, "ms": int((time.time() - t) * 1000), "detalhe": str(e)})
+            return None
+    if not tem_chave():
+        return {"chaves": False, "passos": [{"passo": "chaves", "ok": False, "detalhe": FALTA_CHAVE}]}
+    passo("token em uso", lambda: token_em_uso())
+    # 1. busca de anúncios (o que o Nubimetrics usa): todos os anúncios da marca, com vendedor e vendidos
+    passo("busca de anúncios por palavra (/sites/MLB/search?q=)",
+          lambda: f"{((_get(f'/sites/{SITE}/search', {'q': marca, 'limit': 1}) or {}).get('paging') or {}).get('total')} anúncios")
+    passo("busca de anúncios na categoria Perfumes (/sites/MLB/search?category=MLB6284&q=)",
+          lambda: f"{((_get(f'/sites/{SITE}/search', {'q': marca, 'category': 'MLB6284', 'limit': 1}) or {}).get('paging') or {}).get('total')} anúncios")
+    # 2. produtos de catálogo da marca
+    prods = []
+
+    def catalogo():
+        off, total = 0, None
+        while off < max_produtos:
+            r = _get("/products/search", {"status": "active", "site_id": SITE, "q": marca, "limit": 50, "offset": off}) or {}
+            xs = r.get("results") or []
+            total = (r.get("paging") or {}).get("total", total)
+            prods.extend({"id": p.get("id"), "nome": p.get("name"),
+                          "marca": next((a.get("value_name") for a in p.get("attributes") or [] if a.get("id") == "BRAND"), "")}
+                         for p in xs if p.get("id"))
+            if len(xs) < 50:
+                break
+            off += 50
+        da_marca = [p for p in prods if marca.lower() in f"{p['marca']} {p['nome']}".lower()]
+        achado["produtos"] = len(prods)
+        achado["produtos_da_marca"] = len(da_marca)
+        achado["exemplos_produtos"] = [p["nome"] for p in da_marca[:8]]
+        return f"{total} no total; li {len(prods)}; {len(da_marca)} com a marca no nome/atributo"
+    passo("produtos de catálogo da marca (/products/search?q=)", catalogo)
+    # 3. ofertas (anúncios) de cada produto: vendedor, preço, Full… e vendidos?
+    ofertas, campos = [], set()
+
+    def ofs():
+        alvo = [p for p in prods if marca.lower() in f"{p['marca']} {p['nome']}".lower()][:sondar]
+        for p, xs in zip(alvo, _em_paralelo(lambda p: ofertas_do_produto(p["id"], 300), alvo, 4)):
+            for x in xs or []:
+                campos.update(x.keys())
+                ofertas.append({"pid": p["id"], "item": x.get("item_id"), "vendedor": x.get("seller_id"),
+                                "sold": x.get("sold_quantity"), "preco": x.get("price")})
+        vend = {o["vendedor"] for o in ofertas if o["vendedor"]}
+        com_sold = sum(1 for o in ofertas if o["sold"] is not None)
+        achado.update(ofertas=len(ofertas), vendedores=len(vend), ofertas_com_vendidos=com_sold, campos_da_oferta=sorted(campos))
+        return (f"{len(alvo)} produtos sondados: {len(ofertas)} anúncios de catálogo, {len(vend)} vendedores; "
+                f"{com_sold} com 'vendidos'; campos: {', '.join(sorted(campos))[:300]}")
+    passo("anúncios de cada produto (/products/ID/items)", ofs)
+    # 4. dados do anúncio de outra loja (vendidos, data de criação)
+    mlb = next((o["item"] for o in ofertas if o["item"]), None)
+    if mlb:
+        passo("anúncio de outra loja (/items/ID)", lambda: (lambda b: f"vendidos={b.get('sold_quantity')} criado={b.get('date_created')}")(_get(f"/items/{mlb}") or {}))
+        passo("vários anúncios (/items?ids=)", lambda: _diag_varios(mlb))
+        passo("visitas do anúncio (/items/visits)", lambda: visitas([mlb]).get(mlb))
+        sid = next((o["vendedor"] for o in ofertas if o["item"] == mlb), None)
+        if sid:
+            passo("vitrine da loja pela API (/sites/MLB/search?seller_id=)",
+                  lambda: (_get(f"/sites/{SITE}/search", {"seller_id": sid, "limit": 1}) or {}).get("paging", {}).get("total"))
+            passo("perfil da loja (/users/ID)", lambda: (lambda u: f"{u.get('nickname')} · vendas na vida {((u.get('seller_reputation') or {}).get('transactions') or {}).get('total')}")(_get(f"/users/{sid}") or {}))
+    # 5. ranking de mais vendidos da categoria (posição, sem número de vendas)
+    def destaques():
+        r = _get(f"/highlights/{SITE}/category/MLB6284") or {}
+        cont = r.get("content") or []
+        return f"{len(cont)} itens no ranking de mais vendidos (tipos: {sorted({c.get('type') for c in cont})})"
+    passo("mais vendidos da categoria Perfumes (/highlights)", destaques)
+    pid = next((p["id"] for p in prods if marca.lower() in f"{p['marca']} {p['nome']}".lower()), None)
+    if pid:
+        passo("ficha do produto (/products/ID): tem vendidos?",
+              lambda: (lambda b: f"campos: {', '.join(sorted(b.keys()))[:250]}; buy_box={sorted((b.get('buy_box_winner') or {}).keys())[:20]}")(_get(f"/products/{pid}") or {}))
+    return {"chaves": True, "passos": passos, "achado": achado}
+
+
 # ---------------------------------------------------------------------------
 # Extensão do Chrome (29/09, pedido do Bruno: "as mesmas funções do painel do Hunter"). A extensão lê a página do anúncio
 # (vendedor, categoria, tipo, preço, produto de catálogo) e pede aqui só o que é dado PÚBLICO do ML com o token do app:

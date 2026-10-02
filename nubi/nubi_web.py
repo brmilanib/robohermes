@@ -3787,6 +3787,19 @@ def _pauta_diaria(repo, ultima_execucao):
             + "\n\n## Próximos da fila\n" + prox)
 
 
+TESTE_MARCA_PEDIDO = "meli|teste_marca|pedido"
+
+
+def teste_marca_ml(repo, marca):
+    """Roda `meli.testar_marca` e guarda em ia_resumos `meli|teste_marca|<marca>` (só contagens e mensagens do ML)."""
+    t = meli.testar_marca(marca)
+    t["em"] = datetime.now(timezone.utc).isoformat()
+    repo._req("POST", "ia_resumos", corpo=[{"chave": f"meli|teste_marca|{marca.lower()}", "ia": "teste da API do ML",
+                                            "texto": json.dumps(t, ensure_ascii=False, default=str)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return t
+
+
 def rodar_rotinas(repo, so=None):
     """Roda as tarefas do servidor que chegaram na hora (ou só a tarefa 'so', agora)."""
     t0 = time.monotonic()
@@ -3794,6 +3807,14 @@ def rodar_rotinas(repo, so=None):
     rot = {r["id"]: r for r in repo._todos("rotinas", {"select": "*", "order": "ordem,id"})}
     out = {}
     if not so:
+        try:                                            # 02/10: teste pedido da API do ML para uma marca (1 vez por pedido)
+            ped = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(TESTE_MARCA_PEDIDO)}) or [None])[0]
+            if ped and (ped.get("texto") or "").strip():
+                repo._req("POST", "ia_resumos", corpo=[{"chave": TESTE_MARCA_PEDIDO, "ia": "teste da API do ML", "texto": ""}],
+                          prefer="resolution=merge-duplicates,return=minimal")
+                out["teste_marca"] = len(teste_marca_ml(repo, ped["texto"].strip()[:40]).get("passos") or [])
+        except Exception as e:  # noqa: BLE001
+            out["teste_marca"] = f"erro: {str(e)[:120]}"
         try:                                            # 01/10: regra nova de agrupamento reprocessa já na rodada da hora
             if not repo._req("GET", "agente_execucoes", {"select": "id", "origem": repo._eq(REGRA_ATUAL), "limit": 1}):
                 _preparar(repo)
@@ -7460,6 +7481,8 @@ def rota_meli(repo, metodo, rota, q, corpo):
             d = json.loads(corpo)
         except ValueError:
             raise ErroNuvem("Pedido inválido.")
+    if rota == "meli_teste_marca":                     # 02/10: dá para trocar o Explorador do Nubimetrics pela API do ML?
+        return teste_marca_ml(repo, (q.get("marca") or d.get("marca") or "armaf").strip()[:40])
     if rota == "meli_teste":
         t = meli.testar()
         c = meli.ler_conta(repo)

@@ -237,6 +237,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Não somar o mesmo anúncio (02/10, Bruno): o ID do anúncio do Nubimetrics (hash de 64) é o MESMO em todos os exports
   (conferido: MNZ 899f0e33… em 851 e 999) e é a chave (`nubi.chave_anuncio`): a importação junta por ele
   (`_juntar_por_id`, `_absorver_periodo`) e `_com_marca_trocada` não traz anúncio que já está no relatório.
+- **Teste: trocar o Explorador do Nubimetrics pela API do ML? (02/10, Bruno)**: `meli.testar_marca(marca)` (só leitura,
+  contagens e mensagens do ML) tenta busca de anúncios por palavra, produtos de catálogo da marca, ofertas de cada produto
+  (vendedores, campo de vendidos), /items de outra loja, visitas, vitrine por seller_id, /users e /highlights. Rota
+  `meli_teste_marca?marca=`; pedido pelo banco: `ia_resumos` `meli|teste_marca|pedido` = marca → roda no começo do cron da
+  hora; resultado em `meli|teste_marca|<marca>`. Teste `test_meli_marca.py`.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 
