@@ -9611,6 +9611,9 @@ async function telaDiferenca(el) {
         (mesmo ID do anúncio, nunca soma duas vezes); anúncio que não estava no antigo = o que vendeu no novo. Vendedor "seguido" já
         está aqui pelo anúncio dele: a venda diária dos seguidos é outra fonte do mesmo anúncio e não entra nesta soma.</p>
       ${d.aviso ? `<p class="aviso">⚠️ ${esc(d.aviso)}</p>` : ""}
+      ${d.arredondamento ? `<p class="aviso">O Nubimetrics arredonda no próprio arquivo (149.000, 33.600): anúncio com histórico acima de 1.000
+        tem erro de ± meio degrau. Exato: ${nf0.format(d.arredondamento.un_exatas)} un. em ${nf0.format(d.arredondamento.anuncios_exatos)} anúncios;
+        erro somado ± ${nf0.format(d.arredondamento.erro_un)} un.; ${nf0.format(d.arredondamento.un_sem_medida)} un. ficaram dentro do arredondamento (não dá para medir).</p>` : ""}
       <div class="kpis">
         ${kpi("Unidades", nf0.format(t.un), d.dias.length > 1 ? nf1.format(t.un / d.dias.length) + "/dia" : "")}
         ${kpi("Faturamento", "R$ " + nf0.format(t.fat))}
@@ -9630,7 +9633,7 @@ async function telaDiferenca(el) {
     <div class="card pad"><h2>Por anúncio</h2><div class="rolar"><table class="t" style="font-size:13px">
       <thead><tr><th>Vendedor</th><th>Título</th><th>Produto</th><th class="num">Un.</th><th class="num">Faturamento</th><th>Situação</th></tr></thead>
       <tbody>${d.anuncios.map(a => `<tr><td class="first">${esc(a.vendedor || "")}</td><td>${esc(a.titulo || "")}</td><td>${esc(a.produto || "")}</td>
-        <td class="num">${nf0.format(a.du)}</td><td class="num">R$ ${nf0.format(a.dfat)}</td><td class="muted">${esc(a.situacao)}</td></tr>`).join("")}</tbody>
+        <td class="num">${nf0.format(a.du)}${a.erro ? ` <span class="muted">± ${nf0.format(a.erro)}</span>` : ""}</td><td class="num">R$ ${nf0.format(a.dfat)}</td><td class="muted">${esc(a.situacao)}</td></tr>`).join("")}</tbody>
     </table></div></div>`;
 }
 

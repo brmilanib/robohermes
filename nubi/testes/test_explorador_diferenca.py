@@ -58,7 +58,18 @@ def test_rota_da_diferenca():
     assert pv["GARCA.AMETISTA.LACTEO"]["novo"] and not pv["GARCA.AMETISTA.LACTEO"]["seguido"]
 
 
+
+def test_arredondamento_do_nubimetrics():
+    # 149000 -> 149000 (degrau 1000): 2 dias de venda somem no arredondamento; 300 -> 360 é exato
+    antigo = pd.DataFrame([linha(1, 25100, 149000), linha(2, 50, 300)])
+    novo = pd.DataFrame([linha(1, 25000, 150000), linha(2, 40, 360)])
+    d = nubi.diferenca_exports(antigo, novo, 2).set_index("titulo")
+    assert d.at["t1", "erro"] == 1000 and d.at["t1", "situacao"] == "dentro do arredondamento" and not d.at["t1", "exato"]
+    assert d.at["t2", "du"] == 60 and d.at["t2", "exato"] and d.at["t2", "situacao"] == "nos dois exports"
+
+
 if __name__ == "__main__":
     test_diferenca_pelo_historico()
     test_rota_da_diferenca()
     print("ok diferença")
+    test_arredondamento_do_nubimetrics()

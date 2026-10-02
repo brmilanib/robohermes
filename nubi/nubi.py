@@ -2649,10 +2649,21 @@ def diferenca_exports(antigo, novo, dias_gap):
     sit = pd.Series("nos dois exports", index=n.index)
     sit[~tem & (dias_pub <= dias_gap)] = "anúncio novo"
     sit[~tem & (dias_pub > dias_gap)] = "sem venda no export antigo"
+    # 02/10: o Nubimetrics ARREDONDA no próprio CSV a 3 algarismos (149000, 33600, 25100): de 1.000 para cima, o erro de
+    # cada número é meio "degrau"; a diferença herda o erro dos dois lados. erro >= diferença = não dá para medir
+    def degrau(x):
+        x = abs(float(x or 0))
+        return 0.0 if x < 1000 else 10 ** (len(str(int(x))) - 3)
+    err = pd.Series(0.0, index=n.index)
+    err[tem] = [degrau(x) / 2 + degrau(hist_u.get(k)) / 2 for x, k in zip(num(n.loc[tem, "un_hist"]), n.loc[tem, "_k"])]
+    err[~tem] = [degrau(x) / 2 for x in num(n.loc[~tem, "un"])]
     neg = du < 0
-    sit[neg] = "histórico diminuiu (zerado)"
+    sit[neg & (-du <= err)] = "dentro do arredondamento"
+    sit[neg & (-du > err)] = "histórico diminuiu (zerado)"
     du[neg], dfat[neg] = 0, dfat[neg].clip(lower=0)
-    return n.drop(columns=["_k"]).assign(du=du, dfat=dfat.clip(lower=0), situacao=sit)
+    medivel = err < du.clip(lower=0).where(du > 0, 1)
+    sit[(du > 0) & ~medivel] = "dentro do arredondamento"
+    return n.drop(columns=["_k"]).assign(du=du, dfat=dfat.clip(lower=0), situacao=sit, erro=err, exato=err == 0)
 
 
 def ler_snapshot(repo, sid, marca=""):

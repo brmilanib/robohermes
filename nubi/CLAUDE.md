@@ -269,6 +269,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Observados sem soma dupla (02/10, "dos observadores também"): `nubi_observados()`/`nubi_observado_produtos(h)` contam
   cada ID de anúncio uma vez entre os últimos exports de todas as marcas (fica o que não é "Outra marca", depois o mais
   recente): eram 62 anúncios / 4.496 un. em dobro. SQL em `supabase/observados_sem_repetir.sql` (aplicada em 02/10).
+  ARREDONDAMENTO (02/10, conferido no snapshot 93): o CSV do Nubimetrics vem arredondado a 3 algarismos (un_hist 149000,
+  un 25100): acima de 1.000 o erro é ± meio degrau de cada lado. `diferenca_exports` devolve `erro`/`exato`; diferença
+  menor ou igual ao erro = "dentro do arredondamento" (não dá para medir). Exato só em anúncio com histórico < 1.000; os
+  grandes (vendedores seguidos) têm venda diária exata em `vend_vendas_dia` (outra fonte, nunca somada).
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 

@@ -489,10 +489,13 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
                                "seguido": not re.fullmatch(r"[A-Z]+(\.[A-Z]+){2}", str(k or ""))} if col == "vendedor" else {})}
                           for k, g in sorted(v.groupby(col), key=lambda kv: -kv[1]["du"].sum())][:100]
     vend_novos = sorted(set(d["vendedor_id"].fillna("").astype(str)) - ja_vend - {""})
-    cols = [c for c in ("vendedor", "titulo", "produto", "un_hist", "du", "dfat", "situacao", "preco") if c in v.columns]
+    cols = [c for c in ("vendedor", "titulo", "produto", "un_hist", "du", "dfat", "erro", "situacao", "preco") if c in v.columns]
     return {"ok": True, "marca": marca, "dias": dias,
             "antigo": {"id": int(antigo["id"]), "inicio": antigo["_ini"], "fim": antigo["_fim"], "anuncios": int(len(df_ant))},
             "novo": {"id": int(novo["id"]), "inicio": novo["_ini"], "fim": novo["_fim"], "anuncios": int(len(df_novo))},
+            "arredondamento": {"un_exatas": int(d.loc[d["exato"], "du"].sum()), "anuncios_exatos": int((d["exato"] & (d["du"] > 0)).sum()),
+                               "erro_un": int(d["erro"].sum()),
+                               "un_sem_medida": int(d.loc[d["situacao"] == "dentro do arredondamento", "du"].sum())},
             "totais": {"un": int(total), "fat": round(float(d["dfat"].sum()), 2), "anuncios_com_venda": int(len(v)),
                        "vendedores": int(v["vendedor"].nunique()) if len(v) else 0, "vendedores_novos": len(vend_novos)},
             "checagem": {k: int(x) for k, x in cont.items()}, "aviso": aviso,
