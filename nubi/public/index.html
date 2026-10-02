@@ -4583,7 +4583,7 @@ async function telaTV() {
   if (!el) {
     el = document.createElement("div"); el.className = "tv-tela"; document.body.appendChild(el);
     el.innerHTML = `<div class="nload">${LOGO}<div class="nmsg">Ligando o modo TV</div></div>`;
-    try { document.documentElement.requestFullscreen?.(); } catch { /* sem tela cheia */ }
+    try { document.documentElement.requestFullscreen?.()?.catch?.(() => {}); } catch { /* sem tela cheia */ }
     try { S.tvLock = await navigator.wakeLock?.request("screen"); } catch { /* a TV pode apagar sozinha */ }
     const sair = () => { el.remove(); clearInterval(S.tvRelogio); clearTimeout(S.tvTimer); try { S.tvLock?.release(); if (document.fullscreenElement) document.exitFullscreen(); } catch { /* ok */ }
       if (location.hash.startsWith("#/analises-vendas/tv")) location.hash = "#/analises-vendas/hoje"; };
@@ -5199,7 +5199,7 @@ async function telaPainelSac() {
   const hora = () => { const h = $("#sp-hora"); if (h) h.textContent = new Date().toLocaleTimeString("pt-BR", {timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit"}); };
   hora(); clearInterval(S.spRelogio); S.spRelogio = setInterval(hora, 15000);
   $("#sp-tv").onclick = () => { S.spTv = !S.spTv;
-    try { if (S.spTv) document.documentElement.requestFullscreen?.(); else if (document.fullscreenElement) document.exitFullscreen(); } catch { /* sem tela cheia */ }
+    try { if (S.spTv) document.documentElement.requestFullscreen?.()?.catch?.(() => {}); else if (document.fullscreenElement) document.exitFullscreen(); } catch { /* sem tela cheia */ }
     telaPainelSac(); };
   document.onfullscreenchange = () => { if (!document.fullscreenElement && S.spTv) { S.spTv = false; telaPainelSac(); } };
   clearTimeout(S.spTimer);
