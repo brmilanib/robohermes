@@ -39,6 +39,12 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 - Conta de VENDEDOR do ML (29/09 à tarde, Bruno: "vamos conectar sem problemas uma conta vendedor, a AURASCENT"): a conta
   conectada por OAuth passa a ser a AURASCENT (no lugar da BRUNOMILANI, que é conta sem loja e recebe 403 em /items e na
   busca). Mesmas regras: só LEITURA (o nubi nunca altera anúncio, preço ou pedido), refresh_token cifrado em `meli|conta`.
+- Cópia de segurança (02/10, Bruno: "uma cópia aqui no meu Mac e uma no meu Drive"): `coletor backup` (comando `backup`
+  da Central; a rotina do servidor pede todo domingo depois das 3 h). Banco inteiro com o login do Bruno (só leitura,
+  `BACKUP_TABELAS` + tabelas novas pelo OpenAPI; tabela nova com chave composta: pôr na lista) em `banco/<t>.jsonl.gz`,
+  código com todo o histórico em `codigo.bundle`, num arquivo `~/nubi-backup/nubi-AAAA-MM-DD.tar.gz` + cópia em
+  `<Google Drive>/nubi-backup`; guarda as 8 últimas. O token do ML (`meli|conta`) nunca entra. Além disso o Supabase Pro
+  guarda 7 dias. `.claude/settings.json` (raiz) libera o dia a dia e bloqueia apagar/pausar projeto, env da Vercel e compras.
 - Branch de trabalho: `claude/wizardly-ritchie-5fig5i`; sem PR se não pedirem; não mexer no "Branch Tracking" da Vercel.
 - Testar no servidor falso (fake_rest + servidor.py) e no mock do Nubimetrics antes de publicar.
 

@@ -4294,6 +4294,15 @@ def rodar_rotinas(repo, so=None):
                 out["teste_marca"] = len(teste_marca_ml(repo, ped["texto"].strip()[:40]).get("passos") or [])
         except Exception as e:  # noqa: BLE001
             out["teste_marca"] = f"erro: {str(e)[:120]}"
+        try:                                            # 02/10 (Bruno: "uma cópia aqui no meu Mac e uma no meu Drive"): domingo de madrugada
+            if agora.weekday() == 6 and agora.hour >= 3:
+                desde = (datetime.now(timezone.utc) - timedelta(days=6)).isoformat()
+                if not repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.backup", "criado_em": f"gte.{desde}", "limit": 1}):
+                    repo._req("POST", "mac_comandos", corpo=[{"comando": "backup", "arg": None, "pedido_por": "rotina semanal (cópia de segurança)",
+                                                               "status": "pendente"}], prefer="return=minimal")
+                    out["backup"] = "pedido ao Mac"
+        except Exception as e:  # noqa: BLE001
+            out["backup"] = f"erro: {str(e)[:120]}"
         try:                                            # 02/10 (Bruno): mercado do Explorador dos campeões, 1 vez por dia (Reposição)
             if agora.hour >= 6:
                 m, _ = _ia_json(repo, REPOSICAO_MERCADO)
@@ -9324,7 +9333,7 @@ def _mac_vivo(repo, minutos=3):
 
 COMANDOS_MAC = {
     "status": "Status das coletas", "diario": "Rodar a coleta agora", "parar_coleta": "Parar a coleta em andamento",
-    "atualizar": "Atualizar o coletor", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia",
+    "atualizar": "Atualizar o coletor", "backup": "Cópia de segurança do banco e do código (no Mac e no Google Drive)", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia",
     "log_vigia": "Últimas linhas do vigia", "log_coleta": "Últimas linhas da coleta",
     "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac", "matar_xmrig": "Parar o minerador xmrig no Mac (mostra de onde roda e o que o abre)", "forense_agente": "Malware: ler o item de início automático (só leitura)",

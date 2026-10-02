@@ -94,7 +94,8 @@ def test_novidade_nao_tira_quem_esta_lendo_do_lugar():
         caixa = pg.locator(".tf-in").bounding_box()
         assert caixa["y"] + caixa["height"] <= 800 + 1                     # caixa de mensagem sempre visível
         largura = pg.locator(".modal-bg.tarefa .modal").bounding_box()["width"]
-        assert 700 <= largura <= 760                                        # painel maior no computador
+        z = pg.evaluate("parseFloat(getComputedStyle(document.body).zoom) || 1")   # 02/10: computador em 90%
+        assert 700 <= largura / z <= 760, (largura, z)                       # painel maior no computador
         nav.close()
 
 

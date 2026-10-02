@@ -2084,6 +2084,169 @@ def cmd_entrar(args, cfg):
         return 0 if ok else 1
 
 
+# ---------------------------------------------------------------------------
+# Cópia de segurança (02/10, Bruno: "deixar uma cópia do projeto aqui no meu Mac mini, e uma no meu Drive"): o banco
+# inteiro (cada tabela num .jsonl.gz, lida com o MEU login do nubi, só leitura) + o código com todo o histórico (git
+# bundle) num arquivo só, ~/nubi-backup/nubi-AAAA-MM-DD.tar.gz, e uma cópia na pasta do Google Drive para computador.
+# Guarda as BACKUP_MANTER últimas; só apaga arquivos nubi-*.tar.gz da própria pasta de cópias. Toda semana (rotina do
+# servidor) ou na Central (comando "backup"). Fora da cópia: o token do ML (`meli|conta`, refaz-se conectando de novo).
+# ---------------------------------------------------------------------------
+BACKUP_DIR = Path(os.environ.get("NUBI_BACKUP_DIR", str(Path.home() / "nubi-backup")))
+BACKUP_MANTER = int(os.environ.get("NUBI_BACKUP_MANTER", "8"))
+BACKUP_PAGINA = 1000
+BACKUP_FORA = {"ia_resumos": {"meli|conta"}}
+# tabelas do banco e a chave primária (02/10); as novas entram pelo OpenAPI do Supabase quando ele responde
+BACKUP_TABELAS = {"acesso": "email", "agente_execucoes": "id", "agentes": "id", "agentes_uso": "id", 
+    "anuncio_posicoes": "id", "anuncios": "id", "atendimento_conversas": "id", "atendimento_kb": "id", 
+    "atendimento_mensagens": "id", "atendimento_rascunhos": "id", "auditorias": "data", "coletor_execucoes": "id", 
+    "coletor_fotos": "id", "coletor_pedidos": "id", "conhecimento": "id", "estoque_atualizacoes": "id", 
+    "estoque_itens": "atualizacao_id,sku", "gtin_info": "gtin", "ia_benchmark_casos": "id", "ia_benchmark_execucoes": "id", 
+    "ia_lotes": "id", "ia_precos": "modelo", "ia_resumos": "chave", "mac_comandos": "id", "mac_estado": "id", 
+    "marca_apelidos": "apelido", "marca_categorias": "marca_chave", "marca_sugestoes": "marca_chave", 
+    "marcas_config": "marca", "meus_anuncios": "id", "ml_lojas": "nome", "monitor_banco": "data,tabela", 
+    "perfume_fichas": "id", "produto_conferencias": "id", "produto_grupos": "chave", "rank_box": "id", 
+    "ranking_linhas": "id", "ranking_relatorios": "id", "reuniao_leituras": "conversa", "reuniao_mensagens": "id", 
+    "reuniao_tarefas": "id", "rotinas": "id", "rotinas_execucoes": "id", "saber": "id", "saber_trechos": "id", 
+    "servidor_metricas": "id", "snapshots": "id", "store_orders": "id", "tarefa_eventos": "id", "vend_anuncios": "id", 
+    "vend_anuncios_ml": "id", "vend_decisoes": "id", "vend_grupo_dia": "data,vendedor", "vend_lojas_ml": "vendedor", 
+    "vend_produto_dia": "vendedor,mes,chave", "vend_relatorios": "id", "vend_vendas_dia": "vendedor,data"}           # linhas que nunca saem do banco (chave primária)
+
+
+def _rest(token, caminho, params=None):
+    q = ("?" + urllib.parse.urlencode(params, safe=",.()*:")) if params else ""
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{caminho}{q}",
+                                 headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {token}", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.loads(r.read().decode() or "null")
+
+
+def tabelas_do_banco(token):
+    """{tabela: [colunas da chave primária]}: a lista fixa + as que o OpenAPI do Supabase mostrar (tabela nova)."""
+    out = {t: pk.split(",") for t, pk in BACKUP_TABELAS.items()}
+    try:
+        out.update({t: pk for t, pk in _tabelas_openapi(token).items() if t not in out})
+    except Exception as e:  # noqa: BLE001
+        log(f"  (lista de tabelas do Supabase indisponível: {str(e)[:80]}; uso a lista fixa)")
+    return dict(sorted(out.items()))
+
+
+def _tabelas_openapi(token):
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/", headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {token}",
+                                                                       "Accept": "application/openapi+json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        spec = json.loads(r.read().decode())
+    out = {}
+    for nome, d in (spec.get("definitions") or {}).items():
+        props = d.get("properties") or {}
+        out[nome] = [c for c, v in props.items() if "<pk/>" in str(v.get("description") or "")] or list(props)[:1]
+    return dict(sorted(out.items()))
+
+
+def _drive_dir():
+    """Pasta do Google Drive para computador (Mac: ~/Library/CloudStorage/GoogleDrive-*/Meu Drive; Windows: G:)."""
+    cands = []
+    cs = Path.home() / "Library" / "CloudStorage"
+    if cs.exists():
+        for g in sorted(cs.glob("GoogleDrive-*")):
+            cands += [g / "Meu Drive", g / "My Drive"]
+    cands += [Path("G:/Meu Drive"), Path("G:/My Drive"), Path.home() / "Google Drive"]
+    for c in cands:
+        try:
+            if c.is_dir():
+                return c
+        except OSError:
+            pass
+    return None
+
+
+def _so_as_ultimas(pasta, manter):
+    xs = sorted(pasta.glob("nubi-????-??-??.tar.gz"))
+    for x in xs[:-manter] if manter > 0 else []:
+        try:
+            x.unlink()
+        except OSError:
+            pass
+
+
+def cmd_backup(args, cfg):
+    import gzip
+    import tarfile
+    dia = date.today().isoformat()
+    pasta = BACKUP_DIR / f"nubi-{dia}"
+    if pasta.exists():
+        shutil.rmtree(pasta)
+    (pasta / "banco").mkdir(parents=True)
+    token = token_nubi(cfg)
+    tabs = tabelas_do_banco(token)
+    log(f"Cópia de segurança: {len(tabs)} tabelas")
+    resumo, faltou = {}, []
+    for t, pk in tabs.items():
+        n, offset, fora = 0, 0, BACKUP_FORA.get(t, set())
+        try:
+            with gzip.open(pasta / "banco" / f"{t}.jsonl.gz", "wt", encoding="utf-8") as f:
+                while True:
+                    try:
+                        parte = _rest(token, t, {"select": "*", "order": ",".join(pk), "limit": BACKUP_PAGINA, "offset": offset})
+                    except urllib.error.HTTPError as e:
+                        if e.code != 401:
+                            raise
+                        token = token_nubi(cfg)          # o login vale 1 h
+                        continue
+                    for linha in parte or []:
+                        if fora and any(str(linha.get(c)) in fora for c in pk):
+                            continue
+                        f.write(json.dumps(linha, ensure_ascii=False, default=str) + "\n")
+                        n += 1
+                    if len(parte or []) < BACKUP_PAGINA:
+                        break
+                    offset += BACKUP_PAGINA
+            resumo[t] = n
+        except Exception as e:  # noqa: BLE001
+            faltou.append(f"{t}: {str(e)[:120]}")
+            log(f"  ⚠️ {t}: {str(e)[:120]}")
+    codigo = "sem git"
+    if shutil.which("git"):                              # o código com todo o histórico (o mesmo acesso do Ferreiro)
+        espelho = BACKUP_DIR / "codigo.git"
+        try:
+            if espelho.exists():
+                subprocess.run(["git", "-C", str(espelho), "remote", "update", "--prune"], check=True, capture_output=True, timeout=600)
+            else:
+                subprocess.run(["git", "clone", "--mirror", REPO_GIT, str(espelho)], check=True, capture_output=True, timeout=900)
+            subprocess.run(["git", "-C", str(espelho), "bundle", "create", str(pasta / "codigo.bundle"), "--all"],
+                           check=True, capture_output=True, timeout=600)
+            codigo = "ok"
+        except Exception as e:  # noqa: BLE001
+            codigo = f"falhou: {str(getattr(e, 'stderr', b'') or e)[:160]}"
+            log(f"  ⚠️ código: {codigo}")
+    (pasta / "LEIA-ME.txt").write_text(
+        f"Cópia de segurança do nubi de {dia}.\n\nbanco/<tabela>.jsonl.gz: uma linha JSON por registro de cada tabela.\n"
+        "codigo.bundle: o projeto com todo o histórico (git clone codigo.bundle nubi).\n"
+        "Para voltar os dados, peça ao Claude: \"restaurar a cópia de segurança de " + dia + "\".\n", encoding="utf-8")
+    (pasta / "resumo.json").write_text(json.dumps({"dia": dia, "tabelas": resumo, "faltou": faltou, "codigo": codigo},
+                                                  ensure_ascii=False, indent=1), encoding="utf-8")
+    arq = BACKUP_DIR / f"nubi-{dia}.tar.gz"
+    with tarfile.open(arq, "w:gz") as tar:
+        tar.add(pasta, arcname=pasta.name)
+    shutil.rmtree(pasta, ignore_errors=True)
+    _so_as_ultimas(BACKUP_DIR, BACKUP_MANTER)
+    mb = arq.stat().st_size / 1e6
+    drive = _drive_dir()
+    if drive:
+        try:
+            dd = drive / "nubi-backup"
+            dd.mkdir(exist_ok=True)
+            shutil.copy2(arq, dd / arq.name)
+            _so_as_ultimas(dd, BACKUP_MANTER)
+            no_drive = f"copiada no Google Drive ({dd})"
+        except OSError as e:
+            no_drive = f"não copiei no Drive: {e}"
+    else:
+        no_drive = "Google Drive para computador não encontrado neste Mac: instale e entre na sua conta para ter a 2ª cópia"
+    log(f"✅ Cópia de segurança: {arq} ({mb:.0f} MB) · {sum(resumo.values())} linhas em {len(resumo)} tabelas · código {codigo} · {no_drive}"
+        + (f" · {len(faltou)} tabela(s) com erro" if faltou else ""))
+    return 1 if faltou or codigo != "ok" or not drive else 0
+
+
 def cmd_status(args, cfg):
     token = token_nubi(cfg)
     st = api(token, "coletor_status")
@@ -4421,7 +4584,7 @@ def comando_mac(chave, arg=""):
     c = _eu()
     ol = _ollama_bin()
     tabela = {
-        "status": [*c, "status"], "diario": [*c, "diario"], "atualizar": [*c, "atualizar"],
+        "status": [*c, "status"], "diario": [*c, "diario"], "atualizar": [*c, "atualizar"], "backup": [*c, "backup"],
         "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"],
         "hermes": [*c, "hermes"], "qwen": [*c, "qwen"], "estoque": [*c, "estoque"], "gestor": [*c, "gestor"],
         "entrar": [*c, "entrar"], "entrar_upseller": [*c, "entrar-upseller"], "entrar_gestor": [*c, "entrar-gestor"],
@@ -8718,6 +8881,7 @@ def main():
     sub.add_parser("entrar")
     sub.add_parser("status")
     sub.add_parser("atualizar", help="baixa a versão mais nova do coletor")
+    sub.add_parser("backup", help="cópia de segurança do banco e do código no Mac e no Google Drive")
     sub.add_parser("vigiar", help="(automático) roda a coleta se houver versão nova ou pedido no site")
     sub.add_parser("despachar", help="(automático) executa os comandos pedidos na Central")
     sub.add_parser("parar", help="para a coleta que estiver rodando neste Mac")
@@ -8915,6 +9079,8 @@ def main():
         return cmd_hermes(args, cfg)
     if args.cmd in ("diario", "vendedores", "marcas", "dias", "estoque"):
         instalar_vigia()
+    if args.cmd == "backup":
+        return cmd_backup(args, cfg)
     if args.cmd == "estoque":
         return executar("estoque", lambda p, cfg, token: coletar_estoque(p, cfg, token, not args.sem_enviar))
     if args.cmd == "gestor":

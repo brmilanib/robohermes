@@ -99,7 +99,8 @@ try:
                 assert box["x"] > 10, (nome, box)                       # margem lateral (não colado na borda)
                 assert box["y"] > 5, (nome, box)                        # margem em cima
                 assert box["y"] + box["height"] < h - 5, (nome, box)    # margem embaixo
-                assert 700 <= box["width"] <= 760, (nome, box)
+                z = pg.evaluate("parseFloat(getComputedStyle(document.body).zoom) || 1")   # 02/10: computador em 90%
+                assert 700 <= box["width"] / z <= 761, (nome, box, z)
             pg.screenshot(path=f"{os.environ.get('TMPDIR', '/tmp')}/nubi-card95-{nome}-topo.png", full_page=False)   # cabeçalho + resumo, no topo
 
             # .tf-lin (histórico) não tem rolagem própria: existe UMA área de rolagem só (a janela inteira)
