@@ -131,6 +131,16 @@ def main():
         pg = nav.new_page(); pg.set_content(PAGINA_I)
         c.aplicar_periodo(pg, "2026-09-01", "2026-09-30")
         assert pg.inner_text("#res") == "01/09/2026|30/09/2026" and not pg.evaluate("res.dataset.errado"), pg.inner_text("#res")
+        pg = nav.new_page()                       # J: rótulo do mês em inglês ("August 2026"), como o react-day-picker
+        pg.set_content(PAGINA_C.replace("agosto 2026", "August 2026").replace(
+            "const N=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];",
+            "const N=['January','February','March','April','May','June','July','August','September','October','November','December'];"))
+        c.aplicar_periodo(pg, "2026-09-01", "2026-09-30")
+        assert pg.inner_text("#res") == "2026-9-1|2026-9-30", pg.inner_text("#res")
+        pg = nav.new_page(); pg.set_content(PAGINA_C)   # o diagnóstico traz o HTML do calendário (dias + APLICAR)
+        pg.click("#per")
+        html = c._html_do_calendario(pg)
+        assert "APLICAR" in html and 'id="grade"' in html, html[:200]
         nav.close()
     print("ok: calendário em painel fixo")
 

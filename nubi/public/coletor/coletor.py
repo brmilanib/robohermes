@@ -1302,13 +1302,20 @@ JS_DATA_TELA = """() => { const r = /^\\d{2}\\/\\d{2}\\/\\d{4}$/;
 
 
 def _html_do_calendario(pg):
-    """HTML do pedaço da tela que tem as datas do período (para entender um calendário novo sem ver o Mac)."""
+    """HTML do calendário aberto (para entender um calendário novo sem ver o Mac): o menor ancestral do APLICAR que já tem
+    os dias (botões só com número); sem APLICAR, o pedaço que tem as datas dd/mm/aaaa."""
     try:
-        return pg.evaluate("""() => { const e = [...document.querySelectorAll('*')].find(x => x.children.length === 0 &&
+        return pg.evaluate("""() => { const limpa = h => h.replace(/\\s+/g, ' ');
+          const ap = [...document.querySelectorAll('button,[role=button]')].filter(b => /^\\s*APLICAR\\s*$/i.test(b.innerText || ''));
+          for (const b of ap) { let p = b.parentElement;
+            for (let i = 0; i < 8 && p && p !== document.body; i++, p = p.parentElement) {
+              const dias = [...p.querySelectorAll('button,[role=button],td,div')].filter(x => /^\\d{1,2}$/.test((x.innerText || '').trim()));
+              if (dias.length >= 20) return limpa(p.outerHTML).slice(0, 3500); } }
+          const e = [...document.querySelectorAll('*')].find(x => x.children.length === 0 &&
             /^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(((x.value !== undefined ? x.value : x.innerText) || '').trim()));
           if (!e) return '(sem datas na tela)'; let p = e;
           for (let i = 0; i < 6 && p.parentElement; i++) p = p.parentElement;
-          return p.outerHTML.replace(/\\s+/g, ' ').slice(0, 3500); }""")
+          return limpa(p.outerHTML).slice(0, 3500); }""")
     except Exception as ex:  # noqa: BLE001
         return f"(sem html: {ex})"
 
@@ -1340,13 +1347,15 @@ def _periodo_pelos_textos(pg, ini, fim):
 
 MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro",
             "dezembro"]
+MESES_EN = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november",
+            "december"]
 
 
 def _periodo_pelos_dias(pg, ini, fim):
     """Plano B3: clica o dia inicial e o dia final na grade do calendário. Só clica DENTRO do calendário (o painel que tem o
     rótulo do mês e o APLICAR): os dias (texto = só o número, habilitados) e as setas de mês (botões sem número, na mesma
     linha do rótulo do mês). Nunca mexe em nada fora dele."""
-    rotulo = re.compile(r"^(" + "|".join(MESES_PT) + r")\s+(\d{4})$", re.I)
+    rotulo = re.compile(r"^(" + "|".join(MESES_PT + MESES_EN) + r")\s+(\d{4})$", re.I)
 
     def painel():
         lab = pg.get_by_text(rotulo)
@@ -1361,7 +1370,7 @@ def _periodo_pelos_dias(pg, ini, fim):
         if lab is None:
             return None
         m = rotulo.match(lab.inner_text().strip())
-        return (int(m.group(2)), MESES_PT.index(m.group(1).lower()) + 1) if m else None
+        return (int(m.group(2)), (MESES_PT + MESES_EN).index(m.group(1).lower()) % 12 + 1) if m else None
 
     def seta(lab, cal, ant):
         caixa = lab.bounding_box()
