@@ -389,6 +389,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Teste `test_financeiro.py`. **Estoque → 📈 Estoque × vendas** (`estoque_niveis`): por dia, o estoque da última
   atualização do dia (unidades/custo) e as vendas do dia (`vendas_anuncio_dia|`), em dois painéis com as mesmas datas
   (nunca dois eixos), cobertura = estoque ÷ média de venda de 7 dias.
+  **Marcas que não vendo mais** (02/10, Bruno: "vou marcar as marcas que parei de vender, para tirar do relatório"):
+  ia_resumos `estoque|marcas_paradas`; botão no card da marca em Por marca (`estoque_marca_parada`); saem dos cards e
+  totais de Por marca (linha à parte com ↩ para voltar) e das listas/plano de `estoque_compras` (pela marca resolvida
+  do SKU em `estoque_categorias`). Estudo de estoque e diário com o Bruno: doc "Estudo de estoque: faturar mais com menos
+  estoque" (regra: nível máximo = venda/dia × (7 + prazo 5) + segurança por classe ABC; campeões +20% por causa do Full;
+  quem vende em < 8 de 25 dias só tem prateleira mínima; pedido em ordem de prioridade com valor acumulado).
 - **Ranking de marcas ≠ Explorador (02/10, Bruno: "ranking só traz os totais do mês fechado, importa uma vez por mês")**: no
   `diario`, o Ranking de cada mês sai quando o mês TERMINA no calendário (`meses_ranking`), sem esperar a venda diária dos
   seguidos (que atrasa 2 dias) chegar ao último dia; antes setembro só entraria no dia 3.

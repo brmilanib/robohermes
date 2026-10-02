@@ -3414,6 +3414,9 @@ async function telaEstoqueMarcas() {
         <small>${esc(r.markup ? r.markup.fonte : "")}${r.markup_dre ? " · DRE diz " + mkTx(r.markup_dre.markup) + "×" : ""}</small></label>
       <label class="muted">Crescimento da venda: <input type="number" id="em-cres" value="${cres}" min="0" max="300" step="5" style="width:64px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--card)"> %</label>
       <span class="muted">sugestão = venda de 30 dias × (1 + crescimento) − disponível − em trânsito</span></div>
+    ${(r.paradas || []).length || (r.paradas_marcadas || []).length ? `<div class="card pad muted" style="margin:0 0 10px;font-size:13px">🚫 <b>Marcas que não vendo mais</b> (fora dos totais e do pedido):
+      ${(r.paradas_marcadas || []).map(n => { const p = (r.paradas || []).find(x => x.marca.toUpperCase() === n.toUpperCase()) || {};
+        return `<span class="pill" style="margin:2px">${esc(n)}${p.skus ? ` · ${nf0.format(p.unidades)} un. · ${FMT.moeda(p.custo)}` : ""} <a href="#" data-voltar="${esc(n)}" title="Voltar a vender">↩</a></span>`; }).join(" ")}</div>` : ""}
     <div class="cards">${ms.map(m => `<div class="card bcard em-card" data-m="${esc(m.marca)}" role="button" tabindex="0" title="Ver os produtos">
       <div class="nm">#${m.posicao} ${esc(m.marca)} ${m.categoria && m.categoria !== "Sem categoria" ? `<span class="pill">${esc(m.categoria)}</span>` : ""}</div>
       <div class="mini">
@@ -3432,6 +3435,9 @@ async function telaEstoqueMarcas() {
     catch (er) { toast(er.message); } };
   $("#em-cres").onchange = e => { S.emCres = Math.max(0, Math.min(300, parseFloat(e.target.value) || 0)); telaEstoqueMarcas(); };
   main.querySelectorAll(".em-card").forEach(c => c.onclick = () => abrirEmMarca(c.dataset.m));
+  main.querySelectorAll("[data-voltar]").forEach(a => a.onclick = async ev => { ev.preventDefault();
+    try { await api("estoque_marca_parada", {}, {method: "POST", body: JSON.stringify({marca: a.dataset.voltar, parada: false})}); toast(a.dataset.voltar + " voltou para os relatórios"); telaEstoqueMarcas(); }
+    catch (e) { toast(e.message); } });
   desenharMenu();
 }
 function abrirEmMarca(marca) {
@@ -3448,7 +3454,15 @@ function abrirEmMarca(marca) {
         <td class="num">${nf0.format(x.vend_un)}</td><td class="num">${x.preco_venda != null ? FMT.moeda(x.preco_venda) : "—"}</td>
         <td class="num ${cobCls(x.cobertura_dias)}">${x.cobertura_dias == null ? "—" : nf0.format(x.cobertura_dias) + " d"}</td>
         <td class="num">${x.sugestao ? `<b>${nf0.format(x.sugestao)}</b> <small class="muted">${FMT.moeda(x.sugestao_custo)}</small>` : `<span class="muted">0</span>`}</td></tr>`).join("")}</tbody></table></div>
-    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn" data-fechar>Fechar</button></div>`, () => {});
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn ghost" id="em-parar" title="Tira a marca dos totais, do ranking e do pedido de compra">🚫 Não vendo mais esta marca</button>
+      <button class="btn" data-fechar>Fechar</button></div>`, () => {});
+  const bp = $("#em-parar");
+  if (bp) bp.onclick = async () => {
+    if (!confirm(`Parou de vender ${marca}?\n\nEla sai dos totais, do ranking e do pedido de compra. Dá para voltar depois.`)) return;
+    bp.disabled = true;
+    try { await api("estoque_marca_parada", {}, {method: "POST", body: JSON.stringify({marca, parada: true})}); document.querySelector(".modal [data-fechar]")?.click(); toast(marca + " fora dos relatórios"); telaEstoqueMarcas(); }
+    catch (e) { toast(e.message); bp.disabled = false; } };
 }
 // ---------- 💰 Financeiro (02/10, Bruno: DRE Simplificado do Gestor Seller mês fechado + Resumo analítico toda semana; markup médio) ----------
 const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";

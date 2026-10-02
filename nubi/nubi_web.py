@@ -5551,6 +5551,54 @@ def estoque_markup_salvar(repo, valor):
     return {"ok": True, "markup": v}
 
 
+MARCAS_PARADAS = "estoque|marcas_paradas"
+
+
+def marcas_paradas(repo):
+    """02/10 (Bruno: "vou marcar as marcas que parei de vender, para você tirar do relatório"): nomes como o Bruno marcou."""
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{MARCAS_PARADAS}"}) or [None])[0]
+    try:
+        return list(json.loads(r["texto"]).get("marcas") or []) if r and r.get("texto") else []
+    except (ValueError, TypeError, AttributeError):
+        return []
+
+
+def marcas_paradas_salvar(repo, marca, parada=True):
+    marca = str(marca or "").strip()
+    if not marca:
+        raise ErroNuvem("Informe a marca.")
+    atual = [m for m in marcas_paradas(repo) if nubi.compacta(m) != nubi.compacta(marca)]
+    if parada:
+        atual.append(marca)
+    repo._req("POST", "ia_resumos", corpo=[{"chave": MARCAS_PARADAS, "ia": "Bruno", "criado_em": datetime.now(timezone.utc).isoformat(),
+                                            "texto": json.dumps({"marcas": sorted(atual)}, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return {"ok": True, "marcas": sorted(atual)}
+
+
+def _separar_paradas(itens, paradas):
+    """(itens das marcas que o Bruno vende, itens das marcas paradas), pela marca já resolvida de cada SKU."""
+    ks = {nubi.compacta(m) for m in paradas}
+    if not ks:
+        return list(itens), []
+    sim, nao = [], []
+    for x in itens:
+        (nao if nubi.compacta(x.get("marca") or "") in ks else sim).append(x)
+    return sim, nao
+
+
+def _tirar_skus(ls, skus):
+    """Tira das listas do estoque (zerados, mais vendidos, comprar…) os SKUs das marcas paradas."""
+    if not skus:
+        return ls
+    out = {}
+    for k, v in ls.items():
+        if isinstance(v, list) and v and isinstance(v[0], dict) and "sku" in v[0]:
+            v = [x for x in v if estoque._chave(x.get("sku") or "") not in skus]
+        out[k] = v
+    return out
+
+
 def estoque_niveis(repo, dias=60, agora=None):
     """02/10 (Bruno: "um gráfico no estoque com a linha das vendas comparada com o estoque, os níveis, dia a dia"): por dia
     (horário de Brasília) o estoque da ÚLTIMA atualização do dia (unidades e custo) e as vendas do dia do UpSeller
@@ -5828,6 +5876,13 @@ def estoque_compras(repo, com_plano=True):
     v = _vendas_atuais(repo)
     g = _vendas_atuais(repo, GESTOR_VENDAS_CHAVE)             # card #124: margem real do Gestor Seller
     ls = estoque.listas(itens, (v or {}).get("linhas") or [], dias=(v or {}).get("dias") or 30, gestor=(g or {}).get("linhas"))
+    paradas = marcas_paradas(repo)
+    if paradas:                                   # 02/10 (Bruno): marca que parei de vender sai das listas e do pedido
+        try:
+            _, nao = _separar_paradas(estoque_categorias(repo).get("itens") or [], paradas)
+            ls = _tirar_skus(ls, {estoque._chave(x.get("sku") or "") for x in nao})
+        except ErroNuvem:
+            pass
     hoje = _agora_br().date().isoformat()
     an = (repo._req("GET", "ia_resumos", {"select": "chave,texto,criado_em,ia", "chave": "like.analise_estoque|*",
                                           "order": "chave.desc", "limit": 1}) or [None])[0]
@@ -8279,9 +8334,17 @@ def rota_estoque(repo, metodo, rota, q, corpo):
             ref = financeiro.markup_para_estoque(repo)
         except Exception:  # noqa: BLE001
             ref = None
-        r = categorias.ranking_marcas(ec.get("itens") or [], cres, mk["markup"])
-        r.update({"estoque_em": ec.get("estoque_em"), "vendas": ec.get("vendas"), "markup": mk, "markup_dre": ref})
+        paradas = marcas_paradas(repo)
+        sim, nao = _separar_paradas(ec.get("itens") or [], paradas)
+        r = categorias.ranking_marcas(sim, cres, mk["markup"])
+        rp = categorias.ranking_marcas(nao, cres, mk["markup"]) if nao else {"marcas": []}
+        r.update({"estoque_em": ec.get("estoque_em"), "vendas": ec.get("vendas"), "markup": mk, "markup_dre": ref,
+                  "paradas": [{"marca": m["marca"], "skus": m["skus"], "unidades": m["unidades"], "custo": m["custo"], "vend_un": m["vend_un"]}
+                              for m in rp["marcas"]], "paradas_marcadas": paradas})
         return r
+    if rota == "estoque_marca_parada" and metodo == "POST":
+        d = json.loads(corpo or b"{}")
+        return marcas_paradas_salvar(repo, d.get("marca"), bool(d.get("parada", True)))
     if rota == "estoque_markup_salvar" and metodo == "POST":
         return estoque_markup_salvar(repo, json.loads(corpo or b"{}").get("markup"))
     if rota == "estoque_niveis":

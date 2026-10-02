@@ -129,6 +129,16 @@ try:
                 assert "sem venda em 30 d" not in pg.inner_text("#main")
                 pg.fill("#em-mk", "1.85"); pg.dispatch_event("#em-mk", "change")
                 pg.wait_for_function("() => document.querySelector('.kpis') && document.querySelector('.kpis').innerText.includes('markup 1,85×')", timeout=15000)
+                # 02/10 (Bruno: "vou marcar as marcas que parei de vender, para tirar do relatório")
+                pg.once("dialog", lambda dl: dl.accept())
+                mp = pg.get_attribute(".em-card", "data-m"); sel = f".em-card[data-m='{mp}']"
+                tot0 = pg.inner_text(".kpis")
+                pg.click(sel); pg.wait_for_selector("#em-parar", timeout=8000); pg.click("#em-parar")
+                pg.wait_for_selector(f"[data-voltar='{mp}']", timeout=15000)
+                assert not pg.query_selector(sel), f"{mp} continua nos cards"
+                assert "Marcas que não vendo mais" in pg.inner_text("#main") and pg.inner_text(".kpis") != tot0   # saiu dos totais
+                pg.click(f"[data-voltar='{mp}']"); pg.wait_for_selector(sel, timeout=15000)
+                assert pg.inner_text(".kpis") == tot0
             pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/categorias")
             pg.wait_for_selector("text=Estoque por categoria", timeout=15000); pg.wait_for_selector("#ec-marcas table", timeout=15000)
             txt = pg.inner_text("#main")
@@ -190,3 +200,11 @@ assert rk["marcas"][0]["marca"] == "LATTAFA" and rk["marcas"][0]["posicao"] == 1
 it = rk["itens"]["LATTAFA"][0]
 assert (it["sku"], it["disponivel"], it["transito"], it["sugestao"], it["preco_venda"]) == ("ASAD-100", 10.0, 0.0, 26, 200.0), it
 assert rk["total"]["sugestao"] == 26 and rk["total"]["custo"] == 1680
+
+# 02/10: marca parada sai das listas do estoque (pela marca resolvida do SKU)
+import nubi_web  # noqa: E402
+sim, nao = nubi_web._separar_paradas([{"sku": "A", "marca": "LATTAFA"}, {"sku": "B", "marca": "Ferrari"}], ["Lattafa"])
+assert [x["sku"] for x in sim] == ["B"] and [x["sku"] for x in nao] == ["A"]
+ls = nubi_web._tirar_skus({"comprar": [{"sku": "A-1"}, {"sku": "B"}], "dias": 30}, {nubi_web.estoque._chave("A-1")})
+assert ls == {"comprar": [{"sku": "B"}], "dias": 30}, ls
+print("ok marcas paradas")
