@@ -7,3 +7,4 @@ dados/*
 __pycache__/
 gtins.json
 cosmos-token.txt
+testes/saida_*.png
