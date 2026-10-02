@@ -57,13 +57,16 @@ def test_expandido_nao_rouba_nem_soma():
         "AL WATANIAH", "2026-09-01", "2026-09-30")
     s = repo.snapshots()
     armaf = s[s["marca"] == "ARMAF"]
-    alw_set = s[(s["marca"] == "AL WATANIAH") & (s["inicio"].astype(str).str[:10] == "2026-09-01")]
+    alw = s[s["marca"] == "AL WATANIAH"]
     ids_armaf = set(repo.anuncios(int(armaf["id"].iloc[0]))["bruto"].map(lambda b: b.get("ID do anúncio")))
-    ids_alw = set(repo.anuncios(int(alw_set["id"].iloc[0]))["bruto"].map(lambda b: b.get("ID do anúncio")))
     assert ids_armaf == {"A1"}, ids_armaf                 # a Armaf continua com o dela e perde só o perdido (W2)
-    assert ids_alw == {"W1", "W2"}, ids_alw               # A1 não entra na Al Wataniah: não conta duas vezes
-    assert un_por_snapshot(repo, id_alw59) == antes_59     # o período antigo não mudou
-    assert len(s[s["marca"] == "AL WATANIAH"]) == 2        # 59 dias e setembro, lado a lado
+    # REGRA 14 (02/10, Bruno: "tem que ser aplicado para todos os cards"): setembro NÃO vira outro card; o card de 59 dias
+    # vira 01/08–30/09 somando só a diferença: W1 900 + (5060 − 5000) = 960; W2 (que esperava na Armaf) entra inteiro
+    assert len(alw) == 1 and str(alw["inicio"].iloc[0])[:10] == "2026-08-01" and str(alw["fim"].iloc[0])[:10] == "2026-09-30", alw
+    a = repo.anuncios(int(alw["id"].iloc[0]))
+    un = {b.get("ID do anúncio"): int(u) for b, u in zip(a["bruto"], a["un"])}
+    assert un == {"W1": 960, "W2": 50}, un                 # A1 não entra na Al Wataniah: não conta duas vezes
+    assert int(alw["dias"].iloc[0]) == 61 and antes_59 == 950      # 950 = o W2 já tinha entrado de carona na importação da Armaf
     repo.fechar()
 
 
@@ -106,6 +109,9 @@ def test_outras_marcas_vao_para_o_card_certo():
         "AL WATANIAH", "2026-09-01", "2026-09-30")
     assert set(ids_do(repo, "LATTAFA", "2026-09-01")) == {"L1", "L2"}      # L2 veio na busca expandida: card da Lattafa
     alw = ids_do(repo, "AL WATANIAH", "2026-09-01")
+    # os anúncios de carona entram no card da Lattafa com os números da Lattafa (L1 estava lá: cópia descartada)
+    la = repo.anuncios(int(repo.snapshots().query("marca == 'LATTAFA'")["id"].iloc[0]))
+    assert {b.get("ID do anúncio"): int(u) for b, u in zip(la["bruto"], la["un"])} == {"L1": 800, "L2": 300}
     assert set(alw) == {"W1", "H1"} and alw["H1"] == nubi.TIPO_OUTRA, alw  # H1 espera aqui (Al Haramain sem card de setembro)
     # a página da marca conta SÓ a marca (450 un. do W1) e lista a Al Haramain em "Outras marcas"
     r = nubi_web.relatorio(repo, "AL WATANIAH")
@@ -133,7 +139,7 @@ def test_encaminhar_card_importado_antes_da_regra():
     imp = _importador(repo, cfg)
     imp("klassey.csv", csv(lin("Perfume Klassey Noir Edp 100ml", "KLASSEY", "K1", 100, 300)), "KLASSEY", "2026-09-01", "2026-09-30")
     juntar = nubi._juntar_por_id
-    nubi._juntar_por_id = lambda repo_, cfg_, marca, ini, fim, df, recem=(): nubi._ids(df)      # como a importação era antes
+    nubi._juntar_por_id = lambda repo_, cfg_, marca, ini, fim, df, recem=(), *a, **k: nubi._ids(df)   # como a importação era antes
     try:
         imp("alw.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 450, 5060),
                            lin("Perfume Klassey Noir Edp 100ml", "KLASSEY", "K1", 100, 300),
@@ -152,9 +158,53 @@ def test_encaminhar_card_importado_antes_da_regra():
     repo.fechar()
 
 
+def un_card(repo, marca):
+    s = repo.snapshots(marca)
+    assert len(s) == 1, s
+    a = repo.anuncios(int(s["id"].iloc[0]))
+    return (str(s["inicio"].iloc[0])[:10], str(s["fim"].iloc[0])[:10], int(s["dias"].iloc[0]),
+            {b.get("ID do anúncio"): int(u) for b, u in zip(a["bruto"], a["un"])})
+
+
+def test_regra_14_card_vivo():
+    """REGRA 14 (02/10, Bruno: "é o mesmo anúncio? mesmo período? descarta. Período maior? só a diferença. Não tem? é novo,
+    entra somando. Mesma coisa o vendedor e a marca"): todo export do Explorador entra no card da marca pela diferença."""
+    repo, cfg = _novo_banco(), {}
+    imp = _importador(repo, cfg)
+    # card da Lattafa 01/08–29/09: L1 (800 un., histórico 4.000) e L3 (50 / 100)
+    imp("lattafa_60.csv", csv(lin("Perfume Lattafa Yara Edp 100ml", "LATTAFA", "L1", 800, 4000),
+                              lin("Perfume Lattafa Khamrah Edp 100ml", "LATTAFA", "L3", 50, 100)), "LATTAFA", "2026-08-01", "2026-09-29")
+    # de carona no export expandido da Al Wataniah (01/09–30/09): L1 (histórico 4.030 = vendeu 30 no dia 30) e L2 novo
+    imp("alw.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 450, 5060),
+                       lin("Perfume Lattafa Yara Edp 100ml", "LATTAFA", "L1", 700, 4030),
+                       lin("Perfume Lattafa Asad Edp 100ml", "LATTAFA", "L2", 300, 900)), "AL WATANIAH", "2026-09-01", "2026-09-30")
+    assert un_card(repo, "LATTAFA") == ("2026-08-01", "2026-09-30", 61, {"L1": 830, "L2": 300, "L3": 50})
+    assert un_card(repo, "AL WATANIAH") == ("2026-09-01", "2026-09-30", 30, {"W1": 450})
+    assert [(d["marca"], d["de"], d["ate"], d["un"]) for d in repo.dias] == [("LATTAFA", "2026-09-29", "2026-09-30", 330)]
+    # export da própria Lattafa de outubro (01/10–01/10): L1 vendeu 20 (histórico 4.050) → card 01/08–01/10
+    imp("lattafa_out.csv", csv(lin("Perfume Lattafa Yara Edp 100ml", "LATTAFA", "L1", 20, 4050)), "LATTAFA", "2026-10-01", "2026-10-01")
+    assert un_card(repo, "LATTAFA") == ("2026-08-01", "2026-10-01", 62, {"L1": 850, "L2": 300, "L3": 50})
+    # mesmo início (o export cobre o período inteiro): números do export substituem, o card estica
+    imp("alw_2.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 470, 5080),
+                         lin("Perfume Al Wataniah Ameerati Edp 100ml", "AL WATANIAH", "W2", 5, 5)), "AL WATANIAH", "2026-09-01", "2026-10-02")
+    assert un_card(repo, "AL WATANIAH") == ("2026-09-01", "2026-10-02", 32, {"W1": 470, "W2": 5})
+    d = [x for x in repo.dias if x["marca"] == "AL WATANIAH"][-1]
+    assert (d["de"], d["ate"], d["un"], d["anuncios_novos"]) == ("2026-09-30", "2026-10-02", 25, 1), d
+    # export mais velho que o card (01/09–30/09 de novo, com um anúncio que faltava): o card já cobre; só o novo entra
+    imp("alw_velho.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 450, 5060),
+                             lin("Perfume Al Wataniah Durrat Edp 85ml", "AL WATANIAH", "W3", 9, 9)), "AL WATANIAH", "2026-09-01", "2026-09-30")
+    assert un_card(repo, "AL WATANIAH") == ("2026-09-01", "2026-10-02", 32, {"W1": 470, "W2": 5, "W3": 9})
+    # mesmo arquivo de novo: pulado (hash)
+    assert imp("alw_velho.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 450, 5060),
+                                    lin("Perfume Al Wataniah Durrat Edp 85ml", "AL WATANIAH", "W3", 9, 9)), "AL WATANIAH", "2026-09-01", "2026-09-30") is None
+    repo.fechar()
+
+
 if __name__ == "__main__":
     test_expandido_nao_rouba_nem_soma()
     print("ok importar sem roubar nem somar")
+    test_regra_14_card_vivo()
+    print("ok regra 14")
     test_outras_marcas_vao_para_o_card_certo()
     print("ok outras marcas no card certo")
     test_encaminhar_card_importado_antes_da_regra()

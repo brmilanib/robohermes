@@ -335,6 +335,30 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   busca diferente/manual = `SIT_NAO_MEDIDO` (du 0, `du_max` = o que vendeu no novo) → `nao_medidos` na rota e aviso na aba.
   Resultado real 29–30/09 (93 × 1008): 3.242 un. medidas (2.842 exatas), 134 anúncios/2.959 un. fora da medida.
   `_data_criacao` aceita "09-05-2026" (export do coletor vem com hífen): as novidades por dia funcionam.
+- **REGRA 14 — todo export do Explorador entra no card pela diferença (02/10, Bruno: "é o mesmo anúncio? mesmo período?
+  descarta. Período maior? só a diferença. Não tem o anúncio? é novo, entra somando. Mesma coisa o vendedor e a marca. Tem
+  que ser aplicado para todos os cards, senão bagunça de novo")**: em `_gravar_marca`, `card_vivo` acha o card da marca que
+  começa no mesmo dia ou antes do export (o que termina por último; card com EXATAMENTE o período do export fica com o
+  `_juntar_por_id` de sempre = substitui). `somar_no_card`, pelo ID do anúncio: está no card e o export começa no mesmo dia
+  → números do export (ele cobre o período inteiro); está no card e o export começa depois (ou o card já vai além do export)
+  → un/fat do card + (histórico novo − histórico antigo, nunca negativo); não está → anúncio novo, entra inteiro; está no
+  card e não veio → fica. O card estica até a data nova (`dias` recalculado, `arquivo` = "a.csv + b.csv"), o antigo é
+  apagado; NUNCA nasce um 2º card da marca por cima do mesmo começo (o 59 dias da Al Wataniah + setembro = um card
+  01/08–30/09). Anúncio de carona (coluna Marca = outra marca) vai para o card dela pela mesma regra (`_levar_para_marca`:
+  mesmo período → só o que falta; card mais antigo → esticado); marca sem card → fica como "Outra marca" no card de quem
+  importou até o export dela entrar (`esperando`, só mesmo período). Arredondamento acima de 1.000 fica como está (Bruno:
+  "não tem problema ser aproximado, a média dos últimos 30 dias vai chegando no exato"). Cada soma fica guardada em
+  ia_resumos `explorador|dia|<marca>|<ate>` (`registrar_dia`: un/fat/anúncios/vendedores/novos, por vendedor e por produto,
+  busca) → rota `explorador_dias` = "Dias somados" + média de 30 dias no topo da aba Diferença. Card antigo (1008): rota
+  POST `explorador_encaminhar` (botão) ou pedido `explorador|encaminhar|pedido` = marcas (cron da hora, resultado em
+  `…|resultado`). `_absorver_periodo` ficou só para `test_recorte_misturado`. Teste `test_importar_sem_roubar.py::test_regra_14_card_vivo`.
+  **Marcas diárias (02/10, Bruno: "todo dia, só as marcas que eu vendo, lista; se eu quiser uma ou outra, acrescento na
+  mesma regra")**: lista em ia_resumos `explorador|marcas_diarias` (tela Painel geral → 📅 Marcas diárias,
+  `#/explorador/diario`, rota `explorador_diario` GET/POST, sugestões = marcas do estoque com venda de 30 dias). Coletor:
+  `explorador-diario` (comando da Central `explorador_diario`; vigia `_na_hora(... "explorador_diario_pendente")` a partir
+  das 05:00 de Brasília: marcas da lista sem snapshot importado hoje com busca do coletor no nome) roda
+  `coletar_explorador_marca` uma a uma (falha de uma não derruba as outras). A trava de 10.000 resultados caiu (Bruno: "já
+  importei com mais de 10 mil"; silverscent.csv = 15.489): `EXPLORADOR_MAX_EXPORT`=30.000 só avisa no log.
 - **Ranking de marcas ≠ Explorador (02/10, Bruno: "ranking só traz os totais do mês fechado, importa uma vez por mês")**: no
   `diario`, o Ranking de cada mês sai quando o mês TERMINA no calendário (`meses_ranking`), sem esperar a venda diária dos
   seguidos (que atrasa 2 dias) chegar ao último dia; antes setembro só entraria no dia 3.

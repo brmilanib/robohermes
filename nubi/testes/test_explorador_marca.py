@@ -123,22 +123,28 @@ def test_chrome_fecha_no_download_usa_a_copia():
     assert r[:3] == (1, 1, 0) and enviados[0][0] == "importar" and enviados[0][1] > 200, (r, enviados)
 
 
-def test_sem_filtro_mais_de_10_mil_nao_importa():
+def test_sem_filtro_mais_de_10_mil_exporta_mesmo_assim():
+    """02/10 (Bruno: "já importei com mais de 10 mil"; o silverscent.csv veio com 15.489): sem filtro, exporta e importa."""
     from playwright.sync_api import sync_playwright
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     c.BASE = f"http://127.0.0.1:{srv.server_address[1]}"
     exe = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
-    with sync_playwright() as p:
-        nav = p.chromium.launch(executable_path=exe if os.path.exists(exe) else None)
-        c.abrir_navegador = lambda p_, cfg, **k: nav.new_context(accept_downloads=True)
-        try:
-            c.coletar_explorador_marca(p, {}, "T", "AL WATANIAH", categoria=None)
-            assert False, "devia recusar"
-        except c.Falha as e:
-            assert "23496 resultados" in str(e)
-        nav.close()
-    srv.shutdown()
+    enviados = []
+    c.api = lambda token, rota, params=None, corpo=None, **k: enviados.append((rota, params, len(corpo or b""))) or {"log": []}
+    c.guardar_sessao = lambda ctx: None
+    c.salvar_config = lambda cfg: None
+    H.pagina = EXPLORADOR.replace("|| !filtrado", "")          # o Nubimetrics exporta sem filtro também
+    try:
+        with sync_playwright() as p:
+            nav = p.chromium.launch(executable_path=exe if os.path.exists(exe) else None)
+            c.abrir_navegador = lambda p_, cfg, **k: nav.new_context(accept_downloads=True)
+            r = c.coletar_explorador_marca(p, {}, "T", "AL WATANIAH", categoria=None)
+            nav.close()
+    finally:
+        H.pagina = None
+        srv.shutdown()
+    assert r[:3] == (1, 1, 0) and enviados[0][1]["arquivo"] == "AL_WATANIAH__expandida__2026-09-01_2026-09-30.csv", (r, enviados)
 
 
 if __name__ == "__main__":

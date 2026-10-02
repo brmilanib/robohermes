@@ -589,10 +589,90 @@ def _data_criacao(b):
 
 
 def _tipo_busca(arquivo):
-    """Qual busca gerou o export, pelo nome do arquivo que o coletor dá (`MARCA__expandida+beleza__ini_fim.csv`).
-    Export manual ou antigo = None (não dá para saber)."""
-    m = re.search(r"__(expandida|exata)(\+[a-z0-9]+)?__", str(arquivo or ""))
-    return (m.group(1) + (m.group(2) or "")) if m else None
+    return nubi.tipo_busca(arquivo)
+
+
+def explorador_dias(repo, marca, limite=120):
+    """REGRA 14: os dias somados no card da marca (ia_resumos `explorador|dia|<marca>|<ate>`), do mais novo ao mais velho,
+    com a média dos últimos 30 dias (unidades somadas ÷ dias cobertos)."""
+    regs = []
+    for r in repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": f"like.explorador|dia|{marca}|%", "order": "chave.desc",
+                                             "limit": limite}) or []:
+        try:
+            d = json.loads(r["texto"])
+            if d.get("ate"):
+                regs.append(d)
+        except (ValueError, TypeError):
+            continue
+    regs.sort(key=lambda d: d["ate"], reverse=True)
+    hoje = _hoje_br()
+    ult30 = [d for d in regs if (hoje - date.fromisoformat(d["ate"])).days < 30]
+    dias_cob = sum(int(d.get("dias") or 1) for d in ult30)
+    media = {"dias": dias_cob, "un_dia": round(sum(d["un"] for d in ult30) / dias_cob, 1) if dias_cob else None,
+             "fat_dia": round(sum(d["fat"] for d in ult30) / dias_cob, 2) if dias_cob else None,
+             "desde": min((d["de"] for d in ult30), default=None)}
+    return {"marca": marca, "dias": regs, "media_30": media}
+
+
+MARCAS_DIARIAS = "explorador|marcas_diarias"
+
+
+def marcas_diarias(repo):
+    try:
+        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(MARCAS_DIARIAS)}) or [None])[0]
+        return [nubi.chave_marca(m) for m in (json.loads(r["texto"]) if r and r.get("texto") else []) if m]
+    except (ValueError, TypeError):
+        return []
+
+
+def explorador_diario(repo, salvar=None):
+    """02/10 (Bruno: "todo dia, só as marcas que eu vendo; se eu quiser uma ou outra, acrescento na mesma regra"): a lista
+    de marcas que o coletor exporta no Explorador todo dia (pesquisa expandida + Beleza). Sugestões = marcas do meu estoque
+    (Estoque → Por categoria, por marca) com a venda de 30 dias. Guardada em ia_resumos `explorador|marcas_diarias`."""
+    if salvar is not None:
+        lista = sorted({nubi.chave_marca(m) for m in salvar if str(m or "").strip()})
+        repo._req("POST", "ia_resumos", corpo=[{"chave": MARCAS_DIARIAS, "ia": "bruno", "texto": json.dumps(lista, ensure_ascii=False)}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+    lista = marcas_diarias(repo)
+    sug = []
+    try:
+        ec = estoque_categorias(repo)
+        for m in ec.get("marcas") or []:
+            if m.get("marca") and m["marca"] != categorias.SEM:
+                sug.append({"marca": nubi.chave_marca(m["marca"]), "nome": m["marca"], "skus": m.get("skus") or m.get("itens"),
+                            "vend_un": m.get("vend_un"), "vend_valor": m.get("vend_valor"), "valor": m.get("valor")})
+    except Exception:  # noqa: BLE001
+        pass
+    cards = {}
+    try:
+        for s in repo._todos("snapshots", {"select": "marca,fim,arquivo,importado_em"}):
+            c = cards.setdefault(s["marca"], {"fim": "", "importado_em": "", "busca": None})
+            if str(s["fim"])[:10] >= c["fim"]:
+                c.update(fim=str(s["fim"])[:10], importado_em=str(s.get("importado_em") or "")[:19], busca=nubi.tipo_busca(s.get("arquivo")))
+    except ErroNuvem:
+        pass
+    return {"marcas": lista, "sugestoes": sug, "cards": {m: cards[m] for m in set(lista) | {x["marca"] for x in sug} if m in cards},
+            "hora": "05:00"}
+
+
+def explorador_diario_pendente(repo, agora=None):
+    """Para o coletor (vigia, a partir das 05:00 de Brasília): as marcas da lista que ainda não têm export do coletor
+    importado hoje (snapshot com `importado_em` de hoje e busca do coletor no nome do arquivo)."""
+    agora = agora or _agora_br()
+    lista = marcas_diarias(repo)
+    if not lista:
+        return {"rodar": False, "motivo": "lista vazia", "marcas": []}
+    if agora.hour < 5:
+        return {"rodar": False, "motivo": "antes das 05:00", "marcas": []}
+    hoje = agora.date().isoformat()
+    feitas = set()
+    for s in repo._todos("snapshots", {"select": "marca,arquivo,importado_em", "marca": f"in.({','.join(json.dumps(m) for m in lista)})"}):
+        em = str(s.get("importado_em") or "")
+        if em and (datetime.fromisoformat(em.replace("Z", "+00:00")) - timedelta(hours=3)).date().isoformat() == hoje \
+                and nubi.tipo_busca(s.get("arquivo")):
+            feitas.add(s["marca"])
+    faltam = [m for m in lista if m not in feitas]
+    return {"rodar": bool(faltam), "marcas": faltam, "feitas": sorted(feitas), "total": len(lista)}
 
 
 def novidades_explorador(repo, marca, s, novo, df_novo, seguidos_ids=()):
@@ -675,7 +755,9 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
     else:
         c = s[(s["_fim"] < novo["_fim"]) & (s["_ini"] <= novo["_ini"])].sort_values(["_fim", "dias", "id"])
         if c.empty:
-            return {"ok": False, "erro": "Falta um export anterior que termine antes e comece no mesmo dia ou antes do último."}
+            # regra 14: o export de cada dia já foi somado no card; o que vendeu em cada dia está em "Dias somados"
+            return {"ok": False, "so_dias": True, "erro": "Sem dois exports separados para comparar: com a regra 14 cada export "
+                                                          "entra no card e o que vendeu em cada dia fica em \"Dias somados\"."}
         antigo = c.iloc[-1]
     if not (antigo["_fim"] < novo["_fim"] and antigo["_ini"] <= novo["_ini"]):
         return {"ok": False, "erro": "O export antigo tem que terminar antes do novo e cobrir o começo dele."}
@@ -2338,6 +2420,12 @@ def atender(metodo, rota, q, corpo, token):
         if rota == "explorador_diferenca":           # 02/10: o que vendeu entre dois exports (pelo histórico de cada anúncio)
             _preparar(repo)
             return _json(explorador_diferenca(repo, nubi.chave_marca(q.get("marca") or ""), q.get("de"), q.get("para")))
+        if rota == "explorador_dias":                # regra 14: os dias somados no card
+            return _json(explorador_dias(repo, nubi.chave_marca(q.get("marca") or "")))
+        if rota == "explorador_diario":              # lista das marcas exportadas todo dia (GET) / salvar (POST {marcas})
+            if metodo == "POST":
+                return _json(explorador_diario(repo, (json.loads(corpo or b"{}") or {}).get("marcas") or []))
+            return _json(explorador_diario(repo))
         if rota == "relatorio":
             _preparar(repo)
             return _json(relatorio(repo, q["marca"], q.get("periodo")))
@@ -4159,6 +4247,7 @@ def _pauta_diaria(repo, ultima_execucao):
 
 
 TESTE_MARCA_PEDIDO = "meli|teste_marca|pedido"
+ENCAMINHAR_PEDIDO = "explorador|encaminhar|pedido"     # texto = marcas separadas por vírgula (regra 14 nos cards antigos)
 
 
 def teste_marca_ml(repo, marca):
@@ -4186,6 +4275,29 @@ def rodar_rotinas(repo, so=None):
                 out["teste_marca"] = len(teste_marca_ml(repo, ped["texto"].strip()[:40]).get("passos") or [])
         except Exception as e:  # noqa: BLE001
             out["teste_marca"] = f"erro: {str(e)[:120]}"
+        try:                                            # 02/10: card importado antes da regra 14 → outras marcas para os cards delas
+            ped = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(ENCAMINHAR_PEDIDO)}) or [None])[0]
+            if ped and (ped.get("texto") or "").strip():
+                repo._req("POST", "ia_resumos", corpo=[{"chave": ENCAMINHAR_PEDIDO, "ia": "regra 14", "texto": ""}],
+                          prefer="resolution=merge-duplicates,return=minimal")
+                _preparar(repo)
+                feitos = {}
+                for m in [nubi.chave_marca(x) for x in ped["texto"].split(",") if x.strip()]:
+                    sn = repo.snapshots(m)
+                    if not sn.empty:
+                        atual, _ = escolher_periodo(sn)
+                        feitos[m] = nubi.encaminhar_outras_marcas(repo, repo.carregar_config(), m, int(atual["id"]))
+                out["encaminhar"] = feitos
+                repo._req("POST", "ia_resumos", corpo=[{"chave": ENCAMINHAR_PEDIDO + "|resultado", "ia": "regra 14",
+                                                        "texto": json.dumps(feitos, ensure_ascii=False, default=str)}],
+                          prefer="resolution=merge-duplicates,return=minimal")
+        except Exception as e:  # noqa: BLE001
+            out["encaminhar"] = f"erro: {str(e)[:160]}"
+            try:
+                repo._req("POST", "ia_resumos", corpo=[{"chave": ENCAMINHAR_PEDIDO + "|resultado", "ia": "regra 14", "texto": out["encaminhar"]}],
+                          prefer="resolution=merge-duplicates,return=minimal")
+            except Exception:  # noqa: BLE001
+                pass
         try:                                            # 01/10: regra nova de agrupamento reprocessa já na rodada da hora
             if not repo._req("GET", "agente_execucoes", {"select": "id", "origem": repo._eq(REGRA_ATUAL), "limit": 1}):
                 _preparar(repo)
@@ -8116,6 +8228,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         return {"existe": existe}
     if rota == "explorador_quinzena_pendente":
         return explorador_quinzena_pendente(repo)
+    if rota == "explorador_diario_pendente":       # 02/10: marcas da lista diária ainda sem export do coletor hoje
+        return explorador_diario_pendente(repo)
     if rota == "explorador_quinzena_pedir" and metodo == "POST":
         # o Bruno (ou a sessão de código) pede um período para todas as marcas: {"inicio": "2026-09-01", "fim": "2026-09-15"}
         d = json.loads(corpo or b"{}")
@@ -8796,6 +8910,7 @@ COMANDOS_MAC = {
     "explorador_quinzena": "Nubimetrics: exportar o Explorador da última quinzena de todas as marcas e importar no nubi",
     "rodizio_seguidos": "Nubimetrics: rodízio dos seguidos (solta quem já foi baixado e segue os próximos observados nas vagas livres)",
     "explorador_marca": "Nubimetrics: exportar o Explorador de anúncios de UMA marca (pesquisa expandida; arg = MARCA ou MARCA|exata) e importar",
+    "explorador_diario": "Nubimetrics: exportar agora o Explorador das marcas da lista diária que ainda não entraram hoje (regra 14)",
     "vend_fotos": "Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML pela foto)",
     "vitrine_seguidos": "Mercado Livre: ler a vitrine (_CustId_) das lojas dos vendedores seguidos e gravar todos os anúncios, só lê",
     "ml_precos": "Mercado Livre: ler agora o preço dos anúncios do monitor de preços, só lê",

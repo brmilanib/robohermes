@@ -1919,6 +1919,7 @@ async function rotear() {
   desenharBarraBaixo();
   if (location.hash.startsWith("#/desafio")) return telaDesafio();
   if (sec === "inicio") return telaInicio();
+  if (location.hash.startsWith("#/explorador/diario")) return telaExploradorDiario();   // 02/10: marcas exportadas todo dia
   if (/^#\/estoque\/(tiktok|shopee)/.test(location.hash)) {       // endereço antigo: o atendimento mudou para o menu SAC
     history.replaceState(null, "", location.hash.replace("#/estoque/", "#/sac/")); return rotear(); }
   if (location.hash.startsWith("#/analises-vendas")) return telaMinhasVendas();
@@ -7545,9 +7546,12 @@ function telaPainel() {
       ${kpi("Unidades (último período)", nf0.format(tot.un))}
       ${kpi("Faturamento (último período)", "R$ " + nf0.format(tot.fat))}
     </div>
-    ${S.painel.length > 12 ? `<div style="display:flex;gap:10px;align-items:center;margin-top:4px">
-      <input type="search" id="bmarca" placeholder="Buscar marca…" value="${esc(S.buscaMarca || "")}" style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--card);min-width:240px">
-      <span class="muted">${p.length} de ${S.painel.length} marcas · da que mais fatura para a que menos</span></div>` : ""}
+    <div style="display:flex;gap:10px;align-items:center;margin-top:4px;flex-wrap:wrap">
+      ${S.painel.length > 12 ? `<input type="search" id="bmarca" placeholder="Buscar marca…" value="${esc(S.buscaMarca || "")}" style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--card);min-width:240px">
+      <span class="muted">${p.length} de ${S.painel.length} marcas · da que mais fatura para a que menos</span>` : ""}
+      <div style="flex:1"></div>
+      <a class="btn small" href="#/explorador/diario" title="Marcas que o coletor exporta no Explorador todo dia às 05:00 (regra 14: entram no card pela diferença)">📅 Marcas diárias</a>
+    </div>
     <div class="cards">
       ${p.map(x => `
       <div class="card bcard" data-m="${esc(x.marca)}">
@@ -7573,6 +7577,41 @@ function telaPainel() {
     const n = $("#bmarca"); n.focus(); n.setSelectionRange(pos, pos); };
   document.querySelectorAll(".bcard").forEach(c => c.onclick = () => irPara(c.dataset.m));
   document.querySelectorAll("[data-del]").forEach(b => b.onclick = e => { e.stopPropagation(); excluirMarca(b.dataset.del); });
+}
+// 02/10 (Bruno: "todo dia, só as marcas que eu vendo; se eu quiser uma ou outra, acrescento"): a lista do Explorador diário
+async function telaExploradorDiario() {
+  $("#main").innerHTML = `<h1>📅 Marcas diárias do Explorador</h1><div class="card pad muted">Carregando…</div>`;
+  let d;
+  try { d = await api("explorador_diario"); } catch (e) { $("#main").innerHTML += `<div class="card pad">${esc(e.message)}</div>`; return; }
+  const sel = new Set(d.marcas || []);
+  const sug = (d.sugestoes || []).filter(x => !sel.has(x.marca));
+  const cardInfo = m => { const c = (d.cards || {})[m]; return c ? `${dataBR(c.fim)}${c.busca ? " · " + esc(c.busca) : ""}` : `<span class="muted">sem card</span>`; };
+  const linha = (m, nome, extra) => `<tr><td><input type="checkbox" data-m="${esc(m)}" ${sel.has(m) ? "checked" : ""}></td>
+    <td class="first">${esc(nome || m)}</td><td>${extra || ""}</td><td class="muted">${cardInfo(m)}</td></tr>`;
+  const desenhar = () => {
+    $("#main").innerHTML = `<h1>📅 Marcas diárias do Explorador</h1>
+      <p class="aviso">Todo dia a partir das ${esc(d.hora)} o coletor exporta no Explorador (pesquisa expandida + Beleza e Cuidado Pessoal) cada marca marcada e
+        importa: o export entra no card da marca pela regra 14 (mesmo anúncio e mesmo período = descarta; período maior = só a diferença; anúncio novo = entra inteiro).
+        O que vier de outras marcas vai para o card delas. ${nf0.format(sel.size)} marca(s) na lista.</p>
+      <div class="card pad"><h2 style="margin-top:0">Na lista</h2>
+        <div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th></th><th>Marca</th><th></th><th>Último card</th></tr></thead>
+        <tbody>${[...sel].sort().map(m => linha(m, nome(m), "")).join("") || `<tr><td colspan="4" class="muted">nenhuma ainda: marque abaixo</td></tr>`}</tbody></table></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <input id="ed-nova" placeholder="Outra marca (como no Nubimetrics)…" style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--card);min-width:240px">
+          <button class="btn small" id="ed-add">➕ Acrescentar</button><div style="flex:1"></div>
+          <button class="btn primary" id="ed-salvar">💾 Salvar lista</button></div></div>
+      <div class="card pad"><h2 style="margin-top:0">Sugestões: marcas do meu estoque <span class="muted" style="font-weight:400">(venda de 30 dias no UpSeller)</span></h2>
+        <div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th></th><th>Marca</th><th>Estoque · vendas 30d</th><th>Último card</th></tr></thead>
+        <tbody>${sug.map(x => linha(x.marca, x.nome, `${nf0.format(x.skus || 0)} SKUs · ${nf0.format(x.vend_un || 0)} un. · R$ ${nf0.format(x.vend_valor || 0)}`)).join("") || `<tr><td colspan="4" class="muted">sem estoque importado</td></tr>`}</tbody></table></div></div>`;
+    $("#main").querySelectorAll("input[type=checkbox][data-m]").forEach(c => c.onchange = () => { c.checked ? sel.add(c.dataset.m) : sel.delete(c.dataset.m); });
+    $("#ed-add").onclick = () => { const v = ($("#ed-nova").value || "").trim().toUpperCase(); if (v) { sel.add(v); desenhar(); } };
+    $("#ed-salvar").onclick = async () => {
+      $("#ed-salvar").disabled = true;
+      try { d = await api("explorador_diario", {}, {method: "POST", body: JSON.stringify({marcas: [...sel]})}); toast(`Lista salva: ${d.marcas.length} marca(s). O coletor pega a partir das ${d.hora}.`); desenhar(); }
+      catch (e) { toast(e.message); $("#ed-salvar").disabled = false; }
+    };
+  };
+  desenhar();
 }
 async function excluirMarca(marca) {
   const x = S.painel.find(p => p.marca === marca) || {};
@@ -9622,19 +9661,40 @@ async function telaConfig(el) {
 }
 
 // ---------- Diferença entre dois exports (02/10, Bruno: "só queremos a diferença, os dias 29 e 30") ----------
+// REGRA 14 (02/10): o que cada export somou no card, dia a dia, com a média dos últimos 30 dias
+function diasSomadosHTML(ds) {
+  if (!ds || !(ds.dias || []).length) return "";
+  const m = ds.media_30 || {};
+  return `<div class="card pad"><h2 style="margin-top:0">📅 Dias somados no card (regra 14)</h2>
+    <div class="kpis">
+      ${kpi("Média dos últimos 30 dias", m.un_dia != null ? nf1.format(m.un_dia) + " un./dia" : "—", m.dias ? `${nf0.format(m.dias)} dia(s) somados desde ${dataBR(m.desde)}` : "ainda sem dias")}
+      ${kpi("Faturamento/dia (30 dias)", m.fat_dia != null ? "R$ " + nf0.format(m.fat_dia) : "—")}
+      ${kpi("Exports somados", nf0.format(ds.dias.length))}
+    </div>
+    <div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th>De → até</th><th class="num">Dias</th><th class="num">Un.</th><th class="num">Faturamento</th>
+      <th class="num">Anúncios c/ venda</th><th class="num">Vendedores</th><th class="num">Anúncios novos</th><th class="num">Vendedores novos</th><th>Busca</th><th>Quem mais vendeu</th></tr></thead>
+      <tbody>${ds.dias.map(d => `<tr><td class="first">${dataBR(d.de).slice(0, 5)} → ${dataBR(d.ate).slice(0, 5)}</td><td class="num">${nf0.format(d.dias)}</td>
+        <td class="num">${nf0.format(d.un)}</td><td class="num">R$ ${nf0.format(d.fat)}</td><td class="num">${nf0.format(d.anuncios_com_venda)}</td><td class="num">${nf0.format(d.vendedores)}</td>
+        <td class="num">${nf0.format(d.anuncios_novos)}</td><td class="num">${nf0.format(d.vendedores_novos)}</td><td class="muted">${esc(d.busca || "manual")}</td>
+        <td class="muted">${(d.por_vendedor || []).slice(0, 3).map(v => `${esc(v.nome)} ${nf0.format(v.un)}`).join(" · ")}</td></tr>`).join("")}</tbody></table></div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Cada export do Explorador entra no card da marca pelo ID do anúncio: mesmo período = descarta; período maior = só a
+      diferença do histórico; anúncio que não estava = novo, entra inteiro. Acima de 1.000 un. o Nubimetrics arredonda: a média dos dias vai limpando.</p></div>`;
+}
+
 async function telaDiferenca(el) {
   el.innerHTML = `<div class="card pad muted">Comparando os dois últimos exports pelo histórico de cada anúncio…</div>`;
-  let d;
+  let d, ds = null;
+  try { ds = await api("explorador_dias", {marca: S.rel.marca}); } catch {}
   try { d = await api("explorador_diferenca", {marca: S.rel.marca}); }
-  catch (e) { el.innerHTML = `<div class="card pad">${esc(e.message)}</div>`; return; }
-  if (!d.ok) { el.innerHTML = `<div class="card pad">${esc(d.erro || "Sem dois exports para comparar.")}</div>`; return; }
+  catch (e) { el.innerHTML = diasSomadosHTML(ds) + `<div class="card pad">${esc(e.message)}</div>`; return; }
+  if (!d.ok) { el.innerHTML = diasSomadosHTML(ds) + `<div class="card pad muted">${esc(d.erro || "Sem dois exports para comparar.")}</div>`; return; }
   const t = d.totais, dias = d.dias.map(x => dataBR(x).slice(0, 5)).join(", ");
   const sit = Object.entries(d.checagem || {}).map(([k, n]) => `<span class="sinal">${esc(k)}: ${nf0.format(n)}</span>`).join(" ");
   const linhasAgr = (xs, vend) => xs.map((x, i) => `<tr><td class="num muted">${i + 1}</td>
     <td class="first">${esc(x.nome || "—")}${vend && x.seguido ? ` <span class="pill">seguido</span>` : ""}${vend && x.novo ? ` <span class="pill warn">novo</span>` : ""}</td>
     <td class="num">${nf0.format(x.un)}</td><td class="num">R$ ${nf0.format(x.fat)}</td>
     <td class="num">${nf0.format(x.anuncios)}${x.anuncios_novos ? ` <span class="muted">(${x.anuncios_novos} novo${x.anuncios_novos > 1 ? "s" : ""})</span>` : ""}</td></tr>`).join("");
-  el.innerHTML = `
+  el.innerHTML = diasSomadosHTML(ds) + `
     <div class="card pad">
       <h2 style="margin-top:0">Vendido em ${esc(dias)} <span class="muted" style="font-weight:400">(${d.dias.length} dia${d.dias.length > 1 ? "s" : ""})</span></h2>
       <p class="muted" style="margin:0 0 10px">Export antigo ${dataBR(d.antigo.inicio)} a ${dataBR(d.antigo.fim)} (${nf0.format(d.antigo.anuncios)} anúncios) × novo

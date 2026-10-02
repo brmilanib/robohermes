@@ -27,7 +27,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, date, timezone
 from pathlib import Path
 
 try:
@@ -1511,6 +1511,11 @@ class RepoLocal:
         df["bruto"] = df["bruto"].map(lambda x: json.loads(x) if isinstance(x, str) and x else {})
         return df
 
+    def apagar_snapshot(self, sid):
+        self.con.execute("DELETE FROM anuncios WHERE snapshot_id=?", (int(sid),))
+        self.con.execute("DELETE FROM snapshots WHERE id=?", (int(sid),))
+        self.con.commit()
+
     def atualizar_consolidacao(self, df):
         self.con.executemany(
             "UPDATE anuncios SET produto=?, linha=?, volume=?, tipo=?, genero=?, confianca=? WHERE rowid=?",
@@ -1945,7 +1950,9 @@ def importar_dados(repo, cfg, nome, dados, obter_marca_periodo):
 
 
 def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes, recem=()):
-    """Grava os anúncios (df) como um período da marca: renomeia grafia antiga, consolida e salva."""
+    """Grava os anúncios (df) como um período da marca: renomeia grafia antiga, consolida e salva.
+    REGRA 14 (02/10, Bruno): se a marca já tem um card que começa no mesmo dia ou antes e termina antes do export, o
+    export NÃO vira outro card: o card é esticado até a data nova somando só a diferença (ver `somar_no_card`)."""
     # Mesma marca já cadastrada com outra grafia ("MONT BLANC" x "MONTBLANC"): renomeia.
     for antiga in existentes:
         if antiga != marca and compacta(antiga) == compacta(marca):
@@ -1955,16 +1962,192 @@ def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes, recem
                 repo.salvar_config(cfg, marca, apagar=antiga)
             avisar(f"    Marca {antiga} renomeada para {marca} (grafia oficial).")
             reconsolidar(repo, cfg, [marca])
+    ini_arq, fim_arq = ini.isoformat(), fim.isoformat()
+    apagar, dia = [], None
+    card = card_vivo(repo, marca, ini_arq, fim_arq)
+    if card is not None:
+        df, dia = somar_no_card(repo, card, ini_arq, fim_arq, df)
+        apagar.append(int(card["id"]))
+        nome = juntar_nomes(card["arquivo"], nome)
+        ini, fim = date.fromisoformat(str(card["inicio"])[:10]), date.fromisoformat(dia["ate"])
+        avisar(f"    Regra 14: card {ini:%d/%m}–{dia['de'][8:10]}/{dia['de'][5:7]} "
+               + (f"já cobre o export ({ini_arq[8:10]}/{ini_arq[5:7]}–{fim_arq[8:10]}/{fim_arq[5:7]})" if dia["cobre"] else f"esticado até {fim:%d/%m}")
+               + f": {dia['atualizados']} anúncio(s) {'com os números novos' if dia['mesmo_inicio'] else 'somaram só a diferença'}, "
+               f"{dia['novos']} novo(s), {dia['mantidos']} mantido(s) · +{fmt_int(dia['un'])} un.")
     dias = (fim - ini).days + 1          # inclusive nas pontas: 01/08 a 16/09 = 47 dias
-    df = _juntar_por_id(repo, cfg, marca, ini.isoformat(), fim.isoformat(), df, recem)
+    df = _juntar_por_id(repo, cfg, marca, ini.isoformat(), fim.isoformat(), df, recem, ini_arq, fim_arq, nome, ignorar=apagar)
     garantir_config(cfg, marca, df, repo)
     df = consolidar(df, marca, cfg)
     substituiu = repo.gravar_snapshot(marca, ini.isoformat(), fim.isoformat(), dias, nome, hash_, df)
+    for sid in apagar:                   # card esticado: o antigo sai (se já cobria o período, foi substituído e isto não faz nada)
+        repo.apagar_snapshot(sid)
+    if dia and not dia["cobre"]:
+        registrar_dia(repo, marca, df, dia, nome)
     if substituiu:
         avisar("    (substituiu uma importação anterior do mesmo período)")
     avisar(f"    OK: {marca} · {ini:%d/%m/%Y} a {fim:%d/%m/%Y} ({dias} dias) · "
            f"{df['produto'].nunique()} referências")
     return marca
+
+
+def tipo_busca(arquivo):
+    """Qual busca gerou o export, pelo nome do arquivo que o coletor dá (`MARCA__expandida+beleza__ini_fim.csv`); num
+    nome juntado ("a.csv + b.csv") vale o último. Export manual ou antigo = None (não dá para saber)."""
+    ultimo = str(arquivo or "").split(" + ")[-1]
+    m = re.search(r"__(expandida|exata)(\+[a-z0-9]+)?__", ultimo)
+    return (m.group(1) + (m.group(2) or "")) if m else None
+
+
+def juntar_nomes(antigo, novo):
+    """Nome do card esticado: "a.csv + b.csv" (fica só o começo e os últimos nomes, até 200 letras)."""
+    partes = [p for p in str(antigo or "").split(" + ") if p] + [str(novo or "")]
+    while len(" + ".join(partes)) > 200 and len(partes) > 2:
+        partes.pop(1)
+    return " + ".join(partes)
+
+
+def card_vivo(repo, marca, ini_arq, fim_arq):
+    """REGRA 14: o card da marca em que este export entra = o que começa no mesmo dia ou antes do export (o que termina
+    por último). Termina antes do export → é esticado até a data nova; já cobre o export → só entra o que falta (e a
+    diferença do histórico). Card com EXATAMENTE o período do export não entra aqui (`_juntar_por_id` substitui)."""
+    try:
+        snaps = repo.snapshots(marca)
+    except Exception:  # noqa: BLE001
+        return None
+    if snaps is None or snaps.empty:
+        return None
+    s = snaps.assign(_f=snaps["fim"].astype(str).str[:10], _i=snaps["inicio"].astype(str).str[:10])
+    s = s[(s["marca"] == marca) & (s["_i"] <= ini_arq) & ~((s["_i"] == ini_arq) & (s["_f"] == fim_arq))]
+    if s.empty:
+        return None
+    return s.sort_values(["_f", "_i", "id"]).iloc[-1]
+
+
+def somar_no_card(repo, card, ini_arq, fim_arq, df):
+    """REGRA 14 (02/10, Bruno: "é o mesmo anúncio? mesmo período? descarta. Período maior? só a diferença. Não tem o
+    anúncio? é novo, entra somando. Mesma coisa o vendedor e a marca"). Pelo ID do anúncio:
+      - está no card e o export começa no MESMO dia do card: o export cobre o período inteiro → números do export;
+      - está no card e o export começa depois: un/fat do card + (histórico novo − histórico antigo) = só a diferença;
+      - não está no card: anúncio novo, entra inteiro;
+      - está no card e não veio no export: fica como está.
+    Devolve (df junto, dia) — dia = o que entrou: {de, ate, un, fat, atualizados, novos, mantidos, mesmo_inicio}. As colunas
+    `_du`/`_dfat` (o que cada anúncio somou) seguem até `registrar_dia`. Arredondamento do Nubimetrics (3 algarismos acima
+    de 1.000) fica como está: aproximado, a média dos dias limpa."""
+    df = _ids(df)
+    antigo = _ids(repo.anuncios(int(card["id"])))
+    num = lambda s: pd.to_numeric(s, errors="coerce").fillna(0.0)
+    fim_c = str(card["fim"])[:10]
+    cobre = fim_c >= fim_arq                              # o card já vai além do export: entra o que falta + diferença
+    mesmo_inicio = str(card["inicio"])[:10] == ini_arq and not cobre
+    fim_novo = fim_c if cobre else fim_arq
+    if antigo.empty:
+        novo = df.assign(_du=num(df["un"]), _dfat=num(df["fat"]))
+        return novo, {"de": fim_c, "ate": fim_novo, "un": int(num(df["un"]).sum()), "fat": float(num(df["fat"]).sum()),
+                      "atualizados": 0, "novos": int(len(df)), "mantidos": 0, "mesmo_inicio": mesmo_inicio, "cobre": cobre}
+    ja = dict(zip(antigo["anuncio"], range(len(antigo))))
+    hist_u = dict(zip(antigo["anuncio"], num(antigo["un_hist"]))) if "un_hist" in antigo.columns else {}
+    hist_f = dict(zip(antigo["anuncio"], num(antigo["fat_hist"]))) if "fat_hist" in antigo.columns else {}
+    un_c, fat_c = dict(zip(antigo["anuncio"], num(antigo["un"]))), dict(zip(antigo["anuncio"], num(antigo["fat"])))
+    tem = df["anuncio"].isin(ja)
+    du, dfat = num(df["un"]).copy(), num(df["fat"]).copy()
+    if tem.any():
+        du[tem] = (num(df.loc[tem, "un_hist"]) - df.loc[tem, "anuncio"].map(hist_u)).clip(lower=0) if "un_hist" in df.columns else 0.0
+        dfat[tem] = (num(df.loc[tem, "fat_hist"]) - df.loc[tem, "anuncio"].map(hist_f)).clip(lower=0) if "fat_hist" in df.columns else 0.0
+    novo = df.copy()
+    if not mesmo_inicio and tem.any():
+        novo.loc[tem, "un"] = df.loc[tem, "anuncio"].map(un_c) + du[tem]
+        novo.loc[tem, "fat"] = df.loc[tem, "anuncio"].map(fat_c) + dfat[tem]
+    novo["_du"], novo["_dfat"] = du, dfat
+    resto = antigo[~antigo["anuncio"].isin(set(df["anuncio"]))].drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in antigo.columns])
+    colunas = list(novo.columns)
+    for c in colunas:
+        if c not in resto.columns:
+            resto = resto.assign(**{c: None})
+    resto = resto.assign(_du=0.0, _dfat=0.0)[colunas]
+    junto = pd.concat([novo, resto], ignore_index=True)
+    dia = {"de": fim_c, "ate": fim_novo, "un": int(du.sum()), "fat": float(dfat.sum()), "cobre": cobre,
+           "atualizados": int(tem.sum()), "novos": int((~tem).sum()), "mantidos": int(len(resto)), "mesmo_inicio": mesmo_inicio,
+           "vendedores_novos": int(len(set(df.loc[~tem, "vendedor_id"].astype(str)) - set(antigo["vendedor_id"].astype(str))))}
+    return junto, dia
+
+
+def registrar_dia(repo, marca, df, dia, arquivo=""):
+    """O que a soma da regra 14 trouxe (de `de` a `ate`): totais, por vendedor e por produto, guardado em ia_resumos
+    `explorador|dia|<marca>|<ate>` (é o histórico por dia da aba Diferença e a base da média de 30 dias). No banco local
+    (testes) fica em `repo.dias`."""
+    if "_du" not in df.columns:
+        return None
+    num = lambda s: pd.to_numeric(s, errors="coerce").fillna(0.0)
+    d = df.assign(_du=num(df["_du"]), _dfat=num(df["_dfat"]))
+    d = d[d["tipo"].fillna("") != TIPO_OUTRA] if "tipo" in d.columns else d
+    v = d[d["_du"] > 0]
+    top = lambda col: [{"nome": str(k), "un": int(g["_du"].sum()), "fat": round(float(g["_dfat"].sum()), 2), "anuncios": int(len(g))}
+                       for k, g in sorted(v.groupby(col), key=lambda kv: -kv[1]["_du"].sum())][:60]
+    reg = {"marca": marca, "de": dia["de"], "ate": dia["ate"], "dias": max(1, (date.fromisoformat(dia["ate"]) - date.fromisoformat(dia["de"])).days),
+           "un": int(v["_du"].sum()), "fat": round(float(v["_dfat"].sum()), 2), "anuncios_com_venda": int(len(v)),
+           "vendedores": int(v["vendedor_id"].nunique()) if len(v) else 0, "anuncios_novos": dia.get("novos", 0),
+           "vendedores_novos": dia.get("vendedores_novos", 0), "atualizados": dia.get("atualizados", 0), "mantidos": dia.get("mantidos", 0),
+           "mesmo_inicio": dia.get("mesmo_inicio"), "busca": tipo_busca(arquivo),
+           "por_vendedor": top("vendedor"), "por_produto": top("produto") if "produto" in v.columns else [],
+           "em": datetime.now(timezone.utc).isoformat()}
+    if hasattr(repo, "_req"):
+        try:
+            repo._req("POST", "ia_resumos", corpo=[{"chave": f"explorador|dia|{marca}|{dia['ate']}", "ia": "nubi (regra 14)",
+                                                    "texto": json.dumps(reg, ensure_ascii=False, default=str)}],
+                      prefer="resolution=merge-duplicates,return=minimal")
+        except Exception as e:  # noqa: BLE001
+            avisar(f"    (não guardei o dia da regra 14: {str(e)[:100]})")
+    else:
+        repo.__dict__.setdefault("dias", []).append(reg)
+    return reg
+
+
+def _levar_para_marca(repo, cfg, outra, ini_arq, fim_arq, rows, arquivo):
+    """REGRA 14 para os anúncios de carona (coluna Marca = outra marca): card da outra marca com o MESMO período do
+    arquivo → entra só o que falta (o que já está lá é cópia); card que começa no mesmo dia ou antes e termina antes →
+    esticado pela diferença (`somar_no_card`). Devolve (n que entraram, True se a marca tinha card); sem card = (0, False)."""
+    try:
+        snaps = repo.snapshots(outra)
+    except Exception:  # noqa: BLE001
+        return 0, False
+    if snaps is None or snaps.empty:
+        return 0, False
+    rows = _ids(rows)
+    mesmo = snaps[(snaps["inicio"].astype(str).str[:10] == ini_arq) & (snaps["fim"].astype(str).str[:10] == fim_arq)]
+    if not mesmo.empty:
+        sn = mesmo.sort_values("id").iloc[-1]
+        antigo = _ids(repo.anuncios(int(sn["id"])))
+        novos = rows[~rows["anuncio"].isin(set(antigo["anuncio"]))] if not antigo.empty else rows
+        if novos.empty:
+            return 0, True
+        base = antigo.drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in antigo.columns])
+        cols = list(base.columns) if not base.empty else list(novos.columns)
+        vai = novos
+        for c in cols:
+            if c not in vai.columns:
+                vai = vai.assign(**{c: None})
+        junto = pd.concat([base, vai[cols]], ignore_index=True) if not base.empty else vai[cols]
+        if outra not in cfg:
+            garantir_config(cfg, outra, junto, repo)
+        junto = consolidar(junto, outra, cfg)
+        repo.gravar_snapshot(outra, ini_arq, fim_arq, int(sn["dias"]), sn["arquivo"], sn["hash"], junto)
+        return int(len(novos)), True
+    card = card_vivo(repo, outra, ini_arq, fim_arq)
+    if card is None:
+        return 0, False
+    junto, dia = somar_no_card(repo, card, ini_arq, fim_arq, rows)
+    if outra not in cfg:
+        garantir_config(cfg, outra, junto, repo)
+    junto = consolidar(junto, outra, cfg)
+    ini_c = str(card["inicio"])[:10]
+    dias = (date.fromisoformat(dia["ate"]) - date.fromisoformat(ini_c)).days + 1
+    # hash derivado (o hash é único por card; o card velho ainda existe até o novo estar gravado)
+    hash_ = hashlib.sha256(f"{card['hash']}|{arquivo}|{dia['ate']}".encode()).hexdigest()
+    repo.gravar_snapshot(outra, ini_c, dia["ate"], dias, juntar_nomes(card["arquivo"], arquivo), hash_, junto)
+    repo.apagar_snapshot(int(card["id"]))
+    if not dia["cobre"]:
+        registrar_dia(repo, outra, junto, dia, arquivo)
+    return int(len(rows)), True
 
 
 # ---------------------------------------------------------------------------
@@ -2975,13 +3158,9 @@ def importar_por_marca(repo, cfg, nome, dados, ini, fim, escolhidas, apelidos=No
             avisar(f"    {gr['nome']}: já importado deste arquivo. Pulado.")
             continue
         avisar(f"  {gr['nome']}: {fmt_int(len(sub))} anúncios · {fmt_int(sub['un'].sum())} unidades")
-        # 30/09 (Bruno, Sospiro "sumiu"): o arquivo misturado é um RECORTE (só os anúncios que a busca trouxe); se a
-        # marca já tem período com o mesmo início, ele atualiza esse período (anúncio igual pelo ID ganha os números
-        # novos, os outros continuam, o fim vai para a data nova) em vez de virar um período novo pela metade
-        sub, absorvidos = _absorver_periodo(repo, gr["marca"], ini, fim, sub)
+        # 30/09 (Bruno, Sospiro "sumiu"): o arquivo misturado é um RECORTE (só os anúncios que a busca trouxe); desde
+        # 02/10 a regra 14 em `_gravar_marca` estica o card que já existe em vez de criar um período pela metade
         marca = _gravar_marca(repo, cfg, nome, hash_, sub, gr["marca"], ini, fim, existentes, feitas)
-        for sid in absorvidos:
-            repo.apagar_snapshot(sid)
         feitas.append(marca)
         existentes = sorted(set(existentes) | {marca})
     fora = [g for g in grupos.values() if g["chave"] not in escolhidas]
@@ -2993,9 +3172,9 @@ def importar_por_marca(repo, cfg, nome, dados, ini, fim, escolhidas, apelidos=No
 
 
 def _absorver_periodo(repo, marca, ini, fim, df):
-    """Períodos da marca com o mesmo início e fim igual ou anterior: os anúncios deles que não estão no arquivo novo
-    entram no df (pelo ID do anúncio) e os períodos voltam como lista para apagar depois de gravar o novo. O período
-    completo nunca some: só cresce até a data nova."""
+    """(Antes da regra 14; hoje só `test_recorte_misturado`.) Períodos da marca com o mesmo início e fim igual ou anterior:
+    os anúncios deles que não estão no arquivo novo entram no df (pelo ID do anúncio) e os períodos voltam como lista
+    para apagar depois de gravar o novo. O período completo nunca some: só cresce até a data nova."""
     df = _ids(df)
     try:
         snaps = repo.snapshots(marca)
@@ -3038,21 +3217,27 @@ def _ids(df):
     return df
 
 
-def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=()):
+def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=(), ini_arq=None, fim_arq=None, arquivo="", ignorar=()):
     """
     Pelo ID do anúncio, para não sobrepor, somar nem duplicar:
       - mesma marca e mesmo período já importado de outro arquivo: junta os dois (anúncio que está nos
         dois fica com os números do arquivo novo; os que só existiam no antigo continuam);
       - anúncio que estava no card de OUTRA marca no mesmo período (arquivo misturado importado antes)
-        sai de lá e fica só nesta.
+        sai de lá e fica só nesta;
+      - anúncio de carona (coluna Marca = outra marca) vai para o card dela (regra 14, `_levar_para_marca`).
+    `ini`/`fim` = período do card desta marca; `ini_arq`/`fim_arq` = período do ARQUIVO (os números dos anúncios de
+    carona são desse período).
     """
+    ini_arq, fim_arq = ini_arq or ini, fim_arq or fim
     df = _ids(df)
     novos = set(df["anuncio"])
     snaps = repo.snapshots()
     if snaps.empty:
         return df
-    mesmo = snaps[(snaps["inicio"].astype(str).str[:10] == ini) & (snaps["fim"].astype(str).str[:10] == fim)
-                  & ~snaps["marca"].isin(set(recem) - {marca})]   # cards gravados agora, deste mesmo arquivo, já estão separados
+    per = snaps["inicio"].astype(str).str[:10] + "|" + snaps["fim"].astype(str).str[:10]
+    mesmo = snaps[(((snaps["marca"] == marca) & (per == f"{ini}|{fim}")) | ((snaps["marca"] != marca) & (per == f"{ini_arq}|{fim_arq}")))
+                  & ~snaps["marca"].isin(set(recem) - {marca})    # cards gravados agora, deste mesmo arquivo, já estão separados
+                  & ~snaps["id"].astype(int).isin([int(x) for x in ignorar])]   # o card que a regra 14 já juntou
     colunas = list(df.columns)
     for _, sn in mesmo.iterrows():
         antigo = _ids(repo.anuncios(sn["id"]))
@@ -3076,7 +3261,6 @@ def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=()):
                    f"{len(resto)} mantido(s) do arquivo anterior.")
             continue
         grupo = _chave_grupo(marca)
-        grupo_la = _chave_grupo(sn["marca"])
         repetidos = antigo["anuncio"].str.startswith("ID:") & antigo["anuncio"].isin(novos)
         # 02/10 (Bruno: "os anúncios das outras marcas que vêm têm que ser colocados nos cards das marcas corretas"):
         # anúncio guardado no card da outra marca como "Outra marca" e cuja coluna Marca é ESTA marca (veio na pesquisa
@@ -3084,19 +3268,8 @@ def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=()):
         marca_la = antigo["marca_anuncio"].fillna("").map(_chave_grupo)
         esperando = (~repetidos & antigo["anuncio"].str.startswith("ID:") & (marca_la == grupo)
                      & (antigo["tipo"].fillna("") == TIPO_OUTRA)) if "tipo" in antigo.columns else pd.Series(False, index=antigo.index)
-        # e o anúncio do arquivo novo cuja coluna Marca é a OUTRA marca vai para o card dela (entra pelo ID: o que já está
-        # lá fica como está, o que falta é acrescentado)
         marca_novo = dict(zip(df["anuncio"], df["marca_anuncio"].fillna("")))
-        dela = df["anuncio"].map(lambda k: _chave_grupo(marca_novo.get(k, "")) == grupo_la) & ~df["anuncio"].isin(set(antigo["anuncio"]))
-        if dela.any() and grupo_la != grupo:
-            ida = df[dela]
-            df = df[~dela]
-            novos = set(df["anuncio"])
-            avisar(f"    {int(dela.sum())} anúncio(s) com a marca {sn['marca']} vieram na busca e foram para o card de "
-                   f"{sn['marca']} do mesmo período.")
-        else:
-            ida = df.iloc[0:0]
-        if not repetidos.any() and not esperando.any() and ida.empty:
+        if not repetidos.any() and not esperando.any():
             continue
         # 02/10 (Bruno: "não pode somar nem tirar"): a pesquisa expandida de uma marca traz anúncios de outras. Só passa
         # para esta marca o anúncio que É dela (coluna Marca do arquivo novo); o da outra marca fica no card dela e sai
@@ -3110,7 +3283,7 @@ def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=()):
             avisar(f"    {int(fica_la.sum())} anúncio(s) de {sn['marca']} vieram na busca e ficaram no card de {sn['marca']} "
                    "(mesmo ID: não conta duas vezes).")
         fora = (repetidos & e_desta) | esperando
-        if not fora.any() and ida.empty:
+        if not fora.any():
             continue
         if esperando.any():
             vem = antigo[esperando]
@@ -3124,25 +3297,36 @@ def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=()):
         outra = sn["marca"]
         if (repetidos & e_desta).any():
             avisar(f"    {int((repetidos & e_desta).sum())} anúncio(s) estavam no card de {outra} no mesmo período e passaram para {marca}.")
-        if not ida.empty:
-            for c in fica.columns:
-                if c not in ida.columns:
-                    ida = ida.assign(**{c: None})
-            fica = pd.concat([fica, ida[list(fica.columns)]], ignore_index=True)
         if fica.empty:
             repo.apagar_snapshot(sn["id"])
         else:
             if outra not in cfg:
                 garantir_config(cfg, outra, fica, repo)
             fica = consolidar(fica, outra, cfg)
-            repo.gravar_snapshot(outra, ini, fim, int(sn["dias"]), sn["arquivo"], sn["hash"], fica)
+            repo.gravar_snapshot(outra, str(sn["inicio"])[:10], str(sn["fim"])[:10], int(sn["dias"]), sn["arquivo"], sn["hash"], fica)
+    # REGRA 14 (02/10, Bruno: "os anúncios das outras marcas que vêm têm que ser colocados nos cards das marcas corretas"):
+    # o que sobrou de carona vai para o card da marca da coluna Marca — mesmo período: só o que falta; card mais antigo:
+    # esticado pela diferença. Marca sem card: fica aqui como "Outra marca" (fora da conta) até o export dela entrar.
+    grupo = _chave_grupo(marca)
+    nomes = {}
+    for m in sorted(set(snaps["marca"]) | set(cfg)):
+        nomes.setdefault(_chave_grupo(m), m)
+    grupos = df["marca_anuncio"].fillna("").map(_chave_grupo)
+    for g in [x for x in grupos.unique() if x and x != grupo and x in nomes and nomes[x] not in set(recem) - {marca}]:
+        sub = df[grupos == g]
+        n, tinha = _levar_para_marca(repo, cfg, nomes[g], ini_arq, fim_arq, sub, arquivo)
+        if tinha:
+            df = df[grupos != g]
+            grupos = grupos[df.index]
+            avisar(f"    {len(sub)} anúncio(s) com a marca {nomes[g]} vieram na busca: {n} entraram no card de {nomes[g]} "
+                   f"({len(sub) - n} já estavam lá). Não contam duas vezes.")
     return df
 
 
 def encaminhar_outras_marcas(repo, cfg, marca, sid):
-    """02/10: para um card já importado (o de setembro da AL WATANIAH, 1008, entrou antes desta regra): manda os anúncios
-    "Outra marca" para o card da marca deles no mesmo período, se ele existe (o mesmo caminho de `_juntar_por_id`), e
-    regrava este card sem eles. Devolve {marcas: {marca: n}, saiu: n}."""
+    """02/10: para um card já importado (o de setembro da AL WATANIAH, 1008, entrou antes da regra 14): manda os anúncios
+    "Outra marca" para o card da marca deles (`_levar_para_marca`: mesmo período → o que falta; card mais antigo → esticado
+    pela diferença) e regrava este card sem eles. Devolve {marcas: {marca: n}, saiu: n}."""
     snaps = repo.snapshots()
     s = snaps[snaps["id"].astype(int) == int(sid)]
     if s.empty:
@@ -3153,33 +3337,18 @@ def encaminhar_outras_marcas(repo, cfg, marca, sid):
     if df.empty or "tipo" not in df.columns:
         return {"marcas": {}, "saiu": 0}
     outras = df[(df["tipo"].fillna("") == TIPO_OUTRA) & df["anuncio"].str.startswith("ID:")]
-    grupos = {_chave_grupo(x["marca"]): x for _, x in snaps[(snaps["inicio"].astype(str).str[:10] == ini)
-                                                            & (snaps["fim"].astype(str).str[:10] == fim)
-                                                            & (snaps["marca"] != marca)].iterrows()}
+    nomes = {}
+    for m in sorted(set(snaps["marca"]) | set(cfg)):
+        nomes.setdefault(_chave_grupo(m), m)
     feito, saiu = {}, set()
     for g, sub in outras.groupby(outras["marca_anuncio"].fillna("").map(_chave_grupo)):
-        sn = grupos.get(g)
-        if sn is None or g == _chave_grupo(marca):
+        if not g or g == _chave_grupo(marca) or g not in nomes:
             continue
-        antigo = _ids(repo.anuncios(sn["id"]))
-        novos = sub[~sub["anuncio"].isin(set(antigo["anuncio"]))] if not antigo.empty else sub
-        if novos.empty:
-            saiu |= set(sub["anuncio"])              # já está lá pelo ID: aqui era cópia
-            continue
-        base = antigo.drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in antigo.columns])
-        vai = novos.drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in novos.columns])
-        cols = list(base.columns) if not base.empty else list(vai.columns)
-        for c in cols:
-            if c not in vai.columns:
-                vai = vai.assign(**{c: None})
-        junto = pd.concat([base, vai[cols]], ignore_index=True) if not base.empty else vai[cols]
-        outra = sn["marca"]
-        if outra not in cfg:
-            garantir_config(cfg, outra, junto, repo)
-        junto = consolidar(junto, outra, cfg)
-        repo.gravar_snapshot(outra, ini, fim, int(sn["dias"]), sn["arquivo"], sn["hash"], junto)
-        feito[outra] = int(len(novos))
-        saiu |= set(sub["anuncio"])
+        sub = sub.drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in sub.columns])
+        n, tinha = _levar_para_marca(repo, cfg, nomes[g], ini, fim, sub, s["arquivo"])
+        if tinha:
+            feito[nomes[g]] = int(n)
+            saiu |= set(sub["anuncio"])
     if saiu:
         resto = df[~df["anuncio"].isin(saiu)].drop(columns=[c for c in ("rid", "snapshot_id", "id", "anuncio") if c in df.columns])
         repo.gravar_snapshot(marca, ini, fim, int(s["dias"]), s["arquivo"], s["hash"], resto)

@@ -420,7 +420,7 @@ def _explorador_login(pg):
 
 
 EXPLORADOR_CATEGORIA = "Beleza e Cuidado Pessoal"
-EXPLORADOR_MAX_EXPORT = 10000
+EXPLORADOR_MAX_EXPORT = 30000      # acima disso só avisa no log (o EXPORTAR do Nubimetrics não corta: 15.489 já entraram)
 
 # o ícone de filtros (⫶) fica na linha do EXPORTAR, à esquerda: o clicável mais à esquerda nessa altura
 JS_BOTAO_FILTROS = """() => {
@@ -546,9 +546,9 @@ def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, cat
         mres = re.search(r"de\s+([\d.]+)\s+resultados", texto, re.I)
         n_res = int(mres.group(1).replace(".", "")) if mres else None
         if n_res and n_res > EXPLORADOR_MAX_EXPORT:
-            enviar_foto(pg, f"explorador: {n_res} resultados", resumo_tela(pg))
-            raise Falha(f"{n_res} resultados: o EXPORTAR do Nubimetrics leva só {EXPLORADOR_MAX_EXPORT}; não importo pela metade "
-                        "(use o filtro de categoria) " + diagnostico(pg))
+            # 02/10 (Bruno: "já importei com mais de 10 mil"; silverscent.csv veio com 15.489): o EXPORTAR não corta;
+            # só avisa quando o arquivo vai ser grande
+            log(f"  explorador {marca}: {n_res} resultados (arquivo grande; exportando mesmo assim)")
         log(f"  explorador {marca}: período {per[0]} a {per[1]}" + (f", {n_res} resultados" if n_res is not None else "")
             + (" (pesquisa exata)" if exata else " (pesquisa expandida)"))
         devagar(2)
@@ -624,6 +624,28 @@ def coletar_explorador_marca(p, cfg, token, marca, exata=False, enviar=True, cat
             ctx.close()
         except Exception:  # noqa: BLE001 (o Chrome do Mac pode já ter fechado sozinho)
             pass
+
+
+def coletar_explorador_diario(p, cfg, token):
+    """02/10 (Bruno: "todo dia, só as marcas que eu vendo"): as marcas da lista diária que ainda não entraram hoje
+    (`explorador_diario_pendente`), uma por vez, cada uma no seu Chrome; falha de uma não derruba as outras."""
+    r = api(token, "explorador_diario_pendente", timeout=60)
+    marcas = r.get("marcas") or []
+    if not marcas:
+        return 0, 0, 0, f"Explorador diário: nada a fazer ({r.get('motivo') or 'todas já entraram hoje'})"
+    ok, erros = 0, []
+    for marca in marcas:
+        try:
+            coletar_explorador_marca(p, cfg, token, marca)
+            ok += 1
+        except Exception as e:  # noqa: BLE001
+            erros.append(f"{marca}: {str(e)[:120]}")
+            log(f"  explorador diário {marca}: falhou ({str(e)[:160]})")
+        devagar(5)
+    msg = f"Explorador diário: {ok} de {len(marcas)} marca(s) importada(s)" + (f"; falharam: {'; '.join(erros)}" if erros else "")
+    if erros and not ok:
+        raise Falha(msg)
+    return len(marcas), ok, len(erros), msg
 
 
 EXPLORADOR_URL = "/market/publicationsexplorer"
@@ -1901,7 +1923,7 @@ def executar(tarefa, func):
     """Roda uma coleta com registro no nubi e aviso no Mac em caso de erro."""
     if _outra_rodando():
         # 02/10: o Explorador e o rodízio também esperam a coleta (o Bruno rodava na mão e recebia "Já tem uma coleta")
-        if tarefa not in ("diario", "explorador_marca", "rodizio_seguidos"):
+        if tarefa not in ("diario", "explorador_marca", "explorador_diario", "rodizio_seguidos"):
             log("Já tem uma coleta rodando neste Mac. Espere ela terminar e rode de novo.")
             return 1
         log("Outra coleta está rodando: esperando ela terminar (pode deixar a janela aberta)…")
@@ -4114,7 +4136,7 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
                  "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos",
-                 "ml_busca_foto", "explorador_marca", "rodizio_seguidos")
+                 "ml_busca_foto", "explorador_marca", "explorador_diario", "rodizio_seguidos")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -4225,6 +4247,8 @@ def comando_mac(chave, arg=""):
         return [*c, "programar-astra", arg] if str(arg).isdigit() else None
     if chave == "ml_pagina":
         return [*c, "ml-pagina", arg] if ML_PAGINA_OK.match(str(arg or "")) else None
+    if chave == "explorador_diario":
+        return [*c, "explorador-diario"]
     if chave == "explorador_marca":                  # 02/10: arg = "MARCA" ou "MARCA|exata"
         marca, _, modo = str(arg or "").partition("|")
         if not EXPLORADOR_MARCA_OK.match(marca.strip()):
@@ -4606,6 +4630,10 @@ def cmd_vigiar():
         if not motivo and _na_hora(cfg, token, "gestor_pendente", "gestor_tentativas", por_hora=True):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Gestor Seller -> importando a planilha", flush=True)
             return _soltar("gestor")
+        # 02/10 (Bruno): Explorador das marcas que ele vende, todo dia a partir das 05:00 (regra 14: entra no card pela diferença)
+        if not motivo and not _outra_rodando() and _na_hora(cfg, token, "explorador_diario_pendente", "explorador_diario_tentativas"):
+            print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Explorador diário das marcas da lista", flush=True)
+            return _soltar("explorador-diario")
         # 01/10 (Bruno): vendas de hoje do UpSeller a cada ~10 min (só lê a tela; se o Chrome estiver ocupado, pula)
         if not motivo and not _outra_rodando() and _vendas_hoje_na_hora(token):
             print(f"{datetime.now():%d/%m %H:%M} vigia: lendo as vendas de hoje no UpSeller", flush=True)
@@ -8527,6 +8555,7 @@ def main():
     exm = sub.add_parser("explorador-marca", help="Nubimetrics: exporta o Explorador de anúncios de UMA marca e importa no nubi")
     exm.add_argument("marca")
     exm.add_argument("--exata", action="store_true", help="Pesquisa exata (padrão: expandida por IA)")
+    sub.add_parser("explorador-diario", help="Nubimetrics: Explorador das marcas da lista diária que ainda não entraram hoje")
     mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
     mlp.add_argument("url")
     fv = sub.add_parser("fotos-vendedores", help="Nubimetrics: fotos dos anúncios dos vendedores seguidos (para achar a loja no ML)")
@@ -8662,6 +8691,8 @@ def main():
         return executar("rodizio_seguidos", coletar_rodizio)
     if args.cmd == "explorador-marca":
         return executar("explorador_marca", lambda p, cfg, token: coletar_explorador_marca(p, cfg, token, args.marca, args.exata))
+    if args.cmd == "explorador-diario":
+        return executar("explorador_diario", coletar_explorador_diario)
     if args.cmd == "fotos-vendedores":
         return executar("vend_fotos", lambda p, cfg, token: coletar_fotos_vendedores(p, cfg, token, args.so))
     if args.cmd == "vitrine-seguidos":
