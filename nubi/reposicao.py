@@ -14,22 +14,45 @@ REGRAS (combinadas com o Bruno em 02/10, no doc "Estudo de estoque"):
    falta (Bruno: "Torino 21 ontem vendeu 3; se eu tenho estoque, vende"). Peso da venda com estoque = dias com estoque
    conhecidos ÷ 8 (até 1); o resto, a média do período.
 2. Nível máximo = venda base × (semana + prazo) + segurança; segurança = z × 1,3 × √(venda base × (semana + prazo)), z por
-   classe ABC (A 1,65 · B 1,28 · C 0,84). A segurança NÃO usa a variação diária (os dias zerados a inflam).
+   classe ABC (A 1,65 · B 1,0 · C 0,5: o dinheiro vai para a curva A; B e C saudáveis mas enxutas). A segurança NÃO usa a variação diária (os dias zerados a inflam).
 3. Campeões (classe A) com cobertura 20% maior (Bruno: "vou usar mais o Full, a venda vai ser maior").
 4. Quem teve estoque e mesmo assim vende em poucos dias: prateleira mínima (1 a 3 un.), não profundidade.
 5. Compra = nível máximo − disponível − em trânsito (nunca negativa). Classe C só se estiver zerada.
 6. Pedido em faixas para o caixa: 1 = campeões que acabam antes da próxima entrega; 2 = classe B que acaba antes;
    3 = campeões completando o nível; 4 = o resto. Dentro da faixa, quem fatura mais por dia primeiro.
-7. Full: os 10 que mais faturam vão com 3 semanas da venda do Mercado Livre + 20%; no galpão fica a reserva das outras lojas.
+7. Full: os 10 que mais faturam vão com 3 semanas da venda do Mercado Livre + 20%; no galpão fica a reserva das outras lojas
+   (Amazon, Shopee, TikTok) E uma parte do próprio Mercado Livre (padrão 30%): o ML pede para despachar do galpão quando o
+   frete daqui é mais rápido que o do Full.
+8. (02/10, Bruno: "não quero ser campeão vendendo com margem baixa; prefiro vender menos com margem saudável, 18–20% já
+   tirando o ADS") margem pós ADS do SKU (Curva ABC do Gestor Seller, `mpa_pct`): na meta ou acima = tratamento de campeão;
+   entre 10% e a meta = repõe sem o +20%; abaixo de 10% (ou prejuízo) = só a semana, sem segurança, fim da fila e aviso
+   "rever preço/custo". Dentro da faixa, a ordem é por LUCRO por dia (venda × preço × margem), não por faturamento.
+10. (02/10, Bruno: "anúncio que volta de ruptura ou é novo precisa vender umas 30–50 unidades com preço mais baixo para
+   ranquear; depois sobe o preço aos poucos; quando a venda cai, baixa um pouco; voltou a vender, sobe") RANQUEAMENTO:
+   voltou de ruptura (≥ 2 dias zerado e o estoque voltou) ou novo (só vendeu nos últimos 14 dias), ou marcado na mão =
+   ranqueando até vender `rank_un` (40) desde o início — automático só em curva A/B com 1+ venda/dia, e a compra para
+   ranquear vai no máximo a 3 semanas de venda; enquanto ranqueia a margem baixa não pesa e a compra garante o
+   que falta para completar. ALERTAS DE PREÇO todo dia: venda dos últimos 7 dias × as 2 semanas antes (só dias com
+   estoque): caiu ≥ 30% → baixar um pouco; subiu ≥ 30% com margem abaixo da meta → subir; ranqueou → subir aos poucos.
+9. O mercado do Explorador é só referência (fatia e preço do líder): a compra NUNCA sobe por causa do mercado (Bruno: "não
+   vou pegar o mercado inteiro de uma vez na primeira semana; compro a média que venho vendendo quando tenho estoque").
 """
 import math
 
 SEMANA = 7
 PRAZO = 5
 CAMPEAO = 1.2
-Z = {"A": 1.65, "B": 1.28, "C": 0.84}
+Z = {"A": 1.65, "B": 1.0, "C": 0.5}   # 02/10 (Bruno): B e C saudáveis, mas com menos dinheiro parado
+META_FAT = 2_000_000                  # R$/mês em todas as lojas (Bruno: 2 a 2,5 milhões com 18–20% líquido depois do ADS)
 DIAS_FULL = 21
 TOP_FULL = 10
+META_MARGEM = 18.0       # % de margem depois do ADS
+MARGEM_RUIM = 10.0
+ML_GALPAO = 0.3          # parte da venda do ML que sai do galpão (despacho próprio quando é mais rápido)
+RANK_UN = 40             # unidades para ranquear um anúncio que voltou ou é novo (Bruno: 30 a 50)
+QUEDA, ALTA = 0.7, 1.3   # venda dos últimos 7 dias ÷ as 2 semanas antes
+RANK_MIN_DIA = 1.0       # ranqueamento automático só para curva A/B que vende 1+/dia (perfume caro e lento não ranqueia por volume)
+RANK_MAX_DIAS = 21       # a compra para ranquear não passa de 3 semanas de venda
 
 
 def _chave(sku):
@@ -49,12 +72,52 @@ def classes_abc(fat):
     return out
 
 
-def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=None):
+def _taxa(k, ds, vendas_dia, estoque_dia, dias_est):
+    """Venda por dia de k nos dias `ds` em que tinha estoque (dia sem estoque conhecido conta como com estoque)."""
+    un, n = 0.0, 0
+    for d in ds:
+        v = (vendas_dia.get(d, {}).get(k) or {}).get("un") or 0
+        if d in estoque_dia:
+            i = dias_est.index(d)
+            ant = dias_est[i - 1] if i > 0 else d
+            if not ((estoque_dia.get(ant, {}).get(k) or 0) > 0 or (estoque_dia[d].get(k) or 0) > 0 or v > 0):
+                continue
+        un += v
+        n += 1
+    return (un / n if n else None), n
+
+
+def _ranqueando(k, dias, vendas_dia, estoque_dia, dias_est, inicio_manual=None):
+    """(desde, vendidos desde então, motivo) se o anúncio está em fase de ranqueamento; senão None."""
+    v = lambda d: (vendas_dia.get(d, {}).get(k) or {}).get("un") or 0
+    if inicio_manual:
+        return inicio_manual, sum(v(d) for d in dias if d >= inicio_manual), "marcado na mão"
+    zerado, desde = 0, None
+    for d in dias_est:                                   # voltou de ruptura: 2+ dias zerado e o estoque voltou
+        if (estoque_dia[d].get(k) or 0) <= 0:
+            zerado += 1
+        else:
+            if zerado >= 2:
+                desde = d
+            zerado = 0
+    if desde:
+        return desde, sum(v(d) for d in dias if d >= desde), "voltou de ruptura"
+    if len(dias) >= 21:                                   # novo: nada antes dos últimos 14 dias, venda depois
+        antes, depois = dias[:-14], dias[-14:]
+        if sum(v(d) for d in antes) == 0 and sum(v(d) for d in depois) > 0:
+            ini = next(d for d in depois if v(d) > 0)
+            return ini, sum(v(d) for d in depois), "anúncio novo"
+    return None
+
+
+def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=None, margens=None, ranque=None):
     """itens: [{sku, titulo, disponivel, transito, custo}] (estoque de hoje); estoque_dia: {dia: {chave: disponível}};
     vendas_dia: {dia: {chave: {un, valor, ml}}} (ml = unidades vendidas no Mercado Livre); cfg: prazo, semana, campeao,
-    caixa; mercado: {chave: {...}}; manuais: {chave: nota} (decide na mão, fora do pedido)."""
-    cfg = dict({"prazo": PRAZO, "semana": SEMANA, "campeao": CAMPEAO, "caixa": None}, **(cfg or {}))
-    mercado, manuais = mercado or {}, manuais or {}
+    caixa, meta_margem, ml_galpao; mercado: {chave: {...}}; manuais: {chave: nota} (decide na mão, fora do pedido);
+    margens: {chave: margem % depois do ADS}; ranque: {chave: AAAA-MM-DD} (início do ranqueamento marcado na mão)."""
+    cfg = dict({"prazo": PRAZO, "semana": SEMANA, "campeao": CAMPEAO, "caixa": None, "meta_margem": META_MARGEM,
+                "ml_galpao": ML_GALPAO, "rank_un": RANK_UN, "meta_fat": META_FAT}, **{k: v for k, v in (cfg or {}).items() if v is not None or k == "caixa"})
+    mercado, manuais, margens, ranque = mercado or {}, manuais or {}, margens or {}, ranque or {}
     dias = sorted(vendas_dia)
     n = len(dias) or 1
     T = cfg["semana"] + cfg["prazo"]
@@ -97,14 +160,29 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
         preco = t["valor"] / t["un"] if t["un"] else None
         ml_share = t["ml"] / t["un"] if t["un"] else 1.0
         intermit = t["un"] > 0 and t["dias_venda"] / n < 0.3 and dc_dias >= 5 and (dc or 0) < 0.5
+        mg = margens.get(k)
+        rk = (_ranqueando(k, dias, vendas_dia, estoque_dia, dias_est, ranque.get(k))
+              if k in ranque or (t["un"] > 0 and classe in ("A", "B") and base >= RANK_MIN_DIA) else None)
+        rank = None
+        if rk and rk[1] < cfg["rank_un"]:
+            rank = {"desde": rk[0], "vendidos": rk[1], "meta": cfg["rank_un"], "motivo": rk[2]}
+        margem = ("ruim" if mg is not None and mg < MARGEM_RUIM else "abaixo" if mg is not None and mg < cfg["meta_margem"]
+                  else "ok" if mg is not None else None)
         mx = 0
         if t["un"] > 0:
-            if intermit:
+            if rank:                                 # 10. ranqueando: margem baixa de propósito; garante o que falta vender
+                seg = Z.get(classe, Z["B"]) * 1.3 * math.sqrt(base * T)
+                falta = min(cfg["rank_un"] - rank["vendidos"], base * RANK_MAX_DIAS)    # no máximo 3 semanas de venda
+                mx = max(math.ceil(base * T + seg), math.ceil(falta))
+            elif margem == "ruim":                   # 8. margem ruim: só a semana, sem segurança
+                mx = math.ceil(base * cfg["semana"])
+            elif intermit:
                 mx = max(1, math.ceil(base * T)) + (1 if classe == "A" else 0)
             else:
-                seg = Z.get(classe, Z["C"]) * 1.3 * math.sqrt(base * T)
+                z = Z["B"] if classe == "A" and margem == "abaixo" else Z.get(classe, Z["C"])
+                seg = z * 1.3 * math.sqrt(base * T)
                 mx = base * T + seg
-                if classe == "A":
+                if classe == "A" and margem != "abaixo":
                     mx *= cfg["campeao"]
                 mx = math.ceil(mx)
         compra = max(0, math.ceil(mx - disp - trans)) if t["un"] > 0 else 0
@@ -115,6 +193,19 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
             motivo_fora, compra = manuais[k] or "decido na mão", 0
         cobertura = (disp + trans) / base if base else None
         m = mercado.get(k)
+        # 10. alertas de preço: últimos 7 dias × as 2 semanas antes (só dias com estoque)
+        alerta = None
+        if t["un"] > 0 and len(dias) >= 14 and classe in ("A", "B") and k not in manuais:
+            r7, n7 = _taxa(k, dias[-7:], vendas_dia, estoque_dia, dias_est)
+            ra, na = _taxa(k, dias[-21:-7], vendas_dia, estoque_dia, dias_est)
+            if rk and rk[1] >= cfg["rank_un"] and margem in ("ruim", "abaixo"):
+                alerta = {"tipo": "subir", "texto": f"ranqueou ({int(rk[1])} vendidos desde {rk[0][8:10]}/{rk[0][5:7]}): subir o preço aos poucos até a margem"}
+            elif r7 is not None and ra and n7 >= 3 and ra >= 0.5 and r7 <= ra * QUEDA and not rank:
+                alerta = {"tipo": "baixar", "texto": f"venda caiu de {ra:.1f} para {r7:.1f}/dia: baixar um pouco o preço"}
+            elif r7 is not None and ra and n7 >= 3 and ra >= 0.5 and r7 >= ra * ALTA and margem in ("ruim", "abaixo") and not rank:
+                alerta = {"tipo": "subir", "texto": f"venda subiu de {ra:.1f} para {r7:.1f}/dia com margem abaixo da meta: subir o preço"}
+            if alerta:
+                alerta.update({"r7": round(r7, 2) if r7 is not None else None, "antes": round(ra, 2) if ra else None})
         linhas.append({
             "sku": it.get("sku"), "chave": k, "titulo": it.get("titulo") or "", "classe": classe,
             "disponivel": disp, "transito": trans, "custo": custo, "preco": round(preco, 2) if preco else None,
@@ -122,6 +213,8 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
             "media_dia": round(md, 2), "dia_com_estoque": round(dc, 2) if dc is not None else None, "dias_com_estoque": dc_dias,
             "venda_base": round(base, 2), "ruptura_dias": ruptura, "intermitente": intermit,
             "fat_dia": round(base * preco, 2) if preco else 0.0, "ml_share": round(ml_share, 3),
+            "margem_pct": mg, "margem": margem, "ranqueando": rank, "alerta": alerta,
+            "lucro_dia": round(base * preco * (mg if mg is not None else cfg["meta_margem"]) / 100, 2) if preco else 0.0,
             "nivel_max": mx, "compra": compra, "compra_valor": round(compra * custo, 2) if custo and compra else 0.0,
             "sem_custo": compra > 0 and not custo, "cobertura_dias": round(cobertura, 1) if cobertura is not None else None,
             "manual": motivo_fora, "mercado": m,
@@ -133,9 +226,9 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
             l["faixa"] = None
             continue
         acaba = l["cobertura_dias"] is None or l["cobertura_dias"] < T
-        l["faixa"] = (1 if l["classe"] == "A" and acaba else 2 if l["classe"] == "B" and acaba
+        l["faixa"] = (1 if l["ranqueando"] and l["classe"] in ("A", "B") and acaba else 4 if l["margem"] == "ruim" else 1 if l["classe"] == "A" and acaba else 2 if l["classe"] == "B" and acaba
                       else 3 if l["classe"] == "A" else 4)
-    pedido = sorted([l for l in linhas if l["faixa"]], key=lambda l: (l["faixa"], -l["fat_dia"]))
+    pedido = sorted([l for l in linhas if l["faixa"]], key=lambda l: (l["faixa"], l["margem"] == "ruim", -l["lucro_dia"]))
     ac = 0.0
     caixa = cfg.get("caixa")
     for l in pedido:
@@ -144,7 +237,7 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
         l["cabe_no_caixa"] = caixa is None or ac <= caixa
     faixas = []
     for f, nome in ((1, "Campeões que acabam antes da próxima entrega"), (2, "Classe B que acaba antes da próxima entrega"),
-                    (3, "Campeões completando o nível"), (4, "O resto")):
+                    (3, "Campeões completando o nível"), (4, "O resto (e margem abaixo de 10%: só a semana)")):
         xs = [l for l in pedido if l["faixa"] == f]
         if xs:
             faixas.append({"faixa": f, "nome": nome, "skus": len(xs), "unidades": sum(l["compra"] for l in xs),
@@ -153,11 +246,12 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
     full = []
     for l in sorted([l for l in linhas if l["vendas_valor"] > 0], key=lambda l: -l["vendas_valor"])[:TOP_FULL]:
         ml_dia = l["venda_base"] * l["ml_share"]
-        alvo = math.ceil(ml_dia * cfg["campeao"] * DIAS_FULL)
-        reserva = math.ceil(l["venda_base"] * (1 - l["ml_share"]) * T)
+        alvo = math.ceil(ml_dia * (1 - cfg["ml_galpao"]) * cfg["campeao"] * DIAS_FULL)
+        reserva = math.ceil((l["venda_base"] * (1 - l["ml_share"]) + ml_dia * cfg["ml_galpao"]) * T)
         full.append({"sku": l["sku"], "titulo": l["titulo"], "ml_dia": round(ml_dia, 2), "full_alvo": alvo, "reserva": reserva,
                      "disponivel": l["disponivel"], "transito": l["transito"],
-                     "mandar_agora": int(min(alvo, max(0, l["disponivel"] - reserva))), "manual": l["manual"]})
+                     "mandar_agora": int(min(alvo, max(0, l["disponivel"] - reserva))), "manual": l["manual"],
+                     "margem_pct": l["margem_pct"], "margem": l["margem"]})
     a = [l for l in linhas if l["classe"] == "A"]
     resumo = {
         "dias_vendas": n, "de": dias[0] if dias else None, "ate": dias[-1] if dias else None,
@@ -165,9 +259,35 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
         "campeoes": len(a), "campeoes_zerados": sum(1 for l in a if l["disponivel"] + l["transito"] <= 0),
         "campeoes_ruptura": sum(1 for l in a if l["ruptura_dias"] > 0),
         "sem_custo": sum(1 for l in pedido if l["sem_custo"]), "caixa": caixa,
+        "margem_ruim": sum(1 for l in a if l["margem"] == "ruim"), "margem_abaixo": sum(1 for l in a if l["margem"] == "abaixo"),
+        "meta_margem": cfg["meta_margem"],
+        "ranqueando": sum(1 for l in linhas if l["ranqueando"]), "alertas": sum(1 for l in linhas if l["alerta"]),
         "cabe_no_caixa": round(sum(l["compra_valor"] for l in pedido if l["cabe_no_caixa"]), 2) if caixa else None,
     }
-    return {"cfg": cfg, "resumo": resumo, "faixas": faixas, "pedido": pedido, "full": full,
+    # 11. dinheiro parado por curva (custo em estoque) e o que passa do nível máximo
+    parado = []
+    for cl, nome in (("A", "Curva A"), ("B", "Curva B"), ("C", "Curva C"), ("-", "Sem venda no período")):
+        xs = [l for l in linhas if l["classe"] == cl and l["custo"]]
+        custo = sum(l["disponivel"] * l["custo"] for l in xs)
+        acima = sum(max(0.0, l["disponivel"] - l["nivel_max"]) * l["custo"] for l in xs)
+        venda_custo_dia = sum(l["venda_base"] * l["custo"] for l in xs)
+        parado.append({"classe": cl, "nome": nome, "skus": sum(1 for l in xs if l["disponivel"] > 0), "custo": round(custo, 2),
+                       "acima_do_nivel": round(acima, 2), "dias": round(custo / venda_custo_dia, 1) if venda_custo_dia else None})
+    for l in linhas:
+        l["acima_valor"] = round(max(0.0, l["disponivel"] - l["nivel_max"]) * l["custo"], 2) if l["custo"] else 0.0
+    sobras = sorted([l for l in linhas if l["acima_valor"] > 0 and not l["ranqueando"]], key=lambda l: -l["acima_valor"])
+    # 12. meta: faturamento do mês no ritmo atual e margem média depois do ADS (ponderada pelo faturamento)
+    fat_mes = sum(t["valor"] for t in tot.values()) / n * 30
+    com_mg = [(l["vendas_valor"], l["margem_pct"]) for l in linhas if l["margem_pct"] is not None and l["vendas_valor"] > 0]
+    mg_media = sum(v * m for v, m in com_mg) / sum(v for v, _ in com_mg) if com_mg else None
+    resumo.update({"fat_mes": round(fat_mes, 2), "meta_fat": cfg["meta_fat"], "margem_media": round(mg_media, 2) if mg_media is not None else None,
+                   "parado_total": round(sum(p["custo"] for p in parado), 2),
+                   "parado_bc": round(sum(p["custo"] for p in parado if p["classe"] != "A"), 2),
+                   "acima_do_nivel": round(sum(p["acima_do_nivel"] for p in parado), 2)})
+    precos = sorted([l for l in linhas if l["alerta"] or l["ranqueando"]],
+                    key=lambda l: (0 if l["alerta"] and l["alerta"]["tipo"] == "baixar" else 1 if l["alerta"] else 2, -l["fat_dia"]))
+    return {"cfg": cfg, "resumo": resumo, "faixas": faixas, "pedido": pedido, "full": full, "precos": precos,
+            "parado": parado, "sobras": sobras[:80],
             "campeoes": sorted(a, key=lambda l: -l["vendas_valor"]),
             "manuais": [l for l in linhas if l["manual"]]}
 

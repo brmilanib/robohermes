@@ -3481,51 +3481,78 @@ async function telaReposicao() {
   const rs = r.resumo, cfg = r.cfg, g = r.regras, dm = d => d ? d.slice(8, 10) + "/" + d.slice(5, 7) : "";
   const un = v => nf0.format(v || 0), num1 = v => v == null ? "—" : nf1.format(v);
   const merc = l => l.mercado ? `<b>${num1(l.mercado.un_dia)}</b>/dia <small class="muted">${l.mercado.preco_lider ? "líder " + FMT.moeda(l.mercado.preco_lider) : ""}</small>` : `<span class="muted">—</span>`;
-  const selos = l => [l.ruptura_dias ? `<span class="pill neg" title="dias zerados desde que o nubi guarda o estoque por dia">zerou ${l.ruptura_dias} d</span>` : "",
+  const mgSelo = l => l.margem_pct == null ? "" : `<span class="pill ${l.margem === "ruim" ? "neg" : l.margem === "abaixo" ? "warn-t" : "pos"}" title="margem depois do ADS (Curva ABC do Gestor Seller)${l.margem === "ruim" ? ": rever preço/custo — compra só a semana" : l.margem === "abaixo" ? ": abaixo da meta — repõe sem o +" + Math.round((g.campeao - 1) * 100) + "%" : ""}">margem ${nf1.format(l.margem_pct)}%</span>`;
+  const rkSelo = l => l.ranqueando ? `<span class="pill" title="${esc(l.ranqueando.motivo)} em ${dm(l.ranqueando.desde)}: margem baixa de propósito até vender ${l.ranqueando.meta}">🚀 ranqueando ${un(l.ranqueando.vendidos)}/${l.ranqueando.meta}</span>` : "";
+  const alSelo = l => l.alerta ? `<span class="pill ${l.alerta.tipo === "baixar" ? "warn-t" : "pos"}">${l.alerta.tipo === "baixar" ? "↓ baixar preço" : "↑ subir preço"}</span>` : "";
+  const selos = l => [rkSelo(l), alSelo(l), mgSelo(l), l.ruptura_dias ? `<span class="pill neg" title="dias zerados desde que o nubi guarda o estoque por dia">zerou ${l.ruptura_dias} d</span>` : "",
     l.intermitente ? `<span class="pill" title="teve estoque e vende em poucos dias: prateleira mínima">prateleira</span>` : "",
     l.sem_custo ? `<span class="pill warn-t" title="sem custo médio no UpSeller">sem custo</span>` : ""].join(" ");
   const vend = l => `${num1(l.media_dia)}${l.venda_base > l.media_dia + 0.05 ? ` → <b>${num1(l.venda_base)}</b>` : ""}`;
   const linhaPedido = l => `<tr class="${l.cabe_no_caixa ? "" : "rp-fora"}"><td class="ec-prod first"><b>${esc(l.sku)}</b> <span class="pill">${l.classe}</span> ${selos(l)}<div class="muted">${esc(l.titulo)}</div></td>
       <td class="num">${vend(l)}</td><td class="num">${merc(l)}</td><td class="num">${un(l.disponivel)}${l.transito ? ` <small class="muted">+${un(l.transito)}</small>` : ""}</td>
       <td class="num">${un(l.nivel_max)}</td><td class="num"><b>${un(l.compra)}</b></td><td class="num">${l.compra_valor ? FMT.moeda(l.compra_valor) : "—"}</td>
-      <td class="num muted">${FMT.moeda(l.acumulado)}</td><td><button class="btn small ghost" data-mao="${esc(l.sku)}" title="Tirar da conta e decidir na mão">✋</button></td></tr>`;
+      <td class="num muted">${FMT.moeda(l.acumulado)}</td><td style="white-space:nowrap"><button class="btn small ghost" data-rk="${esc(l.sku)}" data-on="${l.ranqueando && l.ranqueando.motivo === "marcado na mão" ? 1 : 0}" title="${l.ranqueando && l.ranqueando.motivo === "marcado na mão" ? "Parar de ranquear" : "Começar a ranquear hoje (margem baixa até vender " + cfg.rank_un + ")"}">🚀</button><button class="btn small ghost" data-mao="${esc(l.sku)}" title="Tirar da conta e decidir na mão">✋</button></td></tr>`;
   let corte = false;
   const pedido = r.faixas.map(f => `<tr class="rp-faixa"><td colspan="9" data-l=""><b>Faixa ${f.faixa}</b> · ${esc(f.nome)} · ${un(f.skus)} SKUs · ${un(f.unidades)} un. · <b>${FMT.moeda(f.valor)}</b> <span class="muted">(acumulado ${FMT.moeda(f.acumulado)})</span></td></tr>` +
     r.pedido.filter(l => l.faixa === f.faixa).map(l => { let sep = ""; if (!l.cabe_no_caixa && !corte) { corte = true; sep = `<tr class="rp-corte"><td colspan="9" data-l="">✂️ Aqui acaba o caixa de ${FMT.moeda(rs.caixa)}</td></tr>`; } return sep + linhaPedido(l); }).join("")).join("");
   const cab = `<thead><tr><th>Produto</th><th class="num" title="média do período → venda nos dias com estoque">Venda/dia</th><th class="num" title="o mercado inteiro do produto no Explorador">Mercado</th><th class="num">Tem (+trânsito)</th><th class="num">Nível máx.</th><th class="num">Comprar</th><th class="num">Custo</th><th class="num">Acumulado</th><th></th></tr></thead>`;
-  const full = `<p class="muted" style="margin:0 0 8px">Os ${g.top_full} que mais faturam vão para o Full com ${g.full_dias} dias da venda do Mercado Livre × ${nf1.format(g.campeao)}; no galpão fica a reserva das outras lojas para ${g.semana + g.prazo} dias.</p>
+  const full = `<p class="muted" style="margin:0 0 8px">Os ${g.top_full} que mais faturam vão para o Full com ${g.full_dias} dias de ${100 - Math.round(cfg.ml_galpao * 100)}% da venda do Mercado Livre × ${nf1.format(g.campeao)}; no galpão ficam ${g.semana + g.prazo} dias das outras lojas (Amazon, Shopee, TikTok) + ${Math.round(cfg.ml_galpao * 100)}% do Mercado Livre (o ML pede para despachar daqui quando é mais rápido).</p>
     <div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th>Produto</th><th class="num">Venda/dia no ML</th><th class="num">Vai para o Full</th><th class="num">Reserva no galpão</th><th class="num">Tem (+trânsito)</th><th class="num">Mandar agora</th></tr></thead><tbody>
-    ${r.full.map(f => `<tr><td class="ec-prod first"><b>${esc(f.sku)}</b>${f.manual ? ` <span class="pill">✋ ${esc(f.manual)}</span>` : ""}<div class="muted">${esc(f.titulo)}</div></td><td class="num">${num1(f.ml_dia)}</td><td class="num"><b>${un(f.full_alvo)}</b></td><td class="num">${un(f.reserva)}</td>
+    ${r.full.map(f => `<tr><td class="ec-prod first"><b>${esc(f.sku)}</b> ${mgSelo(f)}${f.manual ? ` <span class="pill">✋ ${esc(f.manual)}</span>` : ""}<div class="muted">${esc(f.titulo)}</div></td><td class="num">${num1(f.ml_dia)}</td><td class="num"><b>${un(f.full_alvo)}</b></td><td class="num">${un(f.reserva)}</td>
       <td class="num">${un(f.disponivel)}${f.transito ? ` <small class="muted">+${un(f.transito)}</small>` : ""}</td><td class="num"><b>${f.mandar_agora ? un(f.mandar_agora) : "quando chegar"}</b></td></tr>`).join("")}</tbody></table></div>`;
   const camp = `<div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th>Campeão</th><th class="num">Venda/dia</th><th class="num">Dura</th><th class="num">Mercado/dia</th><th class="num">Minha fatia</th><th class="num">Meu preço</th><th class="num">Preço do líder</th><th class="num">Menor preço</th></tr></thead><tbody>
     ${r.campeoes.map(l => `<tr><td class="ec-prod first"><b>${esc(l.sku)}</b> ${selos(l)}<div class="muted">${esc(l.titulo)}</div></td><td class="num">${vend(l)}</td>
       <td class="num ${l.cobertura_dias == null ? "" : l.cobertura_dias < g.semana + g.prazo ? "neg" : "pos"}">${l.cobertura_dias == null ? "—" : un(l.cobertura_dias) + " d"}</td>
       <td class="num">${l.mercado ? num1(l.mercado.un_dia) : "—"}</td><td class="num">${l.share_mercado != null ? Math.round(l.share_mercado * 100) + "%" : "—"}</td>
       <td class="num">${l.preco ? FMT.moeda(l.preco) : "—"}</td><td class="num">${l.mercado && l.mercado.preco_lider ? FMT.moeda(l.mercado.preco_lider) : "—"}</td><td class="num">${l.mercado && l.mercado.preco_min ? FMT.moeda(l.mercado.preco_min) : "—"}</td></tr>`).join("")}</tbody></table></div>`;
+  const precos = r.precos.length ? `<p class="muted" style="margin:0 0 8px">Todo dia: a venda dos últimos 7 dias contra as 2 semanas antes, só nos dias com estoque. Caiu ${Math.round((1 - 0.7) * 100)}% ou mais → baixar um pouco o preço; subiu com margem abaixo de ${nf0.format(rs.meta_margem)}% → subir. Anúncio que voltou de ruptura ou é novo fica em 🚀 ranqueamento até vender ${cfg.rank_un}: a margem baixa é de propósito.</p>
+    <div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th>Produto</th><th>O que fazer</th><th class="num">Venda/dia</th><th class="num">Margem pós ADS</th><th class="num">Meu preço</th><th class="num">Preço do líder</th><th class="num">Tem</th><th></th></tr></thead><tbody>
+    ${r.precos.map(l => `<tr><td class="ec-prod first"><b>${esc(l.sku)}</b> ${rkSelo(l)}<div class="muted">${esc(l.titulo)}</div></td>
+      <td class="${l.alerta && l.alerta.tipo === "baixar" ? "warn-t" : l.alerta ? "pos" : ""}" style="white-space:normal">${l.alerta ? esc(l.alerta.texto) : l.ranqueando ? `segurar o preço até vender ${l.ranqueando.meta} (${un(l.ranqueando.vendidos)} desde ${dm(l.ranqueando.desde)})` : ""}</td>
+      <td class="num">${vend(l)}</td><td class="num">${l.margem_pct == null ? "—" : nf1.format(l.margem_pct) + "%"}</td><td class="num">${l.preco ? FMT.moeda(l.preco) : "—"}</td>
+      <td class="num">${l.mercado && l.mercado.preco_lider ? FMT.moeda(l.mercado.preco_lider) : "—"}</td><td class="num">${un(l.disponivel)}</td>
+      <td><button class="btn small ghost" data-rk="${esc(l.sku)}" data-on="${l.ranqueando && l.ranqueando.motivo === "marcado na mão" ? 1 : 0}">🚀</button></td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="muted">Nenhum alerta de preço hoje.</p>`;
+  const parado = `<div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th>Curva</th><th class="num">SKUs com estoque</th><th class="num">Dinheiro parado (custo)</th><th class="num">Dura</th><th class="num">Acima do nível</th></tr></thead><tbody>
+    ${r.parado.map(p => `<tr><td class="first"><b>${esc(p.nome)}</b></td><td class="num">${un(p.skus)}</td><td class="num">${FMT.moeda(p.custo)}</td><td class="num">${p.dias == null ? "—" : un(p.dias) + " d"}</td><td class="num"><b>${FMT.moeda(p.acima_do_nivel)}</b></td></tr>`).join("")}</tbody></table></div>
+    <h3 style="margin:14px 0 6px">Mais dinheiro acima do nível <span class="muted" style="font-weight:400;font-size:13px">parar de comprar até baixar; o que não anda, promoção, kit ou Bazar</span></h3>
+    <div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th>Produto</th><th class="num">Tem</th><th class="num">Nível máx.</th><th class="num">Venda/dia</th><th class="num">Acima do nível</th></tr></thead><tbody>
+    ${r.sobras.map(l => `<tr><td class="ec-prod first"><b>${esc(l.sku)}</b> <span class="pill">${l.classe === "-" ? "sem venda" : l.classe}</span> ${mgSelo(l)}<div class="muted">${esc(l.titulo)}</div></td><td class="num">${un(l.disponivel)}</td><td class="num">${un(l.nivel_max)}</td><td class="num">${vend(l)}</td><td class="num"><b>${FMT.moeda(l.acima_valor)}</b></td></tr>`).join("")}</tbody></table></div>`;
   const mao = r.manuais.length ? `<div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th>Produto</th><th>Por quê</th><th class="num">Tem</th><th class="num">Venda/dia</th><th></th></tr></thead><tbody>
     ${r.manuais.map(l => `<tr><td class="ec-prod first"><b>${esc(l.sku)}</b><div class="muted">${esc(l.titulo)}</div></td><td>${esc(l.manual)}</td><td class="num">${un(l.disponivel)}</td><td class="num">${vend(l)}</td>
       <td><button class="btn small ghost" data-volta="${esc(l.sku)}">↩ voltar para a conta</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">Nenhum SKU decidido na mão. Use o ✋ na linha do pedido.</p>`;
   main.innerHTML = `<div class="es-pg">${esAbas("reposicao")}
     <div class="es-cab"><h1>🔁 Reposição</h1><span class="muted">vendas de ${dm(rs.de)} a ${dm(rs.ate)} (${rs.dias_vendas} dias) · estoque dia a dia em ${rs.dias_estoque} dias · mercado do Explorador ${r.mercado_em ? "de " + dm(r.mercado_em) : "ainda não calculado"}</span></div>
     <div class="kpis">
+      ${kpi("Faturamento do mês (ritmo)", FMT.moeda(rs.fat_mes), `meta ${FMT.moeda(rs.meta_fat)} · ${rs.meta_fat ? Math.round(rs.fat_mes / rs.meta_fat * 100) : 0}% · todas as lojas do UpSeller`)}
+      ${kpi("Margem média pós ADS", rs.margem_media == null ? "—" : `<span class="${rs.margem_media < rs.meta_margem ? "neg" : "pos"}">${nf1.format(rs.margem_media)}%</span>`, `meta ${nf0.format(rs.meta_margem)}% · ponderada pelo faturamento`)}
+      ${kpi("Dinheiro parado em B, C e sem venda", FMT.moeda(rs.parado_bc), `${FMT.moeda(rs.acima_do_nivel)} acima do nível em todas as curvas`)}
       ${kpi("Pedido completo", FMT.moeda(rs.pedido_valor), `${un(rs.pedido_skus)} SKUs até o nível máximo`)}
       ${rs.caixa ? kpi("Cabe no caixa", FMT.moeda(rs.cabe_no_caixa), "de " + FMT.moeda(rs.caixa)) : ""}
       ${kpi("Campeões zerados", `<span class="${rs.campeoes_zerados ? "neg" : ""}">${un(rs.campeoes_zerados)}</span> de ${un(rs.campeoes)}`, "sem estoque nem trânsito")}
       ${kpi("Campeões que zeraram", un(rs.campeoes_ruptura), "ao menos 1 dia sem estoque")}
+      ${kpi("Campeões com margem baixa", `<span class="${rs.margem_ruim ? "neg" : ""}">${un(rs.margem_ruim)}</span> abaixo de 10%`, `${un(rs.margem_abaixo)} entre 10% e a meta de ${nf0.format(rs.meta_margem)}%`)}
     </div>
     <div class="card pad rp-cfg" style="margin-bottom:12px;display:flex;gap:10px 14px;flex-wrap:wrap;align-items:center;font-size:13px">
       <label>Prazo de entrega <input type="number" id="rp-prazo" value="${cfg.prazo}" min="1" max="60" style="width:52px"> dias</label>
       <label>Campeões <input type="number" id="rp-camp" value="${Math.round((cfg.campeao - 1) * 100)}" min="0" max="200" step="5" style="width:56px"> % a mais</label>
+      <label>Meta de margem pós ADS <input type="number" id="rp-meta" value="${cfg.meta_margem}" min="0" max="80" step="1" style="width:52px"> %</label>
+      <label>Do ML que sai do galpão <input type="number" id="rp-mlg" value="${Math.round(cfg.ml_galpao * 100)}" min="0" max="100" step="5" style="width:52px"> %</label>
+      <label>Meta de faturamento/mês R$ <input type="number" id="rp-metafat" value="${cfg.meta_fat}" min="0" step="100000" style="width:110px"></label>
       <label>Caixa para o pedido R$ <input type="number" id="rp-caixa" value="${cfg.caixa || ""}" min="0" step="1000" placeholder="sem limite" style="width:110px"></label>
       <button class="btn small" id="rp-merc">🔄 Atualizar mercado</button>
-      <span class="muted">compra para ${g.semana} dias + ${g.prazo} de prazo · venda medida nos dias com estoque</span></div>
-    <div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${[["pedido", "🛒 Pedido"], ["full", "🚚 Full (top " + g.top_full + ")"], ["campeoes", "🏆 Campeões"], ["mao", "✋ Na mão (" + r.manuais.length + ")"]].map(([k, t]) => `<button data-rpa="${k}" class="${aba === k ? "on" : ""}">${t}</button>`).join("")}</div>
+      <span class="muted">compra para ${g.semana} dias + ${g.prazo} de prazo · venda medida nos dias com estoque · o mercado é só referência, nunca aumenta a compra · ordem por lucro/dia${r.margens_de ? ` · margens do Gestor de ${dm(r.margens_de.inicio)} a ${dm(r.margens_de.fim)}` : " · sem Curva ABC do Gestor: margem não entra"}</span></div>
+    <div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${[["pedido", "🛒 Pedido"], ["precos", "📣 Preço (" + r.precos.length + ")"], ["full", "🚚 Full (top " + g.top_full + ")"], ["campeoes", "🏆 Campeões"], ["parado", "💰 Dinheiro parado"], ["mao", "✋ Na mão (" + r.manuais.length + ")"]].map(([k, t]) => `<button data-rpa="${k}" class="${aba === k ? "on" : ""}">${t}</button>`).join("")}</div>
     <div class="card pad">${aba === "pedido" ? (r.pedido.length ? `<div class="rolar"><table class="t rp-t" style="font-size:13px">${cab}<tbody>${pedido}</tbody></table></div>` : `<p class="muted">Nada a comprar.</p>`)
-      : aba === "full" ? full : aba === "campeoes" ? camp : mao}</div></div>`;
+      : aba === "precos" ? precos : aba === "parado" ? parado : aba === "full" ? full : aba === "campeoes" ? camp : mao}</div></div>`;
   main.querySelectorAll("[data-rpa]").forEach(b => b.onclick = () => { S.rpAba = b.dataset.rpa; telaReposicao(); });
   const salvar = async corpo => { try { await api("estoque_reposicao_config", {}, {method: "POST", body: JSON.stringify(corpo)}); telaReposicao(); } catch (e) { toast(e.message); } };
   $("#rp-prazo").onchange = e => salvar({prazo: parseInt(e.target.value) || 5});
   $("#rp-camp").onchange = e => salvar({campeao: 1 + (parseFloat(e.target.value) || 0) / 100});
+  $("#rp-meta").onchange = e => salvar({meta_margem: parseFloat(e.target.value) || 0});
+  $("#rp-mlg").onchange = e => salvar({ml_galpao: (parseFloat(e.target.value) || 0) / 100});
+  $("#rp-metafat").onchange = e => salvar({meta_fat: parseFloat(e.target.value) || 0});
+  main.querySelectorAll("[data-rk]").forEach(b => b.onclick = () => salvar({ranque: {sku: b.dataset.rk, desde: b.dataset.on === "1" ? "" : new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10)}}));
   $("#rp-caixa").onchange = e => salvar({caixa: parseFloat(e.target.value) || null});
   $("#rp-merc").onclick = async ev => { ev.target.disabled = true; ev.target.textContent = "Lendo o Explorador…";
     try { const x = await api("estoque_reposicao_mercado", {}, {method: "POST", body: "{}"}); toast(`Mercado de ${x.casados} campeões atualizado`); telaReposicao(); }

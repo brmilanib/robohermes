@@ -65,9 +65,29 @@ def test_faixas_caixa_manual_e_full():
     r2 = reposicao.calcular(itens, est, vendas, {}, manuais={"ZERADO": "anúncio voltando"})
     assert all(l["sku"] != "ZERADO" for l in r2["pedido"]) and r2["manuais"][0]["manual"] == "anúncio voltando"
     f = {x["sku"]: x for x in r["full"]}
-    # MEIO vende metade no ML: Full = 1/dia × 1,0 (classe B não muda o Full: campeao vale para o Full dos top) × 1,2 × 21
-    assert f["CAMPEAO"]["full_alvo"] == 252 and f["CAMPEAO"]["mandar_agora"] == 30, f["CAMPEAO"]
-    assert f["MEIO"]["reserva"] == 12 and f["MEIO"]["mandar_agora"] == 0, f["MEIO"]
+    # Full = venda do ML × 70% (30% do ML sai do galpão) × 1,2 × 21 dias; galpão = outras lojas + 30% do ML, por 12 dias
+    assert f["CAMPEAO"]["full_alvo"] == 177 and f["CAMPEAO"]["reserva"] == 36 and f["CAMPEAO"]["mandar_agora"] == 0, f["CAMPEAO"]
+    assert f["MEIO"]["full_alvo"] == 18 and f["MEIO"]["reserva"] == 16 and f["MEIO"]["mandar_agora"] == 0, f["MEIO"]
+    itens[0]["disponivel"] = 100
+    f2 = {x["sku"]: x for x in reposicao.calcular(itens, est, vendas)["full"]}
+    assert f2["CAMPEAO"]["mandar_agora"] == 64                        # 100 − 36 que ficam no galpão
+
+
+def test_margem_pos_ads():
+    """02/10 (Bruno: "prefiro vender menos com margem saudável, 18–20% já tirando o ADS")."""
+    itens, est, vendas = _dados()
+    base = {l["sku"]: l for l in reposicao.calcular(itens, est, vendas)["pedido"]}
+    r = reposicao.calcular(itens, est, vendas, margens={"CAMPEAO": 3.8, "ZERADO": 20.7, "MEIO": 14.0})
+    por = {l["sku"]: l for l in r["pedido"]}
+    c = por["CAMPEAO"]
+    assert c["margem"] == "ruim" and c["faixa"] == 4 and c["nivel_max"] == 70 and c["compra"] == 40, c   # só a semana: 10 × 7
+    assert por["ZERADO"]["margem"] == "ok" and por["ZERADO"]["nivel_max"] == base["ZERADO"]["nivel_max"]
+    assert r["pedido"][0]["sku"] == "ZERADO" and r["pedido"][-1]["sku"] == "CAMPEAO"              # lucro primeiro, margem ruim no fim
+    assert r["resumo"]["margem_ruim"] == 1 and r["resumo"]["meta_margem"] == 18.0
+    # entre 10% e a meta: campeão sem o +20% e com a segurança da classe B
+    r3 = reposicao.calcular(itens, est, vendas, margens={"CAMPEAO": 15.0})
+    c3 = next(l for l in r3["pedido"] if l["sku"] == "CAMPEAO")
+    assert c3["margem"] == "abaixo" and c3["nivel_max"] == 135, c3                               # 120 + 1,0 × 1,3 × √120 = 134,2 → 135
 
 
 def test_mercado_do_produto():
@@ -80,9 +100,60 @@ def test_mercado_do_produto():
     assert reposicao.mercado_do_produto("x", ans, 20, lambda t, xs: []) is None
 
 
+def test_ranqueamento_e_alertas_de_preco():
+    """02/10 (Bruno: "voltou de ruptura ou é novo: vende 30–50 unidades com margem baixa para ranquear; caiu a venda, baixa um
+    pouco o preço; voltou a vender, sobe")."""
+    itens, est, vendas = _dados()
+    r = reposicao.calcular(itens, est, vendas, margens={"ZERADO": 5.0})
+    z = next(l for l in r["pedido"] if l["sku"] == "ZERADO")
+    # ficou 5 dias zerado e voltou em 29/09: ranqueando com 9 vendidos de 40; margem baixa não manda para o fim da fila
+    assert z["ranqueando"] == {"desde": "2026-09-29", "vendidos": 9, "meta": 40, "motivo": "voltou de ruptura"}, z["ranqueando"]
+    assert z["faixa"] == 1 and z["nivel_max"] == 29, z               # faltam 31, limitado a 3 semanas: 1,35 × 21 = 28,4 → 29
+    assert any(l["sku"] == "ZERADO" for l in r["precos"])
+    # marcado na mão
+    r = reposicao.calcular(itens, est, vendas, ranque={"MEIO": "2026-09-25"})
+    m = next(l for l in r["pedido"] + r["precos"] if l["sku"] == "MEIO")
+    assert m["ranqueando"]["motivo"] == "marcado na mão" and m["ranqueando"]["vendidos"] == 14, m["ranqueando"]
+    # venda caindo: CAMPEAO vendia 10/dia e na última semana 4/dia (com estoque) → baixar um pouco o preço
+    for d in list(vendas)[-7:]:
+        vendas[d]["CAMPEAO"] = {"un": 4, "valor": 400.0, "ml": 4}
+    r = reposicao.calcular(itens, est, vendas)
+    c = next(l for l in r["precos"] if l["sku"] == "CAMPEAO")
+    assert c["alerta"]["tipo"] == "baixar" and c["alerta"]["r7"] == 4 and c["alerta"]["antes"] == 10, c["alerta"]
+    assert r["precos"][0]["sku"] == "CAMPEAO"                          # baixar o preço vem primeiro
+    # venda subindo com margem abaixo da meta → subir o preço
+    for d in list(vendas)[-7:]:
+        vendas[d]["CAMPEAO"] = {"un": 15, "valor": 1500.0, "ml": 15}
+    r = reposicao.calcular(itens, est, vendas, margens={"CAMPEAO": 12.0})
+    c = next(l for l in r["precos"] if l["sku"] == "CAMPEAO")
+    assert c["alerta"]["tipo"] == "subir", c["alerta"]
+    # com margem na meta, subir a venda não gera alerta
+    r = reposicao.calcular(itens, est, vendas, margens={"CAMPEAO": 22.0})
+    assert not any(l["sku"] == "CAMPEAO" for l in r["precos"])
+
+
+def test_dinheiro_parado_e_meta():
+    """02/10 (Bruno: "muito dinheiro parado em B e C; quero B e C saudáveis mas com menos; meta 2 a 2,5 milhões com 18–20%")."""
+    itens, est, vendas = _dados()
+    itens[2]["disponivel"] = 300                                       # LENTO (curva C): 300 un. × R$ 20 = R$ 6.000 parados
+    r = reposicao.calcular(itens, est, vendas, margens={"CAMPEAO": 20.0, "MEIO": 10.0})
+    p = {x["classe"]: x for x in r["parado"]}
+    assert p["C"]["custo"] == 6000 and p["C"]["acima_do_nivel"] == 5940, p["C"]                # nível da prateleira: 3 un.
+    assert r["sobras"][0]["sku"] == "LENTO" and r["sobras"][0]["acima_valor"] == 5940
+    rs = r["resumo"]
+    assert rs["parado_bc"] >= 6000 and rs["meta_fat"] == 2_000_000
+    # faturamento de 25 dias levado a 30; margem média ponderada pelo faturamento dos que têm margem
+    tot = sum(sum(v["valor"] for v in d.values()) for d in vendas.values())
+    assert rs["fat_mes"] == round(tot / 25 * 30, 2)
+    assert rs["margem_media"] == round((25000 * 20 + 5000 * 10) / 30000, 2), rs["margem_media"]
+
+
 if __name__ == "__main__":
     test_venda_nos_dias_com_estoque()
     test_prateleira_minima_e_classe_c()
     test_faixas_caixa_manual_e_full()
     test_mercado_do_produto()
+    test_margem_pos_ads()
+    test_ranqueamento_e_alertas_de_preco()
+    test_dinheiro_parado_e_meta()
     print("ok reposição")

@@ -142,7 +142,7 @@ try:
                 # 02/10 (Bruno): Estoque → 🔁 Reposição abre, troca de aba, guarda o caixa e lê o mercado sem erro
                 pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/reposicao"); pg.wait_for_selector("#rp-prazo", timeout=20000)
                 assert "Reposição" in pg.inner_text(".es-cab") and "Pedido completo" in pg.inner_text(".kpis")
-                for a in ("full", "campeoes", "mao", "pedido"):
+                for a in ("precos", "full", "campeoes", "parado", "mao", "pedido"):
                     pg.click(f"[data-rpa='{a}']"); pg.wait_for_selector(f"[data-rpa='{a}'].on", timeout=15000)
                 pg.fill("#rp-caixa", "50000"); pg.dispatch_event("#rp-caixa", "change")
                 pg.wait_for_function("() => document.querySelector('.kpis') && document.querySelector('.kpis').innerText.includes('Cabe no caixa')", timeout=15000)

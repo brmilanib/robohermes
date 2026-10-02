@@ -5635,6 +5635,12 @@ def reposicao_config_salvar(repo, d):
             cfg["prazo"] = max(1, min(60, int(d["prazo"])))
         if d.get("campeao") is not None:
             cfg["campeao"] = max(1.0, min(3.0, float(d["campeao"])))
+        if d.get("meta_margem") is not None:
+            cfg["meta_margem"] = max(0.0, min(80.0, float(d["meta_margem"])))
+        if d.get("ml_galpao") is not None:
+            cfg["ml_galpao"] = max(0.0, min(1.0, float(d["ml_galpao"])))
+        if d.get("meta_fat") is not None:
+            cfg["meta_fat"] = max(0.0, float(d["meta_fat"]))
         if "caixa" in d:
             cfg["caixa"] = max(0.0, float(d["caixa"])) if d["caixa"] not in (None, "", 0) else None
     except (TypeError, ValueError):
@@ -5647,6 +5653,14 @@ def reposicao_config_salvar(repo, d):
             man[k] = {"sku": m.get("sku"), "nota": str(m["nota"])[:200], "em": _agora_br().date().isoformat()}
         else:
             man.pop(k, None)
+    if d.get("ranque"):                       # 02/10: marcar/desmarcar o início do ranqueamento de um SKU na mão
+        m = d["ranque"]
+        k = estoque._chave(m.get("sku") or "")
+        rq = cfg.setdefault("ranque", {})
+        if m.get("desde"):
+            rq[k] = str(m["desde"])[:10]
+        else:
+            rq.pop(k, None)
     _ia_gravar(repo, REPOSICAO_CFG, cfg, "Bruno")
     return {"ok": True, "cfg": cfg}
 
@@ -5705,11 +5719,19 @@ def reposicao_painel(repo, caixa=None):
         return {"vazio": True}
     cfg, _ = _ia_json(repo, REPOSICAO_CFG)
     merc, merc_em = _ia_json(repo, REPOSICAO_MERCADO)
-    c = {k: cfg[k] for k in ("prazo", "campeao", "caixa") if cfg.get(k) is not None}
+    c = {k: cfg[k] for k in ("prazo", "campeao", "caixa", "meta_margem", "ml_galpao", "meta_fat") if cfg.get(k) is not None}
     if caixa is not None:
         c["caixa"] = caixa or None
     manuais = {k: (v or {}).get("nota") for k, v in (cfg.get("manuais") or {}).items()}
-    r = reposicao.calcular(dd["itens"], dd["estoque_dia"], dd["vendas_dia"], c, (merc or {}).get("itens") or {}, manuais)
+    # 02/10 (Bruno: "margem saudável, 18–20% já tirando o ADS"): margem pós ADS por SKU da Curva ABC do Gestor Seller
+    abc = _vendas_atuais(repo, GESTOR_ABC_CHAVE) or {}
+    margens = {}
+    for l in abc.get("linhas") or []:
+        if l.get("sku") and l.get("mpa_pct") is not None:
+            margens[estoque._chave(l["sku"])] = float(l["mpa_pct"])
+    r = reposicao.calcular(dd["itens"], dd["estoque_dia"], dd["vendas_dia"], c, (merc or {}).get("itens") or {}, manuais, margens,
+                           cfg.get("ranque") or {})
+    r["margens_de"] = {"inicio": abc.get("inicio"), "fim": abc.get("fim")} if margens else None
     r.update({"estoque_em": dd["estoque_em"], "mercado_em": (merc or {}).get("dia"), "paradas": dd["paradas"],
               "regras": {"semana": r["cfg"]["semana"], "prazo": r["cfg"]["prazo"], "campeao": r["cfg"]["campeao"],
                          "full_dias": reposicao.DIAS_FULL, "top_full": reposicao.TOP_FULL}})

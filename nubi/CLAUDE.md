@@ -404,6 +404,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   decididos na mão com nota); mercado do Explorador dos 40 que mais faturam em `reposicao|mercado` (1 vez por dia no cron
   das rotinas, ou o botão): título do SKU casado (`_casar_varios`, mesmo volume/tipo) com os anúncios do card mais
   recente da marca. Marcas paradas ficam fora. Teste `test_reposicao.py` + passo de tela em `test_estoque_categorias.py`.
+  Margem (02/10, Bruno: "não quero ser campeão com margem baixa; 18–20% líquido depois do ADS; meta R$ 2–2,5 mi/mês"):
+  margem pós ADS por SKU da Curva ABC do Gestor (`gestor_abc|atual`, `mpa_pct`) — < 10% só a semana e fim da fila; abaixo
+  da meta sem o +20%; ordem por lucro/dia. B e C mais enxutas (z 1,0 / 0,5). Full deixa no galpão as outras lojas + 30%
+  do ML (o ML pede despacho do galpão quando é mais rápido). Ranqueamento (anúncio que voltou de ruptura ou é novo, só
+  curva A/B com 1+/dia, ou 🚀 na mão): margem baixa de propósito até vender 40, compra até 3 semanas. Alertas de preço
+  diários (7 dias × 2 semanas antes, só dias com estoque): caiu 30% → baixar; subiu com margem baixa → subir; ranqueou →
+  subir. Abas 📣 Preço e 💰 Dinheiro parado; meta de faturamento no topo. O mercado nunca aumenta a compra.
+  Barbours marcada como parada (02/10, Bruno: "parei de vender, vou zerar e devolver parte").
   Loja física (02/10): Carolina Herrera, Paco Rabanne, Jean Paul Gaultier, Giorgio Armani só na loja física por enquanto
   (licença); o estoque é o mesmo — ainda não separado na conta.
 - **Ranking de marcas ≠ Explorador (02/10, Bruno: "ranking só traz os totais do mês fechado, importa uma vez por mês")**: no
