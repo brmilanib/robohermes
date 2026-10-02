@@ -5833,7 +5833,9 @@ def reposicao_mercado(repo, n=REPOSICAO_TOP_MERCADO):
         sn = snaps.get(nubi.compacta(dd["marca_de"].get(k) or ""))
         g = gtin_de.get(nubi.compacta(it["sku"]))
         gs = {x for x in ((cad.get(k) or {}).get("gtin"), g[0] if g else None) if x}    # todos os GTINs do SKU
-        if not sn and g and g[1] in snap_id:          # marca do estoque sem card: o card mais novo da marca onde está o meu anúncio
+        # o card onde está o MEU anúncio vence o nome da marca do estoque (02/10: "Ferrari Black" achava o card "FERRARI BLACK",
+        # de outro vendedor, e o Ferrari ficou sem mercado; o meu anúncio está no card "FERRARI")
+        if g and g[1] in snap_id:                     # o card mais novo da marca onde está o meu anúncio
             achado = snap_id[g[1]]
             sn = snaps.get(nubi.compacta(achado["marca"])) or achado
         if sn and sn["id"] not in cache:
