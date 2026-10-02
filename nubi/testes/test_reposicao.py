@@ -179,6 +179,7 @@ def test_mercado_pelo_gtin():
            {"produto": "Lattafa Yara EDP 100 ml", "gtin": "6290360591421", "un": 90, "fat": 17_000, "preco": 190, "vendedor": "D"}]
     m = reposicao.mercado_por_gtin("6290362346531", ans, 30)          # Yara Elixir
     assert m["un_dia"] == 30.0 and m["anuncios"] == 2 and m["preco_lider"] == 220 and m["gtin"] == "6290362346531", m
+    assert m["preco_top5"] == round((132_000 + 69_000) / 900, 2) and m["top5_vendedores"] == 2, m      # média dos 5 que mais vendem
     assert reposicao.mercado_por_gtin("6290360591421", ans, 30)["un_dia"] == 3.0                 # Yara Moi
     assert reposicao.mercado_por_gtin("", ans, 30) is None and reposicao.mercado_por_gtin("123", ans, 30) is None
     # o mesmo perfume com mais de um GTIN (Ferrari: 13/dia pelo meu GTIN, 36/dia pelo nome) → vale o nome

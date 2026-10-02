@@ -464,13 +464,25 @@ def _mercado_um_gtin(gtin, anuncios, dias):
     return r
 
 
+def _top5(com):
+    """02/10 (Bruno: "o preço médio dos cinco primeiros colocados"): por vendedor, os 5 que mais venderam, preço = fat ÷ un."""
+    pv = {}
+    for a in com:
+        v = pv.setdefault(a.get("vendedor") or "?", [0.0, 0.0])
+        v[0] += float(a.get("un") or 0)
+        v[1] += float(a.get("fat") or 0) or float(a.get("un") or 0) * float(a["preco"])
+    top5 = sorted(pv.values(), key=lambda v: -v[0])[:5]
+    u5 = sum(v[0] for v in top5)
+    return {"preco_top5": round(sum(v[1] for v in top5) / u5, 2) if u5 else None, "top5_vendedores": len(top5)}
+
+
 def _agrega(xs, dias, nome):
     un = sum(float(a.get("un") or 0) for a in xs)
     precos = sorted(float(a["preco"]) for a in xs if a.get("preco"))
     mediana = precos[len(precos) // 2] if precos else None
     com = [a for a in xs if float(a.get("un") or 0) > 0 and a.get("preco") and (not mediana or float(a["preco"]) >= mediana / 2)]
     lider = max(com, key=lambda a: float(a.get("un") or 0)) if com else None
-    return {"produto": nome, "un_dia": round(un / dias, 2), "anuncios": len(xs), "vendedores": len({a.get("vendedor") for a in xs}),
+    return {"produto": nome, **_top5(com), "un_dia": round(un / dias, 2), "anuncios": len(xs), "vendedores": len({a.get("vendedor") for a in xs}),
             "preco_min": round(min(float(a["preco"]) for a in com), 2) if com else None,
             "preco_lider": round(float(lider["preco"]), 2) if lider else None,
             "lider_un_dia": round(float(lider["un"]) / dias, 2) if lider else None,
