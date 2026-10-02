@@ -95,7 +95,7 @@ def test_mercado_do_produto():
            {"titulo": "Torino 21 Xerjoff 100ml", "un": 10, "fat": 14000, "preco": 1400, "vendedor": "B"},
            {"titulo": "Torino 21 Xerjoff 100ml", "un": 0, "fat": 0, "preco": 1300, "vendedor": "C"}]
     m = reposicao.mercado_do_produto("Torino 21", ans, 20, lambda t, xs: xs)
-    assert m == {"un_dia": 2.0, "anuncios": 3, "vendedores": 3, "preco_min": 1400.0, "preco_lider": 1500.0,
+    assert m == {"preco_top5": 1475.0, "top5_vendedores": 2, "un_dia": 2.0, "anuncios": 3, "vendedores": 3, "preco_min": 1400.0, "preco_lider": 1500.0,
                  "lider_un_dia": 1.5, "preco_medio": 1475.0}, m
     assert reposicao.mercado_do_produto("x", ans, 20, lambda t, xs: []) is None
 

@@ -424,9 +424,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   (`export_warehouse_products_*.xlsx`) → `estoque.ler_cadastro_produtos` → ia_resumos `estoque|cadastro_upseller` (rota
   `estoque_cadastro_importar`, botão 📦 na Reposição). O mercado usa TODOS os GTINs do SKU (cadastro + o do meu anúncio no
   Explorador: Ferrari Black tem 2); o custo de compra entra quando falta custo médio e aparece como "último custo".
-  Lista de compra (02/10) virou página (`#/estoque/lista`): por marca ou categoria, estoque, trânsito, sugestão, último
-  custo e a coluna Comprar que o Bruno digita (guardada no navegador no dia); o pedido impresso/WhatsApp sai só do que foi
-  digitado, com coluna "Cotação R$" para o fornecedor. Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
+  Lista de compra (02/10, Bruno: "ficou redundante com o pedido, junta tudo"): é a própria aba 🛒 Pedido da Reposição —
+  colunas Minha venda/dia, Mercado/dia, Preço do líder, Média dos 5 primeiros (`preco_top5`: fat÷un dos 5 vendedores que
+  mais venderam), Estoque (+chegando), Nível máx., Sugestão, Custo un. (último custo), Comprar (digitável, guardado no
+  navegador no dia; "zerar tudo"/"usar a sugestão") e Total; sem "Acumulado". "Próximo pedido em N dias" no topo.
+  🧾 Gerar pedido (`gerarPedido`) sai só do que tem quantidade: por marca ou categoria, imprimir (coluna "Cotação R$"),
+  WhatsApp (todo ou por grupo) e copiar. `#/estoque/lista` volta para a Reposição. Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
   Coletor, `calcLivre` = `pmCalc` com `solo`, sem buscar nada no ML).
 - **Marca "Perfume Árabe" (02/10)**: "árabe", "masculina", "alta fixação"… estão em `categorias.GENERICAS` (palavra de
   anúncio nunca é marca). No Por marca, cada produto tem 🔗 vincular (`estoque_marca_salvar`, vence o título). O KPI de

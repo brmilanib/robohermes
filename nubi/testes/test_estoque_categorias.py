@@ -1,6 +1,6 @@
 """Estoque → 🏷️ Por categoria (30/09, pedido do Bruno: "meu estoque por categoria, igual ao ranking de marcas"): a marca
 sai do título e a categoria é a do ranking (Árabe, Designer…); valor pelo custo e vendas de 30 dias por categoria."""
-import base64, io, os, subprocess, sys, time, urllib.request
+import base64, io, os, re, subprocess, sys, time, urllib.request
 from playwright.sync_api import sync_playwright
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -140,22 +140,44 @@ try:
                 pg.click(f"[data-voltar='{mp}']"); pg.wait_for_selector(sel, timeout=15000)
                 assert pg.inner_text(".kpis") == tot0
                 # 02/10 (Bruno): Estoque → 🔁 Reposição abre, troca de aba, guarda o caixa e lê o mercado sem erro
+                def com_pedido(route):                       # a base de teste não tem o que comprar: põe 2 linhas no pedido
+                    resp = route.fetch(); j = resp.json()
+                    if j.get("pedido") is not None and not j["pedido"]:
+                        base = {"classe": "A", "disponivel": 2, "transito": 3, "nivel_max": 20, "media_dia": 1.0, "venda_base": 1.4,
+                                "faixa": 1, "cabe_no_caixa": True, "custo": 50.0, "ultimo_custo": 48.0, "categoria": "Perfumes › Árabe",
+                                "mercado": {"un_dia": 12.5, "preco_lider": 199.9, "preco_top5": 205.3}}
+                        j["pedido"] = [dict(base, sku="TESTE-1", chave="TESTE1", titulo="Perfume Teste Um 100ml", marca="Lattafa", compra=15),
+                                       dict(base, sku="TESTE-2", chave="TESTE2", titulo="Perfume Teste Dois 100ml", marca="Armaf", compra=4, mercado=None)]
+                        j["faixas"] = [{"faixa": 1, "nome": "Campeões", "skus": 2, "unidades": 19, "valor": 950.0}]
+                    route.fulfill(response=resp, json=j)
+                pg.route(lambda u: "/api/app?" in u and re.search(r"[?&]r=estoque_reposicao(&|$)", u), com_pedido)
                 pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/reposicao"); pg.wait_for_selector("#rp-prazo", timeout=20000)
                 assert "Reposição" in pg.inner_text(".es-cab") and "Pedido completo" in pg.inner_text(".kpis")
                 for a in ("precos", "full", "campeoes", "parado", "mao", "pedido"):
                     pg.click(f"[data-rpa='{a}']"); pg.wait_for_selector(f"[data-rpa='{a}'].on", timeout=15000)
                 # 02/10 (Bruno): lista de compra para imprimir / WhatsApp, por marca
-                # 02/10 (Bruno: "abre uma página só para ela… coluna para eu digitar quanto vou comprar… último custo")
-                pg.click("#rp-lista"); pg.wait_for_selector("#lc-dias", timeout=20000)
-                assert "#/estoque/lista" in pg.url and "Lista de compra" in pg.inner_text(".es-cab")
-                t = pg.inner_text("#main")
-                assert "Último custo" in t or "Nada a comprar" in t, t[:600]
+                # 02/10 (Bruno: "junta a lista no pedido, coloca para eu digitar e lá embaixo gerar pedido")
+                assert not pg.query_selector("#rp-lista")
+                if pg.query_selector(".rp-t"):
+                    th = pg.inner_text(".rp-t thead")
+                    assert "Minha venda/dia" in th and "Média dos 5 primeiros" in th and "Acumulado" not in th, th
+                else:
+                    assert "Nada a comprar" in pg.inner_text("#main")
                 if pg.query_selector("[data-q]"):
-                    pg.fill("[data-q] >> nth=0", "7"); pg.dispatch_event("[data-q] >> nth=0", "input")
-                    assert "Produtos no pedido" in pg.inner_text("#lc-kpis")
-                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"lista_compra_{nome}.png"), full_page=False)
-                pg.click("[data-lcpor='categoria']"); pg.wait_for_selector("[data-lcpor='categoria'].on", timeout=15000)
-                pg.fill("#lc-dias", "3"); pg.dispatch_event("#lc-dias", "change"); pg.wait_for_selector("#lc-dias", timeout=15000)
+                    assert pg.input_value("[data-q='TESTE-1']") == "15" and "R$ 205" in pg.inner_text(".rp-t"), pg.inner_text(".rp-t")[:800]
+                    pg.fill("[data-q='TESTE-2']", "0"); pg.dispatch_event("[data-q='TESTE-2']", "input")
+                    pg.fill("[data-q='TESTE-1']", "7"); pg.dispatch_event("[data-q='TESTE-1']", "input")
+                    assert "No pedido: 1 produtos · 7 un." in pg.inner_text("#rp-tot"), pg.inner_text("#rp-tot")
+                    pg.click("#rp-gerar"); pg.wait_for_selector("#gp-corpo .lc-item", timeout=8000)
+                    assert "Pedido de compra" in pg.inner_text(".modal")
+                    pg.click("[data-gpor='categoria']"); pg.wait_for_selector("[data-gpor='categoria'].on", timeout=5000)
+                    pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"gerar_pedido_{nome}.png"), full_page=False)
+                    pg.click(".modal [data-fechar]")
+                    pg.click("#rp-zerar"); pg.wait_for_selector("#rp-tot", timeout=15000)
+                    assert "No pedido: 0" in pg.inner_text("#rp-tot"), pg.inner_text("#rp-tot")
+                    pg.click("#rp-sug"); pg.wait_for_selector("#rp-tot", timeout=15000)
+                pg.fill("#rp-sem", "3"); pg.dispatch_event("#rp-sem", "change"); pg.wait_for_selector("#rp-sem[value='3']", timeout=15000)
+                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"reposicao_{nome}.png"), full_page=False)
                 # 02/10: calculadora livre no cabeçalho, sem buscar produto
                 pg.click("#bcalc"); pg.wait_for_selector("#pc-preco", timeout=8000)
                 assert "Calculadora livre" in pg.inner_text(".modal") and not pg.query_selector("#pc-merc")
@@ -163,7 +185,6 @@ try:
                 assert "Lucro líquido" in pg.inner_text("#pc-res")
                 pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"calc_livre_{nome}.png"), full_page=False)
                 pg.click(".modal [data-fechar]")
-                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/reposicao"); pg.wait_for_selector("#rp-prazo", timeout=20000)
                 pg.fill("#rp-caixa", "50000"); pg.dispatch_event("#rp-caixa", "change")
                 pg.wait_for_function("() => document.querySelector('.kpis') && document.querySelector('.kpis').innerText.includes('Cabe no caixa')", timeout=15000)
                 with pg.expect_response(lambda r_: "estoque_reposicao_mercado" in r_.url, timeout=60000) as rm:
