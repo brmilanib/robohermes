@@ -168,6 +168,25 @@ def test_mercado_pelo_nome_do_produto():
     assert m("Perfume Lattafa Yara Candy Eau De Parfum 100 Ml", vocab=frozenset({"candy"})) is None             # candy é outro produto
 
 
+def test_mercado_pelo_gtin():
+    """02/10 (Bruno: "mas o GTIN é diferente, né"): o Explorador junta Yara, Yara Elixir e Yara Moi no mesmo nome de produto;
+    o GTIN separa."""
+    ans = [{"produto": "Lattafa Yara EDP 100 ml", "gtin": "6290360591247", "un": 8000, "fat": 1_400_000, "preco": 180, "vendedor": "A"},
+           {"produto": "Lattafa Yara EDP 100 ml", "gtin": "6290362346531", "un": 600, "fat": 132_000, "preco": 220, "vendedor": "B"},
+           {"produto": "Lattafa Yara EDP 100 ml", "gtin": "6290362346531", "un": 300, "fat": 69_000, "preco": 230, "vendedor": "C"},
+           {"produto": "Lattafa Yara EDP 100 ml", "gtin": "6290360591421", "un": 90, "fat": 17_000, "preco": 190, "vendedor": "D"}]
+    m = reposicao.mercado_por_gtin("6290362346531", ans, 30)          # Yara Elixir
+    assert m["un_dia"] == 30.0 and m["anuncios"] == 2 and m["preco_lider"] == 220 and m["gtin"] == "6290362346531", m
+    assert reposicao.mercado_por_gtin("6290360591421", ans, 30)["un_dia"] == 3.0                 # Yara Moi
+    assert reposicao.mercado_por_gtin("", ans, 30) is None and reposicao.mercado_por_gtin("123", ans, 30) is None
+    # o mesmo perfume com mais de um GTIN (Ferrari: 13/dia pelo meu GTIN, 36/dia pelo nome) → vale o nome
+    g, n = {"un_dia": 13.2, "gtin": "7795666906867"}, {"un_dia": 35.7, "produto": "Ferrari Black EDT 125 ml"}
+    assert reposicao.escolher_mercado(g, n) == {"un_dia": 35.7, "produto": "Ferrari Black EDT 125 ml", "casado_por": "nome+gtin", "gtin": "7795666906867"}
+    # o nome junta outro produto (Yara Moi = 3% do "Yara") → vale o GTIN
+    assert reposicao.escolher_mercado({"un_dia": 8.9, "gtin": "x"}, {"un_dia": 273.0})["un_dia"] == 8.9
+    assert reposicao.escolher_mercado(None, n)["casado_por"] == "nome" and reposicao.escolher_mercado(None, None) is None
+
+
 if __name__ == "__main__":
     test_venda_nos_dias_com_estoque()
     test_prateleira_minima_e_classe_c()
@@ -177,4 +196,5 @@ if __name__ == "__main__":
     test_ranqueamento_e_alertas_de_preco()
     test_dinheiro_parado_e_meta()
     test_mercado_pelo_nome_do_produto()
+    test_mercado_pelo_gtin()
     print("ok reposição")

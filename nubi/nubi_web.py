@@ -5743,8 +5743,10 @@ def reposicao_painel(repo, caixa=None, semana=None):
 
 
 def reposicao_mercado(repo, n=REPOSICAO_TOP_MERCADO):
-    """O mercado (Explorador) dos n SKUs que mais faturam: casa o título do SKU com os anúncios do card mais recente da marca
-    e soma quanto o mercado vende por dia, o preço mínimo e o do líder. Guardado por dia em ia_resumos."""
+    """O mercado (Explorador) dos n SKUs que mais faturam, guardado por dia em ia_resumos. 02/10 (Bruno: "mas o GTIN é
+    diferente, né"): 1º pelo GTIN — o meu próprio anúncio aparece no card do Explorador com o meu SKU (coluna sku, compacta)
+    e o GTIN; o mercado é todo anúncio do card com esse GTIN. Sem GTIN, pelo nome do produto consolidado (nos dois sentidos,
+    sem trocar volume, EDP/EDT ou gênero)."""
     dd = _reposicao_dados(repo)
     if not dd:
         return {"vazio": True}
@@ -5755,40 +5757,57 @@ def reposicao_mercado(repo, n=REPOSICAO_TOP_MERCADO):
     alvo = [it for it in dd["itens"] if fat.get(estoque._chave(it["sku"]), 0) > 0]
     alvo.sort(key=lambda it: -fat[estoque._chave(it["sku"])])
     alvo = alvo[:n]
-    snaps = {}
+    snaps, snap_id = {}, {}
     for s in repo._todos("snapshots", {"select": "id,marca,fim,dias"}) or []:
+        snap_id[s["id"]] = s
         k = nubi.compacta(s["marca"])
         if k not in snaps or str(s["fim"]) > str(snaps[k]["fim"]):
             snaps[k] = s
-    cache, out, sem = {}, {}, []
-    pend = []
-    for it in alvo:                                  # 1º carrega os cards (o vocabulário de produto vem de todos eles)
+    gtin_de = {}                                     # SKU compacto -> (GTIN, snapshot onde achei o meu anúncio)
+    chaves = sorted({nubi.compacta(it["sku"]) for it in alvo if it.get("sku")})
+    for i in range(0, len(chaves), 40):
+        lote = ",".join('"' + c.replace('"', "") + '"' for c in chaves[i:i + 40] if c)
+        for r in repo._todos("anuncios", {"select": "sku,gtin,snapshot_id", "sku": f"in.({lote})"}) or []:
+            g = re.sub(r"\D", "", str(r.get("gtin") or ""))
+            if len(g) >= 8 and (r["sku"] not in gtin_de or r["snapshot_id"] > gtin_de[r["sku"]][1]):
+                gtin_de[r["sku"]] = (g, r["snapshot_id"])
+    cache, pend = {}, []
+    for it in alvo:
         k = estoque._chave(it["sku"])
         sn = snaps.get(nubi.compacta(dd["marca_de"].get(k) or ""))
+        g = gtin_de.get(nubi.compacta(it["sku"]))
+        if not sn and g and g[1] in snap_id:          # marca do estoque sem card: o card mais novo da marca onde está o meu anúncio
+            achado = snap_id[g[1]]
+            sn = snaps.get(nubi.compacta(achado["marca"])) or achado
         if sn and sn["id"] not in cache:
-            cache[sn["id"]] = repo._todos("anuncios", {"select": "produto,tipo,titulo,un,fat,preco,vendedor",
+            cache[sn["id"]] = repo._todos("anuncios", {"select": "produto,tipo,titulo,un,fat,preco,vendedor,gtin",
                                                         "snapshot_id": f"eq.{sn['id']}"}) or []
-        pend.append((it, k, sn))
+        pend.append((it, k, sn, g[0] if g else None))
     vocab = set()
     for s_ in snaps.values():                        # nomes dos cards ("BELARA - LATTAFA YARA CANDY") também contam
         vocab |= _tokens_produto(s_["marca"])[0]
     for ans in cache.values():
         for nome in {str(a.get("produto") or "") for a in ans}:
             vocab |= _tokens_produto(nome)[0]
-    for it, k, sn in pend:
+    out, sem = {}, []
+    for it, k, sn, g in pend:
         if not sn:
             sem.append(it["sku"])
             continue
-        # 02/10: casa pelo PRODUTO consolidado do Explorador (o título longo do SKU não casava com o título curto do anúncio)
-        m = reposicao.mercado_por_produto(it.get("titulo"), cache[sn["id"]], int(sn.get("dias") or 0), _tokens_produto, _tipo_tok,
-                                          sn["marca"], vocab)
+        dias = int(sn.get("dias") or 0)
+        outros = {v[0] for kk, v in gtin_de.items() if kk != nubi.compacta(it["sku"]) and v[0] != g}
+        anuncios = [a for a in cache[sn["id"]] if re.sub(r"\D", "", str(a.get("gtin") or "")) not in outros]   # GTIN de outro SKU meu fica fora
+        por_gtin = reposicao.mercado_por_gtin(g, anuncios, dias) if g else None
+        por_nome = reposicao.mercado_por_produto(it.get("titulo"), anuncios, dias, _tokens_produto, _tipo_tok, sn["marca"], vocab)
+        m = reposicao.escolher_mercado(por_gtin, por_nome)
         if m:
             m.update({"marca": sn["marca"], "card_fim": str(sn["fim"])[:10]})
             out[k] = m
         else:
             sem.append(it["sku"])
-    _ia_gravar(repo, REPOSICAO_MERCADO, {"dia": _agora_br().date().isoformat(), "itens": out, "sem": sem})
-    return {"ok": True, "casados": len(out), "sem": sem}
+    com_gtin = sum(1 for m in out.values() if "gtin" in str(m.get("casado_por")))
+    _ia_gravar(repo, REPOSICAO_MERCADO, {"dia": _agora_br().date().isoformat(), "itens": out, "sem": sem, "com_gtin": com_gtin})
+    return {"ok": True, "casados": len(out), "com_gtin": com_gtin, "sem": sem}
 
 
 def estoque_niveis(repo, dias=60, agora=None):

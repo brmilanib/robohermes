@@ -380,6 +380,28 @@ def mercado_por_produto(titulo, anuncios, dias, tokens, tipo_tok, marca="", voca
     if not melhor:
         return None
     _, nome, xs = melhor
+    return _agrega(xs, dias, nome)
+
+
+def mercado_por_gtin(gtin, anuncios, dias):
+    """02/10 (Bruno: "mas o GTIN é diferente, né"): o mercado é todo anúncio do card com o MESMO GTIN do meu SKU (o GTIN do
+    meu SKU vem do meu próprio anúncio no Explorador, coluna Sku). O nome consolidado do Explorador junta Yara, Yara Elixir e
+    Yara Moi num "Lattafa Yara EDP 100 ml"; o GTIN separa. Anúncio sem GTIN fica de fora (o número sai um pouco por baixo)."""
+    g = str(gtin or "").strip()
+    xs = [a for a in anuncios if str(a.get("gtin") or "").strip() == g] if g else []
+    if not xs or not dias:
+        return None
+    nomes = {}
+    for a in xs:
+        n = str(a.get("produto") or "").strip()
+        if n:
+            nomes[n] = nomes.get(n, 0) + float(a.get("un") or 0)
+    r = _agrega(xs, dias, max(nomes, key=nomes.get) if nomes else "")
+    r["gtin"] = g
+    return r
+
+
+def _agrega(xs, dias, nome):
     un = sum(float(a.get("un") or 0) for a in xs)
     precos = sorted(float(a["preco"]) for a in xs if a.get("preco"))
     mediana = precos[len(precos) // 2] if precos else None
@@ -390,3 +412,18 @@ def mercado_por_produto(titulo, anuncios, dias, tokens, tipo_tok, marca="", voca
             "preco_lider": round(float(lider["preco"]), 2) if lider else None,
             "lider_un_dia": round(float(lider["un"]) / dias, 2) if lider else None,
             "preco_medio": round(sum(float(a.get("fat") or 0) for a in xs) / un, 2) if un else None}
+
+
+def escolher_mercado(por_gtin, por_nome, fatia_min=0.15):
+    """O mesmo perfume pode ter mais de um GTIN (Ferrari Black: pelo meu GTIN só aparece o meu anúncio, 13/dia; pelo nome,
+    36/dia), e o nome consolidado do Explorador pode juntar produtos diferentes (Yara Moi = 3% do "Lattafa Yara EDP 100 ml").
+    Vale o NOME quando o meu GTIN é uma fatia relevante dele (≥ 15%); senão vale o GTIN; sem um dos dois, o que houver."""
+    if por_nome and por_gtin:
+        if por_gtin["un_dia"] >= fatia_min * por_nome["un_dia"]:
+            return dict(por_nome, casado_por="nome+gtin", gtin=por_gtin.get("gtin"))
+        return dict(por_gtin, casado_por="gtin")
+    if por_gtin:
+        return dict(por_gtin, casado_por="gtin")
+    if por_nome:
+        return dict(por_nome, casado_por="nome")
+    return None
