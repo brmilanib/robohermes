@@ -147,8 +147,9 @@ try:
                                 "faixa": 1, "cabe_no_caixa": True, "custo": 50.0, "ultimo_custo": 48.0, "categoria": "Perfumes › Árabe",
                                 "mercado": {"un_dia": 12.5, "preco_lider": 199.9, "preco_top5": 205.3}}
                         j["pedido"] = [dict(base, sku="TESTE-1", chave="TESTE1", titulo="Perfume Teste Um 100ml", marca="Lattafa", compra=15),
-                                       dict(base, sku="TESTE-2", chave="TESTE2", titulo="Perfume Teste Dois 100ml", marca="Armaf", compra=4, mercado=None)]
-                        j["faixas"] = [{"faixa": 1, "nome": "Campeões", "skus": 2, "unidades": 19, "valor": 950.0}]
+                                       dict(base, sku="TESTE-2", chave="TESTE2", titulo="Perfume Teste Dois 100ml", marca="Armaf", compra=4, mercado=None, classe="B", faixa=2)]
+                        j["faixas"] = [{"faixa": 1, "nome": "Campeões", "skus": 1, "unidades": 15, "valor": 750.0},
+                                       {"faixa": 2, "nome": "Classe B", "skus": 1, "unidades": 4, "valor": 200.0}]
                     route.fulfill(response=resp, json=j)
                 pg.route(lambda u: "/api/app?" in u and re.search(r"[?&]r=estoque_reposicao(&|$)", u), com_pedido)
                 pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/reposicao"); pg.wait_for_selector("#rp-dura-a", timeout=20000)
@@ -165,7 +166,14 @@ try:
                     assert "Nada a comprar" in pg.inner_text("#main")
                 if pg.query_selector("[data-q]"):
                     assert pg.input_value("[data-q='TESTE-1']") == "15" and "R$ 205" in pg.inner_text(".rp-t"), pg.inner_text(".rp-t")[:800]
+                    # 02/10 (Bruno: "faixinha dividindo curva A, B e C e quantos % de cada no pedido")
+                    assert "Este pedido por curva" in pg.inner_text("#rp-mix") and "Curva A 79%" in pg.inner_text("#rp-mix"), pg.inner_text("#rp-mix")
+                    pg.click("[data-rpc='todos']"); pg.wait_for_selector("[data-rpc='todos'].on", timeout=15000)
+                    assert pg.query_selector("tr.rp-curva-A") and pg.query_selector("tr.rp-curva-B") and not pg.query_selector("tr.rp-curva-C")
                     pg.fill("[data-q='TESTE-2']", "0"); pg.dispatch_event("[data-q='TESTE-2']", "input")
+                    assert "Curva A 100%" in pg.inner_text("#rp-mix") and "Curva B 0%" in pg.inner_text("#rp-mix"), pg.inner_text("#rp-mix")
+                    pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"reposicao_todos_{nome}.png"), full_page=False)
+                    pg.click("[data-rpc='A']"); pg.wait_for_selector("[data-rpc='A'].on", timeout=15000)
                     pg.fill("[data-q='TESTE-1']", "7"); pg.dispatch_event("[data-q='TESTE-1']", "input")
                     assert "Campeões: 1 produtos · 7 un." in pg.inner_text("#rp-tot"), pg.inner_text("#rp-tot")
                     pg.click("#rp-gerar"); pg.wait_for_selector("#gp-corpo .lc-item", timeout=8000)
@@ -179,8 +187,8 @@ try:
                 # 02/10 (Bruno: "campeão dura 30 dias, B e C 15; pedido separado por curva; cabeçalho fixo")
                 assert pg.input_value("#rp-dura-a") == "30" and pg.input_value("#rp-dura-bc") == "15"
                 assert pg.evaluate("getComputedStyle(document.querySelector('.rp-t thead th')).position") == "sticky"
-                pg.click("[data-rpc='B']"); pg.wait_for_selector("[data-rpc='B'].on", timeout=15000)
-                assert "Nada a comprar nesta curva" in pg.inner_text("#main") and "Curva B:" in pg.inner_text("#rp-tot")
+                pg.click("[data-rpc='C']"); pg.wait_for_selector("[data-rpc='C'].on", timeout=15000)
+                assert "Nada a comprar nesta curva" in pg.inner_text("#main") and "Curva C:" in pg.inner_text("#rp-tot")
                 pg.click("[data-rpc='A']"); pg.wait_for_selector("[data-rpc='A'].on", timeout=15000)
                 pg.fill("#rp-dura-a", "45"); pg.dispatch_event("#rp-dura-a", "change"); pg.wait_for_selector("#rp-dura-a[value='45']", timeout=15000)
                 pg.fill("#rp-dura-a", "30"); pg.dispatch_event("#rp-dura-a", "change"); pg.wait_for_selector("#rp-dura-a[value='30']", timeout=15000)

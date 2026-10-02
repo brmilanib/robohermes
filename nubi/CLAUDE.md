@@ -440,7 +440,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   dos campeões ficou só no Full; margem < 10% sem ranquear dura só `dura_bc`. Na tela: "Campeões duram N dias / Curva B e
   C N dias" no topo; sub-abas do Pedido 🏆 Campeões (A) · Curva B · Curva C · Todos (tabela, totais, zerar e Gerar pedido
   só da curva escolhida); cabeçalho da tabela fixo (`.rp-scroll`, rola dentro). Foco do Bruno agora: queimar os ~R$ 209
-  mil parados em B/C e levar para a profundidade dos campeões. Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
+  mil parados em B/C e levar para a profundidade dos campeões. Em "Todos" cada curva tem a sua faixa (`tr.rp-curva`, borda azul A /
+  laranja B / cinza C) e em cima o resumo "Este pedido por curva" (% do valor da coluna Comprar × último custo, barra +
+  R$, un. e produtos por curva; atualiza ao digitar). Gerar pedido também agrupa "Por curva". Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
   Coletor, `calcLivre` = `pmCalc` com `solo`, sem buscar nada no ML).
 - **Marca "Perfume Árabe" (02/10)**: "árabe", "masculina", "alta fixação"… estão em `categorias.GENERICAS` (palavra de
   anúncio nunca é marca). No Por marca, cada produto tem 🔗 vincular (`estoque_marca_salvar`, vence o título). O KPI de

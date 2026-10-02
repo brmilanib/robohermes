@@ -779,6 +779,11 @@ header.top{flex-wrap:nowrap;min-height:var(--header-h)}
 .rg-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 14px}.rg-c{display:flex;flex-direction:column;gap:3px;font-size:13px}.rg-c input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--card);color:inherit;font:inherit}
 .modal.rg-modal{max-width:760px}.rp-sub{display:block;font-size:11px;font-weight:400}.rp-v{white-space:nowrap}
 .rp-scroll{max-height:calc(100vh / var(--z, 1) - 150px);overflow:auto;border:1px solid var(--line);border-radius:8px}.card.pad .rp-scroll table.rp-t thead th{position:sticky;top:0;z-index:3;background:var(--card);box-shadow:0 1px 0 var(--line)}.rp-curvas small{opacity:.7;font-weight:400;margin-left:4px}
+.rp-mix{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:12.5px}.rp-mix-t{font-weight:600;display:block;margin-bottom:5px}
+.rp-mix-barra{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--line)}.rp-mix-barra i{display:block;height:100%}
+.rp-mix-leg{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:6px}.rp-mix-leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.rp-mix .cA{background:#2563eb}.rp-mix .cB{background:#f59e0b}.rp-mix .cC{background:#94a3b8}
+.rp-t tr.rp-curva td{font-size:13.5px;padding:9px 10px;border-top:3px solid #94a3b8;background:var(--card)}.rp-t tr.rp-curva-A td{border-top-color:#2563eb}.rp-t tr.rp-curva-B td{border-top-color:#f59e0b}
 .rp-gerar{position:sticky;bottom:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end;padding:10px 0 2px;background:var(--card);border-top:1px solid var(--line);margin-top:8px}.rp-gerar #rp-tot{margin-right:auto}
 .hd-calc{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:999px;border:1px solid rgba(255,255,255,.28);background:transparent;color:#fff;cursor:pointer;flex:none}.hd-calc:hover{background:rgba(255,255,255,.12)}
 .lc-t input.lc-q{width:68px;text-align:right;border:1px solid var(--line);border-radius:7px;padding:4px 6px;background:var(--card);color:inherit;font:inherit;font-weight:700}
@@ -1096,7 +1101,7 @@ body{zoom:var(--z)}
 @media (max-width:600px){.mv-bv{display:none}.mv-b:nth-child(odd) .mv-bd{display:none}}
 .lc-lista{max-height:60vh;overflow:auto}.lc-grupo{margin-bottom:12px}.lc-marca{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:4px 0;margin-bottom:4px}
 .lc-marca .btn{margin-left:auto}.lc-item{display:flex;gap:10px;align-items:baseline;padding:2px 0;font-size:13.5px}.lc-item b{min-width:46px;text-align:right}.lc-item span{flex:1}
-@media (min-width:641px){.rp-t{min-width:900px}}@media (max-width:640px){.rp-t tr.rp-faixa td,.rp-t tr.rp-corte td{display:block!important;text-align:left!important}.rp-t tr.rp-faixa,.rp-t tr.rp-corte{background:var(--soft)!important}}.rp-cfg input{height:auto;padding:4px 7px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-size:13px;margin:0 3px}
+@media (min-width:641px){.rp-t{min-width:900px}}@media (max-width:640px){.rp-t tr.rp-faixa td,.rp-t tr.rp-corte td,.rp-t tr.rp-curva td{display:block!important;text-align:left!important}.rp-t tr.rp-faixa,.rp-t tr.rp-corte{background:var(--soft)!important}}.rp-cfg input{height:auto;padding:4px 7px;border:1px solid var(--line);border-radius:8px;background:var(--card);font-size:13px;margin:0 3px}
 .rp-t .rp-faixa td{background:var(--soft);font-size:13px}.rp-t .rp-corte td{color:var(--neg,#dc2626);font-weight:600;border-top:2px dashed currentColor}
 .rp-t tr.rp-fora{opacity:.45}.pill.neg{color:#b42318;border-color:#fda29b}.pill.warn-t{color:#b54708}
 .nv-p{margin-top:10px}.nv-t{font-size:13px;margin-bottom:4px}
@@ -3540,10 +3545,22 @@ async function telaReposicao() {
   const curvas = [["A", "🏆 Campeões (curva A)"], ["B", "Curva B"], ["C", "Curva C"], ["todos", "Todos"]].map(([k, t]) => {
     const xs = r.pedido.filter(l => k === "todos" || (k === "C" ? l.classe !== "A" && l.classe !== "B" : l.classe === k));
     return `<button data-rpc="${k}" class="${curva === k ? "on" : ""}">${t} <small>${un(xs.length)} · ${FMT.moeda(xs.reduce((a, l) => a + (+quer(l) || 0) * (ult(l) || 0), 0))}</small></button>`; }).join("");
+  // 02/10 (Bruno: "dividido no pedido: uma faixinha que divide curva A, curva B e curva C, e quantos % estou pedindo de cada"):
+  // em "Todos" cada curva vem com a sua faixa; o resumo em cima soma o que está na coluna Comprar × último custo
+  const curvaDe = l => l.classe === "A" ? "A" : l.classe === "B" ? "B" : "C";
+  const NOME_CURVA = {A: "🏆 Curva A · campeões", B: "Curva B", C: "Curva C"};
+  const somaCurva = k => r.pedido.filter(l => curvaDe(l) === k).reduce((a, l) => { const q = +quer(l) || 0; if (q > 0) { a.n++; a.u += q; a.v += q * (ult(l) || 0); } return a; }, {n: 0, u: 0, v: 0});
+  const resumoCurvas = () => { const cs = ["A", "B", "C"].map(k => [k, somaCurva(k)]), tot = cs.reduce((a, [, c]) => a + c.v, 0);
+    return `<div class="rp-mix"><span class="rp-mix-t">Este pedido por curva</span>
+      <div class="rp-mix-barra">${cs.map(([k, c]) => c.v ? `<i class="c${k}" style="width:${(c.v / tot * 100).toFixed(1)}%" title="Curva ${k}: ${FMT.moeda(c.v)}"></i>` : "").join("") || `<i style="width:100%;background:var(--line)"></i>`}</div>
+      <div class="rp-mix-leg">${cs.map(([k, c]) => `<span><i class="c${k}"></i><b>Curva ${k}</b> ${tot ? Math.round(c.v / tot * 100) : 0}% · ${FMT.moeda(c.v)} · ${un(c.u)} un. · ${un(c.n)} produtos</span>`).join("")}</div></div>`; };
   let corte = false;
-  const pedido = r.faixas.filter(f => ped.some(l => l.faixa === f.faixa)).map(f => { const xs = ped.filter(l => l.faixa === f.faixa);
+  const linhasFaixas = xsCurva => r.faixas.filter(f => xsCurva.some(l => l.faixa === f.faixa)).map(f => { const xs = xsCurva.filter(l => l.faixa === f.faixa);
     return `<tr class="rp-faixa"><td colspan="12" data-l=""><b>Faixa ${f.faixa}</b> · ${esc(f.nome)} · ${un(xs.length)} SKUs · sugestão ${un(xs.reduce((a, l) => a + l.compra, 0))} un. · ${FMT.moeda(xs.reduce((a, l) => a + (l.compra_valor || 0), 0))}</td></tr>` +
     xs.map(l => { let sep = ""; if (!l.cabe_no_caixa && !corte) { corte = true; sep = `<tr class="rp-corte"><td colspan="12" data-l="">✂️ Aqui acaba o caixa de ${FMT.moeda(rs.caixa)}</td></tr>`; } return sep + linhaPedido(l); }).join(""); }).join("");
+  const pedido = curva !== "todos" ? linhasFaixas(ped) : ["A", "B", "C"].map(k => { const xs = ped.filter(l => curvaDe(l) === k); if (!xs.length) return "";
+    const c = somaCurva(k);
+    return `<tr class="rp-curva rp-curva-${k}"><td colspan="12" data-l=""><b>${NOME_CURVA[k]}</b> · ${un(xs.length)} SKUs · no pedido <span data-cv="${k}">${un(c.u)} un. · ${FMT.moeda(c.v)}</span></td></tr>` + linhasFaixas(xs); }).join("");
   const cab = `<thead><tr><th>Produto</th><th class="num" title="a MINHA venda por dia nos dias em que tinha estoque (embaixo, a média contando os dias zerados)">Minha venda/dia</th>
     <th class="num" title="unidades que EU vendi nos últimos 7, 15 e 30 dias (todas as lojas)">Vendi 7 · 15 · 30 dias</th>
     <th class="num" title="todos os vendedores do produto no Explorador (Nubimetrics), por dia">Mercado/dia</th><th class="num" title="preço de quem mais vende o produto">Preço do líder</th>
@@ -3595,7 +3612,7 @@ async function telaReposicao() {
       <button class="btn small" id="rp-merc">🔄 Atualizar mercado</button>
       <label class="btn small" title="UpSeller → Produtos → Exportar (export_warehouse_products…xlsx): código de barras e custo de compra">📦 Cadastro UpSeller${r.cadastro ? ` (${r.cadastro.skus})` : ""}<input type="file" id="rp-cad" accept=".xlsx" hidden></label></div>
     <div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${[["pedido", "🛒 Pedido"], ["precos", "📣 Preço (" + r.precos.length + ")"], ["full", "🚚 Full (top " + g.top_full + ")"], ["campeoes", "🏆 Campeões"], ["parado", "💰 Dinheiro parado"], ["mao", "✋ Na mão (" + r.manuais.length + ")"]].map(([k, t]) => `<button data-rpa="${k}" class="${aba === k ? "on" : ""}">${t}</button>`).join("")}</div>
-    <div class="card pad">${aba === "pedido" ? (r.pedido.length ? `<div class="seg rp-curvas" style="margin-bottom:8px;flex-wrap:wrap">${curvas}</div>
+    <div class="card pad">${aba === "pedido" ? (r.pedido.length ? `<div id="rp-mix">${resumoCurvas()}</div><div class="seg rp-curvas" style="margin-bottom:8px;flex-wrap:wrap">${curvas}</div>
       ${ped.length ? `<div class="rp-scroll"><table class="t rp-t lc-t" style="font-size:13px">${cab}<tbody>${pedido}</tbody></table></div>` : `<p class="muted">Nada a comprar nesta curva.</p>`}
       <div class="rp-gerar"><span id="rp-tot" class="muted"></span><button class="btn small" id="rp-zerar" title="Zera a coluna Comprar para você digitar só o que vai comprar">0 zerar tudo</button>
         <button class="btn small" id="rp-sug" title="Volta a coluna Comprar para a sugestão">↺ usar a sugestão</button><button class="btn primary" id="rp-gerar">🧾 Gerar pedido</button></div>` : `<p class="muted">Nada a comprar.</p>`)
@@ -3614,7 +3631,8 @@ async function telaReposicao() {
     const l = r.pedido.find(z => z.sku === inp.dataset.q), v = Math.max(0, parseInt(inp.value) || 0);
     qtd[inp.dataset.q] = v; lcGravar({dia: hoje, q: qtd});
     const td = main.querySelector(`[data-t="${CSS.escape(inp.dataset.q)}"]`); if (td) td.textContent = v && ult(l) ? FMT.moeda(v * ult(l)) : "";
-    mostraTot(); });
+    mostraTot(); const mx = $("#rp-mix"); if (mx) mx.innerHTML = resumoCurvas();
+    main.querySelectorAll("[data-cv]").forEach(el => { const c = somaCurva(el.dataset.cv); el.textContent = `${un(c.u)} un. · ${FMT.moeda(c.v)}`; }); });
   if ($("#rp-zerar")) $("#rp-zerar").onclick = () => { ped.forEach(l => { qtd[l.sku] = 0; }); lcGravar({dia: hoje, q: qtd}); telaReposicao(); };
   if ($("#rp-sug")) $("#rp-sug").onclick = () => { ped.forEach(l => { delete qtd[l.sku]; }); lcGravar({dia: hoje, q: qtd}); telaReposicao(); };
   if ($("#rp-gerar")) $("#rp-gerar").onclick = () => gerarPedido(ped.map(l => ({...l, q: +quer(l) || 0, custo_un: ult(l)})).filter(l => l.q > 0));
@@ -3681,7 +3699,7 @@ function gerarPedido(itens) {
   const un = v => nf0.format(v || 0);
   const bg = modal(`<h2 style="margin-top:0">🧾 ${esc(titulo)}</h2>
     <div style="display:flex;gap:10px 14px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:10px">
-      <div class="seg"><button data-gpor="marca">Por marca</button><button data-gpor="categoria">Por categoria</button></div>
+      <div class="seg"><button data-gpor="curva">Por curva</button><button data-gpor="marca">Por marca</button><button data-gpor="categoria">Por categoria</button></div>
       <label><input type="checkbox" id="gp-custo"> pôr o último custo</label></div>
     <div id="gp-corpo"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px">
@@ -3690,7 +3708,7 @@ function gerarPedido(itens) {
   const texto = gs => `*${titulo}*\n` + gs.map(g => `\n*${g.nome}*\n` + g.itens.map(l => `${l.q} un. — ${nomeCurto(l.titulo)}${S.gp.custo && l.custo_un ? ` (últ. R$ ${nf2.format(l.custo_un)})` : ""}`).join("\n")).join("\n")
     + `\n\nTotal: ${un(gs.reduce((a, g) => a + g.itens.length, 0))} produtos · ${un(gs.reduce((a, g) => a + g.itens.reduce((b, l) => b + l.q, 0), 0))} un.`;
   const desenhar = () => {
-    const nomeG = l => S.gp.por === "categoria" ? (l.categoria || "Sem categoria") : (l.marca || "Outras marcas"), por = {};
+    const nomeG = l => S.gp.por === "categoria" ? (l.categoria || "Sem categoria") : S.gp.por === "curva" ? ({A: "Curva A (campeões)", B: "Curva B"}[l.classe] || "Curva C") : (l.marca || "Outras marcas"), por = {};
     itens.forEach(l => (por[nomeG(l)] = por[nomeG(l)] || []).push(l));
     grupos = Object.keys(por).sort((a, b) => a.localeCompare(b, "pt-BR")).map(n => ({nome: n, itens: por[n].sort((a, b) => nomeCurto(a.titulo).localeCompare(nomeCurto(b.titulo), "pt-BR"))}));
     bg.querySelectorAll("[data-gpor]").forEach(b => b.classList.toggle("on", b.dataset.gpor === S.gp.por));
