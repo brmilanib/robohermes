@@ -266,6 +266,9 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   das unidades vêm de anúncios fora do antigo (export antigo incompleto, ex.: Armaf 851 com 247 anúncios). A venda diária
   dos seguidos (`vend_vendas_dia`) é outra fonte do MESMO anúncio: nunca soma com isto. Conferido na Armaf (851 × 999,
   225 anúncios em comum): 0 negativos, MNZ 300 un. no dia 30 (média dela 303/dia). Teste `test_explorador_diferenca.py`.
+  Observados sem soma dupla (02/10, "dos observadores também"): `nubi_observados()`/`nubi_observado_produtos(h)` contam
+  cada ID de anúncio uma vez entre os últimos exports de todas as marcas (fica o que não é "Outra marca", depois o mais
+  recente): eram 62 anúncios / 4.496 un. em dobro. SQL em `supabase/observados_sem_repetir.sql` (aplicada em 02/10).
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 
