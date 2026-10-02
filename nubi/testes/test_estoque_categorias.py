@@ -151,7 +151,7 @@ try:
                         j["faixas"] = [{"faixa": 1, "nome": "Campeões", "skus": 2, "unidades": 19, "valor": 950.0}]
                     route.fulfill(response=resp, json=j)
                 pg.route(lambda u: "/api/app?" in u and re.search(r"[?&]r=estoque_reposicao(&|$)", u), com_pedido)
-                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/reposicao"); pg.wait_for_selector("#rp-prazo", timeout=20000)
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/reposicao"); pg.wait_for_selector("#rp-sem", timeout=20000)
                 assert "Reposição" in pg.inner_text(".es-cab") and "Pedido completo" in pg.inner_text(".kpis")
                 for a in ("precos", "full", "campeoes", "parado", "mao", "pedido"):
                     pg.click(f"[data-rpa='{a}']"); pg.wait_for_selector(f"[data-rpa='{a}'].on", timeout=15000)
@@ -177,6 +177,7 @@ try:
                     assert "No pedido: 0" in pg.inner_text("#rp-tot"), pg.inner_text("#rp-tot")
                     pg.click("#rp-sug"); pg.wait_for_selector("#rp-tot", timeout=15000)
                 pg.fill("#rp-sem", "3"); pg.dispatch_event("#rp-sem", "change"); pg.wait_for_selector("#rp-sem[value='3']", timeout=15000)
+                assert "Vendi 7 · 15 · 30 dias" in pg.inner_text(".rp-t thead") and "🚀" not in pg.inner_text(".rp-t") and "🧮" not in pg.inner_text(".rp-t")
                 pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"reposicao_{nome}.png"), full_page=False)
                 # 02/10: calculadora livre no cabeçalho, sem buscar produto
                 pg.click("#bcalc"); pg.wait_for_selector("#pc-preco", timeout=8000)
@@ -185,13 +186,18 @@ try:
                 assert "Lucro líquido" in pg.inner_text("#pc-res")
                 pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"calc_livre_{nome}.png"), full_page=False)
                 pg.click(".modal [data-fechar]")
-                pg.fill("#rp-caixa", "50000"); pg.dispatch_event("#rp-caixa", "change")
+                # 02/10 (Bruno: "as regras num botão que abre no meio"): ⚙️ Regras guarda o caixa
+                pg.click("#rp-regras"); pg.wait_for_selector("#rg-caixa", timeout=8000)
+                assert "Como o nubi calcula" in pg.inner_text(".modal")
+                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"regras_{nome}.png"), full_page=False)
+                pg.fill("#rg-caixa", "50000"); pg.click("#rg-salvar")
                 pg.wait_for_function("() => document.querySelector('.kpis') && document.querySelector('.kpis').innerText.includes('Cabe no caixa')", timeout=15000)
                 with pg.expect_response(lambda r_: "estoque_reposicao_mercado" in r_.url, timeout=60000) as rm:
                     pg.click("#rp-merc")
                 assert rm.value.status == 200, rm.value.text()[:400]
-                pg.wait_for_selector("#rp-prazo", timeout=20000)
-                pg.fill("#rp-caixa", ""); pg.dispatch_event("#rp-caixa", "change"); pg.wait_for_timeout(1500)
+                pg.wait_for_selector("#rp-sem", timeout=20000)
+                pg.click("#rp-regras"); pg.wait_for_selector("#rg-caixa", timeout=8000)
+                pg.fill("#rg-caixa", ""); pg.click("#rg-salvar"); pg.wait_for_timeout(1500)
             pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/categorias")
             pg.wait_for_selector("text=Estoque por categoria", timeout=15000); pg.wait_for_selector("#ec-marcas table", timeout=15000)
             txt = pg.inner_text("#main")

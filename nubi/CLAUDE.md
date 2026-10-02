@@ -429,7 +429,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   mais venderam), Estoque (+chegando), Nível máx., Sugestão, Custo un. (último custo), Comprar (digitável, guardado no
   navegador no dia; "zerar tudo"/"usar a sugestão") e Total; sem "Acumulado". "Próximo pedido em N dias" no topo.
   🧾 Gerar pedido (`gerarPedido`) sai só do que tem quantidade: por marca ou categoria, imprimir (coluna "Cotação R$"),
-  WhatsApp (todo ou por grupo) e copiar. `#/estoque/lista` volta para a Reposição. Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
+  WhatsApp (todo ou por grupo) e copiar. `#/estoque/lista` volta para a Reposição.
+  02/10 (Bruno, prints da Sugestão de Compras do UpSeller): sem 🧮/🚀/✋ nas linhas do pedido (ranqueamento automático
+  continua; ✋ e 🚀 ficam na aba Preço/Na mão); "Minha venda/dia" mostra só a venda nos dias com estoque e embaixo a média
+  com os dias zerados; coluna "Vendi 7 · 15 · 30 dias" (`v7/v15/v30`) e "dura X d" no estoque; as regras (próximo pedido,
+  entrega, campeões, meta de margem, ML no galpão, meta de faturamento, caixa) ficam no botão ⚙️ Regras da reposição
+  (janela no meio com "Como o nubi calcula"); "Próximo pedido em" fica na tela e é guardado (`semana` no config). Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
   Coletor, `calcLivre` = `pmCalc` com `solo`, sem buscar nada no ML).
 - **Marca "Perfume Árabe" (02/10)**: "árabe", "masculina", "alta fixação"… estão em `categorias.GENERICAS` (palavra de
   anúncio nunca é marca). No Por marca, cada produto tem 🔗 vincular (`estoque_marca_salvar`, vence o título). O KPI de

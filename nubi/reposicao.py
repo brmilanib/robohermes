@@ -130,6 +130,12 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
             t["ml"] += v.get("ml") or 0
             t["dias_venda"] += 1 if (v.get("un") or 0) > 0 else 0
     abc = classes_abc({k: t["valor"] for k, t in tot.items()})
+    # 02/10 (Bruno, a sugestão do UpSeller mostra 1/7/15/30 dias): unidades nos últimos 7, 15 e 30 dias de venda
+    ultimos = {}
+    for janela in (7, 15, 30):
+        for d in dias[-janela:]:
+            for k, v in vendas_dia[d].items():
+                ultimos.setdefault(k, {7: 0.0, 15: 0.0, 30: 0.0})[janela] += v.get("un") or 0
     dias_est = sorted(estoque_dia)
     linhas = []
     for it in itens:
@@ -212,6 +218,7 @@ def calcular(itens, estoque_dia, vendas_dia, cfg=None, mercado=None, manuais=Non
             "vendas_un": t["un"], "vendas_valor": round(t["valor"], 2), "dias_venda": t["dias_venda"],
             "media_dia": round(md, 2), "dia_com_estoque": round(dc, 2) if dc is not None else None, "dias_com_estoque": dc_dias,
             "venda_base": round(base, 2), "ruptura_dias": ruptura, "intermitente": intermit,
+            "v7": (ultimos.get(k) or {}).get(7, 0.0), "v15": (ultimos.get(k) or {}).get(15, 0.0), "v30": (ultimos.get(k) or {}).get(30, 0.0),
             "fat_dia": round(base * preco, 2) if preco else 0.0, "ml_share": round(ml_share, 3),
             "margem_pct": mg, "margem": margem, "ranqueando": rank, "alerta": alerta,
             "lucro_dia": round(base * preco * (mg if mg is not None else cfg["meta_margem"]) / 100, 2) if preco else 0.0,

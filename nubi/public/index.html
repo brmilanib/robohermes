@@ -775,6 +775,9 @@ select.catsel{border:1px solid var(--line);border-radius:6px;padding:3px 6px;bac
 .subnav .mais{font-size:12px;color:var(--accent);cursor:pointer}
 /* cabeçalho: pílula de status do coletor e menu da conta */
 header.top{flex-wrap:nowrap;min-height:var(--header-h)}
+.rg-info{background:var(--bg2,rgba(37,99,235,.06));border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.5;margin-bottom:12px}.rg-info .rg-t{display:block;margin-bottom:2px}
+.rg-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 14px}.rg-c{display:flex;flex-direction:column;gap:3px;font-size:13px}.rg-c input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--card);color:inherit;font:inherit}
+.modal.rg-modal{max-width:760px}.rp-sub{display:block;font-size:11px;font-weight:400}.rp-v{white-space:nowrap}
 .rp-gerar{position:sticky;bottom:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end;padding:10px 0 2px;background:var(--card);border-top:1px solid var(--line);margin-top:8px}.rp-gerar #rp-tot{margin-right:auto}
 .hd-calc{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:999px;border:1px solid rgba(255,255,255,.28);background:transparent;color:#fff;cursor:pointer;flex:none}.hd-calc:hover{background:rgba(255,255,255,.12)}
 .lc-t input.lc-q{width:68px;text-align:right;border:1px solid var(--line);border-radius:7px;padding:4px 6px;background:var(--card);color:inherit;font:inherit;font-weight:700}
@@ -3494,7 +3497,7 @@ async function telaReposicao() {
   const main = $("#main"), aba = S.rpAba || "pedido";
   main.innerHTML = `<div class="es-pg">${esAbas("reposicao")}<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Calculando a reposição</div></div></div>`;
   let r;
-  try { r = await api("estoque_reposicao", S.rpSemana ? {semana: S.rpSemana} : {}); } catch (e) { main.innerHTML = `<div class="es-pg">${esAbas("reposicao")}<div class="card empty">${esc(e.message)}</div></div>`; return; }
+  try { r = await api("estoque_reposicao"); } catch (e) { main.innerHTML = `<div class="es-pg">${esAbas("reposicao")}<div class="card empty">${esc(e.message)}</div></div>`; return; }
   if (!location.hash.startsWith("#/estoque/reposicao")) return;
   if (r.vazio) { main.innerHTML = `<div class="es-pg">${esAbas("reposicao")}<div class="card empty">Nenhuma atualização do estoque ainda.</div></div>`; return; }
   S.rp = r;
@@ -3507,7 +3510,9 @@ async function telaReposicao() {
   const selos = l => [rkSelo(l), alSelo(l), mgSelo(l), l.ruptura_dias ? `<span class="pill neg" title="dias zerados desde que o nubi guarda o estoque por dia">zerou ${l.ruptura_dias} d</span>` : "",
     l.intermitente ? `<span class="pill" title="teve estoque e vende em poucos dias: prateleira mínima">prateleira</span>` : "",
     l.sem_custo ? `<span class="pill warn-t" title="sem custo médio no UpSeller">sem custo</span>` : ""].join(" ");
-  const vend = l => `${num1(l.media_dia)}${l.venda_base > l.media_dia + 0.05 ? ` → <b>${num1(l.venda_base)}</b>` : ""}`;
+  // 02/10 (Bruno: "o que é 2,8 → 8,1?"): o número grande é a venda por dia NOS DIAS COM ESTOQUE (o que vende quando tem);
+  // embaixo, a média contando os dias em que estava zerado (puxada para baixo pela ruptura)
+  const vend = l => `<b>${num1(l.venda_base)}</b>${l.venda_base > l.media_dia + 0.05 ? `<small class="muted rp-sub" title="média do período contando os dias em que estava zerado">${num1(l.media_dia)} c/ dias zerados</small>` : ""}`;
   // 02/10 (Bruno: "a lista de compra ficou redundante com o pedido; junta tudo no pedido, coloca para eu digitar, e lá
   // embaixo 'gerar pedido'; o que eu não for comprar deixo zerado"): a coluna Comprar vem com a sugestão e é editável
   // (fica guardada neste navegador no dia); o pedido impresso/WhatsApp sai só do que tiver quantidade.
@@ -3518,23 +3523,24 @@ async function telaReposicao() {
   const precoM = (m, k) => m && m[k] ? FMT.moeda(m[k]) : `<span class="muted">—</span>`;
   const linhaPedido = l => `<tr class="${l.cabe_no_caixa ? "" : "rp-fora"}" data-sku="${esc(l.sku)}"><td class="ec-prod first"><b>${esc(l.sku)}</b> <span class="pill">${l.classe}</span> ${selos(l)}<div class="muted">${esc(l.titulo)}</div></td>
       <td class="num" data-l="Minha venda/dia">${vend(l)}</td>
+      <td class="num rp-v" data-l="Vendi 7/15/30 dias">${un(l.v7)} · ${un(l.v15)} · ${un(l.v30)}</td>
       <td class="num" data-l="Mercado/dia">${l.mercado ? `<b>${num1(l.mercado.un_dia)}</b>` : `<span class="muted">—</span>`}</td>
       <td class="num" data-l="Preço do líder">${precoM(l.mercado, "preco_lider")}</td>
       <td class="num" data-l="Média dos 5 primeiros">${precoM(l.mercado, "preco_top5")}</td>
-      <td class="num" data-l="Estoque">${un(l.disponivel)}${l.transito ? ` <small class="muted">+${un(l.transito)} chegando</small>` : ""}</td>
+      <td class="num" data-l="Estoque">${un(l.disponivel)}${l.transito ? ` <small class="muted">+${un(l.transito)} chegando</small>` : ""}${l.cobertura_dias != null ? `<small class="muted rp-sub ${l.cobertura_dias < g.prazo ? "neg" : ""}">dura ${un(l.cobertura_dias)} d</small>` : ""}</td>
       <td class="num" data-l="Nível máx.">${un(l.nivel_max)}</td><td class="num" data-l="Sugestão">${l.compra ? un(l.compra) : `<span class="muted">0</span>`}</td>
       <td class="num" data-l="Custo un.">${ult(l) != null ? FMT.moeda(ult(l)) : "—"}</td>
       <td class="num" data-l="Comprar"><input type="number" min="0" step="1" class="lc-q" data-q="${esc(l.sku)}" value="${quer(l) || ""}" placeholder="0"></td>
-      <td class="num lc-tot" data-l="Total" data-t="${esc(l.sku)}">${quer(l) && ult(l) ? FMT.moeda(quer(l) * ult(l)) : ""}</td>
-      <td style="white-space:nowrap"><button class="btn small ghost" data-lcalc="${esc(l.sku)}" title="Calcular a margem">🧮</button><button class="btn small ghost" data-rk="${esc(l.sku)}" data-on="${l.ranqueando && l.ranqueando.motivo === "marcado na mão" ? 1 : 0}" title="${l.ranqueando && l.ranqueando.motivo === "marcado na mão" ? "Parar de ranquear" : "Começar a ranquear hoje (margem baixa até vender " + cfg.rank_un + ")"}">🚀</button><button class="btn small ghost" data-mao="${esc(l.sku)}" title="Tirar da conta e decidir na mão">✋</button></td></tr>`;
+      <td class="num lc-tot" data-l="Total" data-t="${esc(l.sku)}">${quer(l) && ult(l) ? FMT.moeda(quer(l) * ult(l)) : ""}</td></tr>`;
   let corte = false;
   const pedido = r.faixas.map(f => `<tr class="rp-faixa"><td colspan="12" data-l=""><b>Faixa ${f.faixa}</b> · ${esc(f.nome)} · ${un(f.skus)} SKUs · sugestão ${un(f.unidades)} un. · ${FMT.moeda(f.valor)}</td></tr>` +
     r.pedido.filter(l => l.faixa === f.faixa).map(l => { let sep = ""; if (!l.cabe_no_caixa && !corte) { corte = true; sep = `<tr class="rp-corte"><td colspan="12" data-l="">✂️ Aqui acaba o caixa de ${FMT.moeda(rs.caixa)}</td></tr>`; } return sep + linhaPedido(l); }).join("")).join("");
-  const cab = `<thead><tr><th>Produto</th><th class="num" title="a MINHA venda por dia: média do período → venda nos dias em que tinha estoque">Minha venda/dia</th>
+  const cab = `<thead><tr><th>Produto</th><th class="num" title="a MINHA venda por dia nos dias em que tinha estoque (embaixo, a média contando os dias zerados)">Minha venda/dia</th>
+    <th class="num" title="unidades que EU vendi nos últimos 7, 15 e 30 dias (todas as lojas)">Vendi 7 · 15 · 30 dias</th>
     <th class="num" title="todos os vendedores do produto no Explorador (Nubimetrics), por dia">Mercado/dia</th><th class="num" title="preço de quem mais vende o produto">Preço do líder</th>
     <th class="num" title="preço médio (faturamento ÷ unidades) dos 5 vendedores que mais venderam">Média dos 5 primeiros</th><th class="num">Estoque</th>
     <th class="num" title="o estoque ideal: venda até o próximo pedido + prazo de entrega + segurança">Nível máx.</th><th class="num">Sugestão</th><th class="num" title="último custo de compra (cadastro do UpSeller) ou o custo médio">Custo un.</th>
-    <th class="num">Comprar</th><th class="num">Total</th><th></th></tr></thead>`;
+    <th class="num">Comprar</th><th class="num">Total</th></tr></thead>`;
   const full = `<p class="muted" style="margin:0 0 8px">Os ${g.top_full} que mais faturam vão para o Full com ${g.full_dias} dias de ${100 - Math.round(cfg.ml_galpao * 100)}% da venda do Mercado Livre × ${nf1.format(g.campeao)}; no galpão ficam ${g.semana + g.prazo} dias das outras lojas (Amazon, Shopee, TikTok) + ${Math.round(cfg.ml_galpao * 100)}% do Mercado Livre (o ML pede para despachar daqui quando é mais rápido).</p>
     <div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th>Produto</th><th class="num">Venda/dia no ML</th><th class="num">Vai para o Full</th><th class="num">Reserva no galpão</th><th class="num">Tem (+trânsito)</th><th class="num">Mandar agora</th></tr></thead><tbody>
     ${r.full.map(f => `<tr><td class="ec-prod first"><b>${esc(f.sku)}</b> ${mgSelo(f)}${f.manual ? ` <span class="pill">✋ ${esc(f.manual)}</span>` : ""}<div class="muted">${esc(f.titulo)}</div></td><td class="num">${num1(f.ml_dia)}</td><td class="num"><b>${un(f.full_alvo)}</b></td><td class="num">${un(f.reserva)}</td>
@@ -3574,15 +3580,10 @@ async function telaReposicao() {
     </div>
     <div class="card pad rp-cfg" style="margin-bottom:12px;display:flex;gap:10px 14px;flex-wrap:wrap;align-items:center;font-size:13px">
       <label title="quantos dias até o próximo pedido (ex.: hoje sexta, pede de novo segunda = 3)">Próximo pedido em <input type="number" id="rp-sem" value="${g.semana}" min="1" max="30" style="width:52px"> dias</label>
-      <label>Prazo de entrega <input type="number" id="rp-prazo" value="${cfg.prazo}" min="1" max="60" style="width:52px"> dias</label>
-      <label>Campeões <input type="number" id="rp-camp" value="${Math.round((cfg.campeao - 1) * 100)}" min="0" max="200" step="5" style="width:56px"> % a mais</label>
-      <label>Meta de margem pós ADS <input type="number" id="rp-meta" value="${cfg.meta_margem}" min="0" max="80" step="1" style="width:52px"> %</label>
-      <label>Do ML que sai do galpão <input type="number" id="rp-mlg" value="${Math.round(cfg.ml_galpao * 100)}" min="0" max="100" step="5" style="width:52px"> %</label>
-      <label>Meta de faturamento/mês R$ <input type="number" id="rp-metafat" value="${cfg.meta_fat}" min="0" step="100000" style="width:110px"></label>
-      <label>Caixa para o pedido R$ <input type="number" id="rp-caixa" value="${cfg.caixa || ""}" min="0" step="1000" placeholder="sem limite" style="width:110px"></label>
+      <span class="muted">+ ${g.prazo} de entrega${cfg.caixa ? ` · caixa ${FMT.moeda(cfg.caixa)}` : ""}</span>
+      <button class="btn small primary" id="rp-regras">⚙️ Regras da reposição</button>
       <button class="btn small" id="rp-merc">🔄 Atualizar mercado</button>
-      <label class="btn small" title="UpSeller → Produtos → Exportar (export_warehouse_products…xlsx): código de barras e custo de compra">📦 Cadastro UpSeller${r.cadastro ? ` (${r.cadastro.skus})` : ""}<input type="file" id="rp-cad" accept=".xlsx" hidden></label>
-      <span class="muted">compra para ${g.semana} dias + ${g.prazo} de prazo · venda medida nos dias com estoque · o mercado é só referência, nunca aumenta a compra · ordem por lucro/dia${r.margens_de ? ` · margens do Gestor de ${dm(r.margens_de.inicio)} a ${dm(r.margens_de.fim)}` : " · sem Curva ABC do Gestor: margem não entra"}</span></div>
+      <label class="btn small" title="UpSeller → Produtos → Exportar (export_warehouse_products…xlsx): código de barras e custo de compra">📦 Cadastro UpSeller${r.cadastro ? ` (${r.cadastro.skus})` : ""}<input type="file" id="rp-cad" accept=".xlsx" hidden></label></div>
     <div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${[["pedido", "🛒 Pedido"], ["precos", "📣 Preço (" + r.precos.length + ")"], ["full", "🚚 Full (top " + g.top_full + ")"], ["campeoes", "🏆 Campeões"], ["parado", "💰 Dinheiro parado"], ["mao", "✋ Na mão (" + r.manuais.length + ")"]].map(([k, t]) => `<button data-rpa="${k}" class="${aba === k ? "on" : ""}">${t}</button>`).join("")}</div>
     <div class="card pad">${aba === "pedido" ? (r.pedido.length ? `<div class="rolar"><table class="t rp-t lc-t" style="font-size:13px">${cab}<tbody>${pedido}</tbody></table></div>
       <div class="rp-gerar"><span id="rp-tot" class="muted"></span><button class="btn small" id="rp-zerar" title="Zera a coluna Comprar para você digitar só o que vai comprar">0 zerar tudo</button>
@@ -3590,14 +3591,9 @@ async function telaReposicao() {
       : aba === "precos" ? precos : aba === "parado" ? parado : aba === "full" ? full : aba === "campeoes" ? camp : mao}</div></div>`;
   main.querySelectorAll("[data-rpa]").forEach(b => b.onclick = () => { S.rpAba = b.dataset.rpa; telaReposicao(); });
   const salvar = async corpo => { try { await api("estoque_reposicao_config", {}, {method: "POST", body: JSON.stringify(corpo)}); telaReposicao(); } catch (e) { toast(e.message); } };
-  $("#rp-prazo").onchange = e => salvar({prazo: parseInt(e.target.value) || 5});
-  $("#rp-camp").onchange = e => salvar({campeao: 1 + (parseFloat(e.target.value) || 0) / 100});
-  $("#rp-meta").onchange = e => salvar({meta_margem: parseFloat(e.target.value) || 0});
-  $("#rp-mlg").onchange = e => salvar({ml_galpao: (parseFloat(e.target.value) || 0) / 100});
-  $("#rp-metafat").onchange = e => salvar({meta_fat: parseFloat(e.target.value) || 0});
   main.querySelectorAll("[data-rk]").forEach(b => b.onclick = () => salvar({ranque: {sku: b.dataset.rk, desde: b.dataset.on === "1" ? "" : new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10)}}));
-  $("#rp-caixa").onchange = e => salvar({caixa: parseFloat(e.target.value) || null});
-  if ($("#rp-sem")) $("#rp-sem").onchange = e => { const v = Math.max(1, Math.min(30, parseInt(e.target.value) || 7)); if (v === g.semana) return; S.rpSemana = v; setTimeout(telaReposicao); };
+  $("#rp-sem").onchange = e => { const v = Math.max(1, Math.min(30, parseInt(e.target.value) || 7)); if (v === g.semana) return; setTimeout(() => salvar({semana: v})); };
+  $("#rp-regras").onclick = () => regrasReposicao(r, salvar);
   const totais = () => { let n = 0, u = 0, v = 0; r.pedido.forEach(l => { const q = +quer(l) || 0; if (q > 0) { n++; u += q; v += q * (ult(l) || 0); } }); return {n, u, v}; };
   const mostraTot = () => { const t = totais(), el = $("#rp-tot"); if (el) el.innerHTML = `No pedido: <b>${un(t.n)}</b> produtos · <b>${un(t.u)}</b> un. · <b>${FMT.moeda(t.v)}</b> pelo último custo${rs.caixa && t.v > rs.caixa ? ` <span class="neg">(passa o caixa em ${FMT.moeda(t.v - rs.caixa)})</span>` : ""}`; };
   mostraTot();
@@ -3606,8 +3602,6 @@ async function telaReposicao() {
     qtd[inp.dataset.q] = v; lcGravar({dia: hoje, q: qtd});
     const td = main.querySelector(`[data-t="${CSS.escape(inp.dataset.q)}"]`); if (td) td.textContent = v && ult(l) ? FMT.moeda(v * ult(l)) : "";
     mostraTot(); });
-  main.querySelectorAll("[data-lcalc]").forEach(b => b.onclick = () => { const l = r.pedido.find(z => z.sku === b.dataset.lcalc) || {};
-    calcLivre({titulo: l.titulo, sku: l.sku, custo: ult(l), preco: l.preco}); });
   if ($("#rp-zerar")) $("#rp-zerar").onclick = () => { r.pedido.forEach(l => { qtd[l.sku] = 0; }); lcGravar({dia: hoje, q: qtd}); telaReposicao(); };
   if ($("#rp-sug")) $("#rp-sug").onclick = () => { lcGravar({dia: hoje, q: {}}); telaReposicao(); };
   if ($("#rp-gerar")) $("#rp-gerar").onclick = () => gerarPedido(r.pedido.map(l => ({...l, q: +quer(l) || 0, custo_un: ult(l)})).filter(l => l.q > 0));
@@ -3632,6 +3626,37 @@ const nomeCurto = t => String(t || "").replace(/\b(perfumes?|masculino|feminino|
 function abrirListaCompra() { location.hash = "#/estoque/reposicao"; }
 const lcLer = () => { try { return JSON.parse(localStorage.getItem("nubi-lc") || "{}"); } catch (e) { return {}; } };
 const lcGravar = v => { try { localStorage.setItem("nubi-lc", JSON.stringify(v)); } catch (e) { /* sem armazenamento: segue */ } };
+// 02/10 (Bruno: "as nossas regras num botão que abre no meio, fica mais bonito", como as Regras de Reposição do UpSeller)
+function regrasReposicao(r, salvar) {
+  const cfg = r.cfg, g = r.regras, un = v => nf0.format(v || 0);
+  const campo = (id, rot, val, ajuda, extra = "") => `<label class="rg-c"><span>${rot}</span><div><input type="number" id="${id}" value="${val ?? ""}" ${extra}></div><small class="muted">${ajuda}</small></label>`;
+  const bg = modal(`<h2 style="margin-top:0">⚙️ Regras da reposição</h2>
+    <div class="rg-info">
+      <b class="rg-t">Como o nubi calcula</b>
+      <div>• <b>Minha venda/dia</b> = a média só dos dias em que o produto <b>tinha estoque</b> (dia zerado não conta, senão a ruptura esconde a venda).</div>
+      <div>• <b>Nível máximo</b> = venda/dia × (dias até o próximo pedido + dias de entrega) + estoque de segurança. A segurança é maior na curva A, menor na B e pouca na C.</div>
+      <div>• <b>Sugestão</b> = nível máximo − (estoque + o que está chegando). Se já tem o suficiente, a sugestão é 0.</div>
+      <div>• <b>Campeões</b> (curva A) compram mais para não romper no Full; com margem abaixo da meta, sem esse extra; abaixo de 10%, só a semana e vão para o fim da fila.</div>
+      <div>• A fila é por <b>lucro por dia</b>; com caixa definido, o que não cabe fica abaixo da linha ✂️. O mercado do Explorador é só referência: nunca aumenta a compra.</div>
+    </div>
+    <div class="rg-g">
+      ${campo("rg-sem", "Próximo pedido em (dias)", g.semana, "intervalo até a próxima compra", 'min="1" max="30"')}
+      ${campo("rg-prazo", "Entrega do fornecedor (dias)", cfg.prazo, "do pedido até chegar no galpão", 'min="1" max="60"')}
+      ${campo("rg-camp", "Campeões compram a mais (%)", Math.round((cfg.campeao - 1) * 100), "folga extra da curva A", 'min="0" max="200" step="5"')}
+      ${campo("rg-meta", "Meta de margem pós ADS (%)", cfg.meta_margem, "abaixo dela o campeão perde o extra", 'min="0" max="80"')}
+      ${campo("rg-mlg", "Do ML que sai do galpão (%)", Math.round(cfg.ml_galpao * 100), "o resto vai para o Full (top " + g.top_full + ", " + g.full_dias + " dias)", 'min="0" max="100" step="5"')}
+      ${campo("rg-metafat", "Meta de faturamento/mês (R$)", cfg.meta_fat, "aparece no topo da Reposição", 'min="0" step="100000"')}
+      ${campo("rg-caixa", "Caixa para o pedido (R$)", cfg.caixa || "", "vazio = sem limite", 'min="0" step="1000" placeholder="sem limite"')}
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn" data-fechar>Cancelar</button><button class="btn primary" id="rg-salvar">Salvar</button></div>`);
+  bg.querySelector(".modal").classList.add("rg-modal");
+  bg.querySelector("#rg-salvar").onclick = () => {
+    const v = id => bg.querySelector("#" + id).value, n = id => parseFloat(String(v(id)).replace(",", "."));
+    const corpo = {semana: parseInt(v("rg-sem")) || g.semana, prazo: parseInt(v("rg-prazo")) || cfg.prazo, campeao: 1 + (n("rg-camp") || 0) / 100,
+      meta_margem: n("rg-meta") || 0, ml_galpao: (n("rg-mlg") || 0) / 100, meta_fat: n("rg-metafat") || 0, caixa: n("rg-caixa") || null};
+    bg.querySelector("[data-fechar]").click(); salvar(corpo); toast("Regras guardadas");
+  };
+}
 // o pedido que sai da Reposição (só o que tem quantidade): por marca ou categoria, para imprimir, WhatsApp ou copiar (cotação)
 function gerarPedido(itens) {
   if (!itens.length) { toast("Digite as quantidades na coluna Comprar"); return; }
