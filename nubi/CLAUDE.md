@@ -273,6 +273,10 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   un 25100): acima de 1.000 o erro é ± meio degrau de cada lado. `diferenca_exports` devolve `erro`/`exato`; diferença
   menor ou igual ao erro = "dentro do arredondamento" (não dá para medir). Exato só em anúncio com histórico < 1.000; os
   grandes (vendedores seguidos) têm venda diária exata em `vend_vendas_dia` (outra fonte, nunca somada).
+  Seguidos na Diferença (02/10, export da PHTEC P7 29–30/09: Sabah 830 = 400 + 430): `seguidos_na_diferenca` TROCA (nunca
+  soma) a conta do Explorador pela venda diária exata quando todos os dias do intervalo do vendedor já foram coletados;
+  liga vendedor + GTIN + título (36 letras normalizadas) + tipo (Clássico/Premium) + Full; 2º anúncio igual = 0 ("contado no
+  anúncio igual"); sem par = fica com o Explorador (marcado); dias faltando = aviso na tela.
 - **Média por dia desde a criação (01/10, Bruno)**: `vendedores_produto[*].media_dia_hist` = Σ(un_hist ÷ dias_pub) por
   vendedor; o quadro do produto mostra "Média/dia desde a criação" e a variação do período vs. a média de vida.
 

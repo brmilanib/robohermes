@@ -67,9 +67,35 @@ def test_arredondamento_do_nubimetrics():
     assert d.at["t1", "erro"] == 1000 and d.at["t1", "situacao"] == "dentro do arredondamento" and not d.at["t1", "exato"]
     assert d.at["t2", "du"] == 60 and d.at["t2", "exato"] and d.at["t2", "situacao"] == "nos dois exports"
 
+def test_seguido_troca_pela_venda_diaria_sem_somar():
+    # 02/10 (export da PHTEC P7 29–30/09: Sabah 830 un. = 400 + 430): a venda diária exata TROCA a conta do Explorador
+    import nubi_web as w
+    d = pd.DataFrame([dict(linha(1, 25000, 150000, vend="PHTEC P7"), gtin="5055810013110", titulo="Perfume Sedutor Árabe Sabah 100ml Origin",
+                           exposicao="Clássica", full=1),
+                      dict(linha(2, 9, 9, vend="GARCA.AMETISTA.LACTEO", vid="v9"), gtin="", exposicao="Clássica", full=0)])
+    d = d.assign(du=[1000.0, 9.0], dfat=[142000.0, 900.0], erro=[1000.0, 0.0], exato=[False, True], situacao=["nos dois exports"] * 2)
+    it = lambda u: [{"k": "5055810013110", "t": "Perfume Sedutor Árabe Sabah 100ml Origin", "u": u, "v": u * 142.0,
+                     "l": [{"t": "Perfume Sedutor Árabe Sabah 100ml Origin", "u": u, "v": u * 142.0, "tp": "Clássico", "f": True}]}]
+
+    class R:
+        def _todos(self, t, q=None):
+            return [{"vendedor": "PHTEC P7", "data": "2026-09-29", "u": 400, "v": 0, "itens": it(400)},
+                    {"vendedor": "PHTEC P7", "data": "2026-09-30", "u": 430, "v": 0, "itens": it(430)}]
+    r, info = w.seguidos_na_diferenca(R(), d, ["2026-09-29", "2026-09-30"])
+    assert r.at[0, "du"] == 830 and r.at[0, "fonte"] == "venda diária do seguido" and r.at[0, "exato"], r
+    assert r.at[1, "du"] == 9 and r.at[1, "fonte"].startswith("Explorador")
+    assert info["anuncios_trocados"] == 1 and not info["faltam_dias"]
+
+    class R2:                                            # dia 30 ainda não coletado: fica com o Explorador
+        def _todos(self, t, q=None):
+            return R()._todos(t, q)[:1]
+    r2, info2 = w.seguidos_na_diferenca(R2(), d, ["2026-09-29", "2026-09-30"])
+    assert r2.at[0, "du"] == 1000 and info2["faltam_dias"] == ["PHTEC P7: 30/09"]
+
 
 if __name__ == "__main__":
     test_diferenca_pelo_historico()
     test_rota_da_diferenca()
     print("ok diferença")
     test_arredondamento_do_nubimetrics()
+    test_seguido_troca_pela_venda_diaria_sem_somar()

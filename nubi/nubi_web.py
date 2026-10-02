@@ -445,6 +445,68 @@ def escolher_periodo(snaps, periodo=None):
     return atual, anterior
 
 
+def _t40(t):
+    return nubi.normalizar(str(t or ""))[:36]
+
+
+def _tipo_pub(t):
+    t = nubi.normalizar(str(t or ""))
+    return "premium" if t.startswith("prem") else "classico" if t.startswith("cl") else ""
+
+
+def seguidos_na_diferenca(repo, d, dias):
+    """02/10 (Bruno, export da PHTEC P7 de 29–30/09: "o anúncio é o mesmo, você tem o ID dele, não pode somar"): no
+    anúncio de vendedor SEGUIDO, a venda dos dias vem da venda diária dele (`vend_vendas_dia`, exata) no lugar da
+    diferença do histórico do Explorador (arredondada a 3 algarismos) — TROCA, nunca soma. Liga pelo vendedor + GTIN +
+    título (40 letras, como o Nubimetrics corta) + tipo + Full. Só troca quando TODOS os dias do intervalo do vendedor
+    já foram coletados; anúncio do seguido sem par na venda diária fica com a conta do Explorador (marcado)."""
+    if not dias or d.empty:
+        return d, {}
+    try:
+        linhas = _vendas_dias(repo, dias[0], dias[-1])
+    except Exception:  # noqa: BLE001
+        return d, {}
+    por_vend = {}
+    for r in linhas:
+        por_vend.setdefault(str(r["vendedor"]), {})[str(r["data"])[:10]] = r.get("itens") or []
+    d = d.assign(fonte="Explorador (histórico)")
+    info = {"seguidos": 0, "faltam_dias": [], "anuncios_trocados": 0, "sem_par": 0}
+    for vend, idx in d.groupby("vendedor").groups.items():
+        dd = por_vend.get(str(vend))
+        if not dd:
+            continue
+        info["seguidos"] += 1
+        if any(x not in dd for x in dias):
+            info["faltam_dias"].append(f"{vend}: {', '.join(x[8:10] + '/' + x[5:7] for x in dias if x not in dd)}")
+            continue
+        diaria = {}
+        for x in dias:
+            for it in dd[x]:
+                for l in it.get("l") or [{"t": it.get("t"), "u": it.get("u"), "v": it.get("v")}]:
+                    k = (str(it.get("k") or ""), _t40(l.get("t")), _tipo_pub(l.get("tp")), bool(l.get("f")))
+                    u0, v0 = diaria.get(k, (0, 0.0))
+                    diaria[k] = (u0 + int(l.get("u") or 0), v0 + float(l.get("v") or 0))
+        sub = d.loc[idx]
+        chaves = {i: (str(g or ""), _t40(t), _tipo_pub(e), bool(int(f or 0)))
+                  for i, g, t, e, f in zip(sub.index, sub["gtin"].fillna(""), sub["titulo"], sub.get("exposicao", [""] * len(sub)),
+                                           sub.get("full", [0] * len(sub)).fillna(0))}
+        usados = set()
+        for i, k in sorted(chaves.items(), key=lambda kv: -float(d.at[kv[0], "du"])):
+            if k in diaria and k not in usados:
+                u, v = diaria[k]
+                d.at[i, "du"], d.at[i, "dfat"], d.at[i, "erro"], d.at[i, "exato"] = u, v, 0.0, True
+                d.at[i, "fonte"], d.at[i, "situacao"] = "venda diária do seguido", "seguido: venda diária exata"
+                usados.add(k)
+                info["anuncios_trocados"] += 1
+            elif k in usados:                            # 2º anúncio igual (mesmo GTIN, título, tipo e Full): já contado
+                d.at[i, "du"], d.at[i, "dfat"], d.at[i, "erro"], d.at[i, "exato"] = 0, 0.0, 0.0, True
+                d.at[i, "fonte"], d.at[i, "situacao"] = "venda diária do seguido", "seguido: contado no anúncio igual"
+            else:
+                d.at[i, "situacao"] = "seguido sem par na venda diária (Explorador)"
+                info["sem_par"] += 1
+    return d, info
+
+
 def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
     """Diferença entre dois exports da marca (ver `nubi.diferenca_exports`): o que cada anúncio, vendedor e produto vendeu
     entre o fim do export antigo e o fim do novo. Padrão: o novo = o que termina por último; o antigo = o que termina antes
@@ -469,6 +531,7 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
     df_novo = nubi.ler_snapshot(repo, int(novo["id"]), marca)
     df_ant = repo.anuncios(int(antigo["id"]))
     d = nubi.diferenca_exports(df_ant, df_novo, gap)
+    d, seg = seguidos_na_diferenca(repo, d, dias)
     v = d[d["du"] > 0]
     cont = d["situacao"].value_counts().to_dict()
     un_fora = float(d.loc[d["situacao"] == "sem venda no export antigo", "du"].sum())
@@ -489,7 +552,7 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
                                "seguido": not re.fullmatch(r"[A-Z]+(\.[A-Z]+){2}", str(k or ""))} if col == "vendedor" else {})}
                           for k, g in sorted(v.groupby(col), key=lambda kv: -kv[1]["du"].sum())][:100]
     vend_novos = sorted(set(d["vendedor_id"].fillna("").astype(str)) - ja_vend - {""})
-    cols = [c for c in ("vendedor", "titulo", "produto", "un_hist", "du", "dfat", "erro", "situacao", "preco") if c in v.columns]
+    cols = [c for c in ("vendedor", "titulo", "produto", "un_hist", "du", "dfat", "erro", "situacao", "fonte", "preco") if c in v.columns]
     return {"ok": True, "marca": marca, "dias": dias,
             "antigo": {"id": int(antigo["id"]), "inicio": antigo["_ini"], "fim": antigo["_fim"], "anuncios": int(len(df_ant))},
             "novo": {"id": int(novo["id"]), "inicio": novo["_ini"], "fim": novo["_fim"], "anuncios": int(len(df_novo))},
@@ -498,7 +561,7 @@ def explorador_diferenca(repo, marca, de=None, para=None, limite=300):
                                "un_sem_medida": int(d.loc[d["situacao"] == "dentro do arredondamento", "du"].sum())},
             "totais": {"un": int(total), "fat": round(float(d["dfat"].sum()), 2), "anuncios_com_venda": int(len(v)),
                        "vendedores": int(v["vendedor"].nunique()) if len(v) else 0, "vendedores_novos": len(vend_novos)},
-            "checagem": {k: int(x) for k, x in cont.items()}, "aviso": aviso,
+            "checagem": {k: int(x) for k, x in cont.items()}, "aviso": aviso, "seguidos": seg,
             "por_vendedor": agrupa("vendedor"), "por_produto": agrupa("produto"),
             "anuncios": [{k: (r[k].item() if hasattr(r[k], "item") else r[k]) for k in cols}
                          for _, r in v.sort_values("du", ascending=False).head(limite).iterrows()]}

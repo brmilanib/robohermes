@@ -9620,6 +9620,9 @@ async function telaDiferenca(el) {
         ${kpi("Anúncios com venda", nf0.format(t.anuncios_com_venda))}
         ${kpi("Vendedores", nf0.format(t.vendedores), t.vendedores_novos ? nf0.format(t.vendedores_novos) + " novo(s) no export" : "")}
       </div>
+      ${d.seguidos && d.seguidos.seguidos ? `<p class="muted" style="font-size:12px;margin:6px 0">Vendedores seguidos: ${d.seguidos.anuncios_trocados} anúncio(s) com a
+        venda diária exata no lugar da conta do Explorador (troca, nunca soma)${d.seguidos.sem_par ? `; ${d.seguidos.sem_par} sem par na venda diária` : ""}${(d.seguidos.faltam_dias || []).length
+        ? `. Ainda sem a venda diária (ficam com o Explorador): ${esc(d.seguidos.faltam_dias.join(" · "))}` : ""}.</p>` : ""}
       <div class="muted" style="font-size:12px">${sit}</div>
     </div>
     <div class="grid2">
@@ -9633,7 +9636,7 @@ async function telaDiferenca(el) {
     <div class="card pad"><h2>Por anúncio</h2><div class="rolar"><table class="t" style="font-size:13px">
       <thead><tr><th>Vendedor</th><th>Título</th><th>Produto</th><th class="num">Un.</th><th class="num">Faturamento</th><th>Situação</th></tr></thead>
       <tbody>${d.anuncios.map(a => `<tr><td class="first">${esc(a.vendedor || "")}</td><td>${esc(a.titulo || "")}</td><td>${esc(a.produto || "")}</td>
-        <td class="num">${nf0.format(a.du)}${a.erro ? ` <span class="muted">± ${nf0.format(a.erro)}</span>` : ""}</td><td class="num">R$ ${nf0.format(a.dfat)}</td><td class="muted">${esc(a.situacao)}</td></tr>`).join("")}</tbody>
+        <td class="num">${nf0.format(a.du)}${a.erro ? ` <span class="muted">± ${nf0.format(a.erro)}</span>` : ""}</td><td class="num">R$ ${nf0.format(a.dfat)}</td><td class="muted">${esc(a.situacao)}${a.fonte === "venda diária do seguido" ? " ✓" : ""}</td></tr>`).join("")}</tbody>
     </table></div></div>`;
 }
 
