@@ -417,12 +417,15 @@ JS_BOTAO_FILTROS = """() => {
   const exp = [...document.querySelectorAll('button')].find(b => /^\\s*EXPORTAR\\s*$/i.test(b.innerText) && b.offsetParent);
   if (!exp) return false;
   const y = exp.getBoundingClientRect().top + exp.getBoundingClientRect().height / 2;
-  const cands = [...document.querySelectorAll('button,[role=button],svg')].filter(e => {
-    const r = e.getBoundingClientRect(); return r.width > 8 && r.width < 60 && Math.abs(r.top + r.height / 2 - y) < 30 && r.left < 400; });
+  const cands = [...document.querySelectorAll('button,[role=button],svg,i,img,span')].filter(e => {
+    const r = e.getBoundingClientRect(); return r.width > 8 && r.width < 60 && r.height > 8 && r.height < 60 &&
+      Math.abs(r.top + r.height / 2 - y) < 30 && r.left < 400 && !e.closest('nav,aside'); });
   cands.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
   const alvo = cands[0] && (cands[0].closest('button,[role=button]') || cands[0]);
-  if (!alvo) return false;
-  alvo.dispatchEvent(new MouseEvent('click', {bubbles: true})); return true; }"""
+  if (!alvo) return null;
+  alvo.scrollIntoView({block: 'center'});
+  const q = alvo.getBoundingClientRect();
+  return {x: q.left + q.width / 2, y: q.top + q.height / 2}; }"""
 
 
 def _n_resultados(pg):
@@ -437,9 +440,13 @@ def _explorador_categoria(pg, categoria):
     if not selo.count():
         aberto = pg.locator(":visible", has_text=re.compile(r"^\s*Categoria\s*$|^\s*Cat[aá]logo\s*$")).count()
         if not aberto:
-            if not pg.evaluate(JS_BOTAO_FILTROS):
+            # 02/10 (1ª rodada real no Mac): o clique por código (dispatchEvent) não abria o painel; agora é o mouse de
+            # verdade no meio do ícone ⫶
+            pos = pg.evaluate(JS_BOTAO_FILTROS)
+            if not pos:
                 enviar_foto(pg, "explorador: sem o ícone de filtros", resumo_tela(pg))
                 raise Falha("não achei o ícone de filtros do Explorador " + diagnostico(pg))
+            pg.mouse.click(pos["x"], pos["y"])
             devagar(2)
         item = pg.locator(":is(li,a,span,div,label,p,button):visible", has_text=re.compile(rf"^\s*{re.escape(categoria)}\s*(\(\s*[\d.]+\s*\))?\s*$", re.I))
         if not item.count():
@@ -8636,7 +8643,16 @@ def main():
                 rot_cat = (nomes_ or [cat_])[-1]
                 ao_vivo(True, atual=f"MARCAS · {rot_cat} · {per['mes']}")
                 try:
-                    a, i, e = coletar_marcas(p, cfg, token, per["mes"], categoria=cat_, nomes=nomes_)
+                    try:
+                        a, i, e = coletar_marcas(p, cfg, token, per["mes"], categoria=cat_, nomes=nomes_)
+                    except SessaoExpirada:
+                        raise
+                    except Exception as ex1:  # noqa: BLE001
+                        # 02/10 (Mac: "Download.failure: Target … closed" na Maquiagem): o Chrome do Mac fecha sozinho depois
+                        # de um download; tenta 1 vez num Chrome novo (coletar_marcas abre e fecha o dele)
+                        log(f"  MARCAS {rot_cat} {per['mes']}: {type(ex1).__name__}; tentando de novo num Chrome novo")
+                        devagar(8)
+                        a, i, e = coletar_marcas(p, cfg, token, per["mes"], categoria=cat_, nomes=nomes_)
                     partes.append(f"MARCAS {rot_cat} {per['mes']} importado")
                 except SessaoExpirada:
                     raise
