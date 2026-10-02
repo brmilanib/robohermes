@@ -950,7 +950,7 @@ def login_agente():
 
 
 # Quando a regra de agrupamento muda, o agente reprocessa uma vez tudo o que já foi importado.
-REGRA_ATUAL = "regra 13b: chave de família (club de nuit) perde para o modelo citado no título; volume em onças do GTIN pesquisado junta com o frasco que mais vende"   # 02/10 (pedido do Bruno)
+REGRA_ATUAL = "regra 13c: Armaf Club de Nuit Elite separado; chave de família perde para o modelo citado; volume em onças do GTIN pesquisado junta com o frasco que mais vende"   # 02/10 (pedido do Bruno)
 
 
 GTIN_GLOBAL_CHAVE = "explorador|gtin_global"

@@ -237,7 +237,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Regra 13b (02/10, Bruno: "Club de Nuit Overdose, Lionheart e Private Key são outros perfumes"): chave de FAMÍLIA (começo de
   2+ outras chaves, ex. "club de nuit") é reserva em `achar_linha` (`_familias`): qualquer modelo citado no título ganha dela.
   Linhas da Armaf acrescentadas à mão a pedido dele (Overdose, Lionheart, Private Key To My Life/Dreams/Love/Soul/Success,
-  Intense Man Limited Edition, Bling); a de antes em `linhas_manual|ARMAF|2026-10-02`.
+  Intense Man Limited Edition, Bling, Elite — regra 13c); a de antes em `linhas_manual|ARMAF|2026-10-02`.
   Não somar o mesmo anúncio (02/10, Bruno): o ID do anúncio do Nubimetrics (hash de 64) é o MESMO em todos os exports
   (conferido: MNZ 899f0e33… em 851 e 999) e é a chave (`nubi.chave_anuncio`): a importação junta por ele
   (`_juntar_por_id`, `_absorver_periodo`) e `_com_marca_trocada` não traz anúncio que já está no relatório.
