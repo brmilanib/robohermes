@@ -3460,7 +3460,7 @@ async function telaFinanceiro() {
   main.innerHTML = `<h1>💰 Financeiro</h1><div class="card pad muted">Carregando…</div>`;
   let r;
   try { r = await api("financeiro"); } catch (e) { main.innerHTML = `<h1>💰 Financeiro</h1><div class="card pad">${esc(e.message)}</div>`; return; }
-  const mk = r.markup_medio, ma = r.markup_ano || {}, ms = r.meses || [], res = r.resumo;
+  const ma = r.markup_ano || {}, ms = r.meses || [], res = r.resumo;
   const mesBR = m => m ? m.slice(5, 7) + "/" + m.slice(0, 4) : "";
   const x = (v, f = FMT.moeda) => v == null ? "—" : f(v);
   const pct = v => v == null ? "—" : (v * 100).toFixed(1).replace(".", ",") + "%";
@@ -3472,7 +3472,7 @@ async function telaFinanceiro() {
     <p class="aviso">DRE Simplificado do Gestor Seller (mês fechado) e Resumo analítico (toda semana pelo coletor, ou <b>Central → Coletor → gestor_financeiro</b>).
       Markup = faturamento ÷ custo dos produtos vendidos: é ele que vale no potencial de vendas de Estoque → Por marca.</p>
     <div class="kpis">
-      ${kpi("Markup médio", mkf(mk && mk.markup), mk ? `DRE de ${mk.meses.map(mesBR).join(", ")} · líquido ${mkf(mk.markup_liquido)}` : "importe o DRE de um mês")}
+      ${kpi("Markup médio (vale no estoque)", mkf(r.estoque && r.estoque.markup), r.estoque ? esc(r.estoque.fonte) : "importe o DRE de um mês ou rode o coletor")}
       ${kpi("Markup do ano " + (ma.ano || ""), mkf(ma.markup), ma.meses && ma.meses.length ? `${ma.meses_exatos} mês(es) exato(s) pelo DRE · ${ma.meses.length - ma.meses_exatos} aproximado(s) pelo Resumo` : "sem dados")}
       ${kpi("Faturamento no ano", x(ma.faturamento), ma.custo ? "custo dos produtos " + FMT.moeda(ma.custo) : "")}
       ${ms[0] ? kpi("Último DRE: " + mesBR(ms[0].mes), x(ms[0].lucro_liquido), `lucro líquido ${pct(ms[0].lucro_liquido_pct)} · bruto ${pct(ms[0].lucro_bruto_pct)}`) : ""}

@@ -369,9 +369,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   fechado: o texto é lido no navegador com pdf.js e vai em `financeiro_importar`; `ler_dre` por blocos) e Resumo analítico
   (`/analytics/invoices`, 4 canais × meses × 7 linhas; o coletor troca as imagens por "[IMG:nome]" e manda o texto:
   `coletor gestor-financeiro`, comando `gestor_financeiro`, vigia `financeiro_pendente` toda semana = Resumo com 6+ dias +
-  meses fechados sem DRE pela página `/invoices/financial-summary?date=MM/AAAA`). ia_resumos `financeiro|dre|AAAA-MM`
+  os 12 últimos meses fechados sem DRE pela página `/invoices/financial-summary?date=MM/AAAA`; endereço ainda não
+  conferido na tela real: se não for o DRE, manda 1 foto com o endereço e para nos outros meses). ia_resumos `financeiro|dre|AAAA-MM`
   e `financeiro|resumo`. **Markup** = faturamento ÷ custo dos produtos vendidos (set/26: 820.464 ÷ 497.530 = 1,65×);
-  `markup_medio` = últimos 3 meses com DRE (ponderado); `markup_ano` = exato nos meses com DRE, aproximado pelo Resumo nos
+  **o estoque usa `markup_para_estoque` = `markup_12m`: Σ faturamento ÷ Σ custo dos 12 últimos meses FECHADOS** (Bruno:
+  "não de um mês só: mês rankeando produto novo baixa a margem, outro sobe; tem que pegar um médio"), exato nos meses com
+  DRE e aproximado pelo Resumo nos outros; `markup_medio` = últimos 12 meses com DRE; `markup_ano` = exato nos meses com DRE, aproximado pelo Resumo nos
   outros (custo ≈ líquido − lucro bruto − 2,4% de imposto; set/26 dá 1,647 x 1,649). Tela `#/financeiro` (Minhas Lojas).
   Estoque → 🏆 Por marca (`#/estoque/marcas`, rota `estoque_marcas`, `categorias.ranking_marcas`): por marca SKUs,
   unidades, custo total, **potencial = custo em estoque × markup médio** (Bruno: "às vezes estou rankeando um produto e vendo

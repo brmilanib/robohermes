@@ -13,7 +13,7 @@ import json
 import re
 
 CANAIS = ("Amazon", "Mercado Livre", "Shopee", "TikTok Shop")
-MESES_MARKUP = 3        # média ponderada dos últimos meses fechados
+MESES_MARKUP = 12       # 02/10 (Bruno): média do ano, não de um mês — mês rankeando produto novo baixa a margem, outro sobe
 
 
 def _num(txt):
@@ -300,12 +300,45 @@ def painel(repo, hoje=None):
     ms = meses(repo)
     resumo = ler_resumo_gravado(repo)
     return {"meses": ms, "markup_medio": markup_medio(ms), "canais": list(CANAIS), "resumo": resumo,
-            "markup_ano": markup_ano(ms, resumo, hoje.year)}
+            "markup_ano": markup_ano(ms, resumo, hoje.year), "markup_12m": markup_12m(ms, resumo, hoje),
+            "estoque": markup_para_estoque(repo, hoje)}
+
+
+def _meses_fechados(hoje, n=12):
+    """Os `n` últimos meses FECHADOS (o mês de hoje fica de fora), do mais velho para o mais novo."""
+    a, m, out = hoje.year, hoje.month, []
+    for _ in range(n):
+        m -= 1
+        if m == 0:
+            a, m = a - 1, 12
+        out.append(f"{a}-{m:02d}")
+    return out[::-1]
+
+
+def markup_12m(ms, resumo, hoje):
+    """Markup dos últimos 12 meses fechados (Σ faturamento ÷ Σ custo): exato nos meses com DRE, aproximado do Resumo nos
+    outros. Ponderado pelo custo, então mês grande pesa mais que mês pequeno."""
+    dre = {d["mes"]: d for d in ms if d.get("markup")}
+    aprox = (resumo or {}).get("por_mes") or {}
+    linhas, fat, custo = [], 0.0, 0.0
+    for mes in _meses_fechados(hoje):
+        if mes in dre:
+            d = dre[mes]
+            linhas.append({"mes": mes, "markup": d["markup"], "exato": True})
+            fat += d["faturamento"]; custo += d["custo_produtos"]
+        elif (aprox.get(mes) or {}).get("markup_aprox"):
+            a = aprox[mes]
+            linhas.append({"mes": mes, "markup": a["markup_aprox"], "exato": False})
+            fat += a["faturamento"]; custo += a["custo_aprox"]
+    if not custo:
+        return None
+    return {"markup": round(fat / custo, 4), "meses": linhas, "meses_exatos": sum(1 for l in linhas if l["exato"]),
+            "faturamento": round(fat, 2), "custo": round(custo, 2)}
 
 
 def pendente(repo, hoje=None, dias=6):
-    """Para o coletor (toda semana): rodar se o Resumo tem mais de `dias` dias (ou nunca veio); `meses` = meses FECHADOS do
-    ano sem DRE + o último mês fechado (para refrescar)."""
+    """Para o coletor (toda semana): rodar se o Resumo tem mais de `dias` dias (ou nunca veio); `meses` = os 12 meses
+    FECHADOS sem DRE + o último mês fechado (para refrescar)."""
     from datetime import date, datetime
     hoje = hoje or date.today()
     r = ler_resumo_gravado(repo) or {}
@@ -316,22 +349,22 @@ def pendente(repo, hoje=None, dias=6):
         except ValueError:
             velho = True
     tem = {d["mes"] for d in meses(repo)}
-    ult = date(hoje.year, hoje.month, 1)
-    fechados = [f"{hoje.year}-{m:02d}" for m in range(1, hoje.month)]
+    fechados = _meses_fechados(hoje)
     faltam = [m for m in fechados if m not in tem]
-    if fechados and fechados[-1] not in faltam and velho:
+    if fechados[-1] not in faltam and velho:
         faltam.append(fechados[-1])
     return {"rodar": bool(velho or faltam), "resumo": velho, "meses": faltam, "ultimo_resumo": r.get("em")}
 
 
-def markup_para_estoque(repo):
-    """O markup que o estoque usa no potencial de vendas: média dos últimos meses com DRE; sem DRE, o aproximado do ano."""
-    ms = meses(repo)
-    m = markup_medio(ms)
-    if m:
-        return {"markup": m["markup"], "fonte": f"DRE {', '.join(m['meses'])}", "exato": True}
+def markup_para_estoque(repo, hoje=None):
+    """O markup que o estoque usa no potencial de vendas: média ponderada dos últimos 12 meses fechados (exato onde tem DRE,
+    aproximado do Resumo nos outros). Bruno: "tem que pegar um médio", não um mês só."""
     from datetime import date
-    a = markup_ano(ms, ler_resumo_gravado(repo), date.today().year)
-    if a.get("markup"):
-        return {"markup": a["markup"], "fonte": f"Resumo analítico {a['ano']} (aproximado)", "exato": False}
-    return None
+    hoje = hoje or date.today()
+    m = markup_12m(meses(repo), ler_resumo_gravado(repo), hoje)
+    if not m:
+        return None
+    n, e = len(m["meses"]), m["meses_exatos"]
+    fonte = f"média de {n} {'mês' if n == 1 else 'meses'} ({m['meses'][0]['mes']} a {m['meses'][-1]['mes']})"
+    fonte += ", todos pelo DRE" if e == n else f", {e} pelo DRE e {n - e} aproximados pelo Resumo"
+    return {"markup": m["markup"], "fonte": fonte, "exato": e == n, "meses": n, "meses_exatos": e}

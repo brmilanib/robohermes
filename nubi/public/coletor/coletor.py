@@ -4150,7 +4150,11 @@ def coletar_gestor_financeiro(p, cfg, token):
                     feitos.append(f"{tipo} {r.get('mes') or ''}".strip() + (f" markup {r['markup']}" if r.get("markup") else ""))
                 except Exception as e:  # noqa: BLE001
                     erros.append(f"{tipo} {mes or ''}: {str(e)[:120]}")
-                    enviar_foto(pg, f"financeiro {tipo} {mes or ''}: {str(e)[:100]}", resumo_tela(pg))
+                    enviar_foto(pg, f"financeiro {tipo} {mes or ''}: {str(e)[:100]} (endereço {pg.url})", resumo_tela(pg))
+                    if tipo == "dre" and "Período" in str(e):
+                        # a tela não é o DRE (endereço mudou?): 1 foto basta, não repete nos outros 11 meses
+                        erros.append("DRE: parei nos outros meses até acertar o endereço da tela")
+                        break
             guardar_sessao(ctx)
             break
         except SessaoExpirada:

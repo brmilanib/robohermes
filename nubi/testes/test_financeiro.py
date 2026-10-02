@@ -133,12 +133,26 @@ def test_resumo_e_markup_do_ano():
     ma = pn["markup_ano"]
     assert [(m["mes"], m["exato"]) for m in ma["meses"]] == [("2026-03", False), ("2026-04", False), ("2026-09", True), ("2026-10", False)], ma
     assert ma["meses_exatos"] == 1 and ma["so_exatos"] == 1.6491 and 1.55 < ma["markup"] < 1.75
-    assert financeiro.markup_para_estoque(repo) == {"markup": 1.6491, "fonte": "DRE 2026-09", "exato": True}
-    # coletor: o que falta (Resumo velho, meses fechados sem DRE)
+    # estoque: média dos 12 meses FECHADOS (out/26 está aberto e fica de fora), setembro exato + março/abril aproximados
+    est = financeiro.markup_para_estoque(repo, date(2026, 10, 2))
+    m12 = financeiro.markup_12m(financeiro.meses(repo), r, date(2026, 10, 2))
+    assert [l["mes"] for l in m12["meses"]] == ["2026-03", "2026-04", "2026-09"] and m12["meses_exatos"] == 1, m12
+    fat = 820464.0 + r["por_mes"]["2026-03"]["faturamento"] + r["por_mes"]["2026-04"]["faturamento"]
+    custo = 497529.96 + r["por_mes"]["2026-03"]["custo_aprox"] + r["por_mes"]["2026-04"]["custo_aprox"]
+    assert est["markup"] == round(fat / custo, 4) and est["markup"] != 1.6491 and not est["exato"], est
+    assert est["fonte"] == "média de 3 meses (2026-03 a 2026-09), 1 pelo DRE e 2 aproximados pelo Resumo", est
+    # coletor: o que falta (Resumo velho, os 12 meses fechados sem DRE: out/25 a ago/26)
     pend = financeiro.pendente(repo, date(2026, 10, 2))
-    assert pend["rodar"] and not pend["resumo"] and pend["meses"] == [f"2026-0{m}" for m in range(1, 9)], pend
+    assert pend["rodar"] and not pend["resumo"], pend
+    assert pend["meses"] == ["2025-10", "2025-11", "2025-12"] + [f"2026-0{m}" for m in range(1, 9)], pend
     pend2 = financeiro.pendente(repo, date(2026, 10, 9))
     assert pend2["resumo"] and pend2["meses"][-1] == "2026-09"                           # 7 dias depois: Resumo de novo e refresca o último mês
+    # só com DREs: é a média ponderada dos meses, não a do último
+    repo2 = Repo()
+    financeiro.gravar_dre(repo2, financeiro.ler_dre(DRE))
+    financeiro.gravar_dre(repo2, financeiro.ler_dre(DRE.replace("09/2026", "08/2026").replace("R$ 820.464,00", "R$ 600.000,00")))
+    e2 = financeiro.markup_para_estoque(repo2, date(2026, 10, 2))
+    assert e2["markup"] == round((820464 + 600000) / (2 * 497529.96), 4) and e2["exato"] and "todos pelo DRE" in e2["fonte"], e2
 
 
 def test_potencial_pelo_markup():
