@@ -395,6 +395,17 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   do SKU em `estoque_categorias`). Estudo de estoque e diário com o Bruno: doc "Estudo de estoque: faturar mais com menos
   estoque" (regra: nível máximo = venda/dia × (7 + prazo 5) + segurança por classe ABC; campeões +20% por causa do Full;
   quem vende em < 8 de 25 dias só tem prateleira mínima; pedido em ordem de prioridade com valor acumulado).
+- **🔁 Reposição (02/10, Bruno: "uma inteligência comigo nesse estoque: campeões sem ruptura, dados do mercado, compro toda
+  semana, caixa limitado")**: Estoque → 🔁 Reposição (`#/estoque/reposicao`, rotas `estoque_reposicao`,
+  `estoque_reposicao_config`, `estoque_reposicao_mercado`), regras em `reposicao.py` (docstring). Venda base = venda nos
+  DIAS COM ESTOQUE (estoque_itens da última atualização de cada dia × `vendas_anuncio_dia|`); a média simples conta os
+  dias zerados e escondeu o Torino 21 (Bruno: "se tenho estoque, vende"). Segurança = z × 1,3 × √(venda × dias), nunca a
+  variação diária (inflada pelos zeros). Config em ia_resumos `reposicao|config` (prazo, campeao, caixa, manuais = SKUs
+  decididos na mão com nota); mercado do Explorador dos 40 que mais faturam em `reposicao|mercado` (1 vez por dia no cron
+  das rotinas, ou o botão): título do SKU casado (`_casar_varios`, mesmo volume/tipo) com os anúncios do card mais
+  recente da marca. Marcas paradas ficam fora. Teste `test_reposicao.py` + passo de tela em `test_estoque_categorias.py`.
+  Loja física (02/10): Carolina Herrera, Paco Rabanne, Jean Paul Gaultier, Giorgio Armani só na loja física por enquanto
+  (licença); o estoque é o mesmo — ainda não separado na conta.
 - **Ranking de marcas ≠ Explorador (02/10, Bruno: "ranking só traz os totais do mês fechado, importa uma vez por mês")**: no
   `diario`, o Ranking de cada mês sai quando o mês TERMINA no calendário (`meses_ranking`), sem esperar a venda diária dos
   seguidos (que atrasa 2 dias) chegar ao último dia; antes setembro só entraria no dia 3.

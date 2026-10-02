@@ -30,6 +30,7 @@ import pandas as pd
 import nubi
 import ranking
 import categorias
+import reposicao
 import ia
 import pesquisa_marca
 import produtos_iguais
@@ -4293,6 +4294,13 @@ def rodar_rotinas(repo, so=None):
                 out["teste_marca"] = len(teste_marca_ml(repo, ped["texto"].strip()[:40]).get("passos") or [])
         except Exception as e:  # noqa: BLE001
             out["teste_marca"] = f"erro: {str(e)[:120]}"
+        try:                                            # 02/10 (Bruno): mercado do Explorador dos campeões, 1 vez por dia (Reposição)
+            if agora.hour >= 6:
+                m, _ = _ia_json(repo, REPOSICAO_MERCADO)
+                if (m or {}).get("dia") != agora.date().isoformat():
+                    out["reposicao_mercado"] = reposicao_mercado(repo).get("casados")
+        except Exception as e:  # noqa: BLE001
+            out["reposicao_mercado"] = f"erro: {str(e)[:120]}"
         try:                                            # 02/10: card importado antes da regra 14 → outras marcas para os cards delas
             ped = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(ENCAMINHAR_PEDIDO)}) or [None])[0]
             if ped and (ped.get("texto") or "").strip():
@@ -5597,6 +5605,158 @@ def _tirar_skus(ls, skus):
             v = [x for x in v if estoque._chave(x.get("sku") or "") not in skus]
         out[k] = v
     return out
+
+
+REPOSICAO_CFG = "reposicao|config"
+REPOSICAO_MERCADO = "reposicao|mercado"
+REPOSICAO_TOP_MERCADO = 40          # SKUs que mais faturam que ganham o mercado do Explorador
+
+
+def _ia_json(repo, chave):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto,criado_em", "chave": f"eq.{chave}"}) or [None])[0]
+    try:
+        return (json.loads(r["texto"]), r.get("criado_em")) if r and r.get("texto") else ({}, None)
+    except (ValueError, TypeError):
+        return {}, None
+
+
+def _ia_gravar(repo, chave, valor, ia="nubi"):
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": ia, "criado_em": datetime.now(timezone.utc).isoformat(),
+                                            "texto": json.dumps(valor, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+
+
+def reposicao_config_salvar(repo, d):
+    """prazo (dias até a mercadoria chegar), campeao (crescimento dos campeões, 1,2 = +20%), caixa (R$ disponível) e
+    manual = {sku, nota} para decidir um SKU na mão (nota vazia = volta para a conta)."""
+    cfg, _ = _ia_json(repo, REPOSICAO_CFG)
+    try:
+        if d.get("prazo") is not None:
+            cfg["prazo"] = max(1, min(60, int(d["prazo"])))
+        if d.get("campeao") is not None:
+            cfg["campeao"] = max(1.0, min(3.0, float(d["campeao"])))
+        if "caixa" in d:
+            cfg["caixa"] = max(0.0, float(d["caixa"])) if d["caixa"] not in (None, "", 0) else None
+    except (TypeError, ValueError):
+        raise ErroNuvem("Valor inválido.")
+    if d.get("manual"):
+        m = d["manual"]
+        k = estoque._chave(m.get("sku") or "")
+        man = cfg.setdefault("manuais", {})
+        if m.get("nota"):
+            man[k] = {"sku": m.get("sku"), "nota": str(m["nota"])[:200], "em": _agora_br().date().isoformat()}
+        else:
+            man.pop(k, None)
+    _ia_gravar(repo, REPOSICAO_CFG, cfg, "Bruno")
+    return {"ok": True, "cfg": cfg}
+
+
+def _reposicao_dados(repo, dias=30):
+    """Estoque de hoje (sem as marcas paradas), estoque de cada dia e venda de cada dia por SKU."""
+    ult = (repo._req("GET", "estoque_atualizacoes", {"select": "id,criado_em", "order": "id.desc", "limit": 1}) or [None])[0]
+    if not ult:
+        return None
+    itens = _num_itens(_estoque_itens(repo, ult["id"]))
+    paradas = marcas_paradas(repo)
+    marca_de = {}
+    try:
+        for x in estoque_categorias(repo).get("itens") or []:
+            marca_de[estoque._chave(x.get("sku") or "")] = x.get("marca")
+    except ErroNuvem:
+        pass
+    ks = {nubi.compacta(m) for m in paradas}
+    itens = [it for it in itens if nubi.compacta(marca_de.get(estoque._chave(it["sku"])) or "") not in ks]
+    hoje = _agora_br().date()
+    desde = (hoje - timedelta(days=dias + 1)).isoformat()
+    ats = repo._todos("estoque_atualizacoes", {"select": "id,criado_em", "order": "criado_em.asc", "criado_em": f"gte.{desde}"}) or []
+    por_dia = {}
+    for a in ats:
+        por_dia[_br(a["criado_em"]).date().isoformat()] = a["id"]
+    estoque_dia = {}
+    if por_dia:
+        dia_de = {v: k for k, v in por_dia.items()}
+        ids = ",".join(str(i) for i in por_dia.values())
+        for r in repo._todos("estoque_itens", {"select": "atualizacao_id,sku,disponivel", "atualizacao_id": f"in.({ids})"}) or []:
+            estoque_dia.setdefault(dia_de[r["atualizacao_id"]], {})[estoque._chave(r["sku"])] = float(r.get("disponivel") or 0)
+    vendas_dia = {}
+    for dia, v in vendas_por_dia(repo, dias).items():
+        dd = vendas_dia.setdefault(dia, {})
+        for l in (v or {}).get("linhas") or []:
+            if not l.get("sku"):
+                continue
+            k = estoque._chave(l["sku"])
+            x = dd.setdefault(k, {"un": 0.0, "valor": 0.0, "ml": 0.0})
+            u = float(l.get("unidades") or 0)
+            x["un"] += u
+            x["valor"] += float(l.get("valor") or 0)
+            if "mercado" in str(l.get("loja") or "").lower():
+                x["ml"] += u
+    base = [{"sku": it["sku"], "titulo": it.get("titulo"), "disponivel": it.get("disponivel"),
+             "transito": (it.get("transito_compra") or 0) + (it.get("transito_transf") or 0), "custo": it.get("custo_medio")}
+            for it in itens]
+    return {"itens": base, "estoque_dia": estoque_dia, "vendas_dia": vendas_dia, "marca_de": marca_de,
+            "estoque_em": ult["criado_em"], "paradas": paradas}
+
+
+def reposicao_painel(repo, caixa=None):
+    """02/10 (Bruno): Estoque → 🔁 Reposição. As regras estão em reposicao.py."""
+    dd = _reposicao_dados(repo)
+    if not dd:
+        return {"vazio": True}
+    cfg, _ = _ia_json(repo, REPOSICAO_CFG)
+    merc, merc_em = _ia_json(repo, REPOSICAO_MERCADO)
+    c = {k: cfg[k] for k in ("prazo", "campeao", "caixa") if cfg.get(k) is not None}
+    if caixa is not None:
+        c["caixa"] = caixa or None
+    manuais = {k: (v or {}).get("nota") for k, v in (cfg.get("manuais") or {}).items()}
+    r = reposicao.calcular(dd["itens"], dd["estoque_dia"], dd["vendas_dia"], c, (merc or {}).get("itens") or {}, manuais)
+    r.update({"estoque_em": dd["estoque_em"], "mercado_em": (merc or {}).get("dia"), "paradas": dd["paradas"],
+              "regras": {"semana": r["cfg"]["semana"], "prazo": r["cfg"]["prazo"], "campeao": r["cfg"]["campeao"],
+                         "full_dias": reposicao.DIAS_FULL, "top_full": reposicao.TOP_FULL}})
+    return r
+
+
+def reposicao_mercado(repo, n=REPOSICAO_TOP_MERCADO):
+    """O mercado (Explorador) dos n SKUs que mais faturam: casa o título do SKU com os anúncios do card mais recente da marca
+    e soma quanto o mercado vende por dia, o preço mínimo e o do líder. Guardado por dia em ia_resumos."""
+    dd = _reposicao_dados(repo)
+    if not dd:
+        return {"vazio": True}
+    fat = {}
+    for v in dd["vendas_dia"].values():
+        for k, x in v.items():
+            fat[k] = fat.get(k, 0.0) + x["valor"]
+    alvo = [it for it in dd["itens"] if fat.get(estoque._chave(it["sku"]), 0) > 0]
+    alvo.sort(key=lambda it: -fat[estoque._chave(it["sku"])])
+    alvo = alvo[:n]
+    snaps = {}
+    for s in repo._todos("snapshots", {"select": "id,marca,fim,dias"}) or []:
+        k = nubi.compacta(s["marca"])
+        if k not in snaps or str(s["fim"]) > str(snaps[k]["fim"]):
+            snaps[k] = s
+    cache, out, sem = {}, {}, []
+    for it in alvo:
+        k = estoque._chave(it["sku"])
+        sn = snaps.get(nubi.compacta(dd["marca_de"].get(k) or ""))
+        if not sn:
+            sem.append(it["sku"])
+            continue
+        if sn["id"] not in cache:
+            ans = repo._todos("anuncios", {"select": "titulo,un,fat,preco,vendedor", "snapshot_id": f"eq.{sn['id']}"}) or []
+            for a in ans:
+                a["_tok"] = _tokens_produto(a.get("titulo"))
+                a["_tipo"] = _tipo_tok(a.get("titulo"))
+            cache[sn["id"]] = ans
+        _, vol = _tokens_produto(it.get("titulo"))
+        m = reposicao.mercado_do_produto(it.get("titulo"), cache[sn["id"]], int(sn.get("dias") or 0),
+                                         lambda t, xs: _casar_varios(t, xs, 100000, vol_fixo=vol))
+        if m:
+            m.update({"marca": sn["marca"], "card_fim": str(sn["fim"])[:10]})
+            out[k] = m
+        else:
+            sem.append(it["sku"])
+    _ia_gravar(repo, REPOSICAO_MERCADO, {"dia": _agora_br().date().isoformat(), "itens": out, "sem": sem})
+    return {"ok": True, "casados": len(out), "sem": sem}
 
 
 def estoque_niveis(repo, dias=60, agora=None):
@@ -8345,6 +8505,13 @@ def rota_estoque(repo, metodo, rota, q, corpo):
     if rota == "estoque_marca_parada" and metodo == "POST":
         d = json.loads(corpo or b"{}")
         return marcas_paradas_salvar(repo, d.get("marca"), bool(d.get("parada", True)))
+    if rota == "estoque_reposicao":
+        cx = q.get("caixa")
+        return reposicao_painel(repo, float(cx) if cx not in (None, "") else None)
+    if rota == "estoque_reposicao_config" and metodo == "POST":
+        return reposicao_config_salvar(repo, json.loads(corpo or b"{}"))
+    if rota == "estoque_reposicao_mercado" and metodo == "POST":
+        return reposicao_mercado(repo)
     if rota == "estoque_markup_salvar" and metodo == "POST":
         return estoque_markup_salvar(repo, json.loads(corpo or b"{}").get("markup"))
     if rota == "estoque_niveis":

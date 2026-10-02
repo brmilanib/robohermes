@@ -139,6 +139,18 @@ try:
                 assert "Marcas que não vendo mais" in pg.inner_text("#main") and pg.inner_text(".kpis") != tot0   # saiu dos totais
                 pg.click(f"[data-voltar='{mp}']"); pg.wait_for_selector(sel, timeout=15000)
                 assert pg.inner_text(".kpis") == tot0
+                # 02/10 (Bruno): Estoque → 🔁 Reposição abre, troca de aba, guarda o caixa e lê o mercado sem erro
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/reposicao"); pg.wait_for_selector("#rp-prazo", timeout=20000)
+                assert "Reposição" in pg.inner_text(".es-cab") and "Pedido completo" in pg.inner_text(".kpis")
+                for a in ("full", "campeoes", "mao", "pedido"):
+                    pg.click(f"[data-rpa='{a}']"); pg.wait_for_selector(f"[data-rpa='{a}'].on", timeout=15000)
+                pg.fill("#rp-caixa", "50000"); pg.dispatch_event("#rp-caixa", "change")
+                pg.wait_for_function("() => document.querySelector('.kpis') && document.querySelector('.kpis').innerText.includes('Cabe no caixa')", timeout=15000)
+                with pg.expect_response(lambda r_: "estoque_reposicao_mercado" in r_.url, timeout=60000) as rm:
+                    pg.click("#rp-merc")
+                assert rm.value.status == 200, rm.value.text()[:400]
+                pg.wait_for_selector("#rp-prazo", timeout=20000)
+                pg.fill("#rp-caixa", ""); pg.dispatch_event("#rp-caixa", "change"); pg.wait_for_timeout(1500)
             pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/categorias")
             pg.wait_for_selector("text=Estoque por categoria", timeout=15000); pg.wait_for_selector("#ec-marcas table", timeout=15000)
             txt = pg.inner_text("#main")
