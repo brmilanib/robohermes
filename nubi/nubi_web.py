@@ -5783,9 +5783,7 @@ def reposicao_mercado(repo, n=REPOSICAO_TOP_MERCADO):
             cache[sn["id"]] = repo._todos("anuncios", {"select": "produto,tipo,titulo,un,fat,preco,vendedor,gtin",
                                                         "snapshot_id": f"eq.{sn['id']}"}) or []
         pend.append((it, k, sn, g[0] if g else None))
-    vocab = set()
-    for s_ in snaps.values():                        # nomes dos cards ("BELARA - LATTAFA YARA CANDY") também contam
-        vocab |= _tokens_produto(s_["marca"])[0]
+    vocab = set()                                    # só nomes de PRODUTO (nome de card tem frase de propaganda: "…ARABE MASCULINO…")
     for ans in cache.values():
         for nome in {str(a.get("produto") or "") for a in ans}:
             vocab |= _tokens_produto(nome)[0]
