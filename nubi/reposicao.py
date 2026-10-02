@@ -384,6 +384,27 @@ def mercado_por_produto(titulo, anuncios, dias, tokens, tipo_tok, marca="", voca
 
 
 def mercado_por_gtin(gtin, anuncios, dias):
+    """Aceita um GTIN ou vários (o mesmo perfume tem mais de um: Ferrari Black 8002135111974 no cadastro, 7795666906867 no
+    meu anúncio)."""
+    gs = {str(g).strip() for g in (gtin if isinstance(gtin, (set, list, tuple, frozenset)) else [gtin]) if g}
+    if not gs:
+        return None
+    if len(gs) > 1:
+        xs = [a for a in anuncios if str(a.get("gtin") or "").strip() in gs]
+        if not xs or not dias:
+            return None
+        nomes = {}
+        for a in xs:
+            n = str(a.get("produto") or "").strip()
+            if n:
+                nomes[n] = nomes.get(n, 0) + float(a.get("un") or 0)
+        r = _agrega(xs, dias, max(nomes, key=nomes.get) if nomes else "")
+        r["gtin"] = ",".join(sorted(gs))
+        return r
+    return _mercado_um_gtin(next(iter(gs)), anuncios, dias)
+
+
+def _mercado_um_gtin(gtin, anuncios, dias):
     """02/10 (Bruno: "mas o GTIN é diferente, né"): o mercado é todo anúncio do card com o MESMO GTIN do meu SKU (o GTIN do
     meu SKU vem do meu próprio anúncio no Explorador, coluna Sku). O nome consolidado do Explorador junta Yara, Yara Elixir e
     Yara Moi num "Lattafa Yara EDP 100 ml"; o GTIN separa. Anúncio sem GTIN fica de fora (o número sai um pouco por baixo)."""

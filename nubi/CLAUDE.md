@@ -414,6 +414,18 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Barbours marcada como parada (02/10, Bruno: "parei de vender, vou zerar e devolver parte").
   Loja física (02/10): Carolina Herrera, Paco Rabanne, Jean Paul Gaultier, Giorgio Armani só na loja física por enquanto
   (licença); o estoque é o mesmo — ainda não separado na conta.
+  Cadastro do UpSeller (02/10, Bruno: "tem o código de barras dos meus produtos"): Produtos → Exportar
+  (`export_warehouse_products_*.xlsx`) → `estoque.ler_cadastro_produtos` → ia_resumos `estoque|cadastro_upseller` (rota
+  `estoque_cadastro_importar`, botão 📦 na Reposição). O mercado usa TODOS os GTINs do SKU (cadastro + o do meu anúncio no
+  Explorador: Ferrari Black tem 2); o custo de compra entra quando falta custo médio e aparece como "último custo".
+  Lista de compra (02/10) virou página (`#/estoque/lista`): por marca ou categoria, estoque, trânsito, sugestão, último
+  custo e a coluna Comprar que o Bruno digita (guardada no navegador no dia); o pedido impresso/WhatsApp sai só do que foi
+  digitado, com coluna "Cotação R$" para o fornecedor. Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
+  Coletor, `calcLivre` = `pmCalc` com `solo`, sem buscar nada no ML).
+- **Marca "Perfume Árabe" (02/10)**: "árabe", "masculina", "alta fixação"… estão em `categorias.GENERICAS` (palavra de
+  anúncio nunca é marca). No Por marca, cada produto tem 🔗 vincular (`estoque_marca_salvar`, vence o título). O KPI de
+  custo do Por marca é do DISPONÍVEL sem marcas paradas; a tela Estoque soma o atual (com vendidos aguardando envio e
+  Barbours): 439,6 mil = 396,9 mil + 9,9 mil reservados + 32,8 mil Barbours.
 - **Ranking de marcas ≠ Explorador (02/10, Bruno: "ranking só traz os totais do mês fechado, importa uma vez por mês")**: no
   `diario`, o Ranking de cada mês sai quando o mês TERMINA no calendário (`meses_ranking`), sem esperar a venda diária dos
   seguidos (que atrasa 2 dias) chegar ao último dia; antes setembro só entraria no dia 3.

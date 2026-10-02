@@ -248,7 +248,10 @@ GENERICAS = {"perfume", "perfumes", "perfumaria", "kit", "kits", "importado", "i
              "novo", "nova", "promocao", "oferta", "lacrado", "colonia", "desodorante", "creme", "serum", "nicho",
              # 01/10: "Shampoo" virou marca do Batiste Blush; palavra de produto nunca é marca
              "shampoo", "condicionador", "blush", "batom", "gel", "sabonete", "hidratante", "locao", "mist", "home", "sache",
-             "difusor", "aromatizador", "vela", "tapete", "caneca", "faca", "facas", "drone", "stick", "fire", "smartwatch"}
+             "difusor", "aromatizador", "vela", "tapete", "caneca", "faca", "facas", "drone", "stick", "fire", "smartwatch",
+             # 02/10 (Bruno: "não tem nada a ver essa marca Perfume Árabe"): "Perfume Árabe" virou a 3ª marca do estoque
+             "arabe", "arabes", "arabia", "masculina", "feminina", "unisex", "fragrancia", "oriental", "alta", "fixacao",
+             "original", "lancamento", "contratipo", "inspiracao", "inspirado"}
 
 
 def tipo_produto(titulo):
@@ -293,6 +296,7 @@ def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO, markup=MARKUP_PADRAO):
     markup = float(markup or MARKUP_PADRAO)
     por = {}
     itens = {}
+    reservado = [0.0, 0.0]
     for x in lista:
         m = x.get("marca") or "(marca não identificada)"
         disp = float(x.get("disponivel") if x.get("disponivel") is not None else x.get("atual") or 0)
@@ -302,11 +306,15 @@ def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO, markup=MARKUP_PADRAO):
         custo = x.get("custo")
         potencial = round(max(disp, 0) * float(custo) * markup, 2) if custo is not None else None
         sug = max(0, math.ceil(vu * (1 + crescimento) - disp - trans)) if vu > 0 else 0
-        it = {"sku": x.get("sku"), "titulo": x.get("titulo"), "custo": custo, "disponivel": disp, "transito": trans,
+        it = {"sku": x.get("sku"), "titulo": x.get("titulo"), "marca_manual": bool(x.get("marca_manual")), "custo": custo, "disponivel": disp, "transito": trans,
               "valor": round(disp * float(custo), 2) if custo is not None else 0.0, "vend_un": vu, "vend_valor": float(x.get("vend_valor") or 0),
               "preco_venda": pv, "potencial": potencial, "cobertura_dias": x.get("cobertura_dias"),
               "sugestao": sug, "sugestao_custo": round(sug * float(custo), 2) if custo is not None and sug else 0.0}
         itens.setdefault(m, []).append(it)
+        if custo is not None and x.get("atual") is not None:   # vendido esperando envio: está no galpão, mas não é disponível
+            res = max(float(x.get("atual") or 0) - max(disp, 0), 0)
+            reservado[0] += res
+            reservado[1] += res * float(custo)
         g = por.setdefault(m, {"marca": m, "categoria": x.get("categoria"), "skus": 0, "com_estoque": 0, "unidades": 0.0, "transito": 0.0,
                                "custo": 0.0, "potencial": 0.0, "skus_sem_custo": 0, "vend_un": 0.0, "vend_valor": 0.0,
                                "sugestao": 0, "sugestao_custo": 0.0})
@@ -339,7 +347,8 @@ def ranking_marcas(lista, crescimento=CRESCIMENTO_PADRAO, markup=MARKUP_PADRAO):
     for xs in itens.values():
         xs.sort(key=lambda it: (-it["sugestao"], -it["valor"]))
     return {"marcas": marcas, "itens": itens, "crescimento": crescimento, "markup_usado": markup,
-            "total": {"skus": sum(g["skus"] for g in marcas), "unidades": round(sum(g["unidades"] for g in marcas), 2),
+            "total": {"reservado_un": round(reservado[0], 2), "reservado_custo": round(reservado[1], 2),
+                      "skus": sum(g["skus"] for g in marcas), "unidades": round(sum(g["unidades"] for g in marcas), 2),
                       "custo": round(sum(g["custo"] for g in marcas), 2), "potencial": round(sum(g["potencial"] for g in marcas), 2),
                       "sugestao": sum(g["sugestao"] for g in marcas), "sugestao_custo": round(sum(g["sugestao_custo"] for g in marcas), 2)}}
 

@@ -185,6 +185,34 @@ def test_mercado_pelo_gtin():
     # o nome junta outro produto (Yara Moi = 3% do "Yara") → vale o GTIN
     assert reposicao.escolher_mercado({"un_dia": 8.9, "gtin": "x"}, {"un_dia": 273.0})["un_dia"] == 8.9
     assert reposicao.escolher_mercado(None, n)["casado_por"] == "nome" and reposicao.escolher_mercado(None, None) is None
+    # vários GTINs do mesmo SKU (cadastro do UpSeller + meu anúncio no Explorador): soma os dois
+    m = reposicao.mercado_por_gtin({"6290362346531", "6290360591421"}, ans, 30)
+    assert m["un_dia"] == 33.0 and m["anuncios"] == 3 and m["gtin"] == "6290360591421,6290362346531", m
+    assert reposicao.mercado_por_gtin({"6290362346531"}, ans, 30)["un_dia"] == 30.0
+
+
+def test_perfume_arabe_nao_e_marca():
+    """02/10 (Bruno: "não tem nada a ver essa marca Perfume Árabe"): palavra de anúncio nunca vira marca."""
+    from categorias import marca_do_titulo
+    conh = {"PERFUMEARABE": "Perfume Arabe", "LATTAFA": "Lattafa", "ALWATANIAH": "Al Wataniah"}
+    assert marca_do_titulo("Perfume Árabe Original Alta Fixação 100ml", conh) is None
+    assert marca_do_titulo("Perfume Árabe Bareeq Al Wataniah EDP 100ml", conh) == "Al Wataniah"
+    assert marca_do_titulo("Perfume Arabe Yara Lattafa", conh) == "Lattafa"
+
+
+def test_cadastro_upseller():
+    """02/10: Produtos → Exportar do UpSeller -> GTIN e custo de compra por SKU."""
+    import io, openpyxl
+    from estoque import ler_cadastro_produtos
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(["SKU", "Título", "Código de Barras", "Custo de Compra", "Categorias", "Marca"])
+    ws.append(["FERRARI-BLACK-125", "Ferrari Black EDT 125ml", "8002135111974", 89.9, "Perfumes", "Ferrari"])
+    ws.append(["SEM-GTIN", "Kit", "", "", "", ""])
+    b = io.BytesIO(); wb.save(b)
+    c = ler_cadastro_produtos(b.getvalue())
+    f = [v for v in c.values() if v["sku"] == "FERRARI-BLACK-125"][0]
+    assert f["gtin"] == "8002135111974" and f["custo_compra"] == 89.9, c
+    assert [v for v in c.values() if v["sku"] == "SEM-GTIN"][0]["gtin"] is None, c
 
 
 if __name__ == "__main__":
@@ -197,4 +225,6 @@ if __name__ == "__main__":
     test_dinheiro_parado_e_meta()
     test_mercado_pelo_nome_do_produto()
     test_mercado_pelo_gtin()
+    test_cadastro_upseller()
+    test_perfume_arabe_nao_e_marca()
     print("ok reposição")

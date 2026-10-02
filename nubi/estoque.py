@@ -905,3 +905,41 @@ def gerar_gestor(itens):
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def ler_cadastro_produtos(conteudo):
+    """02/10 (Bruno: "consegui exportar isso do UpSeller, tem o código de barras dos meus produtos"): Produtos → Exportar
+    (export_warehouse_products_*.xlsx) -> {chave do SKU: {sku, gtin, custo_compra, categoria, marca, titulo}}. O GTIN liga o
+    meu SKU ao mercado do Explorador; o custo de compra cobre SKU sem custo médio no estoque."""
+    import openpyxl
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(conteudo), data_only=True)
+        except Exception as e:  # noqa: BLE001
+            raise ErroEstoque(f"não é uma planilha .xlsx válida ({e.__class__.__name__})")
+    linhas = wb.worksheets[0].iter_rows(values_only=True)
+    try:
+        cab = [_cab(c) for c in next(linhas)]
+    except StopIteration:
+        raise ErroEstoque("planilha vazia")
+    pos = {n: i for i, n in enumerate(cab)}
+    if _cab("SKU") not in pos or _cab("Código de Barras") not in pos:
+        raise ErroEstoque("não parece o cadastro de produtos do UpSeller (faltam as colunas SKU e Código de Barras)")
+    col = lambda r, n: r[pos[_cab(n)]] if _cab(n) in pos and pos[_cab(n)] < len(r) else None
+    out = {}
+    for r in linhas:
+        sku = str(col(r, "SKU") or "").strip()
+        if not sku:
+            continue
+        g = re.sub(r"\D", "", str(col(r, "Código de Barras") or ""))
+        try:
+            c = float(str(col(r, "Custo de Compra")).replace(",", ".")) if col(r, "Custo de Compra") not in (None, "") else None
+        except ValueError:
+            c = None
+        out[_chave(sku)] = {"sku": sku, "gtin": g if len(g) >= 8 else None, "custo_compra": c if c and c > 0 else None,
+                            "categoria": col(r, "Categorias"), "marca": col(r, "Marca"), "titulo": col(r, "Título")}
+    if not out:
+        raise ErroEstoque("nenhum SKU na planilha")
+    return out

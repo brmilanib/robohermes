@@ -778,6 +778,9 @@ select.catsel{border:1px solid var(--line);border-radius:6px;padding:3px 6px;bac
 .subnav .mais{font-size:12px;color:var(--accent);cursor:pointer}
 /* cabeçalho: pílula de status do coletor e menu da conta */
 header.top{flex-wrap:nowrap;min-height:var(--header-h)}
+.hd-calc{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:999px;border:1px solid rgba(255,255,255,.28);background:transparent;color:#fff;cursor:pointer;flex:none}.hd-calc:hover{background:rgba(255,255,255,.12)}
+.lc-t input.lc-q{width:68px;text-align:right;border:1px solid var(--line);border-radius:7px;padding:4px 6px;background:var(--card);color:inherit;font:inherit;font-weight:700}
+.lc-t .lc-prod small{display:block}.lc-t tr.lc-g td{background:var(--bg2,rgba(0,0,0,.03));padding-top:10px}
 .status-pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#fff;text-decoration:none;background:rgba(255,255,255,.1);border-radius:999px;padding:4px 11px;white-space:nowrap;position:relative;overflow:hidden}
 .status-pill .pt{width:8px;height:8px;border-radius:50%;background:#4fc987;flex:none}
 .status-pill.erro .pt{background:#ff7a6e} .status-pill.rodando .pt{background:#6b9cff;animation:pisca 1s infinite alternate}
@@ -1540,6 +1543,7 @@ function moldura() {
       ${S.painel.map(p => `<option value="${esc(p.marca)}" ${p.marca === S.marca ? "selected" : ""}>${esc(nome(p.marca))}</option>`).join("")}
     </select>` : ""}
     <div class="sp"></div>
+    <button class="hd-calc" id="bcalc" title="Calculadora de margem" aria-label="Calculadora de margem">${ICO_CALC_PB}</button>
     <a class="status-pill nada" id="st-pill" href="#/coletor" title="Coletor do Nubimetrics e agente de GTIN"><span class="pt"></span><span class="tx">Coletor</span></a>
     ${sec === "nomes" || sec === "inicio" || sec === "lojas" ? "" : `<button class="btn ghost" id="bup" title="${rotulo}">⬆ <span class="rot">${rotulo}</span></button>`}
     ${sec === "explorador" ? `<button class="btn ghost" id="bxl" title="Baixar Excel">⬇ <span class="rot">Excel</span></button>` : ""}
@@ -1556,6 +1560,7 @@ function moldura() {
   if ($("#bup")) $("#bup").onclick = sec === "ranking" ? abrirUploadRanking : sec === "vendedores" ? abrirUploadVendedor : abrirUpload;
   if ($("#bxl")) $("#bxl").onclick = baixarExcel;
   $("#bmenu").onclick = e => { e.stopPropagation(); document.body.classList.toggle("menu-aberto"); };
+  $("#bcalc").onclick = () => calcLivre();
   $("#bsenha").onclick = () => { $("details.conta").open = false; trocarSenha(); };
   $("#bsair").onclick = async () => { await sb.auth.signOut(); location.hash = ""; };
   desenharMenu();
@@ -1943,7 +1948,7 @@ async function rotear() {
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
     return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
   if (location.hash.startsWith("#/estoque/perseguir")) { history.replaceState(null, "", "#/precos"); return rotear(); }   // 01/10: virou o Monitor
-  if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/categorias") ? telaEstoqueCategorias() : location.hash.startsWith("#/estoque/marcas") ? telaEstoqueMarcas() : location.hash.startsWith("#/estoque/reposicao") ? telaReposicao() : telaEstoque();
+  if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/categorias") ? telaEstoqueCategorias() : location.hash.startsWith("#/estoque/marcas") ? telaEstoqueMarcas() : location.hash.startsWith("#/estoque/reposicao") ? telaReposicao() : location.hash.startsWith("#/estoque/lista") ? telaListaCompra() : telaEstoque();
   if (sec === "ranking") {
     const [, cat, mes] = decodeURIComponent(location.hash).match(/^#\/ranking(?:\/([^/]+))?(?:\/(\d{4}-\d{2}|bi|categorias))?/) || [];
     return mes === "bi" ? telaBI(cat) : mes === "categorias" ? telaCategorias(cat) : telaRanking(cat, mes);
@@ -3410,7 +3415,9 @@ async function telaEstoqueMarcas() {
     <div class="kpis">
       ${kpi("Marcas", nf0.format(ms.length), nf0.format(t.skus) + " SKUs")}
       ${kpi("Unidades disponíveis", nf0.format(t.unidades))}
-      ${kpi("Custo total do estoque", FMT.moeda(t.custo))}
+      ${(() => { const par = (r.paradas || []).reduce((a, p) => a + (p.custo || 0), 0);
+        return kpi("Custo do disponível", FMT.moeda(t.custo), [t.reservado_custo ? `sem ${nf0.format(t.reservado_un)} un. vendidas aguardando envio (${FMT.moeda(t.reservado_custo)})` : "",
+          par ? `sem marcas paradas (${FMT.moeda(par)})` : ""].filter(Boolean).join(" e ") + (t.reservado_custo || par ? ` · no galpão: ${FMT.moeda(t.custo + (t.reservado_custo || 0) + par)}` : "")); })()}
       ${kpi("Potencial de vendas", FMT.moeda(t.potencial), `custo total × markup ${mkTx(mkv)}×`)}
       ${kpi("Sugestão de compra", nf0.format(t.sugestao) + " un.", FMT.moeda(t.sugestao_custo) + " ao custo médio")}
     </div>
@@ -3454,7 +3461,7 @@ function abrirEmMarca(marca) {
     <p class="muted" style="margin:0 0 8px">Sugestão de compra = venda de 30 dias × ${(1 + cres / 100).toFixed(2).replace(".", ",")} (crescimento de ${cres}%) − disponível − em trânsito. Total: <b>${nf0.format(m.sugestao || 0)} un. · ${FMT.moeda(m.sugestao_custo || 0)}</b> ao custo médio.</p>
     <div class="rolar" style="max-height:65vh"><table class="t" style="font-size:13px"><thead><tr><th>SKU · produto</th><th class="num">Custo médio</th><th class="num">Disponível</th><th class="num">Em trânsito</th>
       <th class="num">Custo em estoque</th><th class="num">Vendas 30d</th><th class="num">Preço de venda</th><th class="num">Cobertura</th><th class="num">Sugestão de compra</th></tr></thead>
-      <tbody>${xs.map(x => `<tr class="${x.sugestao ? "ec-alerta" : ""}"><td class="ec-prod"><b>${esc(x.sku)}</b><div class="muted">${esc(x.titulo || "")}</div></td>
+      <tbody>${xs.map(x => `<tr class="${x.sugestao ? "ec-alerta" : ""}"><td class="ec-prod"><b>${esc(x.sku)}</b> <button class="btn tiny ghost" data-vinc="${esc(x.sku)}" title="Marca errada? Vincular este SKU à marca certa">🔗 vincular</button>${x.marca_manual ? ` <small class="muted">(vinculado à mão)</small>` : ""}<div class="muted">${esc(x.titulo || "")}</div></td>
         <td class="num">${x.custo != null ? FMT.moeda(x.custo) : "—"}</td><td class="num"><b class="${x.disponivel > 0 ? "" : "neg"}">${nf0.format(x.disponivel)}</b></td>
         <td class="num">${x.transito ? nf0.format(x.transito) : `<span class="muted">—</span>`}</td><td class="num">${FMT.moeda(x.valor)}</td>
         <td class="num">${nf0.format(x.vend_un)}</td><td class="num">${x.preco_venda != null ? FMT.moeda(x.preco_venda) : "—"}</td>
@@ -3463,6 +3470,13 @@ function abrirEmMarca(marca) {
     <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:12px">
       <button class="btn ghost" id="em-parar" title="Tira a marca dos totais, do ranking e do pedido de compra">🚫 Não vendo mais esta marca</button>
       <button class="btn" data-fechar>Fechar</button></div>`, () => {});
+  document.querySelectorAll(".modal [data-vinc]").forEach(b => b.onclick = async () => {
+    const atual = marca === "(marca não identificada)" ? "" : marca;
+    const nova = prompt(`Qual a marca de ${b.dataset.vinc}?\n(ex.: Lattafa, Armaf, Al Wataniah · vazio = volta a ler do título)`, atual);
+    if (nova === null || nova.trim() === atual) return;
+    try { await api("estoque_marca_salvar", {}, {method: "POST", body: JSON.stringify({sku: b.dataset.vinc, marca: nova.trim()})});
+      toast(`${b.dataset.vinc} → ${nova.trim() || "marca do título"}`); document.querySelector(".modal [data-fechar]")?.click(); telaEstoqueMarcas(); }
+    catch (e) { toast(e.message); } });
   const bp = $("#em-parar");
   if (bp) bp.onclick = async () => {
     if (!confirm(`Parou de vender ${marca}?\n\nEla sai dos totais, do ranking e do pedido de compra. Dá para voltar depois.`)) return;
@@ -3544,6 +3558,7 @@ async function telaReposicao() {
       <label>Caixa para o pedido R$ <input type="number" id="rp-caixa" value="${cfg.caixa || ""}" min="0" step="1000" placeholder="sem limite" style="width:110px"></label>
       <button class="btn small primary" id="rp-lista">🧾 Lista de compra</button>
       <button class="btn small" id="rp-merc">🔄 Atualizar mercado</button>
+      <label class="btn small" title="UpSeller → Produtos → Exportar (export_warehouse_products…xlsx): código de barras e custo de compra">📦 Cadastro UpSeller${r.cadastro ? ` (${r.cadastro.skus})` : ""}<input type="file" id="rp-cad" accept=".xlsx" hidden></label>
       <span class="muted">compra para ${g.semana} dias + ${g.prazo} de prazo · venda medida nos dias com estoque · o mercado é só referência, nunca aumenta a compra · ordem por lucro/dia${r.margens_de ? ` · margens do Gestor de ${dm(r.margens_de.inicio)} a ${dm(r.margens_de.fim)}` : " · sem Curva ABC do Gestor: margem não entra"}</span></div>
     <div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${[["pedido", "🛒 Pedido"], ["precos", "📣 Preço (" + r.precos.length + ")"], ["full", "🚚 Full (top " + g.top_full + ")"], ["campeoes", "🏆 Campeões"], ["parado", "💰 Dinheiro parado"], ["mao", "✋ Na mão (" + r.manuais.length + ")"]].map(([k, t]) => `<button data-rpa="${k}" class="${aba === k ? "on" : ""}">${t}</button>`).join("")}</div>
     <div class="card pad">${aba === "pedido" ? (r.pedido.length ? `<div class="rolar"><table class="t rp-t" style="font-size:13px">${cab}<tbody>${pedido}</tbody></table></div>` : `<p class="muted">Nada a comprar.</p>`)
@@ -3561,6 +3576,9 @@ async function telaReposicao() {
   $("#rp-merc").onclick = async ev => { ev.target.disabled = true; ev.target.textContent = "Lendo o Explorador…";
     try { const x = await api("estoque_reposicao_mercado", {}, {method: "POST", body: "{}"}); toast(`Mercado de ${x.casados} campeões atualizado`); telaReposicao(); }
     catch (e) { toast(e.message); ev.target.disabled = false; ev.target.textContent = "🔄 Atualizar mercado"; } };
+  $("#rp-cad").onchange = async e => { const f = e.target.files[0]; if (!f) return;
+    try { const x = await api("estoque_cadastro_importar", {arquivo: f.name}, {method: "POST", body: await f.arrayBuffer()});
+      toast(`Cadastro: ${x.skus} SKUs, ${x.com_gtin} com código de barras`); telaReposicao(); } catch (er) { toast(er.message); } };
   main.querySelectorAll("[data-mao]").forEach(b => b.onclick = () => { const nota = prompt(`Por que decidir ${b.dataset.mao} na mão? (ex.: anúncio voltando, parei de vender)`, "");
     if (nota) salvar({manual: {sku: b.dataset.mao, nota}}); });
   main.querySelectorAll("[data-volta]").forEach(b => b.onclick = () => salvar({manual: {sku: b.dataset.volta, nota: ""}}));
@@ -3570,58 +3588,115 @@ async function telaReposicao() {
 // produto e a quantidade; fica mais fácil de cotar"). Agrupada por marca (cada fornecedor recebe a sua parte).
 const nomeCurto = t => String(t || "").replace(/\b(perfumes?|masculino|feminino|unissex|unisex|original|importado|lacrado|nicho|árabe|arabe|perfume árabe|100% original|alta fixação|presente)\b/gi, " ")
   .replace(/\s+/g, " ").trim().slice(0, 70);
-async function abrirListaCompra() {
-  const r0 = S.rp || {}, cfg = r0.cfg || {};
-  S.lc = S.lc || {dias: cfg.semana || 7, caixa: false, custo: false};
-  const bg = modal(`<h2 style="margin-top:0">🧾 Lista de compra</h2>
-    <div class="rp-cfg" style="display:flex;gap:10px 14px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:10px">
+// 02/10 (Bruno: "quando clico na lista de compra, abre uma página só para ela: nome do produto, marca (por marca ou por
+// categoria), a sua sugestão, quanto tem no estoque, quanto está em trânsito, o último custo e uma coluna para eu digitar
+// quanto vou comprar; daí gera a lista como um pedido para imprimir e mandar no WhatsApp para cotação")
+function abrirListaCompra() { location.hash = "#/estoque/lista"; }
+const lcLer = () => { try { return JSON.parse(localStorage.getItem("nubi-lc") || "{}"); } catch (e) { return {}; } };
+const lcGravar = v => { try { localStorage.setItem("nubi-lc", JSON.stringify(v)); } catch (e) { /* sem armazenamento: segue */ } };
+async function telaListaCompra() {
+  const main = $("#main");
+  const cfg0 = S.rp && S.rp.cfg || {};
+  S.lc = S.lc || {dias: cfg0.semana || 7, caixa: false, todos: false, por: "marca", custoZap: false, busca: ""};
+  main.innerHTML = `<div class="es-pg">${esAbas("reposicao")}<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando a lista de compra</div></div></div>`;
+  let r;
+  try { r = await api("estoque_reposicao", {semana: S.lc.dias}); } catch (e) { main.innerHTML = `<div class="es-pg">${esAbas("reposicao")}<div class="card empty">${esc(e.message)}</div></div>`; return; }
+  if (!location.hash.startsWith("#/estoque/lista")) return;
+  if (r.vazio) { main.innerHTML = `<div class="es-pg">${esAbas("reposicao")}<div class="card empty">Nenhuma atualização do estoque ainda.</div></div>`; return; }
+  const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), dataBr = `${hoje.slice(8, 10)}/${hoje.slice(5, 7)}/${hoje.slice(0, 4)}`;
+  const salvo = lcLer(), qtd = salvo.dia === hoje ? (salvo.q || {}) : {};          // o que eu digitei hoje fica guardado neste navegador
+  const titulo = `Pedido de compra — ${dataBr}`;
+  const todos = r.pedido.filter(l => !S.lc.caixa || l.cabe_no_caixa || !l.compra);
+  const q = (S.lc.busca || "").toUpperCase();
+  const xs = todos.filter(l => (S.lc.todos || l.compra > 0 || qtd[l.sku] > 0) && (!q || (l.titulo + " " + l.sku + " " + (l.marca || "")).toUpperCase().includes(q)));
+  const grupoDe = l => S.lc.por === "categoria" ? (l.categoria || "Sem categoria") : (l.marca || "Outras marcas");
+  const por = {};
+  xs.forEach(l => (por[grupoDe(l)] = por[grupoDe(l)] || []).push(l));
+  const grupos = Object.keys(por).sort((a, b) => a.localeCompare(b, "pt-BR")).map(g => ({nome: g, itens: por[g].sort((a, b) => nomeCurto(a.titulo).localeCompare(nomeCurto(b.titulo), "pt-BR"))}));
+  const quer = l => qtd[l.sku] != null ? qtd[l.sku] : l.compra;
+  const ult = l => l.ultimo_custo != null ? l.ultimo_custo : l.custo;
+  const un = v => nf0.format(v || 0);
+  const linha = l => `<tr data-sku="${esc(l.sku)}"><td class="first lc-prod"><b>${esc(nomeCurto(l.titulo))}</b><small class="muted">${esc(l.sku)}</small></td>
+    <td>${esc(S.lc.por === "categoria" ? (l.marca || "") : (l.categoria || ""))}</td>
+    <td class="num ${l.disponivel > 0 ? "" : "neg"}">${un(l.disponivel)}</td>
+    <td class="num">${l.transito ? un(l.transito) : `<span class="muted">—</span>`}</td>
+    <td class="num"><b>${l.compra ? un(l.compra) : `<span class="muted">0</span>`}</b></td>
+    <td class="num">${ult(l) != null ? FMT.moeda(ult(l)) : `<span class="muted">—</span>`}</td>
+    <td class="num"><input type="number" min="0" step="1" class="lc-q" data-q="${esc(l.sku)}" value="${quer(l) || ""}" placeholder="0"></td>
+    <td class="num lc-tot" data-t="${esc(l.sku)}">${quer(l) && ult(l) ? FMT.moeda(quer(l) * ult(l)) : ""}</td>
+    <td><button class="btn tiny ghost" data-lcalc="${esc(l.sku)}" title="Calcular a margem deste produto">🧮</button></td></tr>`;
+  main.innerHTML = `<div class="es-pg">${esAbas("reposicao")}
+    <div class="es-cab"><h1>🧾 Lista de compra</h1><span class="muted"><a href="#/estoque/reposicao">‹ Reposição</a> · estoque de ${esc(quandoES(r.estoque_em))} · cobre ${S.lc.dias} dia(s) até o próximo pedido + ${r.cfg.prazo} de entrega</span></div>
+    <div class="card pad rp-cfg" style="margin-bottom:10px;display:flex;gap:10px 14px;flex-wrap:wrap;align-items:center;font-size:13px">
       <label>Próximo pedido em <input type="number" id="lc-dias" value="${S.lc.dias}" min="1" max="30" style="width:52px"> dias</label>
-      <label><input type="checkbox" id="lc-caixa" ${S.lc.caixa ? "checked" : ""} ${r0.resumo && r0.resumo.caixa ? "" : "disabled"}> só o que cabe no caixa</label>
-      <label><input type="checkbox" id="lc-custo" ${S.lc.custo ? "checked" : ""}> mostrar custo</label></div>
-    <div id="lc-corpo" class="muted">Calculando…</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px">
-      <button class="btn" id="lc-print">🖨️ Imprimir</button><button class="btn" id="lc-zap">💬 WhatsApp</button><button class="btn" id="lc-copiar">📋 Copiar</button><button class="btn ghost" data-fechar>Fechar</button></div>`);
-  let grupos = [], titulo = "";
-  const texto = gs => `*${titulo}*\n` + gs.map(g => `\n*${g.marca}*\n` + g.itens.map(l => `${l.compra} un. — ${nomeCurto(l.titulo)}${S.lc.custo && l.custo ? ` (R$ ${nf0.format(l.custo)})` : ""}`).join("\n")).join("\n") +
-    `\n\nTotal: ${nf0.format(gs.reduce((s, g) => s + g.un, 0))} un.${S.lc.custo ? " · " + FMT.moeda(gs.reduce((s, g) => s + g.valor, 0)) + " ao custo" : ""}`;
-  const desenhar = async () => {
-    const corpo = bg.querySelector("#lc-corpo");
-    corpo.innerHTML = `<span class="muted">Calculando…</span>`;
-    let r;
-    try { r = await api("estoque_reposicao", {semana: S.lc.dias}); } catch (e) { corpo.innerHTML = esc(e.message); return; }
-    const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
-    titulo = `Pedido de compra — ${hoje.slice(8, 10)}/${hoje.slice(5, 7)}/${hoje.slice(0, 4)}`;
-    const xs = r.pedido.filter(l => l.compra > 0 && (!S.lc.caixa || l.cabe_no_caixa));
-    const por = {};
-    xs.forEach(l => { const g = por[l.marca] || (por[l.marca] = {marca: l.marca, itens: [], un: 0, valor: 0}); g.itens.push(l); g.un += l.compra; g.valor += l.compra_valor || 0; });
-    grupos = Object.values(por).sort((a, b) => a.marca.localeCompare(b.marca, "pt-BR"));
-    grupos.forEach(g => g.itens.sort((a, b) => nomeCurto(a.titulo).localeCompare(nomeCurto(b.titulo), "pt-BR")));
-    corpo.innerHTML = grupos.length ? `<p class="muted" style="margin:0 0 8px">${esc(titulo)} · cobre até o próximo pedido em ${S.lc.dias} dia(s) + ${r.cfg.prazo} de entrega · ${nf0.format(xs.length)} produtos · ${nf0.format(grupos.reduce((s, g) => s + g.un, 0))} un.${S.lc.custo ? " · " + FMT.moeda(grupos.reduce((s, g) => s + g.valor, 0)) : ""}</p>
-      <div class="lc-lista">${grupos.map((g, i) => `<div class="lc-grupo"><div class="lc-marca"><b>${esc(g.marca)}</b> <span class="muted">${g.itens.length} itens · ${nf0.format(g.un)} un.${S.lc.custo ? " · " + FMT.moeda(g.valor) : ""}</span>
-        <button class="btn small ghost" data-lcz="${i}" title="Mandar só esta marca no WhatsApp">💬</button></div>
-        ${g.itens.map(l => `<div class="lc-item"><b>${nf0.format(l.compra)}</b><span>${esc(nomeCurto(l.titulo))} <small class="muted">${esc(l.sku)}</small></span>${S.lc.custo && l.custo ? `<small class="muted">${FMT.moeda(l.custo)}</small>` : ""}</div>`).join("")}</div>`).join("")}</div>`
-      : `<p class="muted">Nada a comprar com esse prazo.</p>`;
-    corpo.querySelectorAll("[data-lcz]").forEach(b => b.onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent(texto([grupos[+b.dataset.lcz]])), "_blank"));
+      <div class="seg"><button data-lcpor="marca" class="${S.lc.por === "marca" ? "on" : ""}">Por marca</button><button data-lcpor="categoria" class="${S.lc.por === "categoria" ? "on" : ""}">Por categoria</button></div>
+      <label><input type="checkbox" id="lc-caixa" ${S.lc.caixa ? "checked" : ""} ${r.resumo && r.resumo.caixa ? "" : "disabled"}> só o que cabe no caixa</label>
+      <label><input type="checkbox" id="lc-todos" ${S.lc.todos ? "checked" : ""}> mostrar também os sem sugestão</label>
+      <input type="search" id="lc-busca" placeholder="Buscar produto ou marca…" value="${esc(S.lc.busca || "")}" style="border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:var(--card);min-width:200px">
+      <button class="btn small ghost" id="lc-sug" title="Volta a coluna Comprar para a sugestão">↺ usar a sugestão</button></div>
+    <div class="kpis" id="lc-kpis"></div>
+    <div class="card pad">${grupos.length ? `<div class="rolar"><table class="t lc-t" style="font-size:13px"><thead><tr><th>Produto</th><th>${S.lc.por === "categoria" ? "Marca" : "Categoria"}</th><th class="num">Estoque</th><th class="num">Em trânsito</th>
+      <th class="num">Sugestão</th><th class="num">Último custo</th><th class="num">Comprar</th><th class="num">Total</th><th></th></tr></thead>
+      ${grupos.map(g => `<tbody><tr class="lc-g"><td colspan="9"><b>${esc(g.nome)}</b> <span class="muted" data-gt="${esc(g.nome)}"></span></td></tr>${g.itens.map(linha).join("")}</tbody>`).join("")}</table></div>`
+      : `<p class="muted">Nada a comprar com esse prazo. Marque “mostrar também os sem sugestão” para escolher à mão.</p>`}</div>
+    <div class="card pad" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">
+      <label class="muted" style="margin-right:auto"><input type="checkbox" id="lc-czap" ${S.lc.custoZap ? "checked" : ""}> pôr o último custo no pedido</label>
+      <button class="btn primary" id="lc-print">🖨️ Imprimir pedido</button><button class="btn" id="lc-zap">💬 WhatsApp</button><button class="btn" id="lc-copiar">📋 Copiar</button></div></div>`;
+  const pedido = () => grupos.map(g => ({nome: g.nome, itens: g.itens.map(l => ({...l, q: +quer(l) || 0})).filter(l => l.q > 0)})).filter(g => g.itens.length);
+  const somar = gs => gs.reduce((a, g) => { g.itens.forEach(l => { a.un += l.q; a.itens++; a.valor += l.q * (ult(l) || 0); }); return a; }, {un: 0, itens: 0, valor: 0});
+  const texto = gs => { const t = somar(gs); return `*${titulo}*\n` + gs.map(g => `\n*${g.nome}*\n` + g.itens.map(l => `${l.q} un. — ${nomeCurto(l.titulo)}${S.lc.custoZap && ult(l) ? ` (últ. R$ ${nf2.format(ult(l))})` : ""}`).join("\n")).join("\n")
+    + `\n\nTotal: ${un(t.itens)} produtos · ${un(t.un)} un.`; };
+  const resumo = () => {
+    const gs = pedido(), t = somar(gs), sug = xs.reduce((a, l) => a + (l.compra || 0), 0);
+    $("#lc-kpis").innerHTML = kpi("Produtos no pedido", un(t.itens)) + kpi("Unidades", un(t.un), `sugestão: ${un(sug)} un.`) + kpi("Pelo último custo", FMT.moeda(t.valor))
+      + (r.resumo && r.resumo.caixa ? kpi("Caixa", FMT.moeda(r.resumo.caixa), t.valor > r.resumo.caixa ? `<span class="neg">passa ${FMT.moeda(t.valor - r.resumo.caixa)}</span>` : `sobra ${FMT.moeda(r.resumo.caixa - t.valor)}`) : "");
+    grupos.forEach(g => { const el = main.querySelector(`[data-gt="${CSS.escape(g.nome)}"]`); const gg = gs.find(x => x.nome === g.nome);
+      if (el) el.textContent = gg ? `${gg.itens.length} itens · ${un(gg.itens.reduce((a, l) => a + l.q, 0))} un.` : "nada marcado"; });
   };
-  bg.querySelector("#lc-dias").onchange = e => { S.lc.dias = Math.max(1, Math.min(30, parseInt(e.target.value) || 7)); desenhar(); };
-  bg.querySelector("#lc-caixa").onchange = e => { S.lc.caixa = e.target.checked; desenhar(); };
-  bg.querySelector("#lc-custo").onchange = e => { S.lc.custo = e.target.checked; desenhar(); };
-  bg.querySelector("#lc-zap").onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent(texto(grupos)), "_blank");
-  bg.querySelector("#lc-copiar").onclick = async () => { try { await navigator.clipboard.writeText(texto(grupos)); toast("Lista copiada"); } catch (e) { toast("Não consegui copiar"); } };
-  bg.querySelector("#lc-print").onclick = () => {
+  resumo();
+  main.querySelectorAll("[data-q]").forEach(inp => inp.oninput = () => {
+    const l = r.pedido.find(z => z.sku === inp.dataset.q), v = Math.max(0, parseInt(inp.value) || 0);
+    qtd[inp.dataset.q] = v; lcGravar({dia: hoje, q: qtd});
+    const td = main.querySelector(`[data-t="${CSS.escape(inp.dataset.q)}"]`); if (td) td.textContent = v && ult(l) ? FMT.moeda(v * ult(l)) : "";
+    resumo(); });
+  main.querySelectorAll("[data-lcalc]").forEach(b => b.onclick = () => { const l = r.pedido.find(z => z.sku === b.dataset.lcalc) || {};
+    calcLivre({titulo: l.titulo, sku: l.sku, custo: ult(l), preco: l.preco}); });
+  main.querySelectorAll("[data-lcpor]").forEach(b => b.onclick = () => { S.lc.por = b.dataset.lcpor; telaListaCompra(); });
+  // trocar o HTML com o campo focado dispara outro "change" no blur: só redesenha se o valor mudou, e fora do evento
+  $("#lc-dias").onchange = e => { const v = Math.max(1, Math.min(30, parseInt(e.target.value) || 7)); if (v === S.lc.dias) return; S.lc.dias = v; setTimeout(telaListaCompra); };
+  $("#lc-caixa").onchange = e => { S.lc.caixa = e.target.checked; telaListaCompra(); };
+  $("#lc-todos").onchange = e => { S.lc.todos = e.target.checked; telaListaCompra(); };
+  $("#lc-czap").onchange = e => { S.lc.custoZap = e.target.checked; };
+  $("#lc-busca").onchange = e => { if (e.target.value === (S.lc.busca || "")) return; S.lc.busca = e.target.value; setTimeout(telaListaCompra); };
+  $("#lc-sug").onclick = () => { lcGravar({dia: hoje, q: {}}); telaListaCompra(); };
+  $("#lc-zap").onclick = () => { const gs = pedido(); if (!gs.length) return toast("Digite as quantidades primeiro");
+    window.open("https://wa.me/?text=" + encodeURIComponent(texto(gs)), "_blank"); };
+  $("#lc-copiar").onclick = async () => { try { await navigator.clipboard.writeText(texto(pedido())); toast("Pedido copiado"); } catch (e) { toast("Não consegui copiar"); } };
+  $("#lc-print").onclick = () => {
+    const gs = pedido(), t = somar(gs); if (!gs.length) return toast("Digite as quantidades primeiro");
     const w = window.open("", "_blank");
     if (!w) { toast("Libere a janela para imprimir"); return; }
+    const cc = S.lc.custoZap;
     w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>
       body{font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111;margin:24px}h1{font-size:18px;margin:0 0 4px}p{color:#555;margin:0 0 16px}
-      h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #ccc;padding-bottom:3px}table{border-collapse:collapse;width:100%}td{padding:3px 6px;border-bottom:1px dotted #ddd;vertical-align:top}
-      td.q{width:70px;text-align:right;font-weight:700;white-space:nowrap}td.s{color:#777;font-size:12px;white-space:nowrap}td.c{text-align:right;white-space:nowrap}td.ok{width:28px;color:#999}
+      h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid #ccc;padding-bottom:3px}table{border-collapse:collapse;width:100%}td,th{padding:3px 6px;border-bottom:1px dotted #ddd;vertical-align:top;text-align:left}
+      th{font-size:11px;color:#777;font-weight:600}.q{width:70px;text-align:right;font-weight:700;white-space:nowrap}.s{color:#777;font-size:12px;white-space:nowrap}.c{text-align:right;white-space:nowrap;width:110px}.ok{width:22px;color:#999}
       @media print{body{margin:10mm}h2{break-after:avoid}tr{break-inside:avoid}}</style></head><body>
-      <h1>${esc(titulo)}</h1><p>${nf0.format(grupos.reduce((s, g) => s + g.itens.length, 0))} produtos · ${nf0.format(grupos.reduce((s, g) => s + g.un, 0))} unidades${S.lc.custo ? " · " + FMT.moeda(grupos.reduce((s, g) => s + g.valor, 0)) + " ao custo" : ""}</p>
-      ${grupos.map(g => `<h2>${esc(g.marca)} <small style="font-weight:400;color:#777">${nf0.format(g.un)} un.</small></h2><table>${g.itens.map(l => `<tr><td class="ok">☐</td><td class="q">${nf0.format(l.compra)} un.</td><td>${esc(nomeCurto(l.titulo))}</td><td class="s">${esc(l.sku)}</td>${S.lc.custo ? `<td class="c">${l.custo ? FMT.moeda(l.custo) : ""}</td>` : ""}</tr>`).join("")}</table>`).join("")}
+      <h1>${esc(titulo)}</h1><p>${un(t.itens)} produtos · ${un(t.un)} unidades</p>
+      ${gs.map(g => `<h2>${esc(g.nome)} <small style="font-weight:400;color:#777">${un(g.itens.reduce((a, l) => a + l.q, 0))} un.</small></h2><table>
+        <tr><th class="ok"></th><th class="q">Qtd.</th><th>Produto</th><th>SKU</th>${cc ? `<th class="c">Último custo</th>` : ""}<th class="c">Cotação R$</th></tr>
+        ${g.itens.map(l => `<tr><td class="ok">☐</td><td class="q">${un(l.q)} un.</td><td>${esc(nomeCurto(l.titulo))}</td><td class="s">${esc(l.sku)}</td>${cc ? `<td class="c">${ult(l) ? FMT.moeda(ult(l)) : ""}</td>` : ""}<td class="c">______</td></tr>`).join("")}</table>`).join("")}
       </body></html>`);
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   };
-  desenhar();
+  desenharMenu();
+}
+// 02/10 (Bruno: "a calculadora fixa no cabeçalho, do lado do coletor; não precisa trazer os produtos, é só para calcular a margem")
+const ICO_CALC_PB = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><rect x="8" y="5.5" width="8" height="3.5" rx=".8"/><path d="M8.5 12.5h.01M12 12.5h.01M15.5 12.5h.01M8.5 15.5h.01M12 15.5h.01M15.5 15.5h.01M8.5 18.5h.01M12 18.5h.01M15.5 18.5h.01"/></svg>`;
+function calcLivre(p) {
+  p = p || {};
+  let imp = 0; try { imp = +(localStorage.getItem("nubi-calc-imp") || 0); } catch (e) { /* sem armazenamento */ }
+  pmCalc({solo: true, mlb: "", titulo: p.titulo || "Calculadora de margem", atual: p.preco || null, calc: {}, meu: {sku: p.sku || "", custo: p.custo, titulo: p.titulo || ""}}, {imposto_pct: imp});
 }
 // ---------- 💰 Financeiro (02/10, Bruno: DRE Simplificado do Gestor Seller mês fechado + Resumo analítico toda semana; markup médio) ----------
 const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
@@ -8973,12 +9048,12 @@ function pmCalc(x, cfg) {
         <small>${esc(x.mlb)}${x.loja ? ` · concorrente ${esc(x.loja)}` : ""}${m.sku ? ` · meu SKU <b>${esc(m.sku)}</b>` : ""}</small></div>
       <button class="pc-x" data-fechar title="Fechar">✕</button></div>
     <div class="pc-corpo">
-      <div class="pc-ml" id="pc-ml">🔄 buscando no Mercado Livre a categoria, o tipo e as medidas do meu anúncio…</div>
+      <div class="pc-ml" id="pc-ml">${x.solo ? "✍️ Calculadora livre: digite o preço, o custo, a tarifa e o frete (nada é buscado no ML)." : "🔄 buscando no Mercado Livre a categoria, o tipo e as medidas do meu anúncio…"}</div>
       <div class="pc-seg"><button data-tipo="gold_special">Clássico<small id="pc-t-gold_special"></small></button><button data-tipo="gold_pro">Premium<small id="pc-t-gold_pro"></small></button></div>
       <div class="pc-2">
         <div class="pc-ent">
           <div class="pc-preco-box"><span>Preço de venda</span><div><i>R$</i><input id="pc-preco" inputmode="decimal" value="${n(x.atual)}"></div>
-            <small>concorrente vende a ${x.atual ? rsES(x.atual) : "—"}</small></div>
+            <small>${x.solo ? (x.atual ? "meu preço médio de venda: " + rsES(x.atual) : "digite o preço") : "concorrente vende a " + (x.atual ? rsES(x.atual) : "—")}</small></div>
           <div class="pc-campos">
             <label><span>Meu custo</span><div><i>R$</i><input id="pc-custo" inputmode="decimal" value="${n(m.custo)}" placeholder="0,00"></div></label>
             <label><span>Imposto</span><div><input id="pc-imp" inputmode="decimal" value="${n(cfg?.imposto_pct || 0)}"><i>%</i></div></label>
@@ -8996,7 +9071,7 @@ function pmCalc(x, cfg) {
           <div class="pc-alvo"><label>🎯 Quero margem de<div><input id="pc-alvo" inputmode="decimal" value="15"><i>%</i></div></label><div id="pc-alvo-r"></div></div>
         </div>
       </div>
-      <div id="pc-merc" class="pc-merc"><div class="pc-merc-t">🏆 Quem mais vende este produto <span>buscando no Nubimetrics…</span></div></div>
+      ${x.solo ? "" : `<div id="pc-merc" class="pc-merc"><div class="pc-merc-t">🏆 Quem mais vende este produto <span>buscando no Nubimetrics…</span></div></div>`}
       <p class="pc-rod">Tarifa e frete pela API oficial do Mercado Livre (só leitura). A calculadora só simula: nada muda no anúncio.</p>
     </div>`, bg => {
     const $i = id => bg.querySelector(id);
@@ -9022,7 +9097,7 @@ function pmCalc(x, cfg) {
           <div class="pc-l neg"><span>Meu custo${v.out ? " + embalagem" : ""}</span><b>− ${rsES(v.custo + v.out)}</b></div>
           <div class="pc-l tot"><span>Sobra no bolso</span><b>${rsES(r.lucro)}</b></div>
         </div>
-        ${x.atual && Math.abs(p - x.atual) > 0.004 ? `<div class="pc-comp">${p > x.atual ? "▲" : "▼"} ${pctF(Math.abs(p / x.atual - 1))} ${p > x.atual ? "acima" : "abaixo"} do concorrente (${rsES(x.atual)})</div>` : ""}`;
+        ${!x.solo && x.atual && Math.abs(p - x.atual) > 0.004 ? `<div class="pc-comp">${p > x.atual ? "▲" : "▼"} ${pctF(Math.abs(p / x.atual - 1))} ${p > x.atual ? "acima" : "abaixo"} do concorrente (${rsES(x.atual)})</div>` : ""}`;
       // preço para a margem desejada (o custo fixo e o frete mudam com a faixa de preço: procura a faixa certa)
       const alvo = lerP($i("#pc-alvo")) / 100, base = 1 - v.pct / 100 - v.imp / 100 - alvo;
       let sug = null;
@@ -9094,12 +9169,13 @@ function pmCalc(x, cfg) {
             $i("#pc-med-o").textContent = r2.meu && r2.meu.dimensoes ? "do meu anúncio no ML (pode mudar)" : "digitadas"; } }
         aplicar();
       } catch (e) { if (meu === seq) $i("#pc-ml").textContent = "⚠️ " + e.message + " (a conta segue com os dados acima)"; } };
-    const depois = manual => { clearTimeout(tm); tm = setTimeout(() => buscar(manual), 700); };
+    const depois = manual => { if (x.solo) return; clearTimeout(tm); tm = setTimeout(() => buscar(manual), 700); };
     bg.querySelectorAll("[data-tipo]").forEach(b => b.onclick = () => { tipo = b.dataset.tipo; marcaTipo(); aplicar(); depois(true); });
     $i("#pc-fullck").onchange = () => depois(true);
     bg.querySelectorAll("input").forEach(el => el.oninput = desenhar);
     ["#pc-preco", "#pc-a", "#pc-l", "#pc-c", "#pc-g"].forEach(id => $i(id).addEventListener("input", () => depois(true)));
-    marcaTipo(); desenhar(); buscar(false); $i("#pc-preco").focus(); $i("#pc-preco").select();
+    if (x.solo) $i("#pc-imp").addEventListener("input", () => { try { localStorage.setItem("nubi-calc-imp", String(lerP($i("#pc-imp")))); } catch (e) { /* sem armazenamento */ } });
+    marcaTipo(); desenhar(); if (!x.solo) buscar(false); $i("#pc-preco").focus(); $i("#pc-preco").select();
   });
 }
 

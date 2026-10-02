@@ -145,10 +145,25 @@ try:
                 for a in ("precos", "full", "campeoes", "parado", "mao", "pedido"):
                     pg.click(f"[data-rpa='{a}']"); pg.wait_for_selector(f"[data-rpa='{a}'].on", timeout=15000)
                 # 02/10 (Bruno): lista de compra para imprimir / WhatsApp, por marca
-                pg.click("#rp-lista"); pg.wait_for_function("() => { const c = document.querySelector('#lc-corpo'); return c && !c.innerText.includes('Calculando'); }", timeout=20000)
-                assert "Pedido de compra" in pg.inner_text(".modal") or "Nada a comprar" in pg.inner_text(".modal"), pg.inner_text(".modal")[:400]
-                pg.fill("#lc-dias", "3"); pg.dispatch_event("#lc-dias", "change"); pg.wait_for_timeout(800)
+                # 02/10 (Bruno: "abre uma página só para ela… coluna para eu digitar quanto vou comprar… último custo")
+                pg.click("#rp-lista"); pg.wait_for_selector("#lc-dias", timeout=20000)
+                assert "#/estoque/lista" in pg.url and "Lista de compra" in pg.inner_text(".es-cab")
+                t = pg.inner_text("#main")
+                assert "Último custo" in t or "Nada a comprar" in t, t[:600]
+                if pg.query_selector("[data-q]"):
+                    pg.fill("[data-q] >> nth=0", "7"); pg.dispatch_event("[data-q] >> nth=0", "input")
+                    assert "Produtos no pedido" in pg.inner_text("#lc-kpis")
+                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"lista_compra_{nome}.png"), full_page=False)
+                pg.click("[data-lcpor='categoria']"); pg.wait_for_selector("[data-lcpor='categoria'].on", timeout=15000)
+                pg.fill("#lc-dias", "3"); pg.dispatch_event("#lc-dias", "change"); pg.wait_for_selector("#lc-dias", timeout=15000)
+                # 02/10: calculadora livre no cabeçalho, sem buscar produto
+                pg.click("#bcalc"); pg.wait_for_selector("#pc-preco", timeout=8000)
+                assert "Calculadora livre" in pg.inner_text(".modal") and not pg.query_selector("#pc-merc")
+                pg.fill("#pc-preco", "200"); pg.fill("#pc-custo", "100"); pg.dispatch_event("#pc-custo", "input")
+                assert "Lucro líquido" in pg.inner_text("#pc-res")
+                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"calc_livre_{nome}.png"), full_page=False)
                 pg.click(".modal [data-fechar]")
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/reposicao"); pg.wait_for_selector("#rp-prazo", timeout=20000)
                 pg.fill("#rp-caixa", "50000"); pg.dispatch_event("#rp-caixa", "change")
                 pg.wait_for_function("() => document.querySelector('.kpis') && document.querySelector('.kpis').innerText.includes('Cabe no caixa')", timeout=15000)
                 with pg.expect_response(lambda r_: "estoque_reposicao_mercado" in r_.url, timeout=60000) as rm:

@@ -5626,6 +5626,26 @@ def _ia_gravar(repo, chave, valor, ia="nubi"):
               prefer="resolution=merge-duplicates,return=minimal")
 
 
+CADASTRO_UPSELLER = "estoque|cadastro_upseller"
+
+
+def cadastro_importar(repo, conteudo, arquivo=""):
+    """02/10 (Bruno: "consegui exportar isso do UpSeller, tem o código de barras dos meus produtos"): cadastro de produtos do
+    UpSeller (GTIN, custo de compra, categoria) em ia_resumos `estoque|cadastro_upseller`."""
+    try:
+        itens = estoque.ler_cadastro_produtos(conteudo)
+    except estoque.ErroEstoque as e:
+        raise ErroNuvem(f"Cadastro não importado: {e}.")
+    _ia_gravar(repo, CADASTRO_UPSELLER, {"arquivo": arquivo, "em": datetime.now(timezone.utc).isoformat(), "itens": itens}, "UpSeller")
+    return {"ok": True, "skus": len(itens), "com_gtin": sum(1 for v in itens.values() if v.get("gtin")),
+            "com_custo": sum(1 for v in itens.values() if v.get("custo_compra"))}
+
+
+def cadastro_upseller(repo):
+    c, _ = _ia_json(repo, CADASTRO_UPSELLER)
+    return c or {}
+
+
 def reposicao_config_salvar(repo, d):
     """prazo (dias até a mercadoria chegar), campeao (crescimento dos campeões, 1,2 = +20%), caixa (R$ disponível) e
     manual = {sku, nota} para decidir um SKU na mão (nota vazia = volta para a conta)."""
@@ -5705,11 +5725,14 @@ def _reposicao_dados(repo, dias=30):
             x["valor"] += float(l.get("valor") or 0)
             if "mercado" in str(l.get("loja") or "").lower():
                 x["ml"] += u
-    base = [{"sku": it["sku"], "titulo": it.get("titulo"), "disponivel": it.get("disponivel"),
-             "transito": (it.get("transito_compra") or 0) + (it.get("transito_transf") or 0), "custo": it.get("custo_medio")}
-            for it in itens]
+    cad = (cadastro_upseller(repo).get("itens") or {})
+    base = []
+    for it in itens:                                 # sem custo médio no estoque: o custo de compra do cadastro do UpSeller
+        c = it.get("custo_medio") or (cad.get(estoque._chave(it["sku"])) or {}).get("custo_compra")
+        base.append({"sku": it["sku"], "titulo": it.get("titulo"), "disponivel": it.get("disponivel"),
+                     "transito": (it.get("transito_compra") or 0) + (it.get("transito_transf") or 0), "custo": c})
     return {"itens": base, "estoque_dia": estoque_dia, "vendas_dia": vendas_dia, "marca_de": marca_de,
-            "estoque_em": ult["criado_em"], "paradas": paradas}
+            "estoque_em": ult["criado_em"], "paradas": paradas, "cadastro": cad}
 
 
 def reposicao_painel(repo, caixa=None, semana=None):
@@ -5734,8 +5757,15 @@ def reposicao_painel(repo, caixa=None, semana=None):
     r = reposicao.calcular(dd["itens"], dd["estoque_dia"], dd["vendas_dia"], c, (merc or {}).get("itens") or {}, manuais, margens,
                            cfg.get("ranque") or {})
     r["margens_de"] = {"inicio": abc.get("inicio"), "fim": abc.get("fim")} if margens else None
+    cad = dd.get("cadastro") or {}
     for l in r["pedido"] + r["campeoes"] + r["precos"]:
         l["marca"] = dd["marca_de"].get(l["chave"]) or "Outras marcas"
+        c = cad.get(l["chave"]) or {}
+        # 02/10 (Bruno: "e o último preço que eu paguei, o último custo"): custo de compra do cadastro do UpSeller; sem ele, o médio
+        l["ultimo_custo"] = c.get("custo_compra") or l.get("custo")
+        l["categoria"] = (c.get("categoria") or "").replace("→", " › ") or None
+    cad_info, _ = _ia_json(repo, CADASTRO_UPSELLER)
+    r["cadastro"] = {"em": (cad_info or {}).get("em"), "skus": len((cad_info or {}).get("itens") or {})} if cad_info else None
     r.update({"estoque_em": dd["estoque_em"], "mercado_em": (merc or {}).get("dia"), "paradas": dd["paradas"],
               "regras": {"semana": r["cfg"]["semana"], "prazo": r["cfg"]["prazo"], "campeao": r["cfg"]["campeao"],
                          "full_dias": reposicao.DIAS_FULL, "top_full": reposicao.TOP_FULL}})
@@ -5771,18 +5801,20 @@ def reposicao_mercado(repo, n=REPOSICAO_TOP_MERCADO):
             g = re.sub(r"\D", "", str(r.get("gtin") or ""))
             if len(g) >= 8 and (r["sku"] not in gtin_de or r["snapshot_id"] > gtin_de[r["sku"]][1]):
                 gtin_de[r["sku"]] = (g, r["snapshot_id"])
+    cad = dd.get("cadastro") or {}
     cache, pend = {}, []
     for it in alvo:
         k = estoque._chave(it["sku"])
         sn = snaps.get(nubi.compacta(dd["marca_de"].get(k) or ""))
         g = gtin_de.get(nubi.compacta(it["sku"]))
+        gs = {x for x in ((cad.get(k) or {}).get("gtin"), g[0] if g else None) if x}    # todos os GTINs do SKU
         if not sn and g and g[1] in snap_id:          # marca do estoque sem card: o card mais novo da marca onde está o meu anúncio
             achado = snap_id[g[1]]
             sn = snaps.get(nubi.compacta(achado["marca"])) or achado
         if sn and sn["id"] not in cache:
             cache[sn["id"]] = repo._todos("anuncios", {"select": "produto,tipo,titulo,un,fat,preco,vendedor,gtin",
                                                         "snapshot_id": f"eq.{sn['id']}"}) or []
-        pend.append((it, k, sn, g[0] if g else None))
+        pend.append((it, k, sn, gs))
     vocab = set()                                    # só nomes de PRODUTO (nome de card tem frase de propaganda: "…ARABE MASCULINO…")
     for ans in cache.values():
         for nome in {str(a.get("produto") or "") for a in ans}:
@@ -5793,7 +5825,8 @@ def reposicao_mercado(repo, n=REPOSICAO_TOP_MERCADO):
             sem.append(it["sku"])
             continue
         dias = int(sn.get("dias") or 0)
-        outros = {v[0] for kk, v in gtin_de.items() if kk != nubi.compacta(it["sku"]) and v[0] != g}
+        outros = ({v[0] for kk, v in gtin_de.items() if kk != nubi.compacta(it["sku"])}
+                  | {v.get("gtin") for kk, v in cad.items() if kk != k and v.get("gtin")}) - set(g)
         anuncios = [a for a in cache[sn["id"]] if re.sub(r"\D", "", str(a.get("gtin") or "")) not in outros]   # GTIN de outro SKU meu fica fora
         por_gtin = reposicao.mercado_por_gtin(g, anuncios, dias) if g else None
         por_nome = reposicao.mercado_por_produto(it.get("titulo"), anuncios, dias, _tokens_produto, _tipo_tok, sn["marca"], vocab)
@@ -8557,6 +8590,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
     if rota == "estoque_reposicao":
         cx, sem = q.get("caixa"), q.get("semana")
         return reposicao_painel(repo, float(cx) if cx not in (None, "") else None, int(sem) if str(sem or "").isdigit() else None)
+    if rota == "estoque_cadastro_importar" and metodo == "POST":
+        return cadastro_importar(repo, corpo, (q.get("arquivo") or "export_warehouse_products.xlsx")[:200])
     if rota == "estoque_reposicao_config" and metodo == "POST":
         return reposicao_config_salvar(repo, json.loads(corpo or b"{}"))
     if rota == "estoque_reposicao_mercado" and metodo == "POST":
