@@ -10,7 +10,8 @@ os.environ["NUBI_COLETOR_DIR"] = tempfile.mkdtemp()
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "public" / "coletor"))
 import coletor  # noqa: E402
 
-PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 5000
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + (180).to_bytes(4, "big") + (180).to_bytes(4, "big") + b"0" * 5000
+PEQ = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + (16).to_bytes(4, "big") + (16).to_bytes(4, "big") + b"0" * 500
 pedidos, enviado = [], {}
 
 
@@ -31,15 +32,19 @@ def abrir(req, timeout=30):
     pedidos.append(url)
     if url == "https://shopee.com.br":
         raise OSError("bloqueado")
+    if "google.com/s2" in url and "amazon" in url:
+        return Resp(PEQ, "image/png")                       # 16 px: não serve
     if "google.com/s2" in url or url.endswith(".png"):
         return Resp(PNG, "image/png")
+    if url == "https://www.amazon.com.br":
+        raise OSError("robô")
     return Resp(b'<html><link rel="icon" href="/f.ico" sizes="16x16"><link rel="apple-touch-icon" sizes="180x180" href="/apple.png"></html>', "text/html")
 
 
 coletor.urllib.request.urlopen = abrir
 coletor.token_nubi = lambda cfg: "t"
 coletor.api = lambda token, rota, corpo=None, **k: enviado.update(corpo or {}) or {"ok": len((corpo or {}).get("icones") or {})}
-coletor.ICONES_SITES = {"Mercado Libre": "https://www.mercadolivre.com.br", "Shopee": "https://shopee.com.br"}
+coletor.ICONES_SITES = {"Mercado Libre": "https://www.mercadolivre.com.br", "Shopee": "https://shopee.com.br", "Amazon": "https://www.amazon.com.br"}
 assert coletor.cmd_icones(None, {}) == 0
 ic = enviado["icones"]
 assert set(ic) == {"Mercado Libre", "Shopee"} and all(v.startswith("data:image/png;base64,") for v in ic.values()), ic.keys()

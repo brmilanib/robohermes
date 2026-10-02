@@ -2374,7 +2374,7 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"teto": (t or {}).get("teto") if (t or {}).get("dia") == _agora_br().date().isoformat() else None})
         if rota == "dashboard_listas":
             return _json(dashboard_listas(repo))
-        if rota == "gestor_painel_salvar" and metodo == "POST":
+        if rota == "painel_gestor_salvar" and metodo == "POST":
             # 02/10: o coletor manda o texto do painel e das Vendas do Gestor + as respostas JSON da própria tela (bruto)
             d = json.loads(corpo or b"{}")
             telas = [{"tela": str(t.get("tela"))[:20], "url": str(t.get("url"))[:300], "texto": str(t.get("texto") or "")[:60000],

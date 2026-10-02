@@ -4339,7 +4339,7 @@ def coletar_gestor_painel(p, cfg, token):
     """02/10 (Bruno: "a página inicial do Gestor traz os itens com as margens em tempo real, e /sales as vendas em tempo real
     com margens; pega lá para o Dashboard"): abre o painel (Hoje) e as Vendas, SÓ LÊ (nunca clica em nada), guarda o TEXTO
     de cada tela e as respostas JSON que a própria tela pede ao servidor do Gestor, e manda tudo para
-    `gestor_painel_salvar`. O nubi lê os números de lá (1ª vez: bruto, para montar o leitor)."""
+    `painel_gestor_salvar`. O nubi lê os números de lá (1ª vez: bruto, para montar o leitor)."""
     telas, erros = [], []
     for tentativa in (1, 2):
         ctx = abrir_navegador(p, cfg, visivel=True if cfg.get("gestor_ver") else None)
@@ -4379,7 +4379,7 @@ def coletar_gestor_painel(p, cfg, token):
         if not entrar_sozinho(p, cfg, "gestor"):
             raise SessaoExpirada("O Gestor Seller pediu login de novo e não entrei sozinho. "
                                  f"Rode {_onde_rodar('entrar-gestor')} (ou guarde a senha: {_onde_rodar('guardar-senha gestor')})")
-    r = api(token, "gestor_painel_salvar", corpo={"telas": telas}, timeout=120)
+    r = api(token, "painel_gestor_salvar", corpo={"telas": telas}, timeout=120)
     partes = ["%s (%d letras, %d respostas)" % (t["tela"], len(t["texto"]), len(t["jsons"])) for t in telas]
     msg = "Painel do Gestor: " + ", ".join(partes)
     return len(telas), len(telas), 0, msg + (f" · {r.get('resumo')}" if r.get("resumo") else "")
@@ -4423,6 +4423,10 @@ def cmd_icones(args, cfg):
             try:
                 dado, tipo = baixar(url)
                 if len(dado) > 600_000 or len(dado) < 200:
+                    continue
+                if dado[:8] == b"\x89PNG\r\n\x1a\n" and int.from_bytes(dado[16:20], "big") < 64:
+                    continue                                  # 16/32 px não é "alta": fica o ícone de antes
+                if tipo in ("image/x-icon", "image/vnd.microsoft.icon") or url.lower().endswith(".ico"):
                     continue
                 tipo = tipo if tipo.startswith("image/") else ("image/svg+xml" if url.lower().endswith(".svg") else "image/png")
                 saida[nome] = f"data:{tipo};base64," + base64.b64encode(dado).decode()

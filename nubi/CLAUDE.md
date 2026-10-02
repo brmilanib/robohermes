@@ -105,7 +105,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `dashboard_listas`) e a tela se atualiza a cada 5 min. "⚡ Vendas de hoje" saiu do menu (a tela de detalhe por hora
   continua em `#/analises-vendas/hoje`, link no Dashboard).
 - Margens em tempo real do Gestor (fase 2): `coletor gestor-painel` (comando `gestor_painel`) abre o painel e /sales do
-  Gestor, SÓ LÊ, e manda texto + respostas JSON da tela para `gestor_painel_salvar` (`gestor_painel|bruto`); o leitor
+  Gestor, SÓ LÊ, e manda texto + respostas JSON da tela para `painel_gestor_salvar` (`gestor_painel|bruto`); o leitor
   desses números entra depois de ver o bruto.
 - Ícones das lojas em alta: card #148 para o Ferreiro (logos oficiais em `public/icones/`, usados por `platIco`).
 
