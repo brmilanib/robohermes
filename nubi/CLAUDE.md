@@ -345,8 +345,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   card e não veio → fica. O card estica até a data nova (`dias` recalculado, `arquivo` = "a.csv + b.csv"), o antigo é
   apagado; NUNCA nasce um 2º card da marca por cima do mesmo começo (o 59 dias da Al Wataniah + setembro = um card
   01/08–30/09). Anúncio de carona (coluna Marca = outra marca) vai para o card dela pela mesma regra (`_levar_para_marca`:
-  mesmo período → só o que falta; card mais antigo → esticado); marca sem card → fica como "Outra marca" no card de quem
-  importou até o export dela entrar (`esperando`, só mesmo período). Arredondamento acima de 1.000 fica como está (Bruno:
+  mesmo período → só o que falta; card mais antigo → esticado). Marca sem card (`destino_carona`): 1º tenta uma marca que
+  JÁ existe (chave, apelido de Nomes de marcas, erro de digitação, nome da marca dentro do texto: "LATTAFA GLORY EDP" →
+  LATTAFA; empate = nome mais comprido); nome que bate com a marca que está importando fica onde está; 2º marca NOVA só se
+  `parece_marca` (até 4 palavras/30 letras, fora de `NAO_E_MARCA` e das palavras vazias) e tem corpo (3+ anúncios de 2+
+  vendedores ou 40+ un.) → `_criar_card` (Bruno: "marca sem card? cria o card dela, é marca nova"); o resto (título colado
+  no campo Marca, GENÉRICO, 1 anúncio de 1 un.) fica como "Outra marca" no card de quem importou, fora da conta. Lista
+  real do 1008 (02/10): 470 anúncios de ~270 "marcas" sem card, quase tudo lixo ou erro de digitação. Re-importar o mesmo
+  arquivo não muda nada (diferença 0). Arredondamento acima de 1.000 fica como está (Bruno:
   "não tem problema ser aproximado, a média dos últimos 30 dias vai chegando no exato"). Cada soma fica guardada em
   ia_resumos `explorador|dia|<marca>|<ate>` (`registrar_dia`: un/fat/anúncios/vendedores/novos, por vendedor e por produto,
   busca) → rota `explorador_dias` = "Dias somados" + média de 30 dias no topo da aba Diferença. Card antigo (1008): rota

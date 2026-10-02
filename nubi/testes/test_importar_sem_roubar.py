@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("OLLAMA_API_KEY", "x")
+import pandas as pd  # noqa: E402
 import nubi  # noqa: E402
 
 CAB = ("Título;Vendedor;Categoria L1;Categoria final;Código Completo da Categoria;Código da Categoria L1;Código da Categoria Final;"
@@ -108,21 +109,20 @@ def test_outras_marcas_vao_para_o_card_certo():
                            lin("Perfume Al Haramain Amber Oud Edp 60ml", "AL HARAMAIN", "H1", 120, 500)),
         "AL WATANIAH", "2026-09-01", "2026-09-30")
     assert set(ids_do(repo, "LATTAFA", "2026-09-01")) == {"L1", "L2"}      # L2 veio na busca expandida: card da Lattafa
-    alw = ids_do(repo, "AL WATANIAH", "2026-09-01")
     # os anúncios de carona entram no card da Lattafa com os números da Lattafa (L1 estava lá: cópia descartada)
     la = repo.anuncios(int(repo.snapshots().query("marca == 'LATTAFA'")["id"].iloc[0]))
     assert {b.get("ID do anúncio"): int(u) for b, u in zip(la["bruto"], la["un"])} == {"L1": 800, "L2": 300}
-    assert set(alw) == {"W1", "H1"} and alw["H1"] == nubi.TIPO_OUTRA, alw  # H1 espera aqui (Al Haramain sem card de setembro)
-    # a página da marca conta SÓ a marca (450 un. do W1) e lista a Al Haramain em "Outras marcas"
+    # 02/10 (Bruno: "marca sem card? cria o card dela, é marca nova"): a Al Haramain nasce com o H1
+    assert set(ids_do(repo, "AL WATANIAH", "2026-09-01")) == {"W1"}
+    assert ids_do(repo, "AL HARAMAIN", "2026-09-01") == {"H1": "EDP"}
+    # a página da marca conta SÓ a marca (450 un. do W1), sem "Outras marcas"
     r = nubi_web.relatorio(repo, "AL WATANIAH")
     z = r["resumo"]
     assert z["un"] == 450 and z["anuncios"] == 1 and z["vendedores"] == 1 and z["fat"] == 45000, z
-    assert z["un_outras_marcas"] == 120 and z["anuncios_outras_marcas"] == 1 and z["fat_outras_marcas"] == 12000
-    o = r["tabelas"]["outras"]
-    assert len(o) == 1 and o[0]["marca"] == "AL HARAMAIN" and o[0]["un"] == 120 and o[0]["situacao"] == nubi_web.SIT_OUTRA_ESPERA, o
+    assert z["un_outras_marcas"] == 0 and r["tabelas"]["outras"] == []
     assert [v["vendedor"] for v in r["tabelas"]["vendedores"]] == ["VEND.W1"]
     assert all(p["produto"].startswith("Al Wataniah") for p in r["tabelas"]["produtos"]), r["tabelas"]["produtos"]
-    # chega o export de setembro da AL HARAMAIN (busca exata, SEM o H1): o H1 que esperava passa para o card dela
+    # chega o export de setembro da AL HARAMAIN (busca exata, SEM o H1): mesmo período, o H2 entra e o H1 fica
     imp("alh.csv", csv(lin("Perfume Al Haramain Lavender Oud Edp 100ml", "AL HARAMAIN", "H2", 60, 200)),
         "AL HARAMAIN", "2026-09-01", "2026-09-30")
     assert set(ids_do(repo, "AL HARAMAIN", "2026-09-01")) == {"H1", "H2"}
@@ -194,9 +194,25 @@ def test_regra_14_card_vivo():
     imp("alw_velho.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 450, 5060),
                              lin("Perfume Al Wataniah Durrat Edp 85ml", "AL WATANIAH", "W3", 9, 9)), "AL WATANIAH", "2026-09-01", "2026-09-30")
     assert un_card(repo, "AL WATANIAH") == ("2026-09-01", "2026-10-02", 32, {"W1": 470, "W2": 5, "W3": 9})
-    # mesmo arquivo de novo: pulado (hash)
-    assert imp("alw_velho.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 450, 5060),
-                                    lin("Perfume Al Wataniah Durrat Edp 85ml", "AL WATANIAH", "W3", 9, 9)), "AL WATANIAH", "2026-09-01", "2026-09-30") is None
+    # carona com erro de digitação vai para a marca certa; título colado no campo Marca e marca genérica ficam onde estão
+    imp("alw_3.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 480, 5090),
+                         lin("Perfume Lataffa Yara Edp 100ml", "LATAFFA", "L4", 7, 7),
+                         lin("Toff Pomada Creme 100g", "TOFF POMADA CREME 100G N3 GEL INTENSO DORES", "T1", 30, 30),
+                         lin("Perfume Arabe Decant 5ml", "GENÉRICO", "G1", 9, 9),
+                         lin("Perfume Finke Sabah Edp 100ml", "FINKÈ", "F1", 300, 900),
+                         lin("Perfume Finke Oud Edp 100ml", "FINKÈ", "F2", 200, 500)), "AL WATANIAH", "2026-09-01", "2026-10-03")
+    assert un_card(repo, "LATTAFA")[3] == {"L1": 850, "L2": 300, "L3": 50, "L4": 7}
+    assert un_card(repo, "FINKE") == ("2026-09-01", "2026-10-03", 33, {"F1": 300, "F2": 200})     # marca nova com corpo: card
+    assert set(ids_do(repo, "AL WATANIAH", "2026-09-01")) == {"W1", "W2", "W3", "T1", "G1"}       # lixo fica aqui, fora da conta
+    assert nubi.destino_carona("AL WATANIAH", {"LATTAFA": "LATTAFA"}, "AL WATHANIAH", pd.DataFrame({"un": [5], "vendedor_id": ["x"]})) == (None, False)
+    assert nubi.destino_carona("AL WATANIAH", {"LATTAFA": "LATTAFA", "ASDAAF": "ASDAAF"}, "ASDAAF LATTAFA", pd.DataFrame({"un": [5], "vendedor_id": ["x"]})) == ("LATTAFA", False)
+    assert nubi.destino_carona("AL WATANIAH", {}, "MAKIAJ", pd.DataFrame({"un": [110], "vendedor_id": ["x"]})) == ("MAKIAJ", True)
+    assert nubi.destino_carona("AL WATANIAH", {}, "NA", pd.DataFrame({"un": [110], "vendedor_id": ["x"]})) == (None, False)
+    # o mesmo arquivo de novo não muda nada (histórico igual = diferença 0; o card guarda só o hash do último arquivo)
+    antes = un_card(repo, "AL WATANIAH")
+    imp("alw_velho.csv", csv(lin("Perfume Al Wataniah Sabah Al Ward Edp 100ml", "AL WATANIAH", "W1", 450, 5060),
+                             lin("Perfume Al Wataniah Durrat Edp 85ml", "AL WATANIAH", "W3", 9, 9)), "AL WATANIAH", "2026-09-01", "2026-09-30")
+    assert un_card(repo, "AL WATANIAH") == antes
     repo.fechar()
 
 

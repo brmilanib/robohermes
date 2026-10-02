@@ -3312,15 +3312,72 @@ def _juntar_por_id(repo, cfg, marca, ini, fim, df, recem=(), ini_arq=None, fim_a
     for m in sorted(set(snaps["marca"]) | set(cfg)):
         nomes.setdefault(_chave_grupo(m), m)
     grupos = df["marca_anuncio"].fillna("").map(_chave_grupo)
-    for g in [x for x in grupos.unique() if x and x != grupo and x in nomes and nomes[x] not in set(recem) - {marca}]:
+    for g in [x for x in grupos.unique() if x and x != grupo]:
         sub = df[grupos == g]
-        n, tinha = _levar_para_marca(repo, cfg, nomes[g], ini_arq, fim_arq, sub, arquivo)
-        if tinha:
-            df = df[grupos != g]
-            grupos = grupos[df.index]
-            avisar(f"    {len(sub)} anúncio(s) com a marca {nomes[g]} vieram na busca: {n} entraram no card de {nomes[g]} "
-                   f"({len(sub) - n} já estavam lá). Não contam duas vezes.")
+        outra, criar = destino_carona(marca, nomes, str(sub["marca_anuncio"].fillna("").map(str.strip).value_counts().index[0]), sub)
+        if not outra or outra in set(recem) - {marca}:
+            continue
+        n, tinha = _levar_para_marca(repo, cfg, outra, ini_arq, fim_arq, sub, arquivo)
+        if not tinha:
+            if not criar:
+                continue
+            # 02/10 (Bruno: "marca sem card? cria o card dela, é marca nova; quando vier de novo vai agregando a diferença")
+            n = _criar_card(repo, cfg, outra, ini_arq, fim_arq, sub, arquivo)
+            nomes.setdefault(_chave_grupo(outra), outra)
+        df = df[grupos != g]
+        grupos = grupos[df.index]
+        avisar(f"    {len(sub)} anúncio(s) com a marca {outra} vieram na busca: {n} entraram no card de {outra}"
+               + ("" if tinha else " (card novo)") + f" ({len(sub) - n} já estavam lá). Não contam duas vezes.")
     return df
+
+
+# 02/10 (lista do card 1008 da Al Wataniah: 470 anúncios de carona de "marcas" sem card — quase tudo erro de digitação de
+# marca que existe (ARD AD ZAFARRAN, LATAFFA, AL WATHANIAH), título colado no campo Marca ("TOFF POMADA CREME 100G…") ou
+# palavra genérica (GENÉRICO, DECANT, NA)). Bruno: "não é possível que tenha 470 marcas novas".
+NAO_E_MARCA = {"GENERICO", "GENERICA", "DECANT", "DECANTS", "NA", "ND", "SEMMARCA", "SINMARCA", "PERFUME", "PERFUMES", "PERFUMESARABES",
+               "ARABE", "ARABES", "IMPORTADO", "ORIGINAL", "KIT", "COMPATIVEL", "UNIVERSAL", "OUTROS", "OUTRA", "MARCA", "AL", "DE"}
+
+
+def parece_marca(nome):
+    """Nome que pode virar card: até 4 palavras e 30 letras, sem ser genérico nem título colado no campo Marca."""
+    t = chave_marca(nome)
+    pal = normalizar(t).split()
+    return bool(t) and 1 <= len(pal) <= 4 and len(t) <= 30 and compacta(t) not in NAO_E_MARCA \
+        and not all(p in PALAVRAS_VAZIAS or p in LINHA_NAO_E for p in pal)
+
+
+def destino_carona(marca, nomes, nome, sub):
+    """Para onde vai o anúncio de carona com a coluna Marca = `nome`: (marca existente ou nova, criar?).
+    1) marca que já existe (mesma chave, apelido de Nomes de marcas, erro de digitação, ou o nome da marca dentro do texto:
+       "LATTAFA GLORY EDP" → LATTAFA; empate = a de nome mais comprido); nome que bate com a marca que está importando
+       fica onde está (é "marca desta, GTIN de outra"); 2) marca nova só se parece marca e tem corpo (3+ anúncios de 2+
+       vendedores, ou 40+ un.); senão fica no card de quem importou como "Outra marca"."""
+    g = _chave_grupo(nome)
+    if g in nomes:
+        return nomes[g], False
+    cand = [m for m in nomes.values() if marca_bate(nome, compacta(m))]
+    if any(_chave_grupo(m) == _chave_grupo(marca) for m in cand):
+        return None, False
+    if cand:
+        return max(cand, key=lambda m: len(compacta(m))), False
+    if not parece_marca(nome):
+        return None, False
+    un = float(pd.to_numeric(sub["un"], errors="coerce").fillna(0).sum())
+    corpo = (len(sub) >= 3 and sub["vendedor_id"].astype(str).nunique() >= 2) or un >= 40
+    return (chave_marca(nome), True) if corpo else (None, False)
+
+
+def _criar_card(repo, cfg, outra, ini_arq, fim_arq, rows, arquivo):
+    """REGRA 14: marca que ainda não tem card ganha um com o que veio de carona (período do arquivo); os próximos exports
+    somam a diferença nele."""
+    rows = rows.drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in rows.columns])
+    if outra not in cfg:
+        garantir_config(cfg, outra, rows, repo)
+    rows = consolidar(rows, outra, cfg)
+    dias = (date.fromisoformat(fim_arq) - date.fromisoformat(ini_arq)).days + 1
+    hash_ = hashlib.sha256(f"carona|{outra}|{arquivo}|{ini_arq}|{fim_arq}".encode()).hexdigest()
+    repo.gravar_snapshot(outra, ini_arq, fim_arq, dias, arquivo, hash_, rows)
+    return int(len(rows))
 
 
 def encaminhar_outras_marcas(repo, cfg, marca, sid):
@@ -3342,13 +3399,20 @@ def encaminhar_outras_marcas(repo, cfg, marca, sid):
         nomes.setdefault(_chave_grupo(m), m)
     feito, saiu = {}, set()
     for g, sub in outras.groupby(outras["marca_anuncio"].fillna("").map(_chave_grupo)):
-        if not g or g == _chave_grupo(marca) or g not in nomes:
+        if not g or g == _chave_grupo(marca):
+            continue
+        outra, criar = destino_carona(marca, nomes, str(sub["marca_anuncio"].fillna("").map(str.strip).value_counts().index[0]), sub)
+        if not outra:
             continue
         sub = sub.drop(columns=[c for c in ("rid", "snapshot_id", "id") if c in sub.columns])
-        n, tinha = _levar_para_marca(repo, cfg, nomes[g], ini, fim, sub, s["arquivo"])
-        if tinha:
-            feito[nomes[g]] = int(n)
-            saiu |= set(sub["anuncio"])
+        n, tinha = _levar_para_marca(repo, cfg, outra, ini, fim, sub, s["arquivo"])
+        if not tinha:
+            if not criar:
+                continue
+            n = _criar_card(repo, cfg, outra, ini, fim, sub, s["arquivo"])
+            nomes.setdefault(_chave_grupo(outra), outra)
+        feito[outra] = feito.get(outra, 0) + int(n)
+        saiu |= set(sub["anuncio"])
     if saiu:
         resto = df[~df["anuncio"].isin(saiu)].drop(columns=[c for c in ("rid", "snapshot_id", "id", "anuncio") if c in df.columns])
         repo.gravar_snapshot(marca, ini, fim, int(s["dias"]), s["arquivo"], s["hash"], resto)
