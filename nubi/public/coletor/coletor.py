@@ -5788,6 +5788,16 @@ def _hermes_memoria(cfg):
 REPO_GIT = "https://github.com/brmilanib/robohermes.git"
 BRANCH_NUBI = "claude/wizardly-ritchie-5fig5i"
 FERREIRO_TETO_DIA = float(os.environ.get("NUBI_FERREIRO_TETO", "10"))
+
+
+def _teto_ferreiro(cfg):
+    """02/10 (Bruno: "pode liberar limite pro Ferreiro, quero terminar hoje"): o nubi pode subir o teto SÓ do dia
+    (`ferreiro_teto`, guardado pelo Chefe com a data); sem isso, o padrão de US$ 10."""
+    try:
+        t = api(token_nubi(cfg), "ferreiro_teto", timeout=30).get("teto")
+        return max(FERREIRO_TETO_DIA, float(t)) if t else FERREIRO_TETO_DIA
+    except Exception:  # noqa: BLE001
+        return FERREIRO_TETO_DIA
 FERREIRO_MODELO = os.environ.get("NUBI_FERREIRO_MODELO", "claude-opus-5-5")
 FERREIRO_AUTOR = "Ferreiro (Claude no Mac)"
 
@@ -6009,8 +6019,8 @@ def cmd_programar(args, cfg, quem="ferreiro"):
         return 1
     ok, motivo = deepseek_pronto(cfg) if ds else astra_pronto(cfg) if astra else ferreiro_pronto(cfg)
     gasto = _cards_hoje(cfg, "deepseek_cards") if ds else _cards_astra_hoje(cfg) if astra else _gasto_ferreiro(cfg)
-    teto = DEEPSEEK_CARDS_DIA if ds else ASTRA_CARDS_DIA if astra else FERREIRO_TETO_DIA
-    limite = f"{gasto} de {teto} cards" if astra else f"US$ {gasto:.2f} de {FERREIRO_TETO_DIA:.0f}"
+    teto = DEEPSEEK_CARDS_DIA if ds else ASTRA_CARDS_DIA if astra else _teto_ferreiro(cfg)
+    limite = f"{gasto} de {teto} cards" if astra else f"US$ {gasto:.2f} de {teto:.0f}"
     modelo = DEEPSEEK_PROG_MODELO if ds else ASTRA_MODELO if astra else FERREIRO_MODELO
     if str(args.id) == "0":                               # só conferir (comando "conferir" da Central)
         ocupado = next((x.split(".")[0] for x in PROGRAMADORES_PID if _pid_vivo(PASTA / x)), None)
@@ -6175,7 +6185,7 @@ def cmd_ferreiro_conversa(args, cfg):
     ok, motivo = ferreiro_pronto(cfg)
     gasto = _gasto_ferreiro(cfg)
     token = token_nubi(cfg)
-    if not ok or gasto >= FERREIRO_TETO_DIA:
+    if not ok or gasto >= _teto_ferreiro(cfg):
         aviso = f"indisponível: {motivo}" if not ok else f"teto do dia atingido (US$ {gasto:.2f})"
         api(token, "reuniao_postar", corpo={"autor": FERREIRO_AUTOR, "texto": f"⚠️ Não consigo responder agora ({aviso}).",
                                              "direta": "claude_mac", "modelo": FERREIRO_MODELO}, metodo="POST", timeout=60)

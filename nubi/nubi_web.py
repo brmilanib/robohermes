@@ -2358,6 +2358,10 @@ def atender(metodo, rota, q, corpo, token):
 
         if rota == "inicio":
             return _json(tela_inicio(repo))
+        if rota == "ferreiro_teto":
+            # 02/10 (Bruno: "pode liberar limite pro Ferreiro, quero terminar hoje"): teto extra só no dia gravado
+            t, _ = _ia_json(repo, "ferreiro|teto")
+            return _json({"teto": (t or {}).get("teto") if (t or {}).get("dia") == _agora_br().date().isoformat() else None})
         if rota == "dashboard_listas":
             return _json(dashboard_listas(repo))
         if rota == "gestor_painel_salvar" and metodo == "POST":
