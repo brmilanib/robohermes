@@ -9475,12 +9475,16 @@ async function tick(){
   let d; try{d=await (await fetch("/estado")).json()}catch(e){$("#st").textContent="painel parado";$("#st").className="pill warn";return}
   $("#hora").textContent=new Date().toLocaleTimeString("pt-BR");
   const ativo=d.coleta_rodando||d.rodando.length;
-  $("#st").innerHTML=ativo?'<span class="dot"></span>trabalhando':(d.pausado?"pausado":"esperando a próxima tarefa");$("#st").className="pill"+(ativo?" on":"");
+  // 03/10 (Bruno: "aparece trabalhando, mas qual robô está trabalhando naquele momento?")
+  const robo=c=>/^programar_card|^ferreiro/.test(c)?"🔨 Ferreiro":/astra/.test(c)?"🎨 Astra (Codex)":/deepseek/.test(c)?"🐋 DeepSeek":/^hermes|^qwen/.test(c)?"🪽 "+(c.startsWith("qwen")?"Qwen":"Hermes"):/^servidor_/.test(c)?"🖥️ PC do escritório":"🤖 Coletor";
+  const quem=d.rodando.map(j=>`${robo(j.comando)} · ${j.comando}`);
+  if(!quem.length&&d.coleta_rodando)quem.push("🤖 Coletor · coleta da rotina");
+  $("#st").innerHTML=quem.length?'<span class="dot"></span>trabalhando: '+esc(quem.join(" | ")):(d.pausado?"pausado":"esperando a próxima tarefa");$("#st").className="pill"+(quem.length?" on":"");
   $("#ol").textContent=d.ollama?("🪽 Hermes pronto"):"🪽 Ollama desligado";$("#ol").className="pill"+(d.ollama?" on":" warn");
   const recente=d.tela_em&&d.agora-d.tela_em<30;
   $("#telaBox").innerHTML=recente?`<img class="tela" src="/tela?t=${d.tela_em}" alt="tela do robô"><div class="hint">atualizada às ${hh(d.tela_em)} · o navegador do robô roda escondido; esta é a foto dele</div>`:'<div class="vazio">Nenhuma coleta com navegador aberta agora.</div>';
   $("#jobs").className=d.rodando.length?"":"vazio";
-  $("#jobs").innerHTML=d.rodando.length?d.rodando.map(j=>`<div class="job"><b>${esc(j.comando)}</b><small>#${esc(j.id)} · há ${dur(d.agora-j.desde)}</small><pre>${esc(j.log.join("\n"))}</pre></div>`).join(""):"Nada rodando.";
+  $("#jobs").innerHTML=d.rodando.length?d.rodando.map(j=>`<div class="job"><small style="margin:0 6px 0 0">${robo(j.comando)}</small><b>${esc(j.comando)}</b><small>#${esc(j.id)} · há ${dur(d.agora-j.desde)}</small><pre>${esc(j.log.join("\n"))}</pre></div>`).join(""):"Nada rodando.";
   const lg=$("#log"); lg.textContent=d.log.join("\n"); if(fixo) lg.scrollTop=lg.scrollHeight;
   $("#recentes").innerHTML=d.recentes.map(r=>`<div class="rec"><span class="${r.ok?"ok":"erro"}">${r.ok?"✓":"✗"}</span><span>${esc(r.nomes||"#"+r.id)}</span><small style="color:var(--mut)">${hh(r.fim)}</small><span class="u">${esc(r.ultima)}</span></div>`).join("")||'<div class="vazio">—</div>';
 }

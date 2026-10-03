@@ -238,6 +238,7 @@ if os.environ.get("NUBI_CHROMIUM"):
         pg.goto(URL)
         pg.wait_for_selector("#jobs .job")
         assert "historico_vendas" in pg.inner_text("#jobs")
+        pg.wait_for_function("() => document.querySelector('#st').innerText.includes('Coletor · historico_vendas')")
         pg.click(".ag button[data-a=hermes]"); assert "Ferreiro" in pg.inner_text(".ag")
         pg.fill("#q", "o que está rodando?")
         pg.keyboard.press("Enter")
