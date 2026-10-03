@@ -8630,6 +8630,16 @@ function carregando(msg) {
 const kpi = (l, v, o = "") => `<div class="card kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
 
 // ---------- Marca ----------
+// 03/10 (Bruno: "fecha e recarrega inteiro; devia ficar no produto com o loading"): cada visão já carregada fica guardada
+// por 10 min no navegador — trocar de novo é instantâneo
+async function relatorioMarca(marca, extra = {}) {
+  S.relCache = S.relCache || {};
+  const k = marca + "|" + JSON.stringify(extra), c = S.relCache[k];
+  if (c && Date.now() - c.t < 600000) return c.r;
+  const r = await api("relatorio", {marca, ...extra});
+  S.relCache[k] = {r, t: Date.now()};
+  return r;
+}
 async function abrirMarca(marca, manterAba = false) {
   $("#main").innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando ${esc(nome(marca))}</div></div>`;
   S.perMarca = S.perMarca || {};
@@ -8637,7 +8647,7 @@ async function abrirMarca(marca, manterAba = false) {
   // 03/10 (Bruno: "últimos 7 dias, últimos 30 dias"): padrão = 30 dias (o export do dia); 7 dias; ou o card Completo
   S.visaoMarca = S.visaoMarca || {};
   const vis = S.visaoMarca[marca] || "30";
-  try { S.rel = await api("relatorio", per ? {marca, periodo: per} : vis === "completo" ? {marca} : {marca, visao: vis}); }
+  try { S.rel = await relatorioMarca(marca, per ? {periodo: per} : vis === "completo" ? {} : {visao: vis}); }
   catch (e) {
     if (per) { delete S.perMarca[marca]; return abrirMarca(marca, manterAba); }   // período apagado: volta ao padrão
     $("#main").innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -10338,7 +10348,8 @@ function abrirVendedoresProduto(prod) {
   // 03/10 (Bruno, Sospiro: "não bate com o Nubimetrics"): com a janela do último export (os números do período do ARQUIVO,
   // por anúncio) o quadro mostra os 30 dias de verdade em vez de "card de 63 dias × 30 ÷ 63"
   const vis = (S.rel.resumo || {}).visao, visOk = vis && !vis.falta;
-  const jan = visOk ? null : (S.rel.resumo || {}).janela;
+  // 03/10 (print do Bruno: "Completo · 63 dias não muda nada"): no Completo valem os números do card inteiro (sem a janela)
+  const jan = null;
   const lista = ((S.rel.vendedores_produto || {})[prod] || []).map(v => jan ? {...v, un_card: v.un, un: v.un30 || 0, fat: v.fat30 || 0} : v)
     .sort((a, b) => b.un - a.un || b.fat - a.fat);
   if (jan) { const t = lista.reduce((a, v) => a + v.un, 0); lista.forEach(v => v.share = t ? v.un / t : 0); }
@@ -10357,8 +10368,8 @@ function abrirVendedoresProduto(prod) {
   // 02/10 (Bruno: "a gente trata sempre os últimos 30 dias: unidades, faturamento e vendedores dos últimos 30 dias, para
   // comparar mês a mês"): o export do Explorador é de ~60 dias; tudo vira "por 30 dias" (proporcional) até termos o export
   // de 30 dias — com ele (28 a 31 dias) o número é o exato
-  const f30 = visOk || (dias >= 28 && dias <= 33) ? 1 : 30 / dias, prop = f30 !== 1;
-  const nDias = visOk ? vis.dias : 30;           // 7 dias: os números são da semana, sem proporção
+  const f30 = 1, prop = false;                    // cada visão mostra os números do próprio período, sem proporção
+  const nDias = dias;
   const n30 = v => nf0.format(Math.round((v || 0) * f30));
   // 01/10 (Bruno): média por dia desde a criação dos anúncios (histórico ÷ dias publicados) x média do período exportado
   const mediaHist = lista.reduce((a, v) => a + (v.media_dia_hist || 0), 0), mediaPer = tot.un / dias;
@@ -10419,9 +10430,20 @@ function abrirVendedoresProduto(prod) {
     <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).${prop ? ` Unidades e faturamento em 30 dias = export de ${dias} dias (${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)}) × 30 ÷ ${dias}; o preço médio e o share não mudam.` : ""}</p>`);
   $(".modal", bg).classList.add("larga", "pq");
   // 03/10 (Bruno): os mesmos botões da marca dentro do produto; troca a visão da marca inteira e reabre este produto
-  bg.querySelectorAll("[data-pqvisao]").forEach(b => b.onclick = () => { if (b.disabled) return;
-    S.visaoMarca = S.visaoMarca || {}; S.visaoMarca[S.rel.marca] = b.dataset.pqvisao;
-    S.abrirProd = {marca: S.rel.marca, produto: prod}; bg.remove(); abrirMarca(S.rel.marca, true); });
+  bg.querySelectorAll("[data-pqvisao]").forEach(b => b.onclick = async () => { if (b.disabled || b.classList.contains("on")) return;
+    const marca = S.rel.marca, k = b.dataset.pqvisao;
+    bg.querySelectorAll("[data-pqvisao]").forEach(x => x.disabled = true);
+    b.innerHTML = `<b>carregando…</b>`;
+    $(".modal", bg).style.opacity = ".6";
+    try {
+      const r = await relatorioMarca(marca, k === "completo" ? {} : {visao: k});
+      S.visaoMarca = S.visaoMarca || {}; S.visaoMarca[marca] = k; S.rel = r; S.tabelas = {};
+      telaMarca();                                  // a página de trás acompanha
+      const top = ($(".tw", bg) || {}).scrollTop || 0;
+      bg.remove(); abrirVendedoresProduto(prod);      // o quadro reabre na hora com os números da visão
+      const novo = document.querySelector(".modal-bg:last-child .tw"); if (novo) novo.scrollTop = top;
+    } catch (e) { toast(e.message, 6000); $(".modal", bg).style.opacity = ""; bg.querySelectorAll("[data-pqvisao]").forEach(x => x.disabled = false); }
+  });
   bg.querySelectorAll(".sp-abrir").forEach(a => a.onclick = e => { e.preventDefault(); const v = lista.find(x => String(x.vid) === a.dataset.vid); if (v) abrirSeriePreco(prod, v); });
   // 01/10 (Bruno: "Sabah Al Ward só existe EDP 100 ml; confirme pela API do ML antes de juntar")
   $("#pq-ficha", bg).onclick = async e => { e.preventDefault(); const el = $("#pq-ficha-res", bg); el.innerHTML = `<span class="muted">lendo as características no Mercado Livre…</span>`;
