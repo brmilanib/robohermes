@@ -115,6 +115,9 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   devolve o WhatsApp (o atendente do PC não mexe nele). Aba SAC → 💚 WhatsApp (`#/sac/whatsapp`, situação pela rota
   `whatsapp_estado`). Depois (Bruno): aniversário da base antiga (5–10 por dia, devagar, com "responda SAIR"), e a
   API oficial da Meta para clientes. Testes `test_whatsapp_atendimento.py`, `test_whatsapp_coletor.py`.
+- Máquinas (03/10, Bruno): por enquanto o Mac é o principal e o gamdias continua como está (SAC do UpSeller, atendente
+  Shopee/TikTok, parte das coletas e leituras do ML) até o Dell ficar pronto. Depois: Dell = servidor dedicado (principal),
+  Mac = reserva que assume quando o servidor cair. Não mudar a divisão antes do Bruno configurar o Dell.
 - Branch de trabalho: `claude/wizardly-ritchie-5fig5i`; sem PR se não pedirem; não mexer no "Branch Tracking" da Vercel.
 - Testar no servidor falso (fake_rest + servidor.py) e no mock do Nubimetrics antes de publicar.
 
