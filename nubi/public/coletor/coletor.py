@@ -9471,7 +9471,7 @@ button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6
  <div id="anx" class="anx"></div>
  <form id="f"><label class="ic" title="anexar print"><input type="file" id="arq" accept="image/*" multiple hidden>📎</label>
  <button type="button" class="ic" id="mic" title="falar (ditado)">🎤</button><textarea id="q" placeholder="Escreva, cole um print (Cmd+V) ou fale no 🎤…"></textarea><button id="env">Enviar</button></form>
- <div class="hint"><a href="#" id="nova" style="color:var(--azul)">Nova conversa</a> · o Claude lembra a conversa até você começar uma nova</div>
+ <div class="hint"><a href="#" id="nova" style="color:var(--azul)">Nova conversa</a> · tudo fica guardado no Mac; a memória (🧠) vale para o Ferreiro e o Codex</div>
  <div class="hint">Claude e Codex conversam, olham prints e programam (botão 🔨: branch próprio + testes + revisão do Chefe). Usam a sua chave; o Claude conta no teto do Ferreiro. Hermes (grátis) para coisas simples e de volume.</div></div>
 </aside></main>
 <script>
@@ -9503,13 +9503,18 @@ async function anexar(f){if(!f||!/^image\//.test(f.type))return;const r=await (a
   if(r.caminho){anexos.push(r.caminho);const i=document.createElement("img");i.src=URL.createObjectURL(f);$("#anx").appendChild(i)}else alert(r.erro||"não deu")}
 $("#arq").onchange=e=>[...e.target.files].forEach(anexar);
 $("#q").addEventListener("paste",e=>[...(e.clipboardData||{}).items||[]].forEach(it=>{if(it.kind==="file")anexar(it.getAsFile())}));
-$("#nova").onclick=e=>{e.preventDefault();hist.length=0;nova=true;$("#msgs").innerHTML='<div class="m h">Conversa nova. Pode falar!</div>'};
+$("#nova").onclick=e=>{e.preventDefault();hist.length=0;nova=true;$("#msgs").innerHTML='<div class="m h">Assunto novo. A conversa antiga e a memória continuam guardadas.</div>'};
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
 $("#mic").onclick=()=>{if(!SR)return alert("Este navegador não tem ditado; use o Chrome.");if(rec){rec.stop();return}
   rec=new SR();rec.lang="pt-BR";rec.interimResults=true;rec.continuous=true;const base=$("#q").value;$("#mic").classList.add("on");
   rec.onresult=ev=>{$("#q").value=base+[...ev.results].map(x=>x[0].transcript).join(" ")};
   rec.onend=()=>{rec=null;$("#mic").classList.remove("on")};rec.start()};
-document.querySelectorAll(".ag button").forEach(b=>b.onclick=()=>{agente=b.dataset.a;document.querySelectorAll(".ag button").forEach(x=>x.classList.toggle("on",x===b))});
+async function carregarHist(){try{const h=await (await fetch("/historico?agente="+agente)).json();hist.length=0;$("#msgs").innerHTML="";
+  if(!h.length){$("#msgs").innerHTML='<div class="m h">Conversa nova. Tudo o que falarmos fica guardado aqui no Mac.</div>';return}
+  for(const m of h){hist.push({role:m.role,content:m.content});const e=bolha(m.role==="user"?"eu":"h",String(m.content).replace(/\[\[(comando|card|programar|recado|lembrar):[^\]]*\]\]/g,"").trim())}
+  const sep=document.createElement("div");sep.className="hint";sep.textContent="— conversa guardada —";$("#msgs").appendChild(sep)}catch(e){}}
+document.querySelectorAll(".ag button").forEach(b=>b.onclick=()=>{agente=b.dataset.a;document.querySelectorAll(".ag button").forEach(x=>x.classList.toggle("on",x===b));carregarHist()});
+carregarHist();
 function bolha(c,t){const e=document.createElement("div");e.className="m "+c;e.textContent=t;$("#msgs").appendChild(e);$("#msgs").scrollTop=1e9;return e}
 $("#q").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#f").requestSubmit()}});
 $("#f").onsubmit=async e=>{e.preventDefault();const q=$("#q").value.trim();if(!q)return;$("#q").value="";bolha("eu",q);hist.push({role:"user",content:q});
@@ -9518,7 +9523,7 @@ $("#f").onsubmit=async e=>{e.preventDefault();const q=$("#q").value.trim();if(!q
   try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20),agente,anexos,nova})});enviados=anexos;anexos=[];nova=false;$("#anx").innerHTML="";
     const rd=r.body.getReader(),dec=new TextDecoder();for(;;){const {value,done}=await rd.read();if(done)break;txt+=dec.decode(value,{stream:true});b.textContent=txt;$("#msgs").scrollTop=1e9}
   }catch(err){txt="(não consegui falar com o Hermes: "+err.message+")";b.textContent=txt}
-  clearInterval(rel);hist.push({role:"assistant",content:txt});b.textContent=(agente==="hermes"?"":nome+": ")+txt.replace(/\[\[(comando|card|programar|recado):[^\]]*\]\]/g,"").trim();acoes(b,txt);$("#env").disabled=false;$("#q").focus()};
+  clearInterval(rel);hist.push({role:"assistant",content:txt});b.textContent=(agente==="hermes"?"":nome+": ")+txt.replace(/\[\[(comando|card|programar|recado|lembrar):[^\]]*\]\]/g,"").trim()+([...txt.matchAll(/\[\[lembrar:/g)].length?"\n\n🧠 guardei na memória":"");acoes(b,txt);$("#env").disabled=false;$("#q").focus()};
 function acoes(b,txt){for(const m of txt.matchAll(/\[\[(comando|card|programar|recado):([^\]|]*)(?:\|([^\]]*))?\]\]/g)){
   const [_,tipo,a,c]=m, bt=document.createElement("button");bt.className="acao";
   bt.textContent=tipo==="comando"?`▶ Rodar no Mac: ${a.trim()}${c?" ("+c.trim()+")":""}`:tipo==="programar"?`🔨 Programar agora: ${a.trim()}`:tipo==="recado"?`💬 Mandar recado ao card #${a.trim().replace(/\D/g,"")}`:`📝 Criar card: ${a.trim()}`;
@@ -9566,6 +9571,45 @@ PAINEL_AGENTES = {"claude": "Ferreiro (Claude Code)", "codex": "Codex", "hermes"
 
 
 PAINEL_SESSAO = PASTA / "painel_sessao.json"
+# 03/10 (Bruno: "o Codex também lembrar de tudo, guardar tudo que conversamos"): a conversa de cada agente fica guardada
+# no Mac (sem limite) e uma MEMÓRIA longa compartilhada (fatos e decisões) vale para o Ferreiro e o Codex.
+PAINEL_CONVERSAS = PASTA / "painel_conversas"
+PAINEL_MEMORIA = PASTA / "painel_memoria.md"
+
+
+def _conversa_guardar(agente, role, texto):
+    try:
+        PAINEL_CONVERSAS.mkdir(parents=True, exist_ok=True)
+        with open(PAINEL_CONVERSAS / f"{agente}.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"em": datetime.now().isoformat(timespec="seconds"), "role": role, "content": texto}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _conversa_ler(agente, n=40):
+    try:
+        with open(PAINEL_CONVERSAS / f"{agente}.jsonl", encoding="utf-8") as f:
+            linhas = f.readlines()[-n:]
+        return [json.loads(l) for l in linhas if l.strip()]
+    except (OSError, ValueError):
+        return []
+
+
+def _memoria_lembrar(texto, cfg=None):
+    """[[lembrar:…]]: o fato vai para a memória do painel (Ferreiro e Codex) e para a caixa de conhecimento do nubi."""
+    texto = texto.strip()[:1500]
+    if not texto:
+        return
+    try:
+        with open(PAINEL_MEMORIA, "a", encoding="utf-8") as f:
+            f.write(f"- ({datetime.now():%d/%m %H:%M}) {texto}\n")
+    except OSError:
+        pass
+    try:
+        api(token_nubi(cfg or {}), "conhecimento_salvar", corpo={"titulo": "Painel: " + texto[:90], "texto": texto, "tipo": "decisao",
+                                                               "fonte": "conversa no Painel do coletor", "autor": "Painel"}, metodo="POST", timeout=30)
+    except Exception:  # noqa: BLE001
+        pass
 PAINEL_BASE = PASTA / "conhecimento_nubi.md"
 
 
@@ -9587,7 +9631,9 @@ def _painel_cli(cfg, agente, sistema, msgs, anexos=(), nova=False):
     """03/10 (Bruno: "prefiro que ao invés do Hermes seja o Codex e o Claude Code conversando com o coletor"): o Claude Code
     ou o Codex deste Mac respondem no painel SÓ LENDO (código do coletor, logs, projeto); nada de editar, commit ou push.
     As ações continuam como botões ([[comando:…]] / [[card:…]]) que o Bruno confirma. O Claude conta no teto do Ferreiro."""
-    conversa = "\n\n".join(f"{'Bruno' if m['role'] == 'user' else 'Você'}: {m['content']}" for m in msgs[-12:])
+    guardadas = [m for m in _conversa_ler(agente, 30) if m.get("role") in ("user", "assistant")] if agente == "codex" else []
+    base_msgs = (guardadas + msgs[-1:]) if guardadas else msgs[-12:]
+    conversa = "\n\n".join(f"{'Bruno' if m['role'] == 'user' else 'Você'}: {str(m['content'])[:3000]}" for m in base_msgs)
     if anexos:
         conversa += "\n\n(O Bruno anexou imagem(ns); abra e olhe antes de responder: " + ", ".join(anexos) + ")"
     extra = ""
@@ -9606,7 +9652,12 @@ def _painel_cli(cfg, agente, sistema, msgs, anexos=(), nova=False):
                    if t.get("ultimo_evento") else "") for t in ts[:10])
         except Exception:  # noqa: BLE001
             cards_txt = ""
-        extra = ((f"\n\nA CAIXA DE CONHECIMENTO INTEIRA do projeto está em {base} (procure nela com Grep/Read antes de dizer que "
+        mem = PAINEL_MEMORIA.read_text(encoding="utf-8")[-6000:] if PAINEL_MEMORIA.exists() else ""
+        extra = ((f"\n\nMEMÓRIA DO BRUNO (fatos e decisões guardados nas conversas; vale para você e para o outro agente):\n{mem}" if mem else "")
+                 + f"\n\nAs conversas inteiras do Painel (suas e do outro agente) estão em {PAINEL_CONVERSAS}/*.jsonl: procure nelas "
+                 "(Grep) quando o Bruno citar algo de antes. Quando o Bruno pedir para lembrar algo, ou decidir algo importante "
+                 "(regra, preferência, número de referência), escreva numa linha [[lembrar:o fato em uma frase]]."
+                 + (f"\n\nA CAIXA DE CONHECIMENTO INTEIRA do projeto está em {base} (procure nela com Grep/Read antes de dizer que "
                   "não sabe). O código e o CLAUDE.md do projeto estão na pasta atual." if base else "")
                  + ("\n\nITENS DA CAIXA MAIS LIGADOS À PERGUNTA:\n" + "\n".join(f"- {it.get('titulo')}: {str(it.get('texto'))[:600]}"
                                                                          for it in ligados) if ligados else "")
@@ -9710,6 +9761,11 @@ def cmd_painel(args, cfg):
             rota = urllib.parse.urlparse(self.path).path
             if rota == "/":
                 return self._enviar(PAINEL_HTML, "text/html; charset=utf-8")
+            if rota == "/historico":
+                ag = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("agente") or ["claude"])[0]
+                if ag not in ("claude", "codex", "hermes"):
+                    return self._enviar("[]")
+                return self._enviar(json.dumps(_conversa_ler(ag, 40), ensure_ascii=False))
             if rota == "/estado":
                 return self._enviar(json.dumps(_painel_estado(), ensure_ascii=False))
             if rota == "/tela":
@@ -9755,10 +9811,15 @@ def cmd_painel(args, cfg):
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
+                if msgs and msgs[-1]["role"] == "user":
+                    _conversa_guardar(agente, "user", msgs[-1]["content"])
                 try:
                     txt = _painel_cli(cfg, agente, base[0]["content"], msgs, anexos, bool(d.get("nova")))
                 except Exception as e:  # noqa: BLE001
                     txt = f"(não deu: {str(e)[:300]})"
+                _conversa_guardar(agente, "assistant", txt)
+                for fato in re.findall(r"\[\[lembrar:([^\]]+)\]\]", txt):
+                    _memoria_lembrar(fato, cfg)
                 try:
                     self.wfile.write(txt.encode())
                 except OSError:
@@ -9768,7 +9829,12 @@ def cmd_painel(args, cfg):
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
+            if msgs and msgs[-1]["role"] == "user":
+                _conversa_guardar("hermes", "user", msgs[-1]["content"])
+            if PAINEL_MEMORIA.exists():                      # o Hermes também usa a memória do Bruno
+                base[0]["content"] += "\n\nMEMÓRIA DO BRUNO:\n" + PAINEL_MEMORIA.read_text(encoding="utf-8")[-4000:]
             corpo = {"model": _painel_modelo(cfg), "stream": True, "messages": base + msgs}
+            resposta = []
             try:
                 req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
                 with urllib.request.urlopen(req, timeout=900) as r:
@@ -9781,8 +9847,10 @@ def cmd_painel(args, cfg):
                         except (ValueError, KeyError, IndexError):
                             continue
                         if pedaco:
+                            resposta.append(pedaco)
                             self.wfile.write(pedaco.encode())
                             self.wfile.flush()
+                _conversa_guardar("hermes", "assistant", "".join(resposta))
             except (urllib.error.URLError, OSError) as e:
                 try:
                     self.wfile.write(f"(não consegui falar com o Ollama: {e}. Abra o app Ollama no Mac.)".encode())

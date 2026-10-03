@@ -176,6 +176,23 @@ coletor._painel_cli({}, "codex", "S", [{"role": "user", "content": "olha o print
 assert rodadas[-1][rodadas[-1].index("-i") + 1] == anexo and "tools.web_search=true" in rodadas[-1]
 coletor.subprocess.run = _run_ant
 
+# memória: a conversa fica guardada no Mac (histórico volta ao abrir) e [[lembrar:…]] vai para a memória + caixa
+coletor.subprocess.run = lambda argv, **k: rodadas.append(argv) or (Path(argv[argv.index("--output-last-message") + 1]).write_text(
+    "Combinado.\n[[lembrar:a margem mínima das lojas é 18%]]") if "--output-last-message" in argv else None) or R()
+req = urllib.request.Request(URL + "/chat", data=json.dumps({"mensagens": [{"role": "user", "content": "lembra: margem mínima 18%"}], "agente": "codex"}).encode(),
+                             headers={"Content-Type": "application/json"}, method="POST")
+assert "Combinado" in urllib.request.urlopen(req, timeout=20).read().decode()
+h = json.loads(urllib.request.urlopen(URL + "/historico?agente=codex", timeout=10).read())
+assert [m["role"] for m in h[-2:]] == ["user", "assistant"] and "margem mínima 18%" in h[-2]["content"]
+assert "margem mínima das lojas é 18%" in coletor.PAINEL_MEMORIA.read_text()
+assert any(r_ == "conhecimento_salvar" and "18%" in c["texto"] for r_, c in chamadas)
+# a próxima pergunta ao Codex leva a conversa guardada e a memória
+req = urllib.request.Request(URL + "/chat", data=json.dumps({"mensagens": [{"role": "user", "content": "qual a margem mínima?"}], "agente": "codex"}).encode(),
+                             headers={"Content-Type": "application/json"}, method="POST")
+urllib.request.urlopen(req, timeout=20).read()
+ped = rodadas[-1][-1]
+assert "lembra: margem mínima 18%" in ped and "MEMÓRIA DO BRUNO" in ped and "margem mínima das lojas é 18%" in ped
+coletor.subprocess.run = run_falso
 # ações (o Bruno confirma no botão)
 def acao(d):
     r = urllib.request.Request(URL + "/acao", data=json.dumps(d).encode(), headers={"Content-Type": "application/json"}, method="POST")
