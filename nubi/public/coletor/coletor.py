@@ -3003,8 +3003,11 @@ JS_GESTOR_SELECT_PERIODO = r"""() => {
 # 03/10 (foto 196): escolhido "Personalizado", aparece UMA caixa "Selecione um período" (seletor de intervalo). Se for o
 # flatpickr, põe as datas direto nele; senão devolve 'outro' (aí o coletor clica e digita)
 JS_GESTOR_PERIODO_UNICO = r"""([ini, fim]) => {
-  const el = [...document.querySelectorAll('input')].find(e => e.getClientRects().length && /per[íi]odo/i.test(e.placeholder || ''));
+  // 03/10: o acento pode vir decomposto (i + ´); compara sem acento e marca a caixa para o coletor clicar nela
+  const sem = t => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const el = [...document.querySelectorAll('input')].find(e => e.getClientRects().length && /periodo|data/.test(sem(e.placeholder)));
   if (!el) return 'sem';
+  el.setAttribute('data-nubi-periodo', '1');
   if (el._flatpickr) { el._flatpickr.setDate([ini, fim], true); return 'fp:' + el.value; }
   return 'outro';
 }"""
@@ -3048,8 +3051,9 @@ def _gestor_periodo_unico(pg, ini, fim):
         log(f"  gestor: período (calendário) → {r[3:]}")
         return (br_ini in r and br_fim in r) or (ini.isoformat() in r and fim.isoformat() in r)
     if r != "outro":
+        GESTOR_CAL[0] = f"(caixa do período: {r})"
         return False
-    caixa = pg.locator("input[placeholder*='eríodo' i]:visible").first
+    caixa = pg.locator("input[data-nubi-periodo]").first
     try:                                   # 03/10: guarda como é o calendário que abre (vai na mensagem do erro)
         caixa.click(timeout=5000)
         devagar(1.5)
