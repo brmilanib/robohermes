@@ -6094,6 +6094,14 @@ def gestor_vendas_importar(repo, conteudo, arquivo, inicio=None, fim=None, orige
         linhas = estoque.ler_gestor_vendas(conteudo)
     except estoque.ErroEstoque as e:
         raise ErroNuvem(f"Relatório de vendas do Gestor não importado: {e}.")
+    if mes:                                   # 03/10: histórico mês a mês (não troca o de 30 dias)
+        soma_ = lambda c: round(sum(x.get(c) or 0 for x in linhas), 2)
+        d = {"arquivo": arquivo, "origem": origem, "mes": mes, "inicio": inicio, "fim": fim,
+             "importado_em": datetime.now(timezone.utc).isoformat(), "linhas_n": len(linhas),
+             **{c: soma_(c) for c in ("unidades", "valor", "custo", "imposto", "taxa", "frete", "lucro")}, "linhas": linhas}
+        d["margem_pct"] = round(d["lucro"] / d["valor"] * 100, 1) if d["valor"] else None
+        _ia_gravar(repo, GESTOR_VENDAS_MES + mes, d, ia="gestor")
+        return {"ok": True, "mes": mes, "log": [f"OK: vendas do Gestor de {mes}: {len(linhas)} linhas, lucro {d['lucro']:.2f} de {d['valor']:.2f}."]}
     h = ranking.hash_de(conteudo)
     if (_vendas_atuais(repo, GESTOR_VENDAS_CHAVE) or {}).get("hash") == h:
         return {"ok": True, "repetido": True, "log": ["Esse relatório de vendas do Gestor já foi importado."]}
@@ -6120,6 +6128,25 @@ GESTOR_ABC_CHAVE = "gestor_abc|atual"
 
 HISTORICO_DESDE = "2026-01-01"          # 03/10 (Bruno: "todas as vendas com margem desde janeiro")
 GESTOR_ABC_MES = "gestor_abc|mes|"
+
+
+GESTOR_VENDAS_MES = "gestor_vendas|mes|"
+
+
+def gestor_vendas_meses_pendentes(repo, desde="2026-01", agora=None):
+    """Meses desde `desde` sem o Relatório de Vendas do Gestor guardado; o mês atual (até ontem) sempre entra, por último."""
+    hoje = (agora or _agora_br()).date()
+    tem = {r["chave"][len(GESTOR_VENDAS_MES):] for r in repo._todos("ia_resumos", {"select": "chave", "chave": f"like.{GESTOR_VENDAS_MES}*"}) or []}
+    y, m = int(desde[:4]), int(desde[5:7])
+    out = []
+    while (y, m) < (hoje.year, hoje.month):
+        k = f"{y:04d}-{m:02d}"
+        if k not in tem:
+            out.append(k)
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    if hoje.day > 1:
+        out.append(f"{hoje.year:04d}-{hoje.month:02d}")
+    return out
 
 
 def gestor_abc_meses_pendentes(repo, desde="2026-01", agora=None):
@@ -6417,8 +6444,27 @@ def minhas_vendas_anuncio(repo):
     abc = {"valor": estoque.curva_abc(v["linhas"], "valor", cl_up), "volume": estoque.curva_abc(v["linhas"], "volume"),
            "fonte": "upseller" if cl_up else "nubi"}
     classe = {(x["sku"], x["anuncio"], x["loja"]): x["classe"] for x in abc["valor"]["itens"]}
+    # 03/10 (Bruno: "as vendas do UpSeller com a curva A, B, C e as margens juntas"): margem pós ADS do SKU pela Curva ABC
+    # do Gestor (mesmo SKU; o Gestor não separa por anúncio) e o lucro pós ADS estimado do anúncio = valor × margem
+    gabc = _vendas_atuais(repo, GESTOR_ABC_CHAVE) or {}
+    mg = {estoque._chave(l["sku"]): l for l in gabc.get("linhas") or [] if l.get("sku")}
     for a in an:
         a["abc"] = classe.get((a["sku"], a["anuncio"], a["loja"]))
+        g_ = mg.get(estoque._chave(a["sku"])) if a["sku"] else None
+        a["mpa_pct"] = float(g_["mpa_pct"]) if g_ and g_.get("mpa_pct") is not None else None
+        a["lucro_pos_ads"] = round(a["valor"] * a["mpa_pct"] / 100, 2) if a["mpa_pct"] is not None else None
+    for cl in abc["valor"]["classes"]:
+        xs_ = [a for a in an if a.get("abc") == cl["classe"]]
+        com = [a for a in xs_ if a.get("lucro_pos_ads") is not None]
+        v_ = sum(a["valor"] for a in com)
+        cl["lucro_pos_ads"] = round(sum(a["lucro_pos_ads"] for a in com), 2) if com else None
+        cl["margem_pos_ads"] = round(cl["lucro_pos_ads"] / v_ * 100, 1) if com and v_ else None
+        cl["com_margem"] = len(com)
+    for x in abc["valor"]["itens"]:
+        a_ = next((a for a in an if (a["sku"], a["anuncio"], a["loja"]) == (x["sku"], x["anuncio"], x["loja"])), None)
+        if a_:
+            x["mpa_pct"], x["lucro_pos_ads"] = a_.get("mpa_pct"), a_.get("lucro_pos_ads")
+    abc["margens_de"] = {"inicio": gabc.get("inicio"), "fim": gabc.get("fim")} if mg else None
     serie = [{"dia": d, "unidades": h.get("unidades"), "valor": h.get("valor"), "pedidos": h.get("pedidos")}
              for d, h in hist.items()]
     tot_un = sum(a["unidades"] for a in an)
@@ -8889,6 +8935,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
     if rota == "estoque_vendas_dias_pendentes":
         desde = q.get("desde") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(q.get("desde") or "")) else None
         return {"dias": vendas_dias_pendentes(repo, desde=desde)}
+    if rota == "gestor_vendas_meses_pendentes":
+        return {"meses": gestor_vendas_meses_pendentes(repo, q.get("desde") or HISTORICO_DESDE[:7])}
     if rota == "gestor_abc_meses_pendentes":
         return {"meses": gestor_abc_meses_pendentes(repo, q.get("desde") or HISTORICO_DESDE[:7])}
     if rota == "estoque_vendas_anuncio":
@@ -9670,7 +9718,7 @@ COMANDOS_MAC = {
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac", "matar_xmrig": "Parar o minerador xmrig no Mac (mostra de onde roda e o que o abre)", "forense_agente": "Malware: ler o item de início automático (só leitura)",
     "forense_cache": "Malware: ler o arquivo escondido em /Library/Preferences/Logging (só leitura)",
     "forense_tmp": "Malware: ler a pasta do minerador em /tmp (só leitura)", "servidor_processos": "Servidor Dell: processos que mais usam CPU",
-    "servidor_espaco": "Servidor Dell: espaço em disco", "servidor_backup": "PC: cópia de segurança (no PC e no Google Drive)", "historico_vendas": "Mac: vendas por dia do UpSeller e Curva ABC do Gestor por mês desde janeiro (madrugada)", "servidor_log": "Servidor Dell: últimas linhas do vigia",
+    "servidor_espaco": "Servidor Dell: espaço em disco", "servidor_backup": "PC: cópia de segurança (no PC e no Google Drive)", "gestor_relatorio": "Mac: Relatório de Vendas do Gestor mês a mês desde janeiro (margem por pedido)", "historico_vendas": "Mac: vendas por dia do UpSeller e Curva ABC do Gestor por mês desde janeiro (madrugada)", "servidor_log": "Servidor Dell: últimas linhas do vigia",
     "servidor_ollama": "Servidor Dell: modelos carregados agora", "servidor_atualizar": "Servidor Dell: atualizar o coletor",
     "baixar_modelo": "Baixar modelo do Ollama", "estoque": "Atualizar o estoque do UpSeller agora",
     "gestor": "Importar a planilha no Gestor Seller", "hermes_card": "Hermes fazer um card (no Mac)",

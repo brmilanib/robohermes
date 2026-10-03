@@ -2847,10 +2847,12 @@ JS_GESTOR_CONTAS = r"""() => {
 }"""
 
 
-def baixar_gestor_vendas(pg, cfg, p=None):
-    """Baixa o 'Relatório de Vendas' do Gestor Seller (últimos 30 dias, todas as contas). -> (arquivo, início, fim)."""
-    fim = date.today() - timedelta(days=1)
-    ini = fim - timedelta(days=29)
+def baixar_gestor_vendas(pg, cfg, p=None, ini=None, fim=None):
+    """Baixa o 'Relatório de Vendas' do Gestor Seller (últimos 30 dias, todas as contas). -> (arquivo, início, fim).
+    ini/fim (03/10, histórico desde janeiro): um período fechado; o e-mail tem que trazer exatamente esse período."""
+    pedido = (ini, fim) if ini and fim else None
+    fim = fim or date.today() - timedelta(days=1)
+    ini = ini or fim - timedelta(days=29)
     # 01/10 (1ª rodada real: "não achei 'Relatório de Vendas'"; o menu do Gestor chama "Relatório" e o arquivo que o Bruno
     # baixou é "reports_sales.csv"): tenta o endereço guardado, as páginas de relatório prováveis e o menu "Relatório"
     rx_botao = re.compile(r"Baixar relat[óo]rio de vendas|Baixar relat[óo]rio|Exportar relat[óo]rio|Exportar vendas|Gerar relat[óo]rio", re.I)
@@ -2876,7 +2878,11 @@ def baixar_gestor_vendas(pg, cfg, p=None):
     if not botao or not botao.count():
         raise Falha("não achei 'Relatório de Vendas' → 'Baixar relatório de vendas' no Gestor Seller. Na tela: "
                     + str(pg.evaluate(JS_TEXTOS))[:600] + " " + diagnostico(pg))
-    if not pg.evaluate(JS_GESTOR_PERIODO, [ini.isoformat(), fim.isoformat()]):
+    if not _gestor_periodo(pg, ini, fim):
+        if pedido:
+            entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
+            enviar_foto(pg, f"gestor vendas: seletor de datas {ini:%d/%m}–{fim:%d/%m}", str(entradas)[:3000])
+            raise Falha(f"relatório de vendas do Gestor: não achei as caixas de data. Campos: {str(entradas)[:300]}")
         log("  gestor vendas: não achei as caixas de data; ficou o período que a tela já mostrava")
     marcadas = pg.evaluate(JS_GESTOR_CONTAS)
     if marcadas:
@@ -2890,14 +2896,26 @@ def baixar_gestor_vendas(pg, cfg, p=None):
     estado = pg.context.storage_state()
     links = []
     pg.context.on("request", lambda r: links.append(r.url) if re.search(r"\.(xlsx|csv)(\?|$)|download|export|relat", r.url, re.I) else None)
+    # 03/10: foto da tela antes do clique (o e-mail nunca chegou; ver em que botão o coletor clica)
+    try:
+        enviar_foto(pg, f"gestor vendas: antes de clicar em '{(alvo.inner_text() or alvo.get_attribute('title') or '')[:40]}'",
+                    str(pg.evaluate(JS_TEXTOS))[:3000])
+    except Exception:  # noqa: BLE001
+        pass
     try:
         arq, ini_m, fim_m = _clicar_e_receber(pg, alvo, destino, r"relat[óo]rio de vendas", "relatorio_de_vendas.csv")
     except Falha:
+        try:
+            enviar_foto(pg, "gestor vendas: depois do clique, o e-mail não chegou", str(pg.evaluate(JS_TEXTOS))[:3000])
+        except Exception:  # noqa: BLE001
+            pass
         candidatos = [u for u in links[::-1] if u.startswith("http") and re.search(r"\.(xlsx|csv)(\?|$)", u, re.I)]
         if p is not None and candidatos:
             log("  gestor vendas: o e-mail não chegou; baixando pelo link")
             return _baixar_link(p, estado, candidatos, destino, ""), ini, fim
         raise
+    if pedido and ini_m and (ini_m, fim_m) != pedido:
+        raise Falha(f"o relatório de vendas do Gestor veio de {ini_m} a {fim_m}, e eu pedi {pedido[0]} a {pedido[1]}; não importei")
     ini, fim = ini_m or ini, fim_m or fim
     if not cfg.get("gestor_vendas_url") and "/auth" not in pg.url:
         cfg["gestor_vendas_url"] = pg.url
@@ -4409,6 +4427,35 @@ HIST_DESDE = "2026-01-01"
 HIST_HORAS = float(os.environ.get("NUBI_HIST_HORAS", "2.5"))
 
 
+def coletar_gestor_relatorio(p, cfg, token, agora=time.time):
+    """03/10 (Bruno: "o relatório de vendas completo do Gestor, porque tem as margens"): Relatório de Vendas do Gestor
+    (uma linha por pedido, com custo, imposto e lucro) de cada mês desde janeiro + o mês atual até ontem, mês a mês
+    (`gestor_vendas_meses_pendentes`) → gestor_vendas_importar?mes= → gestor_vendas|mes|AAAA-MM. Para no 1º erro (com
+    foto da tela, para acertar o botão). Só lê; nunca salvar/importar/excluir."""
+    fim_em = agora() + HIST_HORAS * 3600
+    meses = (api(token, "gestor_vendas_meses_pendentes", {"desde": HIST_DESDE[:7]}) or {}).get("meses") or []
+    feitos, erro = [], ""
+    for m in meses:
+        if agora() > fim_em:
+            break
+        y, mm = int(m[:4]), int(m[5:7])
+        ini = date(y, mm, 1)
+        fim = min(date(y + (mm == 12), mm % 12 + 1, 1) - timedelta(days=1), date.today() - timedelta(days=1))
+        try:
+            arq, i_, f_ = _em_chrome_novo(p, cfg, lambda pg: baixar_gestor_vendas(pg, cfg, p, ini, fim), ver="gestor_ver")
+            api(token, "gestor_vendas_importar", {"arquivo": arq.name, "inicio": ini.isoformat(), "fim": fim.isoformat(), "mes": m},
+                arq.read_bytes())
+            feitos.append(m)
+            devagar(5)
+        except Exception as e:  # noqa: BLE001
+            erro = f"{m}: {str(e)[:300]}"
+            break
+    msg = f"Relatório de vendas do Gestor: {', '.join(feitos) or 'nenhum mês'}" + (f" · parou em {erro}" if erro else "")
+    if erro and not feitos:
+        raise Falha(msg)
+    return len(meses), len(feitos), 1 if erro else 0, msg
+
+
 def coletar_historico_vendas(p, cfg, token, agora=time.time):
     fim_em = agora() + HIST_HORAS * 3600
     feitos_d, feitos_m, erros = [], [], []
@@ -4902,6 +4949,8 @@ def comando_mac(chave, arg=""):
         return [*c, "gestor-painel"]
     if chave == "historico_vendas":
         return [*c, "historico-vendas"]
+    if chave == "gestor_relatorio":
+        return [*c, "gestor-relatorio"]
     if chave == "icones":
         return [*c, "icones"]
     if chave == "explorador_marca":                  # 02/10: arg = "MARCA" ou "MARCA|exata"
@@ -9227,6 +9276,7 @@ def main():
     exm.add_argument("--exata", action="store_true", help="Pesquisa exata (padrão: expandida por IA)")
     sub.add_parser("explorador-diario", help="Nubimetrics: Explorador das marcas da lista diária que ainda não entraram hoje")
     sub.add_parser("icones", help="baixa os ícones oficiais das lojas em alta resolução para o nubi")
+    sub.add_parser("gestor-relatorio", help="Relatório de Vendas do Gestor mês a mês desde janeiro (margem por pedido; só lê)")
     sub.add_parser("historico-vendas", help="histórico desde janeiro: vendas por dia do UpSeller e Curva ABC do Gestor por mês (só lê)")
     sub.add_parser("gestor-painel", help="Gestor Seller: lê o painel (Hoje) e as Vendas com margem (Dashboard do nubi), só lê")
     sub.add_parser("gestor-financeiro", help="Gestor Seller: lê o Resumo analítico e o DRE de cada mês (Financeiro do nubi), só lê")
@@ -9373,6 +9423,8 @@ def main():
         return executar("gestor_financeiro", coletar_gestor_financeiro)
     if args.cmd == "icones":
         return cmd_icones(args, cfg)
+    if args.cmd == "gestor-relatorio":
+        return executar("gestor_relatorio", coletar_gestor_relatorio)
     if args.cmd == "historico-vendas":
         return executar("historico_vendas", coletar_historico_vendas)
     if args.cmd == "gestor-painel":

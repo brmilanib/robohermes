@@ -4118,7 +4118,8 @@ function telaCurvaABC(r) {
       <div class="kpis" style="margin:8px 0 12px">
         <div class="kpi"><div class="l">${ehValor ? "Valor total de vendas" : "Unidades vendidas"}</div><div class="v">${fmt(c.total)}</div><div class="s">${nf0.format(c.anuncios)} anúncio(s) (100%)</div></div>
         ${c.classes.map(k => `<div class="kpi abc-kpi" data-classe="${k.classe}" style="cursor:pointer;border-top:3px solid ${cor[k.classe]}" title="Filtrar a categoria ${k.classe}">
-          <div class="l">Categoria ${k.classe} (${nf1.format(k.pct)}%)</div><div class="v">${fmt(k.total)}</div><div class="s">${nf0.format(k.anuncios)} anúncio(s) (${nf1.format(k.pct_anuncios)}%)</div></div>`).join("")}
+          <div class="l">Categoria ${k.classe} (${nf1.format(k.pct)}%)</div><div class="v">${fmt(k.total)}</div><div class="s">${nf0.format(k.anuncios)} anúncio(s) (${nf1.format(k.pct_anuncios)}%)</div>
+          ${ehValor && k.margem_pos_ads != null ? `<div class="s">margem pós ADS <b class="${k.margem_pos_ads < 10 ? "neg" : k.margem_pos_ads < 18 ? "warn-t" : "pos"}">${nf1.format(k.margem_pos_ads)}%</b> · lucro ${rsES(k.lucro_pos_ads)}</div>` : ""}</div>`).join("")}
       </div>
       <div class="card" style="margin-bottom:12px">${grafico}
         <p class="muted" style="font-size:12px;margin:6px 0 0">A = os anúncios que somam até 80% ${ehValor ? "do faturamento" : "das unidades"}; B = de 80% a 95%; C = o resto.
@@ -4129,6 +4130,7 @@ function telaCurvaABC(r) {
         <span class="muted">${nf0.format(xs.length)} de ${nf0.format(c.anuncios)}</span></div>
         <div class="rolar"><table class="t" id="abc-tab"><thead><tr><th>Produto</th><th>SKU / Anúncio</th><th>Tipo</th><th class="num">Valor de vendas</th>
           <th class="num">% das vendas</th><th class="num">% acumulado</th><th class="num">Volume</th><th class="num">Preço médio</th>
+          <th class="num" title="Margem depois do ADS do SKU na Curva ABC do Gestor Seller${r.abc.margens_de ? " (" + dia(r.abc.margens_de.inicio) + " a " + dia(r.abc.margens_de.fim) + ")" : ""}">Margem pós ADS</th><th class="num" title="valor de vendas × margem pós ADS">Lucro pós ADS</th>
           <th class="num" title="Disponível do SKU no UpSeller">Disponível</th><th class="num" title="Disponível ÷ venda por dia do SKU">Cobertura</th></tr></thead><tbody>
         ${xs.map(x => { const a = est[x.sku + "|" + x.anuncio + "|" + x.loja] || {};
           return `<tr><td data-l="Produto"><b>${esc(x.produto || x.sku)}</b><div class="muted" style="font-size:11.5px">${esc(x.loja)}</div></td>
@@ -4137,9 +4139,11 @@ function telaCurvaABC(r) {
           <td class="num" data-l="Valor"><b>${rsES(x.valor)}</b></td><td class="num" data-l="% vendas">${nf1.format(x.pct)}%</td>
           <td class="num" data-l="% acumulado">${nf1.format(x.acum)}%</td><td class="num" data-l="Volume">${nf0.format(x.unidades)}</td>
           <td class="num" data-l="Preço médio">${x.preco ? rsES(x.preco) : "—"}</td>
+          <td class="num" data-l="Margem pós ADS">${a.mpa_pct == null ? "—" : `<b class="${a.mpa_pct < 10 ? "neg" : a.mpa_pct < 18 ? "warn-t" : "pos"}">${nf1.format(a.mpa_pct)}%</b>`}</td>
+          <td class="num" data-l="Lucro pós ADS">${a.lucro_pos_ads == null ? "—" : rsES(a.lucro_pos_ads)}</td>
           <td class="num" data-l="Disponível">${a.estoque == null ? "—" : `<b class="${a.estoque > 0 ? "" : "neg"}">${nf0.format(a.estoque)}</b>`}</td>
           <td class="num" data-l="Cobertura"><b class="${a.cobertura_dias == null ? "" : a.cobertura_dias < 15 ? "neg" : a.cobertura_dias < 30 ? "warn-t" : "pos"}">${a.cobertura_dias == null ? "—" : nf0.format(a.cobertura_dias) + " d"}</b></td></tr>`; }).join("")
-          || `<tr><td colspan="10" class="empty">Nenhum anúncio.</td></tr>`}</tbody></table></div></div>`;
+          || `<tr><td colspan="12" class="empty">Nenhum anúncio.</td></tr>`}</tbody></table></div></div>`;
     const gr = $("#abc-graf"), dica = $("#abc-dica");
     gr.onmousemove = e => { const b = gr.getBoundingClientRect(), fx = (e.clientX - b.left) / b.width;
       const x = c.itens[Math.min(c.itens.length - 1, Math.max(0, Math.round(fx * n) - 1))]; if (!x) return;
