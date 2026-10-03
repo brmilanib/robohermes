@@ -118,6 +118,25 @@ assert [h["h"] for h in d["horas"]] == ["11:00", "12:00"]                    # u
 d = nubi_web.ads_tempo_real(ra, agora=datetime(2026, 10, 4, 12, tzinfo=timezone.utc))
 assert [h["h"] for h in d["horas"]] == ["09:00"]                             # dia novo: curva recomeça
 meli.ads_periodo = orig_periodo
+assert d["mes_passado_ate"]["de"] == "2026-09-01" and d["mes_passado_ate"]["ate"] == "2026-09-04" and [h["h"] for h in d["horas_ontem"]] == ["11:00", "12:00"]
+
+# ADS por anúncio com a margem do Gestor (pelo SKU): ROAS mínimo, lucro depois do ADS e o que fazer
+meli.ads_anunciante = lambda: 777
+meli.ads_anuncios = lambda adv, a, b: [
+    {"anuncio": "MLB1", "titulo": "Silver", "sku": "SIL-100", "cost": 100.0, "total_amount": 2000.0, "roas": 20.0},
+    {"anuncio": "MLB2", "titulo": "Cuba", "sku": "CUBA-100", "cost": 100.0, "total_amount": 500.0, "roas": 5.0},
+    {"anuncio": "MLB3", "titulo": "Naxos", "sku": "NAX-100", "cost": 34.93, "total_amount": 0.0, "roas": 0.0},
+    {"anuncio": "MLB4", "titulo": "Sem SKU", "sku": None, "cost": 10.0, "total_amount": 100.0, "roas": 10.0}]
+ra.ia["gestor_abc|atual"] = json.dumps({"inicio": "2026-09-01", "fim": "2026-09-30", "linhas": [
+    {"sku": "SIL-100", "valor": 1000, "lucro_bruto": 200, "curva": "A"}, {"sku": "CUBA-100", "valor": 1000, "lucro_bruto": 100, "curva": "B"},
+    {"sku": "NAX-100", "valor": 1000, "lucro_bruto": 250, "curva": "C"}]})
+r = nubi_web.ads_produtos(ra, "mes", agora=datetime(2026, 10, 3, 15, tzinfo=timezone.utc))
+por = {x["anuncio"]: x for x in r["anuncios"]}
+assert r["de"] == "2026-10-01" and por["MLB1"]["roas_minimo"] == 5.0 and por["MLB1"]["nivel"] == "bom" and por["MLB1"]["lucro_pos_ads"] == 300.0
+assert por["MLB2"]["roas_minimo"] == 10.0 and por["MLB2"]["nivel"] == "ruim" and por["MLB2"]["lucro_pos_ads"] == -50.0
+assert por["MLB3"]["nivel"] == "ruim" and "sem vender" in por["MLB3"]["sugestao"]
+assert por["MLB4"]["margem_pct"] is None and por["MLB4"]["lucro_pos_ads"] is None
+assert r["total"]["prejuizo"] == 1 and r["total"]["sem_venda"] == 1 and r["total"]["roas"] == round(2600 / 244.93, 2)
 
 meli._token_usuario = lambda forcar=False: None
 try:

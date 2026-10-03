@@ -8445,14 +8445,24 @@ def ads_tempo_real(repo, agora=None):
     fim_ant = ini_mes - timedelta(days=1)
     adv = meli.ads_anunciante()
     d = {"conta": (meli.ler_conta(repo) or {}).get("nick") or "conta principal", "em": agora.isoformat(), "dia": hoje.isoformat()}
+    # 03/10 (Bruno: "comparar o mês atual com o mês passado"): o mesmo pedaço do mês passado (dia 1 até o mesmo dia)
+    mesmo_dia = min(hoje.day, fim_ant.day)
     for k, (a, b) in {"hoje": (hoje, hoje), "ontem": (hoje - timedelta(days=1), hoje - timedelta(days=1)),
-                      "mes": (ini_mes, hoje), "mes_fechado": (fim_ant.replace(day=1), fim_ant)}.items():
+                      "mes": (ini_mes, hoje), "mes_fechado": (fim_ant.replace(day=1), fim_ant),
+                      "mes_passado_ate": (fim_ant.replace(day=1), fim_ant.replace(day=mesmo_dia))}.items():
         try:
             d[k] = meli.ads_periodo(adv, a.isoformat(), b.isoformat())
         except meli.ErroMeli as e:
             d[k] = {"erro": str(e)[:160]}
     antes = _ler_json(repo, ADS_TEMPO_REAL)
     horas = antes.get("horas") if antes.get("dia") == d["dia"] else []
+    # a curva de ontem fica guardada para comparar "hoje até agora" com "ontem até a mesma hora"
+    if antes.get("dia") == d["dia"]:
+        d["horas_ontem"] = antes.get("horas_ontem") or []
+    elif antes.get("dia") == (hoje - timedelta(days=1)).isoformat():
+        d["horas_ontem"] = antes.get("horas") or []
+    else:
+        d["horas_ontem"] = []
     if "erro" not in d["hoje"]:
         horas = [h for h in (horas or []) if h.get("h") != (agora - timedelta(hours=3)).strftime("%H:00")]
         horas.append({"h": (agora - timedelta(hours=3)).strftime("%H:00"), "cost": d["hoje"].get("cost"), "vendas": d["hoje"].get("total_amount")})
@@ -8460,6 +8470,68 @@ def ads_tempo_real(repo, agora=None):
     repo._req("POST", "ia_resumos", corpo=[{"chave": ADS_TEMPO_REAL, "ia": "ADS do ML (tempo real)", "texto": json.dumps(d, ensure_ascii=False)}],
               prefer="resolution=merge-duplicates,return=minimal")
     return d
+
+
+ADS_PERIODOS = {"hoje": "Hoje (até agora)", "ontem": "Ontem", "mes": "Mês atual", "mes_fechado": "Mês fechado",
+                "mes_passado_ate": "Mês passado (mesmo período)", "7d": "Últimos 7 dias", "30d": "Últimos 30 dias"}
+
+
+def ads_produtos(repo, periodo, agora=None, forcar=False):
+    """03/10 (Bruno): ADS por anúncio no período com a margem do Gestor (Curva ABC, pelo SKU): ROAS, ROAS mínimo para não
+    ter prejuízo (1 / margem bruta), lucro estimado depois do ADS e uma sugestão do que fazer. Só leitura."""
+    if periodo not in ADS_PERIODOS:
+        raise ErroNuvem("Período inválido.")
+    agora = agora or datetime.now(timezone.utc)
+    hoje = (agora - timedelta(hours=3)).date()
+    ini_mes = hoje.replace(day=1)
+    fim_ant = ini_mes - timedelta(days=1)
+    a, b = {"hoje": (hoje, hoje), "ontem": (hoje - timedelta(days=1),) * 2, "mes": (ini_mes, hoje),
+            "mes_fechado": (fim_ant.replace(day=1), fim_ant),
+            "mes_passado_ate": (fim_ant.replace(day=1), fim_ant.replace(day=min(hoje.day, fim_ant.day))),
+            "7d": (hoje - timedelta(days=6), hoje), "30d": (hoje - timedelta(days=29), hoje)}[periodo]
+    chave = f"ads_produtos|{periodo}|{a}|{b}"
+    if forcar:
+        meli._CACHE.pop(chave, None)
+
+    def fazer():
+        adv = meli.ads_anunciante()
+        return meli.ads_anuncios(adv, a.isoformat(), b.isoformat())
+    ads = meli._mem(chave, 600, fazer)
+    abc = _ler_json(repo, "gestor_abc|atual")
+    marg = {}
+    for l in abc.get("linhas") or []:
+        if l.get("sku") and l.get("valor"):
+            marg[str(l["sku"]).strip().upper()] = {"margem_pct": round(float(l.get("lucro_bruto") or 0) / float(l["valor"]) * 100, 2),
+                                                   "mpa_pct": l.get("mpa_pct"), "curva": l.get("curva")}
+    out, tot = [], {"cost": 0.0, "total_amount": 0.0, "lucro": 0.0, "prejuizo": 0, "sem_venda": 0, "com_margem": 0}
+    for x in ads:
+        g = marg.get(str(x.get("sku") or "").strip().upper()) or {}
+        m = g.get("margem_pct")
+        x = dict(x, margem_pct=m, curva=g.get("curva"))
+        x["roas_minimo"] = round(100 / m, 2) if m and m > 0 else None
+        x["lucro_pos_ads"] = round(x["total_amount"] * m / 100 - x["cost"], 2) if m is not None else None
+        if x["cost"] > 0 and not x["total_amount"]:
+            x["sugestao"], x["nivel"] = "Gastou sem vender: pausar ou rever o anúncio", "ruim"
+            tot["sem_venda"] += 1
+        elif x["roas_minimo"] and x["roas"] is not None and x["roas"] < x["roas_minimo"]:
+            x["sugestao"], x["nivel"] = f"ROAS {x['roas']} abaixo do mínimo {x['roas_minimo']}: dá prejuízo — baixar orçamento/ACOS alvo", "ruim"
+            tot["prejuizo"] += 1
+        elif x["roas_minimo"] and x["roas"] and x["roas"] >= 2 * x["roas_minimo"]:
+            x["sugestao"], x["nivel"] = "Ótimo retorno: dá para aumentar o orçamento", "bom"
+        elif m is None:
+            x["sugestao"], x["nivel"] = "Sem margem do Gestor para este SKU", "neutro"
+        else:
+            x["sugestao"], x["nivel"] = "Dentro do esperado", "neutro"
+        tot["cost"] += x["cost"]
+        tot["total_amount"] += x["total_amount"]
+        if x["lucro_pos_ads"] is not None:
+            tot["lucro"] += x["lucro_pos_ads"]
+            tot["com_margem"] += 1
+        out.append(x)
+    tot = {k: round(v, 2) if isinstance(v, float) else v for k, v in tot.items()}
+    tot["roas"] = round(tot["total_amount"] / tot["cost"], 2) if tot["cost"] else None
+    return {"periodo": periodo, "nome": ADS_PERIODOS[periodo], "de": a.isoformat(), "ate": b.isoformat(), "anuncios": out, "total": tot,
+            "margem_de": f"{abc.get('inicio', '')} a {abc.get('fim', '')}" if abc else None}
 
 
 def _ler_json(repo, chave):
@@ -8781,6 +8853,8 @@ def rota_meli(repo, metodo, rota, q, corpo):
         if q.get("forcar") or velho:
             d = ads_tempo_real(repo)
         return d
+    if rota == "meli_ads_produtos":
+        return ads_produtos(repo, str(q.get("periodo") or "mes"), forcar=bool(q.get("forcar")))
     if rota == "meli_minha_loja":
         # 03/10 (Bruno): página de teste da AURASCENT em 🔌 Conexões — anúncios, vendas, ADS e o que mais a API libera
         # cada loja conectada tem a sua página (conta=<id>), com o token DELA; sem conta = a conta principal (AURASCENT)

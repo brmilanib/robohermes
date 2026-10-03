@@ -142,6 +142,19 @@ try:
             t = pg.inner_text("#main").replace("\xa0", " ")
             assert "AURASCENT" in t and "R$ 299,80" in t and "Campeões" in t and "Silver Scent 100ml" in t and "✗ Reclamações abertas" in t, t
             pg.screenshot(path=os.path.join(os.path.dirname(__file__), f"saida_minha_loja_{nome}.png"), full_page=True)
+            # 1a3) ADS por anúncio com margem (clicado do card do Dashboard)
+            RESP["meli_ads_produtos"] = {"periodo": "mes", "nome": "Mês atual", "de": "2026-10-01", "ate": "2026-10-03", "margem_de": "2026-09-01 a 2026-09-30",
+                "total": {"cost": 244.93, "total_amount": 2600, "lucro": 215.07, "prejuizo": 1, "sem_venda": 1, "com_margem": 3, "roas": 10.62},
+                "anuncios": [{"anuncio": "MLB2", "titulo": "Cuba Gold", "sku": "CUBA-100", "curva": "B", "cost": 100, "total_amount": 500, "roas": 5, "roas_minimo": 10,
+                              "margem_pct": 10, "lucro_pos_ads": -50, "nivel": "ruim", "sugestao": "ROAS 5 abaixo do mínimo 10: dá prejuízo"},
+                             {"anuncio": "MLB1", "titulo": "Silver Scent", "sku": "SIL-100", "cost": 100, "total_amount": 2000, "roas": 20, "roas_minimo": 5,
+                              "margem_pct": 20, "lucro_pos_ads": 300, "nivel": "bom", "sugestao": "Ótimo retorno"}]}
+            pg.goto(f"http://127.0.0.1:{PORTA}/#/conexoes/ml/ads?periodo=mes"); pg.wait_for_selector("#ads-lista table", timeout=15000)
+            ta = pg.inner_text("#main").replace("\xa0", " ").replace("−", "-")
+            assert "ADS por anúncio" in ta and "Cuba Gold" in ta and ("-R$ 50,00" in ta or "R$ -50,00" in ta), ta[:800]
+            pg.click("[data-f=bom]")
+            assert "Silver Scent" in pg.inner_text("#ads-lista") and "Cuba Gold" not in pg.inner_text("#ads-lista")
+            assert pg.evaluate("() => { const m = document.querySelector('#main'); return m.scrollWidth <= m.clientWidth + 2; }")
             assert pg.evaluate("() => { const m = document.querySelector('#main'); return m.scrollWidth <= m.clientWidth + 2; }")
             assert "15 dias" in t and "30 dias" in t
             # 1b) comparação Nubimetrics x ML

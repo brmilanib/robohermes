@@ -287,7 +287,9 @@ try:
                      "hoje": {"cost": 212.4, "total_amount": 3100, "acos": 6.85, "campanhas": 31},
                      "ontem": {"cost": 455.1, "total_amount": 5900, "acos": 7.7}, "mes": {"cost": 667.5, "total_amount": 9000, "acos": 7.4, "campanhas": 31},
                      "mes_fechado": {"cost": 11234.9, "total_amount": 150210, "acos": 7.48, "de": "2026-09-01", "ate": "2026-09-30"},
-                     "horas": [{"h": "09:00", "cost": 80}, {"h": "10:00", "cost": 140}, {"h": "11:00", "cost": 212.4}]}
+                     "mes_passado_ate": {"cost": 600, "total_amount": 6000, "acos": 10, "de": "2026-09-01", "ate": "2026-09-03"},
+                     "horas": [{"h": "09:00", "cost": 80}, {"h": "10:00", "cost": 140}, {"h": "11:00", "cost": 212.4, "vendas": 3100}],
+                     "horas_ontem": [{"h": "11:00", "cost": 180, "vendas": 2000}]}
             pg.route(lambda u: "r=meli_ads_tempo_real" in u, lambda r: r.fulfill(json=adsml))
             pg.goto(f"http://127.0.0.1:{PORTA}/#/inicio"); pg.wait_for_selector(".dash-topo", timeout=15000)
             pg.wait_for_selector("#ds-precos .dash-pr", timeout=15000)
@@ -297,6 +299,8 @@ try:
             pg.wait_for_selector("#ds-adsml .dash-k", timeout=15000)
             at = pg.inner_text("#ds-adsml").replace("\xa0", " ")
             assert "ADS em tempo real" in at and "R$ 212,40" in at and "R$ 455,10" in at and "setembro" in at and "R$ 11.234,90" in at and "11:00" in at, at
+            assert "ROAS 14,6x" in at and "vs ontem até 11:00" in at and "▲ 18%" in at and "melhor" in at, at          # 3100/212,4; 212,4 × 180
+            assert pg.locator("#ds-adsml a.dash-k[href*='periodo=hoje']").count() == 1
             pr = pg.inner_text("#ds-precos")
             assert "Monitor de preços" in pr and "Lattafa Asad" in pr and "189,90" in pr and "entrou no FULL" in pr, pr
             pg.wait_for_function("() => !document.querySelector('#ds-meus').innerText.includes('Carregando') && !document.querySelector('#ds-hoje').innerText.includes('Lendo')", timeout=30000)

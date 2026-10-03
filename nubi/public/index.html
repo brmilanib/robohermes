@@ -1429,6 +1429,8 @@ img.pl-ico.of{object-fit:contain;background:#fff}
 .cx-card{display:flex;flex-direction:column;gap:10px}.cx-top .pl-ico{position:static}.cx-top{display:flex;gap:10px;align-items:center}.cx-top small{display:block}
 .cx-conta{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--borda,#e5e5e5)}.cx-conta .n{flex:1;min-width:0}
 .cx-conta small{display:block;color:var(--muted,#888)}.cx-ok{color:#1a9b4b}.cx-off{color:#bbb}
+.neg-t{color:#b91c1c}.pos-t{color:#15803d}
+.dash-ads-v{margin:10px 2px 0;font-size:14px}
 .ml-lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(230px,100%),1fr));gap:8px}.ml-lib>div{padding:8px 10px;border-radius:8px;font-size:13px}
 .ml-lib .ok{background:rgba(26,155,75,.1)}.ml-lib .ok b{color:#1a9b4b}.ml-lib .no{background:rgba(220,38,38,.08)}.ml-lib .no b{color:#b91c1c}.ml-lib small{display:block;color:var(--muted,#888);margin-top:2px;word-break:break-word}
 .cx-principal{border:1px solid var(--borda,#e5e5e5);border-radius:10px;padding:10px;font-size:13px}.cx-principal .btn{font-size:12px}
@@ -1791,21 +1793,37 @@ async function telaInicio() {
 
   // 03/10 (Bruno: "um card de ADS em tempo real, atualizando de hora em hora"): ADS da conta principal do ML pela API
   api("meli_ads_tempo_real").then(a => { if (!vivo()) return; const el = $("#ds-adsml"); if (!el) return;
+    // 03/10 (Bruno: "o ROAS é o mais importante; hoje × ontem, mês atual × mês passado e tudo clicável")
     const pc = v => v == null ? "—" : nf1.format(+v) + "%";
-    const ac = v => v == null ? `<span class="muted">—</span>` : `<span class="pill ${v > 15 ? "neg" : v > 10 ? "warn-t" : "pos"}">ACOS ${pc(v)}</span>`;
+    const ro = x => x && x.cost ? (x.total_amount || 0) / x.cost : null;
+    const roF = v => v == null ? "—" : nf1.format(v).replace(",0", "") + "x";
+    const cor = v => v == null ? "" : v >= 10 ? "pos" : v >= 6 ? "warn-t" : "neg";
+    const delta = (atual, ant, bomSubir) => { if (atual == null || !ant) return ""; const d = (atual - ant) / ant * 100;
+      const bom = bomSubir ? d >= 0 : d <= 0; return `<span class="pill ${Math.abs(d) < 3 ? "" : bom ? "pos" : "neg"}">${d >= 0 ? "▲" : "▼"} ${nf0.format(Math.abs(d))}%</span>`; };
     const mes = d => d ? new Date(d + "T12:00").toLocaleDateString("pt-BR", {month: "long"}) : "";
-    const k = (n, x, sub) => `<a class="dash-k" href="#/conexoes/ml"><span class="l">${n}</span><b>${x && !x.erro ? rsES(x.cost || 0) : "—"}</b>
-      <span class="o">${x && !x.erro ? `vendas ADS ${rsES(x.total_amount || 0)} · ${ac(x.acos)}` : esc((x || {}).erro || "")}${sub ? "<br>" + sub : ""}</span></a>`;
+    // hoje até agora × ontem até a mesma hora (curva guardada); sem a curva de ontem, × % do dia todo de ontem
+    const hAgora = (a.horas || []).slice(-1)[0], hOnt = hAgora && (a.horas_ontem || []).find(h => h.h === hAgora.h);
+    const baseOntem = hOnt ? {cost: hOnt.cost, total_amount: hOnt.vendas} : null;
+    const k = (per, n, x, sub) => `<a class="dash-k" href="#/conexoes/ml/ads?periodo=${per}" title="ver os anúncios com ADS e margem"><span class="l">${n}</span>
+      <b>${x && !x.erro ? `<span class="pill ${cor(ro(x))}" style="font-size:.85em">ROAS ${roF(ro(x))}</span>` : "—"}</b>
+      <span class="o">${x && !x.erro ? `investido ${rsES(x.cost || 0)} · vendas ${rsES(x.total_amount || 0)} · ACOS ${pc(x.acos)}` : esc((x || {}).erro || "")}${sub ? "<br>" + sub : ""}</span></a>`;
     const lido = a.em ? new Date(a.em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}) : "";
     const hs = a.horas || [], mx = Math.max(1, ...hs.map(h => +h.cost || 0));
+    const H = a.hoje || {}, O = a.ontem || {}, M = a.mes || {}, P = a.mes_passado_ate || {};
+    const subHoje = baseOntem ? `vs ontem até ${esc(hAgora.h)}: gasto ${delta(H.cost, baseOntem.cost, false)} · ROAS ${delta(ro(H), ro(baseOntem), true)}`
+      : (O.cost ? `já gastou ${nf0.format((H.cost || 0) / O.cost * 100)}% do dia de ontem` : "");
+    const subMes = !P.erro && P.cost ? `vs ${mes(P.de)} até dia ${(P.ate || "").slice(8, 10)}: gasto ${delta(M.cost, P.cost, false)} · ROAS ${delta(ro(M), ro(P), true)}` : "";
+    const veredito = !P.erro && ro(M) != null && ro(P) != null ? (ro(M) >= ro(P) ? `✅ O ADS do mês está <b>melhor</b> que no mesmo período de ${mes(P.de)} (ROAS ${roF(ro(M))} × ${roF(ro(P))}).`
+      : `⚠️ O ADS do mês está <b>pior</b> que no mesmo período de ${mes(P.de)} (ROAS ${roF(ro(M))} × ${roF(ro(P))}): veja os anúncios que dão prejuízo.`) : "";
     el.innerHTML = `<div class="dash-cab"><h2>📣 ADS em tempo real</h2><span class="muted">Mercado Livre · ${esc(a.conta || "")} · lido às ${lido} · atualiza de hora em hora · o ML conta o ADS com algumas horas de atraso</span>
-        <a class="btn small" href="#/conexoes/ml">Ver campanhas ›</a></div>
+        <a class="btn small" href="#/conexoes/ml/ads?periodo=mes">Anúncios com ADS e margem ›</a></div>
       <div class="dash-ks">
-        ${k("⚡ Hoje (até agora)", a.hoje)}
-        ${k("📅 Ontem", a.ontem)}
-        ${k("🗓️ Mês atual", a.mes, a.mes && !a.mes.erro ? `${nf0.format(a.mes.campanhas || 0)} campanhas` : "")}
-        ${k("✅ Mês fechado (" + mes((a.mes_fechado || {}).de) + ")", a.mes_fechado)}
+        ${k("hoje", "⚡ Hoje (até agora)", H, subHoje)}
+        ${k("ontem", "📅 Ontem", O, O.cost && H && !H.erro ? "" : "")}
+        ${k("mes", "🗓️ Mês atual", M, subMes)}
+        ${k("mes_fechado", "✅ Mês fechado (" + mes((a.mes_fechado || {}).de) + ")", a.mes_fechado)}
       </div>
+      ${veredito ? `<p class="dash-ads-v">${veredito}</p>` : ""}
       ${hs.length > 1 ? `<div class="dash-dias">${hs.map(h => `<div class="dash-dia" title="${esc(h.h)}: ADS ${rsES(h.cost || 0)} · vendas ${rsES(h.vendas || 0)}"><span class="mg">${abrev(h.cost || 0)}</span><i style="height:${Math.max(4, (h.cost || 0) / mx * 70).toFixed(0)}px"></i><span>${esc(h.h)}</span></div>`).join("")}</div>` : ""}`;
   }).catch(e => { const el = $("#ds-adsml"); if (el) el.innerHTML = `<h2>📣 ADS em tempo real</h2><p class="muted">${esc(e.message || "sem dados")}</p>`; });
 
@@ -2053,6 +2071,7 @@ async function rotear() {
   if (location.hash.startsWith("#/bazar")) return telaBazar();
   if (location.hash.startsWith("#/decants")) return telaDecants();
   if (location.hash.startsWith("#/financeiro")) return telaFinanceiro();
+  if (location.hash.startsWith("#/conexoes/ml/ads")) return telaAdsProdutos();
   if (location.hash.startsWith("#/conexoes/ml")) return telaMinhaLojaML();
   if (location.hash.startsWith("#/conexoes")) return telaConexoes();
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
@@ -4059,6 +4078,45 @@ async function telaMinhaLojaML() {
     grafColunas($("#g-ml-dia"), {rotulos: pd.map(x => x.dia.slice(8, 10) + "/" + x.dia.slice(5, 7)), fmt: rsES, fmtEixo: v => nf0.format(v), altura: 220,
       series: [{nome: "Faturamento", cor: "#3483fa", v: pd.map(x => x.valor)}], dica: i => [{cor: "#3483fa", nome: "Faturamento", valor: `${rsES(pd[i].valor)} · ${pd[i].pedidos} pedido(s)`}]});
   }
+}
+// 03/10 (Bruno: "clicável, para ver a lista de ADS dos produtos com margem e saber o que alterar e melhorar")
+async function telaAdsProdutos() {
+  const main = $("#main");
+  const per = new URLSearchParams(location.hash.split("?")[1] || "").get("periodo") || "mes";
+  main.innerHTML = `<h1>📣 ADS por anúncio</h1><div class="card pad muted">Lendo o ADS de cada anúncio no Mercado Livre…</div>`;
+  let r;
+  try { r = await api("meli_ads_produtos", {periodo: per}); }
+  catch (e) { main.innerHTML = `<h1>📣 ADS por anúncio</h1><div class="card pad">${esc(e.message)} <a href="#/inicio">Voltar</a></div>`; return; }
+  const roF = v => v == null ? "—" : nf1.format(v).replace(",0", "") + "x", pc = v => v == null ? "—" : nf1.format(+v) + "%";
+  const t = r.total || {}, br = d => d ? d.slice(8, 10) + "/" + d.slice(5, 7) : "";
+  let filtro = "todos";
+  const per_ = [["hoje", "Hoje"], ["ontem", "Ontem"], ["7d", "7 dias"], ["mes", "Mês atual"], ["mes_passado_ate", "Mês passado (mesmo período)"], ["mes_fechado", "Mês fechado"], ["30d", "30 dias"]];
+  const desenhar = () => {
+    const ls = r.anuncios.filter(x => filtro === "todos" || x.nivel === filtro);
+    $("#ads-lista").innerHTML = `<div style="overflow-x:auto"><table class="t"><thead><tr><th>Anúncio</th><th>Investido</th><th>Vendas ADS</th><th>ROAS</th><th>ROAS mínimo</th><th>Margem (Gestor)</th><th>Lucro depois do ADS</th><th>O que fazer</th></tr></thead><tbody>
+      ${ls.map(x => `<tr><td><a href="${esc(x.link || "#")}" target="_blank" rel="noopener">${esc(x.titulo || x.anuncio)}</a><br><small class="muted">${esc(x.anuncio || "")}${x.sku ? " · " + esc(x.sku) : ""}${x.curva ? " · curva " + esc(x.curva) : ""} · ${nf0.format(x.clicks || 0)} cliques</small></td>
+        <td>${rsES(x.cost)}</td><td>${rsES(x.total_amount)}</td>
+        <td><span class="pill ${x.roas == null ? "" : x.roas_minimo && x.roas < x.roas_minimo ? "neg" : x.roas_minimo && x.roas >= 2 * x.roas_minimo ? "pos" : "warn-t"}">${roF(x.roas)}</span></td>
+        <td>${roF(x.roas_minimo)}</td><td>${pc(x.margem_pct)}</td>
+        <td class="${x.lucro_pos_ads == null ? "" : x.lucro_pos_ads < 0 ? "neg-t" : "pos-t"}">${x.lucro_pos_ads == null ? "—" : rsES(x.lucro_pos_ads)}</td>
+        <td><small>${x.nivel === "ruim" ? "🔴" : x.nivel === "bom" ? "🟢" : "⚪"} ${esc(x.sugestao || "")}</small></td></tr>`).join("") || `<tr><td colspan="8" class="muted">Nenhum anúncio neste filtro.</td></tr>`}</tbody></table></div>`;
+  };
+  main.innerHTML = `<h1>📣 ADS por anúncio</h1>
+    <p class="muted" style="margin-top:-6px">${esc(r.nome)} · ${br(r.de)} a ${br(r.ate)} · Mercado Livre (AURASCENT) · margem da Curva ABC do Gestor${r.margem_de ? " (" + esc(r.margem_de) + ")" : ""} · <a href="#/inicio">voltar</a></p>
+    <div class="card pad" style="display:flex;gap:6px;flex-wrap:wrap">${per_.map(([k, n]) => `<button class="btn small ${k === per ? "" : "sec"}" data-per="${k}">${n}</button>`).join("")}</div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">ROAS</div><div class="v">${roF(t.roas)}</div><div class="s">vendas ÷ investido</div></div>
+      <div class="kpi"><div class="l">Investido</div><div class="v warn-t">${rsES(t.cost)}</div><div class="s">vendas pelo ADS ${rsES(t.total_amount)}</div></div>
+      <div class="kpi"><div class="l">Lucro depois do ADS</div><div class="v ${t.lucro < 0 ? "neg-t" : ""}">${rsES(t.lucro)}</div><div class="s">${nf0.format(t.com_margem || 0)} anúncios com margem do Gestor</div></div>
+      <div class="kpi"><div class="l">Precisam de atenção</div><div class="v">${nf0.format((t.prejuizo || 0) + (t.sem_venda || 0))}</div><div class="s">${nf0.format(t.prejuizo || 0)} dão prejuízo · ${nf0.format(t.sem_venda || 0)} gastaram sem vender</div></div>
+    </div>
+    <div class="card pad"><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      ${[["todos", "Todos"], ["ruim", "🔴 Para mexer"], ["bom", "🟢 Para escalar"], ["neutro", "⚪ Normais"]].map(([k, n]) => `<button class="btn small ${k === filtro ? "" : "sec"}" data-f="${k}">${n} (${k === "todos" ? r.anuncios.length : r.anuncios.filter(x => x.nivel === k).length})</button>`).join("")}</div>
+      <p class="muted" style="font-size:12px;margin:0 0 8px">ROAS mínimo = 1 ÷ margem bruta: abaixo dele o ADS come mais que o lucro do produto. Lucro depois do ADS = vendas do ADS × margem − investido (estimado).</p>
+      <div id="ads-lista"></div></div>`;
+  desenhar();
+  main.querySelectorAll("[data-per]").forEach(b => b.onclick = () => { location.hash = "#/conexoes/ml/ads?periodo=" + b.dataset.per; });
+  main.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { filtro = b.dataset.f; main.querySelectorAll("[data-f]").forEach(x => x.classList.toggle("sec", x !== b)); desenhar(); });
 }
 async function telaFinanceiro() {
   const main = $("#main");

@@ -2294,5 +2294,54 @@ def ads_periodo(adv, ini, fim):
     out["acos"] = res.get("acos") if res.get("acos") is not None else (
         round(out["cost"] / out["total_amount"] * 100, 2) if out.get("total_amount") else None)
     out["campanhas"] = len(camps)
+    out["roas"] = round(out["total_amount"] / out["cost"], 2) if out.get("cost") else None
     out["de"], out["ate"] = str(ini), str(fim)
     return out
+
+
+def ads_anuncios(adv, ini, fim, limite=500):
+    """03/10 (Bruno: "a lista de ADS dos produtos com margem, para saber o que alterar"): métricas de ADS por anúncio no
+    período + o SKU de cada anúncio (para cruzar com a margem do Gestor). Só leitura."""
+    met = "clicks,prints,cost,acos,total_amount,direct_amount,units_quantity,direct_units_quantity"
+    lista, erro = [], None
+    for caminho in (f"/advertising/{SITE}/advertisers/{adv}/product_ads/ads/search",
+                    f"/advertising/advertisers/{adv}/product_ads/ads/search"):
+        try:
+            off = 0
+            while off < limite:
+                r = _get(caminho, {"limit": 100, "offset": off, "date_from": str(ini), "date_to": str(fim), "metrics": met},
+                         headers={"Api-Version": "2"}) or {}
+                lote = r.get("results") or []
+                lista += lote
+                off += 100
+                if len(lote) < 100:
+                    break
+            erro = None
+            break
+        except ErroMeli as e:
+            erro, lista = e, []
+    if erro:
+        raise erro
+    out = []
+    for x in lista:
+        m = x.get("metrics") or {}
+        cost, venda = float(m.get("cost") or 0), float(m.get("total_amount") or 0)
+        out.append({"anuncio": x.get("item_id") or x.get("id"), "titulo": x.get("title"), "status": x.get("status"),
+                    "campanha": x.get("campaign_id"), "preco": x.get("price"), "cost": round(cost, 2), "total_amount": round(venda, 2),
+                    "clicks": m.get("clicks"), "prints": m.get("prints"), "unidades": m.get("units_quantity"),
+                    "acos": m.get("acos"), "roas": round(venda / cost, 2) if cost else None})
+    ids = [a["anuncio"] for a in out if a.get("anuncio")]
+    sku = {}
+    for i in range(0, len(ids), 20):
+        try:
+            for b in _get("/items", {"ids": ",".join(ids[i:i + 20]), "attributes": "id,seller_custom_field,attributes,title,thumbnail,permalink"}) or []:
+                x = b.get("body") or {}
+                s_ = x.get("seller_custom_field") or next((a.get("value_name") for a in x.get("attributes") or []
+                                                          if a.get("id") == "SELLER_SKU"), None)
+                sku[x.get("id")] = (s_, x.get("thumbnail"), x.get("permalink"), x.get("title"))
+        except ErroMeli:
+            pass
+    for a in out:
+        s_, foto, link, tit = sku.get(a["anuncio"]) or (None, None, None, None)
+        a.update(sku=s_, foto=foto, link=link, titulo=a.get("titulo") or tit)
+    return sorted(out, key=lambda a: -a["cost"])
