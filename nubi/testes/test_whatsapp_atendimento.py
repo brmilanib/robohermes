@@ -36,6 +36,8 @@ def gerar(prompt, sistema):
     if "pede o número" in prompt:
         n = max(x["id"] for x in REPO_ATUAL[0].t["atendimento_rascunhos"] if x["status"] == "pendente")
         return f"Ajustei e enviei!\n[[editar:{n}|Oi! Me passa o número do pedido para eu verificar?]]", "teste"
+    if "reenvia sem custo" in prompt:
+        return "Anotado!\n[[base:todas|Meu pedido foi cancelado pela transportadora, e agora?|Quando a transportadora cancela, a gente reenvia sem custo.]]", "teste"
     if "me lembra" in prompt:
         return "Marquei! [[lembrete:2026-10-04 09:00|ligar pro fornecedor]]\n[[ferreiro:ver por que o Gestor pede login]]", "teste"
     return "Oi! Que bom falar com você 😊 Me conta o que você procura e mais ou menos o volume. Qualquer coisa, é só chamar!", "teste"
@@ -126,6 +128,13 @@ def test_aprova_e_edita_de_outro_canal():
     assert envio and envio[0]["texto"].startswith("Oi! Me passa o número do pedido") and envio[0]["canal"] == "shopee"
 
 
+def test_ensina_a_base_dos_clientes():
+    r = Repo()
+    x = w.banguela(r, "pedido cancelado pela transportadora a gente reenvia sem custo")
+    kb = [k for k in r.t.get("atendimento_kb", []) if "transportadora" in k["pergunta"]]
+    assert "Guardei na base" in x and kb and kb[0]["loja"] == "todas" and "[[" not in x
+
+
 def test_reconhece_o_dono_e_a_loja():
     assert w.eh_dono("+55 (44) 99881-2871") and w.eh_dono("44998812871") and not w.eh_dono("44998812870")
     assert w.eh_dono("+55 44 9881-2871") and w.eh_dono("554498812871") and not w.eh_dono("5547988812871")   # sem o 9
@@ -138,4 +147,5 @@ if __name__ == "__main__":
     test_fluxo_completo()
     test_assistente_lembrete_bom_dia_e_ferreiro()
     test_aprova_e_edita_de_outro_canal()
+    test_ensina_a_base_dos_clientes()
     print("ok whatsapp atendimento")

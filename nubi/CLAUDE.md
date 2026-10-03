@@ -112,7 +112,9 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   responde no WhatsApp com a memória do Painel (`_wa_agente`; ações [[…]] só no Painel). "Banguela, …" (ou o agente 🦷
   Banguela no chat do Painel, rota `whatsapp_banguela`) = ele fala da fila do atendimento e aprova só pelo jeito explícito
   ("ok N", "N texto", "não N"; texto solto no Painel nunca vai ao cliente). 03/10 (Bruno: "ela é robótica"): conversa
-  sempre pela IA (`BANGUELA_MODELO` = claude-opus-5-5, teto do atendimento), sem resposta pronta; número velho de sugestão
+  sempre pela IA, sem resposta pronta. UMA Banguela só (Bruno: "tem que ser o mesmo agente comigo e com os clientes"): o
+  atendimento inteiro (`atendimento.SONNET`, env NUBI_ATENDIMENTO_MODELO) e a conversa com o Bruno usam claude-opus-5-5
+  (teto US$ 10/dia); o que ele ensina vira item da base (`[[base:LOJA|pergunta|resposta]]`); número velho de sugestão
   (o atendente refaz a cada poucos minutos) leva à sugestão aberta mais nova da mesma conversa. `para_enviar` sem canal NUNCA
   devolve o WhatsApp (o atendente do PC não mexe nele). Aba SAC → 💚 WhatsApp (`#/sac/whatsapp`, situação pela rota
   `whatsapp_estado`). Depois (Bruno): aniversário da base antiga (5–10 por dia, devagar, com "responda SAIR"), e a

@@ -24,7 +24,7 @@ AVISADOS = "whatsapp|avisados"          # ids de rascunho já mandados ao Bruno 
 LEMBRETES = "banguela|lembretes"        # [{quando (UTC), texto, criado_em}] — assistente pessoal (03/10)
 BOM_DIA = "banguela|bom_dia"            # data (Brasília) do último bom dia
 AVISOS = "whatsapp|avisos"
-BANGUELA_MODELO = os.environ.get("NUBI_BANGUELA_MODELO", "claude-opus-5-5")   # 03/10 (Bruno: "ela precisa ser uma IA inteligente")              # avisos do nubi (fim de coleta, erro…) esperando a próxima volta do chip
+BANGUELA_MODELO = at.SONNET     # 03/10 (Bruno): uma Banguela só — o mesmo modelo do atendimento aos clientes (Opus 5.5)              # avisos do nubi (fim de coleta, erro…) esperando a próxima volta do chip
 BOM_DIA_HORA = 8
 BRASILIA = timezone(timedelta(hours=-3))
 LOJAS = [(re.compile(r"via\s*braz[il]{1,2}\s*global", re.I), "via_brazil")]
@@ -226,6 +226,10 @@ sugestão, então use sempre o "n" atual do contexto). Quando o Bruno
 MANDA responder de outro jeito (ex.: "primeiro pede o número do pedido dela"), escreva o texto novo para o cliente e, numa
 linha sozinha, [[editar:N|o texto exato para o cliente]] — ele sai na hora. Quando ele só diz para enviar a sugestão que
 está lá ("pode mandar", "manda essa"), use [[aprovar:N]]. Na dúvida sobre QUAL conversa, pergunte o número.
+VOCÊ É A MESMA Banguela que atende os clientes: o que o Bruno te ensina aqui (política, prazo, preço de atacado, como
+responder um caso) tem que valer no atendimento. Quando ele disser algo que serve para responder clientes, grave numa
+linha sozinha [[base:LOJA|a pergunta do cliente, do jeito que ele perguntaria|a resposta certa, como a loja responde]]
+(LOJA = todas, principal ou via_brazil) e diga que guardou.
 LEMBRETE: se ele pedir para lembrar de algo, escreva numa linha sozinha [[lembrete:AAAA-MM-DD HH:MM|o que lembrar]] (horário
 de Brasília; "amanhã cedo" = 08:00; sem hora = 09:00) e confirme em uma frase. Para desmarcar: [[desmarcar:trecho do texto]].
 FERREIRO: código, coleta, robôs, telas do nubi e erros são com o Ferreiro (Claude Code no Mac). Se o Bruno pedir algo assim,
@@ -339,6 +343,13 @@ def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
         res = _aprovacao(repo, f"{num} {novo.strip()}", so_explicito=True)       # mesmo caminho do "N texto"
         if res:
             feitos.append(res.get("resposta") or "")
+    for loja, perg, resp in re.findall(r"\[\[base:\s*([a-z_]*)\s*\|([^|\]]+)\|([^\]]+)\]\]", str(txt or "")):
+        try:                                     # o que o Bruno ensina vale para o atendimento dos clientes na hora
+            at.salvar_item_kb(repo, loja or "todas", perg.strip()[:500], resp.strip()[:2000], operador="Bruno (pela Banguela)",
+                              tags=["ensinado_pelo_bruno"])
+            feitos.append(f"📚 Guardei na base do atendimento: “{perg.strip()[:80]}”")
+        except Exception:  # noqa: BLE001
+            pass
     for num in re.findall(r"\[\[aprovar:\s*#?(\d+)\s*\]\]", str(txt or "")):
         res = _aprovacao(repo, f"ok {num}", so_explicito=True)
         if res:

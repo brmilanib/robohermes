@@ -396,7 +396,9 @@ def gerar_ia(prompt, sistema):
     raise ia.SemIA("nenhuma IA grátis disponível")
 
 
-SONNET = os.environ.get("NUBI_ATENDIMENTO_MODELO", "claude-sonnet-5")
+# 03/10 (Bruno: "tem que ser o mesmo agente falando comigo e com os clientes"): a Banguela usa o MESMO modelo em tudo —
+# atendimento aos clientes, painel e WhatsApp do Bruno (whatsapp.BANGUELA_MODELO aponta para este)
+SONNET = os.environ.get("NUBI_ATENDIMENTO_MODELO", "claude-opus-5-5")
 SONNET_TETO_USD = float(os.environ.get("NUBI_ATENDIMENTO_TETO_USD", "10"))   # US$ por dia (Brasília); passou, volta para a grátis
 SONNET_ORIGEM = "atendimento_sonnet"
 
