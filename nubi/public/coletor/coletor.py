@@ -2849,6 +2849,19 @@ JS_GESTOR_CONTAS = r"""() => {
 }"""
 
 
+def _gestor_tela_de_login(pg):
+    """03/10 (card #152): a tela de login do Gestor às vezes vem sem campo de senha visível (só o CPF/e-mail e a escolha
+    de idioma) e a tarefa falhava com "não achei as caixas de data". Login = endereço /auth, senha visível, escolha de
+    idioma (language_selection) ou o campo de exemplo de CPF."""
+    try:
+        if "/auth" in urllib.parse.urlparse(pg.url).path or pg.locator("input[type=password]:visible").count():
+            return True
+        return bool(pg.locator("input[name=language_selection]").count()
+                    or pg.locator("input[placeholder*='12334566789']:visible").count())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def baixar_gestor_vendas(pg, cfg, p=None, ini=None, fim=None):
     """Baixa o 'Relatório de Vendas' do Gestor Seller (últimos 30 dias, todas as contas). -> (arquivo, início, fim).
     ini/fim (03/10, histórico desde janeiro): um período fechado; o e-mail tem que trazer exatamente esse período."""
@@ -2863,7 +2876,7 @@ def baixar_gestor_vendas(pg, cfg, p=None, ini=None, fim=None):
                             f"{GESTOR}/management/products") if u]:
         pg.goto(url, wait_until="domcontentloaded", timeout=90000)
         devagar(5)
-        if "/auth" in urllib.parse.urlparse(pg.url).path or pg.locator("input[type=password]:visible").count():
+        if _gestor_tela_de_login(pg):
             raise SessaoExpirada(f"O Gestor Seller pediu login de novo (relatório de vendas). Rode {_onde_rodar('entrar-gestor')}")
         botao = pg.get_by_text(rx_botao)
         if botao.count():
@@ -3139,7 +3152,7 @@ def baixar_gestor_abc(pg, cfg, p=None, ini=None, fim=None):
     url = cfg.get("gestor_abc_url") or GESTOR_ABC or f"{GESTOR}/abcCurve"
     pg.goto(url, wait_until="domcontentloaded", timeout=90000)
     devagar(6)
-    if "/auth" in urllib.parse.urlparse(pg.url).path or pg.locator("input[type=password]:visible").count():
+    if _gestor_tela_de_login(pg):
         raise SessaoExpirada(f"O Gestor Seller pediu login de novo (curva ABC). Rode {_onde_rodar('entrar-gestor')}")
     if not pg.get_by_text(re.compile(r"Solicitar relat[óo]rio", re.I)).count():
         _clicar_texto(pg, [r"^\s*Curva ABC\s*$"], 5)
