@@ -1666,6 +1666,8 @@ def atender(metodo, rota, q, corpo, token):
             return _meli_retorno(q)
         if rota == "loja_retorno":                 # 03/10: volta do login das lojas (ML, Shopee, TikTok) — público, com state
             return _loja_retorno(q)
+        if rota == "loja_confirmar":               # 03/10: o Bruno confirma (ou recusa) a conta que a plataforma devolveu
+            return _loja_confirmar(q)
         if rota.startswith("ext_"):
             # extensão do Chrome (29/09): SEM login, só dado público do ML (nada do nubi nem do Bruno). Liberado para
             # qualquer origem (print do Bruno: "sem resposta do nubi (Failed to fetch)" no Chrome dele): assim a
@@ -4427,6 +4429,12 @@ def rodar_rotinas(repo, so=None):
                 out["teste_marca"] = len(teste_marca_ml(repo, ped["texto"].strip()[:40]).get("passos") or [])
         except Exception as e:  # noqa: BLE001
             out["teste_marca"] = f"erro: {str(e)[:120]}"
+        try:                                            # 03/10: ADS do ML em tempo real (card do Dashboard), de hora em hora
+            d = _ler_json(repo, ADS_TEMPO_REAL)
+            if not d.get("em") or datetime.now(timezone.utc) - datetime.fromisoformat(d["em"]) > timedelta(minutes=50):
+                out["ads_tempo_real"] = (ads_tempo_real(repo).get("hoje") or {}).get("cost")
+        except Exception as e:  # noqa: BLE001
+            out["ads_tempo_real"] = f"erro: {str(e)[:120]}"
         try:                                            # 02/10: margens do Gestor no Dashboard, de hora em hora (8h às 23h)
             if 8 <= agora.hour <= 23:
                 desde = (datetime.now(timezone.utc) - timedelta(minutes=50)).isoformat()
@@ -8391,12 +8399,12 @@ def _repo_agente():
 meli.USUARIO_REPO = _repo_agente if os.environ.get("NUBI_AGENTE_EMAIL") else None
 
 
-def _pagina(titulo, texto, ok=True):
+def _pagina(titulo, texto, ok=True, volta="/#/ml"):
     corpo = (f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>{titulo}</title>"
              f"<body style='font:16px -apple-system,Segoe UI,Roboto,sans-serif;background:#f5f7fb;color:#1d2b4f;display:grid;place-items:center;min-height:90vh'>"
              f"<div style='background:#fff;border:1px solid #d8e1f3;border-radius:14px;padding:28px 32px;max-width:460px;text-align:center'>"
              f"<div style='font-size:40px'>{'✅' if ok else '⚠️'}</div><h2>{titulo}</h2><p>{texto}</p>"
-             f"<a href='/#/ml' style='color:#2f5bd3'>Voltar ao nubi</a></div>")
+             f"<a href='{volta}' style='color:#2f5bd3'>Voltar ao nubi</a></div>")
     return 200, "text/html; charset=utf-8", corpo.encode(), {}
 
 
@@ -8423,6 +8431,43 @@ def _meli_retorno(q):
 
 
 LOJAS_BASE = os.environ.get("NUBI_LOJAS_BASE", "https://nubi-explorador.vercel.app/api/app")
+
+
+ADS_TEMPO_REAL = "ads_ml|principal"
+
+
+def ads_tempo_real(repo, agora=None):
+    """03/10 (Bruno): ADS da conta principal do ML (AURASCENT): hoje até agora, ontem, mês atual e mês fechado, guardado
+    com a curva do dia (um ponto por hora) para o card do Dashboard. Roda de hora em hora na rotina do servidor."""
+    agora = agora or datetime.now(timezone.utc)
+    hoje = (agora - timedelta(hours=3)).date()
+    ini_mes = hoje.replace(day=1)
+    fim_ant = ini_mes - timedelta(days=1)
+    adv = meli.ads_anunciante()
+    d = {"conta": (meli.ler_conta(repo) or {}).get("nick") or "conta principal", "em": agora.isoformat(), "dia": hoje.isoformat()}
+    for k, (a, b) in {"hoje": (hoje, hoje), "ontem": (hoje - timedelta(days=1), hoje - timedelta(days=1)),
+                      "mes": (ini_mes, hoje), "mes_fechado": (fim_ant.replace(day=1), fim_ant)}.items():
+        try:
+            d[k] = meli.ads_periodo(adv, a.isoformat(), b.isoformat())
+        except meli.ErroMeli as e:
+            d[k] = {"erro": str(e)[:160]}
+    antes = _ler_json(repo, ADS_TEMPO_REAL)
+    horas = antes.get("horas") if antes.get("dia") == d["dia"] else []
+    if "erro" not in d["hoje"]:
+        horas = [h for h in (horas or []) if h.get("h") != (agora - timedelta(hours=3)).strftime("%H:00")]
+        horas.append({"h": (agora - timedelta(hours=3)).strftime("%H:00"), "cost": d["hoje"].get("cost"), "vendas": d["hoje"].get("total_amount")})
+    d["horas"] = horas[-24:]
+    repo._req("POST", "ia_resumos", corpo=[{"chave": ADS_TEMPO_REAL, "ia": "ADS do ML (tempo real)", "texto": json.dumps(d, ensure_ascii=False)}],
+              prefer="resolution=merge-duplicates,return=minimal")
+    return d
+
+
+def _ler_json(repo, chave):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(chave)}) or [None])[0]
+    try:
+        return json.loads(r["texto"]) if r and r.get("texto") else {}
+    except (TypeError, ValueError):
+        return {}
 
 
 def rota_lojas_conexoes(repo, metodo, rota, q, corpo):
@@ -8452,10 +8497,33 @@ def _loja_retorno(q):
         if not q.get("code"):
             q = dict(q, code=q.get("auth_code"))
         c = lojas_conexao.concluir(repo, p, q, LOJAS_BASE)
-        return _pagina(f"{nome} conectado", _h.escape(f"{c.get('nome') or 'Loja'} ({c.get('id')}) está ligada ao nubi. "
-                                                     "Pode fechar esta aba; a conta aparece em 🔌 Conexões."))
+        t = urllib.parse.quote(c["confirmar"])
+        sair = {"ml": "https://www.mercadolivre.com.br", "shopee": "https://seller.shopee.com.br",
+                "tiktok": "https://seller-br.tiktok.com"}[p]
+        return _pagina(f"Conectar esta conta do {nome}?", (
+            f"O {_h.escape(nome)} entregou a conta <b style='font-size:20px'>{_h.escape(c.get('nome') or 'sem nome')}</b><br>"
+            f"<small>ID {_h.escape(str(c.get('id')))}</small><br><br>"
+            f"<a href='{LOJAS_BASE}?r=loja_confirmar&t={t}&ok=1' style='display:inline-block;background:#1a9b4b;color:#fff;padding:10px 18px;"
+            f"border-radius:10px;text-decoration:none;font-weight:600'>Sim, conectar esta conta</a><br><br>"
+            f"<a href='{LOJAS_BASE}?r=loja_confirmar&t={t}&ok=0' style='color:#b91c1c'>Não, é a conta errada</a><br><br>"
+            f"<small style='color:#667'>Conta errada? O {_h.escape(nome)} usa a conta que está logada no navegador. Clique em "
+            f"“Não”, saia dela em <a href='{sair}' target='_blank'>{sair.split('//')[1]}</a> (ou abra uma janela anônima), "
+            f"entre com a loja certa e clique em Conectar de novo no nubi.</small>"), volta="/#/conexoes")
     except (lojas_conexao.ErroConexao, ErroNuvem, ValueError) as e:
         return _pagina("Loja não conectada", _h.escape(str(e)[:200]), ok=False)
+
+
+def _loja_confirmar(q):
+    import html as _h
+    try:
+        c = lojas_conexao.confirmar(_repo_agente(), str(q.get("t") or ""), q.get("ok") == "1")
+    except (lojas_conexao.ErroConexao, ErroNuvem, ValueError) as e:
+        return _pagina("Conta não conectada", _h.escape(str(e)[:200]), ok=False, volta="/#/conexoes")
+    if not c:
+        return _pagina("Nada foi conectado", "Tudo certo: essa conta não foi ligada ao nubi. Troque de conta na plataforma "
+                       "(ou use uma janela anônima) e clique em Conectar de novo.", ok=False, volta="/#/conexoes")
+    return _pagina("Conta conectada", _h.escape(f"{c.get('nome') or 'Loja'} ({c.get('id')}) está ligada ao nubi. A página "
+                                                 "dela aparece em 🔌 Conexões."), volta="/#/conexoes")
 
 
 # ---------------------------------------------------------------------------
@@ -8706,6 +8774,13 @@ def rota_meli(repo, metodo, rota, q, corpo):
             except Exception as e:  # noqa: BLE001
                 t["passos"].append({"passo": "nº da loja oficial: Explorador x ML", "ok": False, "detalhe": str(e)[:120]})
         return t
+    if rota == "meli_ads_tempo_real":
+        # o card do Dashboard lê o guardado (a rotina atualiza de hora em hora); sem nada ou com mais de 70 min, puxa agora
+        d = _ler_json(repo, ADS_TEMPO_REAL)
+        velho = not d.get("em") or datetime.now(timezone.utc) - datetime.fromisoformat(d["em"]) > timedelta(minutes=70)
+        if q.get("forcar") or velho:
+            d = ads_tempo_real(repo)
+        return d
     if rota == "meli_minha_loja":
         # 03/10 (Bruno): página de teste da AURASCENT em 🔌 Conexões — anúncios, vendas, ADS e o que mais a API libera
         # cada loja conectada tem a sua página (conta=<id>), com o token DELA; sem conta = a conta principal (AURASCENT)

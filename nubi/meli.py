@@ -2224,7 +2224,24 @@ def minha_loja(dias=7, agora=None):
         camps = [{"id": x.get("id"), "nome": x.get("name"), "status": x.get("status"), "orcamento": x.get("budget"),
                   "acos_alvo": x.get("acos_target"), **{k: (x.get("metrics") or {}).get(k) for k in met.split(",")}}
                  for x in c.get("results") or []]
-        return {"anunciante": adv, "campanhas": camps, "resumo": c.get("metrics_summary") or {}}
+        # 03/10 (Bruno: "quanto gastou de ADS só ontem e quanto até agora hoje"): o mesmo pedido, dia a dia (horário de
+        # Brasília). O ML atualiza as métricas de ADS com algumas horas de atraso: "hoje" é o que ele já contou.
+        hoje_br = (agora - timedelta(hours=3)).date()
+        dias_ads = {}
+        for rot, dia in (("ontem", hoje_br - timedelta(days=1)), ("hoje", hoje_br)):
+            try:
+                cd = _get(caminho, dict(ps, date_from=dia.isoformat(), date_to=dia.isoformat()), headers={"Api-Version": ver}) or {}
+            except ErroMeli as e:
+                dias_ads[rot] = {"erro": str(e)[:160], "dia": dia.isoformat()}
+                continue
+            por = {x.get("id"): (x.get("metrics") or {}) for x in cd.get("results") or []}
+            for cp in camps:
+                cp[f"cost_{rot}"] = (por.get(cp["id"]) or {}).get("cost")
+            r_ = cd.get("metrics_summary") or {}
+            dias_ads[rot] = {"dia": dia.isoformat(), "cost": r_.get("cost", round(sum(float(m.get("cost") or 0) for m in por.values()), 2)),
+                             "total_amount": r_.get("total_amount", round(sum(float(m.get("total_amount") or 0) for m in por.values()), 2)),
+                             "acos": r_.get("acos"), "clicks": r_.get("clicks")}
+        return {"anunciante": adv, "campanhas": camps, "resumo": c.get("metrics_summary") or {}, "dias": dias_ads}
 
     def visitas():
         r = _get(f"/users/{uid}/items_visits", {"date_from": d_ini, "date_to": d_fim}) or {}
@@ -2241,4 +2258,41 @@ def minha_loja(dias=7, agora=None):
     for nome, f in (("anuncios", anuncios), ("vendas", vendas), ("ads", ads), ("visitas", visitas),
                     ("perguntas", perguntas), ("reclamacoes", reclamacoes)):
         out[nome] = _parte(f)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 03/10 (Bruno: "ADS do mês fechado da AURA e um card de ADS em tempo real no Dashboard, atualizando de hora em hora").
+ADS_METRICAS = "clicks,prints,cost,acos,total_amount,direct_amount,direct_units_quantity,indirect_units_quantity"
+
+
+def ads_anunciante():
+    r = _get("/advertising/advertisers", {"product_id": "PADS"}, headers={"Api-Version": "1"}) or {}
+    a = r.get("advertisers") or []
+    if not a:
+        raise ErroMeli("a conta não tem anunciante de Product Ads (ADS)")
+    return a[0].get("advertiser_id")
+
+
+def ads_periodo(adv, ini, fim):
+    """Resumo de ADS (todas as campanhas) entre duas datas (aaaa-mm-dd, horário do ML)."""
+    ps = {"limit": 50, "date_from": str(ini), "date_to": str(fim), "metrics": ADS_METRICAS, "metrics_summary": "true"}
+    erro = None
+    for caminho in (f"/advertising/{SITE}/advertisers/{adv}/product_ads/campaigns/search",
+                    f"/advertising/advertisers/{adv}/product_ads/campaigns"):
+        try:
+            c = _get(caminho, ps, headers={"Api-Version": "2"}) or {}
+            break
+        except ErroMeli as e:
+            erro, c = e, None
+    if c is None:
+        raise erro
+    res = c.get("metrics_summary") or {}
+    camps = c.get("results") or []
+    soma = lambda k: round(sum(float((x.get("metrics") or {}).get(k) or 0) for x in camps), 2)
+    out = {k: res.get(k, soma(k)) for k in ("cost", "total_amount", "clicks", "prints", "direct_amount")}
+    out["acos"] = res.get("acos") if res.get("acos") is not None else (
+        round(out["cost"] / out["total_amount"] * 100, 2) if out.get("total_amount") else None)
+    out["campanhas"] = len(camps)
+    out["de"], out["ate"] = str(ini), str(fim)
     return out

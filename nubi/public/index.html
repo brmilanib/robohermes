@@ -1699,6 +1699,7 @@ async function telaInicio() {
     </section>
     <section class="card pad dash-bloco" id="ds-hoje"><div class="muted">⚡ Lendo as vendas de hoje…</div></section>
     <section class="card pad dash-bloco" id="ds-gestor"><div class="muted">💹 Lendo as margens do Gestor Seller…</div></section>
+    <section class="card pad dash-bloco" id="ds-adsml"><div class="muted">📣 Lendo o ADS do Mercado Livre…</div></section>
     <section class="dash-2">
       <div class="card pad dash-bloco" id="ds-loja"><h2>🏪 Minha loja</h2><p class="muted">Montando a análise…</p></div>
       <div class="card pad dash-bloco" id="ds-mercado"><h2>🌎 Mercado</h2><p class="muted">Montando a análise…</p></div>
@@ -1787,6 +1788,26 @@ async function telaInicio() {
           <span class="n"><span class="t">${esc(it.titulo || "")}${(v.itens || []).length > 1 ? ` +${v.itens.length - 1}` : ""}</span><small>${platIco(v.marketplace, 14)} ${esc(v.loja || "")}${v.full ? " · ⚡FULL" : ""}</small></span>
           <span class="v"><b>${rsES(v.valor || 0)}</b><small>${mg(v.margem)} · ${rsES(v.lucro || 0)}</small></span></a>`; }).join("") || `<p class="muted">Sem vendas ainda hoje.</p>`}</div>
       </div>`; }).catch(() => { const el = $("#ds-gestor"); if (el) el.innerHTML = `<h2>💹 Margem em tempo real</h2><p class="muted">sem dados</p>`; });
+
+  // 03/10 (Bruno: "um card de ADS em tempo real, atualizando de hora em hora"): ADS da conta principal do ML pela API
+  api("meli_ads_tempo_real").then(a => { if (!vivo()) return; const el = $("#ds-adsml"); if (!el) return;
+    const pc = v => v == null ? "—" : nf1.format(+v) + "%";
+    const ac = v => v == null ? `<span class="muted">—</span>` : `<span class="pill ${v > 15 ? "neg" : v > 10 ? "warn-t" : "pos"}">ACOS ${pc(v)}</span>`;
+    const mes = d => d ? new Date(d + "T12:00").toLocaleDateString("pt-BR", {month: "long"}) : "";
+    const k = (n, x, sub) => `<a class="dash-k" href="#/conexoes/ml"><span class="l">${n}</span><b>${x && !x.erro ? rsES(x.cost || 0) : "—"}</b>
+      <span class="o">${x && !x.erro ? `vendas ADS ${rsES(x.total_amount || 0)} · ${ac(x.acos)}` : esc((x || {}).erro || "")}${sub ? "<br>" + sub : ""}</span></a>`;
+    const lido = a.em ? new Date(a.em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}) : "";
+    const hs = a.horas || [], mx = Math.max(1, ...hs.map(h => +h.cost || 0));
+    el.innerHTML = `<div class="dash-cab"><h2>📣 ADS em tempo real</h2><span class="muted">Mercado Livre · ${esc(a.conta || "")} · lido às ${lido} · atualiza de hora em hora · o ML conta o ADS com algumas horas de atraso</span>
+        <a class="btn small" href="#/conexoes/ml">Ver campanhas ›</a></div>
+      <div class="dash-ks">
+        ${k("⚡ Hoje (até agora)", a.hoje)}
+        ${k("📅 Ontem", a.ontem)}
+        ${k("🗓️ Mês atual", a.mes, a.mes && !a.mes.erro ? `${nf0.format(a.mes.campanhas || 0)} campanhas` : "")}
+        ${k("✅ Mês fechado (" + mes((a.mes_fechado || {}).de) + ")", a.mes_fechado)}
+      </div>
+      ${hs.length > 1 ? `<div class="dash-dias">${hs.map(h => `<div class="dash-dia" title="${esc(h.h)}: ADS ${rsES(h.cost || 0)} · vendas ${rsES(h.vendas || 0)}"><span class="mg">${abrev(h.cost || 0)}</span><i style="height:${Math.max(4, (h.cost || 0) / mx * 70).toFixed(0)}px"></i><span>${esc(h.h)}</span></div>`).join("")}</div>` : ""}`;
+  }).catch(e => { const el = $("#ds-adsml"); if (el) el.innerHTML = `<h2>📣 ADS em tempo real</h2><p class="muted">${esc(e.message || "sem dados")}</p>`; });
 
   // 💵 dólar, notícias · 🖥️ sistema (mesma consulta da Início antiga)
   api("inicio_extras").then(ex => { if (!vivo()) return; const el = $("#ds-dolar");
@@ -3970,7 +3991,7 @@ async function telaConexoes() {
       <div class="cx-top">${platIco(p.nome, 40)}<div><b>${esc(p.nome)}</b><small class="muted">${p.contas.filter(c => c.ativa).length} loja(s) conectada(s)</small></div></div>
       ${p.chave === "ml" ? `<div id="ml-conta" class="cx-principal">Carregando a conta principal…</div>` : ""}
       ${p.contas.length ? `<div class="cx-contas">${p.contas.map(c => `<div class="cx-conta"><span class="${c.ativa ? "cx-ok" : "cx-off"}">●</span>
-          <span class="n"><b>${esc(c.nome || c.id)}</b><small>ID ${esc(c.id)}${c.ativa ? " · desde " + dt(c.em) : " · desconectada"}</small></span>
+          <span class="n"><b>${esc(c.apelido || c.nome || c.id)}</b>${c.teste ? ' <span class="pill">🧪 teste</span>' : ""}<small>${c.apelido ? esc(c.nome) + " · " : ""}ID ${esc(c.id)}${c.ativa ? " · desde " + dt(c.em) : " · desconectada"}</small></span>
           ${c.ativa && p.chave === "ml" ? `<a class="btn small" href="#/conexoes/ml?conta=${encodeURIComponent(c.id)}">📊 Ver dados</a>` : ""}
           ${c.ativa ? `<button class="btn sec cx-sair" data-p="${esc(p.chave)}" data-id="${esc(c.id)}">Desconectar</button>` : ""}</div>`).join("")}</div>`
         : `<p class="muted">Nenhuma conta conectada.</p>`}
@@ -4020,12 +4041,13 @@ async function telaMinhaLojaML() {
       <div class="kpi"><div class="l">Tarifas do ML</div><div class="v">${vd.ok ? rsES(vd.tarifas) : "—"}</div><div class="s">nos pedidos pagos</div></div>
       <div class="kpi"><div class="l">Anúncios ativos</div><div class="v">${an.ok ? n(an.ativos) : "—"}</div><div class="s">${an.ok ? n(an.pausados) + " pausados · " + n(an.finalizados) + " finalizados" : ""}</div></div>
       <div class="kpi"><div class="l">Visitas</div><div class="v">${r.visitas && r.visitas.ok ? n(r.visitas.total) : "—"}</div><div class="s">no período</div></div>
+      ${ad.ok && ad.dias ? ["ontem", "hoje"].map(k => { const x = ad.dias[k] || {}; return `<div class="kpi"><div class="l">ADS ${k === "ontem" ? "ontem" : "hoje (até agora)"}</div><div class="v warn-t">${x.erro ? "—" : rsES(x.cost)}</div><div class="s">${x.erro ? esc(x.erro) : "vendas pelo ADS " + rsES(x.total_amount) + (x.acos != null ? " · ACOS " + pct(x.acos) : "") + (k === "hoje" ? " · o ML atualiza com algumas horas de atraso" : "")}</div></div>`; }).join("") : ""}
       <div class="kpi"><div class="l">Investido em ADS</div><div class="v warn-t">${ad.ok && custoAds != null ? rsES(custoAds) : "—"}</div><div class="s">${ad.ok && vendAds != null ? "vendas pelo ADS " + rsES(vendAds) + (res.acos != null ? " · ACOS " + pct(res.acos) : "") : ""}</div></div>
       <div class="kpi"><div class="l">Perguntas / reclamações</div><div class="v">${r.perguntas && r.perguntas.ok ? n(r.perguntas.sem_resposta) : "—"} / ${r.reclamacoes && r.reclamacoes.ok ? n(r.reclamacoes.abertas) : "—"}</div><div class="s">sem resposta / abertas</div></div>
     </div>
     ${vd.ok && (vd.por_dia || []).length ? `<div class="card pad"><h3 style="margin-top:0">Vendas por dia</h3><div class="ch" id="g-ml-dia"></div></div>` : ""}
-    ${ad.ok ? `<div class="card pad"><h3 style="margin-top:0">ADS — campanhas</h3>${camps.length ? `<div style="overflow-x:auto"><table class="t"><thead><tr><th>Campanha</th><th>Status</th><th>Orçamento</th><th>Impressões</th><th>Cliques</th><th>Investido</th><th>Vendas ADS</th><th>ACOS</th></tr></thead><tbody>
-      ${camps.map(x => `<tr><td>${esc(x.nome || x.id)}</td><td>${esc(x.status || "")}</td><td>${rsES(x.orcamento)}</td><td>${n(x.prints)}</td><td>${n(x.clicks)}</td><td>${rsES(x.cost)}</td><td>${rsES(x.total_amount)}</td><td>${pct(x.acos)}</td></tr>`).join("")}</tbody></table></div>`
+    ${ad.ok ? `<div class="card pad"><h3 style="margin-top:0">ADS — campanhas</h3>${camps.length ? `<div style="overflow-x:auto"><table class="t"><thead><tr><th>Campanha</th><th>Status</th><th>Orçamento</th><th>Impressões</th><th>Cliques</th><th>Investido</th><th>Ontem</th><th>Hoje</th><th>Vendas ADS</th><th>ACOS</th></tr></thead><tbody>
+      ${camps.map(x => `<tr><td>${esc(x.nome || x.id)}</td><td>${esc(x.status || "")}</td><td>${rsES(x.orcamento)}</td><td>${n(x.prints)}</td><td>${n(x.clicks)}</td><td>${rsES(x.cost)}</td><td>${rsES(x.cost_ontem)}</td><td>${rsES(x.cost_hoje)}</td><td>${rsES(x.total_amount)}</td><td>${pct(x.acos)}</td></tr>`).join("")}</tbody></table></div>`
       : `<p class="muted">${esc(ad.aviso || "Nenhuma campanha no período.")}</p>`}</div>` : ""}
     ${an.ok ? `<div class="card pad"><h3 style="margin-top:0">Anúncios ativos que mais vendem</h3><div style="overflow-x:auto"><table class="t"><thead><tr><th>Anúncio</th><th>Preço</th><th>Estoque</th><th>Vendidos</th><th>Tipo</th><th>Saúde</th></tr></thead><tbody>
       ${(an.itens || []).slice(0, 30).map(x => `<tr><td><a href="${esc(x.link || "#")}" target="_blank" rel="noopener">${esc(x.titulo || x.id)}</a>${x.full ? ' <span class="pill">⚡FULL</span>' : ""}<br><small class="muted">${esc(x.id)}</small></td><td>${rsES(x.preco)}</td><td>${n(x.estoque)}</td><td>${n(x.vendidos)}</td><td>${esc(x.tipo || "")}</td><td>${x.saude != null ? pct(x.saude * 100) : "—"}</td></tr>`).join("")}</tbody></table></div></div>` : ""}

@@ -283,11 +283,20 @@ try:
                     "vendas": [{"hora": "21:06", "loja": "ESSENCE PRIME", "marketplace": "Mercado Livre", "valor": 223.15, "lucro": 42.18, "margem": 0.189,
                                 "itens": [{"titulo": "Perfume Britney Spears Fantasy", "sku": "FANTASY-EDP-100", "foto": "", "link": "https://produto.mercadolivre.com.br/MLB-1"}]}]}
             pg.route(lambda u: "r=painel_gestor_hoje" in u, lambda r: r.fulfill(json=gest))
+            adsml = {"conta": "AURASCENT", "em": "2026-10-03T14:05:00+00:00", "dia": "2026-10-03",
+                     "hoje": {"cost": 212.4, "total_amount": 3100, "acos": 6.85, "campanhas": 31},
+                     "ontem": {"cost": 455.1, "total_amount": 5900, "acos": 7.7}, "mes": {"cost": 667.5, "total_amount": 9000, "acos": 7.4, "campanhas": 31},
+                     "mes_fechado": {"cost": 11234.9, "total_amount": 150210, "acos": 7.48, "de": "2026-09-01", "ate": "2026-09-30"},
+                     "horas": [{"h": "09:00", "cost": 80}, {"h": "10:00", "cost": 140}, {"h": "11:00", "cost": 212.4}]}
+            pg.route(lambda u: "r=meli_ads_tempo_real" in u, lambda r: r.fulfill(json=adsml))
             pg.goto(f"http://127.0.0.1:{PORTA}/#/inicio"); pg.wait_for_selector(".dash-topo", timeout=15000)
             pg.wait_for_selector("#ds-precos .dash-pr", timeout=15000)
             pg.wait_for_selector("#ds-gestor .dash-k", timeout=15000)
             gt = pg.inner_text("#ds-gestor")
             assert "Margem em tempo real" in gt and "15,6%" in gt and "Vibrato Sospiro" in gt and "Fantasy" in gt and "21:06" in gt, gt
+            pg.wait_for_selector("#ds-adsml .dash-k", timeout=15000)
+            at = pg.inner_text("#ds-adsml").replace("\xa0", " ")
+            assert "ADS em tempo real" in at and "R$ 212,40" in at and "R$ 455,10" in at and "setembro" in at and "R$ 11.234,90" in at and "11:00" in at, at
             pr = pg.inner_text("#ds-precos")
             assert "Monitor de preços" in pr and "Lattafa Asad" in pr and "189,90" in pr and "entrou no FULL" in pr, pr
             pg.wait_for_function("() => !document.querySelector('#ds-meus').innerText.includes('Carregando') && !document.querySelector('#ds-hoje').innerText.includes('Lendo')", timeout=30000)

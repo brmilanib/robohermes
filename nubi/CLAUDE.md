@@ -48,6 +48,13 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   Codex (`exec --sandbox read-only`) ou Hermes (Ollama, grátis). Nenhum deles executa nada: propõe `[[comando:CHAVE]]` (só da lista fechada COMANDOS_MAC → `mac_pedir`, fila da Central) e
   `[[card:Título|descrição]]` (proposta no quadro, área coletor) e o Bruno confirma no botão. Mudança no código do coletor
   é sempre por card → Ferreiro → revisão, nunca o Hermes editando o arquivo.
+- 📣 ADS em tempo real (03/10, Bruno): card no Dashboard (`#ds-adsml`) com o ADS da conta principal do ML (AURASCENT):
+  hoje até agora, ontem, mês atual e mês fechado (`meli.ads_periodo`, Product Ads API `campaigns/search` com
+  `Api-Version: 2`), guardado em `ads_ml|principal` com a curva do dia (um ponto por hora). Atualiza na rotina de hora em
+  hora (`rodar_rotinas`); a rota `meli_ads_tempo_real` puxa na hora se o guardado tiver mais de 70 min. O ML conta o ADS
+  com algumas horas de atraso. Páginas por loja em Conexões: `#/conexoes/ml` (principal) e `#/conexoes/ml?conta=<id>`
+  (token DA loja via `lojas_conexao.acesso_ml` + `meli.TOKEN_DA_VEZ`, sem misturar). Conectar loja tem CONFIRMAÇÃO: a
+  conta que a plataforma devolve fica pendente (`loja|pendente|<t>`, 15 min) até o Bruno clicar "Sim, conectar".
 - 🔌 Conexões das lojas (03/10, Bruno: "tela de conexão de lojas igual à do Gestor Seller; minhas 3 lojas do ML, a Shopee e
   o TikTok, para puxar dados, anúncios e ADS"): `lojas_conexao.py`, tela `#/conexoes` (Minhas Lojas). Mesmas regras da
   conta do ML, estendidas: login SEMPRE na página da plataforma (OAuth; ML, Shopee `auth_partner`, TikTok `open/authorize`);

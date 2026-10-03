@@ -12,6 +12,7 @@ Regras (as mesmas da conta do ML de 29/09, estendidas pelo pedido do Bruno):
 - só LEITURA (pedidos, anúncios, estoque, ADS): o nubi nunca altera anúncio, preço, pedido ou campanha.
 """
 import base64
+import re
 import hashlib
 import hmac
 import json
@@ -98,7 +99,7 @@ def contas(repo, p=None):
         if d.get("refresh") or d.get("desconectada_em"):
             d = {k: v for k, v in d.items() if k != "refresh"} | {"ativa": bool(d.get("refresh"))}
             out.append(d)
-    return sorted(out, key=lambda d: (d.get("plataforma") or "", d.get("nome") or ""))
+    return sorted(out, key=lambda d: (d.get("plataforma") or "", bool(d.get("teste")), d.get("nome") or ""))
 
 
 def retorno(base, p, estado=""):
@@ -210,8 +211,31 @@ def concluir(repo, p, q, base):
         conta = {"plataforma": "tiktok", "id": str(d.get("open_id") or d.get("seller_name") or "loja"),
                  "nome": d.get("seller_name") or "Loja TikTok", "refresh": cifrar("tiktok", d["refresh_token"]),
                  "regiao": d.get("seller_base_region") or "", "em": agora}
-    _gravar(repo, f"{CONTA}{p}|{conta['id']}", conta)
-    return {k: v for k, v in conta.items() if k != "refresh"}
+    # 03/10 (Bruno: "ele não podia conectar a BRUNOMILANI sem eu pedir"): nada é ligado direto. A conta que a plataforma
+    # devolveu fica PENDENTE (15 min) e a página de volta mostra o nome dela para o Bruno confirmar ou recusar.
+    token = secrets.token_urlsafe(18)
+    _gravar(repo, PENDENTE + token, dict(conta, pendente_em=time.time()))
+    return dict({k: v for k, v in conta.items() if k != "refresh"}, confirmar=token)
+
+
+PENDENTE = "loja|pendente|"
+
+
+def confirmar(repo, token, aceitar):
+    """Confirma (grava a conta) ou recusa (descarta) a conta pendente. Uso único, 15 min. -> conta (sem token) ou None."""
+    if not token or not re.fullmatch(r"[\w-]{10,40}", token):
+        raise ErroConexao("pedido de confirmação inválido")
+    c = _ler(repo, PENDENTE + token)
+    _gravar(repo, PENDENTE + token, {})
+    if not c or time.time() - float(c.get("pendente_em") or 0) > 15 * 60:
+        raise ErroConexao("a confirmação venceu; clique em Conectar de novo no nubi")
+    if not aceitar:
+        return None
+    c.pop("pendente_em", None)
+    antes = _ler(repo, f"{CONTA}{c['plataforma']}|{c['id']}")
+    c.update({k: antes[k] for k in ("apelido", "teste") if k in antes})        # reconectar não perde o apelido
+    _gravar(repo, f"{CONTA}{c['plataforma']}|{c['id']}", c)
+    return {k: v for k, v in c.items() if k != "refresh"}
 
 
 def desconectar(repo, p, id_):

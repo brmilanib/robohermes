@@ -94,7 +94,13 @@ for i in (1, 2):
     u = lc.url_conectar(repo, "ml", BASE)
     assert "redirect_uri=" + urllib.parse.quote(f"{BASE}?r=loja_retorno&p=ml", safe="") in u, u
     st, tipo, html, *_ = nubi_web._loja_retorno({"p": "ml", "code": f"C{i}", "state": state(u)}); html = html.decode() if isinstance(html, bytes) else html
-    assert f"LOJA{i}" in html and "conectad" in html.lower(), html
+    assert f"LOJA{i}" in html and "Sim, conectar" in html and "conta errada" in html, html
+    assert not any(k.startswith("loja|conta|") and f"50{i}" in k for k in repo.ia)      # nada ligado antes de confirmar
+    t = urllib.parse.parse_qs(html.split("r=loja_confirmar&")[1].split("'")[0])["t"][0]
+    st, tipo, h2, *_ = nubi_web._loja_confirmar({"t": t, "ok": "1"})
+    assert "Conta conectada" in h2.decode() and f"loja|conta|ml|50{i}" in repo.ia
+    st, tipo, h3, *_ = nubi_web._loja_confirmar({"t": t, "ok": "1"})                    # uso único
+    assert "venceu" in h3.decode()
 # state reaproveitado não vale
 st, tipo, html, *_ = nubi_web._loja_retorno({"p": "ml", "code": "C9", "state": state(u)}); html = html.decode() if isinstance(html, bytes) else html
 assert "venceu" in html
@@ -106,12 +112,16 @@ assert "sign=" in u and "r=loja_retorno" in red
 s = urllib.parse.parse_qs(urllib.parse.urlparse(red).query)["s"][0]
 st, tipo, html, *_ = nubi_web._loja_retorno({"p": "shopee", "s": s, "code": "CS", "shop_id": "777"}); html = html.decode() if isinstance(html, bytes) else html
 assert "Nubi Shopee" in html, html
+nubi_web._loja_confirmar({"t": urllib.parse.parse_qs(html.split("r=loja_confirmar&")[1].split("'")[0])["t"][0], "ok": "1"})
 
 # TikTok
 u = lc.url_conectar(repo, "tiktok", BASE)
 assert "service_id=999" in u
 st, tipo, html, *_ = nubi_web._loja_retorno({"p": "tiktok", "state": state(u), "code": "CT"}); html = html.decode() if isinstance(html, bytes) else html
 assert "Nubi TT" in html, html
+t = urllib.parse.parse_qs(html.split("r=loja_confirmar&")[1].split("'")[0])["t"][0]
+st, tipo, h4, *_ = nubi_web._loja_confirmar({"t": t, "ok": "0"})                         # recusou: nada ligado
+assert "Nada foi conectado" in h4.decode() and not any(k.startswith("loja|conta|tiktok") for k in repo.ia)
 
 # tokens: nunca em claro no banco; o painel não devolve o refresh
 banco = json.dumps(repo.ia)

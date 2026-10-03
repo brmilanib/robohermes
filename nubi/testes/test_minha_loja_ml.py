@@ -70,6 +70,8 @@ assert an["ok"] and an["ativos"] == 320 and an["pausados"] == 40 and an["itens"]
 vd = r["vendas"]
 assert vd["ok"] and vd["pagos"] == 2 and vd["faturamento"] == 299.8 and vd["tarifas"] == 42.0 and len(vd["por_dia"]) == 2
 ad = r["ads"]
+assert ad["dias"]["ontem"]["dia"] == "2026-10-02" and ad["dias"]["hoje"]["dia"] == "2026-10-03" and ad["dias"]["hoje"]["cost"] == 80.5
+assert ad["campanhas"][0]["cost_ontem"] == 80.5
 assert ad["ok"] and ad["anunciante"] == 777 and ad["campanhas"][0]["cost"] == 80.5 and ad["resumo"]["acos"] == 8.9
 assert r["visitas"]["total"] == 4321 and r["perguntas"]["sem_resposta"] == 5
 assert not r["reclamacoes"]["ok"] and "403" in r["reclamacoes"]["erro"]          # uma parte recusada não derruba as outras
@@ -81,6 +83,42 @@ m = meli.TOKEN_DA_VEZ.set("tok-essence")
 meli.minha_loja(7, agora=datetime(2026, 10, 3, 15, tzinfo=timezone.utc))
 meli.TOKEN_DA_VEZ.reset(m)
 assert pedidos and all(h.get("Authorization") == "Bearer tok-essence" for _, h in pedidos)
+# ADS em tempo real (card do Dashboard): hoje, ontem, mês atual e mês fechado + a curva do dia
+import nubi_web  # noqa: E402
+datas = []
+orig_periodo = meli.ads_periodo
+meli.ads_periodo = lambda adv, a, b: datas.append((a, b)) or orig_periodo(adv, a, b)
+
+
+class RepoAds:
+    def __init__(self):
+        self.ia = {}
+
+    def _eq(self, v):
+        return f"eq.{v}"
+
+    def _req(self, metodo, t, params=None, corpo=None, prefer=None):
+        if metodo == "GET":
+            if t == "ia_resumos":
+                k = params["chave"][3:]
+                return [{"texto": self.ia[k]}] if k in self.ia else []
+            return []
+        for r in corpo or []:
+            self.ia[r["chave"]] = r["texto"]
+        return []
+
+
+ra = RepoAds()
+d = nubi_web.ads_tempo_real(ra, agora=datetime(2026, 10, 3, 14, tzinfo=timezone.utc))
+assert ("2026-10-03", "2026-10-03") in datas and ("2026-10-02", "2026-10-02") in datas
+assert ("2026-10-01", "2026-10-03") in datas and ("2026-09-01", "2026-09-30") in datas
+assert d["hoje"]["cost"] == 80.5 and d["mes_fechado"]["acos"] == 8.9 and d["horas"] == [{"h": "11:00", "cost": 80.5, "vendas": 900}]
+d = nubi_web.ads_tempo_real(ra, agora=datetime(2026, 10, 3, 15, tzinfo=timezone.utc))
+assert [h["h"] for h in d["horas"]] == ["11:00", "12:00"]                    # um ponto por hora no dia
+d = nubi_web.ads_tempo_real(ra, agora=datetime(2026, 10, 4, 12, tzinfo=timezone.utc))
+assert [h["h"] for h in d["horas"]] == ["09:00"]                             # dia novo: curva recomeça
+meli.ads_periodo = orig_periodo
+
 meli._token_usuario = lambda forcar=False: None
 try:
     meli.minha_loja(7)
