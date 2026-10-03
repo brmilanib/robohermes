@@ -10490,7 +10490,7 @@ function meuLadoProduto(m, {pm, med, mes30, lista, kpi, R, bg}) {
   // 03/10 (print do Bruno: ESSENCE em 1º e "minha loja não aparece"): o apelido no Nubimetrics é o começo do nome da loja
   // ("ESSENCE" = "ESSENCE PRIME", "AURASCENT" = "AURA SCENT")
   const ehMinha = n => n && minhas.some(m => m === n || (n.length >= 5 && m.startsWith(n)));
-  const pos = lista.findIndex(x => ehMinha(normNome(x.vendedor)));
+  const pos = lista.findIndex(x => x.eu) >= 0 ? lista.findIndex(x => x.eu) : lista.findIndex(x => ehMinha(normNome(x.vendedor)));
   if (pos >= 0) { const tr = $(`tr[data-vnome="${CSS.escape(normNome(lista[pos].vendedor))}"]`, bg); tr && tr.classList.add("pq-eu"); }
   const fonte = $("#pq-fonte", bg);
   if (fonte) fonte.textContent = `· estoque do UpSeller${m.estoque_em ? " de " + atQuando(m.estoque_em) : ""}` +
@@ -10507,7 +10507,7 @@ function meuLadoProduto(m, {pm, med, mes30, lista, kpi, R, bg}) {
           est.length ? (atual !== disp ? `${nf0.format(disp)} disponível · ` : "") + `trânsito ${nf0.format(trans)} · mínimo ${nf0.format(minimo)}` + (cob != null ? ` · dura ≈ ${nf0.format(cob)} dias` : "") : "")}
     ${kpi("Custo médio", R(custo), margem != null ? `margem antes das taxas ${R(margem)} (${FMT.pct(margem / v.preco_medio)})`
           : margemMerc != null ? `no preço médio do mercado sobraria ${R(margemMerc)} antes das taxas` : "")}
-    ${kpi("Minha posição", pos >= 0 ? `${pos + 1}º de ${lista.length}` : "—", pos >= 0 ? esc(lista[pos].vendedor) + " no Nubimetrics" : "minha loja não aparece entre os vendedores deste período")}
+    ${kpi("Minha posição", pos >= 0 ? `${pos + 1}º de ${lista.length}` : "—", pos >= 0 ? esc(lista[pos].vendedor) + (lista[pos].eu ? " no Nubimetrics · reconhecida pelo ID" : " no Nubimetrics · pelo nome (a confirmar pelo ID no próximo export)") : "minha loja não aparece entre os vendedores deste período")}
   </div>`;
   const det = [];
   if (est.length) det.push(`<b>SKUs:</b> ${est.map(it => `${esc(it.sku)} — ${esc(String(it.titulo || "").slice(0, 70))} (${nf0.format(+it.disponivel || 0)} disp.)`).join(" · ")}`);

@@ -1233,10 +1233,16 @@ def relatorio(repo, marca, periodo=None, visao=None):
         janela = {"inicio": janela["inicio"], "fim": janela["fim"], "dias": int(janela.get("dias") or 0)}
     else:
         janela = None
+    # 03/10 (Bruno: "ESSENCE sou eu, renomeei de propósito"): as MINHAS lojas pelo ID do vendedor (nubi.minhas_ids)
+    try:
+        meus_ids = set(nubi.minhas_ids(repo))
+    except Exception:  # noqa: BLE001
+        meus_ids = set()
     for lista in vend_prod.values():
         tot = sum(v["un"] for v in lista)
         for v in lista:
             v["share"] = _div(v["un"], tot)
+            v["eu"] = v["vid"] in meus_ids
         lista.sort(key=lambda v: (-v["un"], -v["fat"], v["codigo"]))
 
     # 03/10 (Bruno: "mostra se tá caindo ou crescendo; o arredondamento a gente pega na média com o tempo"): média por dia

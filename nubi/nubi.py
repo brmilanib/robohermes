@@ -2167,6 +2167,18 @@ def _mesmo_titulo(a, b):
     return n >= 20 and a[:n] == b[:n]
 
 
+MINHAS_IDS = "explorador|minhas_ids"           # {ID do vendedor no Nubimetrics: {loja (UpSeller), nome_nubimetrics, provas, desde, visto}}
+
+
+def minhas_ids(repo):
+    return dict(ler_resumo(repo, MINHAS_IDS) or {})
+
+
+def guardar_minhas_ids(repo, d):
+    if d:
+        _gravar_resumo(repo, MINHAS_IDS, d)
+
+
 def calibrar_com_upseller(repo, marca, ini, fim, arq):
     """03/10 (Bruno: "o Nubimetrics não mostra o número real, mostra um pouco abaixo; descobrindo o percentual eu sei quanto
     ele mostra da realidade"): os MEUS anúncios estão no export (vendedor AURASCENT, ESSENCE…) e no relatório Vendas por
@@ -2181,22 +2193,48 @@ def calibrar_com_upseller(repo, marca, ini, fim, arq):
     if not vendas or not vendas.get("linhas") or "vendedor" not in arq.columns:
         return None
     linhas = [x for x in vendas["linhas"] if "Mercado Libre" in str(x.get("loja") or "")]
-    lojas = {str(x.get("loja")) for x in linhas}
-    meus = arq[arq["vendedor"].fillna("").map(lambda v: any(_loja_casa(v, lj) for lj in lojas))]
     dias_exp = (date.fromisoformat(fim) - date.fromisoformat(ini)).days + 1
     dias_up = int(vendas.get("dias") or 30)
     fator = dias_exp / dias_up if dias_up else 1.0
+    # 03/10 (Bruno: "ESSENCE sou eu, renomeei de propósito para ver se os agentes iam pegar"): minha loja é reconhecida pelo
+    # ID do vendedor, nunca pelo nome. Prova = anúncio do export com o MESMO título de um anúncio meu do UpSeller, preço
+    # perto (±10%) e unidades parecidas com as minhas reais (±40% ou até 3 un.). 2 provas (ou 1 num ID já conhecido) = meu.
+    num = lambda v: float(pd.to_numeric(v, errors="coerce") or 0)
+    conhecidos = minhas_ids(repo)
+    provas = {}
+    for _, a in arq.iterrows():
+        vid = str(a.get("vendedor_id") or "")
+        if not vid:
+            continue
+        for i, x in enumerate(linhas):
+            if not _mesmo_titulo(a["titulo"], x.get("produto")):
+                continue
+            pm, pr = num(x.get("preco_medio")), num(a.get("preco"))
+            real, nmu = num(x.get("unidades")) * fator, num(a.get("un"))
+            if pm and pr and abs(pr / pm - 1) > 0.10:
+                continue
+            if abs(nmu - real) > max(3, 0.4 * real):
+                continue
+            provas.setdefault(vid, []).append((i, x.get("loja")))
+    for vid, ps in provas.items():
+        if len(ps) >= 2 or (vid in conhecidos and ps):
+            loja = max({p[1] for p in ps}, key=lambda lj: sum(1 for p in ps if p[1] == lj))
+            nome = str(arq.loc[arq["vendedor_id"].astype(str) == vid, "vendedor"].iloc[0])
+            conhecidos[vid] = {**conhecidos.get(vid, {}), "loja": loja, "nome_nubimetrics": nome, "provas": len(ps),
+                               "visto": fim, "desde": conhecidos.get(vid, {}).get("desde") or fim}
+    guardar_minhas_ids(repo, conhecidos)
+    meus = arq[arq["vendedor_id"].astype(str).isin(set(conhecidos))]
     itens, usados = [], set()
     for _, a in meus.iterrows():
-        par = [i for i, x in enumerate(linhas) if i not in usados and _loja_casa(a["vendedor"], x.get("loja"))
-               and _mesmo_titulo(a["titulo"], x.get("produto"))]
+        loja = conhecidos[str(a["vendedor_id"])].get("loja")
+        par = [i for i, x in enumerate(linhas) if i not in usados and x.get("loja") == loja and _mesmo_titulo(a["titulo"], x.get("produto"))]
         if not par:
             continue
         i = max(par, key=lambda j: float(linhas[j].get("unidades") or 0))
         usados.add(i)
         real = float(linhas[i].get("unidades") or 0)
-        itens.append({"vendedor": a["vendedor"], "titulo": str(a["titulo"])[:90], "anuncio_ml": linhas[i].get("anuncio"),
-                      "nubimetrics": float(pd.to_numeric(a["un"], errors="coerce") or 0), "real": real, "real_no_periodo": round(real * fator, 1)})
+        itens.append({"vendedor": a["vendedor"], "loja": loja, "titulo": str(a["titulo"])[:90], "anuncio_ml": linhas[i].get("anuncio"),
+                      "nubimetrics": num(a["un"]), "real": real, "real_no_periodo": round(real * fator, 1)})
     nm, rl = sum(x["nubimetrics"] for x in itens), sum(x["real_no_periodo"] for x in itens)
     cal = {"em": datetime.now().astimezone().isoformat(timespec="seconds"), "marca": marca,
            "nubimetrics_periodo": {"inicio": ini, "fim": fim, "dias": dias_exp},

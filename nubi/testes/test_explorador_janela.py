@@ -50,20 +50,31 @@ def test_janela_de_30_dias_e_conferencia():
 
 
 def test_calibragem_com_o_upseller():
-    """03/10 (Bruno: "o Nubimetrics mostra um pouco abaixo do real; descobrindo o percentual eu sei quanto ele mostra"): meus
-    anúncios no export (AURASCENT) × o relatório Vendas por Anúncio do UpSeller, pelo título e pela loja."""
+    """03/10 (Bruno: "o Nubimetrics mostra um pouco abaixo do real"; "ESSENCE sou eu, renomeei de propósito para ver se os
+    agentes iam pegar"): minha loja é achada pelo ID do vendedor (título + preço + unidades batendo com o UpSeller), não pelo
+    nome; daí a calibragem compara os meus anúncios com o real."""
     repo, cfg = _novo_banco(), {}
     repo.__dict__["resumos"] = {nubi.VENDAS_UPSELLER: {"inicio": "2026-09-01", "fim": "2026-09-30", "dias": 30, "linhas": [
-        {"produto": "Perfume Vibrato Sospiro Edp 100ml Importado Original", "loja": "AURA SCENT[Mercado Libre BR]", "anuncio": "MLB1", "unidades": 32},
-        {"produto": "Perfume Vibrato Sospiro Edp 100ml Importado Original", "loja": "ESSENCE PRIME[Amazon BR]", "anuncio": "B0X", "unidades": 7},
-        {"produto": "Perfume Erba Pura Xerjoff 100ml", "loja": "AURA SCENT[Mercado Libre BR]", "anuncio": "MLB2", "unidades": 5}]}}
-    meu = lin("Perfume Vibrato Sospiro Edp 100ml Import", "SOSPIRO", "A1", 28, 300).replace("VEND.A1", "AURASCENT")
-    _importador(repo, cfg)("sospiro.csv", csv(meu, lin("Perfume Sospiro Vibrato Edp 100ml", "SOSPIRO", "K1", 400, 546)),
-                           "SOSPIRO", "2026-09-01", "2026-09-30")
+        {"produto": "Perfume Vibrato Sospiro Edp 100ml Importado Original", "loja": "AURA SCENT[Mercado Libre BR]", "anuncio": "MLB1", "unidades": 32, "preco_medio": 100},
+        {"produto": "Perfume Erba Gold Sospiro Edp 100ml Original", "loja": "AURA SCENT[Mercado Libre BR]", "anuncio": "MLB2", "unidades": 10, "preco_medio": 100},
+        {"produto": "Perfume Vibrato Sospiro Edp 100ml Importado Original", "loja": "ESSENCE PRIME[Amazon BR]", "anuncio": "B0X", "unidades": 7, "preco_medio": 100}]}}
+    # a minha loja renomeada no Nubimetrics para um nome qualquer ("MINHA.LOJA.TESTE"), com o ID hMEU
+    meu1 = lin("Perfume Vibrato Sospiro Edp 100ml Import", "SOSPIRO", "A1", 28, 300).replace("VEND.A1", "MINHA.LOJA.TESTE").replace(";hA1;", ";hMEU;")
+    meu2 = lin("Perfume Erba Gold Sospiro Edp 100ml Orig", "SOSPIRO", "A2", 9, 90).replace("VEND.A2", "MINHA.LOJA.TESTE").replace(";hA2;", ";hMEU;")
+    # concorrente com o MESMO título (catálogo), mas vendendo muito mais: não é meu
+    outro = lin("Perfume Vibrato Sospiro Edp 100ml Importado Original", "SOSPIRO", "K1", 400, 546)
+    _importador(repo, cfg)("sospiro.csv", csv(meu1, meu2, outro), "SOSPIRO", "2026-09-01", "2026-09-30")
+    ids = repo.resumos[nubi.MINHAS_IDS]
+    assert set(ids) == {"hMEU"} and ids["hMEU"]["loja"] == "AURA SCENT[Mercado Libre BR]", ids
+    assert ids["hMEU"]["nome_nubimetrics"] == "MINHA.LOJA.TESTE"
     cal = repo.resumos[nubi.CALIBRAGEM.format("SOSPIRO")]
-    assert (cal["anuncios"], cal["un_nubimetrics"], cal["un_real"]) == (1, 28, 32), cal     # a Amazon não conta (não é ML)
-    assert cal["percentual"] == 0.875 and cal["itens"][0]["anuncio_ml"] == "MLB1"
+    assert (cal["anuncios"], cal["un_nubimetrics"], cal["un_real"]) == (2, 37, 42), cal       # a Amazon não conta (não é ML)
     assert nubi._loja_casa("ESSENCE", "ESSENCE PRIME[Mercado Libre BR]") and not nubi._loja_casa("ESSENCE", "ESSENCE PRIME[Amazon BR]")
+    # o relatório marca as linhas que são minhas pelo ID (a "Minha posição" do quadro usa isto)
+    import nubi_web
+    rel = nubi_web.relatorio(repo, "SOSPIRO")
+    eu = [v for lista in rel["vendedores_produto"].values() for v in lista if v.get("eu")]
+    assert {v["vendedor"] for v in eu} == {"MINHA.LOJA.TESTE"}, eu
     repo.fechar()
 
 

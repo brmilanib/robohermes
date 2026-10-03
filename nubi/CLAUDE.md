@@ -506,7 +506,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `_loja_casa`) e o mesmo título no relatório Vendas por Anúncio do UpSeller (`vendas_anuncio|atual`, `_mesmo_titulo`);
   real levado para os dias do export. Guarda `explorador|calibragem|<marca>` (percentual = Nubimetrics ÷ real, itens);
   `explorador_monitoradas` soma tudo em `calibragem_geral`; o Painel mostra "Nubimetrics mostra X% das vendas reais" e o
-  selo 📏 por marca.
+  selo 📏 por marca. MINHAS LOJAS PELO ID (03/10, Bruno: "ESSENCE sou eu, renomeei no Nubimetrics de propósito para ver se
+  os agentes iam pegar"): nunca pelo nome. `calibrar_com_upseller` junta provas por ID do vendedor: anúncio do export com o
+  mesmo título de um anúncio meu do UpSeller (ML), preço ±10% e unidades ±40% (ou até 3 un.) das minhas reais; 2 provas (1
+  num ID já conhecido) = meu. Guardado em `explorador|minhas_ids` {ID: loja, nome_nubimetrics, provas, desde, visto}. O
+  relatório marca `vendedores_produto[].eu`; a "Minha posição" usa o ID (o nome só como reserva, marcado "a confirmar").
   HISTÓRICO (03/10, Bruno: "vai guardar os números para eu ver um mês contra outro?"): cada export guarda também
   `explorador|historico|<marca>|<fim>` (un, fat, un_hist, anúncios, vendedores e top 40 vendedores da janela),
   `explorador|conferencia|<marca>|<fim>`, `explorador|calibragem|<marca>|<fim>` e a janela por anúncio por MÊS
