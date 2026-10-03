@@ -1482,10 +1482,10 @@ const FMT = {
   x: v => v == null || v === 0 ? "" : nf1.format(v) + "x",
   txt: v => v ?? "",
 };
-const NUM = new Set(["pp","int","dec","moeda","moeda2","pct","var","x","nota","numtxt","vpreco"]);
+const NUM = new Set(["pp","int","dec","moeda","moeda2","pct","var","x","nota","numtxt","vpreco","tendn"]);
 const dataBR = s => s ? s.split("-").reverse().join("/") : "";
 
-let S = { sessao: null, painel: [], marca: null, rel: null, aba: "oportunidades", tabelas: {} };
+let S = { sessao: null, painel: [], marca: null, rel: null, aba: "produtos", tabelas: {} };
 
 // ---------- API ----------
 // 30/09 (413 no CSV de 4,7 MB): CSV acima de 3 MB vai compactado (gzip) com o cabeçalho X-Nubi-Gzip; o servidor volta ao original
@@ -8641,7 +8641,7 @@ async function abrirMarca(marca, manterAba = false) {
   catch (e) {
     if (per) { delete S.perMarca[marca]; return abrirMarca(marca, manterAba); }   // período apagado: volta ao padrão
     $("#main").innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
-  if (!manterAba && !(S.abrirProd && S.abrirProd.marca === marca)) S.aba = "oportunidades";
+  if (!manterAba && !(S.abrirProd && S.abrirProd.marca === marca)) S.aba = "produtos";
   S.tabelas = {};
   telaMarca();
   // 01/10 (Bruno: "ver mais" na calculadora): chega na marca com o quadro do produto aberto (todos os vendedores)
@@ -8685,8 +8685,8 @@ document.addEventListener("click", e => {
   abrirMarca(S.rel.marca, true);
 });
 
-const ABAS = [
-  ["oportunidades", "Oportunidades"], ["evolucao", "Evolução"], ["historico", "Histórico"], ["produtos", "Produtos"],
+const ABAS = [                 // 03/10 (Bruno): "Ranking de produtos" primeiro e a marca abre nele
+  ["produtos", "Ranking de produtos"], ["oportunidades", "Oportunidades"], ["evolucao", "Evolução"], ["historico", "Histórico"],
   ["precos", "Preços"], ["vendedores", "Vendedores"], ["gtins", "GTINs"], ["duvidas", "Dúvidas"],
   ["anuncios", "Anúncios"], ["outras", "Outras marcas"], ["diferenca", "Diferença"], ["config", "Configuração"], ["periodos", "Períodos"],
 ];
@@ -8791,8 +8791,8 @@ const COLUNAS = {
     ["anuncios","Anúncios","int"],["lider","Líder (share)","pct"],["pct_full","% FULL","pct"],["pct_catalogo","% catálogo","pct"],
     ["mediana","Preço mediano","moeda2"],["faixa","Faixa de preço","txt","sel"],["amplitude","Amplitude","x"]],
   // 29/09 (Bruno): sem categoria, tipo, volume e GTINs (estão no título e dentro do produto); + preço dos 2 maiores vendedores
-  produtos: [["produto","Produto","txt","txt"],["titulo_top","Título mais vendido","wrap","txt"],["marca","Marca","txt","sel"],["linha","Linha","txt","sel"],
-    ["anuncios","Anúncios","int"],["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],
+  produtos: [["pos_fat","#","int"],["produto","Produto","txt","txt"],["titulo_top","Título mais vendido","wrap","txt"],["marca","Marca","txt","sel"],["linha","Linha","txt","sel"],
+    ["anuncios","Anúncios","int"],["vendedores","Vendedores","int"],["un","Un. vendidas","int"],["fat","Faturamento","moeda"],["tend","Crescendo ou caindo","tendn"],
     ["preco_medio","Preço médio","moeda2"],["preco_v1","Preço médio 1º vendedor","vpreco"],["preco_v2","Preço médio 2º vendedor","vpreco"],
     ["faixa","Faixa de preço","txt","sel"],["giro","Giro/dia","dec"],["proj30","Projeção 30d","int"],
     ["pct_volume","% do volume","pct"],["pct_acum","% acumulado","pct"],["abc","ABC","txt","sel"],["un_por_anuncio","Un. por anúncio","dec"],
@@ -8848,7 +8848,7 @@ async function telaOutras(el) {
 }
 const EXTRAS = {
   oportunidades: {ordem: ["nota", -1], nota: "Nota = 100 × √(giro ÷ maior giro) × (0,40 + 0,25 × pouca concorrência + 0,15 × FULL livre + 0,10 × líder fraco + 0,10 × aceleração). A demanda multiplica: sem venda, sem nota. Verde = sinal a favor; vermelho = atenção."},
-  produtos: {nota: "Curva ABC pelo acumulado: até 80% = A, até 95% = B, resto = C. Un. por anúncio alto = poucos anúncios levando muito volume."},
+  produtos: {ordem: ["fat", -1], nota: "Do maior faturamento para o menor (clique no título da coluna para trocar). Curva ABC pelo acumulado: até 80% = A, até 95% = B, resto = C. Un. por anúncio alto = poucos anúncios levando muito volume."},
   evolucao: {nota: "Tudo por dia, porque os períodos podem ter durações diferentes. Produto que sumiu com giro alto antes pode ser ruptura dos concorrentes: oportunidade."},
   precos: {nota: "Só anúncios com venda e preço > 0; referências com menos de 2 anúncios ficam de fora. Amplitude alta = sem faixa de preço definida."},
   vendedores: {nota: "Códigos V01, V02… por ordem de volume."},
@@ -8963,6 +8963,7 @@ function celula(r, k, f, i) {
     ${[...S.cats.opcoes, "Sem categoria"].map(o => `<option ${o === v ? "selected" : ""} value="${o === "Sem categoria" ? "" : esc(o)}">${ICO_CAT[o]} ${esc(o)}</option>`).join("")}
     ${r.fonte === "manual" ? `<option value="">↺ voltar para a automática</option>` : ""}</select></td>`;
   if (f === "tend") return `<td>${pillH(v, TEND_CLS[v])}</td>`;
+  if (f === "tendn") return `<td class="num">${setaTend(v, true) || '<span class="muted">—</span>'}</td>`;
   if (f === "alerta") return `<td>${pillH(v, ALERTA_CLS[v])}</td>`;
   if (f === "var") return `<td class="num ${v > 0.2 ? "pos" : v < -0.2 ? "neg" : ""}">${FMT.var(v)}</td>`;
   const cls = [NUM.has(f) ? "num" : "", i === 0 ? "first" : ""].join(" ");

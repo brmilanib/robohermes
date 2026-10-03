@@ -1070,6 +1070,10 @@ def relatorio(repo, marca, periodo=None, visao=None):
             "pct_full": _div(full_n[prod], anun[prod]), "confianca": a["confianca"],
             "preco_v1": t2[0][0], "vendedor_v1": t2[0][1], "preco_v2": t2[1][0], "vendedor_v2": t2[1][1]})
 
+    # 03/10 (Bruno: "Ranking de produtos, do maior faturamento para o menor"): a posição pelo faturamento
+    for i, linha in enumerate(sorted(produtos, key=lambda x: -x["fat"]), 1):
+        linha["pos_fat"] = i
+
     # Oportunidades
     oport = []
     for x in nubi.calcular_oportunidades(df, attrs, df_ant,

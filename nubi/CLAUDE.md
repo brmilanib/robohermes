@@ -518,6 +518,8 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   troca un/fat de cada anúncio pelos da janela ANTES de tudo (produtos, vendedores, oportunidades, preços), `dias` = os da
   janela, sem "anterior"; `resumo.visao` {tipo, inicio, fim, dias} ou {falta}; `tem_7`/`tem_30`. Tela: botões "Ver: 30 dias |
   7 dias | Completo" no topo da marca (padrão 30 dias, `S.visaoMarca`); o quadro do produto segue a visão (rótulos "· 7 dias").
+  A aba "Produtos" virou "Ranking de produtos" (03/10, Bruno): 1ª aba, a marca abre nela, do maior faturamento para o
+  menor, com a posição (`pos_fat`) e a coluna "Crescendo ou caindo" (`tend`).
   CRESCENDO OU CAINDO + PREÇOS (03/10, Bruno: "mostra se tá caindo ou crescendo; o arredondamento a gente pega na média com
   o tempo; as mudanças de preço com melhor precisão pelos exports diários"): `relatorio` calcula `tend` = (un 7 dias ÷ dias)
   ÷ (un 30 dias ÷ dias) − 1 por produto (`produtos[].tend/dia_7/dia_30`) e por vendedor do produto (`vendedores_produto[].tend/
