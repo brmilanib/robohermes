@@ -3004,8 +3004,9 @@ JS_GESTOR_SELECT_PERIODO = r"""() => {
 # flatpickr, põe as datas direto nele; senão devolve 'outro' (aí o coletor clica e digita)
 JS_GESTOR_PERIODO_UNICO = r"""([ini, fim]) => {
   // 03/10: o acento pode vir decomposto (i + ´); compara sem acento e marca a caixa para o coletor clicar nela
+  // card #152: no Gestor a caixa não tem placeholder; "Selecione um período" é o VALOR dela ('text||Selecione um período')
   const sem = t => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const el = [...document.querySelectorAll('input')].find(e => e.getClientRects().length && /periodo|data/.test(sem(e.placeholder)));
+  const el = [...document.querySelectorAll('input')].find(e => e.getClientRects().length && /periodo|data/.test(sem(e.placeholder + ' ' + e.value)));
   if (!el) return 'sem';
   el.setAttribute('data-nubi-periodo', '1');
   if (el._flatpickr) { el._flatpickr.setDate([ini, fim], true); return 'fp:' + el.value; }
