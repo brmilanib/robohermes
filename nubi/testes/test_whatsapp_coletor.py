@@ -123,6 +123,38 @@ def test_le_pelo_remetente():
         b.close()
 
 
+def test_audio_do_bruno_vira_texto():
+    """03/10 (Bruno: "você ouve áudio?"): o robô aperta o play, pega o arquivo que o WhatsApp Web cria (blob) e manda ao nubi
+    transcrever; o arquivo não fica no disco. Página falsa: o play cria o áudio como blob e toca (como o web.whatsapp.com)."""
+    from playwright.sync_api import sync_playwright
+    html = """<div id="main"><header><span title="+55 44 9881-2871">+55 44 9881-2871</span></header>
+      <div role="row"><div data-id="AUD1"><div data-pre-plain-text="[16:47, 03/10/2026] +55 44 9881-2871: ">
+        <button aria-label="Reproduzir mensagem de voz" onclick="const b = new Blob([new Uint8Array([79,103,103,83,1,2,3])], {type: 'audio/ogg; codecs=opus'});
+          const a = new Audio(window.URL.createObjectURL(b)); a.play().catch(() => {});"><span data-icon="audio-play"></span></button>
+      </div></div></div></div>"""
+    with sync_playwright() as p:
+        b = p.chromium.launch(**({"executable_path": "/opt/pw-browsers/chromium"} if Path("/opt/pw-browsers/chromium").is_file() else {}))
+        ctx = b.new_context()
+        ctx.add_init_script(c.JS_WA_AUDIO_CEDO)
+        pg = ctx.new_page()
+        pg.goto("about:blank")
+        pg.set_content(html)
+        conv = pg.evaluate(c.JS_WA_CONVERSA)
+        assert [m["texto"] for m in conv["msgs"]] == ["[áudio]"], conv
+        enviados = []
+        antes = c.api
+        c.api = lambda token, rota, params=None, corpo=None, **k: enviados.append((rota, params, corpo)) or {"texto": "Ferreiro, você me ouve?"}
+        try:
+            t = c._wa_transcrever(pg, "t", conv["msgs"][0])
+        finally:
+            c.api = antes
+        assert t == "🎤 (áudio) Ferreiro, você me ouve?", t
+        assert enviados[0][0] == "whatsapp_transcrever" and enviados[0][1] == {"ext": "ogg"} and enviados[0][2] == bytes([79, 103, 103, 83, 1, 2, 3])
+        # sem o áudio na tela: não trava, avisa
+        assert c._wa_transcrever(pg, "t", {"id": "NAO-EXISTE"}).startswith("[áudio — não consegui transcrever")
+        b.close()
+
+
 def test_comandos():
     assert c.comando_mac("whatsapp_instalar")[-1] == "whatsapp-instalar"
     assert c._wa_fone({"titulo": "Maria Cliente", "msgs": [{"chat": "123@lid"}]}) == ""
@@ -134,5 +166,6 @@ if __name__ == "__main__":
     test_le_pelos_baloes_sem_data_id()
     test_le_pela_posicao_do_balao()
     test_le_pelo_remetente()
+    test_audio_do_bruno_vira_texto()
     test_ler_e_digitar()
     print("ok whatsapp coletor")

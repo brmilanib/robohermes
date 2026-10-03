@@ -319,29 +319,29 @@ def _acoes_banguela(repo, txt):
     """[[lembrete:…]] grava; [[desmarcar:…]] apaga; [[ferreiro:…]] volta para o Mac. Devolve (texto limpo, pedidos ao Ferreiro)."""
     lembretes = _ler(repo, LEMBRETES, [])
     mudou = False
-    for quando, oque in re.findall(r"\[\[lembrete:\s*(\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2})\s*\|([^\]]+)\]\]", txt):
+    for quando, oque in re.findall(r"\[\[lembrete:\s*(\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2})\s*\|(.+?)\]\]", txt, re.S):
         try:
             dt = datetime.strptime(quando.replace("T", " "), "%Y-%m-%d %H:%M").replace(tzinfo=BRASILIA)
         except ValueError:
             continue
         lembretes.append({"quando": dt.astimezone(timezone.utc).isoformat(), "texto": oque.strip()[:500], "criado_em": at._agora()})
         mudou = True
-    for trecho in re.findall(r"\[\[desmarcar:([^\]]+)\]\]", txt):
+    for trecho in re.findall(r"\[\[desmarcar:(.+?)\]\]", txt, re.S):
         antes = len(lembretes)
         lembretes = [x for x in lembretes if trecho.strip().lower() not in x["texto"].lower()]
         mudou = mudou or len(lembretes) != antes
     if mudou:
         _gravar(repo, LEMBRETES, sorted(lembretes, key=lambda x: x["quando"])[:200])
-    novos = re.findall(r"\[\[memoria:\s*([a-zç]+)\s*\|([^\]]+)\]\]", txt, re.I)
-    apagar = [x.strip().lower() for x in re.findall(r"\[\[esquecer:([^\]]+)\]\]", txt) if x.strip()]
+    novos = re.findall(r"\[\[memoria:\s*([a-zç]+)\s*\|(.+?)\]\]", txt, re.I | re.S)
+    apagar = [x.strip().lower() for x in re.findall(r"\[\[esquecer:(.+?)\]\]", txt, re.S) if x.strip()]
     if novos or apagar:
         mem = [x for x in _ler(repo, MEMORIA, []) if not any(a in x["texto"].lower() for a in apagar)]
         for tipo, oque in novos:
             tipo = tipo.lower().replace("ç", "c")
             mem.append({"tipo": tipo if tipo in MEMORIA_TIPOS else "fato", "texto": oque.strip()[:800], "criado_em": at._agora()})
         _gravar(repo, MEMORIA, mem[-500:])
-    ferreiro = [x.strip() for x in re.findall(r"\[\[ferreiro:([^\]]+)\]\]", txt) if x.strip()]
-    return re.sub(r"\[\[[^\]]+\]\]", "", txt).strip(), ferreiro
+    ferreiro = [x.strip() for x in re.findall(r"\[\[ferreiro:(.+?)\]\]", txt, re.S) if x.strip()]
+    return re.sub(r"\[\[.+?\]\]", "", txt, flags=re.S).strip(), ferreiro
 
 
 def banguela(repo, texto, historico=None, agora=None, com_acoes=False, canal="painel"):
@@ -386,11 +386,11 @@ def banguela(repo, texto, historico=None, agora=None, com_acoes=False, canal="pa
         txt = f"(não consegui pensar agora: {str(e)[:150]})"
     limpo, ferreiro = _acoes_banguela(repo, str(txt or ""))
     feitos = []
-    for num, novo in re.findall(r"\[\[editar:\s*#?(\d+)\s*\|([^\]]+)\]\]", str(txt or "")):
+    for num, novo in re.findall(r"\[\[editar:\s*#?(\d+)\s*\|(.+?)\]\]", str(txt or ""), re.S):
         res = _aprovacao(repo, f"{num} {novo.strip()}", so_explicito=True)       # mesmo caminho do "N texto"
         if res:
             feitos.append(res.get("resposta") or "")
-    for loja, perg, resp in re.findall(r"\[\[base:\s*([a-z_]*)\s*\|([^|\]]+)\|([^\]]+)\]\]", str(txt or "")):
+    for loja, perg, resp in re.findall(r"\[\[base:\s*([a-z_]*)\s*\|([^|\]]+)\|(.+?)\]\]", str(txt or ""), re.S):
         try:                                     # o que o Bruno ensina vale para o atendimento dos clientes na hora
             at.salvar_item_kb(repo, loja or "todas", perg.strip()[:500], resp.strip()[:2000], operador="Bruno (pela Banguela)",
                               tags=["ensinado_pelo_bruno"])
@@ -450,7 +450,7 @@ def bom_dia(repo, agora=None):
         txt, _ = at.gerar_qualidade(repo)(f"CONTEXTO:\n{json.dumps(ctx, ensure_ascii=False, default=str)[:9000]}", PAPEL_BOM_DIA)
     except Exception:  # noqa: BLE001
         return None
-    return "☀️ " + re.sub(r"\[\[[^\]]+\]\]", "", str(txt or "")).strip()[:1500]
+    return "☀️ " + re.sub(r"\[\[.+?\]\]", "", str(txt or ""), flags=re.S).strip()[:1500]
 
 
 def tick(repo, d):
@@ -488,7 +488,24 @@ def tick(repo, d):
     return {"dono_fone": dono(), "ao_dono": ao_dono, "agentes": agentes, "enviar": enviar, "recebidos": recebidos, "erros": erros}
 
 
+AUDIO_MAX = 8 * 1024 * 1024
+
+
+def transcrever(corpo, ext="ogg"):
+    """03/10 (Bruno: "você ouve áudio?"): o áudio que o Mac baixou do WhatsApp Web → texto (a mesma transcrição do nubi).
+    O arquivo só passa por aqui; não é guardado."""
+    import ia
+    if not corpo:
+        raise ValueError("áudio vazio")
+    if len(corpo) > AUDIO_MAX:
+        raise ValueError("áudio grande demais")
+    ext = ext if ext in ("ogg", "mp3", "m4a", "webm", "wav", "mp4") else "ogg"
+    return {"texto": ia.transcrever(corpo, f"audio.{ext}")}
+
+
 def rota(repo, metodo, nome, q, corpo):
+    if nome == "whatsapp_transcrever" and metodo == "POST":   # corpo = os bytes do áudio (não é JSON)
+        return transcrever(corpo, str((q or {}).get("ext") or "ogg"))
     d = json.loads(corpo or b"{}") if metodo == "POST" else {}
     if nome == "whatsapp_tick" and metodo == "POST":
         return tick(repo, d)

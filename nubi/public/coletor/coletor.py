@@ -32,6 +32,7 @@ carga e não são usados).
 """
 
 import argparse
+import base64
 import calendar
 import getpass
 import hashlib
@@ -9594,7 +9595,7 @@ $("#mic").onclick=()=>{if(!SR)return alert("Este navegador não tem ditado; use 
   rec.onend=()=>{rec=null;$("#mic").classList.remove("on")};rec.start()};
 async function carregarHist(){try{const h=await (await fetch("/historico?agente="+agente)).json();hist.length=0;$("#msgs").innerHTML="";
   if(!h.length){$("#msgs").innerHTML='<div class="m h">Conversa nova. Tudo o que falarmos fica guardado aqui no Mac.</div>';return}
-  for(const m of h){hist.push({role:m.role,content:m.content});const e=bolha(m.role==="user"?"eu":"h",String(m.content).replace(/\[\[(comando|card|programar|recado|lembrar):[^\]]*\]\]/g,"").trim())}
+  for(const m of h){hist.push({role:m.role,content:m.content});const e=bolha(m.role==="user"?"eu":"h",String(m.content).replace(/\[\[(comando|card|programar|recado|lembrar):[\s\S]*?\]\]/g,"").trim())}
   const sep=document.createElement("div");sep.className="hint";sep.textContent="— conversa guardada —";$("#msgs").appendChild(sep)}catch(e){}}
 document.querySelectorAll(".ag button").forEach(b=>b.onclick=()=>{agente=b.dataset.a;document.querySelectorAll(".ag button").forEach(x=>x.classList.toggle("on",x===b));carregarHist()});
 carregarHist();
@@ -9609,8 +9610,8 @@ $("#f").onsubmit=async e=>{e.preventDefault();
   try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20),agente,anexos,nova})});enviados=anexos;anexos=[];nova=false;$("#anx").innerHTML="";
     const rd=r.body.getReader(),dec=new TextDecoder();for(;;){const {value,done}=await rd.read();if(done)break;txt+=dec.decode(value,{stream:true});b.textContent=txt;$("#msgs").scrollTop=1e9}
   }catch(err){txt="(não consegui falar com o Hermes: "+err.message+")";b.textContent=txt}
-  clearInterval(rel);hist.push({role:"assistant",content:txt});b.textContent=(agente==="hermes"?"":nome+": ")+txt.replace(/\[\[(comando|card|programar|recado|lembrar):[^\]]*\]\]/g,"").trim()+([...txt.matchAll(/\[\[lembrar:/g)].length?"\n\n🧠 guardei na memória":"");acoes(b,txt);$("#env").disabled=false;$("#q").focus()};
-function acoes(b,txt){for(const m of txt.matchAll(/\[\[(comando|card|programar|recado):([^\]|]*)(?:\|([^\]]*))?\]\]/g)){
+  clearInterval(rel);hist.push({role:"assistant",content:txt});b.textContent=(agente==="hermes"?"":nome+": ")+txt.replace(/\[\[(comando|card|programar|recado|lembrar):[\s\S]*?\]\]/g,"").trim()+([...txt.matchAll(/\[\[lembrar:/g)].length?"\n\n🧠 guardei na memória":"");acoes(b,txt);$("#env").disabled=false;$("#q").focus()};
+function acoes(b,txt){for(const m of txt.matchAll(/\[\[(comando|card|programar|recado):([^|\]]*)(?:\|([\s\S]*?))?\]\]/g)){
   const [_,tipo,a,c]=m, bt=document.createElement("button");bt.className="acao";
   bt.textContent=tipo==="comando"?`▶ Rodar no Mac: ${a.trim()}${c?" ("+c.trim()+")":""}`:tipo==="programar"?`🔨 Programar agora: ${a.trim()}`:tipo==="recado"?`💬 Mandar recado ao card #${a.trim().replace(/\D/g,"")}`:`📝 Criar card: ${a.trim()}`;
   bt.onclick=async()=>{if(!confirm(tipo==="comando"?`Mandar "${a.trim()}" para a fila do Mac?`:tipo==="recado"?`Deixar este recado no card #${a.trim().replace(/\D/g,"")}?\n\n${(c||"").trim()}`:tipo==="programar"?`Programar agora "${a.trim()}"? O ${agente==="codex"?"Codex":"Ferreiro"} começa na hora num branch próprio; o Chefe revisa antes de publicar.`:`Criar o card "${a.trim()}" no quadro (como proposta)?`))return;bt.disabled=true;
@@ -9916,7 +9917,7 @@ def cmd_painel(args, cfg):
                 except Exception as e:  # noqa: BLE001
                     txt = f"(não deu: {str(e)[:300]})"
                 _conversa_guardar(agente, "assistant", txt)
-                for fato in re.findall(r"\[\[lembrar:([^\]]+)\]\]", txt):
+                for fato in re.findall(r"\[\[lembrar:(.+?)\]\]", txt, re.S):
                     _memoria_lembrar(fato, cfg)
                 try:
                     self.wfile.write(txt.encode())
@@ -10497,6 +10498,77 @@ def _wa_mandar(pg, fone, texto):
     log(f"  whatsapp: enviado para …{fone[-4:]} ({len(texto)} letras)")
 
 
+# 03/10 (Bruno: "você ouve áudio?"): o WhatsApp Web cria o áudio da mensagem como blob quando aperta o play. Este script
+# (antes da página carregar) guarda os blobs de áudio criados e o src do que tocar; JS_WA_AUDIO aperta o play da
+# mensagem, pega o arquivo e devolve em base64. O áudio vai ao nubi, que transcreve (ia.transcrever, OpenAI) e apaga.
+JS_WA_AUDIO_CEDO = """(() => {
+  if (window.__nubiAudios) return;
+  window.__nubiAudios = [];
+  const criar = URL.createObjectURL;
+  URL.createObjectURL = function (b) {
+    const u = criar.apply(this, arguments);
+    try { if (b && /audio|ogg|opus|mpeg|mp4/i.test(b.type || '')) window.__nubiAudios.push({u, b, t: Date.now()}); } catch (_) {}
+    return u;
+  };
+  const tocar = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function () {
+    try { if (this.src) window.__nubiAudios.push({u: this.src, t: Date.now(), el: true}); } catch (_) {}
+    return tocar.apply(this, arguments);
+  };
+})()"""
+
+JS_WA_AUDIO = """async (id) => {
+  const d = [...document.querySelectorAll('#main [data-id]')].find(x => x.getAttribute('data-id') === id);
+  if (!d) return {erro: 'mensagem não achada na tela'};
+  d.scrollIntoView({block: 'center'});
+  const antes = Date.now();
+  let a = d.querySelector('audio[src]');
+  if (!a) {
+    const b = d.querySelector('button[aria-label*="eproduzir" i], button[aria-label*="play" i], [data-icon*="audio-play"], [data-icon="play"], [data-icon*="ptt-play"]');
+    if (!b) return {erro: 'sem botão de play'};
+    (b.closest('button') || b).click();
+  }
+  let achou = null;
+  for (let i = 0; i < 60 && !achou; i++) {
+    await new Promise(r => setTimeout(r, 250));
+    a = a || d.querySelector('audio[src]');
+    const novos = (window.__nubiAudios || []).filter(x => x.t >= antes);
+    achou = (a && a.src) ? {u: a.src} : (novos.length ? novos[novos.length - 1] : null);
+  }
+  for (const m of document.querySelectorAll('audio, video')) { try { m.pause(); } catch (_) {} }
+  const pausa = d.querySelector('button[aria-label*="ausar" i], [data-icon*="pause"]');
+  if (pausa) { try { (pausa.closest('button') || pausa).click(); } catch (_) {} }
+  if (!achou) return {erro: 'o áudio não carregou'};
+  const blob = achou.b || await (await fetch(achou.u)).blob();
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let s = '';
+  for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  return {tipo: blob.type || '', tamanho: buf.length, b64: btoa(s)};
+}"""
+
+WA_AUDIO_MAX = 8 * 1024 * 1024          # nota de voz de vários minutos ainda cabe; maior que isso não manda
+
+
+def _wa_transcrever(pg, token, msg):
+    """'[áudio]' → '🎤 (áudio) texto…' (ou '[áudio — não consegui transcrever: motivo]'). O arquivo não fica no disco."""
+    try:
+        r = pg.evaluate(JS_WA_AUDIO, msg["id"]) or {}
+        if r.get("erro") or not r.get("b64"):
+            raise Falha(r.get("erro") or "sem áudio")
+        dados = base64.b64decode(r["b64"])
+        if len(dados) > WA_AUDIO_MAX:
+            raise Falha(f"áudio grande demais ({len(dados) // 1024} KB)")
+        ext = "ogg" if "ogg" in r.get("tipo", "") or "opus" in r.get("tipo", "") else "mp3" if "mpeg" in r.get("tipo", "") else "m4a"
+        t = api(token, "whatsapp_transcrever", {"ext": ext}, dados, metodo="POST", timeout=180).get("texto") or ""
+        if not t.strip():
+            raise Falha("transcrição vazia")
+        log(f"whatsapp: áudio transcrito ({len(dados) // 1024} KB, {len(t)} letras)")
+        return f"🎤 (áudio) {t.strip()}"
+    except Exception as e:  # noqa: BLE001
+        log(f"whatsapp: áudio não transcrito ({str(e)[:150]})")
+        return f"[áudio — não consegui transcrever: {str(e)[:80]}]"
+
+
 def _wa_agente(cfg, agente, texto):
     """Conversa do Bruno com o agente (a mesma memória do Painel): Ferreiro/Codex pela CLI; Hermes pelo Ollama."""
     _conversa_guardar(agente, "user", texto)
@@ -10514,10 +10586,12 @@ def _wa_agente(cfg, agente, texto):
     except Exception as e:  # noqa: BLE001
         txt = f"(não deu: {str(e)[:300]})"
     _conversa_guardar(agente, "assistant", txt)
-    for fato in re.findall(r"\[\[lembrar:([^\]]+)\]\]", txt):
+    # 03/10 (print do Bruno): a ação tinha "[áudio]" dentro e o [^\]] parava no 1º "]": o [[programar:…]] saía cru no
+    # WhatsApp. Agora vai até o "]]".
+    for fato in re.findall(r"\[\[lembrar:(.+?)\]\]", txt, re.S):
         _memoria_lembrar(fato, cfg)
-    acoes = re.findall(r"\[\[(comando|programar|card|recado):([^\]]+)\]\]", txt)
-    txt = re.sub(r"\[\[[^\]]+\]\]", "", txt).strip()
+    acoes = re.findall(r"\[\[(comando|programar|card|recado):(.+?)\]\]", txt, re.S)
+    txt = re.sub(r"\[\[.+?\]\]", "", txt, flags=re.S).strip()
     if acoes:
         txt += "\n\n👉 Ação proposta (confirme no Painel do coletor): " + "; ".join(f"{t} {a.split('|')[0]}" for t, a in acoes[:2])
     nome = {"claude": "🔨 Ferreiro", "codex": "🧠 Codex", "hermes": "🪽 Hermes"}.get(agente, agente)
@@ -10531,7 +10605,7 @@ def cmd_whatsapp(args, cfg):
     from playwright.sync_api import sync_playwright
     token = token_nubi(cfg)
     vistos = _wa_ler(WA_VISTOS, {})
-    respostas, ocupado, previas = [], {"agente": False}, {}
+    respostas, ocupado, previas, fila = [], {"agente": False}, {}, []
     dono = str(cfg.get("whatsapp_dono") or "5544998812871")      # o nubi confirma em cada volta (dono_fone)
 
     def rodar_agente(ag, texto):
@@ -10542,6 +10616,7 @@ def cmd_whatsapp(args, cfg):
 
     with sync_playwright() as p:
         ctx = abrir_navegador(p, cfg, visivel=True, perfil=WA_PERFIL)
+        ctx.add_init_script(JS_WA_AUDIO_CEDO)             # 03/10: guarda o arquivo do áudio quando o play é apertado
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
         pg.goto(WA_URL, wait_until="domcontentloaded", timeout=120000)
         avisou_qr, na_tela, ultimo_estado, ultimo_diag = False, False, 0, 0
@@ -10593,6 +10668,9 @@ def cmd_whatsapp(args, cfg):
                     if not novas:
                         continue
                     vistos[chave] = ((vistos.get(chave) or []) + [m["id"] for m in novas])[-200:]
+                    for m in novas:                          # 03/10: áudio do Bruno e do cliente vira texto (até 3 por volta)
+                        if m.get("texto") == "[áudio]" and sum(1 for x in novas if str(x.get("texto", "")).startswith("🎤")) < 3:
+                            m["texto"] = _wa_transcrever(pg, token, m)
                     if wa_mesmo_fone(fone, dono):
                         do_dono += [{"texto": m["texto"]} for m in novas]
                     else:
@@ -10604,11 +10682,19 @@ def cmd_whatsapp(args, cfg):
                 dono = r.get("dono_fone") or dono
                 for e in r.get("erros") or []:
                     log(f"  whatsapp: {e}")
+                # 03/10 (print do Bruno: "⏳ mande de novo daqui a pouco" perdia a mensagem): o que chega com o agente ocupado
+                # entra na FILA e é respondido em seguida; mensagens seguidas para o mesmo agente viram uma só
                 for a in r.get("agentes") or []:
-                    if ocupado["agente"]:
-                        respostas.append("⏳ Ainda estou respondendo a mensagem anterior; mande de novo daqui a pouco.")
-                        continue
-                    ocupado["agente"] = True
+                    if fila and fila[-1]["agente"] == a["agente"]:
+                        fila[-1]["texto"] += "\n" + a["texto"]
+                    else:
+                        fila.append(dict(a))
+                    if ocupado["agente"] and not ocupado.get("avisou"):
+                        respostas.append("⏳ Recebi. Termino a resposta anterior e já respondo esta.")
+                        ocupado["avisou"] = True
+                if fila and not ocupado["agente"]:
+                    a = fila.pop(0)
+                    ocupado["agente"], ocupado["avisou"] = True, False
                     threading.Thread(target=rodar_agente, args=(a["agente"], a["texto"]), daemon=True).start()
                 # 2) o que sai: avisos/respostas ao Bruno e o que ele aprovou para os clientes (um por vez, devagar)
                 ao_dono = list(r.get("ao_dono") or []) + [respostas.pop(0) for _ in range(len(respostas))]

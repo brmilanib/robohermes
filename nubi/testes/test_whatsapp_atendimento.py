@@ -158,6 +158,20 @@ def test_memoria_e_modelo():
     assert w._ler(r, w.MEMORIA, []) == []
 
 
+def test_transcreve_audio_e_acao_com_colchete():
+    import ia
+    antes = ia.transcrever
+    ia.transcrever = lambda dados, nome: f"{len(dados)} bytes {nome}"
+    try:
+        assert w.rota(Repo(), "POST", "whatsapp_transcrever", {"ext": "ogg"}, b"OggS123") == {"texto": "7 bytes audio.ogg"}
+        assert w.rota(Repo(), "POST", "whatsapp_transcrever", {"ext": "exe"}, b"x")["texto"].endswith("audio.ogg")
+    finally:
+        ia.transcrever = antes
+    # 03/10 (print do Bruno): ação com "[áudio]" dentro saía crua no WhatsApp
+    limpo, ferreiro = w._acoes_banguela(Repo(), 'Passei.\n[[ferreiro:troca o "[áudio]" pelo texto]]')
+    assert limpo == "Passei." and ferreiro == ['troca o "[áudio]" pelo texto'], (limpo, ferreiro)
+
+
 def test_reconhece_o_dono_e_a_loja():
     assert w.eh_dono("+55 (44) 99881-2871") and w.eh_dono("44998812871") and not w.eh_dono("44998812870")
     assert w.eh_dono("+55 44 9881-2871") and w.eh_dono("554498812871") and not w.eh_dono("5547988812871")   # sem o 9
@@ -172,4 +186,5 @@ if __name__ == "__main__":
     test_aprova_e_edita_de_outro_canal()
     test_ensina_a_base_dos_clientes()
     test_memoria_e_modelo()
+    test_transcreve_audio_e_acao_com_colchete()
     print("ok whatsapp atendimento")
