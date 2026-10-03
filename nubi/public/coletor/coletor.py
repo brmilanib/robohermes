@@ -2885,7 +2885,7 @@ def baixar_gestor_vendas(pg, cfg, p=None, ini=None, fim=None):
             entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
             enviar_foto(pg, f"gestor vendas: seletor de datas {ini:%d/%m}–{fim:%d/%m}",
                         str(entradas)[:1200] + "\nCALENDARIO: " + str(pg.evaluate(JS_GESTOR_CALENDARIO)) + "\nSELECT: " + str(pg.evaluate(JS_GESTOR_SELECT_PERIODO)) + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
-            raise Falha(f"relatório de vendas do Gestor: não achei as caixas de data. Campos: {str(entradas)[:300]}")
+            raise Falha(f"relatório de vendas do Gestor: não consegui pôr o período. Calendário: {GESTOR_CAL[0][:2500]}")
         log("  gestor vendas: não achei as caixas de data; ficou o período que a tela já mostrava")
     marcadas = pg.evaluate(JS_GESTOR_CONTAS)
     if marcadas:
@@ -3035,6 +3035,9 @@ def _gestor_abrir_seletor(pg):
     return False
 
 
+GESTOR_CAL = [""]
+
+
 def _gestor_periodo_unico(pg, ini, fim):
     """A caixa única "Selecione um período": flatpickr direto; senão clica e digita 'dd/mm/aaaa - dd/mm/aaaa' (e o separador
     ' até ' do flatpickr em português). Confere que as duas datas ficaram na caixa."""
@@ -3047,6 +3050,14 @@ def _gestor_periodo_unico(pg, ini, fim):
     if r != "outro":
         return False
     caixa = pg.locator("input[placeholder*='eríodo' i]:visible").first
+    try:                                   # 03/10: guarda como é o calendário que abre (vai na mensagem do erro)
+        caixa.click(timeout=5000)
+        devagar(1.5)
+        GESTOR_CAL[0] = "readonly" if caixa.evaluate("e => e.readOnly") else ""
+        GESTOR_CAL[0] += " " + str(pg.evaluate(JS_GESTOR_CALENDARIO))
+        pg.keyboard.press("Escape")
+    except Exception as e:  # noqa: BLE001
+        GESTOR_CAL[0] = f"(não abriu o calendário: {str(e)[:80]})"
     for sep in (" - ", " até ", " a "):
         try:
             caixa.click(timeout=5000)
