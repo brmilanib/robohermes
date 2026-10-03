@@ -2882,7 +2882,7 @@ def baixar_gestor_vendas(pg, cfg, p=None, ini=None, fim=None):
         if pedido:
             entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
             enviar_foto(pg, f"gestor vendas: seletor de datas {ini:%d/%m}–{fim:%d/%m}",
-                        str(entradas)[:1200] + "\nDATAS: " + str(pg.evaluate(JS_GESTOR_DATAS)) + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
+                        str(entradas)[:1200] + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
             raise Falha(f"relatório de vendas do Gestor: não achei as caixas de data. Campos: {str(entradas)[:300]}")
         log("  gestor vendas: não achei as caixas de data; ficou o período que a tela já mostrava")
     marcadas = pg.evaluate(JS_GESTOR_CONTAS)
@@ -2982,6 +2982,12 @@ JS_GESTOR_DATAS = r"""() => [...document.querySelectorAll('body *')].filter(e =>
     && /\d{2}\/\d{2}\/\d{2,4}|per[íi]odo|^\s*datas?\b|calend/i.test(e.textContent || '') && (e.textContent || '').length < 80)
   .slice(0, 6).map(e => { const k = (e.parentElement || e).cloneNode(true); k.querySelectorAll('svg, style, script').forEach(x => x.remove());
     return k.outerHTML.replace(/ style="[^"]*"| data-v-[\w-]+="[^"]*"/g, '').replace(/\s+/g, ' ').slice(0, 700); }).join(' || ')"""
+# o topo da tela (filtros, botões, seletores): tag.classe:texto das folhas visíveis nos primeiros 420px, fora do menu lateral
+JS_GESTOR_TOPO = r"""() => [...document.querySelectorAll('body *')].filter(e => { const r = e.getBoundingClientRect();
+    return r.width && r.top < 420 && r.left > 180 && (e.children.length === 0 || /^(BUTTON|INPUT|SELECT|A)$/.test(e.tagName)); })
+  .map(e => e.tagName.toLowerCase() + '.' + String(e.className || '').split(' ').slice(0, 2).join('.') + ':'
+    + ((e.innerText || e.value || e.placeholder || e.title || '').trim().slice(0, 30))).filter(x => !/:$/.test(x) || /input|button|select/.test(x))
+  .slice(0, 120).join(' | ')"""
 RX_ULTIMOS_30 = re.compile(r"^\s*[ÚU]ltimos 30 dias\s*$", re.I)
 
 
@@ -3063,7 +3069,7 @@ def baixar_gestor_abc(pg, cfg, p=None, ini=None, fim=None):
             entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
             _gestor_abrir_seletor(pg)
             enviar_foto(pg, f"curva ABC do Gestor: seletor de datas para {ini:%d/%m}–{fim:%d/%m}",
-                        str(entradas)[:1200] + "\nDATAS: " + str(pg.evaluate(JS_GESTOR_DATAS)) + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
+                        str(entradas)[:1200] + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
             raise Falha(f"curva ABC do Gestor: não achei as caixas de data para {ini:%d/%m}–{fim:%d/%m}. Campos: {str(entradas)[:300]}")
         devagar(2)
     else:
