@@ -187,6 +187,10 @@ def cofre_ler(servico, conta):
     if sys.platform == "darwin":
         cmd = ["security", "find-generic-password", "-s", servico] + (["-a", conta] if conta else []) + ["-w"]
         r = subprocess.run(cmd, capture_output=True, text=True)
+        login_kc = Path.home() / "Library" / "Keychains" / "login.keychain-db"
+        if r.returncode and login_kc.exists():
+            # 03/10: rodando pelo launchd (vigia/Central), o Chaveiro "login" pode não estar na lista de busca; procura nele
+            r = subprocess.run(cmd + [str(login_kc)], capture_output=True, text=True)
         if r.returncode:                              # 03/10: o motivo do Chaveiro (nunca a senha) para o log
             COFRE_ERRO[0] = f"{servico}/{conta or '-'}: {(r.stderr or '').strip()[:140]} (código {r.returncode})"
         return r.stdout.strip() if r.returncode == 0 else ""
