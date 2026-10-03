@@ -3612,7 +3612,7 @@ async function telaReposicao() {
     const xs = r.pedido.filter(l => k === "todos" || (k === "C" ? l.classe !== "A" && l.classe !== "B" : l.classe === k));
     return `<button data-rpc="${k}" class="${curva === k ? "on" : ""}">${t} <small>${un(xs.length)} · ${FMT.moeda(xs.reduce((a, l) => a + (+quer(l) || 0) * (ult(l) || 0), 0))}</small></button>`; }).join("");
   // 02/10 (Bruno: "dividido no pedido: uma faixinha que divide curva A, curva B e curva C, e quantos % estou pedindo de cada"):
-  // em "Todos" cada curva vem com a sua faixa; o resumo em cima soma o que está na coluna Comprar × último custo
+  // em "Todos" cada curva vem com a sua faixa; o resumo em cima soma o que está na coluna Comprar × custo médio
   const curvaDe = l => l.classe === "A" ? "A" : l.classe === "B" ? "B" : "C";
   const NOME_CURVA = {A: "🏆 Curva A · campeões", B: "Curva B", C: "Curva C"};
   const somaCurva = k => r.pedido.filter(l => curvaDe(l) === k).reduce((a, l) => { const q = +quer(l) || 0; if (q > 0) { a.n++; a.u += q; a.v += q * (ult(l) || 0); } return a; }, {n: 0, u: 0, v: 0});
@@ -3631,7 +3631,7 @@ async function telaReposicao() {
     <th class="num" title="unidades que EU vendi nos últimos 7, 15 e 30 dias (todas as lojas)">Vendi 7 · 15 · 30 dias</th>
     <th class="num" title="todos os vendedores do produto no Explorador (Nubimetrics), por dia">Mercado/dia</th><th class="num" title="preço de quem mais vende o produto">Preço do líder</th>
     <th class="num" title="preço médio (faturamento ÷ unidades) dos 5 vendedores que mais venderam">Média dos 5 primeiros</th><th class="num">Estoque</th>
-    <th class="num" title="o estoque ideal: venda até o próximo pedido + prazo de entrega + segurança">Nível máx.</th><th class="num">Sugestão</th><th class="num" title="último custo de compra (cadastro do UpSeller) ou o custo médio">Custo un.</th>
+    <th class="num" title="o estoque ideal: venda até o próximo pedido + prazo de entrega + segurança">Nível máx.</th><th class="num">Sugestão</th><th class="num" title="custo médio do UpSeller (calculado pelas entradas de compra); sem ele, o custo de compra do cadastro">Custo médio</th>
     <th class="num">Comprar</th><th class="num">Total</th></tr></thead>`;
   const full = `<p class="muted" style="margin:0 0 8px">Os ${g.top_full} que mais faturam vão para o Full com ${g.full_dias} dias de ${100 - Math.round(cfg.ml_galpao * 100)}% da venda do Mercado Livre × ${nf1.format(g.campeao)}; no galpão ficam ${g.semana + g.prazo} dias das outras lojas (Amazon, Shopee, TikTok) + ${Math.round(cfg.ml_galpao * 100)}% do Mercado Livre (o ML pede para despachar daqui quando é mais rápido).</p>
     <div class="rolar"><table class="t" style="font-size:13px"><thead><tr><th>Produto</th><th class="num">Venda/dia no ML</th><th class="num">Vai para o Full</th><th class="num">Reserva no galpão</th><th class="num">Tem (+trânsito)</th><th class="num">Mandar agora</th></tr></thead><tbody>
@@ -3691,7 +3691,7 @@ async function telaReposicao() {
   main.querySelectorAll("[data-rpc]").forEach(b => b.onclick = () => { S.rpCurva = b.dataset.rpc; telaReposicao(); });
   $("#rp-regras").onclick = () => regrasReposicao(r, salvar);
   const totais = () => { let n = 0, u = 0, v = 0; ped.forEach(l => { const q = +quer(l) || 0; if (q > 0) { n++; u += q; v += q * (ult(l) || 0); } }); return {n, u, v}; };
-  const mostraTot = () => { const t = totais(), el = $("#rp-tot"); if (el) el.innerHTML = `${{A: "Campeões", B: "Curva B", C: "Curva C", todos: "Todas as curvas"}[curva]}: <b>${un(t.n)}</b> produtos · <b>${un(t.u)}</b> un. · <b>${FMT.moeda(t.v)}</b> pelo último custo${rs.caixa && t.v > rs.caixa ? ` <span class="neg">(passa o caixa em ${FMT.moeda(t.v - rs.caixa)})</span>` : ""}`; };
+  const mostraTot = () => { const t = totais(), el = $("#rp-tot"); if (el) el.innerHTML = `${{A: "Campeões", B: "Curva B", C: "Curva C", todos: "Todas as curvas"}[curva]}: <b>${un(t.n)}</b> produtos · <b>${un(t.u)}</b> un. · <b>${FMT.moeda(t.v)}</b> pelo custo médio${rs.caixa && t.v > rs.caixa ? ` <span class="neg">(passa o caixa em ${FMT.moeda(t.v - rs.caixa)})</span>` : ""}`; };
   mostraTot();
   main.querySelectorAll("[data-q]").forEach(inp => inp.oninput = () => {
     const l = r.pedido.find(z => z.sku === inp.dataset.q), v = Math.max(0, parseInt(inp.value) || 0);
@@ -3770,7 +3770,7 @@ function gerarPedido(itens) {
   const bg = modal(`<h2 style="margin-top:0">🧾 ${esc(titulo)}</h2>
     <div style="display:flex;gap:10px 14px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:10px">
       <div class="seg"><button data-gpor="grupo">Por fornecedor</button><button data-gpor="curva">Por curva</button><button data-gpor="marca">Por marca</button><button data-gpor="categoria">Por categoria (UpSeller)</button></div>
-      <label><input type="checkbox" id="gp-custo"> pôr o último custo</label></div>
+      <label><input type="checkbox" id="gp-custo"> pôr o custo médio</label></div>
     <div class="gp-msg"><label>Começo da mensagem<textarea id="gp-abre" rows="2"></textarea></label><label>Final da mensagem<textarea id="gp-fecha" rows="2"></textarea></label></div>
     <div id="gp-corpo"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px">
@@ -3810,7 +3810,7 @@ function gerarPedido(itens) {
       @media print{body{margin:10mm}h2{break-after:avoid}tr{break-inside:avoid}}</style></head><body>
       <h1>${esc(titulo)}</h1>
       ${grupos.map(g => `<h2>${esc(g.nome)} <small style="font-weight:400;color:#777">${un(g.itens.reduce((a, l) => a + l.q, 0))} un.</small></h2><table>
-        <tr><th class="ok"></th><th class="q">Qtd.</th><th>Produto</th><th>SKU</th>${cc ? `<th class="c">Último custo</th>` : ""}<th class="c">Cotação R$</th></tr>
+        <tr><th class="ok"></th><th class="q">Qtd.</th><th>Produto</th><th>SKU</th>${cc ? `<th class="c">Custo médio</th>` : ""}<th class="c">Cotação R$</th></tr>
         ${g.itens.map(l => `<tr><td class="ok">☐</td><td class="q">${un(l.q)} un.</td><td>${esc(nomeCurto(l.titulo))}</td><td class="s">${esc(l.sku)}</td>${cc ? `<td class="c">${l.custo_un ? FMT.moeda(l.custo_un) : ""}</td>` : ""}<td class="c">______</td></tr>`).join("")}</table>`).join("")}
       </body></html>`);
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);

@@ -5939,8 +5939,9 @@ def reposicao_painel(repo, caixa=None, semana=None):
         l["marca"] = dd["marca_de"].get(l["chave"]) or "Outras marcas"
         l["grupo"] = (dd.get("grupo_de") or {}).get(l["chave"]) or "Outros"
         c = cad.get(l["chave"]) or {}
-        # 02/10 (Bruno: "e o último preço que eu paguei, o último custo"): custo de compra do cadastro do UpSeller; sem ele, o médio
-        l["ultimo_custo"] = c.get("custo_compra") or l.get("custo")
+        # 03/10 (Bruno: "usa o custo médio, calculado de acordo com as compras, do UpSeller onde damos entrada nas compras"):
+        # o custo médio do estoque vence; o custo de compra do cadastro só quando o SKU não tem médio (campo segue "ultimo_custo")
+        l["ultimo_custo"] = l.get("custo") or c.get("custo_compra")
         l["categoria"] = (c.get("categoria") or "").replace("→", " › ") or None
     cad_info, _ = _ia_json(repo, CADASTRO_UPSELLER)
     r["cadastro"] = {"em": (cad_info or {}).get("em"), "skus": len((cad_info or {}).get("itens") or {})} if cad_info else None

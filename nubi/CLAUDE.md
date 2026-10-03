@@ -445,7 +445,7 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   Cadastro do UpSeller (02/10, Bruno: "tem o código de barras dos meus produtos"): Produtos → Exportar
   (`export_warehouse_products_*.xlsx`) → `estoque.ler_cadastro_produtos` → ia_resumos `estoque|cadastro_upseller` (rota
   `estoque_cadastro_importar`, botão 📦 na Reposição). O mercado usa TODOS os GTINs do SKU (cadastro + o do meu anúncio no
-  Explorador: Ferrari Black tem 2); o custo de compra entra quando falta custo médio e aparece como "último custo".
+  Explorador: Ferrari Black tem 2); o custo de compra entra quando falta custo médio e aparece como "último custo". 03/10 (Bruno: "usa o custo médio, calculado de acordo com as compras, do UpSeller onde damos entrada"): a coluna do Pedido é "Custo médio" (o do estoque do UpSeller; o de compra do cadastro só quando falta), também no resumo por curva e no Gerar pedido.
   Lista de compra (02/10, Bruno: "ficou redundante com o pedido, junta tudo"): é a própria aba 🛒 Pedido da Reposição —
   colunas Minha venda/dia, Mercado/dia, Preço do líder, Média dos 5 primeiros (`preco_top5`: fat÷un dos 5 vendedores que
   mais venderam), Estoque (+chegando), Nível máx., Sugestão, Custo un. (último custo), Comprar (digitável, guardado no
