@@ -49,7 +49,9 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   para programar"): `[[programar:Título|descrição]]` vira botão 🔨 → card APROVADO com dono claude_mac (Claude) ou astra
   (Codex) → o Mac programa na hora no branch dele, testes, e o Chefe revisa e publica (mesmo fluxo do quadro). Memória: o
   Claude continua a sessão (`--resume`, `painel_sessao.json`) até "Nova conversa". Prints: colar/📎 → `painel_anexos/`
-  (Claude lê; Codex `-i`). 🎤 ditado do Chrome (pt-BR). Fora o 🔨, nenhum deles executa nada: propõe `[[comando:CHAVE]]` (só da lista fechada COMANDOS_MAC → `mac_pedir`, fila da Central) e
+  (Claude lê; Codex `-i`). 🎤 ditado do Chrome (pt-BR). Os dois recebem os cards em andamento (última novidade) e podem
+  propor `[[recado:N|texto]]` → `tarefa_responder` no card (o programador lê na próxima rodada); o Codex tem busca na web
+  (`-c tools.web_search=true`, com nova tentativa sem ela se a versão do Codex não aceitar). Fora o 🔨, nenhum deles executa nada: propõe `[[comando:CHAVE]]` (só da lista fechada COMANDOS_MAC → `mac_pedir`, fila da Central) e
   `[[card:Título|descrição]]` (proposta no quadro, área coletor) e o Bruno confirma no botão. Mudança no código do coletor
   é sempre por card → Ferreiro → revisão, nunca o Hermes editando o arquivo.
 - 📣 ADS em tempo real (03/10, Bruno): card no Dashboard (`#ds-adsml`) com o ADS da conta principal do ML (AURASCENT):

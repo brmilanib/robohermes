@@ -9518,11 +9518,11 @@ $("#f").onsubmit=async e=>{e.preventDefault();const q=$("#q").value.trim();if(!q
   try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20),agente,anexos,nova})});enviados=anexos;anexos=[];nova=false;$("#anx").innerHTML="";
     const rd=r.body.getReader(),dec=new TextDecoder();for(;;){const {value,done}=await rd.read();if(done)break;txt+=dec.decode(value,{stream:true});b.textContent=txt;$("#msgs").scrollTop=1e9}
   }catch(err){txt="(não consegui falar com o Hermes: "+err.message+")";b.textContent=txt}
-  clearInterval(rel);hist.push({role:"assistant",content:txt});b.textContent=(agente==="hermes"?"":nome+": ")+txt.replace(/\[\[(comando|card):[^\]]*\]\]/g,"").trim();acoes(b,txt);$("#env").disabled=false;$("#q").focus()};
-function acoes(b,txt){for(const m of txt.matchAll(/\[\[(comando|card|programar):([^\]|]*)(?:\|([^\]]*))?\]\]/g)){
+  clearInterval(rel);hist.push({role:"assistant",content:txt});b.textContent=(agente==="hermes"?"":nome+": ")+txt.replace(/\[\[(comando|card|programar|recado):[^\]]*\]\]/g,"").trim();acoes(b,txt);$("#env").disabled=false;$("#q").focus()};
+function acoes(b,txt){for(const m of txt.matchAll(/\[\[(comando|card|programar|recado):([^\]|]*)(?:\|([^\]]*))?\]\]/g)){
   const [_,tipo,a,c]=m, bt=document.createElement("button");bt.className="acao";
-  bt.textContent=tipo==="comando"?`▶ Rodar no Mac: ${a.trim()}${c?" ("+c.trim()+")":""}`:tipo==="programar"?`🔨 Programar agora: ${a.trim()}`:`📝 Criar card: ${a.trim()}`;
-  bt.onclick=async()=>{if(!confirm(tipo==="comando"?`Mandar "${a.trim()}" para a fila do Mac?`:tipo==="programar"?`Programar agora "${a.trim()}"? O ${agente==="codex"?"Codex":"Ferreiro"} começa na hora num branch próprio; o Chefe revisa antes de publicar.`:`Criar o card "${a.trim()}" no quadro (como proposta)?`))return;bt.disabled=true;
+  bt.textContent=tipo==="comando"?`▶ Rodar no Mac: ${a.trim()}${c?" ("+c.trim()+")":""}`:tipo==="programar"?`🔨 Programar agora: ${a.trim()}`:tipo==="recado"?`💬 Mandar recado ao card #${a.trim().replace(/\D/g,"")}`:`📝 Criar card: ${a.trim()}`;
+  bt.onclick=async()=>{if(!confirm(tipo==="comando"?`Mandar "${a.trim()}" para a fila do Mac?`:tipo==="recado"?`Deixar este recado no card #${a.trim().replace(/\D/g,"")}?\n\n${(c||"").trim()}`:tipo==="programar"?`Programar agora "${a.trim()}"? O ${agente==="codex"?"Codex":"Ferreiro"} começa na hora num branch próprio; o Chefe revisa antes de publicar.`:`Criar o card "${a.trim()}" no quadro (como proposta)?`))return;bt.disabled=true;
     const corpo=tipo==="comando"?{tipo,chave:a.trim(),arg:(c||"").trim()}:{tipo,titulo:a.trim(),descricao:(c||"").trim(),agente,anexos:b.dataset.anexos?JSON.parse(b.dataset.anexos):[]};
     try{const j=await (await fetch("/acao",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(corpo)})).json();bolha("h",j.texto)}catch(e){bolha("h","Não deu: "+e.message)}};
   b.appendChild(document.createElement("br"));b.appendChild(bt)}}
@@ -9595,10 +9595,24 @@ def _painel_cli(cfg, agente, sistema, msgs, anexos=(), nova=False):
         token = token_nubi(cfg)
         base = _painel_base(token)
         ligados = buscar_conhecimento(token, msgs[-1]["content"], 8) if msgs else []
+        # 03/10 (Bruno: "o Ferreiro do chat enxergar o card em andamento"): os cards abertos com a última novidade de cada um
+        try:
+            ts = [t for t in (api(token, "reuniao_tarefas", timeout=60).get("tarefas") or [])
+                  if t.get("status") in ("aprovada", "em_desenvolvimento", "em_teste")]
+            ts.sort(key=lambda t: str(t.get("atualizado_em") or ""), reverse=True)
+            cards_txt = "\n".join(
+                f"- #{t['id']} [{t.get('status')}/{t.get('responsavel') or '-'}] {t.get('titulo')}"
+                + (f" — último: {(t.get('ultimo_evento') or {}).get('autor')}: {str((t.get('ultimo_evento') or {}).get('texto') or '')[:350]}"
+                   if t.get("ultimo_evento") else "") for t in ts[:10])
+        except Exception:  # noqa: BLE001
+            cards_txt = ""
         extra = ((f"\n\nA CAIXA DE CONHECIMENTO INTEIRA do projeto está em {base} (procure nela com Grep/Read antes de dizer que "
                   "não sabe). O código e o CLAUDE.md do projeto estão na pasta atual." if base else "")
                  + ("\n\nITENS DA CAIXA MAIS LIGADOS À PERGUNTA:\n" + "\n".join(f"- {it.get('titulo')}: {str(it.get('texto'))[:600]}"
-                                                                         for it in ligados) if ligados else ""))
+                                                                         for it in ligados) if ligados else "")
+                 + ("\n\nCARDS EM ANDAMENTO (o programador de cada um lê os recados do card na próxima rodada):\n" + cards_txt
+                    + "\nPara mandar um recado do Bruno a um card (mudar ou acrescentar algo no que está sendo feito), proponha "
+                      "[[recado:NÚMERO|o recado]]; o Bruno confirma no botão." if cards_txt else ""))
     except Exception:  # noqa: BLE001
         pass
     pedido = (sistema.replace("Você é o Hermes", "Você é o Ferreiro (Claude Code no Mac do Bruno)" if agente == "claude" else "Você é o Codex no Mac do Bruno").replace("(Ollama, grátis, no Mac mini)", "")
@@ -9656,10 +9670,15 @@ def _painel_cli(cfg, agente, sistema, msgs, anexos=(), nova=False):
     except OSError:
         pass
     imgs = [x for a in anexos for x in ("-i", a)]
-    r = subprocess.run([_codex_bin(), "exec", "--sandbox", "read-only", "--skip-git-repo-check", *imgs,
+    # 03/10 (Bruno: "o Codex ler tudo e buscar na internet, como um ChatGPT, só que lá"): busca na web ligada
+    r = subprocess.run([_codex_bin(), "exec", "--sandbox", "read-only", "--skip-git-repo-check", "-c", "tools.web_search=true", *imgs,
                         "--output-last-message", str(ultima), pedido],
                        cwd=cwd, env=env, capture_output=True, text=True, timeout=900)
     txt = ultima.read_text().strip() if ultima.exists() else ""
+    if not txt and r.returncode:                            # versão do Codex sem a busca na web: tenta de novo sem ela
+        r = subprocess.run([_codex_bin(), "exec", "--sandbox", "read-only", "--skip-git-repo-check", *imgs,
+                            "--output-last-message", str(ultima), pedido], cwd=cwd, env=env, capture_output=True, text=True, timeout=900)
+        txt = ultima.read_text().strip() if ultima.exists() else ""
     return txt or f"(sem resposta do Codex: {(r.stderr or r.stdout or '')[-400:]})"
 
 
@@ -9792,6 +9811,13 @@ def cmd_painel(args, cfg):
                 quem_ = "Codex" if dono == "astra" else "Ferreiro (Claude Code)"
                 return self._enviar(json.dumps({"ok": True, "texto": f"🔨 Card #{r.get('id')} aprovado: o {quem_} começa em ~1 min. "
                                                 f"Acompanhe aqui em Rodando agora; quando passar nos testes, o Chefe revisa e publica."}))
+            if d.get("tipo") == "recado":
+                tid = int(re.sub(r"\D", "", str(d.get("titulo") or "")) or 0)
+                texto = str(d.get("descricao") or "").strip()
+                if not tid or not texto:
+                    raise ValueError("recado sem card ou sem texto")
+                api(token, "tarefa_responder", corpo={"id": tid, "texto": "💬 Recado do Bruno (pelo Painel): " + texto[:3500]}, timeout=60)
+                return self._enviar(json.dumps({"ok": True, "texto": f"Recado deixado no card #{tid}: o programador lê na próxima rodada."}))
             if d.get("tipo") == "card":
                 titulo = str(d.get("titulo") or "").strip()[:120]
                 if not titulo:
