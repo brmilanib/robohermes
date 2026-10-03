@@ -61,7 +61,37 @@ def test_calibragem_com_o_upseller():
     repo.fechar()
 
 
+def test_rota_do_explorador_diario_chega_no_servidor():
+    """03/10: explorador_diario_pendente morava em rota_estoque, que só recebia estoque*/gestor_*: o coletor ganhava
+    "Rota desconhecida" e o Explorador diário nunca rodou."""
+    import json
+    import nubi_web as w
+
+    class R:
+        def __init__(self, *a, **k):
+            pass
+
+        def _req(self, m, t, q=None, corpo=None, prefer=None):
+            return [{"texto": json.dumps(["SOSPIRO"])}] if t == "ia_resumos" and "marcas_diarias" in str(q) else []
+
+        def _eq(self, v):
+            return f"eq.{v}"
+
+        def _todos(self, t, q=None):
+            return []
+    antes = w.RepoSupabase, w.ligar_registro_uso
+    w.RepoSupabase, w.ligar_registro_uso = R, (lambda *a, **k: None)
+    try:
+        st, _, corpo, _ = w.atender("GET", "explorador_diario_pendente", {}, b"", "TOKEN")
+        assert st == 200 and json.loads(corpo)["marcas"] == ["SOSPIRO"], corpo
+        st, _, corpo, _ = w.atender("GET", "explorador_quinzena_pendente", {}, b"", "TOKEN")
+        assert st == 200, corpo
+    finally:
+        w.RepoSupabase, w.ligar_registro_uso = antes
+
+
 if __name__ == "__main__":
+    test_rota_do_explorador_diario_chega_no_servidor()
     test_janela_de_30_dias_e_conferencia()
     test_calibragem_com_o_upseller()
     print("ok explorador janela")

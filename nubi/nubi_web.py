@@ -1980,7 +1980,9 @@ def atender(metodo, rota, q, corpo, token):
                 return _json(rota_bazar(repo, metodo, rota, q, corpo))
             except bazar.ErroBazar as e:
                 raise ErroNuvem(str(e)[:1].upper() + str(e)[1:])
-        if rota.startswith("estoque") or rota.startswith("gestor_") or rota == "coleta_pendente" or rota.startswith("vendas_hoje") or rota == "vendas_tv":
+        # 03/10: explorador_*_pendente moram em rota_estoque e nunca chegavam lá ("Rota desconhecida" no explorador_diario)
+        if (rota.startswith("estoque") or rota.startswith("gestor_") or rota == "coleta_pendente" or rota.startswith("vendas_hoje")
+                or rota == "vendas_tv" or rota in ("explorador_quinzena_pendente", "explorador_diario_pendente")):
             return _json(rota_estoque(repo, metodo, rota, q, corpo))
         if rota == "conhecimento":
             p = {"select": "id,tipo,titulo,texto,autor,fonte,fixo,atualizado_em", "order": "fixo.desc,atualizado_em.desc", "limit": 200}
