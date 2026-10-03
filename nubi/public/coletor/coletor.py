@@ -2941,6 +2941,43 @@ def _gestor_ultimos_30(pg):
     return False
 
 
+# 03/10: campos visíveis da tela (placeholder/valor/classe) para acertar o seletor de datas do Gestor pela foto
+JS_GESTOR_ENTRADAS = r"""() => [...document.querySelectorAll('input')].filter(e => e.getClientRects().length)
+  .map(e => [e.type, e.placeholder, e.value, (e.className || '').slice(0, 40), e.name].join('|')).slice(0, 25)"""
+
+
+def _gestor_periodo(pg, ini, fim):
+    """Escreve o período nas caixas de data da Curva ABC. 1º direto; senão abre o seletor (mesmos lugares do
+    _gestor_ultimos_30) e tenta de novo; senão a caixa única "dd/mm/aaaa - dd/mm/aaaa" (seletor de intervalo)."""
+    par = [ini.isoformat(), fim.isoformat()]
+    if pg.evaluate(JS_GESTOR_PERIODO, par):
+        return True
+    for sel in ("input[value*='/']:visible", "input[placeholder*='ata' i]:visible", "[class*=date i]:visible",
+                "[class*=periodo i]:visible", "[class*=range i]:visible"):
+        loc = pg.locator(sel)
+        if not loc.count():
+            continue
+        try:
+            loc.first.click(timeout=5000)
+            devagar(1.5)
+        except Exception:  # noqa: BLE001
+            continue
+        if pg.evaluate(JS_GESTOR_PERIODO, par):
+            return True
+    unica = pg.locator("input[value*='/']:visible")
+    if unica.count() == 1:
+        try:
+            unica.first.click(timeout=5000)
+            unica.first.fill(f"{ini:%d/%m/%Y} - {fim:%d/%m/%Y}")
+            pg.keyboard.press("Enter")
+            devagar(2)
+            v = unica.first.input_value()
+            return f"{ini:%d/%m/%Y}" in v and f"{fim:%d/%m/%Y}" in v
+        except Exception:  # noqa: BLE001
+            return False
+    return False
+
+
 def baixar_gestor_abc(pg, cfg, p=None, ini=None, fim=None):
     """01/10 (Bruno: "a Curva ABC do Gestor traz o custo de ADS e a margem de lucro líquido de cada produto"): Curva ABC →
     Últimos 30 dias → "Solicitar Relatório" (só esse botão; nunca salvar/importar/excluir). -> arquivo .xlsx"""
@@ -2952,8 +2989,10 @@ def baixar_gestor_abc(pg, cfg, p=None, ini=None, fim=None):
     if not pg.get_by_text(re.compile(r"Solicitar relat[óo]rio", re.I)).count():
         _clicar_texto(pg, [r"^\s*Curva ABC\s*$"], 5)
     if ini and fim:                               # 03/10: um mês fechado (histórico desde janeiro)
-        if not pg.evaluate(JS_GESTOR_PERIODO, [ini.isoformat(), fim.isoformat()]):
-            raise Falha(f"curva ABC do Gestor: não achei as caixas de data para {ini:%d/%m}–{fim:%d/%m}")
+        if not _gestor_periodo(pg, ini, fim):
+            entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
+            enviar_foto(pg, f"curva ABC do Gestor: seletor de datas para {ini:%d/%m}–{fim:%d/%m}", str(entradas)[:3000])
+            raise Falha(f"curva ABC do Gestor: não achei as caixas de data para {ini:%d/%m}–{fim:%d/%m}. Campos: {str(entradas)[:300]}")
         devagar(2)
     else:
         _gestor_ultimos_30(pg)
