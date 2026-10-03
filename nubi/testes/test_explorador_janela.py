@@ -76,10 +76,19 @@ def test_visao_7_e_30_dias():
     imp("s0.csv", csv(lin("Perfume Sospiro Vibrato Edp 100ml", "SOSPIRO", "S1", 300, 500),
                       lin("Perfume Sospiro Erba Gold Edp 100ml", "SOSPIRO", "S2", 20, 100)), "SOSPIRO", "2026-08-27", "2026-09-25")
     # 7 dias depois: S1 vendeu 70 (histórico 570), S2 vendeu 0, S3 é novo (8 un.)
-    imp("s7.csv", csv(lin("Perfume Sospiro Vibrato Edp 100ml", "SOSPIRO", "S1", 320, 570),
+    imp("s7.csv", csv(lin("Perfume Sospiro Vibrato Edp 100ml", "SOSPIRO", "S1", 320, 570).replace(";100;01/01/2026", ";89,90;01/01/2026"),
                       lin("Perfume Sospiro Erba Gold Edp 100ml", "SOSPIRO", "S2", 15, 100),
                       lin("Perfume Sospiro Accento Edp 100ml", "SOSPIRO", "S3", 8, 8)), "SOSPIRO", "2026-09-03", "2026-10-02")
     r7 = nubi_web.relatorio(repo, "SOSPIRO", visao="7")
+    # 03/10 (Bruno: "mostra se tá caindo ou crescendo" e "as mudanças de preço pelos exports diários")
+    mp = r7["mudancas_preco"]
+    assert len(mp) == 1 and (mp[0]["de"], mp[0]["para"], mp[0]["dia"]) == (100.0, 89.9, "2026-10-02") and mp[0]["codigo"], mp
+    vib = [x for x in r7["tabelas"]["produtos"] if "Vibrato" in x["produto"]][0]
+    assert round(vib["tend"], 3) == round((70 / 7) / (320 / 30) - 1, 3), vib       # 10/dia na semana × 10,7/dia no mês
+    erba = [x for x in r7["tabelas"]["produtos"] if "Erba" in x["produto"]][0]
+    assert erba["tend"] == -1.0 and [x["produto"] for x in r7["tendencias"]["caindo"]] == [erba["produto"]], r7["tendencias"]
+    v1 = r7["vendedores_produto"][vib["produto"]][0]
+    assert v1["un7"] == 70 and v1["dias7"] == 7 and v1["tend"] is not None
     assert r7["resumo"]["visao"] == {"tipo": "7", "inicio": "2026-09-26", "fim": "2026-10-02", "dias": 7}, r7["resumo"]["visao"]
     assert r7["resumo"]["un"] == 78 and r7["resumo"]["dias"] == 7, r7["resumo"]
     r30 = nubi_web.relatorio(repo, "SOSPIRO", visao="30")

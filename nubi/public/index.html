@@ -8734,6 +8734,20 @@ function telaMarca() {
           ${r.concentracao.map(c => `<span class="sinal">${c.faixa === "Todos" ? nf0.format(c.vendedores) + " vendedores" : c.faixa + ": " + FMT.pct(c.share)}</span>`).join("")}</div>
       </div>
     </div>
+    ${(() => { const td = r.tendencias || {}, mud = r.mudancas_preco || [];
+      if (!(td.crescendo || []).length && !(td.caindo || []).length && !mud.length) return "";
+      const lin = x => `<li><b>${prodLink(x.produto)}</b> ${setaTend(x.tend)} <span class="muted">${nf1.format(x.dia_7)}/dia × ${nf1.format(x.dia_30)}/dia</span></li>`;
+      return `<div class="grid2" style="margin-top:12px">
+        <div class="card pad"><h2>Crescendo ou caindo <span class="muted" style="font-size:12px;font-weight:400">· venda/dia dos últimos ${(td.periodo_7 || {}).dias || 7} dias × a dos últimos ${(td.periodo_30 || {}).dias || 30}</span></h2>
+          ${(td.crescendo || []).length ? `<div class="muted" style="font-size:12px">📈 Crescendo</div><ol class="top5" style="margin:4px 0 10px;padding-left:20px">${td.crescendo.map(lin).join("")}</ol>` : ""}
+          ${(td.caindo || []).length ? `<div class="muted" style="font-size:12px">📉 Caindo</div><ol class="top5" style="margin:4px 0 0;padding-left:20px">${td.caindo.map(lin).join("")}</ol>` : ""}
+          ${!(td.crescendo || []).length && !(td.caindo || []).length ? `<p class="muted">${td.periodo_7 ? "Nenhum produto mudou mais de 10%." : "Aparece quando houver exports diários de dias diferentes."}</p>` : ""}</div>
+        <div class="card pad"><h2>Mudanças de preço <span class="muted" style="font-size:12px;font-weight:400">· últimos 14 dias, pelos exports diários</span></h2>
+          ${mud.length ? `<div style="display:flex;flex-direction:column;gap:6px;font-size:13px">${mud.slice(0, 12).map(m => `<div style="display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;border-bottom:1px solid var(--line);padding-bottom:6px">
+            <span class="muted">${dataBR(m.dia).slice(0, 5)}</span><span>${vendLink(m.codigo, m.vendedor)}</span><span style="flex:1;min-width:160px">${prodLink(m.produto)}</span>
+            <span><span class="muted" style="font-size:12px">R$ ${nf2.format(m.de)} →</span> ${precoMudou(m, true)}</span></div>`).join("")}</div>`
+            : `<p class="muted">${(r.resumo || {}).tem_7 ? "Nenhum anúncio mudou de preço." : "Aparece a partir do 2º export diário (amanhã)."}</p>`}</div>
+      </div>`; })()}
     <nav class="tabs" id="tabs">${ABAS.map(([k, l]) => {
       const n = k === "duvidas" ? r.tabelas.duvidas.length : null;
       if ((k === "evolucao" || k === "historico") && !ant) return "";
@@ -10248,6 +10262,15 @@ async function abrirProdutoDeMarca(marca, prod) {
   abrirVendedoresProduto(prod);
 }
 // ---------- Vendedores de um produto ----------
+// 03/10 (Bruno: "mostra se tá caindo ou crescendo"): média/dia dos últimos 7 dias × a dos últimos 30 (exports diários)
+function setaTend(t, curto = false) {
+  if (t == null) return curto ? "" : `<span class="muted" title="precisa de 7 dias de exports diários">—</span>`;
+  const p = Math.round(t * 100), cls = t > 0.1 ? "good" : t < -0.1 ? "bad" : "";
+  return `<span class="pill ${cls}" title="venda/dia dos últimos 7 dias × a dos últimos 30">${t > 0.1 ? "▲" : t < -0.1 ? "▼" : "▶"} ${p > 0 ? "+" : ""}${p}%</span>`;
+}
+function precoMudou(m, semDia = false) {
+  return `<span class="pill ${m.var < 0 ? "bad" : "good"}" style="white-space:nowrap" title="de R$ ${nf2.format(m.de)} para R$ ${nf2.format(m.para)} (entre ${dataBR(m.desde)} e ${dataBR(m.dia)})">${m.var < 0 ? "▼" : "▲"} R$ ${nf2.format(m.para)} <small>${m.var > 0 ? "+" : ""}${nf0.format(m.var * 100)}%${semDia ? "" : " em " + dataBR(m.dia).slice(0, 5)}</small></span>`;
+}
 function abrirVendedoresProduto(prod) {
   // 03/10 (Bruno, Sospiro: "não bate com o Nubimetrics"): com a janela do último export (os números do período do ARQUIVO,
   // por anúncio) o quadro mostra os 30 dias de verdade em vez de "card de 63 dias × 30 ÷ 63"
@@ -10302,6 +10325,11 @@ function abrirVendedoresProduto(prod) {
       ${kpi("Vendedores", `${nf0.format(comVenda.length)} <small class="muted">de ${nf0.format(lista.length)}</small>`, `${prop ? `no export de ${dias} dias (o de 30 dias diz quem vendeu no mês) · ` : ""}${nf0.format(tot.an)} anúncios · ${FMT.pct(row.pct_full)} FULL · ${FMT.pct(row.pct_catalogo)} catálogo`)}
       ${kpi("Líder", lider ? esc(lider.vendedor) : "—", lider ? `${FMT.pct(lider.share)} das vendas · ${R(lider.preco_medio)}` : "")}
     </div>
+    ${(() => { const td = (S.rel.tendencias || {}), pr = row.tend, mud = (S.rel.mudancas_preco || []).filter(m => m.produto === prod);
+      return `<div class="kpis pq-kpis" style="margin-top:8px">
+        ${kpi("Crescendo ou caindo?", setaTend(pr), pr == null ? "precisa de alguns dias de exports diários" : `${nf1.format(row.dia_7 || 0)}/dia nos últimos ${(td.periodo_7 || {}).dias || 7} dias × ${nf1.format(row.dia_30 || 0)}/dia nos últimos ${(td.periodo_30 || {}).dias || 30}`)}
+        ${kpi("Mudanças de preço (14 dias)", mud.length ? nf0.format(mud.length) : "0", mud.slice(0, 3).map(m => `${esc(m.vendedor || m.codigo)}: ${precoMudou(m)}`).join("<br>") || "nenhum anúncio mudou de preço")}
+      </div>`; })()}
     <div class="pq-sec">Eu <span class="muted" id="pq-fonte" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
     <div id="pq-meu"><div class="kpis pq-kpis">${kpi("Eu vendo?", "…", "carregando meu estoque e minhas vendas")}</div></div>
     <div class="pq-sec">No Mercado Livre agora <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">· quem vende pelo catálogo (GTIN), com a loja real, o link e o preço de agora</span></div>
@@ -10309,7 +10337,7 @@ function abrirVendedoresProduto(prod) {
       : `<div class="muted" style="font-size:13px">Este produto não tem GTIN nos anúncios: não dá para achar no catálogo do Mercado Livre.</div>`}</div>
     <div class="tw" style="margin-top:12px;max-height:48vh"><table class="t"><thead><tr>
       <th class="num">#</th><th>Código</th><th>Vendedor</th><th class="num" title="${prop ? `Proporcional: unidades do export de ${dias} dias × 30 ÷ ${dias}` : ""}">Un. ${nDias} dias</th><th class="num">Faturamento ${nDias} dias</th>
-      <th class="num">Share</th><th class="num" title="Faturamento ÷ unidades">Preço médio</th><th class="num" title="Mediana do último preço dos anúncios do vendedor">Preço atual</th>
+      <th class="num">Share</th><th title="venda/dia dos últimos 7 dias × a dos últimos 30">Tendência</th><th class="num" title="Faturamento ÷ unidades">Preço médio</th><th class="num" title="Mediana do último preço dos anúncios do vendedor">Preço atual</th>
       <th class="num">Anúncios</th><th class="num" title="Anúncios em FULL">FULL</th><th class="num" title="Anúncios em catálogo">Catál.</th><th>Loja of.</th></tr></thead><tbody>
       ${lista.map((v, i) => `<tr data-vnome="${esc(normNome(v.vendedor))}">
         <td class="num">${i + 1}</td><td>${esc(v.codigo)}</td><td class="first">${vendLink(v.codigo, v.vendedor)}<div class="ml-real" data-mlvid="${esc(v.vid || "")}">${realML(v.vid)}</div></td>
@@ -10317,10 +10345,11 @@ function abrirVendedoresProduto(prod) {
         <td class="num"><div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
           <div style="width:60px;background:var(--soft);border-radius:3px;height:8px"><div style="width:${(v.share * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:3px"></div></div>
           ${FMT.pct(v.share)}</div></td>
-        <td class="num">${v.un ? "R$ " + nf2.format(v.preco_medio) : "—"}</td><td class="num">R$ ${nf2.format(v.ultimo_preco)}</td>
+        <td>${setaTend(v.tend, true)}</td>
+        <td class="num">${v.un ? "R$ " + nf2.format(v.preco_medio) : "—"}</td><td class="num">R$ ${nf2.format(v.ultimo_preco)}${(() => { const m = (S.rel.mudancas_preco || []).find(x => x.produto === prod && x.vid === v.vid); return m ? `<div>${precoMudou(m)}</div>` : ""; })()}</td>
         <td class="num">${v.anuncios}</td><td class="num">${v.full}</td><td class="num">${v.catalogo}</td>
         <td>${v.loja_oficial ? '<span class="pill good">sim</span>' : ""}</td></tr>`).join("")
-        || `<tr><td colspan="12" class="empty">Nenhum vendedor.</td></tr>`}
+        || `<tr><td colspan="13" class="empty">Nenhum vendedor.</td></tr>`}
     </tbody></table></div>
     <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).${prop ? ` Unidades e faturamento em 30 dias = export de ${dias} dias (${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)}) × 30 ÷ ${dias}; o preço médio e o share não mudam.` : ""}</p>`);
   $(".modal", bg).classList.add("larga", "pq");

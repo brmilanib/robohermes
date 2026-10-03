@@ -1196,6 +1196,49 @@ def relatorio(repo, marca, periodo=None, visao=None):
             v["share"] = _div(v["un"], tot)
         lista.sort(key=lambda v: (-v["un"], -v["fat"], v["codigo"]))
 
+    # 03/10 (Bruno: "mostra se tá caindo ou crescendo; o arredondamento a gente pega na média com o tempo"): média por dia
+    # dos últimos 7 dias × a dos últimos 30 (exports diários), por produto e por vendedor do produto
+    tendencias = {"crescendo": [], "caindo": [], "periodo_7": None, "periodo_30": None}
+    try:
+        jan30 = nubi.ler_janela(repo, marca)
+        v7, p7 = nubi.janela_7_dias(repo, marca, str(atual["fim"])[:10])
+        if v7 and jan30 and str(jan30.get("fim")) == str(atual["fim"])[:10] and int(p7["dias"]) < int(jan30["dias"]):
+            a30, d30, d7 = jan30["anuncios"], float(jan30["dias"]), float(p7["dias"])
+            kk = nubi._ids(df)["anuncio"]
+            t = df.assign(_u7=[float((v7.get(x) or [0])[0]) for x in kk], _u30=[float((a30.get(x) or [0])[0]) for x in kk])
+            tendencias["periodo_7"], tendencias["periodo_30"] = p7, {k: jan30[k] for k in ("inicio", "fim", "dias")}
+            tend = lambda u7, u30: (u7 / d7) / (u30 / d30) - 1 if u30 >= 3 else None
+            por_prod = t.groupby("produto")[["_u7", "_u30"]].sum()
+            for prod, x in por_prod.iterrows():
+                tv = tend(x["_u7"], x["_u30"])
+                for linha in produtos:
+                    if linha["produto"] == prod:
+                        linha["tend"], linha["dia_7"], linha["dia_30"] = tv, x["_u7"] / d7, x["_u30"] / d30
+                if tv is not None and x["_u30"] >= 5:
+                    item = {"produto": prod, "tend": tv, "dia_7": x["_u7"] / d7, "dia_30": x["_u30"] / d30}
+                    (tendencias["crescendo"] if tv > 0.1 else tendencias["caindo"] if tv < -0.1 else []).append(item)
+            for (prod, vid), x in t.groupby(["produto", "vendedor_id"])[["_u7", "_u30"]].sum().iterrows():
+                for v in vend_prod.get(prod) or []:
+                    if v["vid"] == str(vid):
+                        v["tend"], v["un7"], v["dias7"] = tend(x["_u7"], x["_u30"]), int(x["_u7"]), int(d7)
+            tendencias["crescendo"] = sorted(tendencias["crescendo"], key=lambda x: -x["dia_30"] * (1 + x["tend"]))[:8]
+            tendencias["caindo"] = sorted(tendencias["caindo"], key=lambda x: -x["dia_30"])[:8]
+    except Exception:  # noqa: BLE001 — tendência é extra: sem ela o relatório sai igual
+        pass
+    # mudanças de preço dos últimos 14 dias (exports diários), ligadas ao produto e ao código do vendedor
+    mudancas = []
+    try:
+        lim = (date.fromisoformat(str(atual["fim"])[:10]) - timedelta(days=14)).isoformat()
+        kk = nubi._ids(df)["anuncio"]
+        onde = {k: (p_, vend.at[v_, "cod"] if v_ in vend.index else "", str(v_)) for k, p_, v_ in zip(kk, df["produto"], df["vendedor_id"])}
+        for m in nubi.ler_resumo(repo, nubi.PRECOS.format(marca)) or []:
+            if str(m.get("dia")) >= lim and m.get("anuncio") in onde:
+                p_, cod, vid = onde[m["anuncio"]]
+                mudancas.append({**{k: m.get(k) for k in ("dia", "desde", "de", "para", "var", "titulo")}, "produto": p_, "codigo": cod,
+                                 "vendedor": vend.at[vid, "nome"] if vid in vend.index else m.get("vendedor"), "vid": vid})
+        mudancas.sort(key=lambda m: (str(m["dia"]), abs(m["var"] or 0)), reverse=True)
+    except Exception:  # noqa: BLE001
+        mudancas = []
     # Produtos de cada vendedor (janela que abre ao clicar no vendedor), pelo código V01…
     prod_vend = {}
     for prod, lista in vend_prod.items():
@@ -1249,6 +1292,7 @@ def relatorio(repo, marca, periodo=None, visao=None):
                     "duvidas": _registros(duvidas), "anuncios": _registros(anuncios), "outras": _registros(outras_marcas)},
         "historico": historico,
         "vendedores_produto": {k: _registros(v) for k, v in vend_prod.items()},
+        "tendencias": tendencias, "mudancas_preco": _registros(mudancas[:150]),
         "produtos_vendedor": {k: _registros(v) for k, v in prod_vend.items()},
         "colunas_arquivo": colunas,
         # 29/09: a loja real (Mercado Livre) dos vendedores embaralhados que o nubi já identificou (meli|hash_lojas)

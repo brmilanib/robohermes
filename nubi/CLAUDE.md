@@ -518,6 +518,14 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   troca un/fat de cada anúncio pelos da janela ANTES de tudo (produtos, vendedores, oportunidades, preços), `dias` = os da
   janela, sem "anterior"; `resumo.visao` {tipo, inicio, fim, dias} ou {falta}; `tem_7`/`tem_30`. Tela: botões "Ver: 30 dias |
   7 dias | Completo" no topo da marca (padrão 30 dias, `S.visaoMarca`); o quadro do produto segue a visão (rótulos "· 7 dias").
+  CRESCENDO OU CAINDO + PREÇOS (03/10, Bruno: "mostra se tá caindo ou crescendo; o arredondamento a gente pega na média com
+  o tempo; as mudanças de preço com melhor precisão pelos exports diários"): `relatorio` calcula `tend` = (un 7 dias ÷ dias)
+  ÷ (un 30 dias ÷ dias) − 1 por produto (`produtos[].tend/dia_7/dia_30`) e por vendedor do produto (`vendedores_produto[].tend/
+  un7`), mínimo 3 un. em 30 dias; `tendencias` {crescendo, caindo (>±10%, 5+ un.), periodo_7, periodo_30}. O hist guarda
+  também o "Último preço" ([un_hist, fat_hist, preco]); `nubi.registrar_precos` grava em `explorador|precos|<marca>` cada
+  anúncio que mudou >0,5% entre um export e o anterior (dia, desde, vendedor, título, de, para; últimas 600) e o relatório
+  devolve `mudancas_preco` dos últimos 14 dias com produto e código do vendedor. Tela: cards "Crescendo ou caindo" e
+  "Mudanças de preço" na marca; no quadro do produto, KPI de tendência, de mudanças e coluna Tendência + mudança no preço.
 - **💰 Financeiro + Estoque → Por marca (02/10, Bruno)**: `financeiro.py`. DRE Simplificado do Gestor Seller (PDF do mês
   fechado: o texto é lido no navegador com pdf.js e vai em `financeiro_importar`; `ler_dre` por blocos) e Resumo analítico
   (`/analytics/invoices`, 4 canais × meses × 7 linhas; o coletor troca as imagens por "[IMG:nome]" e manda o texto:

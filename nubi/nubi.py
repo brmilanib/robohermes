@@ -2044,8 +2044,10 @@ def guardar_janela(repo, marca, ini, fim, df_arq, arquivo=""):
     # 7 dias = histórico de hoje − o de 7 dias atrás
     h = ler_resumo(repo, HIST_DIAS.format(marca)) or {}
     datas = dict(h.get("datas") or {})
-    datas[fim] = {k: [v[2], v[3]] for k, v in anuncios.items()}
+    pr = num("preco")
+    datas[fim] = {k: [v[2], v[3], round(float(p_), 2)] for (k, v), p_ in zip(anuncios.items(), pr)}
     _gravar_resumo(repo, HIST_DIAS.format(marca), {"datas": {d: datas[d] for d in sorted(datas)[-9:]}})
+    registrar_precos(repo, marca, fim, datas, d)
     da = _da_marca_no_arquivo(d, marca)
     vend = []
     if "vendedor" in da.columns and len(da):
@@ -2056,6 +2058,35 @@ def guardar_janela(repo, marca, ini, fim, df_arq, arquivo=""):
         "inicio": ini, "fim": fim, "dias": dias, "arquivo": arquivo, "anuncios": int(len(da)), "un": _soma(da, "un"),
         "fat": _soma(da, "fat"), "un_hist": _soma(da, "un_hist"), "vendedores": int(da["vendedor"].nunique()) if "vendedor" in da.columns else None,
         "top_vendedores": vend})
+
+
+PRECOS = "explorador|precos|{}"                # mudanças de preço por anúncio, dia a dia (as últimas 600)
+
+
+def registrar_precos(repo, marca, fim, datas, d):
+    """03/10 (Bruno: "as mudanças de preços nos anúncios vamos pegar com melhor precisão pegando os exports diários"): o
+    "Último preço" de cada anúncio hoje × no export anterior; mudou mais de 0,5% = registra (dia, anúncio, vendedor, título,
+    de, para). Guardado em `explorador|precos|<marca>` (as últimas 600)."""
+    antes = [x for x in sorted(datas) if x < fim]
+    if not antes:
+        return []
+    ant, hoje = datas[antes[-1]], datas[fim]
+    info = {k: (str(v or ""), str(t or "")) for k, v, t in zip(d["anuncio"], d.get("vendedor", pd.Series("", index=d.index)),
+                                                              d.get("titulo", pd.Series("", index=d.index)))}
+    novas = []
+    for k, x in hoje.items():
+        a = ant.get(k)
+        if not a or len(a) < 3 or len(x) < 3 or not a[2] or not x[2]:
+            continue
+        if abs(x[2] / a[2] - 1) > 0.005:
+            v, t = info.get(k, ("", ""))
+            novas.append({"dia": fim, "desde": antes[-1], "anuncio": k, "vendedor": v, "titulo": t[:90], "de": a[2], "para": x[2],
+                          "var": round(x[2] / a[2] - 1, 4)})
+    if novas:
+        velhas = [m for m in (ler_resumo(repo, PRECOS.format(marca)) or []) if m.get("dia") != fim]
+        _gravar_resumo(repo, PRECOS.format(marca), (velhas + novas)[-600:])
+        avisar(f"    Preços: {len(novas)} anúncio(s) mudaram de preço desde {antes[-1][8:10]}/{antes[-1][5:7]}")
+    return novas
 
 
 def ler_resumo(repo, chave):
@@ -2087,7 +2118,8 @@ def janela_7_dias(repo, marca, fim):
     jan = (ler_janela(repo, marca) or {}).get("anuncios") or {}
     agora, velho = h[fim], h[base]
     out = {}
-    for k, (uh, fh) in agora.items():
+    for k, x in agora.items():
+        uh, fh = x[0], x[1]
         if k in velho:
             out[k] = [max(0, uh - velho[k][0]), max(0.0, fh - velho[k][1])]
         else:
