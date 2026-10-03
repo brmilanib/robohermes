@@ -1426,9 +1426,10 @@ img.pl-ico.of{object-fit:contain;background:#fff}
 @media (max-width:1100px){.dash-4{grid-template-columns:repeat(2,minmax(0,1fr))}.dash-sis{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:760px){.dash-2,.dash-4{grid-template-columns:1fr}.dash-sis{grid-template-columns:repeat(2,minmax(0,1fr))}.dash-loja{grid-template-columns:auto minmax(0,1fr) auto}.dash-loja .barra{display:none}}
 .cx-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:14px}
-.cx-card{display:flex;flex-direction:column;gap:10px}.cx-top{display:flex;gap:10px;align-items:center}.cx-top small{display:block}
+.cx-card{display:flex;flex-direction:column;gap:10px}.cx-top .pl-ico{position:static}.cx-top{display:flex;gap:10px;align-items:center}.cx-top small{display:block}
 .cx-conta{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--borda,#e5e5e5)}.cx-conta .n{flex:1;min-width:0}
 .cx-conta small{display:block;color:var(--muted,#888)}.cx-ok{color:#1a9b4b}.cx-off{color:#bbb}
+.cx-principal{border:1px solid var(--borda,#e5e5e5);border-radius:10px;padding:10px;font-size:13px}.cx-principal .btn{font-size:12px}
 .cx-falta{font-size:13px;background:rgba(255,180,0,.12);border-radius:8px;padding:8px}.cx-ret code,.cx-falta code{word-break:break-all;font-size:12px}
 </style>
 </head>
@@ -3959,19 +3960,21 @@ async function telaConexoes() {
   try { r = await api("lojas_conexoes"); } catch (e) { main.innerHTML = `<h1>🔌 Conexões</h1><div class="card pad">${esc(e.message)}</div>`; return; }
   const dt = v => v ? new Date(v).toLocaleDateString("pt-BR") : "";
   main.innerHTML = `<h1>🔌 Conexões</h1>
-    <p class="aviso">Conecte suas lojas para o nubi puxar <b>pedidos, anúncios, estoque e ADS</b> direto da plataforma. O login é feito
-      na página da própria plataforma; o nubi nunca vê a senha e só tem acesso de <b>leitura</b>. Para conectar outra conta do
-      Mercado Livre, saia da conta anterior no site do ML (ou use uma janela anônima) antes de clicar.</p>
+    <p class="aviso"><span>Conecte suas lojas para o nubi puxar <b>pedidos, anúncios, estoque e ADS</b> direto da plataforma. O login é
+      feito na página da própria plataforma; o nubi nunca vê a senha e só tem acesso de <b>leitura</b>. Para conectar outra conta do
+      Mercado Livre, saia da conta anterior no site do ML (ou use uma janela anônima) antes de clicar.</span></p>
     <div class="cx-grade">${r.plataformas.map(p => `<div class="card pad cx-card">
-      <div class="cx-top">${platIco(p.nome, 40)}<div><b>${esc(p.nome)}</b><small class="muted">${p.contas.filter(c => c.ativa).length} conectada(s)</small></div></div>
+      <div class="cx-top">${platIco(p.nome, 40)}<div><b>${esc(p.nome)}</b><small class="muted">${p.contas.filter(c => c.ativa).length} loja(s) conectada(s)</small></div></div>
+      ${p.chave === "ml" ? `<div id="ml-conta" class="cx-principal">Carregando a conta principal…</div>` : ""}
       ${p.contas.length ? `<div class="cx-contas">${p.contas.map(c => `<div class="cx-conta"><span class="${c.ativa ? "cx-ok" : "cx-off"}">●</span>
           <span class="n"><b>${esc(c.nome || c.id)}</b><small>ID ${esc(c.id)}${c.ativa ? " · desde " + dt(c.em) : " · desconectada"}</small></span>
           ${c.ativa ? `<button class="btn sec cx-sair" data-p="${esc(p.chave)}" data-id="${esc(c.id)}">Desconectar</button>` : ""}</div>`).join("")}</div>`
         : `<p class="muted">Nenhuma conta conectada.</p>`}
-      ${p.configurada ? `<button class="btn cx-con" data-p="${esc(p.chave)}">+ Conectar conta</button>`
+      ${p.configurada ? `<button class="btn cx-con" data-p="${esc(p.chave)}">+ Conectar ${p.chave === "ml" ? "loja do ML" : "loja"}</button>`
         : `<div class="cx-falta"><b>Falta configurar o app</b><br>Na Vercel (Settings → Environment Variables): ${p.faltam.map(f => `<code>${esc(f)}</code>`).join(" ")}</div>`}
       <details class="cx-ret"><summary>Endereço de volta (cadastrar no app da plataforma)</summary><code>${esc(p.retorno)}</code></details>
     </div>`).join("")}</div>`;
+  mlConta();                       // 03/10 (Bruno): a conta do ML (AURASCENT) saiu da tela do Mercado Livre e mora aqui
   main.querySelectorAll(".cx-con").forEach(b => b.onclick = async () => {
     b.disabled = true;
     try { const j = await api("loja_conectar", {}, {method: "POST", body: JSON.stringify({plataforma: b.dataset.p})}); location.href = j.url; }
@@ -8772,7 +8775,7 @@ async function mlConta() {
   const el = $("#ml-conta"); if (!el) return;
   let c;
   try { c = await api("meli_conta"); } catch (e) { el.innerHTML = mlAviso(e); return; }
-  el.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🔐 Conta do Mercado Livre</h2>
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>🔐 Conta principal do nubi (API)</b>
       ${c.conectada ? `<span class="pill" style="background:${c.funcionando ? "#dcfce7;color:#166534" : "#fee2e2;color:#991b1b"}">${c.funcionando ? "conectada" : "conectada, com erro"}</span>` : ""}
       <span style="margin-left:auto;display:flex;gap:8px">${c.conectada ? `<button class="btn small ghost" id="ml-desconectar">Desconectar</button>` : ""}
         <button class="btn small ml-laranja" id="ml-conectar">${c.conectada ? "↻ Conectar de novo" : "🔐 Conectar conta do ML"}</button></span></div>
@@ -8782,14 +8785,13 @@ async function mlConta() {
         : "Não conseguiu renovar o acesso: " + esc(c.erro || "") + " — clique em Conectar de novo."}`
       : `Sem conta, o ML libera pouco para o app (anúncio de outra loja e busca por loja dão 403). Conecte uma conta sua
         (a de teste, a mesma do app no DevCenter). O login é feito na página do Mercado Livre; a senha não passa pelo nubi.`}</p>
-    <p class="muted" style="margin:6px 0 0;font-size:11.5px">No app do DevCenter, o <b>Redirect URI</b> tem que ser exatamente:
-      <code>${esc(c.retorno || "")}</code></p>`;
+    <details class="cx-ret"><summary>Endereço de volta desta conta (DevCenter)</summary><code>${esc(c.retorno || "")}</code></details>`;
   $("#ml-conectar").onclick = async () => {
     try { const r = await api("meli_conectar", {}, {method: "POST", body: "{}"}); location.href = r.url; } catch (e) { toast(String(e.message || e)); }
   };
   const d = $("#ml-desconectar");
   if (d) d.onclick = async () => {
-    if (!confirm("Desconectar a conta do Mercado Livre do nubi?")) return;
+    if (!confirm("Desconectar a conta do Mercado Livre do nubi? O nubi perde o acesso aos anúncios e à busca por loja.")) return;
     await api("meli_desconectar", {}, {method: "POST", body: "{}"}); mlConta();
   };
 }
@@ -8856,7 +8858,7 @@ async function telaMLInicio() {
     <p class="muted" style="margin-top:4px">A loja de verdade (o Nubimetrics embaralha os vendedores), o link do anúncio e o preço de agora, pela API oficial do
       Mercado Livre. As vendas continuam as do Nubimetrics.</p>
     ${mlBusca()}
-    <div class="card pad" style="margin-top:14px" id="ml-conta">Carregando a conta do Mercado Livre…</div>
+    <p class="muted" style="margin:10px 2px 0;font-size:13px">🔐 A conta do Mercado Livre que o nubi usa (AURASCENT) fica em <a href="#/conexoes">🔌 Conexões</a>.</p>
     <div class="card pad" style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div><h2 style="margin:0">⚖️ Nubimetrics × API do ML</h2>
       <div class="muted" style="font-size:13px">Teste: as vendas de uma loja que já achamos, dia a dia, pelos dois lados.</div></div>
       <a class="btn small" href="#/ml/comparar" style="margin-left:auto">Abrir comparação</a></div>
@@ -8877,7 +8879,6 @@ async function telaMLInicio() {
           clique no ↻ da extensão.</li>
         <li>Abra uma busca ou um produto no Mercado Livre.</li></ol></div>`;
   ligarMLBusca();
-  mlConta();
   $("#ml-teste").onclick = async () => {
     const el = $("#ml-teste-res"); el.innerHTML = `<div class="muted" style="margin-top:8px">Testando…</div>`;
     try {

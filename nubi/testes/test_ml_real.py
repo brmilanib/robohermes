@@ -120,7 +120,15 @@ try:
             assert "https://perfil.mercadolivre.com.br/KAIDOXSTOREE" in links and all(l.startswith("https://") for l in links), links   # o ML manda http://
             pg.click("#ml-teste"); pg.wait_for_selector("#ml-teste-res li", timeout=5000)
             assert "token do app" in pg.inner_text("#ml-teste-res") and "❌" not in pg.inner_text("#ml-teste-res")
-            assert "Conectar conta do ML" in pg.inner_text("#ml-conta") and "meli_retorno" in pg.inner_text("#ml-conta")
+            assert "Conexões" in pg.inner_text("#main") and not pg.locator("#ml-conta").count()   # 03/10: a conta mudou de tela
+            # 1a) a conta do ML mora em 🔌 Conexões (cartão do Mercado Livre)
+            painel = {"plataformas": [{"chave": "ml", "nome": "Mercado Livre", "configurada": True, "faltam": [], "retorno": "x?r=loja_retorno&p=ml", "contas": []},
+                                      {"chave": "shopee", "nome": "Shopee", "configurada": False, "faltam": ["SHOPEE_PARTNER_ID"], "retorno": "x", "contas": []}]}
+            pg.route("**/api/app?r=lojas_conexoes*", lambda r: r.fulfill(content_type="application/json", body=json.dumps(painel)))
+            pg.goto(f"http://127.0.0.1:{PORTA}/#/conexoes"); pg.wait_for_selector("#ml-conta button", timeout=15000)
+            assert "Conectar conta do ML" in pg.inner_text("#ml-conta") and "Conta principal" in pg.inner_text("#ml-conta")
+            assert "SHOPEE_PARTNER_ID" in pg.inner_text("#main")
+            pg.screenshot(path=os.path.join(os.path.dirname(__file__), "saida_conexoes.png"), full_page=True)
             # 1b) comparação Nubimetrics x ML
             pg.goto(f"http://127.0.0.1:{PORTA}/#/ml/comparar?loja=222222222&vendedor=ESSENCE"); pg.wait_for_selector("#cmp-res table", timeout=15000)
             t = pg.inner_text("#cmp-res").replace("\xa0", " ")
