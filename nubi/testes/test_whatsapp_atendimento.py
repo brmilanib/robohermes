@@ -30,6 +30,10 @@ def gerar(prompt, sistema):
     pedidos_ia.append((prompt, sistema))
     if "interpreta" in sistema.lower():
         return "{}", "teste"
+    if "BOM DIA" in sistema:
+        return "Bom dia, Bruno! 📈 Ontem foi bom.", "teste"
+    if "me lembra" in prompt:
+        return "Marquei! [[lembrete:2026-10-04 09:00|ligar pro fornecedor]]\n[[ferreiro:ver por que o Gestor pede login]]", "teste"
     return "Oi! Que bom falar com você 😊 Me conta o que você procura e mais ou menos o volume. Qualquer coisa, é só chamar!", "teste"
 
 
@@ -81,6 +85,22 @@ def test_fluxo_completo():
     assert all(x["canal"] != "whatsapp" for x in a.para_enviar(r))
 
 
+def test_assistente_lembrete_bom_dia_e_ferreiro():
+    from datetime import datetime, timezone
+    r = Repo()
+    t = w.tick(r, {"dono": [{"texto": "Banguela, me lembra amanhã às 9h de ligar pro fornecedor"}]})
+    assert t["ao_dono"][0].startswith("🦷 Banguela:\nMarquei!") and "[[" not in t["ao_dono"][0]
+    assert t["agentes"] == [{"agente": "claude", "texto": "(pedido do Bruno, passado pelo Banguela) ver por que o Gestor pede login"}]
+    lem = w._ler(r, w.LEMBRETES, [])
+    assert len(lem) == 1 and lem[0]["quando"].startswith("2026-10-04T12:00")            # 9h de Brasília = 12h UTC
+    assert w.lembretes_vencidos(r, datetime(2026, 10, 4, 11, 59, tzinfo=timezone.utc)) == []
+    assert w.lembretes_vencidos(r, datetime(2026, 10, 4, 12, 1, tzinfo=timezone.utc)) == ["⏰ Lembrete: ligar pro fornecedor"]
+    assert w._ler(r, w.LEMBRETES, []) == []
+    cedo, oito = datetime(2026, 10, 4, 10, 0, tzinfo=timezone.utc), datetime(2026, 10, 4, 11, 5, tzinfo=timezone.utc)
+    assert w.bom_dia(r, cedo) is None                                                    # 7h de Brasília: ainda não
+    assert w.bom_dia(r, oito).startswith("☀️ Bom dia, Bruno!") and w.bom_dia(r, oito) is None   # 1 vez por dia
+
+
 def test_reconhece_o_dono_e_a_loja():
     assert w.eh_dono("+55 (44) 99881-2871") and w.eh_dono("44998812871") and not w.eh_dono("44998812870")
     assert w.loja_da_conversa(["Olá! Gostaria de saber mais sobre a Via Brazil Global."]) == "via_brazil"
@@ -90,4 +110,5 @@ def test_reconhece_o_dono_e_a_loja():
 if __name__ == "__main__":
     test_reconhece_o_dono_e_a_loja()
     test_fluxo_completo()
+    test_assistente_lembrete_bom_dia_e_ferreiro()
     print("ok whatsapp atendimento")

@@ -13,6 +13,7 @@ Brazil Global ele já entende; e eu converso com o Ferreiro, o Codex ou o Hermes
 import json
 import os
 import re
+from datetime import datetime, timedelta, timezone
 
 import atendimento as at
 
@@ -20,6 +21,10 @@ CANAL = "whatsapp"
 DONO_PADRAO = "5544998812871"           # número pessoal do Bruno (03/10)
 CHIP = "5547991388777"                  # o chip da loja (o mesmo do botão do site da Via Brazil Global)
 AVISADOS = "whatsapp|avisados"          # ids de rascunho já mandados ao Bruno (para não repetir)
+LEMBRETES = "banguela|lembretes"        # [{quando (UTC), texto, criado_em}] — assistente pessoal (03/10)
+BOM_DIA = "banguela|bom_dia"            # data (Brasília) do último bom dia
+BOM_DIA_HORA = 8
+BRASILIA = timezone(timedelta(hours=-3))
 LOJAS = [(re.compile(r"via\s*braz[il]{1,2}\s*global", re.I), "via_brazil")]
 AGENTES = {"ferreiro": "claude", "claude": "claude", "codex": "codex", "hermes": "hermes", "banguela": "banguela"}
 RE_AGENTE = re.compile(r"^\s*(ferreiro|claude|codex|hermes|banguela)\b[\s,:;.!-]*(.*)$", re.I | re.S)
@@ -140,7 +145,8 @@ def comando_dono(repo, texto):
     ag = RE_AGENTE.match(t)
     if ag:
         if AGENTES[ag.group(1).lower()] == "banguela":      # o Banguela responde aqui mesmo (servidor), sem passar pelo Mac
-            return {"resposta": "🦷 Banguela:\n" + banguela(repo, ag.group(2).strip() or t)}
+            txt, ferreiro = banguela(repo, ag.group(2).strip() or t, com_acoes=True)
+            return {"resposta": "🦷 Banguela:\n" + txt, "ferreiro": ferreiro}
         return {"agente": AGENTES[ag.group(1).lower()], "texto": ag.group(2).strip() or t}
     res = _aprovacao(repo, t)
     if res is not None:
@@ -186,21 +192,96 @@ def _aprovacao(repo, t, so_explicito=False):
     return {"resposta": f"✅ #{r['id']}: mando o seu texto para {_quem(r)}."}
 
 
-PAPEL_BANGUELA = """Você é o Banguela, o atendente das lojas do Bruno (Pure Perfumaria, Essence Prime e a importadora Via Brazil
-Global), no WhatsApp do chip, no TikTok Shop e na Shopee. Agora você conversa com o BRUNO (dono), não com cliente.
-Responda em português, curto e direto, como colega de trabalho. Use SÓ o CONTEXTO (fila do atendimento agora): o que está
-esperando ele, de quem, o que o cliente quer e o que você sugeriu. Não invente número nem conversa.
-Para aprovar, lembre o jeito: "ok N" envia a sugestão, "N texto" manda o texto dele, "não N" não responde.
-Se ele pedir algo que não é do atendimento (código, coleta, estoque), diga para chamar o Ferreiro ou o Codex."""
+PAPEL_BANGUELA = """Você é o Banguela: o atendente das lojas do Bruno (Pure Perfumaria, Essence Prime e a importadora Via Brazil
+Global) e, desde 03/10, também a ASSISTENTE PESSOAL dele. Agora você conversa com o BRUNO (dono), não com cliente.
+Responda em português, curto e direto, como uma assistente de confiança, em texto simples de WhatsApp.
+Use SÓ o CONTEXTO: a fila do atendimento, as vendas de hoje, o ADS, a base de conhecimento do nubi e os lembretes.
+Não invente número, conversa nem compromisso; se não está no contexto, diga que não sabe e onde dá para ver.
+SAC: para aprovar, lembre o jeito: "ok N" envia a sugestão, "N texto" manda o texto dele, "não N" não responde.
+LEMBRETE: se ele pedir para lembrar de algo, escreva numa linha sozinha [[lembrete:AAAA-MM-DD HH:MM|o que lembrar]] (horário
+de Brasília; "amanhã cedo" = 08:00; sem hora = 09:00) e confirme em uma frase. Para desmarcar: [[desmarcar:trecho do texto]].
+FERREIRO: código, coleta, robôs, telas do nubi e erros são com o Ferreiro (Claude Code no Mac). Se o Bruno pedir algo assim,
+ou você precisar dele, escreva numa linha sozinha [[ferreiro:o pedido completo, com o contexto]] e diga que passou para ele
+(a resposta dele chega no WhatsApp do Bruno)."""
+
+PAPEL_BOM_DIA = """Você é o Banguela, assistente do Bruno. Escreva o BOM DIA dele para o WhatsApp, curto (até 900 caracteres), em
+tópicos com emoji: lembretes de hoje, como foram as vendas de ontem, o que está esperando ele no atendimento e qualquer
+alerta do CONTEXTO. Só números do CONTEXTO; se algo não veio, não fale disso. Comece com "Bom dia, Bruno!"."""
 
 
-def banguela(repo, texto, historico=None):
-    """O Banguela conversando com o Bruno (Painel do coletor ou "Banguela, …" no WhatsApp): aprova pelo jeito curto ou
-    responde sobre a fila do atendimento com o Sonnet do atendimento (teto do dia; senão a IA grátis)."""
+def _ler(repo, chave, padrao):
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{chave}"}) or [{}])[0]
+    try:
+        return json.loads(r["texto"]) if r.get("texto") else padrao
+    except (TypeError, ValueError):
+        return padrao
+
+
+def _gravar(repo, chave, valor):
+    repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "texto": json.dumps(valor, ensure_ascii=False), "ia": "banguela",
+                                            "criado_em": at._agora()}], prefer="resolution=merge-duplicates,return=minimal")
+
+
+def _agora_br(agora=None):
+    return (agora or datetime.now(timezone.utc)).astimezone(BRASILIA)
+
+
+def _contexto_negocio(repo, pergunta, agora=None):
+    """Números do nubi para a assistente: vendas de hoje (UpSeller), ADS do ML, base de conhecimento e lembretes."""
+    ctx = {"agora_brasilia": _agora_br(agora).strftime("%A %d/%m/%Y %H:%M")}
+    try:
+        import vendas_hoje
+        tv = vendas_hoje.tv(repo, agora)
+        ctx["vendas_hoje"] = {k: tv.get(k) for k in ("ate_agora", "ate_agora_comparar", "projecao", "ultima_hora", "lojas", "campeoes")
+                              if tv.get(k) is not None}
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        ads = _ler(repo, "ads_ml|principal", {})
+        ctx["ads_mercado_livre"] = {k: ads.get(k) for k in ("hoje", "ontem", "mes", "mes_fechado", "atualizado_em") if k in ads}
+    except Exception:  # noqa: BLE001
+        pass
+    if pergunta:
+        try:
+            import saber
+            ctx["base_de_conhecimento"] = [{"titulo": x.get("titulo"), "texto": str(x.get("texto") or x.get("trecho") or "")[:500]}
+                                           for x in saber.buscar(repo, pergunta, 6)]
+        except Exception:  # noqa: BLE001
+            pass
+    ctx["lembretes"] = [{"quando": _agora_br(datetime.fromisoformat(x["quando"])).strftime("%d/%m %H:%M"), "texto": x["texto"]}
+                        for x in _ler(repo, LEMBRETES, [])][:20]
+    return ctx
+
+
+def _acoes_banguela(repo, txt):
+    """[[lembrete:…]] grava; [[desmarcar:…]] apaga; [[ferreiro:…]] volta para o Mac. Devolve (texto limpo, pedidos ao Ferreiro)."""
+    lembretes = _ler(repo, LEMBRETES, [])
+    mudou = False
+    for quando, oque in re.findall(r"\[\[lembrete:\s*(\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2})\s*\|([^\]]+)\]\]", txt):
+        try:
+            dt = datetime.strptime(quando.replace("T", " "), "%Y-%m-%d %H:%M").replace(tzinfo=BRASILIA)
+        except ValueError:
+            continue
+        lembretes.append({"quando": dt.astimezone(timezone.utc).isoformat(), "texto": oque.strip()[:500], "criado_em": at._agora()})
+        mudou = True
+    for trecho in re.findall(r"\[\[desmarcar:([^\]]+)\]\]", txt):
+        antes = len(lembretes)
+        lembretes = [x for x in lembretes if trecho.strip().lower() not in x["texto"].lower()]
+        mudou = mudou or len(lembretes) != antes
+    if mudou:
+        _gravar(repo, LEMBRETES, sorted(lembretes, key=lambda x: x["quando"])[:200])
+    ferreiro = [x.strip() for x in re.findall(r"\[\[ferreiro:([^\]]+)\]\]", txt) if x.strip()]
+    return re.sub(r"\[\[[^\]]+\]\]", "", txt).strip(), ferreiro
+
+
+def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
+    """O Banguela conversando com o Bruno (Painel do coletor ou "Banguela, …" no WhatsApp): aprova pelo jeito curto,
+    responde sobre o atendimento e o negócio (com a base do nubi), marca lembretes e passa pedidos ao Ferreiro.
+    com_acoes=True devolve (texto, pedidos_ao_ferreiro)."""
     t = str(texto or "").strip()
     res = _aprovacao(repo, t, so_explicito=True)
     if res is not None:
-        return res.get("resposta") or ""
+        return (res.get("resposta") or "", []) if com_acoes else (res.get("resposta") or "")
     abertos = _abertos(repo, 20)
     try:
         resumo = at.painel(repo, dias=1)
@@ -209,15 +290,45 @@ def banguela(repo, texto, historico=None):
     ctx = {"esperando_voce_no_whatsapp": [{"n": r["id"], "cliente": _quem(r), "tipo": "aprovar" if r["status"] == "pendente" else "precisa_de_voce",
                                            "mensagem": _msg_cliente(repo, r)[:300], "sugestao": str(r.get("texto_gerado") or "")[:400],
                                            "pergunta": str(r.get("pergunta_operador") or "")[:300]} for r in abertos[:10]],
-           "painel_do_sac_hoje": resumo}
+           "painel_do_sac_hoje": resumo, **_contexto_negocio(repo, t, agora)}
     conversa = "\n".join(f"{'BRUNO' if h.get('role') == 'user' else 'BANGUELA'}: {str(h.get('content'))[:600]}"
                          for h in (historico or [])[-8:])
-    pedido = f"CONTEXTO:\n{json.dumps(ctx, ensure_ascii=False, default=str)[:7000]}\n\nCONVERSA:\n{conversa}\nBRUNO: {t}"
+    pedido = f"CONTEXTO:\n{json.dumps(ctx, ensure_ascii=False, default=str)[:9000]}\n\nCONVERSA:\n{conversa}\nBRUNO: {t}"
     try:
         txt, _ = at.gerar_qualidade(repo)(pedido, PAPEL_BANGUELA)
     except Exception as e:  # noqa: BLE001
-        return f"(não consegui pensar agora: {str(e)[:150]})"
-    return str(txt or "").strip()[:3000]
+        txt = f"(não consegui pensar agora: {str(e)[:150]})"
+    limpo, ferreiro = _acoes_banguela(repo, str(txt or ""))
+    if ferreiro and not com_acoes:
+        limpo += "\n\n(Passe o pedido ao Ferreiro pelo WhatsApp ou pelo chat dele aqui no Painel.)"
+    return (limpo[:3000], ferreiro) if com_acoes else limpo[:3000]
+
+
+def lembretes_vencidos(repo, agora=None):
+    """Lembretes cuja hora chegou (saem da lista)."""
+    agora = agora or datetime.now(timezone.utc)
+    todos = _ler(repo, LEMBRETES, [])
+    vencidos = [x for x in todos if datetime.fromisoformat(x["quando"]) <= agora]
+    if vencidos:
+        _gravar(repo, LEMBRETES, [x for x in todos if x not in vencidos])
+    return [f"⏰ Lembrete: {x['texto']}" for x in vencidos]
+
+
+def bom_dia(repo, agora=None):
+    """Uma vez por dia, a partir das 8h de Brasília: o resumo do dia no WhatsApp do Bruno (None = ainda não é hora/já foi)."""
+    br = _agora_br(agora)
+    if br.hour < BOM_DIA_HORA or br.hour >= 12 or _ler(repo, BOM_DIA, "") == br.date().isoformat():
+        return None
+    _gravar(repo, BOM_DIA, br.date().isoformat())
+    abertos = _abertos(repo, 20)
+    ctx = dict(_contexto_negocio(repo, "", agora), esperando_voce_no_sac=len(abertos))
+    hoje = br.date()
+    ctx["lembretes_de_hoje"] = [x for x in ctx.get("lembretes", []) if x["quando"].startswith(hoje.strftime("%d/%m"))]
+    try:
+        txt, _ = at.gerar_qualidade(repo)(f"CONTEXTO:\n{json.dumps(ctx, ensure_ascii=False, default=str)[:9000]}", PAPEL_BOM_DIA)
+    except Exception:  # noqa: BLE001
+        return None
+    return "☀️ " + re.sub(r"\[\[[^\]]+\]\]", "", str(txt or "")).strip()[:1500]
 
 
 def tick(repo, d):
@@ -243,6 +354,12 @@ def tick(repo, d):
             agentes.append({"agente": r["agente"], "texto": r["texto"]})
         elif r.get("resposta"):
             ao_dono.append(r["resposta"])
+        agentes += [{"agente": "claude", "texto": f"(pedido do Bruno, passado pelo Banguela) {x}"} for x in r.get("ferreiro") or []]
+    for extra in (lambda: lembretes_vencidos(repo), lambda: [bom_dia(repo)]):
+        try:
+            ao_dono += [x for x in extra() if x]
+        except Exception as e:  # noqa: BLE001
+            erros.append(f"assistente: {str(e)[:150]}")
     ao_dono += avisos_para_dono(repo)
     enviar = [{"id": x["id"], "fone": so_digitos(x.get("externo_id")), "cliente": x.get("cliente"), "texto": x["texto"]}
               for x in at.para_enviar(repo, CANAL)]
