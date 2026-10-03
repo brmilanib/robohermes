@@ -85,6 +85,10 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   código com todo o histórico em `codigo.bundle`, num arquivo `~/nubi-backup/nubi-AAAA-MM-DD.tar.gz` + cópia em
   `<Google Drive>/nubi-backup`; guarda as 8 últimas. O token do ML (`meli|conta`) nunca entra. Além disso o Supabase Pro
   guarda 7 dias. `.claude/settings.json` (raiz) libera o dia a dia e bloqueia apagar/pausar projeto, env da Vercel e compras.
+- 03/10 (Bruno): "enquanto não terminar o card #126 (desafio), não vou aprovar nenhum card" — não empurrar propostas
+  novas para aprovação; elas ficam em Propostas. Ollama do PC gamdias desligado (`servidor_ollama_parar`; religar com
+  `servidor_ollama_ligar`): ocupava a memória da GPU; o atendente usa o gpt-oss grátis do nubi. Temperatura do Mac no
+  Monitor vem do `macmon` (`brew install macmon`, sem sudo; `_temp_macmon`), senão fica "sem dados".
 - Branch de trabalho: `claude/wizardly-ritchie-5fig5i`; sem PR se não pedirem; não mexer no "Branch Tracking" da Vercel.
 - Testar no servidor falso (fake_rest + servidor.py) e no mock do Nubimetrics antes de publicar.
 

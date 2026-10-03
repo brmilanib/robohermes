@@ -4984,7 +4984,7 @@ def _eh_servidor(cfg=None):
 # o que sabe fazer; enquanto dá sinal, o Mac não pega esses comandos (fica de reserva). Coleta do Nubimetrics, Gestor,
 # logins e Ferreiro continuam no Mac até os logins/ferramentas estarem no servidor.
 SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servidor_espaco", "servidor_log",
-                 "servidor_ollama", "servidor_atualizar", "servidor_backup",
+                 "servidor_ollama", "servidor_atualizar", "servidor_backup", "servidor_ollama_parar", "servidor_ollama_ligar",
                  # 27/09 (Mac com malware, reinstalação): coletas e logins também no servidor (gamdias)
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
@@ -5068,8 +5068,23 @@ def comando_mac(chave, arg=""):
                         "echo '== LaunchAgents/Daemons =='; /bin/ls -la ~/Library/LaunchAgents /Library/LaunchAgents /Library/LaunchDaemons 2>&1; "
                         "echo '== crontab =='; /usr/bin/crontab -l 2>&1"],
     }
+    # 03/10 (Bruno: "pausa o Ollama no gamdias, está usando muita memória da GPU"): desliga o Ollama e o início automático
+    # dele; sem o Ollama o atendente usa o gpt-oss grátis do nubi (_modelos_locais volta vazio). "ligar" desfaz.
+    tabela.update({"servidor_ollama_parar": ["/bin/sh", "-c", "/usr/bin/pkill -if '[o]llama'; sleep 2; "
+                                             "/usr/bin/pgrep -il ollama || echo 'Ollama parado'"],
+                   "servidor_ollama_ligar": ["/bin/sh", "-c", "/usr/bin/open -a Ollama 2>&1; echo 'Ollama ligado'"]})
     if WINDOWS:          # 27/09: servidor Dell (Windows) — mesmos comandos, com as ferramentas do Windows
         ps = ["powershell", "-NoProfile", "-Command"]
+        guarda = str(PASTA / "ollama-inicio.lnk")
+        tabela.update({
+            "servidor_ollama_parar": [*ps, "$lnk=Join-Path ([Environment]::GetFolderPath('Startup')) 'Ollama.lnk'; "
+                                      f"if(Test-Path $lnk){{Move-Item -Force $lnk '{guarda}'; 'inicio automatico do Ollama desligado'}}; "
+                                      "Get-Process | Where-Object {$_.Name -like 'ollama*'} | Stop-Process -Force; Start-Sleep 3; "
+                                      "if(Get-Process | Where-Object {$_.Name -like 'ollama*'}){'Ollama ainda rodando'}else{'Ollama parado'}"],
+            "servidor_ollama_ligar": [*ps, "$lnk=Join-Path ([Environment]::GetFolderPath('Startup')) 'Ollama.lnk'; "
+                                      f"if(Test-Path '{guarda}'){{Move-Item -Force '{guarda}' $lnk; 'inicio automatico do Ollama religado'}}; "
+                                      "Start-Process (Join-Path $env:LOCALAPPDATA 'Programs\\Ollama\\ollama app.exe'); 'Ollama ligado'"],
+        })
         tabela.update({
             "vigia_status": [*ps, "Get-ChildItem \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\" | Select Name,LastWriteTime"],
             "log_vigia": [*ps, f"Get-Content -Tail 80 '{PASTA / 'vigia.log'}'"],
@@ -5202,8 +5217,43 @@ def _metricas_mac(info=None):
     agentes["ollama"] = bool((info or {}).get("ollama"))
     return {"coletado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"), "origem": "mac_mini",
             "cpu_pct": _cpu_top(rodar("/usr/bin/top", "-l", "2", "-n", "0", "-s", "1")),
-            "mem_pct": _mem_vm_stat(rodar("/usr/bin/vm_stat"), total), "disco_pct": disco, "temp_c": None,
+            "mem_pct": _mem_vm_stat(rodar("/usr/bin/vm_stat"), total), "disco_pct": disco, **_temp_macmon(rodar),
             "agentes": agentes, "extras": {"ip": _ip_publico()}}
+
+
+MACMON = ("/opt/homebrew/bin/macmon", "/usr/local/bin/macmon")
+
+
+def _achar_chave(d, chave):
+    """Primeiro valor da chave em qualquer nível do JSON (o macmon muda o formato entre versões)."""
+    if isinstance(d, dict):
+        if chave in d:
+            return d[chave]
+        for v in d.values():
+            r = _achar_chave(v, chave)
+            if r is not None:
+                return r
+    return None
+
+
+def _temp_macmon(rodar):
+    """03/10 (Bruno: "temperatura do Mac no Monitor"): o macOS só dá a temperatura com sudo (powermetrics); o macmon
+    (`brew install macmon`, sem sudo) lê os sensores. Sem ele: None (nunca zero)."""
+    exe = next((m for m in MACMON if Path(m).exists()), None)
+    vazio = {"temp_c": None}
+    if not exe:
+        return vazio
+    linha = (rodar(exe, "pipe", "-s", "1", "-i", "800") or "").strip().splitlines()
+    try:
+        j = json.loads(linha[0]) if linha else {}
+    except ValueError:
+        return vazio
+    if not isinstance(j, dict) or not j:
+        return vazio
+    num = lambda v: round(float(v), 1) if isinstance(v, (int, float)) and v > 0 else None      # noqa: E731
+    gpu = _achar_chave(j, "gpu_usage")
+    gpu_pct = num(gpu[1] * 100 if gpu[1] <= 1 else gpu[1]) if isinstance(gpu, list) and len(gpu) > 1 and isinstance(gpu[1], (int, float)) else None
+    return {"temp_c": num(_achar_chave(j, "cpu_temp_avg")), "gpu_temp_c": num(_achar_chave(j, "gpu_temp_avg")), "gpu_pct": gpu_pct}
 
 
 _IP_CACHE = {"ip": None, "em": 0.0}

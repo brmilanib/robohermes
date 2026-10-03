@@ -137,10 +137,33 @@ def test_ip_publico_e_prazo_de_troca():
     txt = w.avisar_troca_ip(r, "gamdias", "177.3.3.3", AGORA)
     assert "177.2.2.2 → 177.3.3.3" in txt and "42 dia" in txt and r.sala[0]["autor"] == "sistema", txt
 
+def test_temperatura_do_mac_pelo_macmon():
+    import coletor as c
+    # 03/10 (Bruno: "temperatura do Mac no Monitor"): sem sudo, pelo macmon; sem ele, None (nunca zero)
+    import json as _j
+    saida = _j.dumps({"temp": {"cpu_temp_avg": 47.36, "gpu_temp_avg": 41.2}, "gpu_usage": [1398, 0.12]})
+    velho = c.MACMON
+    try:
+        c.MACMON = (__file__,)
+        assert c._temp_macmon(lambda *cmd: saida + "\n") == {"temp_c": 47.4, "gpu_temp_c": 41.2, "gpu_pct": 12.0}
+        assert c._temp_macmon(lambda *cmd: "") == {"temp_c": None}
+        c.MACMON = ("/nao/existe",)
+        assert c._temp_macmon(lambda *cmd: saida) == {"temp_c": None}
+    finally:
+        c.MACMON = velho
+
+
+def test_comandos_do_ollama_no_pc():
+    import coletor as c
+    assert c.comando_mac("servidor_ollama_parar") and c.comando_mac("servidor_ollama_ligar")
+    assert "servidor_ollama_parar" in c.SERVIDOR_PODE
+
 
 if __name__ == "__main__":
     test_foto_diaria_e_evolucao()
     test_maquinas_com_gpu_e_sem_sinal()
     test_leitura_da_gpu_e_do_windows()
     test_ip_publico_e_prazo_de_troca()
+    test_temperatura_do_mac_pelo_macmon()
+    test_comandos_do_ollama_no_pc()
     print("ok monitor")
