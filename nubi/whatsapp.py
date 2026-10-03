@@ -23,6 +23,9 @@ CHIP = "5547991388777"                  # o chip da loja (o mesmo do botão do s
 AVISADOS = "whatsapp|avisados"          # ids de rascunho já mandados ao Bruno (para não repetir)
 LEMBRETES = "banguela|lembretes"        # [{quando (UTC), texto, criado_em}] — assistente pessoal (03/10)
 BOM_DIA = "banguela|bom_dia"            # data (Brasília) do último bom dia
+MEMORIA = "banguela|memoria"            # [{tipo, texto, criado_em}] — recados, fatos, preferências e alertas que o Bruno pediu para guardar
+CONVERSA = "banguela|conversa"          # [{de, texto, canal, em}] — a conversa com o Bruno, a MESMA no Painel e no WhatsApp
+MEMORIA_TIPOS = ("recado", "fato", "preferencia", "alerta", "pessoa")
 AVISOS = "whatsapp|avisos"
 BANGUELA_MODELO = at.SONNET     # 03/10 (Bruno): uma Banguela só — o mesmo modelo do atendimento aos clientes (Opus 5.5)              # avisos do nubi (fim de coleta, erro…) esperando a próxima volta do chip
 BOM_DIA_HORA = 8
@@ -165,7 +168,7 @@ def comando_dono(repo, texto):
     ag = RE_AGENTE.match(t)
     if ag:
         if AGENTES[ag.group(1).lower()] == "banguela":      # o Banguela responde aqui mesmo (servidor), sem passar pelo Mac
-            txt, ferreiro = banguela(repo, ag.group(2).strip() or t, com_acoes=True)
+            txt, ferreiro = banguela(repo, ag.group(2).strip() or t, com_acoes=True, canal="whatsapp")
             return {"resposta": "🦷 Banguela:\n" + txt, "ferreiro": ferreiro}
         return {"agente": AGENTES[ag.group(1).lower()], "texto": ag.group(2).strip() or t}
     res = _aprovacao(repo, t)
@@ -234,7 +237,16 @@ LEMBRETE: se ele pedir para lembrar de algo, escreva numa linha sozinha [[lembre
 de Brasília; "amanhã cedo" = 08:00; sem hora = 09:00) e confirme em uma frase. Para desmarcar: [[desmarcar:trecho do texto]].
 FERREIRO: código, coleta, robôs, telas do nubi e erros são com o Ferreiro (Claude Code no Mac). Se o Bruno pedir algo assim,
 ou você precisar dele, escreva numa linha sozinha [[ferreiro:o pedido completo, com o contexto]] e diga que passou para ele
-(a resposta dele chega no WhatsApp do Bruno)."""
+(a resposta dele chega no WhatsApp do Bruno).
+MEMÓRIA: você tem memória própria no nubi (banco de dados na nuvem, não no Mac): a MESMA no Painel do coletor, no WhatsApp
+e no SAC. Ela tem a CONVERSA com o Bruno (os dois canais juntos), sua_memoria (recados, fatos, preferências, alertas,
+pessoas), os lembretes e a base de conhecimento do atendimento. Quando o Bruno contar algo que vale lembrar depois (um
+recado, quem é alguém, como ele gosta das coisas, algo para ficar de olho), grave numa linha sozinha
+[[memoria:TIPO|o que guardar, completo e com data se tiver]] (TIPO = recado, fato, preferencia, alerta ou pessoa) e diga
+que guardou. Para apagar: [[esquecer:trecho do texto]]. Se ele perguntar o que você sabe/lembra, use sua_memoria.
+SEU MODELO: está em voce.modelo no CONTEXTO; quando perguntarem, diga qual é (e que é o mesmo nos clientes)."""
+
+MODELOS_NOME = {"claude-opus-5-5": "Claude Opus 5.5 (Anthropic)", "claude-sonnet-5-5": "Claude Sonnet 5.5 (Anthropic)"}
 
 PAPEL_BOM_DIA = """Você é o Banguela, assistente do Bruno. Escreva o BOM DIA dele para o WhatsApp, curto (até 900 caracteres), em
 tópicos com emoji: lembretes de hoje, como foram as vendas de ontem, o que está esperando ele no atendimento e qualquer
@@ -282,7 +294,25 @@ def _contexto_negocio(repo, pergunta, agora=None):
             pass
     ctx["lembretes"] = [{"quando": _agora_br(datetime.fromisoformat(x["quando"])).strftime("%d/%m %H:%M"), "texto": x["texto"]}
                         for x in _ler(repo, LEMBRETES, [])][:20]
+    ctx["sua_memoria"] = [{"tipo": x.get("tipo"), "texto": x.get("texto"), "desde": str(x.get("criado_em") or "")[:10]}
+                          for x in _ler(repo, MEMORIA, [])][-80:]
     return ctx
+
+
+def _voce():
+    return {"nome": "Banguela", "modelo": MODELOS_NOME.get(BANGUELA_MODELO, BANGUELA_MODELO), "id_do_modelo": BANGUELA_MODELO,
+            "reserva": f"se a Anthropic cair ou passar o teto de US$ {at.SONNET_TETO_USD:g}/dia, a IA grátis (gpt-oss) responde no lugar",
+            "memoria": "no banco do nubi (nuvem): a mesma no Painel, no WhatsApp e no SAC"}
+
+
+def conversa_guardada(repo, n=12):
+    return _ler(repo, CONVERSA, [])[-n:]
+
+
+def _guardar_conversa(repo, canal, bruno, resposta):
+    conv = _ler(repo, CONVERSA, []) + [{"de": "bruno", "texto": str(bruno)[:1500], "canal": canal, "em": at._agora()},
+                                       {"de": "banguela", "texto": str(resposta)[:1500], "canal": canal, "em": at._agora()}]
+    _gravar(repo, CONVERSA, conv[-200:])
 
 
 def _acoes_banguela(repo, txt):
@@ -302,11 +332,19 @@ def _acoes_banguela(repo, txt):
         mudou = mudou or len(lembretes) != antes
     if mudou:
         _gravar(repo, LEMBRETES, sorted(lembretes, key=lambda x: x["quando"])[:200])
+    novos = re.findall(r"\[\[memoria:\s*([a-zç]+)\s*\|([^\]]+)\]\]", txt, re.I)
+    apagar = [x.strip().lower() for x in re.findall(r"\[\[esquecer:([^\]]+)\]\]", txt) if x.strip()]
+    if novos or apagar:
+        mem = [x for x in _ler(repo, MEMORIA, []) if not any(a in x["texto"].lower() for a in apagar)]
+        for tipo, oque in novos:
+            tipo = tipo.lower().replace("ç", "c")
+            mem.append({"tipo": tipo if tipo in MEMORIA_TIPOS else "fato", "texto": oque.strip()[:800], "criado_em": at._agora()})
+        _gravar(repo, MEMORIA, mem[-500:])
     ferreiro = [x.strip() for x in re.findall(r"\[\[ferreiro:([^\]]+)\]\]", txt) if x.strip()]
     return re.sub(r"\[\[[^\]]+\]\]", "", txt).strip(), ferreiro
 
 
-def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
+def banguela(repo, texto, historico=None, agora=None, com_acoes=False, canal="painel"):
     """O Banguela conversando com o Bruno (Painel do coletor ou "Banguela, …" no WhatsApp): conversa de verdade (Opus),
     com o histórico; aprova/muda respostas, marca lembretes e passa pedidos ao Ferreiro como AÇÕES dentro da resposta.
     03/10 (Bruno: "ela é robótica"): nada de resposta pronta; "ok N"/"N texto" exatos são feitos na hora e ela comenta.
@@ -328,13 +366,22 @@ def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
                                            "mensagem": _msg_cliente(repo, r)[:300], "sugestao": str(r.get("texto_gerado") or "")[:400],
                                            "pergunta": str(r.get("pergunta_operador") or "")[:300]} for r in abertos[:10]],
            "painel_do_sac_hoje": resumo, **_contexto_negocio(repo, t, agora)}
-    conversa = "\n".join(f"{'BRUNO' if h.get('role') == 'user' else 'BANGUELA'}: {str(h.get('content'))[:600]}"
-                         for h in (historico or [])[-8:])
+    ctx = {"voce": _voce(), "canal_agora": canal, **ctx}
+    # 03/10: a conversa vem do banco (Painel + WhatsApp juntos); o histórico do navegador só se o banco ainda estiver vazio
+    guardada = conversa_guardada(repo, 12)
+    if guardada:
+        conversa = "\n".join(f"{'BRUNO' if h.get('de') == 'bruno' else 'BANGUELA'} ({h.get('canal')}): {str(h.get('texto'))[:600]}"
+                             for h in guardada)
+    else:
+        conversa = "\n".join(f"{'BRUNO' if h.get('role') == 'user' else 'BANGUELA'}: {str(h.get('content'))[:600]}"
+                             for h in (historico or [])[-8:])
     if feito_ja:
         ctx["acao_que_voce_acabou_de_fazer"] = feito_ja
-    pedido = f"CONTEXTO:\n{json.dumps(ctx, ensure_ascii=False, default=str)[:9000]}\n\nCONVERSA ATÉ AGORA:\n{conversa}\nBRUNO: {t}"
+    pedido = f"CONTEXTO:\n{json.dumps(ctx, ensure_ascii=False, default=str)[:14000]}\n\nCONVERSA ATÉ AGORA:\n{conversa}\nBRUNO: {t}"
     try:
-        txt, _ = at.gerar_qualidade(repo, BANGUELA_MODELO)(pedido, PAPEL_BANGUELA)
+        txt, usou = at.gerar_qualidade(repo, BANGUELA_MODELO)(pedido, PAPEL_BANGUELA)
+        if usou not in ("opus", "sonnet"):
+            txt = f"{txt}\n\n_(respondi pela IA reserva ({usou}): a do Claude está fora ou no teto do dia)_"
     except Exception as e:  # noqa: BLE001
         txt = f"(não consegui pensar agora: {str(e)[:150]})"
     limpo, ferreiro = _acoes_banguela(repo, str(txt or ""))
@@ -360,6 +407,10 @@ def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
         limpo = (limpo + "\n\n" + "\n".join(feitos)).strip()
     if ferreiro and not com_acoes:
         limpo += "\n\n(Passe o pedido ao Ferreiro pelo WhatsApp ou pelo chat dele aqui no Painel.)"
+    try:
+        _guardar_conversa(repo, canal, t, limpo[:3000])
+    except Exception:  # noqa: BLE001
+        pass
     return (limpo[:3000], ferreiro) if com_acoes else limpo[:3000]
 
 
@@ -443,6 +494,9 @@ def rota(repo, metodo, nome, q, corpo):
         return tick(repo, d)
     if nome == "whatsapp_banguela" and metodo == "POST":     # chat do Painel do coletor com o Banguela
         return {"texto": banguela(repo, d.get("texto"), d.get("historico") if isinstance(d.get("historico"), list) else None)}
+    if nome == "whatsapp_banguela":                           # GET: o que a Banguela lembra (conversa dos 2 canais + memória)
+        return {"voce": _voce(), "conversa": conversa_guardada(repo, 40), "memoria": _ler(repo, MEMORIA, []),
+                "lembretes": _ler(repo, LEMBRETES, [])}
     if nome == "whatsapp_estado" and metodo == "POST":       # o Mac conta como está o WhatsApp (conectado, QR, erro)
         repo._req("POST", "ia_resumos", corpo=[{"chave": "whatsapp|estado", "texto": json.dumps(d)[:4000], "ia": "whatsapp",
                                                 "criado_em": at._agora()}], prefer="resolution=merge-duplicates,return=minimal")

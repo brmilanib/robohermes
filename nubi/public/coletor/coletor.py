@@ -9553,7 +9553,7 @@ button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6
  <div id="anx" class="anx"></div>
  <form id="f"><label class="ic" title="anexar print"><input type="file" id="arq" accept="image/*" multiple hidden>📎</label>
  <button type="button" class="ic" id="mic" title="falar (ditado)">🎤</button><textarea id="q" placeholder="Escreva, cole um print (Cmd+V) ou fale no 🎤…"></textarea><button id="env">Enviar</button></form>
- <div class="hint"><a href="#" id="nova" style="color:var(--azul)">Nova conversa</a> · tudo fica guardado no Mac; a memória (🧠) vale para o Ferreiro e o Codex</div>
+ <div class="hint"><a href="#" id="nova" style="color:var(--azul)">Nova conversa</a> · Ferreiro e Codex: conversa e memória (🧠) no Mac · 🦷 Banguela: memória no nubi (nuvem), a mesma no Painel, no WhatsApp e no SAC</div>
  <div class="hint">Claude e Codex conversam, olham prints e programam (botão 🔨: branch próprio + testes + revisão do Chefe). Usam a sua chave; o Claude conta no teto do Ferreiro. Hermes (grátis) para coisas simples e de volume.</div></div>
 </main>
 <script>

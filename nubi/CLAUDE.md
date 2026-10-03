@@ -116,7 +116,11 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   atendimento inteiro (`atendimento.SONNET`, env NUBI_ATENDIMENTO_MODELO) e a conversa com o Bruno usam claude-opus-5-5
   (teto US$ 10/dia); o que ele ensina vira item da base (`[[base:LOJA|pergunta|resposta]]`); número velho de sugestão
   (o atendente refaz a cada poucos minutos) leva à sugestão aberta mais nova da mesma conversa. `para_enviar` sem canal NUNCA
-  devolve o WhatsApp (o atendente do PC não mexe nele). Aba SAC → 💚 WhatsApp (`#/sac/whatsapp`, situação pela rota
+  devolve o WhatsApp (o atendente do PC não mexe nele). MEMÓRIA da Banguela (03/10) fica no nubi (ia_resumos), não no
+  Mac: `banguela|conversa` (a conversa com o Bruno, Painel e WhatsApp juntos), `banguela|memoria` (recado, fato,
+  preferencia, alerta, pessoa; ações `[[memoria:TIPO|texto]]` e `[[esquecer:trecho]]`), `banguela|lembretes` e a base do
+  atendimento. Ela sabe o modelo (`voce` no contexto) e avisa quando a IA reserva respondeu. GET `whatsapp_banguela`
+  mostra tudo. Aba SAC → 💚 WhatsApp (`#/sac/whatsapp`, situação pela rota
   `whatsapp_estado`). Depois (Bruno): aniversário da base antiga (5–10 por dia, devagar, com "responda SAIR"), e a
   API oficial da Meta para clientes. Testes `test_whatsapp_atendimento.py`, `test_whatsapp_coletor.py`.
 - Máquinas (03/10, Bruno): por enquanto o Mac é o principal e o gamdias continua como está (SAC do UpSeller, atendente

@@ -38,6 +38,10 @@ def gerar(prompt, sistema):
         return f"Ajustei e enviei!\n[[editar:{n}|Oi! Me passa o número do pedido para eu verificar?]]", "teste"
     if "reenvia sem custo" in prompt:
         return "Anotado!\n[[base:todas|Meu pedido foi cancelado pela transportadora, e agora?|Quando a transportadora cancela, a gente reenvia sem custo.]]", "teste"
+    if "esquece o Jorge" in prompt:
+        return "Pronto, esqueci. [[esquecer:Jorge]]", "teste"
+    if "guarda que" in prompt:
+        return "Guardei! [[memoria:pessoa|Jorge é o despachante da Via Brazil, fala com ele às terças]]", "teste"
     if "me lembra" in prompt:
         return "Marquei! [[lembrete:2026-10-04 09:00|ligar pro fornecedor]]\n[[ferreiro:ver por que o Gestor pede login]]", "teste"
     return "Oi! Que bom falar com você 😊 Me conta o que você procura e mais ou menos o volume. Qualquer coisa, é só chamar!", "teste"
@@ -135,6 +139,25 @@ def test_ensina_a_base_dos_clientes():
     assert "Guardei na base" in x and kb and kb[0]["loja"] == "todas" and "[[" not in x
 
 
+def test_memoria_e_modelo():
+    """03/10 (Bruno): ela sabe o modelo dela; a memória fica no nubi e é a mesma no Painel e no WhatsApp."""
+    r = Repo()
+    REPO_ATUAL[0] = r
+    x = w.banguela(r, "guarda que o Jorge é o despachante")
+    assert "Guardei" in x and "[[" not in x
+    mem = w._ler(r, w.MEMORIA, [])
+    assert mem[0]["tipo"] == "pessoa" and "Jorge" in mem[0]["texto"]
+    w.tick(r, {"dono": [{"texto": "Banguela, qual é o seu modelo?"}]})       # pelo WhatsApp
+    prompt, sistema = pedidos_ia[-1]
+    assert "Claude Opus 5.5" in prompt and "Jorge" in prompt                # modelo + memória no contexto
+    assert "BRUNO (painel): guarda que o Jorge" in prompt                    # a conversa do Painel aparece no WhatsApp
+    conv = w.conversa_guardada(r, 10)
+    assert [c["canal"] for c in conv] == ["painel", "painel", "whatsapp", "whatsapp"]
+    assert w.rota(r, "GET", "whatsapp_banguela", {}, None)["memoria"][0]["tipo"] == "pessoa"
+    w.banguela(r, "esquece o Jorge")
+    assert w._ler(r, w.MEMORIA, []) == []
+
+
 def test_reconhece_o_dono_e_a_loja():
     assert w.eh_dono("+55 (44) 99881-2871") and w.eh_dono("44998812871") and not w.eh_dono("44998812870")
     assert w.eh_dono("+55 44 9881-2871") and w.eh_dono("554498812871") and not w.eh_dono("5547988812871")   # sem o 9
@@ -148,4 +171,5 @@ if __name__ == "__main__":
     test_assistente_lembrete_bom_dia_e_ferreiro()
     test_aprova_e_edita_de_outro_canal()
     test_ensina_a_base_dos_clientes()
+    test_memoria_e_modelo()
     print("ok whatsapp atendimento")
