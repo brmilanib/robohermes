@@ -9934,7 +9934,7 @@ def _mac_vivo(repo, minutos=3):
 
 COMANDOS_MAC = {
     "status": "Status das coletas", "diario": "Rodar a coleta agora", "parar_coleta": "Parar a coleta em andamento",
-    "atualizar": "Atualizar o coletor", "backup": "Cópia de segurança do banco e do código (no Mac e no Google Drive)", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia", "painel_instalar": "Painel do coletor no Mac (ao vivo + chat com o Hermes; atalho na Mesa)", "revisao_coletor": "Revisão diária do coletor pelo Codex (relatório, aprendizados e melhorias propostas)",
+    "atualizar": "Atualizar o coletor", "backup": "Cópia de segurança do banco e do código (no Mac e no Google Drive)", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia", "painel_instalar": "Painel do coletor no Mac (ao vivo + chat com o Hermes; atalho na Mesa)", "revisao_coletor": "Revisão diária do coletor pelo Codex (relatório, aprendizados e melhorias propostas)", "codex_analise": "Codex: análise do uso da OpenAI (arg: cache, prompts ou modelo)",
     "log_vigia": "Últimas linhas do vigia", "log_coleta": "Últimas linhas da coleta",
     "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac", "matar_xmrig": "Parar o minerador xmrig no Mac (mostra de onde roda e o que o abre)", "forense_agente": "Malware: ler o item de início automático (só leitura)",
@@ -10830,6 +10830,8 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
             msg = "Modelo fora da lista permitida."
         elif k == "hermes_card" and not arg.isdigit():
             msg = "Informe o número do card."
+        elif k == "codex_analise" and arg not in ("cache", "prompts", "modelo"):
+            msg = "Análise do Codex: cache, prompts ou modelo."
         if msg:
             repo._req("POST", "mac_comandos", corpo=[{"comando": k[:60] or "?", "arg": arg[:60] or None,
                                                        "pedido_por": "Bruno", "status": "recusado", "criado_em": agora_,

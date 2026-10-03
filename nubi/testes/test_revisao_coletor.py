@@ -58,4 +58,26 @@ assert card["status"] == "proposta" and card["area"] == "coletor" and card["titu
 assert any(r_ == "conhecimento_salvar" for r_, _ in chamadas) and any(r_ == "reuniao_postar" for r_, _ in chamadas)
 assert json.loads(coletor.REVISAO_ULTIMA.read_text())["cards"] == ["#170 Baixar direto pelo link de primeira"]
 assert coletor.comando_mac("revisao_coletor")[-1] == "revisao-coletor"
+# as 3 análises do uso da OpenAI pelo Codex do Mac (só leitura, card proposta)
+(coletor.PASTA / "projeto" / ".git").mkdir(parents=True)
+coletor._git = lambda *a, **k: R()
+
+
+def run_analise(argv, **k):
+    rodou.append(argv)
+    Path(argv[argv.index("--output-last-message") + 1]).write_text("## Recomendações\n1. usar prompt_cache_key …")
+    return R()
+
+
+coletor.subprocess.run = run_analise
+for tipo in ("cache", "prompts", "modelo"):
+    class A:
+        pass
+    A.tipo = tipo
+    assert coletor.cmd_codex_analise(A, {}) == 0
+    a = rodou[-1]
+    assert a[a.index("--sandbox") + 1] == "read-only" and "NÃO altere arquivos" in a[-1]
+cards = [c for r_, c in chamadas if r_ == "reuniao_tarefa_salvar" and c["titulo"].startswith("OpenAI:")]
+assert len(cards) == 3 and all(c["status"] == "proposta" and "prompt_cache_key" in c["descricao"] for c in cards)
+assert coletor.comando_mac("codex_analise", "cache")[-2:] == ["codex-analise", "cache"] and coletor.comando_mac("codex_analise", "rm") is None
 print("ok revisão diária do coletor")

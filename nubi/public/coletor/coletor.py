@@ -5116,6 +5116,8 @@ def comando_mac(chave, arg=""):
         if not EXPLORADOR_MARCA_OK.match(marca.strip()):
             return None
         return [*c, "explorador-marca", marca.strip()] + (["--exata"] if modo.strip() == "exata" else [])
+    if chave == "codex_analise":
+        return [*c, "codex-analise", arg] if arg in ("cache", "prompts", "modelo") else None
     if chave == "programar_deepseek":
         return [*c, "programar-deepseek", arg] if str(arg).isdigit() else None
     return tabela.get(chave)
@@ -9970,6 +9972,73 @@ def cmd_revisao_coletor(args, cfg):
     return 0
 
 
+# 03/10 (Bruno: "implemente todas no Codex que fica no meu Mac"): as 3 análises de "melhorar um app existente" da página
+# do Codex (cache de prompt, prompts e modelos, migrar para a família nova), rodadas pelo Codex do Mac sobre o projeto,
+# SÓ LENDO. O resultado vira card PROPOSTA (o Bruno aprova o que aplicar) e aviso na Sala. Não roda pedido pago na API.
+CODEX_ANALISES = {
+    "cache": ("Cache de prompt da OpenAI",
+              "Analise o uso da API da OpenAI neste repositório (nubi: nubi_web.py, agentes.py, nubi/public/coletor/coletor.py "
+              "e os demais .py) e sugira como otimizar o PROMPT CACHING, seguindo o guia oficial "
+              "https://developers.openai.com/api/docs/guides/prompt-caching (consulte se tiver acesso à web). Inspecione a "
+              "montagem dos pedidos, os prefixos de prompt reaproveitáveis, o histórico de conversa, as definições de "
+              "ferramentas, cache keys (prompt_cache_key), modos de cache e retenção, e as medições de uso que existirem "
+              "(tokens, custo). Use só o que os modelos em uso suportam."),
+    "prompts": ("Prompts, modelos e configurações da OpenAI",
+                "Revise os prompts, a escolha de modelos e as configurações (reasoning effort, tamanho de saída, verbosity, "
+                "structured outputs) de cada uso da OpenAI neste repositório (nubi). Sugira como melhorar a qualidade dos "
+                "prompts e equilibrar custo, inteligência e latência em cada tarefa: onde um modelo/config mais barato ou "
+                "rápido basta e onde vale raciocinar mais. Dê reescritas concretas (antes e depois) que deixem as instruções "
+                "claras, com contexto e exemplos e a saída definida, preservando o comportamento. Proponha uma avaliação "
+                "pequena com tarefas reais para comparar qualidade, custo e latência com o que existe hoje."),
+    "modelo": ("Migrar para a família de modelos mais nova da OpenAI",
+               "Faça um plano para migrar este repositório (nubi) para a família de modelos mais nova da OpenAI: liste "
+               "cada modelo usado hoje (arquivo e linha), sugira para qual migrar com base no atual e no uso, e as "
+               "mudanças de parâmetros e de prompt para ficar mais forte no modelo novo. Consulte a documentação atual "
+               "(developers.openai.com) se tiver acesso à web."),
+}
+
+
+def cmd_codex_analise(args, cfg):
+    tipo = args.tipo
+    if tipo not in CODEX_ANALISES:
+        print("Análise desconhecida.")
+        return 1
+    titulo, pedido = CODEX_ANALISES[tipo]
+    ok, motivo = astra_pronto(cfg)
+    if not ok:
+        print(f"Codex indisponível: {motivo}")
+        return 1
+    projeto = PASTA / "projeto"
+    if not (projeto / ".git").exists():
+        r = subprocess.run(["git", "clone", "--branch", BRANCH_NUBI, REPO_GIT, str(projeto)], capture_output=True, text=True, timeout=900)
+        if r.returncode:
+            print("não consegui clonar o projeto: " + (r.stderr or r.stdout)[-300:])
+            return 1
+    _git(projeto, "fetch", "origin", BRANCH_NUBI)
+    chave = _credencial("openai", cfg)[1]
+    env = {**os.environ, "OPENAI_API_KEY": chave, "CODEX_API_KEY": chave}
+    env.pop("ANTHROPIC_API_KEY", None)
+    saida = PASTA / f"codex-analise-{tipo}.md"
+    print(f"Codex analisando: {titulo}…", flush=True)
+    r = subprocess.run([_codex_bin(), "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--output-last-message", str(saida),
+                        pedido + " Leia o código da branch origin/" + BRANCH_NUBI + " (git show/grep). NÃO altere arquivos e NÃO faça "
+                        "chamadas pagas à API. Responda em português do Brasil, em markdown, com recomendações priorizadas, "
+                        "referências de arquivo/linha, prós e contras, e separe o que foi MEDIDO do que é ESTIMATIVA."],
+                       cwd=str(projeto), env=env, capture_output=True, text=True, timeout=3600)
+    rel = saida.read_text().strip() if saida.exists() else ""
+    if not rel:
+        print("O Codex não devolveu a análise: " + (r.stderr or r.stdout or "")[-500:])
+        return 1
+    token = token_nubi(cfg)
+    c = api(token, "reuniao_tarefa_salvar", corpo={"titulo": f"OpenAI: {titulo} (análise do Codex)", "status": "proposta",
+                                                   "area": "ia", "autor": "codex", "risco": "medio",
+                                                   "descricao": rel[:18000] + "\n\n(Análise do Codex no Mac, só leitura. Aprove o que aplicar.)"},
+            timeout=60)
+    _postar_hermes_como(token, "Codex (análise)", f"🔍 **{titulo}**: análise pronta no card #{c.get('id')} do quadro. Aprove o que aplicar.")
+    print(f"OK: {titulo} → card #{c.get('id')}")
+    return 0
+
+
 def main():
     if sys.platform == "win32":                          # PC do Bruno: acentos e emojis no PowerShell
         for f in (sys.stdout, sys.stderr):
@@ -10026,6 +10095,8 @@ def main():
     pn = sub.add_parser("painel", help="Painel do coletor no navegador (localhost:8787): o que roda agora, a tela ao vivo e o chat com o Hermes")
     pn.add_argument("--porta", type=int, default=PAINEL_PORTA)
     pn.add_argument("--sem-abrir", action="store_true")
+    cxa = sub.add_parser("codex-analise", help="o Codex analisa o uso da OpenAI no projeto (cache, prompts, modelo) e abre um card")
+    cxa.add_argument("tipo", choices=["cache", "prompts", "modelo"])
     sub.add_parser("revisao-coletor", help="(noite) o Codex revisa o que o coletor fez no dia e propõe melhorias (só lê)")
     sub.add_parser("painel-instalar", help="deixa o Painel do coletor sempre ligado e põe o atalho na Mesa")
     cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
@@ -10125,6 +10196,8 @@ def main():
         return cmd_conversar(args, cfg)
     if args.cmd == "painel":
         return cmd_painel(args, cfg)
+    if args.cmd == "codex-analise":
+        return cmd_codex_analise(args, cfg)
     if args.cmd == "revisao-coletor":
         return cmd_revisao_coletor(args, cfg)
     if args.cmd == "painel-instalar":
