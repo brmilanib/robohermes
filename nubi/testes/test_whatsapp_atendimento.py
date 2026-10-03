@@ -97,6 +97,8 @@ def test_assistente_lembrete_bom_dia_e_ferreiro():
     assert w.lembretes_vencidos(r, datetime(2026, 10, 4, 12, 1, tzinfo=timezone.utc)) == ["⏰ Lembrete: ligar pro fornecedor"]
     assert w._ler(r, w.LEMBRETES, []) == []
     cedo, oito = datetime(2026, 10, 4, 10, 0, tzinfo=timezone.utc), datetime(2026, 10, 4, 11, 5, tzinfo=timezone.utc)
+    w.enfileirar_aviso(r, "🤖 nubi: ✅ terminou: histórico de vendas")
+    assert w.tick(r, {})["ao_dono"][0] == "🤖 nubi: ✅ terminou: histórico de vendas" and w.avisos_pendentes(r) == []
     assert w.bom_dia(r, cedo) is None                                                    # 7h de Brasília: ainda não
     assert w.bom_dia(r, oito).startswith("☀️ Bom dia, Bruno!") and w.bom_dia(r, oito) is None   # 1 vez por dia
 

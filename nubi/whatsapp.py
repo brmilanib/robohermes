@@ -23,6 +23,7 @@ CHIP = "5547991388777"                  # o chip da loja (o mesmo do botão do s
 AVISADOS = "whatsapp|avisados"          # ids de rascunho já mandados ao Bruno (para não repetir)
 LEMBRETES = "banguela|lembretes"        # [{quando (UTC), texto, criado_em}] — assistente pessoal (03/10)
 BOM_DIA = "banguela|bom_dia"            # data (Brasília) do último bom dia
+AVISOS = "whatsapp|avisos"              # avisos do nubi (fim de coleta, erro…) esperando a próxima volta do chip
 BOM_DIA_HORA = 8
 BRASILIA = timezone(timedelta(hours=-3))
 LOJAS = [(re.compile(r"via\s*braz[il]{1,2}\s*global", re.I), "via_brazil")]
@@ -304,6 +305,18 @@ def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
     return (limpo[:3000], ferreiro) if com_acoes else limpo[:3000]
 
 
+def enfileirar_aviso(repo, texto):
+    """Aviso do nubi para o WhatsApp do Bruno: sai pelo chip na próxima volta do Mac (até 30 guardados)."""
+    _gravar(repo, AVISOS, (_ler(repo, AVISOS, []) + [str(texto)[:1500]])[-30:])
+
+
+def avisos_pendentes(repo):
+    xs = _ler(repo, AVISOS, [])
+    if xs:
+        _gravar(repo, AVISOS, [])
+    return xs
+
+
 def lembretes_vencidos(repo, agora=None):
     """Lembretes cuja hora chegou (saem da lista)."""
     agora = agora or datetime.now(timezone.utc)
@@ -355,7 +368,7 @@ def tick(repo, d):
         elif r.get("resposta"):
             ao_dono.append(r["resposta"])
         agentes += [{"agente": "claude", "texto": f"(pedido do Bruno, passado pelo Banguela) {x}"} for x in r.get("ferreiro") or []]
-    for extra in (lambda: lembretes_vencidos(repo), lambda: [bom_dia(repo)]):
+    for extra in (lambda: avisos_pendentes(repo), lambda: lembretes_vencidos(repo), lambda: [bom_dia(repo)]):
         try:
             ao_dono += [x for x in extra() if x]
         except Exception as e:  # noqa: BLE001

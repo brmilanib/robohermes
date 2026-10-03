@@ -9989,13 +9989,19 @@ COMANDOS_MAC = {
 # Número e chave só na Vercel (NUBI_WHATSAPP_FONE, NUBI_WHATSAPP_CHAVE), postos pelo Bruno; a chave nunca vai para log/tela.
 # Avisa quando termina um comando longo da lista abaixo; teste/aviso avulso: ia_resumos `whatsapp|pedido` (texto) → enviado
 # no próximo sinal do Mac e apagado.
-WHATSAPP_COMANDOS = {"historico_vendas", "gestor_relatorio", "revisao_coletor", "codex_analise", "atualizar", "backup",
+WHATSAPP_COMANDOS = {"historico_vendas", "gestor_relatorio", "revisao_coletor", "codex_analise", "backup",
                      "servidor_backup", "explorador_diario", "rodizio_seguidos"}
 WHATSAPP_PEDIDO = "whatsapp|pedido"
 
 
-def whatsapp_aviso(texto):
-    """Manda o texto ao WhatsApp do Bruno. True = o CallMeBot aceitou; sem as chaves ou erro = False (nunca levanta)."""
+def whatsapp_aviso(texto, repo=None):
+    """Aviso ao WhatsApp do Bruno. 03/10: com o chip ligado no Mac, vai pela fila do chip (`whatsapp.enfileirar_aviso`,
+    sai na próxima volta do `coletor whatsapp`); o CallMeBot só se as chaves dele existirem. Nunca levanta."""
+    if repo is not None and str(texto or "").strip():
+        try:
+            whatsapp.enfileirar_aviso(repo, "🤖 nubi: " + str(texto).strip())
+        except Exception:  # noqa: BLE001
+            pass
     fone = re.sub(r"[^\d+]", "", os.environ.get("NUBI_WHATSAPP_FONE") or "")
     chave = (os.environ.get("NUBI_WHATSAPP_CHAVE") or "").strip()
     if not fone or not chave or not str(texto or "").strip():
@@ -10015,7 +10021,7 @@ def whatsapp_pedidos(repo):
     if not r:
         return None
     repo._req("DELETE", "ia_resumos", {"chave": repo._eq(WHATSAPP_PEDIDO)}, prefer="return=minimal")
-    return whatsapp_aviso(r.get("texto") or "")
+    return whatsapp_aviso(r.get("texto") or "", repo)
 
 
 def _aviso_fim_comando(comando, status, saida):
@@ -10939,7 +10945,7 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
                     elif reg["status"] == "ok":
                         desbloquear_ml(repo, maq_ml)
                 if c.get("comando") in WHATSAPP_COMANDOS:
-                    whatsapp_aviso(_aviso_fim_comando(c["comando"], reg["status"], reg["saida"]))
+                    whatsapp_aviso(_aviso_fim_comando(c["comando"], reg["status"], reg["saida"]), repo)
                 if c.get("tarefa_id"):
                     ic = {"ok": "✅", "erro": "⚠️", "recusado": "⛔"}[reg["status"]]
                     fim = reg["saida"].strip()[-1500:] or "(sem saída)"
