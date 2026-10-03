@@ -8634,7 +8634,10 @@ async function abrirMarca(marca, manterAba = false) {
   $("#main").innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando ${esc(nome(marca))}</div></div>`;
   S.perMarca = S.perMarca || {};
   const per = S.perMarca[marca];
-  try { S.rel = await api("relatorio", per ? {marca, periodo: per} : {marca}); }
+  // 03/10 (Bruno: "últimos 7 dias, últimos 30 dias"): padrão = 30 dias (o export do dia); 7 dias; ou o card Completo
+  S.visaoMarca = S.visaoMarca || {};
+  const vis = S.visaoMarca[marca] || "30";
+  try { S.rel = await api("relatorio", per ? {marca, periodo: per} : vis === "completo" ? {marca} : {marca, visao: vis}); }
   catch (e) {
     if (per) { delete S.perMarca[marca]; return abrirMarca(marca, manterAba); }   // período apagado: volta ao padrão
     $("#main").innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -8650,6 +8653,17 @@ async function abrirMarca(marca, manterAba = false) {
 // venda por dia), então cada período importado é uma opção; 7 e 30 dias aparecem quando o export desse período foi importado.
 const rotuloPer = p => p.dias <= 8 ? "7 dias" : p.dias >= 28 && p.dias <= 31 ? "30 dias" : p.dias <= 16 ? `${p.dias} dias` : `Completo · ${p.dias} dias`;
 function periodosMarca(r) {
+  const z = r.resumo || {}, v = z.visao;
+  if (!(S.perMarca || {})[r.marca]) {                 // 03/10: botões 30 dias | 7 dias | Completo
+    const atual = v && !v.falta ? v.tipo : "completo";
+    const chip = (k, rot, sub, ok, dica) => `<button class="per-chip ${atual === k ? "on" : ""}${ok ? "" : " falta"}" data-visao="${k}" ${ok ? "" : "disabled"} title="${esc(dica)}"><b>${rot}</b>${sub ? ` <small>${sub}</small>` : ""}</button>`;
+    const dv = x => x ? `${dataBR(x.inicio).slice(0, 5)}–${dataBR(x.fim).slice(0, 5)}` : "";
+    return `<div class="per-marca"><span class="muted">Ver:</span>
+      ${chip("30", "30 dias", atual === "30" ? dv(v) : "", z.tem_30 || atual === "30", "o export do Explorador de hoje (~30 dias), números do Nubimetrics sem proporção")}
+      ${chip("7", "7 dias", atual === "7" ? dv(v) : "", z.tem_7 || atual === "7", z.tem_7 || atual === "7" ? "vendas da vida de hoje − as de 7 dias atrás (exports diários)" : "precisa de exports de dias diferentes: o Explorador diário junta em alguns dias")}
+      ${chip("completo", `Completo · ${r.atual.dias} dias`, "", true, `o card inteiro: ${dataBR(r.atual.inicio)} a ${dataBR(r.atual.fim)}`)}
+      ${v && v.falta ? `<span class="muted" style="font-size:12px">${v.tipo} dias ainda não disponível: mostrando o card completo</span>` : ""}</div>`;
+  }
   // 30/09 (Bruno: "coloca só o Completo, últimos 7 e últimos 30 — simples"): 1 chip por tipo, sempre o mais recente
   // de cada um (o histórico inteiro continua na aba Períodos)
   const todos = [...(r.periodos || [])].sort((a, b) => b.fim.localeCompare(a.fim) || b.dias - a.dias);
@@ -8663,6 +8677,8 @@ function periodosMarca(r) {
     ${falta.map(([, t]) => `<span class="per-chip falta" title="No Nubimetrics, Explorador de anúncios: filtre a marca, escolha os últimos ${t} e exporte; depois importe aqui (⬆ Importar). O nubi guarda cada período e você troca por aqui.">+ ${t}: importe o export</span>`).join("")}</div>`;
 }
 document.addEventListener("click", e => {
+  const bv = e.target.closest(".per-chip[data-visao]");
+  if (bv && S.rel && !bv.disabled) { S.visaoMarca = S.visaoMarca || {}; S.visaoMarca[S.rel.marca] = bv.dataset.visao; abrirMarca(S.rel.marca, true); return; }
   const b = e.target.closest(".per-chip[data-per]");
   if (!b || !S.rel) return;
   S.perMarca = S.perMarca || {}; S.perMarca[S.rel.marca] = +b.dataset.per;
@@ -8682,7 +8698,7 @@ function telaMarca() {
   $("#main").innerHTML = `
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h1>${esc(r.nome)}</h1>
-      <span class="muted">${dataBR(r.atual.inicio)} a ${dataBR(r.atual.fim)} · ${r.atual.dias} dias${ant ? ` · comparando com ${dataBR(ant.inicio)} a ${dataBR(ant.fim)}` : ""}</span>
+      <span class="muted">${z.visao && !z.visao.falta ? `últimos ${z.visao.dias} dias: ${dataBR(z.visao.inicio)} a ${dataBR(z.visao.fim)}` : `${dataBR(r.atual.inicio)} a ${dataBR(r.atual.fim)} · ${r.atual.dias} dias`}${ant ? ` · comparando com ${dataBR(ant.inicio)} a ${dataBR(ant.fim)}` : ""}</span>
     </div>
     ${periodosMarca(r)}
     <p class="aviso">Mercado inteiro (todos os vendedores), não só a sua loja.</p>
@@ -10235,7 +10251,8 @@ async function abrirProdutoDeMarca(marca, prod) {
 function abrirVendedoresProduto(prod) {
   // 03/10 (Bruno, Sospiro: "não bate com o Nubimetrics"): com a janela do último export (os números do período do ARQUIVO,
   // por anúncio) o quadro mostra os 30 dias de verdade em vez de "card de 63 dias × 30 ÷ 63"
-  const jan = (S.rel.resumo || {}).janela;
+  const vis = (S.rel.resumo || {}).visao, visOk = vis && !vis.falta;
+  const jan = visOk ? null : (S.rel.resumo || {}).janela;
   const lista = ((S.rel.vendedores_produto || {})[prod] || []).map(v => jan ? {...v, un_card: v.un, un: v.un30 || 0, fat: v.fat30 || 0} : v)
     .sort((a, b) => b.un - a.un || b.fat - a.fat);
   if (jan) { const t = lista.reduce((a, v) => a + v.un, 0); lista.forEach(v => v.share = t ? v.un / t : 0); }
@@ -10250,11 +10267,12 @@ function abrirVendedoresProduto(prod) {
   const precos = comVenda.map(v => v.ultimo_preco).filter(x => x > 0).sort((a, b) => a - b);
   const med = precos.length ? precos[Math.floor(precos.length / 2)] : null;
   const lider = comVenda[0];
-  const dias = jan ? jan.dias : (S.rel.resumo || {}).dias || 30, mes30 = tot.un / dias * 30;
+  const dias = visOk ? vis.dias : jan ? jan.dias : (S.rel.resumo || {}).dias || 30, mes30 = tot.un / dias * 30;
   // 02/10 (Bruno: "a gente trata sempre os últimos 30 dias: unidades, faturamento e vendedores dos últimos 30 dias, para
   // comparar mês a mês"): o export do Explorador é de ~60 dias; tudo vira "por 30 dias" (proporcional) até termos o export
   // de 30 dias — com ele (28 a 31 dias) o número é o exato
-  const f30 = dias >= 28 && dias <= 33 ? 1 : 30 / dias, prop = f30 !== 1;
+  const f30 = visOk || (dias >= 28 && dias <= 33) ? 1 : 30 / dias, prop = f30 !== 1;
+  const nDias = visOk ? vis.dias : 30;           // 7 dias: os números são da semana, sem proporção
   const n30 = v => nf0.format(Math.round((v || 0) * f30));
   // 01/10 (Bruno): média por dia desde a criação dos anúncios (histórico ÷ dias publicados) x média do período exportado
   const mediaHist = lista.reduce((a, v) => a + (v.media_dia_hist || 0), 0), mediaPer = tot.un / dias;
@@ -10268,18 +10286,18 @@ function abrirVendedoresProduto(prod) {
         <div class="muted">${[row.linha && row.linha !== "-" ? "Linha " + esc(row.linha) : "", row.tipo && row.tipo !== "-" ? esc(row.tipo) : "", row.volume && row.volume !== "-" ? esc(row.volume) : "",
           gtins.length ? `${gtins.length} GTIN${gtins.length > 1 ? "s" : ""}: ${gtins.slice(0, 4).map(esc).join(", ")}${gtins.length > 4 ? "…" : ""}` : "sem GTIN",
           row.abc ? "curva " + esc(row.abc) : ""].filter(Boolean).join(" · ")}</div>
-        <div class="muted">${jan ? `últimos ${dias} dias: export de ${dataBR(jan.inicio)} a ${dataBR(jan.fim)} (números do Nubimetrics, sem proporção)` : `período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)} (${dias} dias)`}
+        <div class="muted">${visOk ? `últimos ${vis.dias} dias: ${dataBR(vis.inicio)} a ${dataBR(vis.fim)}` : jan ? `últimos ${dias} dias: export de ${dataBR(jan.inicio)} a ${dataBR(jan.fim)} (números do Nubimetrics, sem proporção)` : `período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)} (${dias} dias)`}
           · <a href="#" id="pq-ficha" title="Lê o Tipo e o Volume nas características do ML (anúncios das lojas rastreadas e catálogo do GTIN) antes de fixar a ficha da linha">🔎 conferir ficha no ML</a></div>
         <div id="pq-ficha-res" style="font-size:12.5px"></div></div>
       <button class="btn small" data-fechar>Fechar</button>
     </div>
     <div class="pq-sec">Mercado (Nubimetrics)</div>
     <div class="kpis pq-kpis">
-      ${kpi("Unidades vendidas · 30 dias", (prop ? "≈ " : "") + n30(tot.un), prop ? `proporcional: ${nf0.format(tot.un)} no export de ${dias} dias · ${nf1.format(mediaPer)}/dia` : `${nf1.format(mediaPer)}/dia`)}
+      ${kpi(`Unidades vendidas · ${nDias} dias`, (prop ? "≈ " : "") + n30(tot.un), prop ? `proporcional: ${nf0.format(tot.un)} no export de ${dias} dias · ${nf1.format(mediaPer)}/dia` : `${nf1.format(mediaPer)}/dia`)}
       ${kpi("Média/dia desde a criação", mediaHist > 0 ? nf1.format(mediaHist) + "/dia" : "—",
             mediaHist > 0 ? `histórico ÷ dias publicados · período ${tend >= 0 ? "+" : ""}${nf0.format(tend * 100)}% vs. média de vida` : "sem histórico no arquivo",
             tend == null ? "" : tend > 0.15 ? "good" : tend < -0.15 ? "bad" : "")}
-      ${kpi("Faturamento · 30 dias", (prop ? "≈ " : "") + "R$ " + n30(tot.fat), prop ? `proporcional: R$ ${nf0.format(tot.fat)} em ${dias} dias · aproximado (faixas)` : "aproximado (faixas)")}
+      ${kpi(`Faturamento · ${nDias} dias`, (prop ? "≈ " : "") + "R$ " + n30(tot.fat), prop ? `proporcional: R$ ${nf0.format(tot.fat)} em ${dias} dias · aproximado (faixas)` : "aproximado (faixas)")}
       ${kpi("Preço médio", R(pm), precos.length ? `preço atual de ${R(precos[0])} a ${R(precos[precos.length - 1])} · mediana ${R(med)}` : "")}
       ${kpi("Vendedores", `${nf0.format(comVenda.length)} <small class="muted">de ${nf0.format(lista.length)}</small>`, `${prop ? `no export de ${dias} dias (o de 30 dias diz quem vendeu no mês) · ` : ""}${nf0.format(tot.an)} anúncios · ${FMT.pct(row.pct_full)} FULL · ${FMT.pct(row.pct_catalogo)} catálogo`)}
       ${kpi("Líder", lider ? esc(lider.vendedor) : "—", lider ? `${FMT.pct(lider.share)} das vendas · ${R(lider.preco_medio)}` : "")}
@@ -10290,7 +10308,7 @@ function abrirVendedoresProduto(prod) {
     <div id="pq-ml">${gtins.length ? `<button class="btn small ml-laranja" id="pq-ml-abrir">🛰️ Ver quem vende agora no Mercado Livre</button>`
       : `<div class="muted" style="font-size:13px">Este produto não tem GTIN nos anúncios: não dá para achar no catálogo do Mercado Livre.</div>`}</div>
     <div class="tw" style="margin-top:12px;max-height:48vh"><table class="t"><thead><tr>
-      <th class="num">#</th><th>Código</th><th>Vendedor</th><th class="num" title="${prop ? `Proporcional: unidades do export de ${dias} dias × 30 ÷ ${dias}` : ""}">Un. 30 dias</th><th class="num">Faturamento 30 dias</th>
+      <th class="num">#</th><th>Código</th><th>Vendedor</th><th class="num" title="${prop ? `Proporcional: unidades do export de ${dias} dias × 30 ÷ ${dias}` : ""}">Un. ${nDias} dias</th><th class="num">Faturamento ${nDias} dias</th>
       <th class="num">Share</th><th class="num" title="Faturamento ÷ unidades">Preço médio</th><th class="num" title="Mediana do último preço dos anúncios do vendedor">Preço atual</th>
       <th class="num">Anúncios</th><th class="num" title="Anúncios em FULL">FULL</th><th class="num" title="Anúncios em catálogo">Catál.</th><th>Loja of.</th></tr></thead><tbody>
       ${lista.map((v, i) => `<tr data-vnome="${esc(normNome(v.vendedor))}">

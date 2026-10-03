@@ -67,6 +67,28 @@ def test_calibragem_com_o_upseller():
     repo.fechar()
 
 
+def test_visao_7_e_30_dias():
+    """03/10 (Bruno: "se eu quiser ver últimos 7 dias, últimos 30 dias"): exports diários; 7 dias = histórico de hoje − o
+    de 7 dias atrás; 30 dias = o export do dia; a marca inteira (vendedores, produtos) troca de números."""
+    import nubi_web
+    repo, cfg = _novo_banco(), {}
+    imp = _importador(repo, cfg)
+    imp("s0.csv", csv(lin("Perfume Sospiro Vibrato Edp 100ml", "SOSPIRO", "S1", 300, 500),
+                      lin("Perfume Sospiro Erba Gold Edp 100ml", "SOSPIRO", "S2", 20, 100)), "SOSPIRO", "2026-08-27", "2026-09-25")
+    # 7 dias depois: S1 vendeu 70 (histórico 570), S2 vendeu 0, S3 é novo (8 un.)
+    imp("s7.csv", csv(lin("Perfume Sospiro Vibrato Edp 100ml", "SOSPIRO", "S1", 320, 570),
+                      lin("Perfume Sospiro Erba Gold Edp 100ml", "SOSPIRO", "S2", 15, 100),
+                      lin("Perfume Sospiro Accento Edp 100ml", "SOSPIRO", "S3", 8, 8)), "SOSPIRO", "2026-09-03", "2026-10-02")
+    r7 = nubi_web.relatorio(repo, "SOSPIRO", visao="7")
+    assert r7["resumo"]["visao"] == {"tipo": "7", "inicio": "2026-09-26", "fim": "2026-10-02", "dias": 7}, r7["resumo"]["visao"]
+    assert r7["resumo"]["un"] == 78 and r7["resumo"]["dias"] == 7, r7["resumo"]
+    r30 = nubi_web.relatorio(repo, "SOSPIRO", visao="30")
+    assert r30["resumo"]["un"] == 343 and r30["resumo"]["visao"]["dias"] == 30
+    rc = nubi_web.relatorio(repo, "SOSPIRO")
+    assert rc["resumo"]["visao"] is None and rc["resumo"]["tem_7"] and rc["resumo"]["tem_30"]
+    repo.fechar()
+
+
 def test_rota_do_explorador_diario_chega_no_servidor():
     """03/10: explorador_diario_pendente morava em rota_estoque, que só recebia estoque*/gestor_*: o coletor ganhava
     "Rota desconhecida" e o Explorador diário nunca rodou."""
@@ -97,6 +119,7 @@ def test_rota_do_explorador_diario_chega_no_servidor():
 
 
 if __name__ == "__main__":
+    test_visao_7_e_30_dias()
     test_rota_do_explorador_diario_chega_no_servidor()
     test_janela_de_30_dias_e_conferencia()
     test_calibragem_com_o_upseller()

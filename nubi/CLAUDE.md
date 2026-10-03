@@ -512,6 +512,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `explorador|conferencia|<marca>|<fim>`, `explorador|calibragem|<marca>|<fim>` e a janela por anúncio por MÊS
   (`explorador|janela|<marca>|AAAA-MM`, a última do mês); junto com `explorador|dia|…` (regra 14). Rota
   `explorador_historico?marca=` devolve tudo por data. As chaves sem data continuam sendo "a última".
+  7 | 30 DIAS (03/10, Bruno): `explorador|hist|<marca>` guarda o histórico (un_hist, fat_hist) por anúncio dos últimos 9
+  exports; `nubi.janela_7_dias` = histórico de hoje − o do export mais perto de 7 dias antes (anúncio fora do export antigo
+  conta a janela de hoje; acima de 1.000 un. o arredondamento do Nubimetrics deixa aproximado). `relatorio(..., visao=7|30)`
+  troca un/fat de cada anúncio pelos da janela ANTES de tudo (produtos, vendedores, oportunidades, preços), `dias` = os da
+  janela, sem "anterior"; `resumo.visao` {tipo, inicio, fim, dias} ou {falta}; `tem_7`/`tem_30`. Tela: botões "Ver: 30 dias |
+  7 dias | Completo" no topo da marca (padrão 30 dias, `S.visaoMarca`); o quadro do produto segue a visão (rótulos "· 7 dias").
 - **💰 Financeiro + Estoque → Por marca (02/10, Bruno)**: `financeiro.py`. DRE Simplificado do Gestor Seller (PDF do mês
   fechado: o texto é lido no navegador com pdf.js e vai em `financeiro_importar`; `ler_dre` por blocos) e Resumo analítico
   (`/analytics/invoices`, 4 canais × meses × 7 linhas; o coletor troca as imagens por "[IMG:nome]" e manda o texto:

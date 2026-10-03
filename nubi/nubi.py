@@ -27,7 +27,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
 try:
@@ -2001,6 +2001,7 @@ def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes, recem
 # com o card. A conferência (Bruno: "tem que bater, ou pelas vendas históricas, e guardar os números") compara o export
 # com o que ficou gravado no card.
 JANELA = "explorador|janela|{}"
+HIST_DIAS = "explorador|hist|{}"                # {"datas": {fim: {ID: [un_hist, fat_hist]}}} dos últimos 9 exports
 HISTORICO = "explorador|historico|{}"           # + "|AAAA-MM-DD" (fim do export): resumo de cada export, para sempre
 CONFERENCIA = "explorador|conferencia|{}"
 
@@ -2039,6 +2040,12 @@ def guardar_janela(repo, marca, ini, fim, df_arq, arquivo=""):
     # 03/10 (Bruno: "vai guardar os números para eu ver um mês contra outro?"): a janela por anúncio fica também por MÊS
     # (a última do mês = os ~30 dias que terminam no fim dele) e um resumo pequeno de CADA export fica para sempre
     _gravar_resumo(repo, f"{JANELA.format(marca)}|{fim[:7]}", jan)
+    # 03/10 (Bruno: "últimos 7 dias, últimos 30 dias"): o histórico (vendas da vida) de cada anúncio nos últimos 9 exports;
+    # 7 dias = histórico de hoje − o de 7 dias atrás
+    h = ler_resumo(repo, HIST_DIAS.format(marca)) or {}
+    datas = dict(h.get("datas") or {})
+    datas[fim] = {k: [v[2], v[3]] for k, v in anuncios.items()}
+    _gravar_resumo(repo, HIST_DIAS.format(marca), {"datas": {d: datas[d] for d in sorted(datas)[-9:]}})
     da = _da_marca_no_arquivo(d, marca)
     vend = []
     if "vendedor" in da.columns and len(da):
@@ -2051,14 +2058,43 @@ def guardar_janela(repo, marca, ini, fim, df_arq, arquivo=""):
         "top_vendedores": vend})
 
 
-def ler_janela(repo, marca):
+def ler_resumo(repo, chave):
     if not hasattr(repo, "_req"):
-        return repo.__dict__.get("resumos", {}).get(JANELA.format(marca))
+        return repo.__dict__.get("resumos", {}).get(chave)
     try:
-        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{JANELA.format(marca)}"}) or [None])[0]
+        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{chave}"}) or [None])[0]
         return json.loads(r["texto"]) if r and r.get("texto") else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def ler_janela(repo, marca):
+    return ler_resumo(repo, JANELA.format(marca))
+
+
+def janela_7_dias(repo, marca, fim):
+    """{ID: [un, fat]} dos últimos ~7 dias até `fim` (histórico de `fim` − o do export mais perto de 7 dias antes) e o
+    período {inicio, fim, dias}. Anúncio que não estava no export antigo (não vendeu nos 30 dias dele) conta o que vendeu na
+    janela de hoje. Acima de 1.000 un. o Nubimetrics arredonda o histórico (3 algarismos): a diferença é aproximada."""
+    h = (ler_resumo(repo, HIST_DIAS.format(marca)) or {}).get("datas") or {}
+    if fim not in h:
+        return None, None
+    alvo = date.fromisoformat(fim) - timedelta(days=7)
+    antes = [d for d in h if d < fim]
+    if not antes:
+        return None, None
+    base = min(antes, key=lambda d: (abs((date.fromisoformat(d) - alvo).days), d))
+    jan = (ler_janela(repo, marca) or {}).get("anuncios") or {}
+    agora, velho = h[fim], h[base]
+    out = {}
+    for k, (uh, fh) in agora.items():
+        if k in velho:
+            out[k] = [max(0, uh - velho[k][0]), max(0.0, fh - velho[k][1])]
+        else:
+            j = jan.get(k) or [0, 0]
+            out[k] = [j[0], j[1]]
+    ini = (date.fromisoformat(base) + timedelta(days=1)).isoformat()
+    return out, {"inicio": ini, "fim": fim, "dias": (date.fromisoformat(fim) - date.fromisoformat(base)).days}
 
 
 CALIBRAGEM = "explorador|calibragem|{}"

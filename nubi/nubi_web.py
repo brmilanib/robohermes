@@ -954,7 +954,7 @@ def _outras_marcas(repo, df, atual, marca):
     return out
 
 
-def relatorio(repo, marca, periodo=None):
+def relatorio(repo, marca, periodo=None, visao=None):
     snaps = repo.snapshots(marca)
     if snaps.empty:
         raise ErroNuvem(f"Nenhum período importado para {marca}.", 404)
@@ -967,6 +967,25 @@ def relatorio(repo, marca, periodo=None):
     outras_marcas = _outras_marcas(repo, df, atual, marca)
     df = _so_da_marca(df).copy()
     dias = int(atual["dias"])
+    # 03/10 (Bruno: "últimos 7 dias, últimos 30 dias"): a marca inteira nos números da janela — 30 = o export do dia (o
+    # Explorador mostra ~30 dias), 7 = histórico de hoje − o de 7 dias atrás. O card (Completo) continua igual.
+    visao_info = None
+    if str(visao or "") in ("7", "30") and periodo in (None, ""):
+        if str(visao) == "30":
+            jan = nubi.ler_janela(repo, marca)
+            valores = (jan or {}).get("anuncios") if jan and str(jan.get("fim")) == str(atual["fim"])[:10] else None
+            per = {k: jan[k] for k in ("inicio", "fim", "dias")} if valores else None
+        else:
+            valores, per = nubi.janela_7_dias(repo, marca, str(atual["fim"])[:10])
+        if valores:
+            k = nubi._ids(df)["anuncio"]
+            df["un"] = [int((valores.get(x) or [0, 0])[0]) for x in k]
+            df["fat"] = [float((valores.get(x) or [0, 0])[1]) for x in k]
+            dias = int(per["dias"]) or 1
+            anterior = None                      # comparar 7 dias com o card inteiro não faz sentido
+            visao_info = {"tipo": str(visao), **per}
+        else:
+            visao_info = {"tipo": str(visao), "falta": True}
     df.attrs["dias"] = dias
     df_ant = _so_da_marca(nubi.ler_snapshot(repo, anterior["id"], marca)).copy() if anterior is not None else None
     attrs = nubi.atributos_produto(df)
@@ -1158,7 +1177,7 @@ def relatorio(repo, marca, periodo=None):
             "dias_pub_max": int(dp.max()) if len(dp) else 0})
     # 03/10 (Bruno, Sospiro: "não bate com o Nubimetrics"): os 30 dias de VERDADE quando o último export da marca (a janela)
     # termina junto com o card — un30/fat30 por vendedor, pelo ID do anúncio (anúncio fora da janela = não vendeu nela)
-    janela = nubi.ler_janela(repo, marca)
+    janela = nubi.ler_janela(repo, marca) if not (visao_info and not visao_info.get("falta")) else None
     if janela and str(janela.get("fim")) == str(atual["fim"])[:10] and janela.get("anuncios"):
         ja = janela["anuncios"]
         k = nubi._ids(df)["anuncio"]
@@ -1216,7 +1235,9 @@ def relatorio(repo, marca, periodo=None):
         "un_nao_perfume": int(df.loc[df["tipo"] == nubi.TIPO_FORA, "un"].sum()),
         "un_low_price": int(df.loc[df["tipo"].isin(nubi.TIPOS_LOW), "un"].sum()),
         "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada,
-        "janela": janela, "conferencia": conferencia_marca(repo, marca)}
+        "janela": janela, "conferencia": conferencia_marca(repo, marca), "visao": visao_info,
+        "tem_7": bool((nubi.janela_7_dias(repo, marca, str(atual["fim"])[:10]) or (None, None))[1]),
+        "tem_30": bool(janela or (visao_info and visao_info.get("tipo") == "30" and not visao_info.get("falta")))}
 
     return {
         "marca": marca, "nome": nubi.nome_bonito(marca), "atual": _periodo(atual),
@@ -2591,7 +2612,7 @@ def atender(metodo, rota, q, corpo, token):
             return _json(explorador_diario(repo))
         if rota == "relatorio":
             _preparar(repo)
-            return _json(relatorio(repo, q["marca"], q.get("periodo")))
+            return _json(relatorio(repo, q["marca"], q.get("periodo"), q.get("visao")))
         if rota == "explorador_encaminhar" and metodo == "POST":   # 02/10: outras marcas do export → cards delas (mesmo período)
             _preparar(repo)
             cfg = repo.carregar_config()
