@@ -10372,6 +10372,9 @@ function abrirVendedoresProduto(prod) {
         <div class="muted">${[row.linha && row.linha !== "-" ? "Linha " + esc(row.linha) : "", row.tipo && row.tipo !== "-" ? esc(row.tipo) : "", row.volume && row.volume !== "-" ? esc(row.volume) : "",
           gtins.length ? `${gtins.length} GTIN${gtins.length > 1 ? "s" : ""}: ${gtins.slice(0, 4).map(esc).join(", ")}${gtins.length > 4 ? "…" : ""}` : "sem GTIN",
           row.abc ? "curva " + esc(row.abc) : ""].filter(Boolean).join(" · ")}</div>
+        ${(() => { const z = S.rel.resumo || {}, at = visOk ? vis.tipo : (S.perMarca || {})[S.rel.marca] ? "" : "completo";
+          const b = (k, rot, ok) => `<button class="per-chip ${at === k ? "on" : ""}${ok ? "" : " falta"}" data-pqvisao="${k}" ${ok ? "" : "disabled title=\"precisa de exports diários de dias diferentes\""}><b>${rot}</b></button>`;
+          return `<div class="per-marca" style="margin:4px 0 2px"><span class="muted">Ver:</span>${b("30", "30 dias", z.tem_30 || at === "30")}${b("7", "7 dias", z.tem_7 || at === "7")}${b("completo", `Completo · ${S.rel.atual.dias} dias`, true)}</div>`; })()}
         <div class="muted">${visOk ? `últimos ${vis.dias} dias: ${dataBR(vis.inicio)} a ${dataBR(vis.fim)}` : jan ? `últimos ${dias} dias: export de ${dataBR(jan.inicio)} a ${dataBR(jan.fim)} (números do Nubimetrics, sem proporção)` : `período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)} (${dias} dias)`}
           · <a href="#" id="pq-ficha" title="Lê o Tipo e o Volume nas características do ML (anúncios das lojas rastreadas e catálogo do GTIN) antes de fixar a ficha da linha">🔎 conferir ficha no ML</a></div>
         <div id="pq-ficha-res" style="font-size:12.5px"></div></div>
@@ -10395,9 +10398,8 @@ function abrirVendedoresProduto(prod) {
       </div>`; })()}
     <div class="pq-sec">Eu <span class="muted" id="pq-fonte" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
     <div id="pq-meu"><div class="kpis pq-kpis">${kpi("Eu vendo?", "…", "carregando meu estoque e minhas vendas")}</div></div>
-    <div class="pq-sec">No Mercado Livre agora <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">· quem vende pelo catálogo (GTIN), com a loja real, o link e o preço de agora</span></div>
-    <div id="pq-ml">${gtins.length ? `<button class="btn small ml-laranja" id="pq-ml-abrir">🛰️ Ver quem vende agora no Mercado Livre</button>`
-      : `<div class="muted" style="font-size:13px">Este produto não tem GTIN nos anúncios: não dá para achar no catálogo do Mercado Livre.</div>`}</div>
+    <!-- 03/10 (Bruno: "não gostei ainda; primeiro o rastreamento dos vendedores tem que estar perfeito"): "No Mercado Livre
+         agora" saiu do quadro do produto; o código (abrirML/listaML) fica para quando voltar -->
     <div class="tw" style="margin-top:12px;max-height:48vh"><table class="t"><thead><tr>
       <th class="num">#</th><th>Código</th><th>Vendedor</th><th class="num" title="${prop ? `Proporcional: unidades do export de ${dias} dias × 30 ÷ ${dias}` : ""}">Un. ${nDias} dias</th><th class="num">Faturamento ${nDias} dias</th>
       <th class="num">Share</th><th title="venda/dia dos últimos 7 dias × a dos últimos 30">Tendência</th><th class="num" title="Faturamento ÷ unidades">Preço médio</th><th class="num" title="Mediana do último preço dos anúncios do vendedor">Preço atual</th>
@@ -10416,6 +10418,10 @@ function abrirVendedoresProduto(prod) {
     </tbody></table></div>
     <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).${prop ? ` Unidades e faturamento em 30 dias = export de ${dias} dias (${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)}) × 30 ÷ ${dias}; o preço médio e o share não mudam.` : ""}</p>`);
   $(".modal", bg).classList.add("larga", "pq");
+  // 03/10 (Bruno): os mesmos botões da marca dentro do produto; troca a visão da marca inteira e reabre este produto
+  bg.querySelectorAll("[data-pqvisao]").forEach(b => b.onclick = () => { if (b.disabled) return;
+    S.visaoMarca = S.visaoMarca || {}; S.visaoMarca[S.rel.marca] = b.dataset.pqvisao;
+    S.abrirProd = {marca: S.rel.marca, produto: prod}; bg.remove(); abrirMarca(S.rel.marca, true); });
   bg.querySelectorAll(".sp-abrir").forEach(a => a.onclick = e => { e.preventDefault(); const v = lista.find(x => String(x.vid) === a.dataset.vid); if (v) abrirSeriePreco(prod, v); });
   // 01/10 (Bruno: "Sabah Al Ward só existe EDP 100 ml; confirme pela API do ML antes de juntar")
   $("#pq-ficha", bg).onclick = async e => { e.preventDefault(); const el = $("#pq-ficha-res", bg); el.innerHTML = `<span class="muted">lendo as características no Mercado Livre…</span>`;
@@ -10481,7 +10487,10 @@ function meuLadoProduto(m, {pm, med, mes30, lista, kpi, R, bg}) {
   const margem = vendo && custo ? v.preco_medio - custo : null, margemMerc = pm && custo ? pm - custo : null;
   // minha posição na lista do Nubimetrics (quando o nome da minha loja no ML aparece entre os vendedores)
   const minhas = (m.minhas_lojas || []).map(normNome).filter(Boolean);
-  const pos = lista.findIndex(x => minhas.includes(normNome(x.vendedor)));
+  // 03/10 (print do Bruno: ESSENCE em 1º e "minha loja não aparece"): o apelido no Nubimetrics é o começo do nome da loja
+  // ("ESSENCE" = "ESSENCE PRIME", "AURASCENT" = "AURA SCENT")
+  const ehMinha = n => n && minhas.some(m => m === n || (n.length >= 5 && m.startsWith(n)));
+  const pos = lista.findIndex(x => ehMinha(normNome(x.vendedor)));
   if (pos >= 0) { const tr = $(`tr[data-vnome="${CSS.escape(normNome(lista[pos].vendedor))}"]`, bg); tr && tr.classList.add("pq-eu"); }
   const fonte = $("#pq-fonte", bg);
   if (fonte) fonte.textContent = `· estoque do UpSeller${m.estoque_em ? " de " + atQuando(m.estoque_em) : ""}` +

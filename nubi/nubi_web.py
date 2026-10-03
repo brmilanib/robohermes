@@ -1323,7 +1323,7 @@ def relatorio(repo, marca, periodo=None, visao=None):
         "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada,
         "janela": janela, "conferencia": conferencia_marca(repo, marca), "visao": visao_info,
         "tem_7": bool((nubi.janela_7_dias(repo, marca, str(atual["fim"])[:10]) or (None, None))[1]),
-        "tem_30": bool(janela or (visao_info and visao_info.get("tipo") == "30" and not visao_info.get("falta")))}
+        "tem_30": str((nubi.ler_janela(repo, marca) or {}).get("fim")) == str(atual["fim"])[:10]}
 
     return {
         "marca": marca, "nome": nubi.nome_bonito(marca), "atual": _periodo(atual),
