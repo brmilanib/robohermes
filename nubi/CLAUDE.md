@@ -39,6 +39,14 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 - Conta de VENDEDOR do ML (29/09 à tarde, Bruno: "vamos conectar sem problemas uma conta vendedor, a AURASCENT"): a conta
   conectada por OAuth passa a ser a AURASCENT (no lugar da BRUNOMILANI, que é conta sem loja e recebe 403 em /items e na
   busca). Mesmas regras: só LEITURA (o nubi nunca altera anúncio, preço ou pedido), refresh_token cifrado em `meli|conta`.
+- 🔌 Conexões das lojas (03/10, Bruno: "tela de conexão de lojas igual à do Gestor Seller; minhas 3 lojas do ML, a Shopee e
+  o TikTok, para puxar dados, anúncios e ADS"): `lojas_conexao.py`, tela `#/conexoes` (Minhas Lojas). Mesmas regras da
+  conta do ML, estendidas: login SEMPRE na página da plataforma (OAuth; ML, Shopee `auth_partner`, TikTok `open/authorize`);
+  chaves do app só na Vercel (ML_CLIENT_ID/SECRET, SHOPEE_PARTNER_ID/KEY, TIKTOK_APP_KEY/SECRET/SERVICE_ID), postas pelo
+  Bruno; refresh_token de cada loja CIFRADO em `ia_resumos` `loja|conta|<plataforma>|<id>` (chave derivada do segredo do
+  app daquela plataforma); state de uso único (15 min) em `loja|estado|<p>` (Shopee: vai no endereço de volta, param `s`).
+  Volta pública `?r=loja_retorno&p=<ml|shopee|tiktok>`; rotas `lojas_conexoes`, `loja_conectar`, `loja_desconectar`. Só
+  LEITURA; nada de token em resposta, tela ou log. Próxima fase: puxar pedidos, anúncios e ADS das contas conectadas.
 - Cópia de segurança (02/10, Bruno: "uma cópia aqui no meu Mac e uma no meu Drive"): `coletor backup` (comando `backup`
   da Central). 03/10: o Google Drive para computador está no PC gamdias (G:), não no Mac; rotina em dias separados
   (Bruno: "não os dois no mesmo dia"): Mac `backup` no domingo, gamdias `servidor_backup` (cópia local + Drive) na quarta,

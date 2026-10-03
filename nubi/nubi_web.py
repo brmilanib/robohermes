@@ -52,6 +52,7 @@ import bazar
 import decants
 import financeiro
 import simulador
+import lojas_conexao
 import marketing
 import vendas_hoje
 import revisao
@@ -1663,6 +1664,8 @@ def atender(metodo, rota, q, corpo, token):
             return _json(rodar_rotinas(rc))
         if rota == "meli_retorno":
             return _meli_retorno(q)
+        if rota == "loja_retorno":                 # 03/10: volta do login das lojas (ML, Shopee, TikTok) — público, com state
+            return _loja_retorno(q)
         if rota.startswith("ext_"):
             # extensão do Chrome (29/09): SEM login, só dado público do ML (nada do nubi nem do Bruno). Liberado para
             # qualquer origem (print do Bruno: "sem resposta do nubi (Failed to fetch)" no Chrome dele): assim a
@@ -1894,6 +1897,12 @@ def atender(metodo, rota, q, corpo, token):
                 raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 404)
             except meli.ErroMeli as e:
                 raise ErroNuvem(str(e)[:1].upper() + str(e)[1:], 400)
+        if rota in ("lojas_conexoes", "loja_conectar", "loja_desconectar"):
+            # 03/10 (Bruno): 🔌 Conexões — as 3 contas do ML, a Shopee e o TikTok por OAuth (só leitura)
+            try:
+                return _json(rota_lojas_conexoes(repo, metodo, rota, q, corpo))
+            except lojas_conexao.ErroConexao as e:
+                raise ErroNuvem(str(e), 400)
         if rota.startswith("financeiro"):            # 02/10: 💰 Minhas Lojas → Financeiro (DRE e Resumo do Gestor Seller, markup)
             return _json(rota_financeiro(repo, metodo, rota, q, corpo))
         if rota.startswith("decants"):               # 01/10: 🧪 Minhas Lojas → Decants (15/10/5 ml, custo por ml, markup)
@@ -8411,6 +8420,42 @@ def _meli_retorno(q):
                                                                      "Pode fechar esta aba e testar a conexão no nubi."))
     except (meli.ErroMeli, ErroNuvem, ValueError) as e:
         return _pagina("Conta não conectada", _h.escape(str(e)[:200]), ok=False)
+
+
+LOJAS_BASE = os.environ.get("NUBI_LOJAS_BASE", "https://nubi-explorador.vercel.app/api/app")
+
+
+def rota_lojas_conexoes(repo, metodo, rota, q, corpo):
+    """🔌 Conexões: painel, iniciar a conexão (devolve o endereço de login da plataforma) e desconectar."""
+    d = json.loads(corpo or b"{}") if metodo == "POST" else {}
+    if rota == "loja_conectar":
+        return {"url": lojas_conexao.url_conectar(repo, d.get("plataforma") or "", LOJAS_BASE)}
+    if rota == "loja_desconectar":
+        return lojas_conexao.desconectar(repo, d.get("plataforma") or "", str(d.get("id") or ""))
+    return lojas_conexao.painel(repo, LOJAS_BASE)
+
+
+def _loja_retorno(q):
+    """Volta do login da loja: confere o state (uso único, 15 min), troca o código e guarda a conta (refresh cifrado)."""
+    import html as _h
+    p = q.get("p") or ""
+    if p not in lojas_conexao.PLATAFORMAS:
+        return _pagina("Loja não conectada", "Endereço de volta sem a plataforma.", ok=False)
+    nome = lojas_conexao.PLATAFORMAS[p]["nome"]
+    if q.get("error"):
+        return _pagina("Loja não conectada", _h.escape(f"{nome} respondeu: {q.get('error')}"), ok=False)
+    try:
+        repo = _repo_agente()
+        estado = q.get("s") if p == "shopee" else q.get("state")
+        if not (q.get("code") or q.get("auth_code")) or not lojas_conexao.conferir_estado(repo, p, estado):
+            return _pagina("Loja não conectada", "O pedido de conexão venceu ou não é deste nubi. Clique em Conectar de novo no nubi.", ok=False)
+        if not q.get("code"):
+            q = dict(q, code=q.get("auth_code"))
+        c = lojas_conexao.concluir(repo, p, q, LOJAS_BASE)
+        return _pagina(f"{nome} conectado", _h.escape(f"{c.get('nome') or 'Loja'} ({c.get('id')}) está ligada ao nubi. "
+                                                     "Pode fechar esta aba; a conta aparece em 🔌 Conexões."))
+    except (lojas_conexao.ErroConexao, ErroNuvem, ValueError) as e:
+        return _pagina("Loja não conectada", _h.escape(str(e)[:200]), ok=False)
 
 
 # ---------------------------------------------------------------------------
