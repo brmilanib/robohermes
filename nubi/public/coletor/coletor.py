@@ -2856,7 +2856,7 @@ def _gestor_tela_de_login(pg):
     try:
         if "/auth" in urllib.parse.urlparse(pg.url).path or pg.locator("input[type=password]:visible").count():
             return True
-        return bool(pg.locator("input[name=language_selection]").count()
+        return bool(pg.locator("input[name=language_selection]:visible").count()
                     or pg.locator("input[placeholder*='12334566789']:visible").count())
     except Exception:  # noqa: BLE001
         return False
