@@ -474,6 +474,16 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   importados (grifes), Nacionais, Eletrônicos, Casa…); cada grupo com 📋 Copiar e 💬 WhatsApp só dele, mensagem com
   começo e final editáveis (guardados no navegador) e sem total; também por curva, marca ou categoria do UpSeller. Calculadora livre no cabeçalho (ícone 🧮 preto e branco ao lado do
   Coletor, `calcLivre` = `pmCalc` com `solo`, sem buscar nada no ML).
+- **Histórico de vendas desde janeiro (03/10, Bruno: "essa madrugada o coletor tira todas as vendas com margem desde janeiro;
+  amanhã fazemos a simulação")**: `coletor historico-vendas` (comando `historico_vendas`, Mac, de madrugada, até
+  `HIST_HORAS`=2,5 h por rodada; o resto na próxima): 1º a Curva ABC do Gestor de cada mês fechado desde 01/2026
+  (`gestor_abc_meses_pendentes`; datas escritas com `JS_GESTOR_PERIODO`; o período do e-mail tem que ser o mês pedido) →
+  `gestor_vendas_importar?mes=` → `gestor_abc|mes|AAAA-MM` (a `gestor_abc|atual` não muda); 2º o Vendas por Anúncio do
+  UpSeller de cada dia (`estoque_vendas_dias_pendentes?desde=2026-01-01`, mais recentes primeiro) →
+  `vendas_anuncio_dia|`. O Relatório de Vendas do Gestor por pedido nunca chegou pelo e-mail (botão errado), por isso a
+  margem vem da Curva ABC mensal. O Relatório de Movimentação do Estoque do UpSeller (desde 05/07) exportou só "Estoque
+  Inicial" (bug do UpSeller): a simulação estima os dias zerados pela venda (Bruno: "na simulação você percebe e marca
+  quanto tempo fica zerado um produto"). Teste `test_historico_vendas.py`.
 - **Marca "Perfume Árabe" (02/10)**: "árabe", "masculina", "alta fixação"… estão em `categorias.GENERICAS` (palavra de
   anúncio nunca é marca). No Por marca, cada produto tem 🔗 vincular (`estoque_marca_salvar`, vence o título). O KPI de
   custo do Por marca é do DISPONÍVEL sem marcas paradas; a tela Estoque soma o atual (com vendidos aguardando envio e

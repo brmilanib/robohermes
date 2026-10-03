@@ -6058,11 +6058,13 @@ def estoque_niveis(repo, dias=60, agora=None):
     return {"dias": out}
 
 
-def vendas_dias_pendentes(repo, agora=None):
-    """Ontem primeiro (se falta), depois os dias que faltam dos últimos VENDAS_DIAS_HIST, do mais recente para trás."""
+def vendas_dias_pendentes(repo, agora=None, desde=None):
+    """Ontem primeiro (se falta), depois os dias que faltam dos últimos VENDAS_DIAS_HIST, do mais recente para trás.
+    desde='AAAA-MM-DD' (03/10, Bruno: "tira todas as vendas desde janeiro"): todos os dias que faltam até essa data."""
     hoje = (agora or _agora_br()).date()
     tem = set(vendas_dias_guardados(repo))
-    alvo = [(hoje - timedelta(days=i)).isoformat() for i in range(1, VENDAS_DIAS_HIST + 1)]
+    n = (hoje - date.fromisoformat(desde)).days if desde else VENDAS_DIAS_HIST
+    alvo = [(hoje - timedelta(days=i)).isoformat() for i in range(1, max(1, n) + 1)]
     return [d for d in alvo if d not in tem]
 
 
@@ -6082,11 +6084,11 @@ def vendas_por_dia(repo, dias=VENDAS_DIAS_HIST, agora=None):
     return dict(sorted(out.items()))
 
 
-def gestor_vendas_importar(repo, conteudo, arquivo, inicio=None, fim=None, origem="coletor"):
+def gestor_vendas_importar(repo, conteudo, arquivo, inicio=None, fim=None, origem="coletor", mes=None):
     """card #124: 'Relatório de Vendas' do Gestor Seller (últimos 30 dias, todas as contas). Linhas em gestor_vendas|atual e
     os totais do dia em gestor_vendas|AAAA-MM-DD."""
     if estoque.eh_abc_gestor(conteudo):
-        return gestor_abc_importar(repo, conteudo, arquivo, origem)
+        return gestor_abc_importar(repo, conteudo, arquivo, origem, mes=mes)
     try:
         linhas = estoque.ler_gestor_vendas(conteudo)
     except estoque.ErroEstoque as e:
@@ -6115,8 +6117,27 @@ def gestor_vendas_importar(repo, conteudo, arquivo, inicio=None, fim=None, orige
 GESTOR_ABC_CHAVE = "gestor_abc|atual"
 
 
-def gestor_abc_importar(repo, conteudo, arquivo, origem="coletor"):
-    """01/10: Curva ABC do Gestor Seller (ADS e lucro pós ADS por SKU) em gestor_abc|atual."""
+HISTORICO_DESDE = "2026-01-01"          # 03/10 (Bruno: "todas as vendas com margem desde janeiro")
+GESTOR_ABC_MES = "gestor_abc|mes|"
+
+
+def gestor_abc_meses_pendentes(repo, desde="2026-01", agora=None):
+    """Meses FECHADOS desde `desde` (AAAA-MM) sem a Curva ABC do Gestor do mês inteiro guardada (gestor_abc|mes|AAAA-MM)."""
+    hoje = (agora or _agora_br()).date()
+    tem = {r["chave"][len(GESTOR_ABC_MES):] for r in repo._todos("ia_resumos", {"select": "chave", "chave": f"like.{GESTOR_ABC_MES}*"}) or []}
+    y, m = int(desde[:4]), int(desde[5:7])
+    out = []
+    while (y, m) < (hoje.year, hoje.month):
+        k = f"{y:04d}-{m:02d}"
+        if k not in tem:
+            out.append(k)
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+def gestor_abc_importar(repo, conteudo, arquivo, origem="coletor", mes=None):
+    """01/10: Curva ABC do Gestor Seller (ADS e lucro pós ADS por SKU) em gestor_abc|atual.
+    mes='AAAA-MM' (03/10, histórico desde janeiro): guarda em gestor_abc|mes|AAAA-MM e NÃO troca a atual."""
     try:
         linhas = estoque.ler_abc_gestor(conteudo)
     except estoque.ErroEstoque as e:
@@ -6125,6 +6146,14 @@ def gestor_abc_importar(repo, conteudo, arquivo, origem="coletor"):
     fim = _agora_br().date() - timedelta(days=1)
     d = {"arquivo": arquivo, "origem": origem, "importado_em": agora, "inicio": (fim - timedelta(days=29)).isoformat(),
          "fim": fim.isoformat(), "curvas": estoque.resumo_abc_gestor(linhas), "linhas": linhas}
+    if mes:
+        y, m = int(mes[:4]), int(mes[5:7])
+        ult = (date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1))
+        d.update(inicio=f"{mes}-01", fim=ult.isoformat(), mes=mes)
+        repo._req("POST", "ia_resumos", corpo=[{"chave": GESTOR_ABC_MES + mes, "ia": "gestor", "criado_em": agora,
+                                                 "texto": json.dumps(d, ensure_ascii=False)}], prefer="resolution=merge-duplicates,return=minimal")
+        return {"ok": True, "abc": True, "mes": mes, "log": [f"OK: curva ABC do Gestor de {mes}: {len(linhas)} produtos, "
+                                                             f"lucro pós ADS R$ {sum(x['lucro_pos_ads'] for x in d['curvas']):.2f}."]}
     repo._req("POST", "ia_resumos", corpo=[{"chave": GESTOR_ABC_CHAVE, "ia": "gestor", "criado_em": agora,
                                              "texto": json.dumps(d, ensure_ascii=False)}], prefer="resolution=merge-duplicates,return=minimal")
     c = {x["curva"]: x for x in d["curvas"]}
@@ -8725,7 +8754,8 @@ def rota_estoque(repo, metodo, rota, q, corpo):
     if rota == "gestor_vendas_importar" and metodo == "POST":
         data = lambda k: q.get(k) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(q.get(k) or "")) else None
         return gestor_vendas_importar(repo, corpo, (q.get("arquivo") or "relatorio_de_vendas.xlsx")[:200], data("inicio"), data("fim"),
-                                      "manual" if q.get("origem") == "manual" else "coletor")
+                                      "manual" if q.get("origem") == "manual" else "coletor",
+                                      mes=q.get("mes") if re.fullmatch(r"\d{4}-\d{2}", str(q.get("mes") or "")) else None)
     if rota == "estoque_vendas_blocos_pendentes":
         return {"blocos": vendas_blocos_pendentes(repo)}
     if rota == "estoque_para_promocao":
@@ -8735,7 +8765,10 @@ def rota_estoque(repo, metodo, rota, q, corpo):
     if rota == "estoque_upseller_links":
         return upseller_links(repo, json.loads(corpo or b"{}") if metodo == "POST" else None)
     if rota == "estoque_vendas_dias_pendentes":
-        return {"dias": vendas_dias_pendentes(repo)}
+        desde = q.get("desde") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(q.get("desde") or "")) else None
+        return {"dias": vendas_dias_pendentes(repo, desde=desde)}
+    if rota == "gestor_abc_meses_pendentes":
+        return {"meses": gestor_abc_meses_pendentes(repo, q.get("desde") or HISTORICO_DESDE[:7])}
     if rota == "estoque_vendas_anuncio":
         return minhas_vendas_anuncio(repo)
     if rota == "estoque_compras":
@@ -9511,7 +9544,7 @@ COMANDOS_MAC = {
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac", "matar_xmrig": "Parar o minerador xmrig no Mac (mostra de onde roda e o que o abre)", "forense_agente": "Malware: ler o item de início automático (só leitura)",
     "forense_cache": "Malware: ler o arquivo escondido em /Library/Preferences/Logging (só leitura)",
     "forense_tmp": "Malware: ler a pasta do minerador em /tmp (só leitura)", "servidor_processos": "Servidor Dell: processos que mais usam CPU",
-    "servidor_espaco": "Servidor Dell: espaço em disco", "servidor_backup": "PC: cópia de segurança (no PC e no Google Drive)", "servidor_log": "Servidor Dell: últimas linhas do vigia",
+    "servidor_espaco": "Servidor Dell: espaço em disco", "servidor_backup": "PC: cópia de segurança (no PC e no Google Drive)", "historico_vendas": "Mac: vendas por dia do UpSeller e Curva ABC do Gestor por mês desde janeiro (madrugada)", "servidor_log": "Servidor Dell: últimas linhas do vigia",
     "servidor_ollama": "Servidor Dell: modelos carregados agora", "servidor_atualizar": "Servidor Dell: atualizar o coletor",
     "baixar_modelo": "Baixar modelo do Ollama", "estoque": "Atualizar o estoque do UpSeller agora",
     "gestor": "Importar a planilha no Gestor Seller", "hermes_card": "Hermes fazer um card (no Mac)",

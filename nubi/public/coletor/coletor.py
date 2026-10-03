@@ -2941,7 +2941,7 @@ def _gestor_ultimos_30(pg):
     return False
 
 
-def baixar_gestor_abc(pg, cfg, p=None):
+def baixar_gestor_abc(pg, cfg, p=None, ini=None, fim=None):
     """01/10 (Bruno: "a Curva ABC do Gestor traz o custo de ADS e a margem de lucro líquido de cada produto"): Curva ABC →
     Últimos 30 dias → "Solicitar Relatório" (só esse botão; nunca salvar/importar/excluir). -> arquivo .xlsx"""
     url = cfg.get("gestor_abc_url") or GESTOR_ABC or f"{GESTOR}/abcCurve"
@@ -2951,7 +2951,12 @@ def baixar_gestor_abc(pg, cfg, p=None):
         raise SessaoExpirada(f"O Gestor Seller pediu login de novo (curva ABC). Rode {_onde_rodar('entrar-gestor')}")
     if not pg.get_by_text(re.compile(r"Solicitar relat[óo]rio", re.I)).count():
         _clicar_texto(pg, [r"^\s*Curva ABC\s*$"], 5)
-    _gestor_ultimos_30(pg)
+    if ini and fim:                               # 03/10: um mês fechado (histórico desde janeiro)
+        if not pg.evaluate(JS_GESTOR_PERIODO, [ini.isoformat(), fim.isoformat()]):
+            raise Falha(f"curva ABC do Gestor: não achei as caixas de data para {ini:%d/%m}–{fim:%d/%m}")
+        devagar(2)
+    else:
+        _gestor_ultimos_30(pg)
     botao = pg.get_by_text(re.compile(r"Solicitar relat[óo]rio", re.I))
     if not botao.count():
         raise Falha("não achei 'Curva ABC' → 'Solicitar Relatório' no Gestor Seller. Na tela: " + str(pg.evaluate(JS_TEXTOS))[:600])
@@ -2960,7 +2965,11 @@ def baixar_gestor_abc(pg, cfg, p=None):
         raise Falha("o botão da curva ABC do Gestor tem texto proibido (salvar/importar/excluir); não cliquei")
     destino = PASTA / "gestor_abc"
     destino.mkdir(parents=True, exist_ok=True)
+    pedido = (ini, fim)
     arq, ini, fim = _clicar_e_receber(pg, alvo, destino, r"curva abc", "relatorio_curva_abc.xlsx", espera_email=420)
+    if pedido[0] and (ini, fim) != pedido:
+        # 03/10: o mês do histórico só vale se o e-mail diz exatamente o período pedido
+        raise Falha(f"a curva ABC do Gestor veio de {ini} a {fim}, e eu pedi {pedido[0]} a {pedido[1]}; não importei")
     if ini and fim and (fim - ini).days < 6:
         # 01/10: sem escolher o período o Gestor manda só o dia de hoje; isso não pode substituir a curva de 30 dias
         raise Falha(f"a curva ABC do Gestor veio só de {ini:%d/%m} a {fim:%d/%m} (não consegui escolher 'Últimos 30 dias'); não importei")
@@ -4350,6 +4359,75 @@ def coletar_gestor_financeiro(p, cfg, token):
     return len(feitos) + len(erros), len(feitos), len(erros), msg
 
 
+# ---------------------------------------------------------------------------
+# 03/10 (Bruno: "essa madrugada ensina o coletor: ele tira todas as vendas com margem desde janeiro; amanhã fazemos a
+# simulação"). Histórico para o backtest da Reposição: (1) Vendas por Anúncio do UpSeller de CADA dia desde 01/01 (o mesmo
+# caminho do `vendas_por_dia`, que já funciona), mais recentes primeiro; (2) Curva ABC do Gestor de cada mês fechado
+# (margem pós ADS e ADS por SKU; chega por e-mail) → gestor_abc|mes|AAAA-MM, sem trocar a atual. Só lê; roda no Mac de
+# madrugada, até HIST_HORAS; o que faltar continua na próxima.
+# ---------------------------------------------------------------------------
+HIST_DESDE = "2026-01-01"
+HIST_HORAS = float(os.environ.get("NUBI_HIST_HORAS", "2.5"))
+
+
+def coletar_historico_vendas(p, cfg, token, agora=time.time):
+    fim_em = agora() + HIST_HORAS * 3600
+    feitos_d, feitos_m, erros = [], [], []
+    try:
+        meses = (api(token, "gestor_abc_meses_pendentes", {"desde": HIST_DESDE[:7]}) or {}).get("meses") or []
+    except Exception as e:  # noqa: BLE001
+        meses, _ = [], erros.append(f"meses do Gestor: {str(e)[:120]}")
+    for m in meses:                                  # poucos (9) e cada um ~1 min: primeiro a margem de cada mês
+        if agora() > fim_em:
+            break
+        y, mm = int(m[:4]), int(m[5:7])
+        ini, fim = date(y, mm, 1), date(y + (mm == 12), mm % 12 + 1, 1) - timedelta(days=1)
+        try:
+            arq = _em_chrome_novo(p, cfg, lambda pg: baixar_gestor_abc(pg, cfg, p, ini, fim), ver="gestor_ver")
+            api(token, "gestor_vendas_importar", {"arquivo": arq.name, "mes": m}, arq.read_bytes())
+            feitos_m.append(m)
+            devagar(5)
+        except SessaoExpirada as e:
+            erros.append(f"Gestor: {str(e)[:150]}")
+            break
+        except Exception as e:  # noqa: BLE001
+            erros.append(f"Gestor {m}: {str(e)[:150]}")
+            log(f"  histórico: curva ABC de {m} falhou ({str(e)[:150]})")
+            if len([x for x in erros if x.startswith("Gestor ")]) >= 2:
+                break                                # 2 meses seguidos falhando: a tela não deixa; não insiste
+    try:
+        dias = (api(token, "estoque_vendas_dias_pendentes", {"desde": HIST_DESDE}) or {}).get("dias") or []
+    except Exception as e:  # noqa: BLE001
+        dias, _ = [], erros.append(f"dias do UpSeller: {str(e)[:120]}")
+    seguidas = 0
+    for d in dias:
+        if agora() > fim_em:
+            break
+        try:
+            arq = _em_chrome_novo(p, cfg, lambda pg, d=d: baixar_vendas(pg, cfg, p, dia=d))
+            api(token, "estoque_vendas_importar", {"arquivo": arq.name}, arq.read_bytes())
+            feitos_d.append(d)
+            seguidas = 0
+            AO_VIVO.update(feito=len(feitos_d), total=len(dias), atual=d)
+            devagar(4)
+        except SessaoExpirada as e:
+            erros.append(f"UpSeller: {str(e)[:150]}")
+            break
+        except Exception as e:  # noqa: BLE001
+            seguidas += 1
+            erros.append(f"UpSeller {d}: {str(e)[:150]}")
+            if seguidas >= 3:
+                break
+    faltam = max(0, len(dias) - len(feitos_d))
+    msg = (f"Histórico de vendas: {len(feitos_d)} dia(s) do UpSeller"
+           + (f" ({min(feitos_d)} a {max(feitos_d)})" if feitos_d else "")
+           + f", faltam {faltam}; Curva ABC do Gestor: {', '.join(feitos_m) or 'nenhum mês'}"
+           + (f" · falhou: {'; '.join(erros[:4])}" if erros else ""))
+    if erros and not (feitos_d or feitos_m):
+        raise Falha(msg)
+    return len(feitos_d) + len(feitos_m) + len(erros), len(feitos_d) + len(feitos_m), len(erros), msg
+
+
 def coletar_gestor_painel(p, cfg, token):
     """02/10 (Bruno: "a página inicial do Gestor traz os itens com as margens em tempo real, e /sales as vendas em tempo real
     com margens; pega lá para o Dashboard"): abre o painel (Hoje) e as Vendas, SÓ LÊ (nunca clica em nada), guarda o TEXTO
@@ -4783,6 +4861,8 @@ def comando_mac(chave, arg=""):
         return [*c, "gestor-financeiro"]
     if chave == "gestor_painel":
         return [*c, "gestor-painel"]
+    if chave == "historico_vendas":
+        return [*c, "historico-vendas"]
     if chave == "icones":
         return [*c, "icones"]
     if chave == "explorador_marca":                  # 02/10: arg = "MARCA" ou "MARCA|exata"
@@ -9108,6 +9188,7 @@ def main():
     exm.add_argument("--exata", action="store_true", help="Pesquisa exata (padrão: expandida por IA)")
     sub.add_parser("explorador-diario", help="Nubimetrics: Explorador das marcas da lista diária que ainda não entraram hoje")
     sub.add_parser("icones", help="baixa os ícones oficiais das lojas em alta resolução para o nubi")
+    sub.add_parser("historico-vendas", help="histórico desde janeiro: vendas por dia do UpSeller e Curva ABC do Gestor por mês (só lê)")
     sub.add_parser("gestor-painel", help="Gestor Seller: lê o painel (Hoje) e as Vendas com margem (Dashboard do nubi), só lê")
     sub.add_parser("gestor-financeiro", help="Gestor Seller: lê o Resumo analítico e o DRE de cada mês (Financeiro do nubi), só lê")
     mlp = sub.add_parser("ml-pagina", help="Mercado Livre: salva uma página (busca/anúncio) no nubi para análise, só lê")
@@ -9253,6 +9334,8 @@ def main():
         return executar("gestor_financeiro", coletar_gestor_financeiro)
     if args.cmd == "icones":
         return cmd_icones(args, cfg)
+    if args.cmd == "historico-vendas":
+        return executar("historico_vendas", coletar_historico_vendas)
     if args.cmd == "gestor-painel":
         return executar("gestor_painel", coletar_gestor_painel)
     if args.cmd == "fotos-vendedores":
