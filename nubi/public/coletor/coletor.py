@@ -4643,7 +4643,7 @@ def _eh_servidor(cfg=None):
 # o que sabe fazer; enquanto dá sinal, o Mac não pega esses comandos (fica de reserva). Coleta do Nubimetrics, Gestor,
 # logins e Ferreiro continuam no Mac até os logins/ferramentas estarem no servidor.
 SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servidor_espaco", "servidor_log",
-                 "servidor_ollama", "servidor_atualizar",
+                 "servidor_ollama", "servidor_atualizar", "servidor_backup",
                  # 27/09 (Mac com malware, reinstalação): coletas e logins também no servidor (gamdias)
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
@@ -4739,7 +4739,9 @@ def comando_mac(chave, arg=""):
         })
     # comandos com o nome da máquina: só o servidor pega (os sem prefixo continuam sendo do Mac)
     tabela.update({"servidor_processos": tabela["processos"], "servidor_espaco": tabela["espaco"],
-                   "servidor_log": tabela["log_vigia"], "servidor_ollama": [ol, "ps"], "servidor_atualizar": [*c, "atualizar"]})
+                   "servidor_log": tabela["log_vigia"], "servidor_ollama": [ol, "ps"], "servidor_atualizar": [*c, "atualizar"],
+                   # 03/10: o Google Drive para computador foi instalado no PC (Windows, G:); a cópia do Drive sai de lá
+                   "servidor_backup": [*c, "backup"]})
     if chave == "baixar_modelo":
         return [ol, "pull", arg] if arg in MODELOS_OK else None
     if chave == "hermes_card":

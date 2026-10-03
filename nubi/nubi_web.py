@@ -4430,9 +4430,10 @@ def rodar_rotinas(repo, so=None):
             if agora.weekday() == 6 and agora.hour >= 3:
                 desde = (datetime.now(timezone.utc) - timedelta(days=6)).isoformat()
                 if not repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.backup", "criado_em": f"gte.{desde}", "limit": 1}):
-                    repo._req("POST", "mac_comandos", corpo=[{"comando": "backup", "arg": None, "pedido_por": "rotina semanal (cópia de segurança)",
-                                                               "status": "pendente"}], prefer="return=minimal")
-                    out["backup"] = "pedido ao Mac"
+                    # 03/10: Mac = cópia local; PC (servidor) = cópia local + Google Drive (G:), instalado lá
+                    repo._req("POST", "mac_comandos", corpo=[{"comando": c, "arg": None, "pedido_por": "rotina semanal (cópia de segurança)",
+                                                               "status": "pendente"} for c in ("backup", "servidor_backup")], prefer="return=minimal")
+                    out["backup"] = "pedido ao Mac e ao PC"
         except Exception as e:  # noqa: BLE001
             out["backup"] = f"erro: {str(e)[:120]}"
         try:                                            # 02/10 (Bruno): mercado do Explorador dos campeões, 1 vez por dia (Reposição)
@@ -9507,7 +9508,7 @@ COMANDOS_MAC = {
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac", "matar_xmrig": "Parar o minerador xmrig no Mac (mostra de onde roda e o que o abre)", "forense_agente": "Malware: ler o item de início automático (só leitura)",
     "forense_cache": "Malware: ler o arquivo escondido em /Library/Preferences/Logging (só leitura)",
     "forense_tmp": "Malware: ler a pasta do minerador em /tmp (só leitura)", "servidor_processos": "Servidor Dell: processos que mais usam CPU",
-    "servidor_espaco": "Servidor Dell: espaço em disco", "servidor_log": "Servidor Dell: últimas linhas do vigia",
+    "servidor_espaco": "Servidor Dell: espaço em disco", "servidor_backup": "PC: cópia de segurança (no PC e no Google Drive)", "servidor_log": "Servidor Dell: últimas linhas do vigia",
     "servidor_ollama": "Servidor Dell: modelos carregados agora", "servidor_atualizar": "Servidor Dell: atualizar o coletor",
     "baixar_modelo": "Baixar modelo do Ollama", "estoque": "Atualizar o estoque do UpSeller agora",
     "gestor": "Importar a planilha no Gestor Seller", "hermes_card": "Hermes fazer um card (no Mac)",
