@@ -848,7 +848,7 @@ def enviar_foto(pg, rotulo, tela=""):
         import base64
         img = pg.screenshot(type="jpeg", quality=55)
         api(AO_VIVO["token"], "coletor_foto", corpo={"execucao_id": AO_VIVO.get("id"), "rotulo": rotulo[:200],
-                                                     "tela": tela[:3000], "foto": base64.b64encode(img).decode()}, timeout=30)
+                                                     "tela": tela[:9000], "foto": base64.b64encode(img).decode()}, timeout=30)
     except Exception:  # noqa: BLE001
         pass
 
@@ -2881,7 +2881,8 @@ def baixar_gestor_vendas(pg, cfg, p=None, ini=None, fim=None):
     if not _gestor_periodo(pg, ini, fim):
         if pedido:
             entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
-            enviar_foto(pg, f"gestor vendas: seletor de datas {ini:%d/%m}–{fim:%d/%m}", str(entradas)[:3000])
+            enviar_foto(pg, f"gestor vendas: seletor de datas {ini:%d/%m}–{fim:%d/%m}",
+                        str(entradas)[:1200] + "\nDATAS: " + str(pg.evaluate(JS_GESTOR_DATAS)) + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
             raise Falha(f"relatório de vendas do Gestor: não achei as caixas de data. Campos: {str(entradas)[:300]}")
         log("  gestor vendas: não achei as caixas de data; ficou o período que a tela já mostrava")
     marcadas = pg.evaluate(JS_GESTOR_CONTAS)
@@ -2964,6 +2965,44 @@ JS_GESTOR_ENTRADAS = r"""() => [...document.querySelectorAll('input')].filter(e 
   .map(e => [e.type, e.placeholder, e.value, (e.className || '').slice(0, 40), e.name].join('|')).slice(0, 25)"""
 
 
+# 03/10: o seletor de período do Gestor não tem caixas <input> de data (fotos 192 e da curva ABC); para enxergar como ele
+# é, manda o HTML do menu aberto (o pedaço em volta do atalho "Últimos 30 dias"), sem estilos nem ícones
+JS_GESTOR_POPUP = r"""() => {
+  const a = [...document.querySelectorAll('body *')].find(e => e.getClientRects().length && e.children.length === 0
+    && /^\s*[ÚU]ltimos 30 dias\s*$/i.test(e.textContent || ''));
+  if (!a) return 'sem o atalho Últimos 30 dias na tela';
+  let c = a; for (let i = 0; i < 5 && c.parentElement; i++) c = c.parentElement;
+  const k = c.cloneNode(true);
+  k.querySelectorAll('svg, style, script, img').forEach(x => x.remove());
+  k.querySelectorAll('*').forEach(x => { x.removeAttribute('style'); [...x.attributes].forEach(at => { if (/^data-v-/.test(at.name)) x.removeAttribute(at.name); }); });
+  return k.outerHTML.replace(/\s+/g, ' ').slice(0, 5000);
+}"""
+# o que na tela parece data/período (folhas com dd/mm/aaaa, "período", "data"), com o HTML do pai, para a foto
+JS_GESTOR_DATAS = r"""() => [...document.querySelectorAll('body *')].filter(e => e.getClientRects().length && e.children.length <= 1
+    && /\d{2}\/\d{2}\/\d{2,4}|per[íi]odo|^\s*datas?\b|calend/i.test(e.textContent || '') && (e.textContent || '').length < 80)
+  .slice(0, 6).map(e => { const k = (e.parentElement || e).cloneNode(true); k.querySelectorAll('svg, style, script').forEach(x => x.remove());
+    return k.outerHTML.replace(/ style="[^"]*"| data-v-[\w-]+="[^"]*"/g, '').replace(/\s+/g, ' ').slice(0, 700); }).join(' || ')"""
+RX_ULTIMOS_30 = re.compile(r"^\s*[ÚU]ltimos 30 dias\s*$", re.I)
+
+
+def _gestor_abrir_seletor(pg):
+    """Abre o menu de período (o mesmo caminho que o _gestor_ultimos_30 usa para achar o atalho). -> True se abriu"""
+    if pg.get_by_text(RX_ULTIMOS_30).locator("visible=true").count():
+        return True
+    for sel in ("input[value*='/']:visible", "input[placeholder*='ata' i]:visible", "[class*=date i]:visible",
+                "[class*=periodo i]:visible", "[class*=range i]:visible"):
+        loc = pg.locator(sel)
+        if loc.count():
+            try:
+                loc.first.click(timeout=5000)
+                devagar(1.5)
+            except Exception:  # noqa: BLE001
+                continue
+            if pg.get_by_text(RX_ULTIMOS_30).locator("visible=true").count():
+                return True
+    return False
+
+
 def _gestor_periodo(pg, ini, fim):
     """Escreve o período nas caixas de data da Curva ABC. 1º direto; senão abre o seletor (mesmos lugares do
     _gestor_ultimos_30) e tenta de novo; senão a caixa única "dd/mm/aaaa - dd/mm/aaaa" (seletor de intervalo)."""
@@ -2982,6 +3021,19 @@ def _gestor_periodo(pg, ini, fim):
             continue
         if pg.evaluate(JS_GESTOR_PERIODO, par):
             return True
+    # 03/10: o menu de período tem atalhos (Hoje, Últimos 30 dias…); o intervalo livre costuma ficar em "Personalizado"
+    if _gestor_abrir_seletor(pg):
+        rx = re.compile(r"personaliz|customiz|escolher|intervalo|outro per", re.I)
+        op = pg.get_by_text(rx).locator("visible=true")
+        if op.count():
+            try:
+                op.first.click(timeout=5000)
+                devagar(1.5)
+                log("  gestor: período → " + (op.first.inner_text() or "").strip()[:30])
+            except Exception:  # noqa: BLE001
+                pass
+            if pg.evaluate(JS_GESTOR_PERIODO, par):
+                return True
     unica = pg.locator("input[value*='/']:visible")
     if unica.count() == 1:
         try:
@@ -3009,7 +3061,9 @@ def baixar_gestor_abc(pg, cfg, p=None, ini=None, fim=None):
     if ini and fim:                               # 03/10: um mês fechado (histórico desde janeiro)
         if not _gestor_periodo(pg, ini, fim):
             entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
-            enviar_foto(pg, f"curva ABC do Gestor: seletor de datas para {ini:%d/%m}–{fim:%d/%m}", str(entradas)[:3000])
+            _gestor_abrir_seletor(pg)
+            enviar_foto(pg, f"curva ABC do Gestor: seletor de datas para {ini:%d/%m}–{fim:%d/%m}",
+                        str(entradas)[:1200] + "\nDATAS: " + str(pg.evaluate(JS_GESTOR_DATAS)) + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
             raise Falha(f"curva ABC do Gestor: não achei as caixas de data para {ini:%d/%m}–{fim:%d/%m}. Campos: {str(entradas)[:300]}")
         devagar(2)
     else:

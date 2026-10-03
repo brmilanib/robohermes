@@ -1827,7 +1827,7 @@ def atender(metodo, rota, q, corpo, token):
             # foto da tela + resumo dos botões quando o coletor erra no Nubimetrics (para ver o erro de fora do Mac)
             d = json.loads(corpo or b"{}")
             repo._req("POST", "coletor_fotos", corpo=[{"execucao_id": d.get("execucao_id"), "rotulo": str(d.get("rotulo") or "")[:200],
-                                                       "tela": str(d.get("tela") or "")[:3000],
+                                                       "tela": str(d.get("tela") or "")[:9000],
                                                        "foto": str(d.get("foto") or "")[:1_500_000]}], prefer="return=minimal")
             return _json({"ok": True})
         if rota == "coletor_pendencias":
