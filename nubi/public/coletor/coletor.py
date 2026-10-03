@@ -2882,7 +2882,7 @@ def baixar_gestor_vendas(pg, cfg, p=None, ini=None, fim=None):
         if pedido:
             entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
             enviar_foto(pg, f"gestor vendas: seletor de datas {ini:%d/%m}–{fim:%d/%m}",
-                        str(entradas)[:1200] + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
+                        str(entradas)[:1200] + "\nSELECT: " + str(pg.evaluate(JS_GESTOR_SELECT_PERIODO)) + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
             raise Falha(f"relatório de vendas do Gestor: não achei as caixas de data. Campos: {str(entradas)[:300]}")
         log("  gestor vendas: não achei as caixas de data; ficou o período que a tela já mostrava")
     marcadas = pg.evaluate(JS_GESTOR_CONTAS)
@@ -2988,6 +2988,16 @@ JS_GESTOR_TOPO = r"""() => [...document.querySelectorAll('body *')].filter(e => 
   .map(e => e.tagName.toLowerCase() + '.' + String(e.className || '').split(' ').slice(0, 2).join('.') + ':'
     + ((e.innerText || e.value || e.placeholder || e.title || '').trim().slice(0, 30))).filter(x => !/:$/.test(x) || /input|button|select/.test(x))
   .slice(0, 120).join(' | ')"""
+# 03/10 (foto 195): na tela de Vendas do Gestor o período é um <select> (Hoje, Ontem, Últimos 7 dias…). Escolhe a opção de
+# intervalo livre (Personalizado/Período…) e devolve as opções para a foto
+JS_GESTOR_SELECT_PERIODO = r"""() => {
+  const s = [...document.querySelectorAll('select')].find(x => x.getClientRects().length && [...x.options].some(o => /^\s*ontem\s*$/i.test(o.text)));
+  if (!s) return {achou: false};
+  const ops = [...s.options].map(o => o.text.trim());
+  const o = [...s.options].find(o => /personaliz|customiz|per[íi]odo|intervalo|escolher/i.test(o.text));
+  if (o) { s.value = o.value; s.dispatchEvent(new Event('input', {bubbles: true})); s.dispatchEvent(new Event('change', {bubbles: true})); }
+  return {achou: true, escolheu: o ? o.text.trim() : '', opcoes: ops};
+}"""
 RX_ULTIMOS_30 = re.compile(r"^\s*[ÚU]ltimos 30 dias\s*$", re.I)
 
 
@@ -3027,6 +3037,13 @@ def _gestor_periodo(pg, ini, fim):
             continue
         if pg.evaluate(JS_GESTOR_PERIODO, par):
             return True
+    sp = pg.evaluate(JS_GESTOR_SELECT_PERIODO)
+    if sp.get("achou"):
+        log(f"  gestor: período no seletor → {sp.get('escolheu') or 'sem opção de intervalo'}; opções: {', '.join(sp.get('opcoes') or [])[:200]}")
+        if sp.get("escolheu"):
+            devagar(2)
+            if pg.evaluate(JS_GESTOR_PERIODO, par):
+                return True
     # 03/10: o menu de período tem atalhos (Hoje, Últimos 30 dias…); o intervalo livre costuma ficar em "Personalizado"
     if _gestor_abrir_seletor(pg):
         rx = re.compile(r"personaliz|customiz|escolher|intervalo|outro per", re.I)
@@ -3069,7 +3086,7 @@ def baixar_gestor_abc(pg, cfg, p=None, ini=None, fim=None):
             entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
             _gestor_abrir_seletor(pg)
             enviar_foto(pg, f"curva ABC do Gestor: seletor de datas para {ini:%d/%m}–{fim:%d/%m}",
-                        str(entradas)[:1200] + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
+                        str(entradas)[:1200] + "\nSELECT: " + str(pg.evaluate(JS_GESTOR_SELECT_PERIODO)) + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
             raise Falha(f"curva ABC do Gestor: não achei as caixas de data para {ini:%d/%m}–{fim:%d/%m}. Campos: {str(entradas)[:300]}")
         devagar(2)
     else:
