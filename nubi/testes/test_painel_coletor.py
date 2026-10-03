@@ -92,7 +92,7 @@ def get(c, **h):
 
 
 html = get("/").read().decode()
-assert "Painel do coletor" in html and "Conversar com o Hermes" in html
+assert "Painel do coletor" in html and "Conversar com o coletor" in html and "Codex" in html
 e = json.loads(get("/estado").read())
 assert e["rodando"][0]["comando"] == "historico_vendas" and "dia 2026-01-05" in e["rodando"][0]["log"][-1]
 assert e["recentes"][0]["nomes"] == "atualizar" and e["recentes"][0]["ok"] and e["coleta_rodando"]
@@ -107,12 +107,51 @@ except urllib.error.HTTPError as er:
     assert er.code == 403
 
 # chat
-req = urllib.request.Request(URL + "/chat", data=json.dumps({"mensagens": [{"role": "user", "content": "o que está rodando?"}]}).encode(),
+req = urllib.request.Request(URL + "/chat", data=json.dumps({"mensagens": [{"role": "user", "content": "o que está rodando?"}], "agente": "hermes"}).encode(),
                              headers={"Content-Type": "application/json"}, method="POST")
 txt = urllib.request.urlopen(req, timeout=20).read().decode()
 assert "Rodando o histórico" in txt and "[[comando:estoque]]" in txt, txt
 sis = pedidos_ollama[-1]["messages"][0]["content"]
 assert "estoque: Atualizar o estoque" in sis and "historico_vendas" in sis and "[[card:" in sis
+
+# Claude Code e Codex (CLI do Mac, só leitura): flags de leitura e teto do Ferreiro
+import subprocess as _sp  # noqa: E402
+rodadas = []
+
+
+class R:
+    def __init__(self, out="", err="", rc=0):
+        self.stdout, self.stderr, self.returncode = out, err, rc
+
+
+def run_falso(argv, **k):
+    rodadas.append(argv)
+    if argv[0] == "codex":
+        Path(argv[argv.index("--output-last-message") + 1]).write_text("Codex: o log mostra o dia 05/01.\n[[comando:diario]]")
+        return R()
+    return R(json.dumps({"result": "Claude: está no histórico de vendas.\n[[card:Gestor por mês|usar o Personalizado]]", "total_cost_usd": 0.12}))
+
+
+coletor.subprocess.run = run_falso
+coletor.ferreiro_pronto = lambda cfg=None: (True, "")
+coletor.astra_pronto = lambda cfg=None: (True, "")
+coletor._claude_bin = lambda: "claude"
+coletor._codex_bin = lambda: "codex"
+coletor._credencial = lambda site, cfg=None: ("u", "chave-" + site)
+coletor._teto_ferreiro = lambda cfg: 10.0
+gastos = []
+coletor._gasto_ferreiro = lambda cfg, somar=0.0: gastos.append(somar) or 0.0
+for ag, esperado in (("claude", "Claude: está no histórico"), ("codex", "Codex: o log")):
+    req = urllib.request.Request(URL + "/chat", data=json.dumps({"mensagens": [{"role": "user", "content": "o que houve?"}], "agente": ag}).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    assert esperado in urllib.request.urlopen(req, timeout=20).read().decode()
+cl, cx = rodadas[0], rodadas[1]
+ferr = cl[cl.index("--allowedTools") + 1]
+assert "WebSearch" in ferr and "Edit" not in ferr and "Write" not in ferr and "commit" not in ferr and "--permission-mode" not in cl
+assert cx[cx.index("--sandbox") + 1] == "read-only"
+assert 0.12 in gastos                                            # o Claude conta no teto do Ferreiro
+coletor._gasto_ferreiro = lambda cfg, somar=0.0: 10.0
+assert "teto de hoje" in coletor._painel_cli({}, "claude", "S", [{"role": "user", "content": "oi"}])
 
 # ações (o Bruno confirma no botão)
 def acao(d):
@@ -165,6 +204,7 @@ if os.environ.get("NUBI_CHROMIUM"):
         pg.goto(URL)
         pg.wait_for_selector("#jobs .job")
         assert "historico_vendas" in pg.inner_text("#jobs")
+        pg.click(".ag button[data-a=hermes]")
         pg.fill("#q", "o que está rodando?")
         pg.keyboard.press("Enter")
         pg.wait_for_selector("button.acao")

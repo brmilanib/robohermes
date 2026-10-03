@@ -9406,6 +9406,8 @@ pre{margin:8px 0 0;max-height:260px;overflow:auto;font:12px/1.5 ui-monospace,SFM
 .m.h{align-self:flex-start;background:#21262d;border-bottom-left-radius:4px}
 form{display:flex;gap:8px;margin-top:10px}textarea{flex:1;resize:none;background:#0d1117;color:var(--txt);border:1px solid var(--borda);border-radius:10px;padding:10px;font:inherit;height:46px}
 button{background:#238636;color:#fff;border:0;border-radius:10px;padding:0 16px;font-weight:600;cursor:pointer}button:disabled{opacity:.5}
+.ag{display:flex;gap:6px;margin-bottom:10px}.ag button{background:#21262d;color:var(--mut);padding:6px 12px;border:1px solid var(--borda);font-weight:500}
+.ag button.on{background:#1f6feb;color:#fff;border-color:#1f6feb}
 button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6feb;font-size:13px}
 .hint{color:var(--mut);font-size:12px;margin-top:6px}
 </style></head><body>
@@ -9417,9 +9419,11 @@ button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6
  <div class="card"><h2>📜 Log do coletor (ao vivo)</h2><pre id="log"></pre></div>
  <div class="card"><h2>🕘 Últimos comandos</h2><div id="recentes"></div></div>
 </section><aside>
- <div class="card" id="chat"><h2>🪽 Conversar com o Hermes</h2><div id="msgs"><div class="m h">Oi, Bruno! Eu sou o Hermes, rodando aqui no seu Mac. Pergunte sobre as coletas, o quadro ou o que está acontecendo. Posso sugerir comandos (você confirma no botão) e cards para melhorar o coletor.</div></div>
+ <div class="card" id="chat"><h2>💬 Conversar com o coletor</h2>
+ <div class="ag"><button type="button" data-a="claude" class="on">Claude</button><button type="button" data-a="codex">Codex</button><button type="button" data-a="hermes">Hermes (grátis)</button></div>
+ <div id="msgs"><div class="m h">Oi, Bruno! Pergunte sobre as coletas, os erros ou o código do coletor. Claude e Codex leem o coletor e os logs aqui no Mac (sem mexer em nada); o Hermes é a IA grátis. Todos podem sugerir comandos e cards — nada roda sem você clicar no botão.</div></div>
  <form id="f"><textarea id="q" placeholder="Escreva e aperte Enter…"></textarea><button id="env">Enviar</button></form>
- <div class="hint">IA local e grátis (Ollama). Ele pode sugerir comandos e cards; nada roda sem você clicar no botão.</div></div>
+ <div class="hint">Claude e Codex usam a sua chave (o Claude conta no teto diário do Ferreiro); o Hermes é grátis. Ninguém edita o coletor por aqui: melhoria vira card no quadro.</div></div>
 </aside></main>
 <script>
 const $=s=>document.querySelector(s), esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -9440,15 +9444,17 @@ async function tick(){
   $("#recentes").innerHTML=d.recentes.map(r=>`<div class="rec"><span class="${r.ok?"ok":"erro"}">${r.ok?"✓":"✗"}</span><span>${esc(r.nomes||"#"+r.id)}</span><small style="color:var(--mut)">${hh(r.fim)}</small><span class="u">${esc(r.ultima)}</span></div>`).join("")||'<div class="vazio">—</div>';
 }
 tick(); setInterval(tick,2000);
-const hist=[];
+const hist=[];let agente="claude";
+document.querySelectorAll(".ag button").forEach(b=>b.onclick=()=>{agente=b.dataset.a;document.querySelectorAll(".ag button").forEach(x=>x.classList.toggle("on",x===b))});
 function bolha(c,t){const e=document.createElement("div");e.className="m "+c;e.textContent=t;$("#msgs").appendChild(e);$("#msgs").scrollTop=1e9;return e}
 $("#q").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#f").requestSubmit()}});
 $("#f").onsubmit=async e=>{e.preventDefault();const q=$("#q").value.trim();if(!q)return;$("#q").value="";bolha("eu",q);hist.push({role:"user",content:q});
-  const b=bolha("h","…");$("#env").disabled=true;let txt="";
-  try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20)})});
+  const nome={claude:"Claude",codex:"Codex",hermes:"Hermes"}[agente];const b=bolha("h",nome+" pensando…");$("#env").disabled=true;let txt="";
+  const t0=Date.now(),rel=setInterval(()=>{if(!txt)b.textContent=`${nome} lendo o coletor… ${Math.round((Date.now()-t0)/1000)} s`},1000);
+  try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20),agente})});
     const rd=r.body.getReader(),dec=new TextDecoder();for(;;){const {value,done}=await rd.read();if(done)break;txt+=dec.decode(value,{stream:true});b.textContent=txt;$("#msgs").scrollTop=1e9}
   }catch(err){txt="(não consegui falar com o Hermes: "+err.message+")";b.textContent=txt}
-  hist.push({role:"assistant",content:txt});b.textContent=txt.replace(/\[\[(comando|card):[^\]]*\]\]/g,"").trim();acoes(b,txt);$("#env").disabled=false;$("#q").focus()};
+  clearInterval(rel);hist.push({role:"assistant",content:txt});b.textContent=(agente==="hermes"?"":nome+": ")+txt.replace(/\[\[(comando|card):[^\]]*\]\]/g,"").trim();acoes(b,txt);$("#env").disabled=false;$("#q").focus()};
 function acoes(b,txt){for(const m of txt.matchAll(/\[\[(comando|card):([^\]|]*)(?:\|([^\]]*))?\]\]/g)){
   const [_,tipo,a,c]=m, bt=document.createElement("button");bt.className="acao";
   bt.textContent=tipo==="comando"?`▶ Rodar no Mac: ${a.trim()}${c?" ("+c.trim()+")":""}`:`📝 Criar card: ${a.trim()}`;
@@ -9489,6 +9495,57 @@ def _painel_modelo(cfg):
     locais = _modelos_locais()
     pref = cfg.get("painel_modelo") or "hermes3:8b"
     return pref if pref in locais or not locais else (next((m for m in locais if m.startswith("hermes")), locais[0]))
+
+
+PAINEL_AGENTES = {"claude": "Claude (Ferreiro)", "codex": "Codex", "hermes": "Hermes (grátis)"}
+
+
+def _painel_cli(cfg, agente, sistema, msgs):
+    """03/10 (Bruno: "prefiro que ao invés do Hermes seja o Codex e o Claude Code conversando com o coletor"): o Claude Code
+    ou o Codex deste Mac respondem no painel SÓ LENDO (código do coletor, logs, projeto); nada de editar, commit ou push.
+    As ações continuam como botões ([[comando:…]] / [[card:…]]) que o Bruno confirma. O Claude conta no teto do Ferreiro."""
+    conversa = "\n\n".join(f"{'Bruno' if m['role'] == 'user' else 'Você'}: {m['content']}" for m in msgs[-12:])
+    pedido = (sistema.replace("Você é o Hermes", "Você é o assistente do coletor").replace("(Ollama, grátis, no Mac mini)", "")
+              + "\n\nVocê roda no Mac do Bruno, na pasta do coletor: pode LER arquivos (coletor.py, coletor.log, vigia.log, "
+              "comandos/*.log, o clone do projeto em projeto/) para investigar, mas NÃO edite, NÃO faça commit nem push e NÃO "
+              "rode coletas. Se o Bruno pedir algo da internet (preço, notícia, concorrente, documentação), pesquise na web (só ler) "
+              "e cite os links. Responda à última mensagem do Bruno em português, curto e direto.\n\nCONVERSA:\n" + conversa)
+    projeto = PASTA / "projeto"
+    cwd = str(projeto) if (projeto / ".git").exists() else str(PASTA)
+    if agente == "claude":
+        ok, motivo = ferreiro_pronto(cfg)
+        if not ok:
+            return f"O Claude Code não está pronto neste Mac: {motivo}"
+        teto = _teto_ferreiro(cfg)
+        if _gasto_ferreiro(cfg) >= teto:
+            return f"O Claude já gastou o teto de hoje (US$ {teto:.0f}). Use o Hermes (grátis) ou peça para subir o teto."
+        env = {**os.environ, "ANTHROPIC_API_KEY": _credencial("anthropic", cfg)[1]}
+        r = subprocess.run([_claude_bin(), "-p", pedido, "--output-format", "json", "--model", FERREIRO_MODELO,
+                            "--max-turns", "20", "--add-dir", str(PASTA), "--allowedTools",
+                            "Read,Glob,Grep,WebSearch,WebFetch,Bash(git log:*),Bash(git diff:*),Bash(git status:*),Bash(ls:*),Bash(tail:*)"],
+                           cwd=cwd, env=env, capture_output=True, text=True, timeout=900)
+        try:
+            saida = json.loads(r.stdout or "{}")
+        except ValueError:
+            saida = {"result": (r.stdout or r.stderr or "")[-3000:]}
+        _gasto_ferreiro(cfg, float(saida.get("total_cost_usd") or saida.get("cost_usd") or 0))
+        return str(saida.get("result") or "").strip() or f"(sem resposta: {(r.stderr or '')[-300:]})"
+    ok, motivo = astra_pronto(cfg)
+    if not ok:
+        return f"O Codex não está pronto neste Mac: {motivo}"
+    chave = _credencial("openai", cfg)[1]
+    env = {**os.environ, "OPENAI_API_KEY": chave, "CODEX_API_KEY": chave}
+    env.pop("ANTHROPIC_API_KEY", None)
+    ultima = PASTA / "painel-codex.txt"
+    try:
+        ultima.unlink()
+    except OSError:
+        pass
+    r = subprocess.run([_codex_bin(), "exec", "--sandbox", "read-only", "--skip-git-repo-check",
+                        "--output-last-message", str(ultima), pedido],
+                       cwd=cwd, env=env, capture_output=True, text=True, timeout=900)
+    txt = ultima.read_text().strip() if ultima.exists() else ""
+    return txt or f"(sem resposta do Codex: {(r.stderr or r.stdout or '')[-400:]})"
 
 
 def cmd_painel(args, cfg):
@@ -9545,6 +9602,21 @@ def cmd_painel(args, cfg):
                 {"rodando": [{"comando": j["comando"], "log": j["log"][-8:]} for j in est["rodando"]],
                  "ultimos": est["recentes"], "log_coletor": est["log"][-25:]}, ensure_ascii=False)[:6000]
             base = [{"role": "system", "content": _painel_contexto(cfg) + "\n\n" + agora}]
+            agente = str(d.get("agente") or "claude")
+            if agente in ("claude", "codex"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                try:
+                    txt = _painel_cli(cfg, agente, base[0]["content"], msgs)
+                except Exception as e:  # noqa: BLE001
+                    txt = f"(não deu: {str(e)[:300]})"
+                try:
+                    self.wfile.write(txt.encode())
+                except OSError:
+                    pass
+                return
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Cache-Control", "no-store")

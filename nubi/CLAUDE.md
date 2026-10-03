@@ -43,8 +43,9 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   Mac"; "deixe o Hermes mandar comandos e melhorar o coletor"): `coletor painel` (página local http://localhost:8787, só
   127.0.0.1, recusa Origin de fora), sempre ligado pelo launchd com `painel-instalar` (Central: `painel_instalar`; atalho na
   Mesa). Mostra os comandos rodando (despachante.json + comandos/*.log), o log do coletor, a tela do robô (foto a cada ~4 s
-  em `devagar`, SÓ com o painel aberto nos últimos 20 s) e o chat com o Hermes (Ollama local, contexto do projeto). O
-  Hermes NÃO executa nada: propõe `[[comando:CHAVE]]` (só da lista fechada COMANDOS_MAC → `mac_pedir`, fila da Central) e
+  em `devagar`, SÓ com o painel aberto nos últimos 20 s) e o chat (Bruno: "prefiro o Codex e o Claude Code conversando
+  com o coletor"): Claude Code (padrão; conta no teto do Ferreiro; só leitura + WebSearch/WebFetch, sem Edit/commit),
+  Codex (`exec --sandbox read-only`) ou Hermes (Ollama, grátis). Nenhum deles executa nada: propõe `[[comando:CHAVE]]` (só da lista fechada COMANDOS_MAC → `mac_pedir`, fila da Central) e
   `[[card:Título|descrição]]` (proposta no quadro, área coletor) e o Bruno confirma no botão. Mudança no código do coletor
   é sempre por card → Ferreiro → revisão, nunca o Hermes editando o arquivo.
 - 🔌 Conexões das lojas (03/10, Bruno: "tela de conexão de lojas igual à do Gestor Seller; minhas 3 lojas do ML, a Shopee e
