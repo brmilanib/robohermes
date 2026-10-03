@@ -10265,12 +10265,13 @@ JS_WA_LISTA = """() => {
 }"""
 
 
-def wa_para_abrir(lista, previas):
+def wa_para_abrir(lista, previas, primeira=False):
     """Conversas a abrir: com bolinha de não lida, ou cuja prévia mudou desde a última volta (alguém já leu pelo celular
-    do chip e a bolinha sumiu). previas = {titulo: prévia vista}; é atualizado aqui."""
+    do chip e a bolinha sumiu). previas = {titulo: prévia vista}; é atualizado aqui. primeira (robô acabou de ligar): abre
+    também as 5 do topo, porque a mensagem pode ter sido lida antes (a lista de "vistos" evita mandar de novo)."""
     out = []
-    for x in lista or []:
-        mudou = previas.get(x["titulo"]) not in (None, x["previa"])
+    for i, x in enumerate(lista or []):
+        mudou = previas.get(x["titulo"]) not in (None, x["previa"]) or (primeira and i < 5)
         if x.get("nao_lida") or mudou:
             out.append(x["titulo"])
         previas[x["titulo"]] = x["previa"]
@@ -10323,6 +10324,30 @@ JS_WA_CONVERSA = """() => {
       if (vistos.has(id)) continue;
       vistos.add(id);
       msgs.push({id, de: b.classList.contains('message-out') ? 'loja' : 'cliente', texto: (texto || '').trim(), chat: (id.match(/_([^_]+@[^_]+)_/) || [])[1] || ''});
+    }
+  }
+  if (!msgs.length) {
+    // 03/10 (tela real: data-id "AC72FB4C…"/"3EB0…", sem true_/false_ e sem .message-in): quem mandou pela posição do
+    // balão (o que o chip mandou fica à direita) e pelos tiques de enviado; texto pelo span de texto selecionável
+    const caixa = main.getBoundingClientRect(), meio = caixa.left + caixa.width / 2;
+    let n = 0;
+    for (const d of main.querySelectorAll('[data-id]')) {
+      if (d.parentElement && d.parentElement.closest('[data-id]')) continue;           // só o de fora (sem citação)
+      const id = d.getAttribute('data-id') || '';
+      if (!id || vistos.has(id)) continue;
+      const sel = d.querySelector('span.selectable-text, span[data-testid="selectable-text"], .copyable-text span[dir]');
+      let texto = sel ? sel.innerText : '';
+      if (!texto) {
+        if (d.querySelector('audio, [data-icon*="audio"], [data-icon*="ptt"], button[aria-label*="eproduzir" i]')) texto = '[áudio]';
+        else if (d.querySelector('img[src^="blob:"]')) texto = '[foto]';
+      }
+      if (!texto) continue;
+      const bolha = (sel && (sel.closest('[class*="message-"]') || sel.parentElement)) || d;
+      const r = bolha.getBoundingClientRect();
+      const tique = d.querySelector('[data-icon^="msg-"], [data-icon*="dblcheck"], [data-icon*="check"], [aria-label*="Lida" i], [aria-label*="Entregue" i], [aria-label*="Enviada" i]');
+      const out = !!d.querySelector('.message-out') || d.classList.contains('message-out') || !!tique || (r.width > 0 && r.left + r.width / 2 > meio);
+      vistos.add(id);
+      msgs.push({id, de: out ? 'loja' : 'cliente', texto: texto.trim(), chat: '', n: n++});
     }
   }
   return {titulo, msgs: msgs.slice(-30)};
@@ -10528,7 +10553,7 @@ def cmd_whatsapp(args, cfg):
                 if time.time() - ultimo_diag > 600:          # 03/10: o que o robô enxerga (para ajustar à tela real)
                     log("whatsapp: tela " + json.dumps(pg.evaluate(JS_WA_DIAG), ensure_ascii=False)[:1500])
                     ultimo_diag = time.time()
-                abrir_ja = wa_para_abrir(lista, previas)
+                abrir_ja = wa_para_abrir(lista, previas, primeira=not previas)
                 if abrir_ja:
                     log(f"whatsapp: {len(lista)} conversas na lista; abrindo {abrir_ja[:8]}")
                 for titulo in abrir_ja[:8]:
