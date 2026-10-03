@@ -10271,6 +10271,68 @@ function setaTend(t, curto = false) {
 function precoMudou(m, semDia = false) {
   return `<span class="pill ${m.var < 0 ? "bad" : "good"}" style="white-space:nowrap" title="de R$ ${nf2.format(m.de)} para R$ ${nf2.format(m.para)} (entre ${dataBR(m.desde)} e ${dataBR(m.dia)})">${m.var < 0 ? "▼" : "▲"} R$ ${nf2.format(m.para)} <small>${m.var > 0 ? "+" : ""}${nf0.format(m.var * 100)}%${semDia ? "" : " em " + dataBR(m.dia).slice(0, 5)}</small></span>`;
 }
+// 03/10 (Bruno: "clicar no preço do vendedor e abrir no meio da tela um gráfico pequeno com o dia, o preço que mudou e as
+// unidades vendidas"): dois gráficos empilhados com os mesmos dias — preço (linha, degraus) em cima e unidades vendidas desde
+// o export anterior (barras) embaixo. Sem 2 eixos no mesmo gráfico (engana); passar o mouse mostra o dia.
+async function abrirSeriePreco(prod, v) {
+  const bg = modal(`<div style="display:flex;align-items:flex-start;gap:12px"><div style="flex:1;min-width:0">
+      <h2 style="margin:0 0 2px;font-size:16px">${esc(v.vendedor || v.codigo)} · preço × vendas por dia</h2>
+      <div class="muted" style="font-size:12.5px">${esc(prod)}</div></div><button class="btn small" data-fechar>Fechar</button></div>
+    <div id="sp-corpo" style="margin-top:10px"><div class="muted">carregando…</div></div>`);
+  $(".modal", bg).style.maxWidth = "720px";
+  let d;
+  try { d = await api("explorador_serie", {marca: S.rel.marca, vid: v.vid, produto: prod}); }
+  catch (e) { $("#sp-corpo", bg).innerHTML = `<div class="muted">${esc(e.message)}</div>`; return; }
+  const pts = (d.pontos || []).filter(p => p.preco != null || p.un != null);
+  if (pts.length < 2) {
+    $("#sp-corpo", bg).innerHTML = `<p class="muted">O gráfico aparece com 2 ou mais exports diários deste vendedor (o Explorador diário começou em 03/10; amanhã já tem o 2º ponto).</p>
+      ${pts.length ? `<p>Hoje: <b>R$ ${nf2.format(pts[0].preco || 0)}</b></p>` : ""}`;
+    return;
+  }
+  const W = innerWidth < 560 ? 380 : 640, E = 40, Dd = 10, Hp = 120, Hu = 110, n = pts.length, passo = (W - E - Dd) / n, x = i => E + passo * (i + 0.5);
+  const precos = pts.map(p => p.preco).filter(p => p != null), pmin = Math.min(...precos), pmax = Math.max(...precos);
+  const folga = Math.max((pmax - pmin) * 0.15, pmax * 0.02, 1), lo = pmin - folga, hi = pmax + folga;
+  const yp = p => 12 + (Hp - 30) * (1 - (p - lo) / (hi - lo));
+  const umax = Math.max(1, ...pts.map(p => p.un || 0)), yu = u => Hu - 22 - (Hu - 34) * (u / umax);
+  const dia = p => dataBR(p.dia).slice(0, 5);
+  let linha = "", ant = null;
+  pts.forEach((p, i) => { if (p.preco == null) return; const xx = x(i), yy = yp(p.preco);
+    linha += ant ? ` L${xx - passo / 2},${ant} L${xx - passo / 2},${yy} L${xx},${yy}` : `M${xx - passo / 2},${yy} L${xx},${yy}`; ant = yy; });
+  const mudou = pts.map((p, i) => i && p.preco != null && pts[i - 1].preco != null && Math.abs(p.preco / pts[i - 1].preco - 1) > 0.005 ? i : -1).filter(i => i >= 0);
+  const rot = i => n <= 12 || i % Math.ceil(n / 10) === 0 || i === n - 1;
+  const bw = Math.max(3, Math.min(18, passo - 4));
+  const svg = `<svg viewBox="0 0 ${W} ${Hp + Hu + 8}" style="width:100%;height:auto;display:block;font:11px system-ui,sans-serif" role="img" aria-label="preço e unidades por dia">
+    <text x="0" y="10" fill="var(--muted)">Preço (R$)</text>
+    ${[hi - folga, lo + folga].map(v_ => `<line x1="${E}" x2="${W - Dd}" y1="${yp(v_)}" y2="${yp(v_)}" stroke="var(--line)"/><text x="${E - 4}" y="${yp(v_) + 4}" text-anchor="end" fill="var(--muted)">${nf0.format(v_)}</text>`).join("")}
+    <path d="${linha}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+    ${pts.map((p, i) => p.preco == null ? "" : `<circle cx="${x(i)}" cy="${yp(p.preco)}" r="${mudou.includes(i) ? 4.5 : 2.5}" fill="${mudou.includes(i) ? "var(--accent)" : "var(--card)"}" stroke="var(--accent)" stroke-width="2"/>`).join("")}
+    ${mudou.map(i => `<text x="${x(i)}" y="${yp(pts[i].preco) - 9}" text-anchor="middle" fill="var(--ink)" font-weight="600">${pts[i].preco < pts[i - 1].preco ? "▼" : "▲"} ${nf2.format(pts[i].preco)}</text>`).join("")}
+    <g transform="translate(0,${Hp + 8})">
+      <text x="0" y="10" fill="var(--muted)">Unidades vendidas</text>
+      <line x1="${E}" x2="${W - Dd}" y1="${yu(0)}" y2="${yu(0)}" stroke="var(--line)"/>
+      <text x="${E - 4}" y="${yu(umax) + 4}" text-anchor="end" fill="var(--muted)">${nf0.format(umax)}</text>
+      ${pts.map((p, i) => p.un == null ? `<text x="${x(i)}" y="${yu(0) - 3}" text-anchor="middle" fill="var(--muted)">–</text>`
+        : `<path d="M${x(i) - bw / 2},${yu(0)} V${yu(p.un) + Math.min(4, (yu(0) - yu(p.un)) / 2)} q0,-4 4,-4 h${bw - 8} q4,0 4,4 V${yu(0)} Z" fill="var(--accent)" opacity=".75"/>`).join("")}
+      ${pts.map((p, i) => rot(i) ? `<text x="${x(i)}" y="${Hu - 6}" text-anchor="middle" fill="var(--muted)">${dia(p)}</text>` : "").join("")}
+    </g>
+    ${pts.map((p, i) => `<rect class="sp-hit" data-i="${i}" x="${x(i) - passo / 2}" y="0" width="${passo}" height="${Hp + Hu + 8}" fill="transparent"/>`).join("")}
+  </svg>`;
+  const unTot = pts.reduce((a, p) => a + (p.un || 0), 0);
+  $("#sp-corpo", bg).innerHTML = `<div style="position:relative">${svg}<div id="sp-dica" class="card" style="position:absolute;display:none;pointer-events:none;padding:6px 9px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.12)"></div></div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">${n} exports · ${nf0.format(unTot)} un. no período · ${d.anuncios} anúncio(s) deste vendedor neste produto · preço = mediana dos anúncios no dia;
+      unidades = vendidas desde o export anterior (histórico do Nubimetrics; acima de 1.000 un. é aproximado). Ponto cheio = o preço mudou.</p>`;
+  const dica = $("#sp-dica", bg), caixa = $("#sp-corpo > div", bg);
+  bg.querySelectorAll(".sp-hit").forEach(r => {
+    r.addEventListener("mouseenter", () => { const p = pts[+r.dataset.i], i = +r.dataset.i;
+      const ant_ = i ? pts[i - 1].preco : null, var_ = ant_ && p.preco ? p.preco / ant_ - 1 : null;
+      dica.innerHTML = `<b>${dataBR(p.dia)}</b><br>Preço: <b>${p.preco != null ? "R$ " + nf2.format(p.preco) : "—"}</b>${var_ && Math.abs(var_) > 0.005 ? ` <span class="${var_ < 0 ? "bad" : "good"}">(${var_ > 0 ? "+" : ""}${nf0.format(var_ * 100)}%)</span>` : ""}
+        <br>Vendeu: <b>${p.un != null ? nf0.format(p.un) + " un." : "—"}</b>${p.dias > 1 ? ` <span class="muted">em ${p.dias} dias</span>` : ""}`;
+      const rb = r.getBoundingClientRect(), cb = caixa.getBoundingClientRect();
+      dica.style.display = "block"; dica.style.top = "8px";
+      dica.style.left = Math.min(cb.width - dica.offsetWidth - 4, Math.max(0, rb.left - cb.left + rb.width / 2 - dica.offsetWidth / 2)) + "px"; });
+    r.addEventListener("mouseleave", () => { dica.style.display = "none"; });
+  });
+}
 function abrirVendedoresProduto(prod) {
   // 03/10 (Bruno, Sospiro: "não bate com o Nubimetrics"): com a janela do último export (os números do período do ARQUIVO,
   // por anúncio) o quadro mostra os 30 dias de verdade em vez de "card de 63 dias × 30 ÷ 63"
@@ -10346,13 +10408,14 @@ function abrirVendedoresProduto(prod) {
           <div style="width:60px;background:var(--soft);border-radius:3px;height:8px"><div style="width:${(v.share * 100).toFixed(1)}%;background:var(--accent);height:8px;border-radius:3px"></div></div>
           ${FMT.pct(v.share)}</div></td>
         <td>${setaTend(v.tend, true)}</td>
-        <td class="num">${v.un ? "R$ " + nf2.format(v.preco_medio) : "—"}</td><td class="num">R$ ${nf2.format(v.ultimo_preco)}${(() => { const m = (S.rel.mudancas_preco || []).find(x => x.produto === prod && x.vid === v.vid); return m ? `<div>${precoMudou(m)}</div>` : ""; })()}</td>
+        <td class="num">${v.un ? "R$ " + nf2.format(v.preco_medio) : "—"}</td><td class="num"><a href="#" class="sp-abrir" data-vid="${esc(v.vid || "")}" title="ver o gráfico de preço × vendas por dia deste vendedor">R$ ${nf2.format(v.ultimo_preco)} 📈</a>${(() => { const m = (S.rel.mudancas_preco || []).find(x => x.produto === prod && x.vid === v.vid); return m ? `<div>${precoMudou(m)}</div>` : ""; })()}</td>
         <td class="num">${v.anuncios}</td><td class="num">${v.full}</td><td class="num">${v.catalogo}</td>
         <td>${v.loja_oficial ? '<span class="pill good">sim</span>' : ""}</td></tr>`).join("")
         || `<tr><td colspan="13" class="empty">Nenhum vendedor.</td></tr>`}
     </tbody></table></div>
     <p class="muted" style="font-size:12px;margin:10px 0 0">Ordenado por unidades vendidas e depois por faturamento. Faturamento aproximado (faixas da plataforma).${prop ? ` Unidades e faturamento em 30 dias = export de ${dias} dias (${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)}) × 30 ÷ ${dias}; o preço médio e o share não mudam.` : ""}</p>`);
   $(".modal", bg).classList.add("larga", "pq");
+  bg.querySelectorAll(".sp-abrir").forEach(a => a.onclick = e => { e.preventDefault(); const v = lista.find(x => String(x.vid) === a.dataset.vid); if (v) abrirSeriePreco(prod, v); });
   // 01/10 (Bruno: "Sabah Al Ward só existe EDP 100 ml; confirme pela API do ML antes de juntar")
   $("#pq-ficha", bg).onclick = async e => { e.preventDefault(); const el = $("#pq-ficha-res", bg); el.innerHTML = `<span class="muted">lendo as características no Mercado Livre…</span>`;
     try { const f = await api("ficha_linha", {marca: S.rel.marca, produto: prod});

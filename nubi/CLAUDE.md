@@ -526,6 +526,12 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   anúncio que mudou >0,5% entre um export e o anterior (dia, desde, vendedor, título, de, para; últimas 600) e o relatório
   devolve `mudancas_preco` dos últimos 14 dias com produto e código do vendedor. Tela: cards "Crescendo ou caindo" e
   "Mudanças de preço" na marca; no quadro do produto, KPI de tendência, de mudanças e coluna Tendência + mudança no preço.
+  GRÁFICO PREÇO × VENDAS (03/10, Bruno: "clicar no preço do vendedor e abrir um gráfico pequeno com o dia, o preço e as
+  unidades"): `nubi.registrar_serie` guarda por mês, para sempre, `explorador|serie|<marca>|AAAA-MM` {ID: {dia: [preço,
+  un. desde o export anterior, dias]}}; rota `explorador_serie?marca=&vid=&produto=` junta os anúncios do vendedor no
+  produto (preço = mediana do dia, un = soma) + as mudanças. No quadro do produto, o "Preço atual 📈" abre
+  `abrirSeriePreco`: dois gráficos empilhados com os mesmos dias (preço em degraus em cima, barras de unidades embaixo;
+  nunca 2 eixos no mesmo gráfico), ponto cheio + rótulo onde o preço mudou, dica ao passar o mouse.
 - **💰 Financeiro + Estoque → Por marca (02/10, Bruno)**: `financeiro.py`. DRE Simplificado do Gestor Seller (PDF do mês
   fechado: o texto é lido no navegador com pdf.js e vai em `financeiro_importar`; `ler_dre` por blocos) e Resumo analítico
   (`/analytics/invoices`, 4 canais × meses × 7 linhas; o coletor troca as imagens por "[IMG:nome]" e manda o texto:

@@ -89,6 +89,10 @@ def test_visao_7_e_30_dias():
     assert erba["tend"] == -1.0 and [x["produto"] for x in r7["tendencias"]["caindo"]] == [erba["produto"]], r7["tendencias"]
     v1 = r7["vendedores_produto"][vib["produto"]][0]
     assert v1["un7"] == 70 and v1["dias7"] == 7 and v1["tend"] is not None
+    # 03/10 (Bruno: "clicar no preço do vendedor e ver o gráfico do dia, do preço e das unidades"): série por dia
+    se = nubi_web.explorador_serie(repo, "SOSPIRO", v1["vid"], vib["produto"])
+    assert [(p["dia"], p["preco"], p["un"]) for p in se["pontos"]] == [("2026-09-25", 100.0, None), ("2026-10-02", 89.9, 70)], se
+    assert se["anuncios"] == 1 and len(se["mudancas"]) == 1
     assert r7["resumo"]["visao"] == {"tipo": "7", "inicio": "2026-09-26", "fim": "2026-10-02", "dias": 7}, r7["resumo"]["visao"]
     assert r7["resumo"]["un"] == 78 and r7["resumo"]["dias"] == 7, r7["resumo"]
     r30 = nubi_web.relatorio(repo, "SOSPIRO", visao="30")

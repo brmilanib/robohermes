@@ -2048,6 +2048,7 @@ def guardar_janela(repo, marca, ini, fim, df_arq, arquivo=""):
     datas[fim] = {k: [v[2], v[3], round(float(p_), 2)] for (k, v), p_ in zip(anuncios.items(), pr)}
     _gravar_resumo(repo, HIST_DIAS.format(marca), {"datas": {d: datas[d] for d in sorted(datas)[-9:]}})
     registrar_precos(repo, marca, fim, datas, d)
+    registrar_serie(repo, marca, fim, datas)
     da = _da_marca_no_arquivo(d, marca)
     vend = []
     if "vendedor" in da.columns and len(da):
@@ -2087,6 +2088,25 @@ def registrar_precos(repo, marca, fim, datas, d):
         _gravar_resumo(repo, PRECOS.format(marca), (velhas + novas)[-600:])
         avisar(f"    Preços: {len(novas)} anúncio(s) mudaram de preço desde {antes[-1][8:10]}/{antes[-1][5:7]}")
     return novas
+
+
+SERIE = "explorador|serie|{}"                  # + "|AAAA-MM": {ID: {dia: [preço, un. desde o export anterior, dias]}}
+
+
+def registrar_serie(repo, marca, fim, datas):
+    """03/10 (Bruno: "quando clicar no preço do vendedor, um gráfico com o dia, o preço que mudou e as unidades vendidas"):
+    para sempre, por mês: o preço de cada anúncio em cada export e as unidades vendidas desde o export anterior (histórico de
+    hoje − o anterior; nunca negativo; acima de 1.000 un. o arredondamento do Nubimetrics deixa aproximado)."""
+    antes = [x for x in sorted(datas) if x < fim]
+    ant, hoje = (datas[antes[-1]] if antes else {}), datas[fim]
+    gap = (date.fromisoformat(fim) - date.fromisoformat(antes[-1])).days if antes else None
+    chave = f"{SERIE.format(marca)}|{fim[:7]}"
+    serie = ler_resumo(repo, chave) or {}
+    for k, x in hoje.items():
+        preco = x[2] if len(x) > 2 else None
+        un = max(0, x[0] - ant[k][0]) if k in ant and gap else None
+        serie.setdefault(k, {})[fim] = [preco, un, gap]
+    _gravar_resumo(repo, chave, serie)
 
 
 def ler_resumo(repo, chave):

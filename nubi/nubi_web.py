@@ -717,6 +717,45 @@ def explorador_historico(repo, marca):
     return out
 
 
+def explorador_serie(repo, marca, vid, produto, meses=3):
+    """03/10 (Bruno: "clicar no preço do vendedor e abrir um gráfico com o dia, o preço que mudou e as unidades vendidas"): os
+    anúncios deste vendedor neste produto (card atual) e, por dia de export, o preço (mediana dos anúncios) e as unidades
+    vendidas desde o export anterior (soma). Mudanças de preço do período vêm junto."""
+    marca = nubi.chave_marca(marca)
+    snaps = repo.snapshots(marca)
+    if snaps.empty:
+        raise ErroNuvem(f"Nenhum período importado para {marca}.", 404)
+    atual, _ = escolher_periodo(snaps)
+    df = _so_da_marca(nubi.ler_snapshot(repo, atual["id"], marca))
+    df = nubi._ids(df[(df["vendedor_id"].astype(str) == str(vid)) & (df["produto"] == produto)])
+    ids = set(df["anuncio"])
+    fim = date.fromisoformat(str(atual["fim"])[:10])
+    meses_k, m = [], fim.replace(day=1)
+    for _ in range(meses):
+        meses_k.append(m.strftime("%Y-%m"))
+        m = (m - timedelta(days=1)).replace(day=1)
+    dias = {}
+    for mk in reversed(meses_k):
+        for k, por_dia in (nubi.ler_resumo(repo, f"{nubi.SERIE.format(marca)}|{mk}") or {}).items():
+            if k not in ids:
+                continue
+            for dia, (preco, un, gap) in por_dia.items():
+                d = dias.setdefault(dia, {"precos": [], "un": None, "gap": gap})
+                if preco:
+                    d["precos"].append(preco)
+                if un is not None:
+                    d["un"] = (d["un"] or 0) + un
+    pontos = []
+    for dia in sorted(dias):
+        d = dias[dia]
+        ps = sorted(d["precos"])
+        pontos.append({"dia": dia, "preco": ps[len(ps) // 2] if ps else None, "precos": ps[:6], "un": d["un"], "dias": d["gap"]})
+    mud = [x for x in (nubi.ler_resumo(repo, nubi.PRECOS.format(marca)) or []) if x.get("anuncio") in ids]
+    nome = str(df["vendedor"].iloc[0]) if len(df) else ""
+    return {"marca": marca, "produto": produto, "vid": str(vid), "vendedor": nome, "anuncios": len(ids), "pontos": pontos,
+            "mudancas": mud[-30:]}
+
+
 def explorador_diario(repo, salvar=None):
     """02/10 (Bruno: "todo dia, só as marcas que eu vendo; se eu quiser uma ou outra, acrescento na mesma regra"): a lista
     de marcas que o coletor exporta no Explorador todo dia (pesquisa expandida + Beleza). Sugestões = marcas do meu estoque
@@ -2646,6 +2685,8 @@ def atender(metodo, rota, q, corpo, token):
             return _json(explorador_diferenca(repo, nubi.chave_marca(q.get("marca") or ""), q.get("de"), q.get("para")))
         if rota == "explorador_dias":                # regra 14: os dias somados no card
             return _json(explorador_dias(repo, nubi.chave_marca(q.get("marca") or "")))
+        if rota == "explorador_serie":               # 03/10: preço × unidades por dia de um vendedor num produto
+            return _json(explorador_serie(repo, q.get("marca") or "", q.get("vid") or "", q.get("produto") or ""))
         if rota == "explorador_historico":           # 03/10: o que ficou guardado da marca, por data (mês contra mês)
             return _json(explorador_historico(repo, q.get("marca") or ""))
         if rota == "explorador_monitoradas":         # 03/10: marcas da lista diária + conferência com o Nubimetrics
