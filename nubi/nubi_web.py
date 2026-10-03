@@ -8579,7 +8579,7 @@ def _loja_retorno(q):
             q = dict(q, code=q.get("auth_code"))
         c = lojas_conexao.concluir(repo, p, q, LOJAS_BASE)
         t = urllib.parse.quote(c["confirmar"])
-        sair = {"ml": "https://www.mercadolivre.com.br", "shopee": "https://seller.shopee.com.br",
+        sair = {"ml": "https://www.mercadolivre.com.br/jms/mlb/lgz/logout", "shopee": "https://seller.shopee.com.br",
                 "tiktok": "https://seller-br.tiktok.com"}[p]
         return _pagina(f"Conectar esta conta do {nome}?", (
             f"O {_h.escape(nome)} entregou a conta <b style='font-size:20px'>{_h.escape(c.get('nome') or 'sem nome')}</b><br>"

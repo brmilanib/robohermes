@@ -36,6 +36,7 @@ TIKTOK_AUTH = os.environ.get("NUBI_TIKTOK_AUTH", "https://auth.tiktok-shops.com"
 TIKTOK_AUTORIZAR = os.environ.get("NUBI_TIKTOK_AUTORIZAR", "https://services.tiktokshop.com/open/authorize")
 ML_AUTH = os.environ.get("NUBI_ML_AUTH", "https://auth.mercadolivre.com.br")
 ML_API = os.environ.get("NUBI_ML_API", "https://api.mercadolibre.com")
+ML_SAIR = os.environ.get("NUBI_ML_SAIR", "https://www.mercadolivre.com.br/jms/mlb/lgz/logout?go=")
 ABRIR = urllib.request.urlopen
 
 
@@ -119,8 +120,11 @@ def url_conectar(repo, p, base):
     estado = secrets.token_urlsafe(24)
     _gravar(repo, ESTADO + p, {"estado": estado, "em": time.time()})
     if p == "ml":
-        return f"{ML_AUTH}/authorization?" + urllib.parse.urlencode(
+        auth = f"{ML_AUTH}/authorization?" + urllib.parse.urlencode(
             {"response_type": "code", "client_id": os.environ["ML_CLIENT_ID"], "redirect_uri": retorno(base, "ml"), "state": estado})
+        # 03/10 (vídeo do Bruno): o ML entrega direto a conta que já está logada no navegador (BRUNOMILANI, a do app), sem
+        # mostrar login. Sai do ML primeiro e volta para a autorização: o ML pede o login e o Bruno escolhe a loja.
+        return ML_SAIR + urllib.parse.quote(auth, safe="")
     if p == "shopee":
         caminho, ts = "/api/v2/shop/auth_partner", int(time.time())
         return f"{SHOPEE_API}{caminho}?" + urllib.parse.urlencode(

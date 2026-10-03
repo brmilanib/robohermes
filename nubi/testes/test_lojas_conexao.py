@@ -92,6 +92,8 @@ def state(url, nome="state"):
 # ML: duas contas, uma de cada vez
 for i in (1, 2):
     u = lc.url_conectar(repo, "ml", BASE)
+    assert u.startswith(lc.ML_SAIR)                                  # sai do ML antes, para o ML pedir o login da loja
+    u = urllib.parse.unquote(u[len(lc.ML_SAIR):])
     assert "redirect_uri=" + urllib.parse.quote(f"{BASE}?r=loja_retorno&p=ml", safe="") in u, u
     st, tipo, html, *_ = nubi_web._loja_retorno({"p": "ml", "code": f"C{i}", "state": state(u)}); html = html.decode() if isinstance(html, bytes) else html
     assert f"LOJA{i}" in html and "Sim, conectar" in html and "conta errada" in html, html

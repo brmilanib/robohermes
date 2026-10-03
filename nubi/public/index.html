@@ -4004,8 +4004,8 @@ async function telaConexoes() {
   const dt = v => v ? new Date(v).toLocaleDateString("pt-BR") : "";
   main.innerHTML = `<h1>🔌 Conexões</h1>
     <p class="aviso"><span>Conecte suas lojas para o nubi puxar <b>pedidos, anúncios, estoque e ADS</b> direto da plataforma. O login é
-      feito na página da própria plataforma; o nubi nunca vê a senha e só tem acesso de <b>leitura</b>. Para conectar outra conta do
-      Mercado Livre, saia da conta anterior no site do ML (ou use uma janela anônima) antes de clicar.</span></p>
+      feito na página da própria plataforma; o nubi nunca vê a senha e só tem acesso de <b>leitura</b>. No Mercado Livre, o botão
+      sai da conta logada e abre o login: entre com a loja que quer conectar.</span></p>
     <div class="cx-grade">${r.plataformas.map(p => `<div class="card pad cx-card">
       <div class="cx-top">${platIco(p.nome, 40)}<div><b>${esc(p.nome)}</b><small class="muted">${p.contas.filter(c => c.ativa).length} loja(s) conectada(s)</small></div></div>
       ${p.chave === "ml" ? `<div id="ml-conta" class="cx-principal">Carregando a conta principal…</div>` : ""}
@@ -4020,6 +4020,7 @@ async function telaConexoes() {
     </div>`).join("")}</div>`;
   mlConta();                       // 03/10 (Bruno): a conta do ML (AURASCENT) saiu da tela do Mercado Livre e mora aqui
   main.querySelectorAll(".cx-con").forEach(b => b.onclick = async () => {
+    if (b.dataset.p === "ml" && !confirm("Para escolher a loja, o nubi vai SAIR da conta do Mercado Livre neste navegador e abrir o login do ML.\n\nEntre com a loja que você quer conectar (ex.: Essence Prime). Depois é só entrar de novo na sua conta de sempre.")) return;
     b.disabled = true;
     try { const j = await api("loja_conectar", {}, {method: "POST", body: JSON.stringify({plataforma: b.dataset.p})}); location.href = j.url; }
     catch (e) { toast(e.message); b.disabled = false; }
