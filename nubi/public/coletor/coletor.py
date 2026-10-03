@@ -5033,7 +5033,7 @@ def comando_mac(chave, arg=""):
     ol = _ollama_bin()
     tabela = {
         "status": [*c, "status"], "diario": [*c, "diario"], "atualizar": [*c, "atualizar"], "backup": [*c, "backup"],
-        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"], "painel_instalar": [*c, "painel-instalar"],
+        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"], "painel_instalar": [*c, "painel-instalar"], "revisao_coletor": [*c, "revisao-coletor"],
         "hermes": [*c, "hermes"], "qwen": [*c, "qwen"], "estoque": [*c, "estoque"], "gestor": [*c, "gestor"],
         "entrar": [*c, "entrar"], "entrar_upseller": [*c, "entrar-upseller"], "entrar_gestor": [*c, "entrar-gestor"],
         "entrar_auto_nubimetrics": [*c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [*c, "entrar-auto", "upseller"],
@@ -9410,6 +9410,7 @@ def _painel_estado():
     return {"agora": time.time(), "coleta_rodando": bool(_outra_rodando()), "pausado": bool(est.get("pausado")),
             "rodando": rodando, "recentes": recentes[:8], "log": _painel_cauda(PASTA / "coletor.log", 80),
             "vigia": _painel_cauda(PASTA / "vigia.log", 12), "tela_em": tela, "ollama": modelos,
+            "revisao": json.loads(REVISAO_ULTIMA.read_text()) if REVISAO_ULTIMA.exists() else None,
             "disco_gb": round(_sh.disk_usage(str(Path.home())).free / 1e9, 1)}
 
 
@@ -9456,6 +9457,7 @@ button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6
  <div class="card"><h2>⚙️ Rodando agora</h2><div id="jobs" class="vazio">Nada rodando.</div></div>
  <div class="card"><h2>📜 Log do coletor (ao vivo)</h2><pre id="log"></pre></div>
  <div class="card"><h2>🕘 Últimos comandos</h2><div id="recentes"></div></div>
+ <div class="card"><h2>📋 Revisão diária (Codex)</h2><div id="rev" class="vazio">A primeira revisão sai hoje às 23h.</div></div>
 </section><aside>
  <div class="card" id="chat"><h2>💬 Conversar com o coletor</h2>
  <div class="ag"><button type="button" data-a="claude" class="on">🔨 Ferreiro</button><button type="button" data-a="codex">Codex</button><button type="button" data-a="hermes">Hermes (grátis)</button></div>
@@ -9486,6 +9488,7 @@ async function tick(){
   $("#jobs").className=d.rodando.length?"":"vazio";
   $("#jobs").innerHTML=d.rodando.length?d.rodando.map(j=>`<div class="job"><small style="margin:0 6px 0 0">${robo(j.comando)}</small><b>${esc(j.comando)}</b><small>#${esc(j.id)} · há ${dur(d.agora-j.desde)}</small><pre>${esc(j.log.join("\n"))}</pre></div>`).join(""):"Nada rodando.";
   const lg=$("#log"); lg.textContent=d.log.join("\n"); if(fixo) lg.scrollTop=lg.scrollHeight;
+  if(d.revisao){const r=d.revisao;$("#rev").className="";$("#rev").innerHTML=`<div class="hint">dia ${esc(r.dia.slice(8,10)+"/"+r.dia.slice(5,7))} · ${r.ok} comandos ok · ${r.erros} com erro</div><pre style="white-space:pre-wrap">${esc(r.relatorio)}</pre>`+(r.cards&&r.cards.length?`<div class="hint">Melhorias propostas no quadro (aprove para programar): ${esc(r.cards.join(" · "))}</div>`:"")}
   $("#recentes").innerHTML=d.recentes.map(r=>`<div class="rec"><span class="${r.ok?"ok":"erro"}">${r.ok?"✓":"✗"}</span><span>${esc(r.nomes||"#"+r.id)}</span><small style="color:var(--mut)">${hh(r.fim)}</small><span class="u">${esc(r.ultima)}</span></div>`).join("")||'<div class="vazio">—</div>';
 }
 tick(); setInterval(tick,2000);
@@ -9847,6 +9850,126 @@ def reiniciar_painel():
         subprocess.run(["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/com.nubi.coletor.painel"], check=False, capture_output=True)
 
 
+# ---------------------------------------------------------------------------
+# 03/10 (Bruno: "o Codex ir aprendendo a cada dia o que o coletor faz e ir melhorando e otimizando o código dele"):
+# revisão diária. O coletor junta os números do dia (sem IA), o Codex lê esse resumo + o código (sandbox SÓ LEITURA) e
+# devolve um JSON: relatório, aprendizados (caixa de conhecimento) e até 3 melhorias (cards PROPOSTA no quadro: o Bruno
+# aprova, o Ferreiro/Codex programa, o Chefe revisa e publica). Nunca muda código sozinho. 1 rodada por dia.
+REVISAO_ULTIMA = PASTA / "revisao_ultima.json"
+
+
+def resumo_do_dia(dia=None):
+    """Os números do dia, sem IA: comandos (ok/erro, duração), mensagens que mais se repetiram e as falhas."""
+    dia = dia or date.today()
+    pref = dia.isoformat()
+    linhas = []
+    try:
+        with open(PASTA / "coletor.log", encoding="utf-8", errors="replace") as f:
+            linhas = [l.rstrip("\n")[11:] for l in f if l.startswith(pref)]
+    except OSError:
+        pass
+    norm = lambda t: re.sub(r"\d+", "#", re.sub(r"^\d\d:\d\d:\d\d\s+", "", t)).strip()[:140]
+    contagem = {}
+    for l in linhas:
+        k = norm(l)
+        if k:
+            contagem[k] = contagem.get(k, 0) + 1
+    repetidas = sorted(contagem.items(), key=lambda x: -x[1])[:15]
+    est = _estado_desp()
+    comandos = []
+    pasta = PASTA / "comandos"
+    if pasta.exists():
+        for f in sorted(pasta.glob("*.log"), key=lambda x: x.stat().st_mtime):
+            quando = datetime.fromtimestamp(f.stat().st_mtime)
+            if quando.date() != dia:
+                continue
+            rc = f.with_suffix(".log.rc")
+            texto = f.read_text(errors="replace")
+            comandos.append({"id": f.stem, "comando": (est.get("nomes") or {}).get(f.stem) or "?",
+                             "fim": quando.strftime("%H:%M"), "ok": rc.exists() and rc.read_text().strip() == "0",
+                             "rodando": not rc.exists(), "linhas": texto.count("\n"), "ultima": texto.strip().splitlines()[-1][:200] if texto.strip() else ""})
+    falhas = [l[:220] for l in linhas if re.search(r"FALHOU|Traceback|Erro|erro:|não consegui|não achei", l)][-25:]
+    return {"dia": pref, "linhas_log": len(linhas), "comandos": comandos,
+            "ok": sum(1 for c in comandos if c["ok"]), "erros": sum(1 for c in comandos if not c["ok"] and not c["rodando"]),
+            "repetidas": [{"vezes": n, "mensagem": k} for k, n in repetidas], "falhas": falhas}
+
+
+REVISAO_PEDIDO = (
+    "Você é o Codex, revisor diário do COLETOR do nubi (Python + Playwright que roda no Mac do Bruno: coleta no Nubimetrics, "
+    "UpSeller, Gestor Seller e Mercado Livre). O código está em nubi/public/coletor/coletor.py e as regras em nubi/CLAUDE.md "
+    "(nesta pasta). Leia o RESUMO DO DIA abaixo (números reais do log; não invente nada além dele) e o código das partes "
+    "envolvidas. NÃO edite nada: só leia. Responda SÓ com um JSON válido, sem texto em volta, neste formato:\n"
+    '{"relatorio": "o que o coletor fez hoje em 5 a 8 linhas, em português simples para o Bruno (não é programador)", '
+    '"aprendizados": [{"titulo": "...", "texto": "fato útil para os próximos dias (causa de um erro, comportamento de um site)"}], '
+    '"melhorias": [{"titulo": "curto", "descricao": "problema (com números do dia), causa no código (função/linha), '
+    'mudança proposta, como testar", "ganho": "tempo ou falhas a menos", "risco": "baixo|medio|alto"}]}\n'
+    "No máximo 3 aprendizados e 3 melhorias, só as que valem a pena (as que mais se repetiram ou falharam). Melhoria "
+    "sem prova no resumo do dia não entra. Sem senhas, tokens ou dados pessoais.\n\nRESUMO DO DIA:\n")
+
+
+def cmd_revisao_coletor(args, cfg):
+    token = token_nubi(cfg)
+    res = resumo_do_dia()
+    ok, motivo = astra_pronto(cfg)
+    if not ok:
+        print(f"Codex indisponível: {motivo}")
+        return 1
+    projeto = PASTA / "projeto"
+    if (projeto / ".git").exists():
+        _git(projeto, "fetch", "origin", BRANCH_NUBI)
+    cwd = str(projeto) if (projeto / ".git").exists() else str(PASTA)
+    chave = _credencial("openai", cfg)[1]
+    env = {**os.environ, "OPENAI_API_KEY": chave, "CODEX_API_KEY": chave}
+    env.pop("ANTHROPIC_API_KEY", None)
+    ultima = PASTA / "revisao-codex.txt"
+    try:
+        ultima.unlink()
+    except OSError:
+        pass
+    r = subprocess.run([_codex_bin(), "exec", "--sandbox", "read-only", "--skip-git-repo-check",
+                        "--output-last-message", str(ultima), REVISAO_PEDIDO + json.dumps(res, ensure_ascii=False)[:30000]],
+                       cwd=cwd, env=env, capture_output=True, text=True, timeout=1800)
+    txt = ultima.read_text() if ultima.exists() else ""
+    m = re.search(r"\{.*\}", txt, re.S)
+    try:
+        d = json.loads(m.group(0)) if m else {}
+    except ValueError:
+        d = {}
+    if not d.get("relatorio"):
+        print("O Codex não devolveu a revisão: " + (r.stderr or r.stdout or txt)[-500:])
+        return 1
+    cards = []
+    for mlh in (d.get("melhorias") or [])[:3]:
+        if not str(mlh.get("titulo") or "").strip():
+            continue
+        try:
+            c = api(token, "reuniao_tarefa_salvar", corpo={
+                "titulo": f"Coletor: {str(mlh['titulo']).strip()[:110]}", "status": "proposta", "area": "coletor",
+                "risco": str(mlh.get("risco") or "medio")[:10], "autor": "codex",
+                "descricao": f"{mlh.get('descricao', '')}\n\nGanho: {mlh.get('ganho', '')}\n\n(Revisão diária do coletor, {res['dia']}, pelo Codex.)"},
+                timeout=60)
+            cards.append(f"#{c.get('id')} {str(mlh['titulo'])[:80]}")
+        except Exception as e:  # noqa: BLE001
+            print(f"card não criado ({e})", flush=True)
+    aprendeu = 0
+    for a in (d.get("aprendizados") or [])[:3]:
+        if a.get("titulo") and a.get("texto"):
+            try:
+                api(token, "conhecimento_salvar", corpo={"titulo": f"Coletor: {str(a['titulo'])[:180]}", "texto": str(a["texto"])[:4000],
+                                                         "tipo": "aprendizado", "fonte": f"revisão diária {res['dia']}", "autor": "Codex"}, metodo="POST")
+                aprendeu += 1
+            except Exception as e:  # noqa: BLE001
+                print(f"aprendizado não gravado ({e})", flush=True)
+    texto = (f"📋 **Revisão do coletor de {res['dia'][8:10]}/{res['dia'][5:7]}** (Codex)\n\n{d['relatorio']}\n\n"
+             f"Comandos: {res['ok']} ok · {res['erros']} com erro." + (f"\n\nMelhorias propostas (aprove no quadro): " + "; ".join(cards) if cards else "")
+             + (f"\n\n{aprendeu} aprendizado(s) na caixa de conhecimento." if aprendeu else ""))
+    _postar_hermes_como(token, "Codex (revisão do coletor)", texto)
+    REVISAO_ULTIMA.write_text(json.dumps({"dia": res["dia"], "relatorio": d["relatorio"], "cards": cards, "aprendizados": aprendeu,
+                                          "ok": res["ok"], "erros": res["erros"], "em": datetime.now().isoformat()}, ensure_ascii=False))
+    print(f"OK: revisão do dia {res['dia']}: {len(cards)} melhoria(s) proposta(s), {aprendeu} aprendizado(s).")
+    return 0
+
+
 def main():
     if sys.platform == "win32":                          # PC do Bruno: acentos e emojis no PowerShell
         for f in (sys.stdout, sys.stderr):
@@ -9903,6 +10026,7 @@ def main():
     pn = sub.add_parser("painel", help="Painel do coletor no navegador (localhost:8787): o que roda agora, a tela ao vivo e o chat com o Hermes")
     pn.add_argument("--porta", type=int, default=PAINEL_PORTA)
     pn.add_argument("--sem-abrir", action="store_true")
+    sub.add_parser("revisao-coletor", help="(noite) o Codex revisa o que o coletor fez no dia e propõe melhorias (só lê)")
     sub.add_parser("painel-instalar", help="deixa o Painel do coletor sempre ligado e põe o atalho na Mesa")
     cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
     cv.add_argument("--modelo", default=None)
@@ -10001,6 +10125,8 @@ def main():
         return cmd_conversar(args, cfg)
     if args.cmd == "painel":
         return cmd_painel(args, cfg)
+    if args.cmd == "revisao-coletor":
+        return cmd_revisao_coletor(args, cfg)
     if args.cmd == "painel-instalar":
         return instalar_painel()
     if args.cmd == "programar":

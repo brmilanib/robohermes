@@ -4456,6 +4456,15 @@ def rodar_rotinas(repo, so=None):
                         out["backup"] = f"pedido ao {onde}"
         except Exception as e:  # noqa: BLE001
             out["backup"] = f"erro: {str(e)[:120]}"
+        try:                                            # 03/10 (Bruno): o Codex revisa o dia do coletor às 23h e propõe melhorias
+            if agora.hour >= 23:
+                desde = (datetime.now(timezone.utc) - timedelta(hours=20)).isoformat()
+                if not repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.revisao_coletor", "criado_em": f"gte.{desde}", "limit": 1}):
+                    repo._req("POST", "mac_comandos", corpo=[{"comando": "revisao_coletor", "arg": None, "pedido_por": "rotina diária (23h)",
+                                                               "status": "pendente"}], prefer="return=minimal")
+                    out["revisao_coletor"] = "pedido ao Mac"
+        except Exception as e:  # noqa: BLE001
+            out["revisao_coletor"] = f"erro: {str(e)[:120]}"
         try:                                            # 02/10 (Bruno): mercado do Explorador dos campeões, 1 vez por dia (Reposição)
             if agora.hour >= 6:
                 m, _ = _ia_json(repo, REPOSICAO_MERCADO)
@@ -9925,7 +9934,7 @@ def _mac_vivo(repo, minutos=3):
 
 COMANDOS_MAC = {
     "status": "Status das coletas", "diario": "Rodar a coleta agora", "parar_coleta": "Parar a coleta em andamento",
-    "atualizar": "Atualizar o coletor", "backup": "Cópia de segurança do banco e do código (no Mac e no Google Drive)", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia", "painel_instalar": "Painel do coletor no Mac (ao vivo + chat com o Hermes; atalho na Mesa)",
+    "atualizar": "Atualizar o coletor", "backup": "Cópia de segurança do banco e do código (no Mac e no Google Drive)", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia", "painel_instalar": "Painel do coletor no Mac (ao vivo + chat com o Hermes; atalho na Mesa)", "revisao_coletor": "Revisão diária do coletor pelo Codex (relatório, aprendizados e melhorias propostas)",
     "log_vigia": "Últimas linhas do vigia", "log_coleta": "Últimas linhas da coleta",
     "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac", "matar_xmrig": "Parar o minerador xmrig no Mac (mostra de onde roda e o que o abre)", "forense_agente": "Malware: ler o item de início automático (só leitura)",

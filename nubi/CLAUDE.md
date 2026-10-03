@@ -59,6 +59,11 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   com algumas horas de atraso. Páginas por loja em Conexões: `#/conexoes/ml` (principal) e `#/conexoes/ml?conta=<id>`
   (token DA loja via `lojas_conexao.acesso_ml` + `meli.TOKEN_DA_VEZ`, sem misturar). Conectar loja tem CONFIRMAÇÃO: a
   conta que a plataforma devolve fica pendente (`loja|pendente|<t>`, 15 min) até o Bruno clicar "Sim, conectar".
+- 📋 Revisão diária do coletor (03/10, Bruno: "o Codex ir aprendendo a cada dia e melhorando o coletor"): rotina 23h
+  (`rodar_rotinas` → mac_comandos `revisao_coletor`) → `coletor revisao-coletor`: `resumo_do_dia` (números do log, sem
+  IA) + `codex exec --sandbox read-only` devolve JSON {relatorio, aprendizados≤3, melhorias≤3}. Melhorias viram cards
+  PROPOSTA (área coletor, autor codex), aprendizados vão à caixa de conhecimento, relatório na Sala e no Painel. Nunca muda
+  código sozinho: o Bruno aprova o card, o Ferreiro/Codex programa, o Chefe revisa e publica.
 - 🔌 Conexões das lojas (03/10, Bruno: "tela de conexão de lojas igual à do Gestor Seller; minhas 3 lojas do ML, a Shopee e
   o TikTok, para puxar dados, anúncios e ADS"): `lojas_conexao.py`, tela `#/conexoes` (Minhas Lojas). Mesmas regras da
   conta do ML, estendidas: login SEMPRE na página da plataforma (OAuth; ML, Shopee `auth_partner`, TikTok `open/authorize`);
