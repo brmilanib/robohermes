@@ -2884,7 +2884,7 @@ def baixar_gestor_vendas(pg, cfg, p=None, ini=None, fim=None):
         if pedido:
             entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
             enviar_foto(pg, f"gestor vendas: seletor de datas {ini:%d/%m}–{fim:%d/%m}",
-                        str(entradas)[:1200] + "\nSELECT: " + str(pg.evaluate(JS_GESTOR_SELECT_PERIODO)) + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
+                        str(entradas)[:1200] + "\nCALENDARIO: " + str(pg.evaluate(JS_GESTOR_CALENDARIO)) + "\nSELECT: " + str(pg.evaluate(JS_GESTOR_SELECT_PERIODO)) + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
             raise Falha(f"relatório de vendas do Gestor: não achei as caixas de data. Campos: {str(entradas)[:300]}")
         log("  gestor vendas: não achei as caixas de data; ficou o período que a tela já mostrava")
     marcadas = pg.evaluate(JS_GESTOR_CONTAS)
@@ -3000,6 +3000,20 @@ JS_GESTOR_SELECT_PERIODO = r"""() => {
   if (o) { s.value = o.value; s.dispatchEvent(new Event('input', {bubbles: true})); s.dispatchEvent(new Event('change', {bubbles: true})); }
   return {achou: true, escolheu: o ? o.text.trim() : '', opcoes: ops};
 }"""
+# 03/10 (foto 196): escolhido "Personalizado", aparece UMA caixa "Selecione um período" (seletor de intervalo). Se for o
+# flatpickr, põe as datas direto nele; senão devolve 'outro' (aí o coletor clica e digita)
+JS_GESTOR_PERIODO_UNICO = r"""([ini, fim]) => {
+  const el = [...document.querySelectorAll('input')].find(e => e.getClientRects().length && /per[íi]odo/i.test(e.placeholder || ''));
+  if (!el) return 'sem';
+  if (el._flatpickr) { el._flatpickr.setDate([ini, fim], true); return 'fp:' + el.value; }
+  return 'outro';
+}"""
+# o calendário aberto (o que apareceu depois de clicar na caixa do período), para a foto
+JS_GESTOR_CALENDARIO = r"""() => { const c = [...document.querySelectorAll('[class*=picker i], [class*=calendar i], [class*=datepicker i], [class*=date-range i]')]
+  .filter(e => e.getClientRects().length).sort((a, b) => b.innerHTML.length - a.innerHTML.length)[0];
+  if (!c) return 'sem calendário visível';
+  const k = c.cloneNode(true); k.querySelectorAll('svg, style, script').forEach(x => x.remove());
+  return k.outerHTML.replace(/ style="[^"]*"| data-v-[\w-]+="[^"]*"/g, '').replace(/\s+/g, ' ').slice(0, 3500); }"""
 RX_ULTIMOS_30 = re.compile(r"^\s*[ÚU]ltimos 30 dias\s*$", re.I)
 
 
@@ -3018,6 +3032,35 @@ def _gestor_abrir_seletor(pg):
                 continue
             if pg.get_by_text(RX_ULTIMOS_30).locator("visible=true").count():
                 return True
+    return False
+
+
+def _gestor_periodo_unico(pg, ini, fim):
+    """A caixa única "Selecione um período": flatpickr direto; senão clica e digita 'dd/mm/aaaa - dd/mm/aaaa' (e o separador
+    ' até ' do flatpickr em português). Confere que as duas datas ficaram na caixa."""
+    r = pg.evaluate(JS_GESTOR_PERIODO_UNICO, [ini.isoformat(), fim.isoformat()])
+    br_ini, br_fim = f"{ini:%d/%m/%Y}", f"{fim:%d/%m/%Y}"
+    if r.startswith("fp:"):
+        devagar(2)
+        log(f"  gestor: período (calendário) → {r[3:]}")
+        return (br_ini in r and br_fim in r) or (ini.isoformat() in r and fim.isoformat() in r)
+    if r != "outro":
+        return False
+    caixa = pg.locator("input[placeholder*='eríodo' i]:visible").first
+    for sep in (" - ", " até ", " a "):
+        try:
+            caixa.click(timeout=5000)
+            devagar(1)
+            caixa.fill("")
+            caixa.type(f"{br_ini}{sep}{br_fim}", delay=60)
+            pg.keyboard.press("Enter")
+            devagar(2)
+            v = caixa.input_value()
+        except Exception:  # noqa: BLE001
+            continue
+        if (br_ini in v and br_fim in v) or (br_ini[:5] in v and br_fim[:5] in v):
+            log(f"  gestor: período digitado → {v}")
+            return True
     return False
 
 
@@ -3045,6 +3088,8 @@ def _gestor_periodo(pg, ini, fim):
         if sp.get("escolheu"):
             devagar(2)
             if pg.evaluate(JS_GESTOR_PERIODO, par):
+                return True
+            if _gestor_periodo_unico(pg, ini, fim):
                 return True
     # 03/10: o menu de período tem atalhos (Hoje, Últimos 30 dias…); o intervalo livre costuma ficar em "Personalizado"
     if _gestor_abrir_seletor(pg):
@@ -3088,7 +3133,7 @@ def baixar_gestor_abc(pg, cfg, p=None, ini=None, fim=None):
             entradas = pg.evaluate(JS_GESTOR_ENTRADAS)
             _gestor_abrir_seletor(pg)
             enviar_foto(pg, f"curva ABC do Gestor: seletor de datas para {ini:%d/%m}–{fim:%d/%m}",
-                        str(entradas)[:1200] + "\nSELECT: " + str(pg.evaluate(JS_GESTOR_SELECT_PERIODO)) + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
+                        str(entradas)[:1200] + "\nCALENDARIO: " + str(pg.evaluate(JS_GESTOR_CALENDARIO)) + "\nSELECT: " + str(pg.evaluate(JS_GESTOR_SELECT_PERIODO)) + "\nTOPO: " + str(pg.evaluate(JS_GESTOR_TOPO))[:4000] + "\nMENU: " + str(pg.evaluate(JS_GESTOR_POPUP)))
             raise Falha(f"curva ABC do Gestor: não achei as caixas de data para {ini:%d/%m}–{fim:%d/%m}. Campos: {str(entradas)[:300]}")
         devagar(2)
     else:
