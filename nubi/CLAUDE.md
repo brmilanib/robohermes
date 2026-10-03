@@ -39,6 +39,14 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 - Conta de VENDEDOR do ML (29/09 à tarde, Bruno: "vamos conectar sem problemas uma conta vendedor, a AURASCENT"): a conta
   conectada por OAuth passa a ser a AURASCENT (no lugar da BRUNOMILANI, que é conta sem loja e recebe 403 em /items e na
   busca). Mesmas regras: só LEITURA (o nubi nunca altera anúncio, preço ou pedido), refresh_token cifrado em `meli|conta`.
+- 🖥️ Painel do coletor (03/10, Bruno: "ver o coletor funcionando, bonito, em tempo real, e conversar com o Hermes no
+  Mac"; "deixe o Hermes mandar comandos e melhorar o coletor"): `coletor painel` (página local http://localhost:8787, só
+  127.0.0.1, recusa Origin de fora), sempre ligado pelo launchd com `painel-instalar` (Central: `painel_instalar`; atalho na
+  Mesa). Mostra os comandos rodando (despachante.json + comandos/*.log), o log do coletor, a tela do robô (foto a cada ~4 s
+  em `devagar`, SÓ com o painel aberto nos últimos 20 s) e o chat com o Hermes (Ollama local, contexto do projeto). O
+  Hermes NÃO executa nada: propõe `[[comando:CHAVE]]` (só da lista fechada COMANDOS_MAC → `mac_pedir`, fila da Central) e
+  `[[card:Título|descrição]]` (proposta no quadro, área coletor) e o Bruno confirma no botão. Mudança no código do coletor
+  é sempre por card → Ferreiro → revisão, nunca o Hermes editando o arquivo.
 - 🔌 Conexões das lojas (03/10, Bruno: "tela de conexão de lojas igual à do Gestor Seller; minhas 3 lojas do ML, a Shopee e
   o TikTok, para puxar dados, anúncios e ADS"): `lojas_conexao.py`, tela `#/conexoes` (Minhas Lojas). Mesmas regras da
   conta do ML, estendidas: login SEMPRE na página da plataforma (OAuth; ML, Shopee `auth_partner`, TikTok `open/authorize`);

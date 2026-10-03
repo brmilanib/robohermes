@@ -9757,7 +9757,7 @@ def _mac_vivo(repo, minutos=3):
 
 COMANDOS_MAC = {
     "status": "Status das coletas", "diario": "Rodar a coleta agora", "parar_coleta": "Parar a coleta em andamento",
-    "atualizar": "Atualizar o coletor", "backup": "Cópia de segurança do banco e do código (no Mac e no Google Drive)", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia",
+    "atualizar": "Atualizar o coletor", "backup": "Cópia de segurança do banco e do código (no Mac e no Google Drive)", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia", "painel_instalar": "Painel do coletor no Mac (ao vivo + chat com o Hermes; atalho na Mesa)",
     "log_vigia": "Últimas linhas do vigia", "log_coleta": "Últimas linhas da coleta",
     "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac", "matar_xmrig": "Parar o minerador xmrig no Mac (mostra de onde roda e o que o abre)", "forense_agente": "Malware: ler o item de início automático (só leitura)",

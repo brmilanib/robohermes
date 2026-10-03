@@ -135,6 +135,7 @@ def ao_vivo(forcar=False, **mudou):
 
 def devagar(seg=2.0):
     """Espera um pouco entre os cliques: o Nubimetrics fecha o Chrome quando é rápido demais."""
+    foto_ao_vivo()                                   # 03/10: Painel do coletor aberto → a tela do robô ao vivo
     time.sleep(seg * CALMA * random.uniform(0.8, 1.3))
 
 
@@ -383,6 +384,7 @@ def abrir_navegador(p, cfg, visivel=None, perfil=None, na_tela=False):
             ctx.add_cookies(json.loads(SESSAO.read_text(encoding="utf-8")).get("cookies", []))
         except Exception as e:  # noqa: BLE001
             log(f"(não consegui restaurar a sessão salva: {e})")
+    CTX_VIVO[0] = ctx                               # o Painel do coletor fotografa este navegador
     return ctx
 
 
@@ -4952,7 +4954,7 @@ def comando_mac(chave, arg=""):
     ol = _ollama_bin()
     tabela = {
         "status": [*c, "status"], "diario": [*c, "diario"], "atualizar": [*c, "atualizar"], "backup": [*c, "backup"],
-        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"],
+        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"], "painel_instalar": [*c, "painel-instalar"],
         "hermes": [*c, "hermes"], "qwen": [*c, "qwen"], "estoque": [*c, "estoque"], "gestor": [*c, "gestor"],
         "entrar": [*c, "entrar"], "entrar_upseller": [*c, "entrar-upseller"], "entrar_gestor": [*c, "entrar-gestor"],
         "entrar_auto_nubimetrics": [*c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [*c, "entrar-auto", "upseller"],
@@ -5271,7 +5273,9 @@ def despachar(cfg):
         logf = PASTA / "comandos" / f"{p['id']}.log"
         logf.parent.mkdir(parents=True, exist_ok=True)
         _rodar_solto(argv, logf)
-        est["rodando"][str(p["id"])] = {"log": str(logf), "inicio": time.time()}
+        est["rodando"][str(p["id"])] = {"log": str(logf), "inicio": time.time(), "cmd": p.get("comando")}
+        est.setdefault("nomes", {})[str(p["id"])] = p.get("comando")
+        est["nomes"] = dict(list(est["nomes"].items())[-40:])
     # Sala: o Hermes/Qwen respondem quando alguém chama (@hermes, @qwen) e na reunião diária. Rodam em SEGUNDO PLANO
     # (o modelo local leva minutos e travava o vigia, que ficava sem pegar pedidos); mensagem com mais de 30 min é ignorada.
     info = _info_mac() if r.get("sala") else {}
@@ -9255,6 +9259,344 @@ def _abrir_card_erro(token, tarefa, f, diag, motivo="", conhecida=""):
         return None, False
 
 
+# ---------------------------------------------------------------------------
+# 🖥️ Painel do coletor (03/10, Bruno: "quero ver o coletor funcionando, de forma bonita, em tempo real, e conversar com o
+# Hermes aqui no meu Mac"). Página local (http://localhost:8787, só neste Mac: nunca aberta para a rede) com:
+#  - o que está rodando agora (comandos da Central e coletas), com o log ao vivo;
+#  - a tela que o robô está vendo (foto a cada ~4 s, só enquanto o painel está aberto);
+#  - um chat com o Hermes (Ollama deste Mac, grátis), com o contexto do projeto.
+# Só leitura: o painel não roda comando, não clica em nada e não mostra senha/token.
+PAINEL_PORTA = int(os.environ.get("NUBI_PAINEL_PORTA", "8787"))
+PAINEL_PLIST = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.painel.plist"
+PAINEL_ABERTO = PASTA / "painel_aberto"            # o painel toca este arquivo a cada consulta; a coleta só fotografa se é recente
+TELA_AO_VIVO = PASTA / "ao_vivo.jpg"
+CTX_VIVO = [None, 0.0]                             # [contexto do Chrome da coleta, hora da última foto]
+
+
+def foto_ao_vivo():
+    """Chamada entre um passo e outro da coleta (devagar): com o painel aberto, salva a tela atual a cada ~4 s."""
+    ctx = CTX_VIVO[0]
+    if ctx is None or time.time() - CTX_VIVO[1] < 4:
+        return
+    try:
+        if time.time() - PAINEL_ABERTO.stat().st_mtime > 20:
+            return
+        pgs = [p for p in (ctx.pages or []) if not p.is_closed()]
+        if not pgs:
+            return
+        CTX_VIVO[1] = time.time()
+        img = pgs[-1].screenshot(type="jpeg", quality=45, timeout=3000)
+        tmp = TELA_AO_VIVO.with_suffix(".tmp")
+        tmp.write_bytes(img)
+        tmp.replace(TELA_AO_VIVO)
+    except Exception:  # noqa: BLE001
+        CTX_VIVO[1] = time.time()
+
+
+def _painel_cauda(arq, n=60):
+    try:
+        with open(arq, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 40000))
+            return f.read().decode("utf-8", "replace").splitlines()[-n:]
+    except OSError:
+        return []
+
+
+def _painel_estado():
+    PAINEL_ABERTO.touch()
+    est = _estado_desp()
+    rodando = []
+    for cid, r in sorted((est.get("rodando") or {}).items(), key=lambda x: -float(x[1].get("inicio") or 0)):
+        rodando.append({"id": cid, "comando": r.get("cmd") or "comando", "desde": r.get("inicio"),
+                        "log": _painel_cauda(r.get("log") or "", 40)})
+    recentes = []
+    pasta = PASTA / "comandos"
+    if pasta.exists():
+        for f in sorted(pasta.glob("*.log"), key=lambda x: x.stat().st_mtime, reverse=True)[:12]:
+            if f.stem in (est.get("rodando") or {}):
+                continue
+            rc = f.with_suffix(".log.rc")
+            cauda = _painel_cauda(f, 3)
+            recentes.append({"id": f.stem, "fim": f.stat().st_mtime, "ok": rc.exists() and rc.read_text().strip() == "0",
+                             "ultima": (cauda[-1] if cauda else "")[:160], "nomes": (est.get("nomes") or {}).get(f.stem, "")})
+    tela = TELA_AO_VIVO.stat().st_mtime if TELA_AO_VIVO.exists() else None
+    try:
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as r:
+            modelos = [m.get("name") for m in json.loads(r.read().decode()).get("models", [])]
+    except Exception:  # noqa: BLE001
+        modelos = None
+    import shutil as _sh
+    return {"agora": time.time(), "coleta_rodando": bool(_outra_rodando()), "pausado": bool(est.get("pausado")),
+            "rodando": rodando, "recentes": recentes[:8], "log": _painel_cauda(PASTA / "coletor.log", 80),
+            "vigia": _painel_cauda(PASTA / "vigia.log", 12), "tela_em": tela, "ollama": modelos,
+            "disco_gb": round(_sh.disk_usage(str(Path.home())).free / 1e9, 1)}
+
+
+PAINEL_HTML = r"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Painel do coletor · nubi</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--borda:#30363d;--txt:#e6edf3;--mut:#8b949e;--verde:#3fb950;--azul:#58a6ff;--amar:#d29922;--verm:#f85149;--roxo:#bc8cff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",Segoe UI,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--borda);position:sticky;top:0;background:rgba(13,17,23,.92);backdrop-filter:blur(8px);z-index:2}
+header h1{font-size:18px;margin:0;font-weight:650}.pill{padding:3px 10px;border-radius:99px;font-size:12px;border:1px solid var(--borda);color:var(--mut)}
+.pill.on{color:var(--verde);border-color:#238636;background:rgba(63,185,80,.1)}.pill.warn{color:var(--amar);border-color:#9e6a03}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--verde);display:inline-block;margin-right:6px;animation:p 1.4s infinite}
+@keyframes p{50%{opacity:.25}}
+main{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);gap:16px;padding:16px 20px;max-width:1500px;margin:0 auto}
+@media(max-width:900px){main{grid-template-columns:1fr;padding:12px}}
+.card{background:var(--card);border:1px solid var(--borda);border-radius:12px;padding:14px;margin-bottom:16px;min-width:0}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 10px;font-weight:600}
+.tela{width:100%;border-radius:8px;border:1px solid var(--borda);display:block;background:#000;min-height:120px}
+.vazio{color:var(--mut);padding:30px 10px;text-align:center}
+.job{border:1px solid var(--borda);border-radius:10px;padding:10px;margin-bottom:10px;background:#0d1117}
+.job b{color:var(--azul)}.job small{color:var(--mut);margin-left:6px}
+pre{margin:8px 0 0;max-height:260px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#c9d1d9;white-space:pre-wrap;word-break:break-word}
+.ok{color:var(--verde)}.erro{color:var(--verm)}
+.rec{display:flex;gap:8px;padding:6px 0;border-top:1px solid var(--borda);font-size:13px}.rec:first-child{border-top:0}.rec span.u{color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+#chat{display:flex;flex-direction:column;height:calc(100vh - 120px);min-height:420px;position:sticky;top:76px}
+#msgs{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:4px}
+.m{padding:9px 12px;border-radius:12px;max-width:92%;white-space:pre-wrap;word-break:break-word}
+.m.eu{align-self:flex-end;background:#1f6feb;color:#fff;border-bottom-right-radius:4px}
+.m.h{align-self:flex-start;background:#21262d;border-bottom-left-radius:4px}
+form{display:flex;gap:8px;margin-top:10px}textarea{flex:1;resize:none;background:#0d1117;color:var(--txt);border:1px solid var(--borda);border-radius:10px;padding:10px;font:inherit;height:46px}
+button{background:#238636;color:#fff;border:0;border-radius:10px;padding:0 16px;font-weight:600;cursor:pointer}button:disabled{opacity:.5}
+button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6feb;font-size:13px}
+.hint{color:var(--mut);font-size:12px;margin-top:6px}
+</style></head><body>
+<header><h1>🤖 Painel do coletor</h1><span id="st" class="pill">carregando…</span><span id="ol" class="pill">Hermes…</span>
+<span style="flex:1"></span><span id="hora" class="pill"></span></header>
+<main><section>
+ <div class="card"><h2>👀 O que o robô está vendo</h2><div id="telaBox" class="vazio">Nenhuma coleta com navegador aberta agora.</div></div>
+ <div class="card"><h2>⚙️ Rodando agora</h2><div id="jobs" class="vazio">Nada rodando.</div></div>
+ <div class="card"><h2>📜 Log do coletor (ao vivo)</h2><pre id="log"></pre></div>
+ <div class="card"><h2>🕘 Últimos comandos</h2><div id="recentes"></div></div>
+</section><aside>
+ <div class="card" id="chat"><h2>🪽 Conversar com o Hermes</h2><div id="msgs"><div class="m h">Oi, Bruno! Eu sou o Hermes, rodando aqui no seu Mac. Pergunte sobre as coletas, o quadro ou o que está acontecendo. Posso sugerir comandos (você confirma no botão) e cards para melhorar o coletor.</div></div>
+ <form id="f"><textarea id="q" placeholder="Escreva e aperte Enter…"></textarea><button id="env">Enviar</button></form>
+ <div class="hint">IA local e grátis (Ollama). Ele pode sugerir comandos e cards; nada roda sem você clicar no botão.</div></div>
+</aside></main>
+<script>
+const $=s=>document.querySelector(s), esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const dur=s=>{s=Math.max(0,Math.round(s));return s<60?s+" s":s<3600?Math.floor(s/60)+" min":Math.floor(s/3600)+" h "+Math.floor(s%3600/60)+" min"};
+const hh=t=>new Date(t*1000).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+let fixo=true; $("#log").addEventListener("scroll",e=>{const p=e.target;fixo=p.scrollHeight-p.scrollTop-p.clientHeight<30});
+async function tick(){
+  let d; try{d=await (await fetch("/estado")).json()}catch(e){$("#st").textContent="painel parado";$("#st").className="pill warn";return}
+  $("#hora").textContent=new Date().toLocaleTimeString("pt-BR");
+  const ativo=d.coleta_rodando||d.rodando.length;
+  $("#st").innerHTML=ativo?'<span class="dot"></span>trabalhando':(d.pausado?"pausado":"esperando a próxima tarefa");$("#st").className="pill"+(ativo?" on":"");
+  $("#ol").textContent=d.ollama?("🪽 Hermes pronto"):"🪽 Ollama desligado";$("#ol").className="pill"+(d.ollama?" on":" warn");
+  const recente=d.tela_em&&d.agora-d.tela_em<30;
+  $("#telaBox").innerHTML=recente?`<img class="tela" src="/tela?t=${d.tela_em}" alt="tela do robô"><div class="hint">atualizada às ${hh(d.tela_em)} · o navegador do robô roda escondido; esta é a foto dele</div>`:'<div class="vazio">Nenhuma coleta com navegador aberta agora.</div>';
+  $("#jobs").className=d.rodando.length?"":"vazio";
+  $("#jobs").innerHTML=d.rodando.length?d.rodando.map(j=>`<div class="job"><b>${esc(j.comando)}</b><small>#${esc(j.id)} · há ${dur(d.agora-j.desde)}</small><pre>${esc(j.log.join("\n"))}</pre></div>`).join(""):"Nada rodando.";
+  const lg=$("#log"); lg.textContent=d.log.join("\n"); if(fixo) lg.scrollTop=lg.scrollHeight;
+  $("#recentes").innerHTML=d.recentes.map(r=>`<div class="rec"><span class="${r.ok?"ok":"erro"}">${r.ok?"✓":"✗"}</span><span>${esc(r.nomes||"#"+r.id)}</span><small style="color:var(--mut)">${hh(r.fim)}</small><span class="u">${esc(r.ultima)}</span></div>`).join("")||'<div class="vazio">—</div>';
+}
+tick(); setInterval(tick,2000);
+const hist=[];
+function bolha(c,t){const e=document.createElement("div");e.className="m "+c;e.textContent=t;$("#msgs").appendChild(e);$("#msgs").scrollTop=1e9;return e}
+$("#q").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#f").requestSubmit()}});
+$("#f").onsubmit=async e=>{e.preventDefault();const q=$("#q").value.trim();if(!q)return;$("#q").value="";bolha("eu",q);hist.push({role:"user",content:q});
+  const b=bolha("h","…");$("#env").disabled=true;let txt="";
+  try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20)})});
+    const rd=r.body.getReader(),dec=new TextDecoder();for(;;){const {value,done}=await rd.read();if(done)break;txt+=dec.decode(value,{stream:true});b.textContent=txt;$("#msgs").scrollTop=1e9}
+  }catch(err){txt="(não consegui falar com o Hermes: "+err.message+")";b.textContent=txt}
+  hist.push({role:"assistant",content:txt});b.textContent=txt.replace(/\[\[(comando|card):[^\]]*\]\]/g,"").trim();acoes(b,txt);$("#env").disabled=false;$("#q").focus()};
+function acoes(b,txt){for(const m of txt.matchAll(/\[\[(comando|card):([^\]|]*)(?:\|([^\]]*))?\]\]/g)){
+  const [_,tipo,a,c]=m, bt=document.createElement("button");bt.className="acao";
+  bt.textContent=tipo==="comando"?`▶ Rodar no Mac: ${a.trim()}${c?" ("+c.trim()+")":""}`:`📝 Criar card: ${a.trim()}`;
+  bt.onclick=async()=>{if(!confirm(tipo==="comando"?`Mandar "${a.trim()}" para a fila do Mac?`:`Criar o card "${a.trim()}" no quadro (como proposta)?`))return;bt.disabled=true;
+    const corpo=tipo==="comando"?{tipo,chave:a.trim(),arg:(c||"").trim()}:{tipo,titulo:a.trim(),descricao:(c||"").trim()};
+    try{const j=await (await fetch("/acao",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(corpo)})).json();bolha("h",j.texto)}catch(e){bolha("h","Não deu: "+e.message)}};
+  b.appendChild(document.createElement("br"));b.appendChild(bt)}}
+</script></body></html>"""
+
+
+def _painel_contexto(cfg, cache={}):
+    """Contexto do projeto para o Hermes (o mesmo do 'conversar'), guardado por 10 min."""
+    if cache.get("em") and time.time() - cache["em"] < 600:
+        return cache["base"]
+    try:
+        sistema, ctx = contexto_hermes(token_nubi(cfg))
+    except Exception as e:  # noqa: BLE001
+        sistema, ctx = "", f"(não consegui carregar o projeto do nubi: {str(e)[:120]})"
+    papel = (PAPEL_HERMES.split(" Responda à última")[0] + " Agora você está conversando direto com o Bruno (dono) no "
+             "Painel do coletor, no Mac dele. Responda em português do Brasil, direto e curto. Use o CONTEXTO abaixo e o "
+             "ESTADO DO COLETOR; se algo não está neles, diga que não sabe (não invente números). Horários em Brasília. "
+             "AÇÕES: você pode PROPOR um comando do Mac da lista abaixo escrevendo, numa linha sozinha no fim da resposta, "
+             "[[comando:CHAVE]] (ou [[comando:CHAVE|argumento]]); o Bruno confirma num botão e ele vai para a fila da Central. "
+             "Use só chaves da lista; nunca invente. Para MELHORAR o coletor (código), não mexa no código: proponha um card "
+             "com [[card:Título curto|o que mudar, por quê e como testar]]; o card vai para o quadro como proposta, o Bruno "
+             "aprova e o Ferreiro programa com revisão. No máximo 2 ações por resposta, e só quando fizer sentido.")
+    try:
+        lista = api(token_nubi(cfg), "mac_painel", {"n": 1}, timeout=30).get("lista") or []
+        cmds = "\n".join(f"- {c['k']}: {c['nome']}" for c in lista if c["k"] not in ("baixar_modelo",))
+    except Exception:  # noqa: BLE001
+        cmds = "(lista indisponível agora: não proponha comandos)"
+    cache.update(em=time.time(), cmds={c.split(":")[0][2:] for c in cmds.splitlines() if c.startswith("- ")},
+                 base=f"{sistema}\n\n{papel}\n\nCOMANDOS DO MAC (lista fechada):\n{cmds}\n\nCONTEXTO DO PROJETO AGORA:\n{ctx}")
+    return cache["base"]
+
+
+def _painel_modelo(cfg):
+    locais = _modelos_locais()
+    pref = cfg.get("painel_modelo") or "hermes3:8b"
+    return pref if pref in locais or not locais else (next((m for m in locais if m.startswith("hermes")), locais[0]))
+
+
+def cmd_painel(args, cfg):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _enviar(self, corpo, tipo="application/json", st=200):
+            dados = corpo if isinstance(corpo, bytes) else corpo.encode()
+            self.send_response(st)
+            self.send_header("Content-Type", tipo)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(dados)))
+            self.end_headers()
+            self.wfile.write(dados)
+
+        def _local(self):
+            # só este Mac: recusa pedido de outra origem (outro site abrindo o painel escondido)
+            host = (self.headers.get("Host") or "").split(":")[0]
+            orig = self.headers.get("Origin") or ""
+            return host in ("localhost", "127.0.0.1") and (not orig or re.match(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$", orig))
+
+        def do_GET(self):
+            if not self._local():
+                return self._enviar("{}", st=403)
+            rota = urllib.parse.urlparse(self.path).path
+            if rota == "/":
+                return self._enviar(PAINEL_HTML, "text/html; charset=utf-8")
+            if rota == "/estado":
+                return self._enviar(json.dumps(_painel_estado(), ensure_ascii=False))
+            if rota == "/tela":
+                try:
+                    return self._enviar(TELA_AO_VIVO.read_bytes(), "image/jpeg")
+                except OSError:
+                    return self._enviar(b"", "image/jpeg", 404)
+            return self._enviar("{}", st=404)
+
+        def do_POST(self):
+            rota = urllib.parse.urlparse(self.path).path
+            if not self._local() or rota not in ("/chat", "/acao"):
+                return self._enviar("{}", st=403)
+            if rota == "/acao":
+                return self._acao()
+            try:
+                d = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                msgs = [{"role": m["role"], "content": str(m["content"])[:4000]} for m in (d.get("mensagens") or [])[-20:]
+                        if m.get("role") in ("user", "assistant")]
+            except (ValueError, KeyError, TypeError):
+                return self._enviar("{}", st=400)
+            est = _painel_estado()
+            agora = "ESTADO DO COLETOR AGORA:\n" + json.dumps(
+                {"rodando": [{"comando": j["comando"], "log": j["log"][-8:]} for j in est["rodando"]],
+                 "ultimos": est["recentes"], "log_coletor": est["log"][-25:]}, ensure_ascii=False)[:6000]
+            base = [{"role": "system", "content": _painel_contexto(cfg) + "\n\n" + agora}]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            corpo = {"model": _painel_modelo(cfg), "stream": True, "messages": base + msgs}
+            try:
+                req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=900) as r:
+                    for linha in r:
+                        linha = linha.decode("utf-8", "replace").strip()
+                        if not linha.startswith("data:") or linha == "data: [DONE]":
+                            continue
+                        try:
+                            pedaco = json.loads(linha[5:])["choices"][0]["delta"].get("content") or ""
+                        except (ValueError, KeyError, IndexError):
+                            continue
+                        if pedaco:
+                            self.wfile.write(pedaco.encode())
+                            self.wfile.flush()
+            except (urllib.error.URLError, OSError) as e:
+                try:
+                    self.wfile.write(f"(não consegui falar com o Ollama: {e}. Abra o app Ollama no Mac.)".encode())
+                except OSError:
+                    pass
+
+    def _acao(self):
+        """Botão confirmado pelo Bruno: comando da lista fechada → fila da Central; card → proposta no quadro."""
+        try:
+            d = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+            token = token_nubi(cfg)
+            if d.get("tipo") == "comando":
+                r = api(token, "mac_pedir", corpo={"comando": str(d.get("chave") or "")[:60], "arg": str(d.get("arg") or "")[:60]}, timeout=30)
+                return self._enviar(json.dumps({"ok": True, "texto": f"Na fila da Central (#{r.get('id')}). Acompanhe aqui em Rodando agora."}))
+            if d.get("tipo") == "card":
+                titulo = str(d.get("titulo") or "").strip()[:120]
+                if not titulo:
+                    raise ValueError("card sem título")
+                r = api(token, "reuniao_tarefa_salvar", corpo={"titulo": titulo, "descricao": str(d.get("descricao") or "")[:3000],
+                                                               "status": "proposta", "area": "coletor", "autor": "hermes"}, timeout=30)
+                return self._enviar(json.dumps({"ok": True, "texto": f"Card #{r.get('id')} criado no quadro como proposta. Aprove lá para o Ferreiro programar."}))
+            raise ValueError("ação desconhecida")
+        except Exception as e:  # noqa: BLE001
+            return self._enviar(json.dumps({"ok": False, "texto": f"Não deu: {str(e)[:200]}"}), st=200)
+
+    H._acao = _acao
+    srv = ThreadingHTTPServer(("127.0.0.1", args.porta), H)
+    url = f"http://localhost:{args.porta}"
+    print(f"Painel do coletor em {url} (Ctrl+C para fechar)", flush=True)
+    if not args.sem_abrir and sys.platform == "darwin":
+        subprocess.run(["open", url], check=False)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+def instalar_painel():
+    """Deixa o painel sempre ligado (launchd, reabre se cair) e põe um atalho 'Painel do coletor' na Mesa."""
+    if sys.platform != "darwin":
+        print("O painel sempre ligado é só no Mac; aqui rode: coletor painel")
+        return 1
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.nubi.coletor.painel</string>
+  <key>ProgramArguments</key>
+  <array><string>{PASTA / 'coletor'}</string><string>painel</string><string>--sem-abrir</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
+  <key>StandardOutPath</key><string>{PASTA}/painel.log</string>
+  <key>StandardErrorPath</key><string>{PASTA}/painel.log</string>
+</dict>
+</plist>
+"""
+    PAINEL_PLIST.parent.mkdir(parents=True, exist_ok=True)
+    PAINEL_PLIST.write_text(xml, encoding="utf-8")
+    subprocess.run(["launchctl", "unload", str(PAINEL_PLIST)], check=False, capture_output=True)
+    subprocess.run(["launchctl", "load", "-w", str(PAINEL_PLIST)], check=False, capture_output=True)
+    atalho = Path.home() / "Desktop" / "Painel do coletor.webloc"
+    atalho.write_text('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                      '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>URL</key>'
+                      f'<string>http://localhost:{PAINEL_PORTA}</string></dict></plist>\n', encoding="utf-8")
+    ok = subprocess.run(["launchctl", "list", "com.nubi.coletor.painel"], check=False, capture_output=True).returncode == 0
+    print(("OK: painel ligado em http://localhost:%d e atalho 'Painel do coletor' na Mesa." % PAINEL_PORTA) if ok
+          else "O painel não ficou ativo; rode no Terminal: ~/.nubi-coletor/coletor painel")
+    return 0 if ok else 1
+
+
+def reiniciar_painel():
+    """Depois de atualizar o coletor: o painel sempre ligado volta já com a versão nova."""
+    if sys.platform == "darwin" and PAINEL_PLIST.exists():
+        subprocess.run(["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/com.nubi.coletor.painel"], check=False, capture_output=True)
+
+
 def main():
     if sys.platform == "win32":                          # PC do Bruno: acentos e emojis no PowerShell
         for f in (sys.stdout, sys.stderr):
@@ -9308,6 +9650,10 @@ def main():
     sub.add_parser("hermes-vigia", help="(automático) o Hermes trata as falhas novas: diagnostica, conserta e tenta de novo")
     sub.add_parser("hermes-memoria", help="(automático) o Hermes documenta a Sala e os cards na caixa de conhecimento; o Qwen revisa")
     sub.add_parser("repetir-falhas", help="(automático) roda de novo o estoque/Gestor que falhou hoje, com a versão nova")
+    pn = sub.add_parser("painel", help="Painel do coletor no navegador (localhost:8787): o que roda agora, a tela ao vivo e o chat com o Hermes")
+    pn.add_argument("--porta", type=int, default=PAINEL_PORTA)
+    pn.add_argument("--sem-abrir", action="store_true")
+    sub.add_parser("painel-instalar", help="deixa o Painel do coletor sempre ligado e põe o atalho na Mesa")
     cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
     cv.add_argument("--modelo", default=None)
     gsn = sub.add_parser("guardar-senha", help="guarda no Chaveiro do Mac o login de um site (para o coletor entrar sozinho)")
@@ -9403,6 +9749,10 @@ def main():
         return cmd_guardar_senha(args, cfg)
     if args.cmd == "conversar":
         return cmd_conversar(args, cfg)
+    if args.cmd == "painel":
+        return cmd_painel(args, cfg)
+    if args.cmd == "painel-instalar":
+        return instalar_painel()
     if args.cmd == "programar":
         return cmd_programar(args, cfg)
     if args.cmd == "ferreiro-conversa":
@@ -9515,6 +9865,7 @@ def main():
         compile(novo, "coletor.py", "exec")               # só troca se o arquivo novo estiver íntegro
         Path(__file__).write_bytes(novo)
         print("OK: coletor atualizado.")
+        reiniciar_painel()
         if not os.environ.get("NUBI_VIGIA") and not WINDOWS:
             subprocess.run([str(PASTA / "coletor"), "vigia-reativar"], check=False)   # já com a versão nova
         return 0
