@@ -9977,6 +9977,46 @@ COMANDOS_MAC = {
     "hermes_revisao": "Hermes conferir as propostas do dia da revisão do agrupamento (Explorador)",
     "ml_busca_foto": "Mercado Livre: achar a loja dos seguidos sem loja buscando o título e casando a foto do anúncio, só lê",
 }
+# ---------- Avisos no WhatsApp do Bruno (03/10, Bruno: "me manda um WhatsApp quando finalizar") ----------
+# CallMeBot: robô gratuito que manda WhatsApp SÓ para o número que o autorizou (o do Bruno); só ida (resposta não volta).
+# Número e chave só na Vercel (NUBI_WHATSAPP_FONE, NUBI_WHATSAPP_CHAVE), postos pelo Bruno; a chave nunca vai para log/tela.
+# Avisa quando termina um comando longo da lista abaixo; teste/aviso avulso: ia_resumos `whatsapp|pedido` (texto) → enviado
+# no próximo sinal do Mac e apagado.
+WHATSAPP_COMANDOS = {"historico_vendas", "gestor_relatorio", "revisao_coletor", "codex_analise", "atualizar", "backup",
+                     "servidor_backup", "explorador_diario", "rodizio_seguidos"}
+WHATSAPP_PEDIDO = "whatsapp|pedido"
+
+
+def whatsapp_aviso(texto):
+    """Manda o texto ao WhatsApp do Bruno. True = o CallMeBot aceitou; sem as chaves ou erro = False (nunca levanta)."""
+    fone = re.sub(r"[^\d+]", "", os.environ.get("NUBI_WHATSAPP_FONE") or "")
+    chave = (os.environ.get("NUBI_WHATSAPP_CHAVE") or "").strip()
+    if not fone or not chave or not str(texto or "").strip():
+        return False
+    url = "https://api.callmebot.com/whatsapp.php?" + urllib.parse.urlencode(
+        {"phone": fone, "text": ("🤖 nubi: " + str(texto).strip())[:1500], "apikey": chave})
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "nubi"}), timeout=20) as r:
+            return 200 <= r.status < 300
+    except Exception:  # noqa: BLE001 — aviso nunca derruba o sinal do Mac
+        return False
+
+
+def whatsapp_pedidos(repo):
+    """Envia o aviso avulso guardado em `whatsapp|pedido` (teste ou mensagem da sessão de código) e apaga."""
+    r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(WHATSAPP_PEDIDO)}) or [None])[0]
+    if not r:
+        return None
+    repo._req("DELETE", "ia_resumos", {"chave": repo._eq(WHATSAPP_PEDIDO)}, prefer="return=minimal")
+    return whatsapp_aviso(r.get("texto") or "")
+
+
+def _aviso_fim_comando(comando, status, saida):
+    ic = {"ok": "✅", "erro": "⚠️", "recusado": "⛔"}.get(status, "")
+    ult = [l for l in str(saida or "").strip().splitlines() if l.strip()][-2:]
+    return f"{ic} terminou: {COMANDOS_MAC.get(comando, comando)}\n" + "\n".join(ult)[-400:]
+
+
 MODELOS_MAC = ("hermes3:8b", "qwen3:8b", "nomic-embed-text")
 VETOR_LOCAL_DESDE = "2026-09-27T00:00:00+00:00"   # card #29: só itens novos da caixa ganham vetor (os antigos ficam de fora)
 
@@ -10891,6 +10931,8 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
                         marcar_ml_bloqueio(repo, maq_ml, reg["saida"])
                     elif reg["status"] == "ok":
                         desbloquear_ml(repo, maq_ml)
+                if c.get("comando") in WHATSAPP_COMANDOS:
+                    whatsapp_aviso(_aviso_fim_comando(c["comando"], reg["status"], reg["saida"]))
                 if c.get("tarefa_id"):
                     ic = {"ok": "✅", "erro": "⚠️", "recusado": "⛔"}[reg["status"]]
                     fim = reg["saida"].strip()[-1500:] or "(sem saída)"
@@ -10900,6 +10942,11 @@ def rota_mac(repo, metodo, rota, q, corpo, token):
         # card #89: depois de gravar as saídas, quem acabou de terminar já pega o próximo card neste mesmo sinal
         # (sem espera entre vezes: a trava do PATCH condicional já impede dois pegarem o mesmo card)
         # as filas abaixo rodam no sinal do Mac; no do servidor só quando o Mac está sem sinal (uma vez por minuto basta)
+        if maq == "mac":
+            try:
+                whatsapp_pedidos(repo)
+            except Exception:  # noqa: BLE001
+                pass
         if maq == "mac" and pausado:
             # 27/09: Mac pausado (malware achado; reinstalação): grava estado e saídas, mas não recebe nada
             return {"pendentes": [], "sala": [], "vetorizar": [], "reserva": True, "pausado": True, "libera": mac_libera(repo)}

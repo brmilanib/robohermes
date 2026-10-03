@@ -89,6 +89,12 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   novas para aprovação; elas ficam em Propostas. Ollama do PC gamdias desligado (`servidor_ollama_parar`; religar com
   `servidor_ollama_ligar`): ocupava a memória da GPU; o atendente usa o gpt-oss grátis do nubi. Temperatura do Mac no
   Monitor vem do `macmon` (`brew install macmon`, sem sudo; `_temp_macmon`), senão fica "sem dados".
+- 📲 Avisos no WhatsApp (03/10, Bruno: "me manda um WhatsApp quando finalizar"): `whatsapp_aviso` (nubi_web.py) pelo
+  CallMeBot, SÓ para o número do Bruno, só ida (ele não responde por lá). Chaves só na Vercel: `NUBI_WHATSAPP_FONE`
+  (+55…) e `NUBI_WHATSAPP_CHAVE` (a apikey que o CallMeBot devolve). Fim de comando de `WHATSAPP_COMANDOS` avisa sozinho
+  (no sinal do Mac); aviso avulso/teste = gravar `ia_resumos` `whatsapp|pedido` (texto), enviado no próximo sinal do Mac
+  e apagado. Próximo (Bruno): aba de atendimento de vendas e mensagens para clientes pela API oficial da Meta (número
+  próprio do nubi). Teste `test_whatsapp.py`.
 - Branch de trabalho: `claude/wizardly-ritchie-5fig5i`; sem PR se não pedirem; não mexer no "Branch Tracking" da Vercel.
 - Testar no servidor falso (fake_rest + servidor.py) e no mock do Nubimetrics antes de publicar.
 
