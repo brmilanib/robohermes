@@ -41,7 +41,7 @@ def gerar(prompt, sistema):
     return "Oi! Que bom falar com você 😊 Me conta o que você procura e mais ou menos o volume. Qualquer coisa, é só chamar!", "teste"
 
 
-a.gerar_qualidade = lambda repo: gerar
+a.gerar_qualidade = lambda repo, modelo=None: gerar
 a.auto_ligado = lambda repo: True            # mesmo com o "responder sozinho" ligado, o WhatsApp espera o Bruno
 
 
@@ -84,7 +84,8 @@ def test_fluxo_completo():
     antes = len(w.tick(r, {})["enviar"])
     assert w.banguela(r, "me fala da Ana") and len(w.tick(r, {})["enviar"]) == antes      # texto solto no Painel nunca envia
     rid = max(x["id"] for x in r.t["atendimento_rascunhos"] if x["status"] in ("pendente", "precisa_info"))
-    assert w.banguela(r, f"{rid} Sim, vendemos no atacado a partir de 12 unidades").startswith((f"✅ #{rid}", f"📝 #{rid}"))
+    x = w.banguela(r, f"{rid} Sim, vendemos no atacado a partir de 12 unidades")
+    assert f"✅ #{rid}" in x or f"📝 #{rid}" in x, x
     # o atendente do PC (TikTok/Shopee) nunca recebe o que é do WhatsApp
     assert all(x["canal"] != "whatsapp" for x in a.para_enviar(r))
 
@@ -118,7 +119,7 @@ def test_aprova_e_edita_de_outro_canal():
     ids = [x["id"] for x in r.t["atendimento_rascunhos"] if x["status"] == "pendente"]
     assert len(ids) == 2
     x = w.banguela(r, f"ok {ids[0]}")
-    assert x.startswith(f"✅ #{ids[0]}") and "(Shopee)" in x
+    assert f"✅ #{ids[0]}" in x and "(Shopee)" in x, x
     txt = w.banguela(r, "primeiro pede o número do pedido dela")
     assert f"✅ #{ids[1]}" in txt and "[[" not in txt
     envio = [x for x in a.para_enviar(r) if x["id"] == ids[1]]

@@ -111,7 +111,9 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   lojista + base); "não N" = não responde; "Ferreiro, …"/"Codex, …"/"Hermes, …" (ou texto sem nada esperando) = o agente
   responde no WhatsApp com a memória do Painel (`_wa_agente`; ações [[…]] só no Painel). "Banguela, …" (ou o agente 🦷
   Banguela no chat do Painel, rota `whatsapp_banguela`) = ele fala da fila do atendimento e aprova só pelo jeito explícito
-  ("ok N", "N texto", "não N"; texto solto no Painel nunca vai ao cliente). `para_enviar` sem canal NUNCA
+  ("ok N", "N texto", "não N"; texto solto no Painel nunca vai ao cliente). 03/10 (Bruno: "ela é robótica"): conversa
+  sempre pela IA (`BANGUELA_MODELO` = claude-opus-5-5, teto do atendimento), sem resposta pronta; número velho de sugestão
+  (o atendente refaz a cada poucos minutos) leva à sugestão aberta mais nova da mesma conversa. `para_enviar` sem canal NUNCA
   devolve o WhatsApp (o atendente do PC não mexe nele). Aba SAC → 💚 WhatsApp (`#/sac/whatsapp`, situação pela rota
   `whatsapp_estado`). Depois (Bruno): aniversário da base antiga (5–10 por dia, devagar, com "responda SAIR"), e a
   API oficial da Meta para clientes. Testes `test_whatsapp_atendimento.py`, `test_whatsapp_coletor.py`.

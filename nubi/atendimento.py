@@ -413,7 +413,7 @@ def gasto_sonnet_hoje(repo):
     return round(sum(float(x.get("custo_usd") or 0) for x in linhas), 4)
 
 
-def gerar_qualidade(repo):
+def gerar_qualidade(repo, modelo=None):
     """27/09 (pedido do Bruno): escrita e interpretação com o Sonnet (API da Anthropic), até SONNET_TETO_USD (US$ 10) por dia;
     sem chave, no teto ou com erro, cai para a IA grátis (gpt-oss). O volume (navegar, fichas) continua na grátis."""
     def gerar(prompt, sistema):
@@ -426,8 +426,8 @@ def gerar_qualidade(repo):
             ia.USO["origem"] = SONNET_ORIGEM                 # o custo de cada chamada fica marcado para o teto do dia
             ia.USO["apelido_agente"] = "banguela"             # 27/09: o Bruno batizou o agente do atendimento de Banguela
             try:
-                texto, _, _ = ia.perguntar(prompt, web=False, qual="claude", modelo=SONNET, sistema=sistema, max_tokens=1500)
-                return texto, "sonnet"
+                texto, _, _ = ia.perguntar(prompt, web=False, qual="claude", modelo=modelo or SONNET, sistema=sistema, max_tokens=1500)
+                return texto, ("opus" if modelo and "opus" in modelo else "sonnet")
             except Exception:  # noqa: BLE001 — fora do ar ou no teto do provedor: a grátis responde
                 pass
             finally:

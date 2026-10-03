@@ -23,7 +23,8 @@ CHIP = "5547991388777"                  # o chip da loja (o mesmo do botão do s
 AVISADOS = "whatsapp|avisados"          # ids de rascunho já mandados ao Bruno (para não repetir)
 LEMBRETES = "banguela|lembretes"        # [{quando (UTC), texto, criado_em}] — assistente pessoal (03/10)
 BOM_DIA = "banguela|bom_dia"            # data (Brasília) do último bom dia
-AVISOS = "whatsapp|avisos"              # avisos do nubi (fim de coleta, erro…) esperando a próxima volta do chip
+AVISOS = "whatsapp|avisos"
+BANGUELA_MODELO = os.environ.get("NUBI_BANGUELA_MODELO", "claude-opus-5-5")   # 03/10 (Bruno: "ela precisa ser uma IA inteligente")              # avisos do nubi (fim de coleta, erro…) esperando a próxima volta do chip
 BOM_DIA_HORA = 8
 BRASILIA = timezone(timedelta(hours=-3))
 LOJAS = [(re.compile(r"via\s*braz[il]{1,2}\s*global", re.I), "via_brazil")]
@@ -143,10 +144,13 @@ def _alvo(repo, num):
     """Rascunho a que o Bruno se refere: o número dito, senão o mais recente já avisado que ainda está aberto."""
     if num:
         r = next((r for r in _abertos(repo, 80, todos_canais=True) if r["id"] == int(num)), None)
-        if not r:                                             # rascunho mais antigo que os 80 últimos: busca direto
+        if not r:
+            # 03/10 ("ok 3267" dava "não achei"): o atendente refaz a sugestão a cada poucos minutos e o número muda; o
+            # número velho (ou o da conversa) leva à sugestão aberta mais nova da MESMA conversa
             x = at._um(repo, "atendimento_rascunhos", int(num))
-            if x and x.get("status") in ("pendente", "precisa_info"):
-                r = dict(x, conversa=at._um(repo, "atendimento_conversas", x["conversa_id"]) or {})
+            conv_id = x["conversa_id"] if x else (int(num) if at._um(repo, "atendimento_conversas", int(num)) else None)
+            if conv_id:
+                r = next((y for y in _abertos(repo, 200, todos_canais=True) if y["conversa_id"] == conv_id), None)
         return r, None
     abertos = _abertos(repo)
     avisados = _avisados(repo)
@@ -208,12 +212,17 @@ def _aprovacao(repo, t, so_explicito=False):
     return {"resposta": f"✅ #{r['id']}: mando o seu texto para {_quem(r)}."}
 
 
-PAPEL_BANGUELA = """Você é o Banguela: o atendente das lojas do Bruno (Pure Perfumaria, Essence Prime e a importadora Via Brazil
-Global) e, desde 03/10, também a ASSISTENTE PESSOAL dele. Agora você conversa com o BRUNO (dono), não com cliente.
-Responda em português, curto e direto, como uma assistente de confiança, em texto simples de WhatsApp.
+PAPEL_BANGUELA = """Você é a Banguela: cuida do atendimento das lojas do Bruno (Pure Perfumaria, Essence Prime e a importadora Via
+Brazil Global) e é a ASSISTENTE PESSOAL dele. Agora você conversa com o BRUNO (dono), não com cliente.
+Converse como uma pessoa inteligente e próxima: natural, calorosa, com opinião, entendendo o que ele quis dizer mesmo que
+venha curto, com erro de digitação ou por áudio transcrito. Nada de respostas prontas ou de menu ("para falar com os
+agentes, digite…"). Se não entendeu, pergunte de um jeito humano. Responda o que ele perguntou primeiro; depois, se fizer
+sentido, ofereça o próximo passo. Português do Brasil, texto simples (pode usar *negrito* de WhatsApp), sem tabela.
+Se o CONTEXTO tem acao_que_voce_acabou_de_fazer, conte em uma frase o que foi feito.
 Use SÓ o CONTEXTO: a fila do atendimento, as vendas de hoje, o ADS, a base de conhecimento do nubi e os lembretes.
 Não invente número, conversa nem compromisso; se não está no contexto, diga que não sabe e onde dá para ver.
-SAC (WhatsApp, TikTok, Shopee): "ok N" envia a sugestão, "N texto" manda o texto dele, "não N" não responde. Quando o Bruno
+SAC (WhatsApp, TikTok, Shopee): cada sugestão esperando tem um número N (é o "n" do contexto; muda quando o atendente refaz a
+sugestão, então use sempre o "n" atual do contexto). Quando o Bruno
 MANDA responder de outro jeito (ex.: "primeiro pede o número do pedido dela"), escreva o texto novo para o cliente e, numa
 linha sozinha, [[editar:N|o texto exato para o cliente]] — ele sai na hora. Quando ele só diz para enviar a sugestão que
 está lá ("pode mandar", "manda essa"), use [[aprovar:N]]. Na dúvida sobre QUAL conversa, pergunte o número.
@@ -294,13 +303,18 @@ def _acoes_banguela(repo, txt):
 
 
 def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
-    """O Banguela conversando com o Bruno (Painel do coletor ou "Banguela, …" no WhatsApp): aprova pelo jeito curto,
-    responde sobre o atendimento e o negócio (com a base do nubi), marca lembretes e passa pedidos ao Ferreiro.
+    """O Banguela conversando com o Bruno (Painel do coletor ou "Banguela, …" no WhatsApp): conversa de verdade (Opus),
+    com o histórico; aprova/muda respostas, marca lembretes e passa pedidos ao Ferreiro como AÇÕES dentro da resposta.
+    03/10 (Bruno: "ela é robótica"): nada de resposta pronta; "ok N"/"N texto" exatos são feitos na hora e ela comenta.
     com_acoes=True devolve (texto, pedidos_ao_ferreiro)."""
     t = str(texto or "").strip()
-    res = _aprovacao(repo, t, so_explicito=True)
-    if res is not None:
-        return (res.get("resposta") or "", []) if com_acoes else (res.get("resposta") or "")
+    feito_ja = None
+    m = RE_OK.match(t) or RE_NAO.match(t)
+    alvo_n = m.group(2) if m else (RE_NUM.match(t).group(1) if RE_NUM.match(t) else None)
+    if alvo_n:                                                 # só com número: sem número, ela pergunta qual
+        res = _aprovacao(repo, t, so_explicito=True)
+        if res and not str(res.get("resposta") or "").startswith(("Não achei", "#")):
+            feito_ja = res.get("resposta")
     abertos = _abertos(repo, 20, todos_canais=True)
     try:
         resumo = at.painel(repo, dias=1)
@@ -312,9 +326,11 @@ def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
            "painel_do_sac_hoje": resumo, **_contexto_negocio(repo, t, agora)}
     conversa = "\n".join(f"{'BRUNO' if h.get('role') == 'user' else 'BANGUELA'}: {str(h.get('content'))[:600]}"
                          for h in (historico or [])[-8:])
-    pedido = f"CONTEXTO:\n{json.dumps(ctx, ensure_ascii=False, default=str)[:9000]}\n\nCONVERSA:\n{conversa}\nBRUNO: {t}"
+    if feito_ja:
+        ctx["acao_que_voce_acabou_de_fazer"] = feito_ja
+    pedido = f"CONTEXTO:\n{json.dumps(ctx, ensure_ascii=False, default=str)[:9000]}\n\nCONVERSA ATÉ AGORA:\n{conversa}\nBRUNO: {t}"
     try:
-        txt, _ = at.gerar_qualidade(repo)(pedido, PAPEL_BANGUELA)
+        txt, _ = at.gerar_qualidade(repo, BANGUELA_MODELO)(pedido, PAPEL_BANGUELA)
     except Exception as e:  # noqa: BLE001
         txt = f"(não consegui pensar agora: {str(e)[:150]})"
     limpo, ferreiro = _acoes_banguela(repo, str(txt or ""))
@@ -327,6 +343,8 @@ def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
         res = _aprovacao(repo, f"ok {num}", so_explicito=True)
         if res:
             feitos.append(res.get("resposta") or "")
+    if feito_ja and feito_ja not in feitos:
+        feitos.insert(0, feito_ja)
     if feitos:
         limpo = (limpo + "\n\n" + "\n".join(feitos)).strip()
     if ferreiro and not com_acoes:
