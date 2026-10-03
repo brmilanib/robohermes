@@ -152,6 +152,20 @@ assert cx[cx.index("--sandbox") + 1] == "read-only"
 assert 0.12 in gastos                                            # o Claude conta no teto do Ferreiro
 coletor._gasto_ferreiro = lambda cfg, somar=0.0: 10.0
 assert "teto de hoje" in coletor._painel_cli({}, "claude", "S", [{"role": "user", "content": "oi"}])
+# memória: a 2ª mensagem continua a sessão do Claude (--resume) e manda só a fala nova; anexo vai junto
+coletor._gasto_ferreiro = lambda cfg, somar=0.0: 0.0
+rodadas.clear()
+_run_ant = coletor.subprocess.run
+coletor.subprocess.run = lambda argv, **k: rodadas.append(argv) or R(json.dumps({"result": "ok", "session_id": "S1", "total_cost_usd": 0}))
+coletor._painel_cli({}, "claude", "S", [{"role": "user", "content": "primeira"}], nova=True)
+anexo = str(coletor.PASTA / "painel_anexos" / "a.png")
+coletor._painel_cli({}, "claude", "S", [{"role": "user", "content": "primeira"}, {"role": "assistant", "content": "ok"},
+                                        {"role": "user", "content": "e agora?"}], [anexo])
+assert "--resume" not in rodadas[0] and rodadas[1][rodadas[1].index("--resume") + 1] == "S1"
+assert rodadas[1][2].startswith("Bruno: e agora?") and anexo in rodadas[1][2]
+coletor._painel_cli({}, "codex", "S", [{"role": "user", "content": "olha o print"}], [anexo])
+assert rodadas[-1][rodadas[-1].index("-i") + 1] == anexo
+coletor.subprocess.run = _run_ant
 
 # ações (o Bruno confirma no botão)
 def acao(d):
@@ -166,6 +180,21 @@ assert c["ok"] and "#160" in c["texto"]
 cc = [x for x in chamadas if x[0] == "reuniao_tarefa_salvar"][0][1]
 assert cc["status"] == "proposta" and cc["area"] == "coletor" and cc["autor"] == "hermes"
 assert not acao({"tipo": "rm -rf"})["ok"]
+p_ = acao({"tipo": "programar", "titulo": "Gestor: período por mês", "descricao": "usar a caixa única", "agente": "claude", "anexos": ["/x.png"]})
+assert p_["ok"] and "#160" in p_["texto"] and "Ferreiro" in p_["texto"]
+cc = [x for x in chamadas if x[0] == "reuniao_tarefa_salvar"][-1][1]
+assert cc["status"] == "aprovada" and cc["responsavel"] == "claude_mac" and "/x.png" in cc["descricao"]
+acao({"tipo": "programar", "titulo": "x", "agente": "codex"})
+assert [x for x in chamadas if x[0] == "reuniao_tarefa_salvar"][-1][1]["responsavel"] == "astra"
+# anexo (print) vai para a pasta do coletor; outro tipo é recusado
+r_ = urllib.request.Request(URL + "/anexo", data=b"\x89PNG...", headers={"Content-Type": "image/png"}, method="POST")
+cam = json.loads(urllib.request.urlopen(r_, timeout=10).read())["caminho"]
+assert cam.startswith(str(coletor.PASTA / "painel_anexos")) and Path(cam).read_bytes() == b"\x89PNG..."
+try:
+    urllib.request.urlopen(urllib.request.Request(URL + "/anexo", data=b"x", headers={"Content-Type": "text/html"}, method="POST"), timeout=10)
+    raise AssertionError("devia recusar")
+except urllib.error.HTTPError as er:
+    assert er.code == 400
 
 # foto ao vivo: só com o painel aberto, a cada ~4 s
 class Pg:
@@ -209,6 +238,7 @@ if os.environ.get("NUBI_CHROMIUM"):
         pg.keyboard.press("Enter")
         pg.wait_for_selector("button.acao")
         assert "Rodar no Mac: estoque" in pg.inner_text("button.acao")
+        assert pg.locator("#mic").count() == 1 and pg.locator("#arq").count() == 1 and pg.locator("#nova").count() == 1
         assert "[[" not in pg.inner_text("#msgs")
         pg.screenshot(path=str(RAIZ / "testes" / "saida_painel_coletor.png"))
         pg.set_viewport_size({"width": 390, "height": 800})

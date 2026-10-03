@@ -45,7 +45,11 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   Mesa). Mostra os comandos rodando (despachante.json + comandos/*.log), o log do coletor, a tela do robô (foto a cada ~4 s
   em `devagar`, SÓ com o painel aberto nos últimos 20 s) e o chat (Bruno: "prefiro o Codex e o Claude Code conversando
   com o coletor"): Claude Code (padrão; conta no teto do Ferreiro; só leitura + WebSearch/WebFetch, sem Edit/commit),
-  Codex (`exec --sandbox read-only`) ou Hermes (Ollama, grátis). Nenhum deles executa nada: propõe `[[comando:CHAVE]]` (só da lista fechada COMANDOS_MAC → `mac_pedir`, fila da Central) e
+  Codex (`exec --sandbox read-only`) ou Hermes (Ollama, grátis). 03/10 (Bruno: "deixa o Ferreiro conversando e liberado
+  para programar"): `[[programar:Título|descrição]]` vira botão 🔨 → card APROVADO com dono claude_mac (Claude) ou astra
+  (Codex) → o Mac programa na hora no branch dele, testes, e o Chefe revisa e publica (mesmo fluxo do quadro). Memória: o
+  Claude continua a sessão (`--resume`, `painel_sessao.json`) até "Nova conversa". Prints: colar/📎 → `painel_anexos/`
+  (Claude lê; Codex `-i`). 🎤 ditado do Chrome (pt-BR). Fora o 🔨, nenhum deles executa nada: propõe `[[comando:CHAVE]]` (só da lista fechada COMANDOS_MAC → `mac_pedir`, fila da Central) e
   `[[card:Título|descrição]]` (proposta no quadro, área coletor) e o Bruno confirma no botão. Mudança no código do coletor
   é sempre por card → Ferreiro → revisão, nunca o Hermes editando o arquivo.
 - 📣 ADS em tempo real (03/10, Bruno): card no Dashboard (`#ds-adsml`) com o ADS da conta principal do ML (AURASCENT):

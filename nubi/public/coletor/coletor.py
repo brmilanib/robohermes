@@ -9418,7 +9418,7 @@ header h1{font-size:18px;margin:0;font-weight:650}.pill{padding:3px 10px;border-
 .dot{width:8px;height:8px;border-radius:50%;background:var(--verde);display:inline-block;margin-right:6px;animation:p 1.4s infinite}
 @keyframes p{50%{opacity:.25}}
 main{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);gap:16px;padding:16px 20px;max-width:1500px;margin:0 auto}
-@media(max-width:900px){main{grid-template-columns:1fr;padding:12px}}
+@media(max-width:900px){main{grid-template-columns:minmax(0,1fr);padding:12px}}
 .card{background:var(--card);border:1px solid var(--borda);border-radius:12px;padding:14px;margin-bottom:16px;min-width:0}
 .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 10px;font-weight:600}
 .tela{width:100%;border-radius:8px;border:1px solid var(--borda);display:block;background:#000;min-height:120px}
@@ -9433,10 +9433,13 @@ pre{margin:8px 0 0;max-height:260px;overflow:auto;font:12px/1.5 ui-monospace,SFM
 .m{padding:9px 12px;border-radius:12px;max-width:92%;white-space:pre-wrap;word-break:break-word}
 .m.eu{align-self:flex-end;background:#1f6feb;color:#fff;border-bottom-right-radius:4px}
 .m.h{align-self:flex-start;background:#21262d;border-bottom-left-radius:4px}
-form{display:flex;gap:8px;margin-top:10px}textarea{flex:1;resize:none;background:#0d1117;color:var(--txt);border:1px solid var(--borda);border-radius:10px;padding:10px;font:inherit;height:46px}
+form{display:flex;gap:6px;margin-top:10px}textarea{flex:1;min-width:0;resize:none;background:#0d1117;color:var(--txt);border:1px solid var(--borda);border-radius:10px;padding:10px;font:inherit;height:46px}
 button{background:#238636;color:#fff;border:0;border-radius:10px;padding:0 16px;font-weight:600;cursor:pointer}button:disabled{opacity:.5}
 .ag{display:flex;gap:6px;margin-bottom:10px}.ag button{background:#21262d;color:var(--mut);padding:6px 12px;border:1px solid var(--borda);font-weight:500}
 .ag button.on{background:#1f6feb;color:#fff;border-color:#1f6feb}
+.anx{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.anx img{height:54px;border-radius:6px;border:1px solid var(--borda)}
+button.ic,label.ic{background:#21262d;border:1px solid var(--borda);border-radius:10px;padding:0 10px;display:flex;align-items:center;cursor:pointer;font-size:18px}
+button.ic.on{background:#da3633}
 button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6feb;font-size:13px}
 .hint{color:var(--mut);font-size:12px;margin-top:6px}
 </style></head><body>
@@ -9450,9 +9453,12 @@ button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6
 </section><aside>
  <div class="card" id="chat"><h2>💬 Conversar com o coletor</h2>
  <div class="ag"><button type="button" data-a="claude" class="on">Claude</button><button type="button" data-a="codex">Codex</button><button type="button" data-a="hermes">Hermes (grátis)</button></div>
- <div id="msgs"><div class="m h">Oi, Bruno! Pergunte sobre as coletas, os erros ou o código do coletor. Claude e Codex leem o coletor e os logs aqui no Mac (sem mexer em nada); o Hermes é a IA grátis. Todos podem sugerir comandos e cards — nada roda sem você clicar no botão.</div></div>
- <form id="f"><textarea id="q" placeholder="Escreva e aperte Enter…"></textarea><button id="env">Enviar</button></form>
- <div class="hint">Claude e Codex usam a sua chave (o Claude conta no teto diário do Ferreiro); o Hermes é grátis. Ninguém edita o coletor por aqui: melhoria vira card no quadro.</div></div>
+ <div id="msgs"><div class="m h">Oi, Bruno! Fale, cole um print ou peça uma mudança. O Claude (Ferreiro) e o Codex leem o coletor, os logs e o projeto, buscam na internet e programam quando você clicar em 🔨. O Hermes é grátis, para tarefas simples. Nada roda sem o seu clique.</div></div>
+ <div id="anx" class="anx"></div>
+ <form id="f"><label class="ic" title="anexar print"><input type="file" id="arq" accept="image/*" multiple hidden>📎</label>
+ <button type="button" class="ic" id="mic" title="falar (ditado)">🎤</button><textarea id="q" placeholder="Escreva, cole um print (Cmd+V) ou fale no 🎤…"></textarea><button id="env">Enviar</button></form>
+ <div class="hint"><a href="#" id="nova" style="color:var(--azul)">Nova conversa</a> · o Claude lembra a conversa até você começar uma nova</div>
+ <div class="hint">Claude e Codex conversam, olham prints e programam (botão 🔨: branch próprio + testes + revisão do Chefe). Usam a sua chave; o Claude conta no teto do Ferreiro. Hermes (grátis) para coisas simples e de volume.</div></div>
 </aside></main>
 <script>
 const $=s=>document.querySelector(s), esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -9473,22 +9479,32 @@ async function tick(){
   $("#recentes").innerHTML=d.recentes.map(r=>`<div class="rec"><span class="${r.ok?"ok":"erro"}">${r.ok?"✓":"✗"}</span><span>${esc(r.nomes||"#"+r.id)}</span><small style="color:var(--mut)">${hh(r.fim)}</small><span class="u">${esc(r.ultima)}</span></div>`).join("")||'<div class="vazio">—</div>';
 }
 tick(); setInterval(tick,2000);
-const hist=[];let agente="claude";
+const hist=[];let agente="claude",anexos=[],nova=false,enviados=[];
+async function anexar(f){if(!f||!/^image\//.test(f.type))return;const r=await (await fetch("/anexo",{method:"POST",headers:{"Content-Type":f.type},body:f})).json();
+  if(r.caminho){anexos.push(r.caminho);const i=document.createElement("img");i.src=URL.createObjectURL(f);$("#anx").appendChild(i)}else alert(r.erro||"não deu")}
+$("#arq").onchange=e=>[...e.target.files].forEach(anexar);
+$("#q").addEventListener("paste",e=>[...(e.clipboardData||{}).items||[]].forEach(it=>{if(it.kind==="file")anexar(it.getAsFile())}));
+$("#nova").onclick=e=>{e.preventDefault();hist.length=0;nova=true;$("#msgs").innerHTML='<div class="m h">Conversa nova. Pode falar!</div>'};
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
+$("#mic").onclick=()=>{if(!SR)return alert("Este navegador não tem ditado; use o Chrome.");if(rec){rec.stop();return}
+  rec=new SR();rec.lang="pt-BR";rec.interimResults=true;rec.continuous=true;const base=$("#q").value;$("#mic").classList.add("on");
+  rec.onresult=ev=>{$("#q").value=base+[...ev.results].map(x=>x[0].transcript).join(" ")};
+  rec.onend=()=>{rec=null;$("#mic").classList.remove("on")};rec.start()};
 document.querySelectorAll(".ag button").forEach(b=>b.onclick=()=>{agente=b.dataset.a;document.querySelectorAll(".ag button").forEach(x=>x.classList.toggle("on",x===b))});
 function bolha(c,t){const e=document.createElement("div");e.className="m "+c;e.textContent=t;$("#msgs").appendChild(e);$("#msgs").scrollTop=1e9;return e}
 $("#q").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#f").requestSubmit()}});
 $("#f").onsubmit=async e=>{e.preventDefault();const q=$("#q").value.trim();if(!q)return;$("#q").value="";bolha("eu",q);hist.push({role:"user",content:q});
   const nome={claude:"Claude",codex:"Codex",hermes:"Hermes"}[agente];const b=bolha("h",nome+" pensando…");$("#env").disabled=true;let txt="";
   const t0=Date.now(),rel=setInterval(()=>{if(!txt)b.textContent=`${nome} lendo o coletor… ${Math.round((Date.now()-t0)/1000)} s`},1000);
-  try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20),agente})});
+  try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20),agente,anexos,nova})});enviados=anexos;anexos=[];nova=false;$("#anx").innerHTML="";
     const rd=r.body.getReader(),dec=new TextDecoder();for(;;){const {value,done}=await rd.read();if(done)break;txt+=dec.decode(value,{stream:true});b.textContent=txt;$("#msgs").scrollTop=1e9}
   }catch(err){txt="(não consegui falar com o Hermes: "+err.message+")";b.textContent=txt}
   clearInterval(rel);hist.push({role:"assistant",content:txt});b.textContent=(agente==="hermes"?"":nome+": ")+txt.replace(/\[\[(comando|card):[^\]]*\]\]/g,"").trim();acoes(b,txt);$("#env").disabled=false;$("#q").focus()};
-function acoes(b,txt){for(const m of txt.matchAll(/\[\[(comando|card):([^\]|]*)(?:\|([^\]]*))?\]\]/g)){
+function acoes(b,txt){for(const m of txt.matchAll(/\[\[(comando|card|programar):([^\]|]*)(?:\|([^\]]*))?\]\]/g)){
   const [_,tipo,a,c]=m, bt=document.createElement("button");bt.className="acao";
-  bt.textContent=tipo==="comando"?`▶ Rodar no Mac: ${a.trim()}${c?" ("+c.trim()+")":""}`:`📝 Criar card: ${a.trim()}`;
-  bt.onclick=async()=>{if(!confirm(tipo==="comando"?`Mandar "${a.trim()}" para a fila do Mac?`:`Criar o card "${a.trim()}" no quadro (como proposta)?`))return;bt.disabled=true;
-    const corpo=tipo==="comando"?{tipo,chave:a.trim(),arg:(c||"").trim()}:{tipo,titulo:a.trim(),descricao:(c||"").trim()};
+  bt.textContent=tipo==="comando"?`▶ Rodar no Mac: ${a.trim()}${c?" ("+c.trim()+")":""}`:tipo==="programar"?`🔨 Programar agora: ${a.trim()}`:`📝 Criar card: ${a.trim()}`;
+  bt.onclick=async()=>{if(!confirm(tipo==="comando"?`Mandar "${a.trim()}" para a fila do Mac?`:tipo==="programar"?`Programar agora "${a.trim()}"? O ${agente==="codex"?"Codex":"Ferreiro"} começa na hora num branch próprio; o Chefe revisa antes de publicar.`:`Criar o card "${a.trim()}" no quadro (como proposta)?`))return;bt.disabled=true;
+    const corpo=tipo==="comando"?{tipo,chave:a.trim(),arg:(c||"").trim()}:{tipo,titulo:a.trim(),descricao:(c||"").trim(),agente,anexos:b.dataset.anexos?JSON.parse(b.dataset.anexos):[]};
     try{const j=await (await fetch("/acao",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(corpo)})).json();bolha("h",j.texto)}catch(e){bolha("h","Não deu: "+e.message)}};
   b.appendChild(document.createElement("br"));b.appendChild(bt)}}
 </script></body></html>"""
@@ -9507,9 +9523,10 @@ def _painel_contexto(cfg, cache={}):
              "ESTADO DO COLETOR; se algo não está neles, diga que não sabe (não invente números). Horários em Brasília. "
              "AÇÕES: você pode PROPOR um comando do Mac da lista abaixo escrevendo, numa linha sozinha no fim da resposta, "
              "[[comando:CHAVE]] (ou [[comando:CHAVE|argumento]]); o Bruno confirma num botão e ele vai para a fila da Central. "
-             "Use só chaves da lista; nunca invente. Para MELHORAR o coletor (código), não mexa no código: proponha um card "
-             "com [[card:Título curto|o que mudar, por quê e como testar]]; o card vai para o quadro como proposta, o Bruno "
-             "aprova e o Ferreiro programa com revisão. No máximo 2 ações por resposta, e só quando fizer sentido.")
+             "Use só chaves da lista; nunca invente. Para MUDAR CÓDIGO (coletor ou nubi), proponha "
+             "[[programar:Título curto|o que mudar, onde, por quê e como testar — detalhado]]: o Bruno clica e o Ferreiro "
+             "(Claude Code) programa NA HORA num branch próprio, roda os testes, e o Chefe revisa e publica. Para uma ideia que "
+             "ainda precisa ser decidida, use [[card:Título|descrição]] (vai como proposta). No máximo 2 ações por resposta.")
     try:
         lista = api(token_nubi(cfg), "mac_painel", {"n": 1}, timeout=30).get("lista") or []
         cmds = "\n".join(f"- {c['k']}: {c['nome']}" for c in lista if c["k"] not in ("baixar_modelo",))
@@ -9529,11 +9546,16 @@ def _painel_modelo(cfg):
 PAINEL_AGENTES = {"claude": "Claude (Ferreiro)", "codex": "Codex", "hermes": "Hermes (grátis)"}
 
 
-def _painel_cli(cfg, agente, sistema, msgs):
+PAINEL_SESSAO = PASTA / "painel_sessao.json"
+
+
+def _painel_cli(cfg, agente, sistema, msgs, anexos=(), nova=False):
     """03/10 (Bruno: "prefiro que ao invés do Hermes seja o Codex e o Claude Code conversando com o coletor"): o Claude Code
     ou o Codex deste Mac respondem no painel SÓ LENDO (código do coletor, logs, projeto); nada de editar, commit ou push.
     As ações continuam como botões ([[comando:…]] / [[card:…]]) que o Bruno confirma. O Claude conta no teto do Ferreiro."""
     conversa = "\n\n".join(f"{'Bruno' if m['role'] == 'user' else 'Você'}: {m['content']}" for m in msgs[-12:])
+    if anexos:
+        conversa += "\n\n(O Bruno anexou imagem(ns); abra e olhe antes de responder: " + ", ".join(anexos) + ")"
     pedido = (sistema.replace("Você é o Hermes", "Você é o assistente do coletor").replace("(Ollama, grátis, no Mac mini)", "")
               + "\n\nVocê roda no Mac do Bruno, na pasta do coletor: pode LER arquivos (coletor.py, coletor.log, vigia.log, "
               "comandos/*.log, o clone do projeto em projeto/) para investigar, mas NÃO edite, NÃO faça commit nem push e NÃO "
@@ -9549,7 +9571,15 @@ def _painel_cli(cfg, agente, sistema, msgs):
         if _gasto_ferreiro(cfg) >= teto:
             return f"O Claude já gastou o teto de hoje (US$ {teto:.0f}). Use o Hermes (grátis) ou peça para subir o teto."
         env = {**os.environ, "ANTHROPIC_API_KEY": _credencial("anthropic", cfg)[1]}
-        r = subprocess.run([_claude_bin(), "-p", pedido, "--output-format", "json", "--model", FERREIRO_MODELO,
+        # memória: a mesma sessão do Claude Code continua de uma mensagem para a outra (até o Bruno clicar em "Nova conversa")
+        try:
+            ses = {} if nova else json.loads(PAINEL_SESSAO.read_text())
+        except (OSError, ValueError):
+            ses = {}
+        cont = ["--resume", ses["claude"]] if ses.get("claude") else []
+        if cont:
+            pedido = "Bruno: " + msgs[-1]["content"] + ("\n\n(anexos: " + ", ".join(anexos) + ")" if anexos else "")
+        r = subprocess.run([_claude_bin(), "-p", pedido, *cont, "--output-format", "json", "--model", FERREIRO_MODELO,
                             "--max-turns", "20", "--add-dir", str(PASTA), "--allowedTools",
                             "Read,Glob,Grep,WebSearch,WebFetch,Bash(git log:*),Bash(git diff:*),Bash(git status:*),Bash(ls:*),Bash(tail:*)"],
                            cwd=cwd, env=env, capture_output=True, text=True, timeout=900)
@@ -9558,6 +9588,16 @@ def _painel_cli(cfg, agente, sistema, msgs):
         except ValueError:
             saida = {"result": (r.stdout or r.stderr or "")[-3000:]}
         _gasto_ferreiro(cfg, float(saida.get("total_cost_usd") or saida.get("cost_usd") or 0))
+        if saida.get("session_id"):
+            try:
+                PAINEL_SESSAO.write_text(json.dumps(dict(ses, claude=saida["session_id"])))
+            except OSError:
+                pass
+        elif cont:                                          # a sessão antiga sumiu: começa uma nova na próxima
+            try:
+                PAINEL_SESSAO.write_text("{}")
+            except OSError:
+                pass
         return str(saida.get("result") or "").strip() or f"(sem resposta: {(r.stderr or '')[-300:]})"
     ok, motivo = astra_pronto(cfg)
     if not ok:
@@ -9570,7 +9610,8 @@ def _painel_cli(cfg, agente, sistema, msgs):
         ultima.unlink()
     except OSError:
         pass
-    r = subprocess.run([_codex_bin(), "exec", "--sandbox", "read-only", "--skip-git-repo-check",
+    imgs = [x for a in anexos for x in ("-i", a)]
+    r = subprocess.run([_codex_bin(), "exec", "--sandbox", "read-only", "--skip-git-repo-check", *imgs,
                         "--output-last-message", str(ultima), pedido],
                        cwd=cwd, env=env, capture_output=True, text=True, timeout=900)
     txt = ultima.read_text().strip() if ultima.exists() else ""
@@ -9616,8 +9657,20 @@ def cmd_painel(args, cfg):
 
         def do_POST(self):
             rota = urllib.parse.urlparse(self.path).path
-            if not self._local() or rota not in ("/chat", "/acao"):
+            if not self._local() or rota not in ("/chat", "/acao", "/anexo"):
                 return self._enviar("{}", st=403)
+            if rota == "/anexo":
+                # print colado ou escolhido no painel: fica numa pasta do coletor para o Claude/Codex abrirem (até 15 MB)
+                n = int(self.headers.get("Content-Length") or 0)
+                tipo = (self.headers.get("Content-Type") or "").split(";")[0]
+                ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}.get(tipo)
+                if not ext or n > 15_000_000:
+                    return self._enviar(json.dumps({"erro": "só imagem (png, jpg, webp, gif) de até 15 MB"}), st=400)
+                pasta = PASTA / "painel_anexos"
+                pasta.mkdir(parents=True, exist_ok=True)
+                arq = pasta / f"{datetime.now():%Y%m%d-%H%M%S}-{random.randint(100, 999)}{ext}"
+                arq.write_bytes(self.rfile.read(n))
+                return self._enviar(json.dumps({"caminho": str(arq)}))
             if rota == "/acao":
                 return self._acao()
             try:
@@ -9632,13 +9685,14 @@ def cmd_painel(args, cfg):
                  "ultimos": est["recentes"], "log_coletor": est["log"][-25:]}, ensure_ascii=False)[:6000]
             base = [{"role": "system", "content": _painel_contexto(cfg) + "\n\n" + agora}]
             agente = str(d.get("agente") or "claude")
+            anexos = [a for a in (d.get("anexos") or [])[:6] if str(a).startswith(str(PASTA / "painel_anexos"))]
             if agente in ("claude", "codex"):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 try:
-                    txt = _painel_cli(cfg, agente, base[0]["content"], msgs)
+                    txt = _painel_cli(cfg, agente, base[0]["content"], msgs, anexos, bool(d.get("nova")))
                 except Exception as e:  # noqa: BLE001
                     txt = f"(não deu: {str(e)[:300]})"
                 try:
@@ -9679,6 +9733,20 @@ def cmd_painel(args, cfg):
             if d.get("tipo") == "comando":
                 r = api(token, "mac_pedir", corpo={"comando": str(d.get("chave") or "")[:60], "arg": str(d.get("arg") or "")[:60]}, timeout=30)
                 return self._enviar(json.dumps({"ok": True, "texto": f"Na fila da Central (#{r.get('id')}). Acompanhe aqui em Rodando agora."}))
+            if d.get("tipo") == "programar":
+                # 03/10 (Bruno: "deixa o Ferreiro conversando e liberado para programar falando comigo"): card APROVADO
+                # com o dono escolhido → o Mac começa na hora (mesmo fluxo do quadro: branch, testes, revisão do Chefe)
+                titulo = str(d.get("titulo") or "").strip()[:120]
+                if not titulo:
+                    raise ValueError("pedido sem título")
+                dono = "astra" if d.get("agente") == "codex" else "claude_mac"
+                anexos = "".join(f"\n- anexo no Mac: {a}" for a in (d.get("anexos") or [])[:6])
+                r = api(token, "reuniao_tarefa_salvar", corpo={"titulo": titulo, "descricao": (str(d.get("descricao") or "")[:5000]
+                        + "\n\n(Pedido do Bruno no Painel do coletor.)" + anexos), "status": "aprovada", "area": "coletor",
+                        "responsavel": dono, "autor": "voce"}, timeout=60)
+                quem_ = "Codex" if dono == "astra" else "Ferreiro (Claude Code)"
+                return self._enviar(json.dumps({"ok": True, "texto": f"🔨 Card #{r.get('id')} aprovado: o {quem_} começa em ~1 min. "
+                                                f"Acompanhe aqui em Rodando agora; quando passar nos testes, o Chefe revisa e publica."}))
             if d.get("tipo") == "card":
                 titulo = str(d.get("titulo") or "").strip()[:120]
                 if not titulo:
