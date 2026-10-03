@@ -9510,18 +9510,19 @@ header h1{font-size:18px;margin:0;font-weight:650}.pill{padding:3px 10px;border-
 .pill.on{color:var(--verde);border-color:#238636;background:rgba(63,185,80,.1)}.pill.warn{color:var(--amar);border-color:#9e6a03}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--verde);display:inline-block;margin-right:6px;animation:p 1.4s infinite}
 @keyframes p{50%{opacity:.25}}
-main{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);gap:16px;padding:16px 20px;max-width:1500px;margin:0 auto}
-@media(max-width:900px){main{grid-template-columns:minmax(0,1fr);padding:12px}}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 16px;padding:16px 20px;max-width:1500px;margin:0 auto}
+@media(max-width:700px){main{grid-template-columns:minmax(0,1fr);padding:12px}}
+/* 03/10 (Bruno, monitor na vertical): em cima o robô à esquerda e o log/comandos à direita; embaixo o chat na largura toda */
 .card{background:var(--card);border:1px solid var(--borda);border-radius:12px;padding:14px;margin-bottom:16px;min-width:0}
 .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 10px;font-weight:600}
 .tela{width:100%;border-radius:8px;border:1px solid var(--borda);display:block;background:#000;min-height:120px}
 .vazio{color:var(--mut);padding:30px 10px;text-align:center}
 .job{border:1px solid var(--borda);border-radius:10px;padding:10px;margin-bottom:10px;background:#0d1117}
 .job b{color:var(--azul)}.job small{color:var(--mut);margin-left:6px}
-pre{margin:8px 0 0;max-height:260px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#c9d1d9;white-space:pre-wrap;word-break:break-word}
+pre{margin:8px 0 0;max-height:300px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#c9d1d9;white-space:pre-wrap;word-break:break-word}
 .ok{color:var(--verde)}.erro{color:var(--verm)}
 .rec{display:flex;gap:8px;padding:6px 0;border-top:1px solid var(--borda);font-size:13px}.rec:first-child{border-top:0}.rec span.u{color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-#chat{display:flex;flex-direction:column;height:calc(100vh - 120px);min-height:420px;position:sticky;top:76px}
+#chat{display:flex;flex-direction:column;height:50vh;min-height:420px;grid-column:1/-1;margin-bottom:0}
 #msgs{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:4px}
 .m{padding:9px 12px;border-radius:12px;max-width:92%;white-space:pre-wrap;word-break:break-word}
 .m.eu{align-self:flex-end;background:#1f6feb;color:#fff;border-bottom-right-radius:4px}
@@ -9541,10 +9542,11 @@ button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6
 <main><section>
  <div class="card"><h2>👀 O que o robô está vendo</h2><div id="telaBox" class="vazio">Nenhuma coleta com navegador aberta agora.</div></div>
  <div class="card"><h2>⚙️ Rodando agora</h2><div id="jobs" class="vazio">Nada rodando.</div></div>
+ <div class="card"><h2>📋 Revisão diária (Codex)</h2><div id="rev" class="vazio">A primeira revisão sai hoje às 23h.</div></div>
+</section><section>
  <div class="card"><h2>📜 Log do coletor (ao vivo)</h2><pre id="log"></pre></div>
  <div class="card"><h2>🕘 Últimos comandos</h2><div id="recentes"></div></div>
- <div class="card"><h2>📋 Revisão diária (Codex)</h2><div id="rev" class="vazio">A primeira revisão sai hoje às 23h.</div></div>
-</section><aside>
+</section>
  <div class="card" id="chat"><h2>💬 Conversar com o coletor</h2>
  <div class="ag"><button type="button" data-a="claude" class="on">🔨 Ferreiro</button><button type="button" data-a="codex">Codex</button><button type="button" data-a="hermes">Hermes (grátis)</button><button type="button" data-a="banguela">🦷 Banguela</button></div>
  <div id="msgs"><div class="m h">Oi, Bruno! Fale, cole um print ou peça uma mudança. O Claude (Ferreiro) e o Codex leem o coletor, os logs e o projeto, buscam na internet e programam quando você clicar em 🔨. O Hermes é grátis, para tarefas simples. Nada roda sem o seu clique.</div></div>
@@ -9553,7 +9555,7 @@ button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6
  <button type="button" class="ic" id="mic" title="falar (ditado)">🎤</button><textarea id="q" placeholder="Escreva, cole um print (Cmd+V) ou fale no 🎤…"></textarea><button id="env">Enviar</button></form>
  <div class="hint"><a href="#" id="nova" style="color:var(--azul)">Nova conversa</a> · tudo fica guardado no Mac; a memória (🧠) vale para o Ferreiro e o Codex</div>
  <div class="hint">Claude e Codex conversam, olham prints e programam (botão 🔨: branch próprio + testes + revisão do Chefe). Usam a sua chave; o Claude conta no teto do Ferreiro. Hermes (grátis) para coisas simples e de volume.</div></div>
-</aside></main>
+</main>
 <script>
 const $=s=>document.querySelector(s), esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const dur=s=>{s=Math.max(0,Math.round(s));return s<60?s+" s":s<3600?Math.floor(s/60)+" min":Math.floor(s/3600)+" h "+Math.floor(s%3600/60)+" min"};
@@ -9597,7 +9599,10 @@ document.querySelectorAll(".ag button").forEach(b=>b.onclick=()=>{agente=b.datas
 carregarHist();
 function bolha(c,t){const e=document.createElement("div");e.className="m "+c;e.textContent=t;$("#msgs").appendChild(e);$("#msgs").scrollTop=1e9;return e}
 $("#q").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#f").requestSubmit()}});
-$("#f").onsubmit=async e=>{e.preventDefault();const q=$("#q").value.trim();if(!q)return;$("#q").value="";bolha("eu",q);hist.push({role:"user",content:q});
+$("#f").onsubmit=async e=>{e.preventDefault();
+  // 03/10 (Bruno: "envia e a mensagem fica lá"): o ditado continuava escrevendo no campo depois do envio; para antes de limpar
+  if(rec){rec.onresult=null;rec.onend=null;try{rec.stop()}catch(_){}rec=null;$("#mic").classList.remove("on")}
+  const q=$("#q").value.trim();if(!q)return;$("#q").value="";bolha("eu",q);hist.push({role:"user",content:q});
   const nome={claude:"Ferreiro",codex:"Codex",hermes:"Hermes",banguela:"Banguela"}[agente];const b=bolha("h",nome+" pensando…");$("#env").disabled=true;let txt="";
   const t0=Date.now(),rel=setInterval(()=>{if(!txt)b.textContent=`${nome} lendo o coletor… ${Math.round((Date.now()-t0)/1000)} s`},1000);
   try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20),agente,anexos,nova})});enviados=anexos;anexos=[];nova=false;$("#anx").innerHTML="";
