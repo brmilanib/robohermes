@@ -3018,7 +3018,8 @@ JS_GESTOR_SELECT_PERIODO = r"""() => {
 JS_GESTOR_PERIODO_UNICO = r"""([ini, fim]) => {
   // 03/10: o acento pode vir decomposto (i + ´); compara sem acento e marca a caixa para o coletor clicar nela
   const sem = t => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const el = [...document.querySelectorAll('input')].find(e => e.getClientRects().length && /periodo|data/.test(sem(e.placeholder)));
+  // (foto 196: o texto "Selecione um período" é o VALOR da caixa, não o placeholder)
+  const el = [...document.querySelectorAll('input')].find(e => e.getClientRects().length && /periodo|data/.test(sem(e.placeholder) + ' ' + sem(e.value)));
   if (!el) return 'sem';
   el.setAttribute('data-nubi-periodo', '1');
   if (el._flatpickr) { el._flatpickr.setDate([ini, fim], true); return 'fp:' + el.value; }
