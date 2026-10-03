@@ -95,6 +95,24 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   (no sinal do Mac); aviso avulso/teste = gravar `ia_resumos` `whatsapp|pedido` (texto), enviado no próximo sinal do Mac
   e apagado. Próximo (Bruno): aba de atendimento de vendas e mensagens para clientes pela API oficial da Meta (número
   próprio do nubi). Teste `test_whatsapp.py`.
+- 💬 WhatsApp do chip da loja (03/10, Bruno: "um WhatsApp só para ele no Mac, integrado com o nubi; o Banguela atende,
+  me manda no privado e eu aprovo ou mudo; cliente do site da Via Brazil ele já entende; e eu falo com o Ferreiro, o Codex
+  e o Hermes"): chip +55 47 99138-8777 (o mesmo do botão do site viabrazilglobal.com.br, que manda "Olá! Gostaria de
+  saber mais sobre a Via Brazil Global."), dono = +55 44 99881-2871 (`whatsapp.DONO_PADRAO`, env `NUBI_WHATSAPP_DONO`).
+  Mac: `coletor whatsapp` (launchd `whatsapp-instalar`, Central `whatsapp_instalar`; reinicia no `atualizar`) com o
+  WhatsApp Web num Chrome SÓ dele (`perfil-whatsapp`, minimizado; QR na 1ª vez = janela na tela): a cada ~20 s abre as
+  conversas com bolinha ou com a prévia mudada (`wa_para_abrir`), lê as mensagens (`JS_WA_CONVERSA`: data-id
+  true_/false_ = loja/cliente; número pelo id do chat `55…@c.us`), manda só as novas (`wa_novas`, `whatsapp_vistos.json`)
+  à rota `whatsapp_tick` e digita devagar (`_wa_digitar`, letra por letra, confere que saiu) o que voltar. Servidor
+  `whatsapp.py`: cliente → `atendimento.receber` (canal `whatsapp`, `CanalWhatsApp`, loja `via_brazil` pela frase do
+  site; `LOJA_INFO` diz o que é a Via Brazil: importadora, atacado para distribuidor grande, abastece Pure e Essence) →
+  NADA sai sozinho (`atendimento.SEMPRE_APROVAR`) → o rascunho vai ao Bruno no privado ("🦷 Banguela · #N"). Ele
+  responde: "ok"/"ok N" = envia; "N texto" (ou só o texto) = manda o dele (ou, se o Banguela perguntou, vira resposta do
+  lojista + base); "não N" = não responde; "Ferreiro, …"/"Codex, …"/"Hermes, …" (ou texto sem nada esperando) = o agente
+  responde no WhatsApp com a memória do Painel (`_wa_agente`; ações [[…]] só no Painel). `para_enviar` sem canal NUNCA
+  devolve o WhatsApp (o atendente do PC não mexe nele). Aba SAC → 💚 WhatsApp (`#/sac/whatsapp`, situação pela rota
+  `whatsapp_estado`). Depois (Bruno): aniversário da base antiga (5–10 por dia, devagar, com "responda SAIR"), e a
+  API oficial da Meta para clientes. Testes `test_whatsapp_atendimento.py`, `test_whatsapp_coletor.py`.
 - Branch de trabalho: `claude/wizardly-ritchie-5fig5i`; sem PR se não pedirem; não mexer no "Branch Tracking" da Vercel.
 - Testar no servidor falso (fake_rest + servidor.py) e no mock do Nubimetrics antes de publicar.
 

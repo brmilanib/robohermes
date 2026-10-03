@@ -51,6 +51,7 @@ import precos
 import bazar
 import decants
 import financeiro
+import whatsapp
 import simulador
 import lojas_conexao
 import marketing
@@ -1885,6 +1886,12 @@ def atender(metodo, rota, q, corpo, token):
             nome = f"import_gestor_seller_{_br(reg['criado_em']):%d-%m-%Y}.xlsx"
             return (200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", estoque.gerar_gestor(itens),
                     {"Content-Disposition": f'attachment; filename="{nome}"', "X-Nome-Arquivo": nome})
+        if rota.startswith("whatsapp_"):
+            # 03/10: WhatsApp do chip da loja (coletor whatsapp no Mac) — Banguela + aprovação do Bruno no privado
+            try:
+                return _json(whatsapp.rota(repo, metodo, rota, q, corpo))
+            except (ValueError, KeyError) as e:
+                raise ErroNuvem(f"WhatsApp: {e}", 400)
         if rota.startswith("atendimento_"):
             # atendimento ao cliente (26/09): dado real → rascunho → aprovação humana; nada sai sozinho
             try:
@@ -9934,7 +9941,7 @@ def _mac_vivo(repo, minutos=3):
 
 COMANDOS_MAC = {
     "status": "Status das coletas", "diario": "Rodar a coleta agora", "parar_coleta": "Parar a coleta em andamento",
-    "atualizar": "Atualizar o coletor", "backup": "Cópia de segurança do banco e do código (no Mac e no Google Drive)", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia", "painel_instalar": "Painel do coletor no Mac (ao vivo + chat com o Hermes; atalho na Mesa)", "revisao_coletor": "Revisão diária do coletor pelo Codex (relatório, aprendizados e melhorias propostas)", "codex_analise": "Codex: análise do uso da OpenAI (arg: cache, prompts ou modelo)",
+    "atualizar": "Atualizar o coletor", "backup": "Cópia de segurança do banco e do código (no Mac e no Google Drive)", "vigia_status": "Ver serviços do nubi (launchd)", "vigia_reativar": "Reativar o vigia", "painel_instalar": "Painel do coletor no Mac (ao vivo + chat com o Hermes; atalho na Mesa)", "whatsapp_instalar": "WhatsApp do chip no Mac (o Banguela atende; você aprova no seu WhatsApp; na 1ª vez leia o QR no Mac)", "revisao_coletor": "Revisão diária do coletor pelo Codex (relatório, aprendizados e melhorias propostas)", "codex_analise": "Codex: análise do uso da OpenAI (arg: cache, prompts ou modelo)",
     "log_vigia": "Últimas linhas do vigia", "log_coleta": "Últimas linhas da coleta",
     "hermes": "Hermes responder na Sala", "qwen": "Qwen revisar a Sala",
     "ollama_modelos": "Modelos do Ollama", "ollama_rodando": "Modelos carregados agora", "espaco": "Espaço em disco", "processos": "Processos que mais usam CPU no Mac", "matar_xmrig": "Parar o minerador xmrig no Mac (mostra de onde roda e o que o abre)", "forense_agente": "Malware: ler o item de início automático (só leitura)",

@@ -74,6 +74,14 @@ try:
                 pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/ml"); pg.wait_for_selector("h1", timeout=15000); pg.wait_for_timeout(1200)
                 assert "Mercado Livre · Atendimento" in pg.inner_text("h1") and not pg.is_visible("#at-ligar")
                 assert "Base de conhecimento SAC" in pg.inner_text("#side")          # menu SAC com as lojas e a base
+                # 03/10: aba WhatsApp (chip no Mac): sem botão de ligar atendente; mostra a situação do WhatsApp do Mac
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/whatsapp"); pg.wait_for_selector("h1", timeout=15000); pg.wait_for_timeout(1200)
+                assert "WhatsApp · Atendimento" in pg.inner_text("h1") and not pg.is_visible("#at-ligar")
+                assert "ainda não ligado" in pg.inner_text(".at-num") and "💚 WhatsApp" in pg.inner_text("#side")
+                pg.evaluate("""async () => api('whatsapp_estado', {}, {method: 'POST', body: JSON.stringify({conectado: true, qr: false, em: new Date().toISOString()})})""")
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/tiktok"); pg.wait_for_selector(".at-num", timeout=15000)
+                pg.goto(f"http://127.0.0.1:{PORTA}/#/sac/whatsapp"); pg.wait_for_timeout(2500)
+                assert "conectado no Mac" in pg.inner_text(".at-num"), pg.inner_text(".at-num")
                 pg.evaluate("""async () => { const p = (c) => api('atendimento_taxa', {}, {method: 'POST', body: JSON.stringify(c)});
                   await p({canal: 'shopee', taxa_resposta: 55.56, tempo_resposta: '03:14:11', csat: 50, respondidos: 5, nao_respondidos: 4, periodo: 'Últimos 7 Dias'});
                   await p({canal: 'tiktok_shop', taxa_resposta: 89.23, tempo_resposta: '844.1 min', csat: 85.7, periodo: 'Últimos 28 dias',

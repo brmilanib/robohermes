@@ -2079,7 +2079,7 @@ async function rotear() {
   if (location.hash.startsWith("#/conexoes/ml")) return telaMinhaLojaML();
   if (location.hash.startsWith("#/conexoes")) return telaConexoes();
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
-    return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
+    return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : r === "whatsapp" ? "whatsapp" : "tiktok_shop"); }
   if (location.hash.startsWith("#/estoque/perseguir")) { history.replaceState(null, "", "#/precos"); return rotear(); }   // 01/10: virou o Monitor
   if (sec === "lojas") return location.hash.startsWith("#/estoque/perseguir") ? telaPerseguir() : location.hash.startsWith("#/estoque/compras") ? telaCompras() : location.hash.startsWith("#/estoque/gestor") ? telaGestor() : location.hash.startsWith("#/estoque/posicoes") ? telaPosicoes() : location.hash.startsWith("#/estoque/rankeamento") ? telaRankeamento() : location.hash.startsWith("#/estoque/categorias") ? telaEstoqueCategorias() : location.hash.startsWith("#/estoque/marcas") ? telaEstoqueMarcas() : location.hash.startsWith("#/estoque/reposicao") ? telaReposicao() : location.hash.startsWith("#/estoque/lista") ? abrirListaCompra() : telaEstoque();
   if (sec === "ranking") {
@@ -5605,7 +5605,7 @@ async function telaMinhasVendas() {
   desenhar();
 }
 // SAC (27/09, pedido do Bruno): menu próprio com as lojas e a base de conhecimento do SAC
-const SAC_MENU = [["painel", "📊 Painel"], ["tiktok", "🎵 TikTok Shop"], ["shopee", "🛍️ Shopee"], ["ml", "🤝 Mercado Livre"], ["base", "📚 Base de conhecimento SAC"]];
+const SAC_MENU = [["painel", "📊 Painel"], ["whatsapp", "💚 WhatsApp"], ["tiktok", "🎵 TikTok Shop"], ["shopee", "🛍️ Shopee"], ["ml", "🤝 Mercado Livre"], ["base", "📚 Base de conhecimento SAC"]];
 const sacAbas = ativa => `<div class="seg es-seg" style="margin-bottom:12px">${SAC_MENU.map(([r, n]) =>
   `<button class="${ativa === r ? "on" : ""}" onclick="location.hash='#/sac/${r}'">${n}</button>`).join("")}</div>`;
 // ---------- Minhas Lojas → 🧪 Laboratório de Rankeamento: a box onde todos os agentes juntam técnicas do algoritmo do ML ----------
@@ -5688,12 +5688,19 @@ function falar(txt) { try { if (!window.speechSynthesis || !txt) return; speechS
   const u = new SpeechSynthesisUtterance(txt); u.lang = "pt-BR"; speechSynthesis.speak(u); } catch { /* sem voz */ } }
 const atFoto = c => { const p = c.pedido_dados || {}; return (p.produto_consultado || {}).foto || ((p.itens || []).find(i => i.foto) || {}).foto || ""; };
 const AT_CANAIS = {tiktok_shop: {slug: "tiktok", nome: "TikTok Shop", ic: "🎵"}, shopee: {slug: "shopee", nome: "Shopee", ic: "🛍️"},
-  mercado_livre: {slug: "ml", nome: "Mercado Livre", ic: "🤝", so_historico: true}};
+  mercado_livre: {slug: "ml", nome: "Mercado Livre", ic: "🤝", so_historico: true},
+  // 03/10 (Bruno): o chip da loja no WhatsApp Web do Mac; o Banguela sugere e o Bruno aprova no privado (nada sai sozinho)
+  whatsapp: {slug: "whatsapp", nome: "WhatsApp", ic: "💚", whatsapp: true}};
 const AT_ORIGEM = {tiktok_shop: ["🎵", "TikTok Shop"], shopee: ["🛍️", "Shopee"], mercado_livre: ["🤝", "Mercado Livre"],
   whatsapp: ["💚", "WhatsApp"], manual: ["✍️", "digitado no nubi"]};
 const atOrigem = k => { const [ic, n] = AT_ORIGEM[k.origem] || AT_ORIGEM.manual; const t = k.tags || [];
   const prod = (t.find(x => String(x).startsWith("produto:")) || "").slice(8);
   return `<span class="atx-pill" title="veio do ${esc(n)}">${ic} ${esc(n)}</span>${prod ? ` <span class="atx-pill azul" title="só responde quando a conversa é deste produto">🧴 ${esc(prod)}</span>` : ""}${t.includes("revisada") ? ` <span class="atx-pill verde" title="interpretada pelo Sonnet">🧠 revisada</span>` : ""}`; };
+// 03/10: situação do WhatsApp do chip no Mac (o coletor manda a cada 5 min; sem sinal há 15 min = desligado)
+const waEstado = w => { w = w || {}; const min = w.em ? (Date.now() - new Date(w.em)) / 60000 : null;
+  if (min == null) return "⚪ WhatsApp ainda não ligado no Mac (Central → “WhatsApp do chip no Mac”)";
+  if (w.qr && min < 15) return "📱 esperando ler o QR no Mac (celular do chip → Aparelhos conectados → Conectar um aparelho)";
+  return w.conectado && min < 15 ? "🟢 WhatsApp conectado no Mac" : `🔴 sem sinal do WhatsApp do Mac há ${Math.round(min)} min`; };
 async function telaAtendimento(canal = "tiktok_shop") {
   const CN = AT_CANAIS[canal], rotaAqui = "#/sac/" + CN.slug;
   if (S.atCanalAtual !== canal) { S.atCanalAtual = canal; S.atConv = null; S.atCarregou = false; }
@@ -5703,6 +5710,7 @@ async function telaAtendimento(canal = "tiktok_shop") {
   let f, m;
   try {
     [f, m] = await Promise.all([api("atendimento_fila", {canal}), api("atendimento_metricas")]);
+    if (CN.whatsapp) f.wa = await api("whatsapp_estado").catch(() => ({}));
   } catch (e) { main.innerHTML = sacAbas(CN.slug) + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith(rotaAqui)) return;
   S.atCarregou = true;
@@ -5797,12 +5805,13 @@ async function telaAtendimento(canal = "tiktok_shop") {
         <div class="atx-chat">${chat(aberta)}</div>
         <div class="atx-info">${info(aberta)}</div></div>`;
   main.innerHTML = sacAbas(CN.slug) + `<div class="es-cab"><h1>${CN.ic} ${CN.nome} · Atendimento</h1>
-      ${CN.so_historico ? "" : `<div class="acoes"><button class="btn small ${f.atendente ? "" : "primary"}" id="at-ligar">${f.atendente ? "⏸ Desligar atendente" : "▶️ Ligar atendente"}</button>
+      ${CN.so_historico || CN.whatsapp ? "" : `<div class="acoes"><button class="btn small ${f.atendente ? "" : "primary"}" id="at-ligar">${f.atendente ? "⏸ Desligar atendente" : "▶️ Ligar atendente"}</button>
         <button class="btn small" id="at-agora" title="olhar o chat agora">🔄 Sincronizar</button></div>`}</div>
     ${CN.so_historico ? `<p class="muted" style="font-size:12.5px">Por enquanto o Mercado Livre traz só o histórico do SAC do UpSeller (a base aprende com ele); o atendente ainda não responde por aqui.</p>` : ""}
-    <div class="at-num"><span>${f.atendente ? (f.no_pc ? "🟢 ligado no seu PC (a cada 2 min)" : "🟢 ligado no Mac mini (a cada 5 min)") : "⚪ atendente desligado"}</span>
+    ${CN.whatsapp ? `<div class="at-num"><span>${waEstado(f.wa)}</span><span>🦷 o Banguela sugere e manda para você aprovar no seu WhatsApp (ok / seu texto / não)</span>
+      <span>🎯 acerto ${pct(t.acerto)}</span></div>` : `<div class="at-num"><span>${f.atendente ? (f.no_pc ? "🟢 ligado no seu PC (a cada 2 min)" : "🟢 ligado no Mac mini (a cada 5 min)") : "⚪ atendente desligado"}</span>
       <span>🤖 ${m.automaticas || 0} respondidas sozinho</span><span>🎯 acerto ${pct(t.acerto)}</span>
-      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="at-auto" ${f.auto ? "checked" : ""}> responder sozinho o que já aprendeu</label></div>
+      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="at-auto" ${f.auto ? "checked" : ""}> responder sozinho o que já aprendeu</label></div>`}
     <div class="seg es-seg" style="margin-bottom:10px">${abas.map(([k, n]) => `<button class="${aba === k ? "on" : ""}" data-at-aba="${k}">${n}</button>`).join("")}</div>
     ${assunto || (loja && !lojas.includes(loja)) ? `<div class="at-num" style="margin:-4px 0 8px">${assunto ? `<span class="atx-pill azul">🏷️ ${SP_ASSUNTO[assunto] || esc(assunto)}</span>` : ""}
       ${loja && !lojas.includes(loja) ? `<span class="atx-pill azul">🏪 ${esc(loja)}</span>` : ""}<button class="btn small ghost" id="atx-limpar">✕ limpar filtro</button></div>` : ""}${corpo}`;
@@ -5881,7 +5890,7 @@ async function telaAtendimento(canal = "tiktok_shop") {
   if ($("#at-ligar")) $("#at-ligar").onclick = () => agir(() => post("atendimento_ligar", {canal, ligado: !f.atendente}),
     x => x.atendente ? "Atendente ligado." : "Atendente desligado.");
   if ($("#at-agora")) $("#at-agora").onclick = () => agir(() => post("atendimento_ligar", {canal, ligado: f.atendente, agora: true}), () => "Pedido enviado: o chat é olhado em até 1 min.");
-  $("#at-auto").onchange = e => agir(() => post("atendimento_auto", {ligado: e.target.checked}),
+  if ($("#at-auto")) $("#at-auto").onchange = e => agir(() => post("atendimento_auto", {ligado: e.target.checked}),
     x => x.auto ? "Ele responde sozinho o que já aprendeu." : "Tudo passa pela sua aprovação.");
   clearTimeout(S.atTimer);                   // atualiza sozinha a cada 30 s enquanto a tela está aberta (sem apagar o que você digita)
   S.atTimer = setTimeout(() => { if (location.hash.startsWith(rotaAqui) && !($("#atx-txt") && $("#atx-txt").value.trim()) && !($("#atx-ia-txt") && $("#atx-ia-txt").value.trim()) && !S.ditando && S.atIaPensando == null) telaAtendimento(canal); }, 30000);

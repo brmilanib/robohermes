@@ -5037,7 +5037,7 @@ def comando_mac(chave, arg=""):
     ol = _ollama_bin()
     tabela = {
         "status": [*c, "status"], "diario": [*c, "diario"], "atualizar": [*c, "atualizar"], "backup": [*c, "backup"],
-        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"], "painel_instalar": [*c, "painel-instalar"], "revisao_coletor": [*c, "revisao-coletor"],
+        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"], "painel_instalar": [*c, "painel-instalar"], "whatsapp_instalar": [*c, "whatsapp-instalar"], "revisao_coletor": [*c, "revisao-coletor"],
         "hermes": [*c, "hermes"], "qwen": [*c, "qwen"], "estoque": [*c, "estoque"], "gestor": [*c, "gestor"],
         "entrar": [*c, "entrar"], "entrar_upseller": [*c, "entrar-upseller"], "entrar_gestor": [*c, "entrar-gestor"],
         "entrar_auto_nubimetrics": [*c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [*c, "entrar-auto", "upseller"],
@@ -10187,6 +10187,330 @@ def cmd_codex_analise(args, cfg):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# 💬 WhatsApp do chip da loja (03/10, Bruno: "um WhatsApp só para ele aqui no Mac, integrado com o nubi; o Banguela atende,
+# me manda primeiro no privado e eu aprovo ou mudo; e eu falo com o Ferreiro, o Codex e o Hermes pelo WhatsApp").
+# `coletor whatsapp` fica ligado (launchd: `whatsapp-instalar`) com o WhatsApp Web num Chrome SÓ dele (perfil-whatsapp,
+# minimizado; as coletas usam outro Chrome). A cada volta: lê as conversas com mensagem nova, manda ao nubi (whatsapp_tick:
+# Banguela escreve, o Bruno aprova no privado) e digita, devagar e um por vez, o que o Bruno aprovou e os avisos para ele.
+# Só fala com quem escreveu (cliente) e com o Bruno; nunca dispara para lista. Áudio/foto do cliente vira "[áudio]"/"[foto]".
+WA_URL = "https://web.whatsapp.com/"
+WA_PERFIL = "perfil-whatsapp"
+WA_VISTOS = PASTA / "whatsapp_vistos.json"
+WA_ESTADO = PASTA / "whatsapp_estado.json"
+WA_PLIST = Path.home() / "Library" / "LaunchAgents" / "com.nubi.coletor.whatsapp.plist"
+WA_VOLTA_SEG = 20
+WA_AGENTE_SISTEMA = ("O Bruno está falando com você pelo WhatsApp (do celular dele). Responda curto (até ~1.200 caracteres), "
+                     "em texto simples de WhatsApp (*negrito* no máximo), sem tabelas nem markdown pesado.")
+
+JS_WA_ESTADO = """() => ({
+  qr: !!document.querySelector('canvas[aria-label*="QR" i], div[data-ref] canvas, [data-testid="qrcode"]'),
+  pronto: !!document.querySelector('#pane-side'),
+  aberto: !!document.querySelector('#main footer div[contenteditable="true"]')})"""
+
+JS_WA_LISTA = """() => {
+  const side = document.querySelector('#pane-side'); if (!side) return [];
+  const out = [];
+  for (const it of side.querySelectorAll('[role="listitem"], [role="row"]')) {
+    const badge = [...it.querySelectorAll('span[aria-label]')].find(s => /n[ãa]o lida|unread/i.test(s.getAttribute('aria-label') || ''));
+    const t = it.querySelector('span[title]');
+    const titulo = t ? t.getAttribute('title') : (it.innerText || '').split('\\n')[0];
+    if (!titulo || out.some(x => x.titulo === titulo)) continue;
+    out.push({titulo, previa: (it.innerText || '').replace(/\\s+/g, ' ').slice(0, 200), nao_lida: !!badge});
+    if (out.length >= 12) break;
+  }
+  return out;
+}"""
+
+
+def wa_para_abrir(lista, previas):
+    """Conversas a abrir: com bolinha de não lida, ou cuja prévia mudou desde a última volta (alguém já leu pelo celular
+    do chip e a bolinha sumiu). previas = {titulo: prévia vista}; é atualizado aqui."""
+    out = []
+    for x in lista or []:
+        mudou = previas.get(x["titulo"]) not in (None, x["previa"])
+        if x.get("nao_lida") or mudou:
+            out.append(x["titulo"])
+        previas[x["titulo"]] = x["previa"]
+    return out
+
+
+JS_WA_CONVERSA = """() => {
+  const main = document.querySelector('#main'); if (!main) return null;
+  const h = main.querySelector('header');
+  let titulo = '';
+  if (h) { const t = h.querySelector('span[title]') || h.querySelector('span[dir="auto"]'); titulo = t ? (t.getAttribute('title') || t.innerText || '') : ''; }
+  const vistos = new Set(), msgs = [];
+  for (const d of main.querySelectorAll('div[data-id]')) {
+    const id = d.getAttribute('data-id') || '';
+    if (!/^(true|false)_/.test(id) || vistos.has(id)) continue;
+    vistos.add(id);
+    const sel = d.querySelector('span.selectable-text, span[data-testid="selectable-text"]');
+    let texto = sel ? sel.innerText : '';
+    if (!texto) {
+      if (d.querySelector('audio, [data-icon*="audio"], [data-icon*="ptt"], button[aria-label*="eproduzir" i], button[aria-label*="play" i]')) texto = '[áudio]';
+      else if (d.querySelector('video, [data-icon*="video"]')) texto = '[vídeo]';
+      else if (d.querySelector('img[src^="blob:"], img[src^="data:image"]')) texto = '[foto]';
+      else if (d.querySelector('[data-icon*="document"]')) texto = '[arquivo]';
+    }
+    msgs.push({id, de: id.startsWith('true_') ? 'loja' : 'cliente', texto: (texto || '').trim(), chat: id.split('_')[1] || ''});
+  }
+  return {titulo, msgs: msgs.slice(-30)};
+}"""
+
+
+def _wa_ler(arq, padrao):
+    try:
+        return json.loads(arq.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return padrao
+
+
+def _wa_gravar(arq, d):
+    try:
+        arq.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _wa_fone(conv):
+    """Número da conversa: o id do chat (5547…@c.us) ou o título, quando o contato não está salvo (+55 47 9…)."""
+    for m in conv.get("msgs") or []:
+        mm = re.match(r"(\d{10,15})@c\.us", m.get("chat") or "")
+        if mm:
+            return mm.group(1)
+    d = re.sub(r"\D", "", conv.get("titulo") or "")
+    return d if 10 <= len(d) <= 15 and re.fullmatch(r"[+\d\s()\-]+", (conv.get("titulo") or "").strip()) else ""
+
+
+def wa_novas(conv, vistos):
+    """Mensagens do cliente ainda não tratadas (depois da última nossa). vistos = ids já tratados desta conversa."""
+    msgs = [m for m in conv.get("msgs") or [] if m.get("texto")]
+    fim = len(msgs)
+    while fim and msgs[fim - 1]["de"] == "cliente":
+        fim -= 1
+    return [m for m in msgs[fim:] if m["id"] not in vistos]
+
+
+def _wa_estado(token, **d):
+    d = dict(d, em=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    _wa_gravar(WA_ESTADO, d)
+    try:
+        api(token, "whatsapp_estado", corpo=d, metodo="POST", timeout=30)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _wa_abrir_titulo(pg, titulo):
+    pg.locator("#pane-side").get_by_title(titulo, exact=True).first.click(timeout=8000)
+    pg.wait_for_timeout(random.randint(1500, 2600))
+
+
+def _wa_abrir_fone(pg, fone):
+    """Abre a conversa pelo número (funciona mesmo sem conversa aberta antes). Recarrega o WhatsApp Web: ~10 s."""
+    pg.goto(f"{WA_URL}send?phone={fone}", wait_until="domcontentloaded", timeout=90000)
+    pg.wait_for_selector('#main footer div[contenteditable="true"]', timeout=90000)
+    pg.wait_for_timeout(random.randint(1500, 3000))
+
+
+def _wa_digitar(pg, texto):
+    """Digita como gente: letra por letra com ritmo variado, Shift+Enter nas quebras de linha, e confere que saiu."""
+    campo = pg.locator('#main footer div[contenteditable="true"]').last
+    campo.click()
+    pg.wait_for_timeout(random.randint(600, 1400))
+    linhas = str(texto).strip().split("\n")
+    for i, linha in enumerate(linhas):
+        for pedaco in re.findall(r".{1,12}", linha, re.S) or [""]:
+            pg.keyboard.type(pedaco, delay=random.randint(35, 95))
+            if random.random() < 0.15:
+                pg.wait_for_timeout(random.randint(250, 900))
+        if i < len(linhas) - 1:
+            pg.keyboard.press("Shift+Enter")
+    pg.wait_for_timeout(random.randint(500, 1200))
+    pg.keyboard.press("Enter")
+    pg.wait_for_timeout(2500)
+    conv = pg.evaluate(JS_WA_CONVERSA) or {}
+    saidas = [m["texto"] for m in conv.get("msgs") or [] if m["de"] == "loja"]
+    alvo = re.sub(r"\s+", " ", linhas[0])[:40]
+    if not any(alvo and alvo in re.sub(r"\s+", " ", s) for s in saidas[-3:]):
+        raise Falha("a mensagem não apareceu na conversa depois do Enter")
+
+
+def _wa_mandar(pg, fone, texto):
+    _wa_abrir_fone(pg, fone)
+    _wa_digitar(pg, texto)
+    log(f"  whatsapp: enviado para …{fone[-4:]} ({len(texto)} letras)")
+
+
+def _wa_agente(cfg, agente, texto):
+    """Conversa do Bruno com o agente (a mesma memória do Painel): Ferreiro/Codex pela CLI; Hermes pelo Ollama."""
+    _conversa_guardar(agente, "user", texto)
+    sistema = _painel_contexto(cfg) + "\n\n" + WA_AGENTE_SISTEMA
+    msgs = [m for m in _conversa_ler(agente, 12) if m.get("role") in ("user", "assistant")]
+    msgs = [{"role": m["role"], "content": str(m["content"])[:3000]} for m in msgs] or [{"role": "user", "content": texto}]
+    try:
+        if agente in ("claude", "codex"):
+            txt = _painel_cli(cfg, agente, sistema, msgs)
+        else:
+            corpo = {"model": _painel_modelo(cfg), "stream": False, "messages": [{"role": "system", "content": sistema}] + msgs}
+            req = urllib.request.Request(OLLAMA, data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=600) as r:
+                txt = json.loads(r.read().decode())["choices"][0]["message"]["content"]
+    except Exception as e:  # noqa: BLE001
+        txt = f"(não deu: {str(e)[:300]})"
+    _conversa_guardar(agente, "assistant", txt)
+    for fato in re.findall(r"\[\[lembrar:([^\]]+)\]\]", txt):
+        _memoria_lembrar(fato, cfg)
+    acoes = re.findall(r"\[\[(comando|programar|card|recado):([^\]]+)\]\]", txt)
+    txt = re.sub(r"\[\[[^\]]+\]\]", "", txt).strip()
+    if acoes:
+        txt += "\n\n👉 Ação proposta (confirme no Painel do coletor): " + "; ".join(f"{t} {a.split('|')[0]}" for t, a in acoes[:2])
+    nome = {"claude": "🔨 Ferreiro", "codex": "🧠 Codex", "hermes": "🪽 Hermes"}.get(agente, agente)
+    return f"{nome}:\n{txt}"[:3500]
+
+
+def cmd_whatsapp(args, cfg):
+    """Fica ligado (Ctrl+C para parar). Na 1ª vez o WhatsApp Web mostra o QR: abra o WhatsApp do CHIP no celular →
+    Aparelhos conectados → Conectar um aparelho, e leia o QR na janela que aparece no Mac."""
+    import threading
+    from playwright.sync_api import sync_playwright
+    token = token_nubi(cfg)
+    vistos = _wa_ler(WA_VISTOS, {})
+    respostas, ocupado, previas = [], {"agente": False}, {}
+    dono = str(cfg.get("whatsapp_dono") or "5544998812871")      # o nubi confirma em cada volta (dono_fone)
+
+    def rodar_agente(ag, texto):
+        try:
+            respostas.append(_wa_agente(cfg, ag, texto))
+        finally:
+            ocupado["agente"] = False
+
+    with sync_playwright() as p:
+        ctx = abrir_navegador(p, cfg, visivel=True, perfil=WA_PERFIL)
+        pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+        pg.goto(WA_URL, wait_until="domcontentloaded", timeout=120000)
+        avisou_qr, na_tela, ultimo_estado = False, False, 0
+        while True:
+            try:
+                st = pg.evaluate(JS_WA_ESTADO)
+                if st.get("qr") and not st.get("pronto"):
+                    if not na_tela:
+                        trazer_para_tela(pg)
+                        na_tela = True
+                    if not avisou_qr:
+                        log("whatsapp: esperando ler o QR (celular do chip → Aparelhos conectados → Conectar um aparelho)")
+                        _wa_estado(token, conectado=False, qr=True)
+                        avisou_qr = True
+                    time.sleep(5)
+                    continue
+                if not st.get("pronto"):
+                    time.sleep(5)
+                    continue
+                if na_tela:
+                    mandar_para_fora(pg, cfg)
+                    na_tela, avisou_qr = False, False
+                if time.time() - ultimo_estado > 300:
+                    _wa_estado(token, conectado=True, qr=False)
+                    ultimo_estado = time.time()
+                # 1) conversas com mensagem nova: cliente → nubi; Bruno → aprovação ou agente
+                clientes, do_dono = [], []
+                for titulo in wa_para_abrir(pg.evaluate(JS_WA_LISTA), previas)[:8]:
+                    try:
+                        _wa_abrir_titulo(pg, titulo)
+                    except Exception:  # noqa: BLE001
+                        continue
+                    conv = pg.evaluate(JS_WA_CONVERSA) or {}
+                    fone = _wa_fone(conv)
+                    chave = fone or titulo
+                    novas = wa_novas(conv, set(vistos.get(chave) or []))
+                    if not novas:
+                        continue
+                    vistos[chave] = ((vistos.get(chave) or []) + [m["id"] for m in novas])[-200:]
+                    if dono and fone and fone[-11:] == dono[-11:]:
+                        do_dono += [{"texto": m["texto"]} for m in novas]
+                    else:
+                        clientes.append({"fone": fone, "nome": conv.get("titulo") or titulo, "texto": "\n".join(m["texto"] for m in novas),
+                                         "historico": [{"de": m["de"], "texto": m["texto"]} for m in conv.get("msgs") or [] if m.get("texto")][-25:]})
+                    pg.wait_for_timeout(random.randint(1200, 3500))
+                _wa_gravar(WA_VISTOS, vistos)
+                r = api(token, "whatsapp_tick", corpo={"clientes": clientes, "dono": do_dono}, metodo="POST", timeout=300)
+                dono = r.get("dono_fone") or dono
+                for e in r.get("erros") or []:
+                    log(f"  whatsapp: {e}")
+                for a in r.get("agentes") or []:
+                    if ocupado["agente"]:
+                        respostas.append("⏳ Ainda estou respondendo a mensagem anterior; mande de novo daqui a pouco.")
+                        continue
+                    ocupado["agente"] = True
+                    threading.Thread(target=rodar_agente, args=(a["agente"], a["texto"]), daemon=True).start()
+                # 2) o que sai: avisos/respostas ao Bruno e o que ele aprovou para os clientes (um por vez, devagar)
+                ao_dono = list(r.get("ao_dono") or []) + [respostas.pop(0) for _ in range(len(respostas))]
+                if dono and ao_dono:
+                    try:
+                        _wa_mandar(pg, dono, "\n\n———\n\n".join(ao_dono))
+                    except Exception as e:  # noqa: BLE001
+                        log(f"  whatsapp: não consegui avisar o Bruno ({str(e)[:150]})")
+                for x in r.get("enviar") or []:
+                    if not x.get("fone"):
+                        api(token, "atendimento_enviado", corpo={"id": x["id"], "ok": False, "erro": "conversa sem número de telefone"},
+                            metodo="POST", timeout=60)
+                        continue
+                    pg.wait_for_timeout(random.randint(4000, 12000))
+                    try:
+                        _wa_mandar(pg, x["fone"], x["texto"])
+                        api(token, "atendimento_enviado", corpo={"id": x["id"], "ok": True}, metodo="POST", timeout=60)
+                    except Exception as e:  # noqa: BLE001
+                        api(token, "atendimento_enviado", corpo={"id": x["id"], "ok": False, "erro": str(e)[:300]}, metodo="POST", timeout=60)
+            except KeyboardInterrupt:
+                return 0
+            except Exception as e:  # noqa: BLE001 — rede/página: espera e segue; a página morta é aberta de novo
+                log(f"whatsapp: {str(e)[:200]}")
+                try:
+                    if pg.is_closed():
+                        pg = ctx.new_page()
+                        pg.goto(WA_URL, wait_until="domcontentloaded", timeout=120000)
+                except Exception:  # noqa: BLE001
+                    return 1          # o launchd abre de novo
+            time.sleep(WA_VOLTA_SEG + random.randint(0, 10))
+
+
+def instalar_whatsapp():
+    """Deixa o WhatsApp do chip sempre ligado no Mac (launchd, reabre se cair)."""
+    if sys.platform != "darwin":
+        print("O WhatsApp sempre ligado é só no Mac; aqui rode: coletor whatsapp")
+        return 1
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.nubi.coletor.whatsapp</string>
+  <key>ProgramArguments</key>
+  <array><string>{PASTA / 'coletor'}</string><string>whatsapp</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>60</integer>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
+  <key>StandardOutPath</key><string>{PASTA}/whatsapp.log</string>
+  <key>StandardErrorPath</key><string>{PASTA}/whatsapp.log</string>
+</dict>
+</plist>
+"""
+    WA_PLIST.parent.mkdir(parents=True, exist_ok=True)
+    WA_PLIST.write_text(xml, encoding="utf-8")
+    subprocess.run(["launchctl", "unload", str(WA_PLIST)], check=False, capture_output=True)
+    subprocess.run(["launchctl", "load", "-w", str(WA_PLIST)], check=False, capture_output=True)
+    ok = subprocess.run(["launchctl", "list", "com.nubi.coletor.whatsapp"], check=False, capture_output=True).returncode == 0
+    print("OK: WhatsApp ligado. Na 1ª vez aparece o QR no Mac: no celular do chip, Aparelhos conectados → Conectar um aparelho."
+          if ok else "O WhatsApp não ficou ativo; rode no Terminal: ~/.nubi-coletor/coletor whatsapp")
+    return 0 if ok else 1
+
+
+def reiniciar_whatsapp():
+    if sys.platform == "darwin" and WA_PLIST.exists():
+        subprocess.run(["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/com.nubi.coletor.whatsapp"], check=False, capture_output=True)
+
+
+
 def main():
     if sys.platform == "win32":                          # PC do Bruno: acentos e emojis no PowerShell
         for f in (sys.stdout, sys.stderr):
@@ -10247,6 +10571,8 @@ def main():
     cxa.add_argument("tipo", choices=["cache", "prompts", "modelo"])
     sub.add_parser("revisao-coletor", help="(noite) o Codex revisa o que o coletor fez no dia e propõe melhorias (só lê)")
     sub.add_parser("painel-instalar", help="deixa o Painel do coletor sempre ligado e põe o atalho na Mesa")
+    sub.add_parser("whatsapp", help="WhatsApp do chip da loja no Mac: o Banguela atende, o Bruno aprova no privado (fica ligado)")
+    sub.add_parser("whatsapp-instalar", help="deixa o WhatsApp do chip sempre ligado no Mac (launchd)")
     cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
     cv.add_argument("--modelo", default=None)
     gsn = sub.add_parser("guardar-senha", help="guarda no Chaveiro do Mac o login de um site (para o coletor entrar sozinho)")
@@ -10350,6 +10676,10 @@ def main():
         return cmd_revisao_coletor(args, cfg)
     if args.cmd == "painel-instalar":
         return instalar_painel()
+    if args.cmd == "whatsapp":
+        return cmd_whatsapp(args, cfg)
+    if args.cmd == "whatsapp-instalar":
+        return instalar_whatsapp()
     if args.cmd == "programar":
         return cmd_programar(args, cfg)
     if args.cmd == "ferreiro-conversa":
@@ -10463,6 +10793,7 @@ def main():
         Path(__file__).write_bytes(novo)
         print("OK: coletor atualizado.")
         reiniciar_painel()
+        reiniciar_whatsapp()
         if not os.environ.get("NUBI_VIGIA") and not WINDOWS:
             subprocess.run([str(PASTA / "coletor"), "vigia-reativar"], check=False)   # já com a versão nova
         return 0

@@ -145,7 +145,7 @@ def test_aprovar_editar_rejeitar_e_metricas():
     r = Repo()
     a.salvar_item_kb(r, "principal", "Vocês enviam para todo o Brasil?", "Sim, enviamos para todo o Brasil.")
     texto = "Oi! Sim, enviamos para todo o Brasil. Qualquer coisa, é só chamar!"
-    ids = [a.receber(r, "whatsapp", "vocês enviam para todo o Brasil?", externo_id=str(i), gerar=_ia(iter([texto])))["id"]
+    ids = [a.receber(r, "mercado_livre", "vocês enviam para todo o Brasil?", externo_id=str(i), gerar=_ia(iter([texto])))["id"]
            for i in range(3)]
     x = a.decidir(r, ids[0], "aprovar")
     assert x["status"] == "aprovado" and x["semelhanca"] == 1.0 and "copie" in x["aviso"]   # canal sem integração: copiar
@@ -196,7 +196,7 @@ def test_tiktok_aprendido_sai_sozinho_pelo_mac_e_duvida_vai_ao_bruno():
     a.salvar_item_kb(r, "principal", "Vendemos perfumes tester?", "Sim, vendemos tester. Pergunte qual perfume o cliente quer.")
     texto = "Oi! Sim, vendemos tester! Qual perfume você quer? Qualquer coisa, é só chamar!"
     x = a.receber(r, "tiktok_shop", "vocês vendem tester?", cliente="leidi", externo_id="leidi", gerar=_ia(iter([texto])))
-    assert x.get("automatico") and x["pelo_mac"] and a.para_enviar(r) == [{"id": x["id"], "cliente": "leidi", "texto": texto, "canal": "tiktok_shop"}]
+    assert x.get("automatico") and x["pelo_mac"] and [{k: v for k, v in y.items() if k != "externo_id"} for y in a.para_enviar(r)] == [{"id": x["id"], "cliente": "leidi", "texto": texto, "canal": "tiktok_shop"}]
     a.marcar_enviado(r, x["id"])
     assert a.para_enviar(r) == [] and a.metricas(r)["automaticas"] == 1
     # a mesma mensagem lida de novo pelo atendente não duplica nada

@@ -68,7 +68,17 @@ def registrar_canal(canal):
     return canal
 
 
-for _c in (CanalNavegador("tiktok_shop", "TikTok Shop"), CanalNavegador("shopee", "Shopee"), Canal("whatsapp", "WhatsApp"),
+class CanalWhatsApp(CanalNavegador):
+    """03/10 (Bruno): o chip da loja no WhatsApp Web do Mac (`coletor whatsapp`, whatsapp.py). Envia devagar, como gente."""
+
+    def enviar(self, conversa, texto):
+        raise EnvioPeloMac("Aprovado: o WhatsApp do Mac digita e envia em instantes.")
+
+
+# 03/10 (Bruno: "eu aprovo; o Banguela me manda no privado primeiro"): nestes canais nada sai sozinho
+SEMPRE_APROVAR = {"whatsapp"}
+
+for _c in (CanalNavegador("tiktok_shop", "TikTok Shop"), CanalNavegador("shopee", "Shopee"), CanalWhatsApp("whatsapp", "WhatsApp"),
            Canal("mercado_livre", "Mercado Livre")):
     registrar_canal(_c)
 
@@ -77,6 +87,16 @@ def canal(id_):
     if id_ not in CANAIS:
         raise ValueError(f"canal desconhecido: {id_}")
     return CANAIS[id_]
+
+
+# 03/10 (Bruno): o chip do WhatsApp atende também a Via Brazil Global (vem do site com "Olá! Gostaria de saber mais sobre a
+# Via Brazil Global."). Cada loja tem a sua base (atendimento_kb.loja) e o que vale para todas fica em "todas".
+LOJA_NOMES = {"via_brazil": "Via Brazil Global"}
+LOJA_INFO = {"via_brazil": (
+    "Via Brazil Global é a importadora do Bruno (em criação): traz produtos do Paraguai, China, EUA e Europa e também abastece "
+    "a Pure Perfumaria e a Essence Prime. O foco é ATACADO para distribuidores grandes e venda direta nos marketplaces; "
+    "lojista pequeno é atendido com educação, mas não é o foco. Para orçamento de atacado, pergunte o que a pessoa procura, "
+    "o volume aproximado, se tem CNPJ e a cidade/estado; preço, prazo e condições quem passa é o Bruno.")}
 
 
 # ---------- Etapa 1: intenção e dado real ----------
@@ -207,7 +227,9 @@ def buscar_dados(repo, can, conversa, texto, resposta_operador=None, interp=None
     interp = leitura da conversa inteira pelo Sonnet (intenção e o que o cliente quer de verdade)."""
     loja = conversa.get("loja") or LOJA_PADRAO
     intento = (interp or {}).get("intencao") if (interp or {}).get("intencao") in INTENCOES_VALIDAS else intencao(texto)
-    fatos = {"intencao": intento, "loja": loja, "canal": can.nome}
+    fatos = {"intencao": intento, "loja": LOJA_NOMES.get(loja, loja), "canal": can.nome}
+    if LOJA_INFO.get(loja):
+        fatos["sobre_a_loja"] = LOJA_INFO[loja]
     if interp:
         fatos["interpretacao"] = {k: interp[k] for k in ("pergunta_resumida", "produto", "motivo") if interp.get(k)}
         if interp.get("pergunta_resumida"):
@@ -260,6 +282,10 @@ def buscar_dados(repo, can, conversa, texto, resposta_operador=None, interp=None
     if not falta and intento == "reclamacao" and not kb and not resposta_operador:
         falta = (f"Reclamação do cliente: “{str(texto).strip()[:300]}”. Como você quer tratar (troca, devolução, pedir foto)? "
                  "Não respondo reclamação sem a sua orientação.")
+    # 03/10 (Via Brazil Global): "quero saber mais", "vocês têm X?" — o que a loja é já basta para uma resposta de
+    # acolhimento que qualifica o contato (o que procura, volume, CNPJ); preço e condição continuam com o Bruno
+    if fatos.get("sobre_a_loja") and intento in ("outro", "produto", "horario"):
+        tem_dado = True
     if not falta and not tem_dado and intento not in ("saudacao", "agradecimento"):
         sobre = f" (ela está vendo o produto: {fatos['produto_consultado']['nome']})" if fatos.get("produto_consultado") else ""
         falta = (f"Cliente pergunta: “{str(texto).strip()[:300]}”{sobre} — não tenho essa informação na base da loja nem nos "
@@ -531,7 +557,7 @@ def processar(repo, conversa, mensagem, gerar=None, resposta_operador=None, inte
     repo._req("PATCH", "atendimento_conversas", {"id": f"eq.{conversa['id']}"},
               corpo={"status": "precisa_info" if reg["status"] == "precisa_info" else "rascunho", "atualizado_em": _agora()},
               prefer="return=minimal")
-    if reg["status"] == "pendente" and can.envia and pode_sozinho(repo, fatos):
+    if reg["status"] == "pendente" and can.envia and can.id not in SEMPRE_APROVAR and pode_sozinho(repo, fatos):
         rasc.update(decidir(repo, rasc["id"], "aprovar", operador="automático"))
         rasc["automatico"] = True
     return rasc
@@ -1364,11 +1390,13 @@ def atendente_ligado(repo, canal_id="tiktok_shop"):
 
 def canais_ligados(repo):
     """Canais pelo navegador (TikTok Shop, Shopee…) com o atendente ligado."""
-    return [c.id for c in CANAIS.values() if isinstance(c, CanalNavegador) and atendente_ligado(repo, c.id)]
+    return [c.id for c in CANAIS.values() if isinstance(c, CanalNavegador) and not isinstance(c, CanalWhatsApp)
+            and atendente_ligado(repo, c.id)]
 
 
-def para_enviar(repo):
-    """Respostas aprovadas que o atendente (PC/Mac) ainda precisa digitar no chat, com o canal de cada uma."""
+def para_enviar(repo, canal_id=None):
+    """Respostas aprovadas que o atendente (PC/Mac) ainda precisa digitar no chat, com o canal de cada uma.
+    Sem canal_id: tudo menos o WhatsApp (que o `coletor whatsapp` do Mac envia pela rota whatsapp_tick)."""
     # 28/09: só o que está APROVADO/EDITADO pelo Bruno (ou aprovado sozinho). Antes pegava também substituído/cancelado.
     rs = repo._req("GET", "atendimento_rascunhos", {"select": "id,conversa_id,texto_final", "enviar_pelo_mac": "eq.true",
                                                     "enviado_em": "is.null", "status": "in.(aprovado,editado)",
@@ -1377,8 +1405,10 @@ def para_enviar(repo):
         return []
     ids = "in.(" + ",".join(str(r["conversa_id"]) for r in rs) + ")"
     conv = {c["id"]: c for c in repo._req("GET", "atendimento_conversas", {"select": "id,cliente,externo_id,canal", "id": ids}) or []}
-    return [{"id": r["id"], "cliente": (conv.get(r["conversa_id"]) or {}).get("cliente"), "texto": r["texto_final"],
-             "canal": (conv.get(r["conversa_id"]) or {}).get("canal") or "tiktok_shop"} for r in rs]
+    out = [{"id": r["id"], "cliente": (conv.get(r["conversa_id"]) or {}).get("cliente"), "texto": r["texto_final"],
+            "externo_id": (conv.get(r["conversa_id"]) or {}).get("externo_id"),
+            "canal": (conv.get(r["conversa_id"]) or {}).get("canal") or "tiktok_shop"} for r in rs]
+    return [x for x in out if (x["canal"] == canal_id if canal_id else x["canal"] != "whatsapp")]
 
 
 ENVIO_FALHOU = "envio pelo Mac falhou"
