@@ -129,6 +129,21 @@ try:
             assert "Conectar conta do ML" in pg.inner_text("#ml-conta") and "Conta principal" in pg.inner_text("#ml-conta")
             assert "SHOPEE_PARTNER_ID" in pg.inner_text("#main")
             pg.screenshot(path=os.path.join(os.path.dirname(__file__), "saida_conexoes.png"), full_page=True)
+            # 1a2) página da conta (AURASCENT): o que a API libera + vendas, ADS e anúncios
+            RESP["meli_minha_loja"] = {"dias": 7, "de": "2026-09-26", "ate": "2026-10-03",
+                "conta": {"ok": True, "id": 3241025421, "nick": "AURASCENT", "nivel": "Verde", "medalha": "Gold", "vendas_total": 5400},
+                "anuncios": {"ok": True, "ativos": 320, "pausados": 40, "finalizados": 900, "itens": [{"id": "MLB1", "titulo": "Silver Scent 100ml", "preco": 199.9, "estoque": 12, "vendidos": 800, "tipo": "Premium", "full": True, "saude": 0.92, "link": "https://x"}]},
+                "vendas": {"ok": True, "pedidos": 3, "pagos": 2, "faturamento": 299.8, "tarifas": 42.0, "por_dia": [{"dia": "2026-10-02", "pedidos": 1, "valor": 199.9}, {"dia": "2026-10-03", "pedidos": 1, "valor": 99.9}],
+                           "ultimas": [{"id": 1, "data": "2026-10-02T10:00:00.000-03:00", "status": "paid", "titulo": "Silver Scent 100ml", "qtd": 1, "valor": 199.9, "tarifa": 30}]},
+                "ads": {"ok": True, "anunciante": 777, "campanhas": [{"id": 9, "nome": "Campeões", "status": "active", "orcamento": 100, "cost": 80.5, "clicks": 300, "prints": 9000, "total_amount": 900, "acos": 8.9}], "resumo": {"cost": 80.5, "total_amount": 900, "acos": 8.9}},
+                "visitas": {"ok": True, "total": 4321}, "perguntas": {"ok": True, "sem_resposta": 5},
+                "reclamacoes": {"ok": False, "erro": "o Mercado Livre respondeu 403 em /post-purchase/v1/claims/search"}}
+            pg.goto(f"http://127.0.0.1:{PORTA}/#/conexoes/ml"); pg.wait_for_selector(".ml-lib", timeout=15000)
+            t = pg.inner_text("#main").replace("\xa0", " ")
+            assert "AURASCENT" in t and "R$ 299,80" in t and "Campeões" in t and "Silver Scent 100ml" in t and "✗ Reclamações abertas" in t, t
+            pg.screenshot(path=os.path.join(os.path.dirname(__file__), f"saida_minha_loja_{nome}.png"), full_page=True)
+            assert pg.evaluate("() => { const m = document.querySelector('#main'); return m.scrollWidth <= m.clientWidth + 2; }")
+            assert "15 dias" in t and "30 dias" in t
             # 1b) comparação Nubimetrics x ML
             pg.goto(f"http://127.0.0.1:{PORTA}/#/ml/comparar?loja=222222222&vendedor=ESSENCE"); pg.wait_for_selector("#cmp-res table", timeout=15000)
             t = pg.inner_text("#cmp-res").replace("\xa0", " ")

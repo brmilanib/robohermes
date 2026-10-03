@@ -8706,6 +8706,25 @@ def rota_meli(repo, metodo, rota, q, corpo):
             except Exception as e:  # noqa: BLE001
                 t["passos"].append({"passo": "nº da loja oficial: Explorador x ML", "ok": False, "detalhe": str(e)[:120]})
         return t
+    if rota == "meli_minha_loja":
+        # 03/10 (Bruno): página de teste da AURASCENT em 🔌 Conexões — anúncios, vendas, ADS e o que mais a API libera
+        # cada loja conectada tem a sua página (conta=<id>), com o token DELA; sem conta = a conta principal (AURASCENT)
+        dias = max(1, min(60, int(q.get("dias") or 7)))
+        conta = re.sub(r"\D", "", str(q.get("conta") or ""))
+        chave = f"minha_loja|{conta or 'principal'}|{dias}"
+        if q.get("forcar"):
+            meli._CACHE.pop(chave, None)
+        if not conta:
+            return meli._mem(chave, 600, lambda: meli.minha_loja(dias))
+        try:
+            tok = lojas_conexao.acesso_ml(repo, conta)
+        except lojas_conexao.ErroConexao as e:
+            raise meli.ErroMeli(str(e))
+        marca = meli.TOKEN_DA_VEZ.set(tok)
+        try:
+            return meli._mem(chave, 600, lambda: meli.minha_loja(dias))
+        finally:
+            meli.TOKEN_DA_VEZ.reset(marca)
     if rota == "meli_conta":
         c = meli.ler_conta(repo)
         uso = meli.token_em_uso() if c else {}

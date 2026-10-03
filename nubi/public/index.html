@@ -1429,6 +1429,8 @@ img.pl-ico.of{object-fit:contain;background:#fff}
 .cx-card{display:flex;flex-direction:column;gap:10px}.cx-top .pl-ico{position:static}.cx-top{display:flex;gap:10px;align-items:center}.cx-top small{display:block}
 .cx-conta{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--borda,#e5e5e5)}.cx-conta .n{flex:1;min-width:0}
 .cx-conta small{display:block;color:var(--muted,#888)}.cx-ok{color:#1a9b4b}.cx-off{color:#bbb}
+.ml-lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(230px,100%),1fr));gap:8px}.ml-lib>div{padding:8px 10px;border-radius:8px;font-size:13px}
+.ml-lib .ok{background:rgba(26,155,75,.1)}.ml-lib .ok b{color:#1a9b4b}.ml-lib .no{background:rgba(220,38,38,.08)}.ml-lib .no b{color:#b91c1c}.ml-lib small{display:block;color:var(--muted,#888);margin-top:2px;word-break:break-word}
 .cx-principal{border:1px solid var(--borda,#e5e5e5);border-radius:10px;padding:10px;font-size:13px}.cx-principal .btn{font-size:12px}
 .cx-falta{font-size:13px;background:rgba(255,180,0,.12);border-radius:8px;padding:8px}.cx-ret code,.cx-falta code{word-break:break-all;font-size:12px}
 </style>
@@ -2030,6 +2032,7 @@ async function rotear() {
   if (location.hash.startsWith("#/bazar")) return telaBazar();
   if (location.hash.startsWith("#/decants")) return telaDecants();
   if (location.hash.startsWith("#/financeiro")) return telaFinanceiro();
+  if (location.hash.startsWith("#/conexoes/ml")) return telaMinhaLojaML();
   if (location.hash.startsWith("#/conexoes")) return telaConexoes();
   if (location.hash.startsWith("#/sac")) { const r = (location.hash.split("/")[2] || "tiktok").split("?")[0];
     return r === "base" ? telaBaseSac() : r === "painel" ? telaPainelSac() : telaAtendimento(r === "shopee" ? "shopee" : r === "ml" ? "mercado_livre" : "tiktok_shop"); }
@@ -3968,6 +3971,7 @@ async function telaConexoes() {
       ${p.chave === "ml" ? `<div id="ml-conta" class="cx-principal">Carregando a conta principal…</div>` : ""}
       ${p.contas.length ? `<div class="cx-contas">${p.contas.map(c => `<div class="cx-conta"><span class="${c.ativa ? "cx-ok" : "cx-off"}">●</span>
           <span class="n"><b>${esc(c.nome || c.id)}</b><small>ID ${esc(c.id)}${c.ativa ? " · desde " + dt(c.em) : " · desconectada"}</small></span>
+          ${c.ativa && p.chave === "ml" ? `<a class="btn small" href="#/conexoes/ml?conta=${encodeURIComponent(c.id)}">📊 Ver dados</a>` : ""}
           ${c.ativa ? `<button class="btn sec cx-sair" data-p="${esc(p.chave)}" data-id="${esc(c.id)}">Desconectar</button>` : ""}</div>`).join("")}</div>`
         : `<p class="muted">Nenhuma conta conectada.</p>`}
       ${p.configurada ? `<button class="btn cx-con" data-p="${esc(p.chave)}">+ Conectar ${p.chave === "ml" ? "loja do ML" : "loja"}</button>`
@@ -3985,6 +3989,54 @@ async function telaConexoes() {
     try { await api("loja_desconectar", {}, {method: "POST", body: JSON.stringify({plataforma: b.dataset.p, id: b.dataset.id})}); toast("Conta desconectada"); telaConexoes(); }
     catch (e) { toast(e.message); }
   });
+}
+// 03/10 (Bruno: "abre uma página dentro de Conexões só para a AURA e puxa os dados dela para testar: ADS, anúncios e vendas;
+// veja o que dá para puxar"). Tudo pela API oficial com a conta conectada (só leitura); cada parte diz se a API liberou.
+async function telaMinhaLojaML() {
+  const main = $("#main");
+  const prm = new URLSearchParams(location.hash.split("?")[1] || ""), dias = +(prm.get("dias") || 7), conta = prm.get("conta") || "";
+  main.innerHTML = `<h1>🔌 Conexões › Mercado Livre</h1><div class="card pad muted">Puxando os dados da loja na API do Mercado Livre…</div>`;
+  let r;
+  try { r = await api("meli_minha_loja", conta ? {dias, conta} : {dias}); }
+  catch (e) { main.innerHTML = `<h1>🔌 Conexões › Mercado Livre</h1><div class="card pad">${esc(e.message)} <a href="#/conexoes">Voltar</a></div>`; return; }
+  const c = r.conta || {}, an = r.anuncios || {}, vd = r.vendas || {}, ad = r.ads || {};
+  const n = v => v == null ? "—" : nf0.format(v), pct = v => v == null ? "—" : (+v).toFixed(1).replace(".", ",") + "%";
+  const dt = v => v ? new Date(v).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "";
+  const partes = [["Conta e reputação", c], ["Anúncios", an], ["Vendas (pedidos)", vd], ["ADS (Product Ads)", ad],
+                  ["Visitas", r.visitas || {}], ["Perguntas sem resposta", r.perguntas || {}], ["Reclamações abertas", r.reclamacoes || {}]];
+  const res = ad.resumo || {}, camps = ad.campanhas || [];
+  const somaAds = k => camps.reduce((t, x) => t + (+x[k] || 0), 0);
+  const custoAds = res.cost ?? (camps.length ? somaAds("cost") : null), vendAds = res.total_amount ?? (camps.length ? somaAds("total_amount") : null);
+  main.innerHTML = `<h1>🔌 Conexões › ${esc(c.nick || "Mercado Livre")}</h1>
+    <p class="muted" style="margin-top:-6px">${esc(c.nivel || "")}${c.medalha ? " · MercadoLíder " + esc(c.medalha) : ""} · ${n(c.vendas_total)} vendas na história · conta ${esc(String(c.id || ""))}${c.cidade ? " · " + esc(c.cidade) : ""}
+      · <a href="#/conexoes">voltar</a></p>
+    <div class="card pad" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Período:
+      ${[7, 15, 30].map(d => `<button class="btn small ${d === dias ? "" : "sec"}" data-dias="${d}">${d} dias</button>`).join("")}
+      <span class="muted" style="font-size:12px">${esc(r.de)} a ${esc(r.ate)} · dados de agora, pela API oficial (só leitura)</span></div>
+    <div class="card pad"><h3 style="margin-top:0">O que a API libera</h3><div class="ml-lib">${partes.map(([nome, x]) =>
+      `<div class="${x.ok ? "ok" : "no"}"><b>${x.ok ? "✓" : "✗"} ${esc(nome)}</b>${x.ok ? (x.aviso ? `<small>${esc(x.aviso)}</small>` : "") : `<small>${esc(x.erro || "")}</small>`}</div>`).join("")}</div></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Faturamento (pagos)</div><div class="v">${vd.ok ? rsES(vd.faturamento) : "—"}</div><div class="s">${vd.ok ? n(vd.pagos) + " pedido(s) pagos de " + n(vd.pedidos) : ""}</div></div>
+      <div class="kpi"><div class="l">Tarifas do ML</div><div class="v">${vd.ok ? rsES(vd.tarifas) : "—"}</div><div class="s">nos pedidos pagos</div></div>
+      <div class="kpi"><div class="l">Anúncios ativos</div><div class="v">${an.ok ? n(an.ativos) : "—"}</div><div class="s">${an.ok ? n(an.pausados) + " pausados · " + n(an.finalizados) + " finalizados" : ""}</div></div>
+      <div class="kpi"><div class="l">Visitas</div><div class="v">${r.visitas && r.visitas.ok ? n(r.visitas.total) : "—"}</div><div class="s">no período</div></div>
+      <div class="kpi"><div class="l">Investido em ADS</div><div class="v warn-t">${ad.ok && custoAds != null ? rsES(custoAds) : "—"}</div><div class="s">${ad.ok && vendAds != null ? "vendas pelo ADS " + rsES(vendAds) + (res.acos != null ? " · ACOS " + pct(res.acos) : "") : ""}</div></div>
+      <div class="kpi"><div class="l">Perguntas / reclamações</div><div class="v">${r.perguntas && r.perguntas.ok ? n(r.perguntas.sem_resposta) : "—"} / ${r.reclamacoes && r.reclamacoes.ok ? n(r.reclamacoes.abertas) : "—"}</div><div class="s">sem resposta / abertas</div></div>
+    </div>
+    ${vd.ok && (vd.por_dia || []).length ? `<div class="card pad"><h3 style="margin-top:0">Vendas por dia</h3><div class="ch" id="g-ml-dia"></div></div>` : ""}
+    ${ad.ok ? `<div class="card pad"><h3 style="margin-top:0">ADS — campanhas</h3>${camps.length ? `<div style="overflow-x:auto"><table class="t"><thead><tr><th>Campanha</th><th>Status</th><th>Orçamento</th><th>Impressões</th><th>Cliques</th><th>Investido</th><th>Vendas ADS</th><th>ACOS</th></tr></thead><tbody>
+      ${camps.map(x => `<tr><td>${esc(x.nome || x.id)}</td><td>${esc(x.status || "")}</td><td>${rsES(x.orcamento)}</td><td>${n(x.prints)}</td><td>${n(x.clicks)}</td><td>${rsES(x.cost)}</td><td>${rsES(x.total_amount)}</td><td>${pct(x.acos)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="muted">${esc(ad.aviso || "Nenhuma campanha no período.")}</p>`}</div>` : ""}
+    ${an.ok ? `<div class="card pad"><h3 style="margin-top:0">Anúncios ativos que mais vendem</h3><div style="overflow-x:auto"><table class="t"><thead><tr><th>Anúncio</th><th>Preço</th><th>Estoque</th><th>Vendidos</th><th>Tipo</th><th>Saúde</th></tr></thead><tbody>
+      ${(an.itens || []).slice(0, 30).map(x => `<tr><td><a href="${esc(x.link || "#")}" target="_blank" rel="noopener">${esc(x.titulo || x.id)}</a>${x.full ? ' <span class="pill">⚡FULL</span>' : ""}<br><small class="muted">${esc(x.id)}</small></td><td>${rsES(x.preco)}</td><td>${n(x.estoque)}</td><td>${n(x.vendidos)}</td><td>${esc(x.tipo || "")}</td><td>${x.saude != null ? pct(x.saude * 100) : "—"}</td></tr>`).join("")}</tbody></table></div></div>` : ""}
+    ${vd.ok ? `<div class="card pad"><h3 style="margin-top:0">Últimas vendas</h3><div style="overflow-x:auto"><table class="t"><thead><tr><th>Quando</th><th>Produto</th><th>Qtd</th><th>Valor</th><th>Tarifa</th><th>Status</th></tr></thead><tbody>
+      ${(vd.ultimas || []).map(x => `<tr><td>${dt(x.data)}</td><td>${esc(x.titulo || "")}</td><td>${n(x.qtd)}</td><td>${rsES(x.valor)}</td><td>${rsES(x.tarifa)}</td><td>${esc(x.status || "")}</td></tr>`).join("")}</tbody></table></div></div>` : ""}`;
+  main.querySelectorAll("[data-dias]").forEach(b => b.onclick = () => { location.hash = `#/conexoes/ml?dias=${b.dataset.dias}${conta ? "&conta=" + conta : ""}`; });
+  if ($("#g-ml-dia")) {
+    const pd = vd.por_dia;
+    grafColunas($("#g-ml-dia"), {rotulos: pd.map(x => x.dia.slice(8, 10) + "/" + x.dia.slice(5, 7)), fmt: rsES, fmtEixo: v => nf0.format(v), altura: 220,
+      series: [{nome: "Faturamento", cor: "#3483fa", v: pd.map(x => x.valor)}], dica: i => [{cor: "#3483fa", nome: "Faturamento", valor: `${rsES(pd[i].valor)} · ${pd[i].pedidos} pedido(s)`}]});
+  }
 }
 async function telaFinanceiro() {
   const main = $("#main");
@@ -8777,7 +8829,7 @@ async function mlConta() {
   try { c = await api("meli_conta"); } catch (e) { el.innerHTML = mlAviso(e); return; }
   el.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b>🔐 Conta principal do nubi (API)</b>
       ${c.conectada ? `<span class="pill" style="background:${c.funcionando ? "#dcfce7;color:#166534" : "#fee2e2;color:#991b1b"}">${c.funcionando ? "conectada" : "conectada, com erro"}</span>` : ""}
-      <span style="margin-left:auto;display:flex;gap:8px">${c.conectada ? `<button class="btn small ghost" id="ml-desconectar">Desconectar</button>` : ""}
+      <span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">${c.conectada ? `<a class="btn small" href="#/conexoes/ml">📊 Ver dados da loja</a><button class="btn small ghost" id="ml-desconectar">Desconectar</button>` : ""}
         <button class="btn small ml-laranja" id="ml-conectar">${c.conectada ? "↻ Conectar de novo" : "🔐 Conectar conta do ML"}</button></span></div>
     <p class="muted" style="margin:6px 0 0;font-size:13px">${c.conectada
       ? `<b>${esc(c.nick || "")}</b> (${esc(String(c.id || ""))}) desde ${esc(String(c.em || "").slice(0, 10).split("-").reverse().join("/"))}. ${c.funcionando

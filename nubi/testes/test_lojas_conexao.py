@@ -133,4 +133,25 @@ assert "refresh" not in repo.ia["loja|conta|ml|502"]
 # conectar pela rota devolve só a url
 j = nubi_web.rota_lojas_conexoes(repo, "POST", "loja_conectar", {}, json.dumps({"plataforma": "tiktok"}).encode())
 assert list(j) == ["url"]
+# acesso de UMA loja (renova pelo refresh, grava o refresh novo cifrado) e a rota da página dela
+def abrir2(req, timeout=20):
+    if "/oauth/token" in req.full_url:
+        assert b"grant_type=refresh_token" in req.data and b"RTML1" in req.data
+        return Resp(json.dumps({"access_token": "AT-LOJA1", "refresh_token": "RTML1-novo", "expires_in": 21600}).encode())
+    raise AssertionError(req.full_url)
+
+
+lc.ABRIR = abrir2
+assert lc.acesso_ml(repo, "501") == "AT-LOJA1"
+assert lc.decifrar("ml", json.loads(repo.ia["loja|conta|ml|501"])["refresh"]) == "RTML1-novo"
+assert lc.acesso_ml(repo, "501") == "AT-LOJA1"                        # da memória, sem pedir de novo
+try:
+    lc.acesso_ml(repo, "502")                                          # desconectada
+    raise AssertionError("devia recusar")
+except lc.ErroConexao:
+    pass
+visto = []
+nubi_web.meli.minha_loja = lambda dias: visto.append(nubi_web.meli.TOKEN_DA_VEZ.get()) or {"ok": 1}
+assert nubi_web.rota_meli(repo, "GET", "meli_minha_loja", {"conta": "501", "dias": "7"}, None) == {"ok": 1}
+assert visto == ["AT-LOJA1"] and nubi_web.meli.TOKEN_DA_VEZ.get() is None   # o token da loja não vaza para fora da consulta
 print("ok conexões de lojas")

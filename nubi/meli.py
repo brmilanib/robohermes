@@ -11,6 +11,7 @@ Chaves: ML_CLIENT_ID e ML_CLIENT_SECRET nas variáveis da Vercel (o Bruno coloca
 chat). O token do app (client_credentials, ~6 h) fica só na memória do servidor. Tudo aqui é leitura.
 Nota e insights são regras (sem IA): o ML dá os números, o nubi interpreta.
 """
+import contextvars
 import json
 import os
 import re
@@ -229,12 +230,17 @@ def token_em_uso():
     return {"conta": _USUARIO.get("nick") if _token_usuario() else None, "erro_conta": _USUARIO.get("erro")}
 
 
-def _get(caminho, params=None, timeout=20):
+# 03/10 (Bruno: "uma página para cada loja, sem misturar"): o token de UMA loja conectada em 🔌 Conexões vale só dentro
+# daquela consulta (contextvar); fora dela segue o token da conta principal / do app, como sempre.
+TOKEN_DA_VEZ = contextvars.ContextVar("token_da_vez", default=None)
+
+
+def _get(caminho, params=None, timeout=20, headers=None):
     url = f"{API}{caminho}" + (("&" if "?" in caminho else "?") + urllib.parse.urlencode(params) if params else "")
     forcar = False
     for tentativa in range(3):
-        tok = _token_usuario(forcar) or _token(forcar)
-        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}", "Accept": "application/json"})
+        tok = TOKEN_DA_VEZ.get() or _token_usuario(forcar) or _token(forcar)
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}", "Accept": "application/json", **(headers or {})})
         try:
             with _abrir(req, timeout) as r:
                 return json.loads(r.read() or b"null")
@@ -2116,4 +2122,123 @@ def vitrine_cartoes(cards, scripts=()):
         pid = str(x.get("pid") or "").upper()
         if not a["catalogo"] and pid.startswith("MLBP"):
             a["catalogo"] = "MLB" + pid[4:]
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 03/10 (Bruno: "abre uma página dentro de Conexões só para a AURA e puxa os dados dela para testar: os ADS, os anúncios e
+# as vendas; veja o que dá para puxar"). Tudo pela conta conectada (AURASCENT), SÓ LEITURA. Cada parte vem com ok/erro
+# para a tela mostrar o que a API libera e o que recusa. Nada é gravado: é o teste de agora (cache de 10 min).
+def _parte(f):
+    try:
+        return {"ok": True, **f()}
+    except ErroMeli as e:
+        return {"ok": False, "erro": str(e)[:220]}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "erro": f"falhou: {str(e)[:200]}"}
+
+
+def minha_loja(dias=7, agora=None):
+    if not TOKEN_DA_VEZ.get() and not _token_usuario():
+        raise ErroLogin("a conta do Mercado Livre não está conectada (ou não renovou o acesso): conecte em 🔌 Conexões")
+    agora = agora or datetime.now(timezone.utc)
+    ini = (agora - timedelta(days=dias)).strftime("%Y-%m-%dT00:00:00.000-03:00")
+    d_ini, d_fim = (agora - timedelta(days=dias)).date().isoformat(), agora.date().isoformat()
+    me = _get("/users/me") or {}
+    uid = me.get("id")
+    out = {"dias": dias, "de": d_ini, "ate": d_fim}
+    rep = me.get("seller_reputation") or {}
+    out["conta"] = {"ok": True, "id": uid, "nick": me.get("nickname"), "nivel": _nivel(rep.get("level_id")),
+                    "medalha": MEDALHAS.get(rep.get("power_seller_status") or "", rep.get("power_seller_status")),
+                    "vendas_total": ((rep.get("transactions") or {}).get("total")), "desde": str(me.get("registration_date") or "")[:10],
+                    "cidade": ((me.get("address") or {}).get("city"))}
+
+    def anuncios():
+        tot = {}
+        for st in ("active", "paused", "closed"):
+            r = _get(f"/users/{uid}/items/search", {"status": st, "limit": 1}) or {}
+            tot[st] = (r.get("paging") or {}).get("total")
+        r = _get(f"/users/{uid}/items/search", {"status": "active", "limit": 50, "sort": "sold_quantity_desc"}) or {}
+        ids = r.get("results") or []
+        lista = []
+        for i in range(0, len(ids), 20):
+            for b in _get("/items", {"ids": ",".join(ids[i:i + 20]),
+                                     "attributes": "id,title,price,available_quantity,sold_quantity,listing_type_id,permalink,thumbnail,shipping,health,status"}) or []:
+                x = b.get("body") or {}
+                if not x.get("id"):
+                    continue
+                lista.append({"id": x["id"], "titulo": x.get("title"), "preco": x.get("price"), "estoque": x.get("available_quantity"),
+                              "vendidos": x.get("sold_quantity"), "tipo": TIPOS.get(x.get("listing_type_id"), x.get("listing_type_id")),
+                              "full": (x.get("shipping") or {}).get("logistic_type") == "fulfillment", "saude": x.get("health"),
+                              "link": x.get("permalink"), "foto": x.get("thumbnail")})
+        lista.sort(key=lambda a: -(a.get("vendidos") or 0))
+        return {"ativos": tot.get("active"), "pausados": tot.get("paused"), "finalizados": tot.get("closed"), "itens": lista}
+
+    def vendas():
+        res, offset, total = [], 0, None
+        while offset < 600:
+            r = _get("/orders/search", {"seller": uid, "order.date_created.from": ini, "sort": "date_desc", "limit": 50, "offset": offset}) or {}
+            total = (r.get("paging") or {}).get("total") if total is None else total
+            lote = r.get("results") or []
+            res += lote
+            offset += 50
+            if len(lote) < 50:
+                break
+        pagos = [o for o in res if o.get("status") == "paid"]
+        por_dia = {}
+        for o in pagos:
+            dia = str(o.get("date_created") or "")[:10]
+            v = por_dia.setdefault(dia, {"pedidos": 0, "valor": 0.0})
+            v["pedidos"] += 1
+            v["valor"] += float(o.get("total_amount") or 0)
+        ult = []
+        for o in res[:25]:
+            it = ((o.get("order_items") or [{}])[0]) or {}
+            ult.append({"id": o.get("id"), "data": o.get("date_created"), "status": o.get("status"),
+                        "titulo": (it.get("item") or {}).get("title"), "qtd": it.get("quantity"), "valor": o.get("total_amount"),
+                        "tarifa": it.get("sale_fee"), "anuncio": (it.get("item") or {}).get("id")})
+        return {"pedidos": total, "lidos": len(res), "pagos": len(pagos), "faturamento": round(sum(float(o.get("total_amount") or 0) for o in pagos), 2),
+                "tarifas": round(sum(float(((o.get("order_items") or [{}])[0] or {}).get("sale_fee") or 0) * float(((o.get("order_items") or [{}])[0] or {}).get("quantity") or 1) for o in pagos), 2),
+                "por_dia": [{"dia": k, **v} for k, v in sorted(por_dia.items())], "ultimas": ult}
+
+    def ads():
+        r = _get("/advertising/advertisers", {"product_id": "PADS"}, headers={"Api-Version": "1"}) or {}
+        anunc = (r.get("advertisers") or [])
+        if not anunc:
+            return {"anunciante": None, "campanhas": [], "aviso": "a conta não tem anunciante de Product Ads (ADS) ou o app não tem a permissão de Publicidade"}
+        adv = anunc[0].get("advertiser_id")
+        met = "clicks,prints,ctr,cost,cpc,acos,direct_amount,indirect_amount,total_amount,direct_units_quantity,indirect_units_quantity"
+        tentativas = [(f"/advertising/{SITE}/advertisers/{adv}/product_ads/campaigns/search",
+                       {"limit": 50, "date_from": d_ini, "date_to": d_fim, "metrics": met, "metrics_summary": "true"}, "2"),
+                      (f"/advertising/advertisers/{adv}/product_ads/campaigns",
+                       {"limit": 50, "date_from": d_ini, "date_to": d_fim, "metrics": met, "metrics_summary": "true"}, "2")]
+        erro = None
+        for caminho, ps, ver in tentativas:
+            try:
+                c = _get(caminho, ps, headers={"Api-Version": ver}) or {}
+                break
+            except ErroMeli as e:
+                erro, c = e, None
+        if c is None:
+            raise erro
+        camps = [{"id": x.get("id"), "nome": x.get("name"), "status": x.get("status"), "orcamento": x.get("budget"),
+                  "acos_alvo": x.get("acos_target"), **{k: (x.get("metrics") or {}).get(k) for k in met.split(",")}}
+                 for x in c.get("results") or []]
+        return {"anunciante": adv, "campanhas": camps, "resumo": c.get("metrics_summary") or {}}
+
+    def visitas():
+        r = _get(f"/users/{uid}/items_visits", {"date_from": d_ini, "date_to": d_fim}) or {}
+        return {"total": r.get("total_visits")}
+
+    def perguntas():
+        r = _get("/questions/search", {"seller_id": uid, "status": "UNANSWERED", "limit": 1, "api_version": 4}) or {}
+        return {"sem_resposta": r.get("total")}
+
+    def reclamacoes():
+        r = _get("/post-purchase/v1/claims/search", {"status": "opened", "limit": 1}) or {}
+        return {"abertas": (r.get("paging") or {}).get("total")}
+
+    for nome, f in (("anuncios", anuncios), ("vendas", vendas), ("ads", ads), ("visitas", visitas),
+                    ("perguntas", perguntas), ("reclamacoes", reclamacoes)):
+        out[nome] = _parte(f)
     return out

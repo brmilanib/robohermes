@@ -229,3 +229,30 @@ def painel(repo, base):
                              "faltam": [e for e in x["envs"] if not os.environ.get(e)],
                              "retorno": retorno(base, p).replace("&s=", "") if p != "tiktok" else retorno(base, p),
                              "contas": [c for c in cs if c.get("plataforma") == p]} for p, x in PLATAFORMAS.items()]}
+
+
+# ---- acesso de uma loja (para ler os dados dela) ----
+_ACESSO = {}                                        # memória: (plataforma, id) -> (token, válido até)
+
+
+def acesso_ml(repo, id_):
+    """Token de acesso de UMA conta do ML conectada aqui (renova pelo refresh; o ML troca o refresh a cada uso e o novo é
+    gravado cifrado). Nunca sai do servidor."""
+    k = ("ml", str(id_))
+    if k in _ACESSO and time.time() < _ACESSO[k][1]:
+        return _ACESSO[k][0]
+    c = _ler(repo, f"{CONTA}ml|{id_}")
+    if not c.get("refresh"):
+        raise ErroConexao("esta loja não está conectada (conecte de novo em 🔌 Conexões)")
+    corpo = urllib.parse.urlencode({"grant_type": "refresh_token", "client_id": os.environ["ML_CLIENT_ID"],
+                                    "client_secret": os.environ["ML_CLIENT_SECRET"],
+                                    "refresh_token": decifrar("ml", c["refresh"])}).encode()
+    d = _json(urllib.request.Request(f"{ML_API}/oauth/token", data=corpo, method="POST",
+                                     headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}))
+    if not d.get("access_token"):
+        raise ErroConexao("o Mercado Livre não renovou o acesso desta loja (conecte de novo)")
+    if d.get("refresh_token"):
+        _gravar(repo, f"{CONTA}ml|{id_}", dict(c, refresh=cifrar("ml", d["refresh_token"]),
+                                                renovado_em=datetime.now(timezone.utc).isoformat()))
+    _ACESSO[k] = (d["access_token"], time.time() + max(300, int(d.get("expires_in") or 21600) - 300))
+    return d["access_token"]
