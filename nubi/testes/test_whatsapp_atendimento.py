@@ -105,6 +105,7 @@ def test_assistente_lembrete_bom_dia_e_ferreiro():
 
 def test_reconhece_o_dono_e_a_loja():
     assert w.eh_dono("+55 (44) 99881-2871") and w.eh_dono("44998812871") and not w.eh_dono("44998812870")
+    assert w.eh_dono("+55 44 9881-2871") and w.eh_dono("554498812871") and not w.eh_dono("5547988812871")   # sem o 9
     assert w.loja_da_conversa(["Olá! Gostaria de saber mais sobre a Via Brazil Global."]) == "via_brazil"
     assert w.loja_da_conversa(["quero um perfume"]) is None
 

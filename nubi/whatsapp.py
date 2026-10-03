@@ -42,10 +42,17 @@ def so_digitos(t):
     return re.sub(r"\D", "", str(t or ""))
 
 
+def _base_fone(x):
+    """DDD + 8 últimos dígitos: o mesmo celular com ou sem o +55 e com ou sem o 9 (o WhatsApp guarda muitos sem ele)."""
+    d = so_digitos(x)
+    d = d[2:] if d.startswith("55") and len(d) >= 12 else d
+    return d[:2] + d[-8:] if len(d) >= 10 else ""
+
+
 def eh_dono(fone_ou_nome):
-    """O número que conversa com os agentes e aprova (compara os 11 últimos dígitos: com ou sem o +55)."""
-    d = so_digitos(fone_ou_nome)
-    return len(d) >= 10 and d[-11:] == dono()[-11:]
+    """O número que conversa com os agentes e aprova."""
+    b = _base_fone(fone_ou_nome)
+    return bool(b) and b == _base_fone(dono())
 
 
 def loja_da_conversa(textos):

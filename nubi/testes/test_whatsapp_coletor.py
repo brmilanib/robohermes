@@ -66,6 +66,12 @@ def test_ler_e_digitar():
         b.close()
 
 
+def test_mesmo_fone_sem_o_9():
+    assert c.wa_mesmo_fone("554498812871", "5544998812871") and c.wa_mesmo_fone("+55 44 9881-2871", "44998812871")
+    assert not c.wa_mesmo_fone("5547988881111", "5544998812871") and not c.wa_mesmo_fone("", "5544998812871")
+    assert "entrar_auto_gestor" not in c.SERVIDOR_PODE                       # a senha do Gestor só está no Mac
+
+
 def test_comandos():
     assert c.comando_mac("whatsapp_instalar")[-1] == "whatsapp-instalar"
     assert c._wa_fone({"titulo": "Maria Cliente", "msgs": [{"chat": "123@lid"}]}) == ""
@@ -73,5 +79,6 @@ def test_comandos():
 
 if __name__ == "__main__":
     test_comandos()
+    test_mesmo_fone_sem_o_9()
     test_ler_e_digitar()
     print("ok whatsapp coletor")

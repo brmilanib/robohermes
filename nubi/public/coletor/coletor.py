@@ -4987,10 +4987,11 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  "servidor_ollama", "servidor_atualizar", "servidor_backup", "servidor_ollama_parar", "servidor_ollama_ligar",
                  # 27/09 (Mac com malware, reinstalação): coletas e logins também no servidor (gamdias)
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
-                 "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller", "entrar_auto_gestor",
+                 "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller",
                  "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos",
                  "ml_busca_foto", "explorador_marca", "explorador_diario", "rodizio_seguidos")
 # 02/10: gestor_financeiro e gestor_painel ficam no Mac (a senha do Gestor está no Chaveiro do Mac; no PC não há)
+# 03/10: entrar_auto_gestor também (o gamdias pegava o comando e dizia "sem senha no Chaveiro")
 COLETAS = ("diario", "estoque", "gestor")
 
 
@@ -10327,6 +10328,15 @@ def _wa_fone(conv):
     return d if 10 <= len(d) <= 15 and re.fullmatch(r"[+\d\s()\-]+", (conv.get("titulo") or "").strip()) else ""
 
 
+def wa_mesmo_fone(a, b):
+    """Mesmo celular com ou sem o 9 (o WhatsApp guarda muitos números do Brasil sem ele: 55 44 9881-2871)."""
+    def base(x):
+        d = re.sub(r"\D", "", str(x or ""))
+        d = d[2:] if d.startswith("55") and len(d) >= 12 else d
+        return d[:2] + d[-8:] if len(d) >= 10 else d
+    return bool(a and b) and len(base(a)) == 10 and base(a) == base(b)
+
+
 def wa_novas(conv, vistos):
     """Mensagens do cliente ainda não tratadas (depois da última nossa). vistos = ids já tratados desta conversa."""
     msgs = [m for m in conv.get("msgs") or [] if m.get("texto")]
@@ -10345,8 +10355,29 @@ def _wa_estado(token, **d):
         pass
 
 
+JS_WA_LINHA = """(titulo) => {
+  const side = document.querySelector('#pane-side'); if (!side) return null;
+  for (const it of side.querySelectorAll('[role="listitem"], [role="row"]')) {
+    const t = it.querySelector('span[title]');
+    if (!t || t.getAttribute('title') !== titulo) continue;
+    it.scrollIntoView({block: 'center'});
+    const r = (it.querySelector('[role="gridcell"]') || it).getBoundingClientRect();
+    return {x: r.left + Math.min(r.width / 2, 160), y: r.top + r.height / 2};
+  }
+  return null;
+}"""
+
+
 def _wa_abrir_titulo(pg, titulo):
-    pg.locator("#pane-side").get_by_title(titulo, exact=True).first.click(timeout=8000)
+    """03/10 (tela real): o span do título não recebe o clique; clica com o mouse no meio da linha da conversa."""
+    pos = pg.evaluate(JS_WA_LINHA, titulo)
+    if not pos:
+        raise Falha(f"conversa '{titulo}' não está na lista")
+    pg.mouse.click(pos["x"], pos["y"])
+    try:
+        pg.wait_for_selector('#main footer div[contenteditable="true"]', timeout=8000)
+    except Exception:  # noqa: BLE001
+        raise Falha(f"cliquei em '{titulo}' mas a conversa não abriu")
     pg.wait_for_timeout(random.randint(1500, 2600))
 
 
@@ -10468,18 +10499,19 @@ def cmd_whatsapp(args, cfg):
                 for titulo in abrir_ja[:8]:
                     try:
                         _wa_abrir_titulo(pg, titulo)
-                    except Exception:  # noqa: BLE001
+                    except Exception as e:  # noqa: BLE001
+                        log(f"whatsapp: não abri '{titulo}': {str(e)[:150]}")
                         continue
                     conv = pg.evaluate(JS_WA_CONVERSA) or {}
                     fone = _wa_fone(conv)
                     chave = fone or titulo
                     novas = wa_novas(conv, set(vistos.get(chave) or []))
                     log(f"whatsapp: '{titulo}' número …{fone[-4:] if fone else '?'}: {len(conv.get('msgs') or [])} mensagens lidas, {len(novas)} novas"
-                        + (" (Bruno)" if dono and fone and fone[-11:] == dono[-11:] else ""))
+                        + (" (Bruno)" if wa_mesmo_fone(fone, dono) else ""))
                     if not novas:
                         continue
                     vistos[chave] = ((vistos.get(chave) or []) + [m["id"] for m in novas])[-200:]
-                    if dono and fone and fone[-11:] == dono[-11:]:
+                    if wa_mesmo_fone(fone, dono):
                         do_dono += [{"texto": m["texto"]} for m in novas]
                     else:
                         clientes.append({"fone": fone, "nome": conv.get("titulo") or titulo, "texto": "\n".join(m["texto"] for m in novas),
