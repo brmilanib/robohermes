@@ -4426,14 +4426,16 @@ def rodar_rotinas(repo, so=None):
                     out["gestor_painel"] = "pedido ao Mac"
         except Exception as e:  # noqa: BLE001
             out["gestor_painel"] = f"erro: {str(e)[:120]}"
-        try:                                            # 02/10 (Bruno: "uma cópia aqui no meu Mac e uma no meu Drive"): domingo de madrugada
-            if agora.weekday() == 6 and agora.hour >= 3:
-                desde = (datetime.now(timezone.utc) - timedelta(days=6)).isoformat()
-                if not repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.backup", "criado_em": f"gte.{desde}", "limit": 1}):
-                    # 03/10: Mac = cópia local; PC (servidor) = cópia local + Google Drive (G:), instalado lá
-                    repo._req("POST", "mac_comandos", corpo=[{"comando": c, "arg": None, "pedido_por": "rotina semanal (cópia de segurança)",
-                                                               "status": "pendente"} for c in ("backup", "servidor_backup")], prefer="return=minimal")
-                    out["backup"] = "pedido ao Mac e ao PC"
+        try:                                            # 02/10 (Bruno: "uma cópia aqui no meu Mac e uma no meu Drive")
+            # 03/10 (Bruno: "um espaçamento de dias um do outro, não os dois no mesmo dia"): Mac no domingo, PC (gamdias,
+            # que manda para o Google Drive) na quarta, sempre depois das 3h. Dell, quando ligar, entra em outro dia.
+            for dia_sem, cmd, onde in ((6, "backup", "Mac"), (2, "servidor_backup", "PC")):
+                if agora.weekday() == dia_sem and agora.hour >= 3:
+                    desde = (datetime.now(timezone.utc) - timedelta(days=6)).isoformat()
+                    if not repo._req("GET", "mac_comandos", {"select": "id", "comando": f"eq.{cmd}", "criado_em": f"gte.{desde}", "limit": 1}):
+                        repo._req("POST", "mac_comandos", corpo=[{"comando": cmd, "arg": None, "pedido_por": "rotina semanal (cópia de segurança)",
+                                                                   "status": "pendente"}], prefer="return=minimal")
+                        out["backup"] = f"pedido ao {onde}"
         except Exception as e:  # noqa: BLE001
             out["backup"] = f"erro: {str(e)[:120]}"
         try:                                            # 02/10 (Bruno): mercado do Explorador dos campeões, 1 vez por dia (Reposição)

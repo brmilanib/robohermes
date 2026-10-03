@@ -40,7 +40,9 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   conectada por OAuth passa a ser a AURASCENT (no lugar da BRUNOMILANI, que é conta sem loja e recebe 403 em /items e na
   busca). Mesmas regras: só LEITURA (o nubi nunca altera anúncio, preço ou pedido), refresh_token cifrado em `meli|conta`.
 - Cópia de segurança (02/10, Bruno: "uma cópia aqui no meu Mac e uma no meu Drive"): `coletor backup` (comando `backup`
-  da Central; a rotina do servidor pede todo domingo depois das 3 h). Banco inteiro com o login do Bruno (só leitura,
+  da Central). 03/10: o Google Drive para computador está no PC gamdias (G:), não no Mac; rotina em dias separados
+  (Bruno: "não os dois no mesmo dia"): Mac `backup` no domingo, gamdias `servidor_backup` (cópia local + Drive) na quarta,
+  depois das 3 h; o Dell entra num 3º dia quando for ligado. Banco inteiro com o login do Bruno (só leitura,
   `BACKUP_TABELAS` + tabelas novas pelo OpenAPI; tabela nova com chave composta: pôr na lista) em `banco/<t>.jsonl.gz`,
   código com todo o histórico em `codigo.bundle`, num arquivo `~/nubi-backup/nubi-AAAA-MM-DD.tar.gz` + cópia em
   `<Google Drive>/nubi-backup`; guarda as 8 últimas. O token do ML (`meli|conta`) nunca entra. Além disso o Supabase Pro
