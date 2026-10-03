@@ -660,20 +660,29 @@ def explorador_monitoradas(repo):
     """03/10 (Bruno: "as marcas que eu mais vendo, monitoradas, com a borda verde e separadas das outras"): a lista diária e a
     última conferência de cada uma com o Nubimetrics."""
     lista = marcas_diarias(repo)
-    conf = {}
+    conf, cal = {}, {}
     if lista:
-        try:
-            for r in repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": "like.explorador|conferencia|*"}) or []:
+        for tipo, destino in (("conferencia", conf), ("calibragem", cal)):
+            try:
+                linhas = repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": f"like.explorador|{tipo}|*"}) or []
+            except ErroNuvem:
+                continue
+            for r in linhas:
                 m = r["chave"].split("|", 2)[2]
-                if m in lista:
-                    try:
-                        c = json.loads(r["texto"])
-                        conf[m] = {k: c.get(k) for k in ("em", "inicio", "fim", "bate", "dif_un_hist", "export", "nubi", "fora_do_card")}
-                    except (TypeError, ValueError):
-                        pass
-        except ErroNuvem:
-            pass
-    return {"marcas": lista, "conferencia": conf}
+                if m not in lista:
+                    continue
+                try:
+                    c = json.loads(r["texto"])
+                except (TypeError, ValueError):
+                    continue
+                destino[m] = ({k: c.get(k) for k in ("em", "inicio", "fim", "bate", "dif_un_hist", "export", "nubi", "fora_do_card")}
+                              if tipo == "conferencia" else {k: v for k, v in c.items() if k != "itens"})
+    # 03/10 (Bruno): quanto o Nubimetrics mostra da realidade, pelos MEUS anúncios (UpSeller) em todas as marcas juntas
+    nm = sum(c.get("un_nubimetrics") or 0 for c in cal.values())
+    rl = sum(c.get("un_real") or 0 for c in cal.values())
+    geral = {"un_nubimetrics": nm, "un_real": round(rl, 1), "percentual": round(nm / rl, 4) if rl else None,
+             "anuncios": sum(c.get("anuncios") or 0 for c in cal.values()), "marcas": sum(1 for c in cal.values() if c.get("un_real"))}
+    return {"marcas": lista, "conferencia": conf, "calibragem": cal, "calibragem_geral": geral}
 
 
 def explorador_diario(repo, salvar=None):

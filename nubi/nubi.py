@@ -2046,6 +2046,67 @@ def ler_janela(repo, marca):
         return None
 
 
+CALIBRAGEM = "explorador|calibragem|{}"
+VENDAS_UPSELLER = "vendas_anuncio|atual"        # relatório Vendas por Anúncio do UpSeller (30 dias, por anúncio e loja)
+
+
+def _loja_casa(vendedor, loja):
+    """O vendedor do Nubimetrics (apelido no ML: AURASCENT, ESSENCE) é a loja do UpSeller ("AURA SCENT[Mercado Libre BR]")?"""
+    v, nome = compacta(vendedor), str(loja or "")
+    if "Mercado Libre" not in nome or len(v) < 5:
+        return False
+    return compacta(nome.split("[")[0]).startswith(v)
+
+
+def _mesmo_titulo(a, b):
+    a, b = normalizar(a), normalizar(b)
+    n = min(len(a), len(b))
+    return n >= 20 and a[:n] == b[:n]
+
+
+def calibrar_com_upseller(repo, marca, ini, fim, arq):
+    """03/10 (Bruno: "o Nubimetrics não mostra o número real, mostra um pouco abaixo; descobrindo o percentual eu sei quanto
+    ele mostra da realidade"): os MEUS anúncios estão no export (vendedor AURASCENT, ESSENCE…) e no relatório Vendas por
+    Anúncio do UpSeller com o MESMO título. Para cada um: unidades no Nubimetrics × unidades reais. O UpSeller cobre outro
+    intervalo (30 dias até ontem): o real é levado para os dias do export (real × dias_export ÷ dias_upseller) e o aviso
+    fica na resposta. Guarda em ia_resumos `explorador|calibragem|<marca>`."""
+    if hasattr(repo, "_req"):
+        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{VENDAS_UPSELLER}"}) or [None])[0]
+        vendas = json.loads(r["texto"]) if r and r.get("texto") else None
+    else:
+        vendas = repo.__dict__.get("resumos", {}).get(VENDAS_UPSELLER)
+    if not vendas or not vendas.get("linhas") or "vendedor" not in arq.columns:
+        return None
+    linhas = [x for x in vendas["linhas"] if "Mercado Libre" in str(x.get("loja") or "")]
+    lojas = {str(x.get("loja")) for x in linhas}
+    meus = arq[arq["vendedor"].fillna("").map(lambda v: any(_loja_casa(v, lj) for lj in lojas))]
+    dias_exp = (date.fromisoformat(fim) - date.fromisoformat(ini)).days + 1
+    dias_up = int(vendas.get("dias") or 30)
+    fator = dias_exp / dias_up if dias_up else 1.0
+    itens, usados = [], set()
+    for _, a in meus.iterrows():
+        par = [i for i, x in enumerate(linhas) if i not in usados and _loja_casa(a["vendedor"], x.get("loja"))
+               and _mesmo_titulo(a["titulo"], x.get("produto"))]
+        if not par:
+            continue
+        i = max(par, key=lambda j: float(linhas[j].get("unidades") or 0))
+        usados.add(i)
+        real = float(linhas[i].get("unidades") or 0)
+        itens.append({"vendedor": a["vendedor"], "titulo": str(a["titulo"])[:90], "anuncio_ml": linhas[i].get("anuncio"),
+                      "nubimetrics": float(pd.to_numeric(a["un"], errors="coerce") or 0), "real": real, "real_no_periodo": round(real * fator, 1)})
+    nm, rl = sum(x["nubimetrics"] for x in itens), sum(x["real_no_periodo"] for x in itens)
+    cal = {"em": datetime.now().astimezone().isoformat(timespec="seconds"), "marca": marca,
+           "nubimetrics_periodo": {"inicio": ini, "fim": fim, "dias": dias_exp},
+           "upseller_periodo": {"inicio": vendas.get("inicio"), "fim": vendas.get("fim"), "dias": dias_up},
+           "anuncios": len(itens), "un_nubimetrics": nm, "un_real": round(rl, 1),
+           "percentual": round(nm / rl, 4) if rl else None, "itens": sorted(itens, key=lambda x: -x["real"])[:40]}
+    _gravar_resumo(repo, CALIBRAGEM.format(marca), cal)
+    if itens:
+        avisar(f"    Calibragem com o UpSeller ({len(itens)} anúncio(s) meus): Nubimetrics {fmt_int(nm)} un. × real {fmt_int(rl)}"
+               + (f" = {cal['percentual'] * 100:.0f}% da realidade" if rl else ""))
+    return cal
+
+
 def conferir_export(repo, marca, ini, fim, df_arq, df_card, ini_card, fim_card):
     """Confere o export com o que ficou no card, pelo ID do anúncio: as vendas HISTÓRICAS de cada anúncio da marca têm que
     ser as do arquivo (o card guarda a última leitura); anúncio do arquivo que não está no card só pode ter ido para o card
@@ -2067,6 +2128,10 @@ def conferir_export(repo, marca, ini, fim, df_arq, df_card, ini_card, fim_card):
             "fora_do_card": {"anuncios": int(len(fora)), "un": _soma(fora, "un"), "un_hist": _soma(fora, "un_hist")},
             "dif_un_hist": dif, "bate": abs(dif) < 0.5}
     _gravar_resumo(repo, CONFERENCIA.format(marca), conf)
+    try:
+        calibrar_com_upseller(repo, marca, ini, fim, arq)
+    except Exception as e:  # noqa: BLE001 — nunca derruba a importação
+        avisar(f"    (calibragem com o UpSeller não rodou: {str(e)[:120]})")
     avisar(f"    Conferência com o Nubimetrics: histórico {fmt_int(nub['un_hist'])} un. no nubi × {fmt_int(esperado)} no export "
            + ("✓ bate" if conf["bate"] else f"✗ diferença de {fmt_int(dif)}")
            + (f" ({len(fora)} anúncio(s) foram para o card da marca deles)" if len(fora) else ""))

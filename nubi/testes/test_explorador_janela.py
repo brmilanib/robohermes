@@ -43,6 +43,25 @@ def test_janela_de_30_dias_e_conferencia():
     repo.fechar()
 
 
+def test_calibragem_com_o_upseller():
+    """03/10 (Bruno: "o Nubimetrics mostra um pouco abaixo do real; descobrindo o percentual eu sei quanto ele mostra"): meus
+    anúncios no export (AURASCENT) × o relatório Vendas por Anúncio do UpSeller, pelo título e pela loja."""
+    repo, cfg = _novo_banco(), {}
+    repo.__dict__["resumos"] = {nubi.VENDAS_UPSELLER: {"inicio": "2026-09-01", "fim": "2026-09-30", "dias": 30, "linhas": [
+        {"produto": "Perfume Vibrato Sospiro Edp 100ml Importado Original", "loja": "AURA SCENT[Mercado Libre BR]", "anuncio": "MLB1", "unidades": 32},
+        {"produto": "Perfume Vibrato Sospiro Edp 100ml Importado Original", "loja": "ESSENCE PRIME[Amazon BR]", "anuncio": "B0X", "unidades": 7},
+        {"produto": "Perfume Erba Pura Xerjoff 100ml", "loja": "AURA SCENT[Mercado Libre BR]", "anuncio": "MLB2", "unidades": 5}]}}
+    meu = lin("Perfume Vibrato Sospiro Edp 100ml Import", "SOSPIRO", "A1", 28, 300).replace("VEND.A1", "AURASCENT")
+    _importador(repo, cfg)("sospiro.csv", csv(meu, lin("Perfume Sospiro Vibrato Edp 100ml", "SOSPIRO", "K1", 400, 546)),
+                           "SOSPIRO", "2026-09-01", "2026-09-30")
+    cal = repo.resumos[nubi.CALIBRAGEM.format("SOSPIRO")]
+    assert (cal["anuncios"], cal["un_nubimetrics"], cal["un_real"]) == (1, 28, 32), cal     # a Amazon não conta (não é ML)
+    assert cal["percentual"] == 0.875 and cal["itens"][0]["anuncio_ml"] == "MLB1"
+    assert nubi._loja_casa("ESSENCE", "ESSENCE PRIME[Mercado Libre BR]") and not nubi._loja_casa("ESSENCE", "ESSENCE PRIME[Amazon BR]")
+    repo.fechar()
+
+
 if __name__ == "__main__":
     test_janela_de_30_dias_e_conferencia()
+    test_calibragem_com_o_upseller()
     print("ok explorador janela")

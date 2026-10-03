@@ -8527,6 +8527,8 @@ function telaPainel() {
         const selo = !mon.has(x.marca) ? "" : !c ? `<span class="pill" title="ainda sem conferência: entra no próximo export do dia">⏳ conferir</span>`
           : c.bate ? `<span class="pill good" title="vendas históricas dos ${nf0.format((c.nubi || {}).anuncios || 0)} anúncios iguais às do export do Nubimetrics (${dataBR(c.inicio)} a ${dataBR(c.fim)})">✓ bate com o Nubimetrics</span>`
           : `<span class="pill bad" title="vendas históricas no nubi × no export do Nubimetrics">✗ diferença de ${nf0.format(c.dif_un_hist || 0)} un.</span>`;
+        const cb = ((S.monitoradas || {}).calibragem || {})[x.marca];
+        const selo2 = mon.has(x.marca) && cb && cb.un_real ? `<span class="pill" title="seus ${cb.anuncios} anúncio(s) desta marca: Nubimetrics ${nf0.format(cb.un_nubimetrics)} un. × UpSeller ${nf0.format(cb.un_real)} un. (${dataBR(cb.nubimetrics_periodo.inicio)} a ${dataBR(cb.nubimetrics_periodo.fim)})">📏 Nubimetrics = ${nf0.format(cb.percentual * 100)}% do real</span>` : "";
         return `
       <div class="card bcard${mon.has(x.marca) ? " mon" : ""}" data-m="${esc(x.marca)}">
         <button class="bdel" data-del="${esc(x.marca)}" title="Excluir os dados desta marca">🗑</button>
@@ -8540,10 +8542,12 @@ function telaPainel() {
           <div>Referências<b>${nf0.format(x.referencias)}</b></div>
           <div>GTINs em dúvida<b>${x.duvidas ? `<span class="pill warn">${x.duvidas}</span>` : "0"}</b></div>
         </div>
-        ${selo ? `<div style="margin-top:8px">${selo}</div>` : ""}
+        ${selo || selo2 ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${selo}${selo2}</div>` : ""}
       </div>`; };
       const minhas = p.filter(x => mon.has(x.marca)), outras = p.filter(x => !mon.has(x.marca));
+      const cg = (S.monitoradas || {}).calibragem_geral || {};
       return (minhas.length ? `<h2 class="sec-mon">⭐ Minhas marcas monitoradas <span class="muted" style="font-weight:400;font-size:13px">· ${minhas.length} · Explorador todo dia às 05:00 e conferidas com o Nubimetrics</span></h2>
+      ${cg.un_real ? `<p class="aviso" style="margin-top:8px">📏 Pelos seus próprios anúncios (${nf0.format(cg.anuncios)} em ${cg.marcas} marca(s)), o Nubimetrics mostra <b>${nf0.format(cg.percentual * 100)}%</b> das vendas reais do UpSeller (${nf0.format(cg.un_nubimetrics)} × ${nf0.format(cg.un_real)} un.)${cg.percentual > 0 ? ` — para estimar o real de um concorrente, divida o número do Nubimetrics por ${nf2.format(cg.percentual)}` : ""}.</p>` : ""}
       <div class="cards">${minhas.map(card).join("")}</div>
       <h2 class="sec-mon">Outras marcas <span class="muted" style="font-weight:400;font-size:13px">· ${outras.length}</span></h2>` : "")
         + `<div class="cards">${outras.map(card).join("")}</div>`; })()}` : `

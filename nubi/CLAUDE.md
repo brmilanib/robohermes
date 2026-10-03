@@ -493,6 +493,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   verde, `.bcard.mon`) com o selo da conferência (rota `explorador_monitoradas`); as outras embaixo. Lista diária de 03/10:
   18 marcas por faturamento de 30 dias no UpSeller (Barbours saiu: parou de vender). Explorador só no Mac (fora de
   `SERVIDOR_PODE`; o vigia do gamdias não roda o diário). Teste `test_explorador_janela.py`.
+  CALIBRAGEM (03/10, Bruno: "o Nubimetrics mostra um pouco abaixo do real; descobrindo o percentual eu sei quanto ele mostra
+  da realidade"): `calibrar_com_upseller` (no fim de `conferir_export`) acha os MEUS anúncios no export (vendedor do
+  Nubimetrics = apelido da loja do ML: AURASCENT ↔ "AURA SCENT[Mercado Libre BR]", ESSENCE ↔ "ESSENCE PRIME[…]",
+  `_loja_casa`) e o mesmo título no relatório Vendas por Anúncio do UpSeller (`vendas_anuncio|atual`, `_mesmo_titulo`);
+  real levado para os dias do export. Guarda `explorador|calibragem|<marca>` (percentual = Nubimetrics ÷ real, itens);
+  `explorador_monitoradas` soma tudo em `calibragem_geral`; o Painel mostra "Nubimetrics mostra X% das vendas reais" e o
+  selo 📏 por marca.
 - **💰 Financeiro + Estoque → Por marca (02/10, Bruno)**: `financeiro.py`. DRE Simplificado do Gestor Seller (PDF do mês
   fechado: o texto é lido no navegador com pdf.js e vai em `financeiro_importar`; `ler_dre` por blocos) e Resumo analítico
   (`/analytics/invoices`, 4 canais × meses × 7 linhas; o coletor troca as imagens por "[IMG:nome]" e manda o texto:
