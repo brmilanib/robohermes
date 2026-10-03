@@ -118,6 +118,11 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 - Máquinas (03/10, Bruno): por enquanto o Mac é o principal e o gamdias continua como está (SAC do UpSeller, atendente
   Shopee/TikTok, parte das coletas e leituras do ML) até o Dell ficar pronto. Depois: Dell = servidor dedicado (principal),
   Mac = reserva que assume quando o servidor cair. Não mudar a divisão antes do Bruno configurar o Dell.
+- 📣 ADS: mês = SOMA DOS DIAS (03/10, Bruno: "ontem 22, hoje 22, mês 15?" — o dia 01/10 teve ROAS 6): `_ads_dias` pede cada
+  dia ao ML (dias com 3+ dias ficam guardados em `ads_ml|principal` `dias`), `mes`/`mes_passado_ate` = `_ads_somar`, o
+  período inteiro do ML fica em `mes_ml`; o card mostra o ROAS de cada dia. ALERTA (Bruno: "tem que ter alerta, não pode
+  acontecer"): `alertas_ads` na rotina de hora em hora → WhatsApp do chip: hoje ROAS < 10 com R$ 80+ gastos a partir das
+  12h; ontem fechado < 10 a partir das 9h; 1 de cada por dia; limites em `ads|alerta` (roas_min, gasto_min, horas).
 - Branch de trabalho: `claude/wizardly-ritchie-5fig5i`; sem PR se não pedirem; não mexer no "Branch Tracking" da Vercel.
 - Testar no servidor falso (fake_rest + servidor.py) e no mock do Nubimetrics antes de publicar.
 

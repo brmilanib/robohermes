@@ -121,6 +121,14 @@ assert [h["h"] for h in d["horas"]] == ["11:00", "12:00"]                    # u
 d = nubi_web.ads_tempo_real(ra, agora=datetime(2026, 10, 4, 12, tzinfo=timezone.utc))
 assert [h["h"] for h in d["horas"]] == ["09:00"]                             # dia novo: curva recomeça
 meli.ads_periodo = orig_periodo
+# 03/10 (Bruno: "o dia 1 com ROAS 6… tem que ter alerta"): hoje abaixo de 10 depois das 12h com R$ 80+ gastos → WhatsApp, 1 vez
+ra2 = RepoAds()
+dd = {"conta": "AURASCENT", "hoje": {"cost": 120, "total_amount": 600}, "ontem": {"cost": 280, "total_amount": 1700}}
+f = nubi_web.alertas_ads(ra2, dd, datetime(2026, 10, 3, 18, tzinfo=timezone.utc), {})
+avisos = json.loads(ra2.ia["whatsapp|avisos"])
+assert f == {"hoje": "2026-10-03", "ontem": "2026-10-03"} and len(avisos) == 2 and "ROAS 5.0" in avisos[0] and "ROAS 6.1" in avisos[1]
+assert nubi_web.alertas_ads(ra2, dd, datetime(2026, 10, 3, 19, tzinfo=timezone.utc), f) == f and len(json.loads(ra2.ia["whatsapp|avisos"])) == 2
+assert nubi_web.alertas_ads(RepoAds(), dd, datetime(2026, 10, 3, 13, tzinfo=timezone.utc), {}) == {"ontem": "2026-10-03"}   # 10h: hoje ainda não
 assert d["mes_passado_ate"]["de"] == "2026-09-01" and d["mes_passado_ate"]["ate"] == "2026-09-04" and [h["h"] for h in d["horas_ontem"]] == ["11:00", "12:00"]
 
 # ADS por anúncio com a margem do Gestor (pelo SKU): ROAS mínimo, lucro depois do ADS e o que fazer

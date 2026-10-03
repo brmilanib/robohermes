@@ -8496,9 +8496,42 @@ def ads_tempo_real(repo, agora=None):
         horas = [h for h in (horas or []) if h.get("h") != (agora - timedelta(hours=3)).strftime("%H:00")]
         horas.append({"h": (agora - timedelta(hours=3)).strftime("%H:00"), "cost": d["hoje"].get("cost"), "vendas": d["hoje"].get("total_amount")})
     d["horas"] = horas[-24:]
+    try:
+        d["alertas"] = alertas_ads(repo, d, agora, antes.get("alertas") or {})
+    except Exception:  # noqa: BLE001 — alerta nunca derruba o ADS
+        d["alertas"] = antes.get("alertas") or {}
     repo._req("POST", "ia_resumos", corpo=[{"chave": ADS_TEMPO_REAL, "ia": "ADS do ML (tempo real)", "texto": json.dumps(d, ensure_ascii=False)}],
               prefer="resolution=merge-duplicates,return=minimal")
     return d
+
+
+# 03/10 (Bruno, depois de ver o dia 01/10 com ROAS 6: "por isso tem que ter alerta; não pode acontecer isso"):
+# hoje abaixo do ROAS mínimo (a partir das 12h, com gasto mínimo: o ML atribui venda com atraso) e ontem fechado abaixo
+# (a partir das 9h) → aviso no WhatsApp do Bruno pelo chip. No máximo 1 de cada por dia. Limites em ia_resumos `ads|alerta`.
+ADS_ALERTA = "ads|alerta"
+ADS_ALERTA_PADRAO = {"roas_min": 10.0, "gasto_min": 80.0, "hora_hoje": 12, "hora_ontem": 9}
+
+
+def alertas_ads(repo, d, agora, feitos):
+    cfg = dict(ADS_ALERTA_PADRAO, **{k: v for k, v in (_ler_json(repo, ADS_ALERTA) or {}).items() if k in ADS_ALERTA_PADRAO})
+    br = agora - timedelta(hours=3)
+    hoje = br.date().isoformat()
+    feitos = {k: v for k, v in feitos.items() if v == hoje}                    # só valem os de hoje
+    rs = lambda v: f"R$ {float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")   # noqa: E731
+    roas = lambda x: (float(x.get("total_amount") or 0) / float(x["cost"])) if x and not x.get("erro") and x.get("cost") else None  # noqa: E731
+    link = LOJAS_BASE.split("/api/")[0] + "/#/conexoes/ml/ads?periodo="
+    h, o = d.get("hoje") or {}, d.get("ontem") or {}
+    r_h, r_o = roas(h), roas(o)
+    if ("hoje" not in feitos and br.hour >= cfg["hora_hoje"] and r_h is not None and float(h.get("cost") or 0) >= cfg["gasto_min"]
+            and r_h < cfg["roas_min"]):
+        whatsapp_aviso(f"⚠️ ADS do ML ({d.get('conta')}) hoje está com ROAS {r_h:.1f} (abaixo de {cfg['roas_min']:.0f}): "
+                       f"gastou {rs(h.get('cost'))} e vendeu {rs(h.get('total_amount'))} até agora.\nVeja os anúncios: {link}hoje", repo)
+        feitos["hoje"] = hoje
+    if "ontem" not in feitos and br.hour >= cfg["hora_ontem"] and r_o is not None and r_o < cfg["roas_min"]:
+        whatsapp_aviso(f"🚨 ADS do ML ({d.get('conta')}) ontem fechou com ROAS {r_o:.1f} (abaixo de {cfg['roas_min']:.0f}): "
+                       f"gastou {rs(o.get('cost'))} e vendeu {rs(o.get('total_amount'))}.\nVeja os anúncios: {link}ontem", repo)
+        feitos["ontem"] = hoje
+    return feitos
 
 
 def _ads_dias(adv, a, b, guardados, hoje):
