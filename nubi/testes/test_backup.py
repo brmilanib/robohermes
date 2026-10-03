@@ -21,8 +21,14 @@ pedidos = []
 
 
 def rest_falso(token, t, params=None):
-    pedidos.append((t, params["order"], params["offset"]))
-    return DADOS[t][params["offset"]:params["offset"] + params["limit"]]
+    pk = params["order"]
+    if "offset" in params:
+        ini = params["offset"]
+    else:                                       # paginação pela chave: id > último
+        g = params.get(pk)
+        ini = 0 if g is None else next(i for i, x in enumerate(DADOS[t]) if str(x[pk]) == g[3:]) + 1
+    pedidos.append((t, pk, ini))
+    return DADOS[t][ini:ini + params["limit"]]
 
 
 # um repositório git local no lugar do GitHub

@@ -2181,17 +2181,30 @@ def cmd_backup(args, cfg):
     log(f"Cópia de segurança: {len(tabs)} tabelas")
     resumo, faltou = {}, []
     for t, pk in tabs.items():
-        n, offset, fora = 0, 0, BACKUP_FORA.get(t, set())
+        n, offset, fora, depois, falhas = 0, 0, BACKUP_FORA.get(t, set()), None, 0
+        # 03/10 (gamdias: vend_anuncios deu 500 no fim da tabela): chave de 1 coluna pagina pela chave (id > último),
+        # rápido em qualquer ponto; o offset fundo estoura o tempo do banco. Chave composta continua no offset.
+        chave1 = pk[0] if len(pk) == 1 else None
         try:
             with gzip.open(pasta / "banco" / f"{t}.jsonl.gz", "wt", encoding="utf-8") as f:
                 while True:
+                    q = {"select": "*", "order": ",".join(pk), "limit": BACKUP_PAGINA}
+                    if chave1:
+                        if depois is not None:
+                            q[chave1] = f"gt.{depois}"
+                    else:
+                        q["offset"] = offset
                     try:
-                        parte = _rest(token, t, {"select": "*", "order": ",".join(pk), "limit": BACKUP_PAGINA, "offset": offset})
+                        parte = _rest(token, t, q)
                     except urllib.error.HTTPError as e:
-                        if e.code != 401:
-                            raise
-                        token = token_nubi(cfg)          # o login vale 1 h
-                        continue
+                        if e.code == 401:
+                            token = token_nubi(cfg)          # o login vale 1 h
+                            continue
+                        if e.code >= 500 and falhas < 3:     # banco ocupado: espera e tenta a mesma página
+                            falhas += 1
+                            time.sleep(10 * falhas)
+                            continue
+                        raise
                     for linha in parte or []:
                         if fora and any(str(linha.get(c)) in fora for c in pk):
                             continue
@@ -2200,6 +2213,8 @@ def cmd_backup(args, cfg):
                     if len(parte or []) < BACKUP_PAGINA:
                         break
                     offset += BACKUP_PAGINA
+                    if chave1:
+                        depois = parte[-1].get(chave1)
             resumo[t] = n
         except Exception as e:  # noqa: BLE001
             faltou.append(f"{t}: {str(e)[:120]}")
@@ -2241,7 +2256,7 @@ def cmd_backup(args, cfg):
         except OSError as e:
             no_drive = f"não copiei no Drive: {e}"
     else:
-        no_drive = "Google Drive para computador não encontrado neste Mac: instale e entre na sua conta para ter a 2ª cópia"
+        no_drive = "Google Drive para computador não encontrado neste computador (a cópia do Drive sai do gamdias, na quarta)"
     log(f"✅ Cópia de segurança: {arq} ({mb:.0f} MB) · {sum(resumo.values())} linhas em {len(resumo)} tabelas · código {codigo} · {no_drive}"
         + (f" · {len(faltou)} tabela(s) com erro" if faltou else ""))
     return 1 if faltou or codigo != "ok" or not drive else 0
