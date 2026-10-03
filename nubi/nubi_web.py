@@ -287,6 +287,9 @@ def _periodo(s):
                                    "dias": int(s["dias"]), "arquivo": s.get("arquivo") or ""}
 
 
+_MARCA_TROCADA = {}
+
+
 def _com_marca_trocada(repo, df, atual, marca):
     """29/09 (Bruno): anúncios do MESMO GTIN desta marca que outro vendedor cadastrou com a marca dele (LIPX com o Asad
     Elixir da Lattafa) entram no relatório desta marca, no mesmo produto — só do mesmo período. Devolve (df, unidades)."""
@@ -301,7 +304,17 @@ def _com_marca_trocada(repo, df, atual, marca):
         if ult.empty:
             return df, 0
         ids = ",".join(str(int(i)) for i in ult["id"])
-        todas = repo._todos("anuncios", {"select": "*", "snapshot_id": f"in.({ids})", "confianca": repo._eq(nubi.CONF_GTIN_OUTRA)})
+        # 03/10 (logs: a etapa mais lenta do relatório, até 3 s): os anúncios "mesmo GTIN de outra marca" dos cards do
+        # mesmo período ficam 10 min na memória; card re-importado ganha ID novo, então a chave já muda sozinha
+        c = _MARCA_TROCADA.get(ids) if type(repo) is RepoSupabase else None
+        if c and time.monotonic() - c[0] < 600:
+            todas = [dict(r) for r in c[1]]
+        else:
+            todas = repo._todos("anuncios", {"select": "*", "snapshot_id": f"in.({ids})", "confianca": repo._eq(nubi.CONF_GTIN_OUTRA)})
+            if len(_MARCA_TROCADA) > 40:
+                _MARCA_TROCADA.clear()
+            if type(repo) is RepoSupabase:
+                _MARCA_TROCADA[ids] = (time.monotonic(), [dict(r) for r in todas])
         if todas:                                        # anúncio sem GTIN com o mesmo SKU do vendedor: o GTIN do outro
             ef = nubi.gtin_efetivo(pd.DataFrame(todas))
             for r, g in zip(todas, ef):
