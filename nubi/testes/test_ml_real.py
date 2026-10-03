@@ -106,7 +106,7 @@ try:
         b = p.chromium.launch(executable_path=exe) if os.path.exists(exe) else p.chromium.launch()
         for w, h, nome in ((1440, 900, "pc"), (390, 800, "cel")):
             pg = b.new_page(viewport={"width": w, "height": h}, accept_downloads=True)
-            erros = []; pg.on("pageerror", lambda e: erros.append(str(e)))
+            erros = []; pg.on("pageerror", lambda e: erros.append(str(e) + " @ " + (e.stack or "")[:300]))
             pg.route("https://cdn.jsdelivr.net/**", lambda r: r.fulfill(content_type="application/javascript", body=STUB))
             pg.route("https://fonts.**", lambda r: r.abort())
             pg.route("**/api/app?r=meli_*", responder)
@@ -128,6 +128,8 @@ try:
             pg.goto(f"http://127.0.0.1:{PORTA}/#/conexoes"); pg.wait_for_selector("#ml-conta button", timeout=15000)
             assert "Conectar conta do ML" in pg.inner_text("#ml-conta") and "Conta principal" in pg.inner_text("#ml-conta")
             assert "SHOPEE_PARTNER_ID" in pg.inner_text("#main")
+            pg.wait_for_selector("#cx-lojas .cx-loja", timeout=15000)
+            assert "AURASCENT" in pg.inner_text("#cx-lojas") and "janela anônima" in pg.inner_text("#main")
             pg.screenshot(path=os.path.join(os.path.dirname(__file__), "saida_conexoes.png"), full_page=True)
             # 1a2) página da conta (AURASCENT): o que a API libera + vendas, ADS e anúncios
             RESP["meli_minha_loja"] = {"dias": 7, "de": "2026-09-26", "ate": "2026-10-03",
@@ -138,6 +140,8 @@ try:
                 "ads": {"ok": True, "anunciante": 777, "campanhas": [{"id": 9, "nome": "Campeões", "status": "active", "orcamento": 100, "cost": 80.5, "clicks": 300, "prints": 9000, "total_amount": 900, "acos": 8.9}], "resumo": {"cost": 80.5, "total_amount": 900, "acos": 8.9}},
                 "visitas": {"ok": True, "total": 4321}, "perguntas": {"ok": True, "sem_resposta": 5},
                 "reclamacoes": {"ok": False, "erro": "o Mercado Livre respondeu 403 em /post-purchase/v1/claims/search"}}
+            pg.reload(); pg.wait_for_function("() => (document.querySelector('#cxn-0') || {}).innerText && document.querySelector('#cxn-0').innerText.includes('R$ 299,80')", timeout=15000)
+            pg.screenshot(path=os.path.join(os.path.dirname(__file__), f"saida_conexoes_cards_{nome}.png"), full_page=True)
             pg.goto(f"http://127.0.0.1:{PORTA}/#/conexoes/ml"); pg.wait_for_selector(".ml-lib", timeout=15000)
             t = pg.inner_text("#main").replace("\xa0", " ")
             assert "AURASCENT" in t and "R$ 299,80" in t and "Campeões" in t and "Silver Scent 100ml" in t and "✗ Reclamações abertas" in t, t
@@ -245,7 +249,7 @@ try:
             assert not erros, erros
         # 6) sem as chaves na Vercel (hoje): só o aviso, nada quebra
         pg = b.new_page(viewport={"width": 1440, "height": 900})
-        erros = []; pg.on("pageerror", lambda e: erros.append(str(e)))
+        erros = []; pg.on("pageerror", lambda e: erros.append(str(e) + " @ " + (e.stack or "")[:300]))
         pg.route("https://cdn.jsdelivr.net/**", lambda r: r.fulfill(content_type="application/javascript", body=STUB))
         pg.route("https://fonts.**", lambda r: r.abort())
         pg.route("**/api/app?r=meli_*", lambda r: r.fulfill(status=400, content_type="application/json",

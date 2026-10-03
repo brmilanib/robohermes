@@ -8555,7 +8555,7 @@ def rota_lojas_conexoes(repo, metodo, rota, q, corpo):
     """🔌 Conexões: painel, iniciar a conexão (devolve o endereço de login da plataforma) e desconectar."""
     d = json.loads(corpo or b"{}") if metodo == "POST" else {}
     if rota == "loja_conectar":
-        return {"url": lojas_conexao.url_conectar(repo, d.get("plataforma") or "", LOJAS_BASE)}
+        return {"url": lojas_conexao.url_conectar(repo, d.get("plataforma") or "", LOJAS_BASE, trocar=bool(d.get("trocar")))}
     if rota == "loja_desconectar":
         return lojas_conexao.desconectar(repo, d.get("plataforma") or "", str(d.get("id") or ""))
     return lojas_conexao.painel(repo, LOJAS_BASE)

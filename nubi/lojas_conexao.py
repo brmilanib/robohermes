@@ -111,7 +111,7 @@ def retorno(base, p, estado=""):
 
 
 # ---- iniciar a conexão ----
-def url_conectar(repo, p, base):
+def url_conectar(repo, p, base, trocar=False):
     if p not in PLATAFORMAS:
         raise ErroConexao("plataforma desconhecida")
     if not configurada(p):
@@ -124,7 +124,8 @@ def url_conectar(repo, p, base):
             {"response_type": "code", "client_id": os.environ["ML_CLIENT_ID"], "redirect_uri": retorno(base, "ml"), "state": estado})
         # 03/10 (vídeo do Bruno): o ML entrega direto a conta que já está logada no navegador (BRUNOMILANI, a do app), sem
         # mostrar login. Sai do ML primeiro e volta para a autorização: o ML pede o login e o Bruno escolhe a loja.
-        return ML_SAIR + urllib.parse.quote(auth, safe="")
+        # 03/10 (Bruno: "ele não pode deslogar das contas que estou logado"): só sai do ML quando ele pedir "outra conta"
+        return ML_SAIR + urllib.parse.quote(auth, safe="") if trocar else auth
     if p == "shopee":
         caminho, ts = "/api/v2/shop/auth_partner", int(time.time())
         return f"{SHOPEE_API}{caminho}?" + urllib.parse.urlencode(
