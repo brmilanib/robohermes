@@ -5037,7 +5037,8 @@ def comando_mac(chave, arg=""):
     ol = _ollama_bin()
     tabela = {
         "status": [*c, "status"], "diario": [*c, "diario"], "atualizar": [*c, "atualizar"], "backup": [*c, "backup"],
-        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"], "painel_instalar": [*c, "painel-instalar"], "whatsapp_instalar": [*c, "whatsapp-instalar"], "cofre_teste": [*c, "cofre-teste"], "revisao_coletor": [*c, "revisao-coletor"],
+        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"], "painel_instalar": [*c, "painel-instalar"], "whatsapp_instalar": [*c, "whatsapp-instalar"], "cofre_teste": [*c, "cofre-teste"],
+        "log_whatsapp": ["/usr/bin/tail", "-n", "60", str(PASTA / "whatsapp.log")], "revisao_coletor": [*c, "revisao-coletor"],
         "hermes": [*c, "hermes"], "qwen": [*c, "qwen"], "estoque": [*c, "estoque"], "gestor": [*c, "gestor"],
         "entrar": [*c, "entrar"], "entrar_upseller": [*c, "entrar-upseller"], "entrar_gestor": [*c, "entrar-gestor"],
         "entrar_auto_nubimetrics": [*c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [*c, "entrar-auto", "upseller"],
@@ -10268,6 +10269,16 @@ def wa_para_abrir(lista, previas):
     return out
 
 
+JS_WA_DIAG = """() => {
+  const side = document.querySelector('#pane-side'), main = document.querySelector('#main');
+  const conta = q => document.querySelectorAll(q).length;
+  return {pane: !!side, itens_listitem: side ? side.querySelectorAll('[role="listitem"]').length : 0,
+    itens_row: side ? side.querySelectorAll('[role="row"]').length : 0, titulos: side ? side.querySelectorAll('span[title]').length : 0,
+    badges: side ? [...side.querySelectorAll('span[aria-label]')].map(s => s.getAttribute('aria-label')).filter(Boolean).slice(0, 6) : [],
+    main: !!main, data_id: main ? [...main.querySelectorAll('div[data-id]')].map(d => d.getAttribute('data-id').slice(0, 40)).slice(-4) : [],
+    selectable: conta('#main span.selectable-text'), campo: conta('#main footer div[contenteditable="true"]')};
+}"""
+
 JS_WA_CONVERSA = """() => {
   const main = document.querySelector('#main'); if (!main) return null;
   const h = main.querySelector('header');
@@ -10422,7 +10433,7 @@ def cmd_whatsapp(args, cfg):
         ctx = abrir_navegador(p, cfg, visivel=True, perfil=WA_PERFIL)
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
         pg.goto(WA_URL, wait_until="domcontentloaded", timeout=120000)
-        avisou_qr, na_tela, ultimo_estado = False, False, 0
+        avisou_qr, na_tela, ultimo_estado, ultimo_diag = False, False, 0, 0
         while True:
             try:
                 st = pg.evaluate(JS_WA_ESTADO)
@@ -10447,7 +10458,14 @@ def cmd_whatsapp(args, cfg):
                     ultimo_estado = time.time()
                 # 1) conversas com mensagem nova: cliente → nubi; Bruno → aprovação ou agente
                 clientes, do_dono = [], []
-                for titulo in wa_para_abrir(pg.evaluate(JS_WA_LISTA), previas)[:8]:
+                lista = pg.evaluate(JS_WA_LISTA)
+                if time.time() - ultimo_diag > 600:          # 03/10: o que o robô enxerga (para ajustar à tela real)
+                    log("whatsapp: tela " + json.dumps(pg.evaluate(JS_WA_DIAG), ensure_ascii=False)[:1500])
+                    ultimo_diag = time.time()
+                abrir_ja = wa_para_abrir(lista, previas)
+                if abrir_ja:
+                    log(f"whatsapp: {len(lista)} conversas na lista; abrindo {abrir_ja[:8]}")
+                for titulo in abrir_ja[:8]:
                     try:
                         _wa_abrir_titulo(pg, titulo)
                     except Exception:  # noqa: BLE001
@@ -10456,6 +10474,8 @@ def cmd_whatsapp(args, cfg):
                     fone = _wa_fone(conv)
                     chave = fone or titulo
                     novas = wa_novas(conv, set(vistos.get(chave) or []))
+                    log(f"whatsapp: '{titulo}' número …{fone[-4:] if fone else '?'}: {len(conv.get('msgs') or [])} mensagens lidas, {len(novas)} novas"
+                        + (" (Bruno)" if dono and fone and fone[-11:] == dono[-11:] else ""))
                     if not novas:
                         continue
                     vistos[chave] = ((vistos.get(chave) or []) + [m["id"] for m in novas])[-200:]
