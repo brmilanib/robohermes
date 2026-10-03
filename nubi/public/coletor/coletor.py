@@ -4984,7 +4984,7 @@ def _eh_servidor(cfg=None):
 # o que sabe fazer; enquanto dá sinal, o Mac não pega esses comandos (fica de reserva). Coleta do Nubimetrics, Gestor,
 # logins e Ferreiro continuam no Mac até os logins/ferramentas estarem no servidor.
 SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servidor_espaco", "servidor_log",
-                 "servidor_ollama", "servidor_atualizar", "servidor_backup", "servidor_ollama_parar", "servidor_ollama_ligar",
+                 "servidor_ollama", "servidor_atualizar", "servidor_backup", "servidor_ollama_parar", "servidor_ollama_ligar", "servidor_gpu",
                  # 27/09 (Mac com malware, reinstalação): coletas e logins também no servidor (gamdias)
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller",
@@ -5083,6 +5083,9 @@ def comando_mac(chave, arg=""):
                                       f"if(Test-Path $lnk){{Move-Item -Force $lnk '{guarda}'; 'inicio automatico do Ollama desligado'}}; "
                                       "Get-Process | Where-Object {$_.Name -like 'ollama*'} | Stop-Process -Force; Start-Sleep 3; "
                                       "if(Get-Process | Where-Object {$_.Name -like 'ollama*'}){'Ollama ainda rodando'}else{'Ollama parado'}"],
+            # 03/10 (memória da GPU em 91% com o Ollama parado): quem está usando a placa de vídeo
+            "servidor_gpu": [*ps, "nvidia-smi; Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 12 Name,Id,"
+                                  "@{n='MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize"],
             "servidor_ollama_ligar": [*ps, "$lnk=Join-Path ([Environment]::GetFolderPath('Startup')) 'Ollama.lnk'; "
                                       f"if(Test-Path '{guarda}'){{Move-Item -Force '{guarda}' $lnk; 'inicio automatico do Ollama religado'}}; "
                                       "Start-Process (Join-Path $env:LOCALAPPDATA 'Programs\\Ollama\\ollama app.exe'); 'Ollama ligado'"],
@@ -5322,7 +5325,9 @@ def _metricas_windows(info=None):
         atend = time.time() - (PASTA / "atendente.vivo").stat().st_mtime < 900
     except OSError:
         atend = False
-    agentes = {"atendente": atend, "ollama": bool((info or {}).get("ollama"))}
+    agentes = {"atendente": atend}
+    if not (PASTA / "ollama-inicio.lnk").exists():       # 03/10: Ollama desligado de propósito (servidor_ollama_parar) não é alerta
+        agentes["ollama"] = bool((info or {}).get("ollama"))
     return {"coletado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"), "origem": _nome_maquina(),
             "cpu_pct": round(cpu, 1) if cpu is not None else None, "mem_pct": mem, "disco_pct": disco, "temp_c": temp_c,
             "agentes": agentes, "extras": {"ip": _ip_publico()}, **_gpu_nvidia(rodar)}

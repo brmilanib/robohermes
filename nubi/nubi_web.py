@@ -9950,7 +9950,7 @@ COMANDOS_MAC = {
     "servidor_espaco": "Servidor Dell: espaço em disco", "servidor_backup": "PC: cópia de segurança (no PC e no Google Drive)", "gestor_relatorio": "Mac: Relatório de Vendas do Gestor mês a mês desde janeiro (margem por pedido)", "historico_vendas": "Mac: vendas por dia do UpSeller e Curva ABC do Gestor por mês desde janeiro (madrugada)", "servidor_log": "Servidor Dell: últimas linhas do vigia",
     "servidor_ollama": "Servidor Dell: modelos carregados agora",
     "servidor_ollama_parar": "PC: desligar o Ollama (libera a memória da GPU; o atendente usa a IA grátis do nubi)",
-    "servidor_ollama_ligar": "PC: ligar o Ollama de novo", "servidor_atualizar": "Servidor Dell: atualizar o coletor",
+    "servidor_ollama_ligar": "PC: ligar o Ollama de novo", "servidor_gpu": "PC: quem está usando a placa de vídeo (nvidia-smi)", "servidor_atualizar": "Servidor Dell: atualizar o coletor",
     "baixar_modelo": "Baixar modelo do Ollama", "estoque": "Atualizar o estoque do UpSeller agora",
     "gestor": "Importar a planilha no Gestor Seller", "hermes_card": "Hermes fazer um card (no Mac)",
     "entrar": "Abrir o login do Nubimetrics no Mac (você clica em Entrar)",
