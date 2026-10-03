@@ -1416,6 +1416,7 @@ img.pl-ico.of{object-fit:contain;background:#fff}
 .pos-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--line);font-size:11.5px;font-weight:700}
 .pos-n.cA{background:#dbeafe;color:#1d4ed8}.pos-n.cB{background:#fef3c7;color:#b45309}.pos-n.cC{background:#e2e8f0;color:#475569}
 .dash-top{display:grid;gap:2px}
+.dash-dias{display:flex;gap:10px;align-items:flex-end;margin:4px 0 12px;overflow-x:auto}.dash-dia{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:56px;font-size:11.5px}.dash-dia i{display:block;width:26px;background:#2563eb;border-radius:4px 4px 0 0}.dash-dia .mg{font-weight:700;font-size:11px}.dash-dia small{color:var(--muted)}
 .dash-pr{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1.2fr);gap:10px;align-items:center;padding:6px 4px;border-radius:8px;text-decoration:none;color:inherit}.dash-pr:hover{box-shadow:0 2px 10px rgba(15,23,42,.08)}.dash-pr .n{display:flex;flex-direction:column;min-width:0}.dash-pr .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.dash-pr small{color:var(--muted);font-size:11.5px}.dash-pr .mot{display:flex;flex-wrap:wrap;gap:4px;font-size:12.5px;justify-content:flex-end}@media (max-width:760px){.dash-pr{grid-template-columns:auto minmax(0,1fr)}.dash-pr .mot{grid-column:1/-1;justify-content:flex-start}}.dash-seg{margin-bottom:6px}
 .dash-frases{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13.5px}.dash-frase{margin:0 0 8px;font-size:13.5px}
 .dash-li{display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:2px 0;text-decoration:none;color:inherit}.dash-mini{gap:14px;margin-bottom:8px}
@@ -1688,6 +1689,7 @@ async function telaInicio() {
         <a class="dash-chip" id="ds-dolar" href="#/inicio" title="Dólar comercial (AwesomeAPI)">💵 …</a><span class="dash-chip" id="ds-coleta">coleta …</span></div>
     </section>
     <section class="card pad dash-bloco" id="ds-hoje"><div class="muted">⚡ Lendo as vendas de hoje…</div></section>
+    <section class="card pad dash-bloco" id="ds-gestor"><div class="muted">💹 Lendo as margens do Gestor Seller…</div></section>
     <section class="dash-2">
       <div class="card pad dash-bloco" id="ds-loja"><h2>🏪 Minha loja</h2><p class="muted">Montando a análise…</p></div>
       <div class="card pad dash-bloco" id="ds-mercado"><h2>🌎 Mercado</h2><p class="muted">Montando a análise…</p></div>
@@ -1747,6 +1749,35 @@ async function telaInicio() {
       </div>`;
     S.dashHoje = r; montarLoja();
   });
+
+  // 💹 02/10 (Bruno: "a página do Gestor traz os itens com as margens em tempo real; /sales as vendas com margem"): o coletor
+  // do Mac lê o painel e as vendas do Gestor de hora em hora (só lê) e o nubi guarda os números em gestor_painel|hoje
+  api("painel_gestor_hoje").then(g => { if (!vivo()) return; const el = $("#ds-gestor"); if (!el) return;
+    const c = g.cards || {}, pc = v => v == null ? "—" : nf1.format(v * 100) + "%";
+    const mg = v => v == null ? `<span class="muted">—</span>` : `<span class="pill ${v < 0.10 ? "neg" : v < 0.18 ? "warn-t" : "pos"}">${pc(v)}</span>`;
+    if (!g.dia) { el.innerHTML = `<h2>💹 Margem em tempo real</h2><p class="muted">Ainda sem leitura do Gestor Seller (o coletor do Mac lê de hora em hora).</p>`; return; }
+    const lido = g.em ? new Date(g.em).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}) : "";
+    const mx = Math.max(1, ...(g.dias || []).map(d => d.faturamento || 0));
+    const k = (ic, n, v, sub) => `<a class="dash-k" href="https://app.gestorseller.com.br/" target="_blank" rel="noopener"><span class="l">${ic} ${n}</span><b>${v}</b><span class="o">${sub || ""}</span></a>`;
+    el.innerHTML = `<div class="dash-cab"><h2>💹 Margem em tempo real</h2><span class="muted">Gestor Seller · ${g.dia.slice(8, 10)}/${g.dia.slice(5, 7)} · lido às ${lido} · atualiza de hora em hora</span>
+        <a class="btn small" href="https://app.gestorseller.com.br/sales" target="_blank" rel="noopener">Abrir no Gestor ›</a></div>
+      <div class="dash-ks">
+        ${k("💰", "Faturamento", rsES(c.faturamento || 0), `${nf0.format(c.pedidos || 0)} vendas · ${nf0.format(c.unidades || 0)} un.`)}
+        ${k("🟢", "Lucro pós ADS", rsES(c.lucro_pos_ads ?? c.lucro ?? 0), `líquido do marketplace ${rsES(c.liquido_marketplace || 0)}`)}
+        ${k("📈", "Margem", mg(c.margem), `pós ADS (MPA) ${pc(c.margem_pos_ads)} · meta 18%`)}
+        ${k("🔁", "ROI", pc(c.roi), `ADS ${rsES(c.ads || 0)} · TACOS ${pc(c.tacos)}`)}
+        ${k("🎯", "Ticket médio", rsES(c.preco_medio || 0), c.cancelado ? `cancelado ${rsES(c.cancelado)}` : "")}
+      </div>
+      ${(g.dias || []).length ? `<div class="dash-dias">${g.dias.map(d => `<div class="dash-dia" title="${d.dia.slice(8, 10)}/${d.dia.slice(5, 7)}: ${rsES(d.faturamento || 0)} · lucro ${rsES(d.lucro || 0)} · margem ${pc(d.margem)}">
+        <span class="mg">${pc(d.margem)}</span><i style="height:${Math.max(4, (d.faturamento || 0) / mx * 70).toFixed(0)}px"></i><span>${d.dia.slice(8, 10)}/${d.dia.slice(5, 7)}</span><small>${abrev(d.faturamento || 0)}</small></div>`).join("")}</div>` : ""}
+      <div class="dash-2 dash-hoje-2">
+        <div><div class="in-sub">🏆 Produtos de hoje com margem</div>${(g.produtos || []).slice(0, 10).map((p, i) => `<a class="dash-an" href="#/estoque/reposicao" title="${esc(p.titulo || "")}"><span class="pos-n">${i + 1}</span>${fotoProd(p.foto, 34)}
+          <span class="n"><span class="t">${esc(p.titulo || p.sku || "")}</span><small>${esc(p.sku || "")} · ${nf0.format(p.unidades || 0)} un · lucro ${rsES(p.lucro || 0)}</small></span><span class="v"><b>${rsES(p.faturamento || 0)}</b><small>${mg(p.margem)}</small></span></a>`).join("") || `<p class="muted">Sem produtos ainda.</p>`}</div>
+        <div><div class="in-sub">🧾 Últimas vendas com margem <span class="muted">(${nf0.format(g.total_vendas || (g.vendas || []).length)} hoje)</span></div>${(g.vendas || []).slice(0, 10).map(v => { const it = (v.itens || [])[0] || {};
+          return `<a class="dash-an" href="${esc(it.link || "https://app.gestorseller.com.br/sales")}" target="_blank" rel="noopener" title="${esc(it.titulo || "")}"><span class="pos-n" style="width:auto;padding:0 6px;border-radius:6px">${esc(v.hora || "")}</span>${fotoProd(it.foto, 34)}
+          <span class="n"><span class="t">${esc(it.titulo || "")}${(v.itens || []).length > 1 ? ` +${v.itens.length - 1}` : ""}</span><small>${platIco(v.marketplace, 14)} ${esc(v.loja || "")}${v.full ? " · ⚡FULL" : ""}</small></span>
+          <span class="v"><b>${rsES(v.valor || 0)}</b><small>${mg(v.margem)} · ${rsES(v.lucro || 0)}</small></span></a>`; }).join("") || `<p class="muted">Sem vendas ainda hoje.</p>`}</div>
+      </div>`; }).catch(() => { const el = $("#ds-gestor"); if (el) el.innerHTML = `<h2>💹 Margem em tempo real</h2><p class="muted">sem dados</p>`; });
 
   // 💵 dólar, notícias · 🖥️ sistema (mesma consulta da Início antiga)
   api("inicio_extras").then(ex => { if (!vivo()) return; const el = $("#ds-dolar");

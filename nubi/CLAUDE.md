@@ -105,9 +105,13 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   `dashboard_listas`) e a tela se atualiza a cada 5 min. "⚡ Vendas de hoje" saiu do menu (a tela de detalhe por hora
   continua em `#/analises-vendas/hoje`, link no Dashboard).
 - Margens em tempo real do Gestor (fase 2): `coletor gestor-painel` (comando `gestor_painel`) abre o painel e /sales do
-  Gestor, SÓ LÊ, e manda texto + respostas JSON da tela para `painel_gestor_salvar` (`gestor_painel|bruto`); o leitor
-  desses números entra depois de ver o bruto.
-- Ícones das lojas em alta: card #148 para o Ferreiro (logos oficiais em `public/icones/`, usados por `platIco`).
+  Gestor (no Mac: a senha do Gestor está no Chaveiro do Mac; fora de `SERVIDOR_PODE`), SÓ LÊ, e guarda só as respostas
+  /api/dashboard/cards, /dashboard/chart, /products/rank-v2 e /api/sales (nunca /api/user: CPF/telefone) para
+  `painel_gestor_salvar` → `ler_painel_gestor` → `gestor_painel|hoje` (totais com margem, ROI, ADS, MPA; 7 dias; produtos
+  e vendas com margem). Bloco 💹 Margem em tempo real no Dashboard (`painel_gestor_hoje`). A rotina pede de hora em hora
+  (8h–23h). Rota com prefixo `gestor_` vai para o despacho do estoque: por isso `painel_gestor_*`.
+- Ícones das lojas: `coletor icones` (Mac) baixa o apple-touch-icon oficial de cada site (≥ 64 px; .ico/16 px não) →
+  `icones_salvar` → `icones|alta`; `platIco` usa primeiro esses, depois o do UpSeller, depois o desenhado.
 
 ## Compras e vendas do estoque (28/09, pedido do Bruno) — Estoque → 🛒 Compras e vendas (`#/estoque/compras`)
 

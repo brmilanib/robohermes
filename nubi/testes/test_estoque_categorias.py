@@ -264,8 +264,19 @@ try:
             alerta = {"itens": [{"mlb": "MLB1", "titulo": "Lattafa Asad 100ml", "loja": "LOJA X", "foto": "", "de": 210.0, "para": 189.9, "pct": -9.6,
                                  "em": "2026-10-02T20:00:00+00:00", "eventos": [{"tipo": "full", "texto": "entrou no FULL", "em": "2026-10-02T20:00:00+00:00"}]}]}
             pg.route(lambda u: "r=ml_precos_alertas" in u, lambda r: r.fulfill(json=alerta))
+            gest = {"em": "2026-10-02T23:00:00+00:00", "dia": "2026-10-02", "total_vendas": 98,
+                    "cards": {"faturamento": 27927.11, "lucro": 4347.35, "lucro_pos_ads": 4347.35, "margem": 0.1557, "margem_pos_ads": 0.1557,
+                              "roi": 0.2442, "ads": 0, "tacos": 0, "pedidos": 95, "unidades": 98, "preco_medio": 293.97, "liquido_marketplace": 22943.15},
+                    "dias": [{"dia": "2026-10-01", "faturamento": 23040.39, "lucro": 3000, "margem": 0.13}, {"dia": "2026-10-02", "faturamento": 27926.29, "lucro": 4347.35, "margem": 0.1557}],
+                    "produtos": [{"titulo": "Perfume Vibrato Sospiro", "sku": "SOS-VIB-100", "foto": "", "unidades": 2, "faturamento": 2758, "lucro": 319.14, "margem": 0.1157}],
+                    "vendas": [{"hora": "21:06", "loja": "ESSENCE PRIME", "marketplace": "Mercado Livre", "valor": 223.15, "lucro": 42.18, "margem": 0.189,
+                                "itens": [{"titulo": "Perfume Britney Spears Fantasy", "sku": "FANTASY-EDP-100", "foto": "", "link": "https://produto.mercadolivre.com.br/MLB-1"}]}]}
+            pg.route(lambda u: "r=painel_gestor_hoje" in u, lambda r: r.fulfill(json=gest))
             pg.goto(f"http://127.0.0.1:{PORTA}/#/inicio"); pg.wait_for_selector(".dash-topo", timeout=15000)
             pg.wait_for_selector("#ds-precos .dash-pr", timeout=15000)
+            pg.wait_for_selector("#ds-gestor .dash-k", timeout=15000)
+            gt = pg.inner_text("#ds-gestor")
+            assert "Margem em tempo real" in gt and "15,6%" in gt and "Vibrato Sospiro" in gt and "Fantasy" in gt and "21:06" in gt, gt
             pr = pg.inner_text("#ds-precos")
             assert "Monitor de preços" in pr and "Lattafa Asad" in pr and "189,90" in pr and "entrou no FULL" in pr, pr
             pg.wait_for_function("() => !document.querySelector('#ds-meus').innerText.includes('Carregando') && !document.querySelector('#ds-hoje').innerText.includes('Lendo')", timeout=30000)

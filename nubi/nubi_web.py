@@ -2380,8 +2380,13 @@ def atender(metodo, rota, q, corpo, token):
             telas = [{"tela": str(t.get("tela"))[:20], "url": str(t.get("url"))[:300], "texto": str(t.get("texto") or "")[:60000],
                       "jsons": [{k: str(j.get(k) or "")[:400000 if k == "corpo" else 300] for k in ("url", "q", "corpo")}
                                 for j in (t.get("jsons") or [])[:40]]} for t in (d.get("telas") or [])[:4]]
-            _ia_gravar(repo, "gestor_painel|bruto", {"em": datetime.now(timezone.utc).isoformat(), "telas": telas}, "coletor")
-            return _json({"ok": True, "resumo": f"{sum(len(t['jsons']) for t in telas)} respostas guardadas"})
+            hoje = ler_painel_gestor(telas)
+            _ia_gravar(repo, GESTOR_HOJE, hoje, "coletor")
+            return _json({"ok": True, "resumo": f"dia {hoje.get('dia')}: margem {hoje.get('cards', {}).get('margem')}, "
+                                                f"{len(hoje.get('vendas') or [])} vendas, {len(hoje.get('produtos') or [])} produtos"})
+        if rota == "painel_gestor_hoje":
+            t, _ = _ia_json(repo, GESTOR_HOJE)
+            return _json(t or {})
         if rota == "inicio_extras":
             return _json(inicio_extras(repo))
         if rota == "inicio_decisoes":
@@ -3309,6 +3314,58 @@ def _dados_resumo_dia(repo):
     except Exception:  # noqa: BLE001
         pass
     return d1, "\n".join(linhas), pnl
+
+
+GESTOR_HOJE = "gestor_painel|hoje"
+
+
+def ler_painel_gestor(telas):
+    """02/10 (Bruno: "a página inicial do Gestor traz os itens com as margens em tempo real; /sales as vendas com margem"):
+    das respostas que a própria tela do Gestor pede (o coletor só lê), tira: totais do dia (faturamento, lucro, margem, ROI,
+    ADS, margem pós ADS), os 7 dias do gráfico, os produtos do dia com margem e as vendas com margem. Nada pessoal."""
+    out = {"em": datetime.now(timezone.utc).isoformat(), "dia": None, "cards": {}, "dias": [], "produtos": [], "vendas": [], "total_vendas": None}
+    num = lambda v: round(float(v), 4) if v not in (None, "") else None
+    for t in telas or []:
+        for j in t.get("jsons") or []:
+            url = str(j.get("url") or "")
+            try:
+                d = (json.loads(j.get("corpo") or "{}") or {}).get("data")
+            except ValueError:
+                continue
+            m = re.search(r"from=(\d{4}-\d{2}-\d{2})", str(j.get("q") or ""))
+            if url.endswith("/dashboard/cards") and isinstance(d, dict):
+                out["dia"] = out["dia"] or (m.group(1) if m else None)
+                out["cards"] = {"faturamento": num(d.get("invoice")), "lucro": num(d.get("profit")), "margem": num(d.get("margin")),
+                                "roi": num(d.get("roi")), "ads": num(d.get("ads")), "tacos": num(d.get("tacos")),
+                                "lucro_pos_ads": num(d.get("profit_after_ads")), "margem_pos_ads": num(d.get("margin_after_ads")),
+                                "unidades": d.get("quantity_units_sold"), "pedidos": d.get("quantity_sold"),
+                                "preco_medio": num(d.get("avg_price_products")), "cancelado": num(d.get("invoice_cancelled")),
+                                "custo": num(d.get("costPrice")), "liquido_marketplace": num(d.get("platform"))}
+            elif url.endswith("/dashboard/chart") and isinstance(d, dict):
+                fat = (d.get("invoice") or {}).get("daily") or {}
+                luc = (d.get("profit") or {}).get("daily") or {}
+                out["dias"] = [{"dia": k, "faturamento": num(v), "lucro": num(luc.get(k)),
+                                "margem": round(float(luc.get(k) or 0) / float(v), 4) if v else None} for k, v in sorted(fat.items())]
+            elif url.endswith("/products/rank-v2") and isinstance(d, dict):
+                out["produtos"] = [{"titulo": p.get("title"), "sku": p.get("internal_sku"), "foto": str(p.get("thumbnail") or "").replace("http://", "https://"),
+                                    "unidades": p.get("total_sales"), "faturamento": num(p.get("total_invoice")), "lucro": num(p.get("total_profit")),
+                                    "margem": num(p.get("margin")), "ads": num(p.get("ads_cost")),
+                                    "canais": {k: p.get(f"{k}_sales") for k in ("meli", "shopee", "amazon", "tiktok", "shein", "magalu") if p.get(f"{k}_sales")}}
+                                   for p in (d.get("data") or [])[:30]]
+            elif url.endswith("/api/sales") and isinstance(d, dict):
+                out["total_vendas"] = d.get("total")
+                vs = []
+                for v in (d.get("data") or [])[:40]:
+                    its = v.get("items") or []
+                    lucro = sum(float(i.get("profit") or 0) for i in its)
+                    vs.append({"hora": str(v.get("approval_date") or v.get("date") or "")[11:16], "data": v.get("approval_date") or v.get("date"),
+                               "loja": v.get("account_name"), "marketplace": v.get("marketplace"), "valor": num(v.get("order_total")),
+                               "status": v.get("status"), "full": v.get("logistic_type") == "fulfillment",
+                               "lucro": round(lucro, 2), "margem": round(lucro / float(v.get("order_total")), 4) if v.get("order_total") else None,
+                               "itens": [{"titulo": i.get("title"), "sku": i.get("sku"), "qtd": i.get("quantity"), "foto": str(i.get("thumbnail") or "").replace("http://", "https://"),
+                                          "link": i.get("permalink"), "margem": num(i.get("margin")), "lucro": num(i.get("profit"))} for i in its[:5]]})
+                out["vendas"] = vs
+    return out
 
 
 def dashboard_listas(repo, agora=None):
@@ -4360,6 +4417,15 @@ def rodar_rotinas(repo, so=None):
                 out["teste_marca"] = len(teste_marca_ml(repo, ped["texto"].strip()[:40]).get("passos") or [])
         except Exception as e:  # noqa: BLE001
             out["teste_marca"] = f"erro: {str(e)[:120]}"
+        try:                                            # 02/10: margens do Gestor no Dashboard, de hora em hora (8h às 23h)
+            if 8 <= agora.hour <= 23:
+                desde = (datetime.now(timezone.utc) - timedelta(minutes=50)).isoformat()
+                if not repo._req("GET", "mac_comandos", {"select": "id", "comando": "eq.gestor_painel", "criado_em": f"gte.{desde}", "limit": 1}):
+                    repo._req("POST", "mac_comandos", corpo=[{"comando": "gestor_painel", "arg": None, "pedido_por": "rotina de hora em hora (Dashboard)",
+                                                               "status": "pendente"}], prefer="return=minimal")
+                    out["gestor_painel"] = "pedido ao Mac"
+        except Exception as e:  # noqa: BLE001
+            out["gestor_painel"] = f"erro: {str(e)[:120]}"
         try:                                            # 02/10 (Bruno: "uma cópia aqui no meu Mac e uma no meu Drive"): domingo de madrugada
             if agora.weekday() == 6 and agora.hour >= 3:
                 desde = (datetime.now(timezone.utc) - timedelta(days=6)).isoformat()

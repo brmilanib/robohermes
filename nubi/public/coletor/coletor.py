@@ -4350,6 +4350,9 @@ def coletar_gestor_painel(p, cfg, token):
             try:
                 if len(jsons) >= 40 or "gestorseller" not in resp.url or "json" not in (resp.headers.get("content-type") or ""):
                     return
+                # só os números do painel e das vendas (nunca /api/user, empresas etc.: dados pessoais da conta)
+                if not re.search(r"/api/(dashboard/cards|dashboard/chart|products/rank-v2|sales)$", resp.url.split("?")[0]):
+                    return
                 if resp.request.method != "GET":
                     return
                 corpo = resp.text()
