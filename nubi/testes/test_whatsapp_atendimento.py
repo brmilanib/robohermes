@@ -24,6 +24,7 @@ class Repo(_Repo):
         return super()._req(m, tabela, q, corpo, prefer)
 
 pedidos_ia = []
+REPO_ATUAL = [None]
 
 
 def gerar(prompt, sistema):
@@ -32,6 +33,9 @@ def gerar(prompt, sistema):
         return "{}", "teste"
     if "BOM DIA" in sistema:
         return "Bom dia, Bruno! 📈 Ontem foi bom.", "teste"
+    if "pede o número" in prompt:
+        n = max(x["id"] for x in REPO_ATUAL[0].t["atendimento_rascunhos"] if x["status"] == "pendente")
+        return f"Ajustei e enviei!\n[[editar:{n}|Oi! Me passa o número do pedido para eu verificar?]]", "teste"
     if "me lembra" in prompt:
         return "Marquei! [[lembrete:2026-10-04 09:00|ligar pro fornecedor]]\n[[ferreiro:ver por que o Gestor pede login]]", "teste"
     return "Oi! Que bom falar com você 😊 Me conta o que você procura e mais ou menos o volume. Qualquer coisa, é só chamar!", "teste"
@@ -103,6 +107,24 @@ def test_assistente_lembrete_bom_dia_e_ferreiro():
     assert w.bom_dia(r, oito).startswith("☀️ Bom dia, Bruno!") and w.bom_dia(r, oito) is None   # 1 vez por dia
 
 
+def test_aprova_e_edita_de_outro_canal():
+    # 03/10 (print do Bruno): "ok 172" era da Shopee e o Banguela dizia "não achei"; e "primeiro pede o número do pedido"
+    # tem que virar o texto enviado
+    r = Repo()
+    REPO_ATUAL[0] = r
+    a.salvar_item_kb(r, "principal", "Cadê meu pedido?", "Seu pedido está a caminho.")
+    for i in (1, 2):
+        a.receber(r, "shopee", "cadê meu pedido?", cliente=f"cli{i}", externo_id=f"s{i}", gerar=lambda p, s: ("Oi! Seu pedido está a caminho. Qualquer coisa, é só chamar!", "t"))
+    ids = [x["id"] for x in r.t["atendimento_rascunhos"] if x["status"] == "pendente"]
+    assert len(ids) == 2
+    x = w.banguela(r, f"ok {ids[0]}")
+    assert x.startswith(f"✅ #{ids[0]}") and "(Shopee)" in x
+    txt = w.banguela(r, "primeiro pede o número do pedido dela")
+    assert f"✅ #{ids[1]}" in txt and "[[" not in txt
+    envio = [x for x in a.para_enviar(r) if x["id"] == ids[1]]
+    assert envio and envio[0]["texto"].startswith("Oi! Me passa o número do pedido") and envio[0]["canal"] == "shopee"
+
+
 def test_reconhece_o_dono_e_a_loja():
     assert w.eh_dono("+55 (44) 99881-2871") and w.eh_dono("44998812871") and not w.eh_dono("44998812870")
     assert w.eh_dono("+55 44 9881-2871") and w.eh_dono("554498812871") and not w.eh_dono("5547988812871")   # sem o 9
@@ -114,4 +136,5 @@ if __name__ == "__main__":
     test_reconhece_o_dono_e_a_loja()
     test_fluxo_completo()
     test_assistente_lembrete_bom_dia_e_ferreiro()
+    test_aprova_e_edita_de_outro_canal()
     print("ok whatsapp atendimento")

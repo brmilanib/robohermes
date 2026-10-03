@@ -91,15 +91,17 @@ def _gravar_avisados(repo, ids):
                                             "criado_em": at._agora()}], prefer="resolution=merge-duplicates,return=minimal")
 
 
-def _abertos(repo, lim=40):
-    """Rascunhos do WhatsApp esperando o Bruno (pendente = aprovar; precisa_info = ele responder), mais novos primeiro."""
+def _abertos(repo, lim=40, todos_canais=False):
+    """Rascunhos esperando o Bruno (pendente = aprovar; precisa_info = ele responder), mais novos primeiro. Só do WhatsApp,
+    ou de todos os canais (TikTok, Shopee…) quando o Bruno cita o número (03/10: "ok 172" era da Shopee e dava "não achei")."""
     rs = repo._req("GET", "atendimento_rascunhos", {"select": "id,conversa_id,mensagem_id,status,texto_gerado,pergunta_operador,criado_em",
                                                     "status": "in.(pendente,precisa_info)", "order": "id.desc", "limit": lim}) or []
     if not rs:
         return []
     conv = {c["id"]: c for c in repo._req("GET", "atendimento_conversas", {
         "select": "id,canal,cliente,loja,externo_id", "id": "in.(" + ",".join(str(r["conversa_id"]) for r in rs) + ")"}) or []}
-    return [dict(r, conversa=conv[r["conversa_id"]]) for r in rs if (conv.get(r["conversa_id"]) or {}).get("canal") == CANAL]
+    return [dict(r, conversa=conv[r["conversa_id"]]) for r in rs
+            if r["conversa_id"] in conv and (todos_canais or conv[r["conversa_id"]].get("canal") == CANAL)]
 
 
 def _msg_cliente(repo, r):
@@ -112,7 +114,8 @@ def _msg_cliente(repo, r):
 def _quem(r):
     c = r.get("conversa") or {}
     loja = at.LOJA_NOMES.get(c.get("loja"), "")
-    return f"{c.get('cliente') or c.get('externo_id') or 'cliente'}" + (f" · {loja}" if loja else "")
+    canal = "" if c.get("canal") in (None, CANAL) else (at.CANAIS[c["canal"]].nome if c["canal"] in at.CANAIS else c["canal"])
+    return f"{c.get('cliente') or c.get('externo_id') or 'cliente'}" + (f" · {loja}" if loja else "") + (f" ({canal})" if canal else "")
 
 
 def aviso_do_rascunho(repo, r):
@@ -138,9 +141,14 @@ def avisos_para_dono(repo):
 
 def _alvo(repo, num):
     """Rascunho a que o Bruno se refere: o número dito, senão o mais recente já avisado que ainda está aberto."""
-    abertos = _abertos(repo)
     if num:
-        return next((r for r in abertos if r["id"] == int(num)), None), abertos
+        r = next((r for r in _abertos(repo, 80, todos_canais=True) if r["id"] == int(num)), None)
+        if not r:                                             # rascunho mais antigo que os 80 últimos: busca direto
+            x = at._um(repo, "atendimento_rascunhos", int(num))
+            if x and x.get("status") in ("pendente", "precisa_info"):
+                r = dict(x, conversa=at._um(repo, "atendimento_conversas", x["conversa_id"]) or {})
+        return r, None
+    abertos = _abertos(repo)
     avisados = _avisados(repo)
     return next((r for r in sorted(abertos, key=lambda x: -x["id"]) if r["id"] in avisados), None), abertos
 
@@ -205,7 +213,10 @@ Global) e, desde 03/10, também a ASSISTENTE PESSOAL dele. Agora você conversa 
 Responda em português, curto e direto, como uma assistente de confiança, em texto simples de WhatsApp.
 Use SÓ o CONTEXTO: a fila do atendimento, as vendas de hoje, o ADS, a base de conhecimento do nubi e os lembretes.
 Não invente número, conversa nem compromisso; se não está no contexto, diga que não sabe e onde dá para ver.
-SAC: para aprovar, lembre o jeito: "ok N" envia a sugestão, "N texto" manda o texto dele, "não N" não responde.
+SAC (WhatsApp, TikTok, Shopee): "ok N" envia a sugestão, "N texto" manda o texto dele, "não N" não responde. Quando o Bruno
+MANDA responder de outro jeito (ex.: "primeiro pede o número do pedido dela"), escreva o texto novo para o cliente e, numa
+linha sozinha, [[editar:N|o texto exato para o cliente]] — ele sai na hora. Quando ele só diz para enviar a sugestão que
+está lá ("pode mandar", "manda essa"), use [[aprovar:N]]. Na dúvida sobre QUAL conversa, pergunte o número.
 LEMBRETE: se ele pedir para lembrar de algo, escreva numa linha sozinha [[lembrete:AAAA-MM-DD HH:MM|o que lembrar]] (horário
 de Brasília; "amanhã cedo" = 08:00; sem hora = 09:00) e confirme em uma frase. Para desmarcar: [[desmarcar:trecho do texto]].
 FERREIRO: código, coleta, robôs, telas do nubi e erros são com o Ferreiro (Claude Code no Mac). Se o Bruno pedir algo assim,
@@ -290,12 +301,12 @@ def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
     res = _aprovacao(repo, t, so_explicito=True)
     if res is not None:
         return (res.get("resposta") or "", []) if com_acoes else (res.get("resposta") or "")
-    abertos = _abertos(repo, 20)
+    abertos = _abertos(repo, 20, todos_canais=True)
     try:
         resumo = at.painel(repo, dias=1)
     except Exception:  # noqa: BLE001
         resumo = {}
-    ctx = {"esperando_voce_no_whatsapp": [{"n": r["id"], "cliente": _quem(r), "tipo": "aprovar" if r["status"] == "pendente" else "precisa_de_voce",
+    ctx = {"esperando_voce_no_atendimento": [{"n": r["id"], "cliente": _quem(r), "tipo": "aprovar" if r["status"] == "pendente" else "precisa_de_voce",
                                            "mensagem": _msg_cliente(repo, r)[:300], "sugestao": str(r.get("texto_gerado") or "")[:400],
                                            "pergunta": str(r.get("pergunta_operador") or "")[:300]} for r in abertos[:10]],
            "painel_do_sac_hoje": resumo, **_contexto_negocio(repo, t, agora)}
@@ -307,6 +318,17 @@ def banguela(repo, texto, historico=None, agora=None, com_acoes=False):
     except Exception as e:  # noqa: BLE001
         txt = f"(não consegui pensar agora: {str(e)[:150]})"
     limpo, ferreiro = _acoes_banguela(repo, str(txt or ""))
+    feitos = []
+    for num, novo in re.findall(r"\[\[editar:\s*#?(\d+)\s*\|([^\]]+)\]\]", str(txt or "")):
+        res = _aprovacao(repo, f"{num} {novo.strip()}", so_explicito=True)       # mesmo caminho do "N texto"
+        if res:
+            feitos.append(res.get("resposta") or "")
+    for num in re.findall(r"\[\[aprovar:\s*#?(\d+)\s*\]\]", str(txt or "")):
+        res = _aprovacao(repo, f"ok {num}", so_explicito=True)
+        if res:
+            feitos.append(res.get("resposta") or "")
+    if feitos:
+        limpo = (limpo + "\n\n" + "\n".join(feitos)).strip()
     if ferreiro and not com_acoes:
         limpo += "\n\n(Passe o pedido ao Ferreiro pelo WhatsApp ou pelo chat dele aqui no Painel.)"
     return (limpo[:3000], ferreiro) if com_acoes else limpo[:3000]

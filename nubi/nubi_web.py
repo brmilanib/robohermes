@@ -2393,6 +2393,8 @@ def atender(metodo, rota, q, corpo, token):
             return _json({"teto": (t or {}).get("teto") if (t or {}).get("dia") == _agora_br().date().isoformat() else None})
         if rota == "dashboard_listas":
             return _json(dashboard_listas(repo))
+        if rota == "meta_mes":
+            return _json(meta_mes(repo))
         if rota == "painel_gestor_salvar" and metodo == "POST":
             # 02/10: o coletor manda o texto do painel e das Vendas do Gestor + as respostas JSON da própria tela (bruto)
             d = json.loads(corpo or b"{}")
@@ -8452,6 +8454,51 @@ LOJAS_BASE = os.environ.get("NUBI_LOJAS_BASE", "https://nubi-explorador.vercel.a
 ADS_TEMPO_REAL = "ads_ml|principal"
 
 
+def meta_mes(repo, agora=None):
+    """03/10 (Bruno: "a meta é 1,25 mi este mês: quanto por dia temos que vender, se estamos acima ou abaixo"): vendido no
+    mês (cada dia fechado pelo "Ontem" da Visão geral do UpSeller, senão o Vendas por Anúncio do dia) + hoje até agora,
+    média por dia, quanto falta por dia (contando hoje) e a projeção do mês no ritmo atual. Só números, sem IA."""
+    import calendar
+    agora = agora or datetime.now(timezone.utc)
+    hoje = (agora - timedelta(hours=3)).date()
+    ini = hoje.replace(day=1)
+    n_mes = calendar.monthrange(hoje.year, hoje.month)[1]
+    meta = float((_ler_json(repo, "reposicao|config") or {}).get("meta_fat") or reposicao.META_FAT or 0)
+    pref = f"{hoje.year:04d}-{hoje.month:02d}-"
+    def ler(prefixo):
+        out = {}
+        for r in repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": f"like.{prefixo}{pref}%"}) or []:
+            try:
+                out[r["chave"][len(prefixo):]] = json.loads(r["texto"] or "{}")
+            except (TypeError, ValueError):
+                pass
+        return out
+    vh, va = ler("vendas_hoje|"), ler("vendas_anuncio_dia|")
+    dias = []
+    for i in range(hoje.day - 1):
+        dia = (ini + timedelta(days=i)).isoformat()
+        tf = ((vh.get(dia) or {}).get("total_final") or {}).get("valor")
+        v, fonte = (tf, "upseller") if tf is not None else ((va.get(dia) or {}).get("valor"), "anuncio")
+        dias.append({"dia": dia, "valor": round(float(v), 2) if v is not None else None, "fonte": fonte if v is not None else None})
+    try:
+        hoje_v = float(((vendas_hoje.tv(repo, agora) or {}).get("ate_agora") or {}).get("valor") or 0)
+    except Exception:  # noqa: BLE001
+        hoje_v = 0.0
+    com = [d["valor"] for d in dias if d["valor"] is not None]
+    fechado = sum(com)
+    media = fechado / len(com) if com else None
+    restantes = n_mes - hoje.day + 1                        # contando hoje
+    vendido = fechado + hoje_v
+    precisa = max(0.0, (meta - fechado) / restantes) if meta else None
+    proj = fechado + media * restantes if media is not None else None
+    return {"mes": pref[:7], "meta": meta, "vendido": round(vendido, 2), "hoje": round(hoje_v, 2), "fechado": round(fechado, 2),
+            "dias_fechados": len(com), "dias_sem_dado": [d["dia"] for d in dias if d["valor"] is None], "dias_mes": n_mes,
+            "dias_restantes": restantes, "media_dia": round(media, 2) if media is not None else None,
+            "precisa_por_dia": round(precisa, 2) if precisa is not None else None,
+            "projecao": round(proj, 2) if proj is not None else None, "pct_meta": round(vendido / meta * 100, 1) if meta else None,
+            "acima": (proj >= meta) if proj is not None and meta else None, "dias": dias}
+
+
 def ads_tempo_real(repo, agora=None):
     """03/10 (Bruno): ADS da conta principal do ML (AURASCENT): hoje até agora, ontem, mês atual e mês fechado, guardado
     com a curva do dia (um ponto por hora) para o card do Dashboard. Roda de hora em hora na rotina do servidor."""
@@ -8509,7 +8556,7 @@ def ads_tempo_real(repo, agora=None):
 # hoje abaixo do ROAS mínimo (a partir das 12h, com gasto mínimo: o ML atribui venda com atraso) e ontem fechado abaixo
 # (a partir das 9h) → aviso no WhatsApp do Bruno pelo chip. No máximo 1 de cada por dia. Limites em ia_resumos `ads|alerta`.
 ADS_ALERTA = "ads|alerta"
-ADS_ALERTA_PADRAO = {"roas_min": 10.0, "gasto_min": 80.0, "hora_hoje": 12, "hora_ontem": 9}
+ADS_ALERTA_PADRAO = {"roas_min": 10.0, "gasto_min": 80.0, "hora_hoje": 12, "hora_ontem": 9, "meta_roas": 20.0}
 
 
 def alertas_ads(repo, d, agora, feitos):
@@ -8936,10 +8983,14 @@ def rota_meli(repo, metodo, rota, q, corpo):
     if rota == "meli_ads_tempo_real":
         # o card do Dashboard lê o guardado (a rotina atualiza de hora em hora); sem nada ou com mais de 70 min, puxa agora
         d = _ler_json(repo, ADS_TEMPO_REAL)
-        velho = not d.get("em") or datetime.now(timezone.utc) - datetime.fromisoformat(d["em"]) > timedelta(minutes=70)
+        try:
+            velho = not d.get("em") or datetime.now(timezone.utc) - datetime.fromisoformat(str(d["em"]).replace(" ", "T")) > timedelta(minutes=70)
+        except (TypeError, ValueError):
+            velho = True
         if q.get("forcar") or velho:
             d = ads_tempo_real(repo)
-        return d
+        meta = (_ler_json(repo, ADS_ALERTA) or {}).get("meta_roas") or ADS_ALERTA_PADRAO["meta_roas"]
+        return dict(d, meta_roas=meta)
     if rota == "meli_ads_produtos":
         return ads_produtos(repo, str(q.get("periodo") or "mes"), forcar=bool(q.get("forcar")))
     if rota == "meli_minha_loja":

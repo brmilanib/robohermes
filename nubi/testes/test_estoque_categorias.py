@@ -296,11 +296,12 @@ try:
             pg.wait_for_selector("#ds-gestor .dash-k", timeout=15000)
             gt = pg.inner_text("#ds-gestor")
             assert "Margem em tempo real" in gt and "15,6%" in gt and "Vibrato Sospiro" in gt and "Fantasy" in gt and "21:06" in gt, gt
-            pg.wait_for_selector("#ds-adsml .dash-k", timeout=15000)
+            pg.wait_for_selector("#ds-adsml .ads-k", timeout=15000)
             at = pg.inner_text("#ds-adsml").replace("\xa0", " ")
             assert "ADS em tempo real" in at and "R$ 212,40" in at and "R$ 455,10" in at and "setembro" in at and "R$ 11.234,90" in at and "11:00" in at, at
-            assert "ROAS 14,6x" in at and "vs ontem até 11:00" in at and "▲ 18%" in at and "melhor" in at, at          # 3100/212,4; 212,4 × 180
-            assert pg.locator("#ds-adsml a.dash-k[href*='periodo=hoje']").count() == 1
+            assert "ROAS 14,6x" in at and "aproveitamento" in at and "Projeção do mês" in at and "mês atual" in at, at   # 3100/212,4
+            assert "ROAS previsto no mês" in at and "Gasto médio por dia" in at, at
+            assert pg.locator("#ds-adsml a.ads-k[href*='periodo=hoje']").count() == 1
             pr = pg.inner_text("#ds-precos")
             assert "Monitor de preços" in pr and "Lattafa Asad" in pr and "189,90" in pr and "entrou no FULL" in pr, pr
             pg.wait_for_function("() => !document.querySelector('#ds-meus').innerText.includes('Carregando') && !document.querySelector('#ds-hoje').innerText.includes('Lendo')", timeout=30000)

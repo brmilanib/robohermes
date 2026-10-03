@@ -1431,6 +1431,21 @@ img.pl-ico.of{object-fit:contain;background:#fff}
 .cx-conta small{display:block;color:var(--muted,#888)}.cx-ok{color:#1a9b4b}.cx-off{color:#bbb}
 .neg-t{color:#b91c1c}.pos-t{color:#15803d}
 .dash-ads-v{margin:10px 2px 0;font-size:14px}
+/* 03/10 (Bruno: "muita informação, muito grande; organiza; projeção e o que puxa para baixo"): ADS em 2 colunas */
+.ads-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:12px;margin-top:10px}
+@media (max-width:900px){.ads-grid{grid-template-columns:minmax(0,1fr)}}
+.ads-ks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-content:start}
+.ads-k{display:grid;gap:3px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;background:var(--card);font-size:12px}
+.ads-k .l{color:var(--muted);font-size:11.5px}.ads-k .r{font-size:17px;font-weight:800}.ads-k .o{color:var(--muted)}
+.ads-proj{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12.5px;display:grid;gap:6px;align-content:start}
+.ads-proj h3{margin:0;font-size:13px}.ads-proj .lin{display:flex;justify-content:space-between;gap:8px}.ads-proj .lin span:first-child{color:var(--muted)}
+.ads-baixo a{display:flex;justify-content:space-between;gap:8px;text-decoration:none;color:inherit;padding:3px 0;border-top:1px dashed var(--line)}
+.ads-baixo a span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta-box{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0 10px;display:grid;gap:5px;font-size:12.5px}
+.meta-box.ok{border-color:#86efac}.meta-box.ruim{border-color:#fca5a5}.meta-box .lin{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.meta-box .lin span:first-child{color:var(--muted)}.meta-box .barra{height:8px;background:var(--line);border-radius:6px;overflow:hidden}
+.meta-box .barra i{display:block;height:100%;background:#16a34a}.meta-box.ruim .barra i{background:#f59e0b}
+.ads-proj .dash-dias{margin:2px 0 0}.ads-proj .dash-dia{min-width:38px}.ads-proj .dash-dia i{width:18px}
 .ml-lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(230px,100%),1fr));gap:8px}.ml-lib>div{padding:8px 10px;border-radius:8px;font-size:13px}
 .ml-lib .ok{background:rgba(26,155,75,.1)}.ml-lib .ok b{color:#1a9b4b}.ml-lib .no{background:rgba(220,38,38,.08)}.ml-lib .no b{color:#b91c1c}.ml-lib small{display:block;color:var(--muted,#888);margin-top:2px;word-break:break-word}
 .cx-lojas{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr));gap:12px}
@@ -1695,6 +1710,7 @@ async function carregarTempo(box) {
 // Cada bloco carrega sozinho (as consultas vão em paralelo); o que faltar aparece como "sem dados", nunca como zero.
 async function telaInicio() {
   const main = $("#main"), D = S.dash || (S.dash = {top: "todos"});
+  S.dashMetaPedida = false;                    // 03/10: a meta do mês é relida a cada vez que o Dashboard se monta
   const hr = new Date().getHours();
   const saud = (hr < 12 ? "Bom dia" : hr < 18 ? "Boa tarde" : "Boa noite") + (/^brmilani@/.test(S.sessao?.user?.email || "") ? ", Bruno" : "");
   main.innerHTML = `<div class="dash">
@@ -1816,21 +1832,53 @@ async function telaInicio() {
     const H = a.hoje || {}, O = a.ontem || {}, M = a.mes || {}, P = a.mes_passado_ate || {};
     const subHoje = baseOntem ? `vs ontem até ${esc(hAgora.h)}: gasto ${delta(H.cost, baseOntem.cost, false)} · ROAS ${delta(ro(H), ro(baseOntem), true)}`
       : (O.cost ? `já gastou ${nf0.format((H.cost || 0) / O.cost * 100)}% do dia de ontem` : "");
-    const subMes = !P.erro && P.cost ? `vs ${mes(P.de)} até dia ${(P.ate || "").slice(8, 10)}: gasto ${delta(M.cost, P.cost, false)} · ROAS ${delta(ro(M), ro(P), true)}` : "";
-    // 03/10 (Bruno: "ontem 22, hoje 22, como o mês dá 15?"): o mês é a soma dos dias; cada dia aparece com o ROAS dele
-    const diasMes = (a.dias || []).filter(x => !x.erro).map(x => `<span class="pill ${cor(ro(x))}" title="${esc(x.dia)}: ADS ${rsES(x.cost || 0)} · vendas ${rsES(x.total_amount || 0)}">${esc(x.dia.slice(8, 10))}/${esc(x.dia.slice(5, 7))} ${roF(ro(x))}</span>`).join(" ");
-    const veredito = !P.erro && ro(M) != null && ro(P) != null ? (ro(M) >= ro(P) ? `✅ O ADS do mês está <b>melhor</b> que no mesmo período de ${mes(P.de)} (ROAS ${roF(ro(M))} × ${roF(ro(P))}).`
-      : `⚠️ O ADS do mês está <b>pior</b> que no mesmo período de ${mes(P.de)} (ROAS ${roF(ro(M))} × ${roF(ro(P))}): veja os anúncios que dão prejuízo.`) : "";
-    el.innerHTML = `<div class="dash-cab"><h2>📣 ADS em tempo real</h2><span class="muted">Mercado Livre · ${esc(a.conta || "")} · lido às ${lido} · atualiza de hora em hora · o ML conta o ADS com algumas horas de atraso</span>
+    const subMes0 = !P.erro && P.cost ? `vs ${mes(P.de)}: gasto ${delta(M.cost, P.cost, false)} · ROAS ${delta(ro(M), ro(P), true)}` : "";
+    // 03/10 (Bruno): veredito claro, cards compactos à esquerda; à direita a projeção do mês, meta de ROAS e quem puxa para baixo
+    const meta = +(a.meta_roas || 20), diasOk = (a.dias || []).filter(x => !x.erro && x.cost);
+    const nDias = diasOk.length, hojeD = new Date(), fimMes = new Date(hojeD.getFullYear(), hojeD.getMonth() + 1, 0).getDate();
+    const gastoDia = nDias ? (M.cost || 0) / nDias : null, vendaDia = nDias ? (M.total_amount || 0) / nDias : null;
+    const restam = Math.max(0, fimMes - nDias);
+    const projGasto = gastoDia != null ? (M.cost || 0) + gastoDia * restam : null;
+    // ROAS projetado: ritmo dos últimos 7 dias com dado (ou o que houver) aplicado aos dias que faltam
+    const ult = diasOk.slice(-7), rRec = ult.reduce((t, x) => t + (+x.cost || 0), 0) ? ult.reduce((t, x) => t + (+x.total_amount || 0), 0) / ult.reduce((t, x) => t + (+x.cost || 0), 0) : null;
+    const projRoas = gastoDia != null && rRec != null && projGasto ? ((M.total_amount || 0) + rRec * gastoDia * restam) / projGasto : ro(M);
+    const precisa = projGasto && gastoDia && restam ? (meta * projGasto - (M.total_amount || 0)) / (gastoDia * restam) : null;
+    const pior = !P.erro && ro(M) != null && ro(P) != null && ro(M) < ro(P);
+    const veredito = !P.erro && ro(M) != null && ro(P) != null
+      ? `${pior ? "⚠️" : "✅"} O ADS do <b>mês atual</b> está <b>${pior ? "pior" : "melhor"}</b> que o mês passado: ROAS <b>${roF(ro(M))}</b> agora × ${roF(ro(P))} em ${mes(P.de)} até o dia ${(P.ate || "").slice(8, 10)}.` : "";
+    const aprov = H.cost && O.cost && ro(H) != null && ro(O) != null
+      ? `${ro(H) >= ro(O) ? "melhor" : "pior"} que ontem (${roF(ro(H))} × ${roF(ro(O))})` : "";
+    const kk = (per, n, x, sub) => `<a class="ads-k" href="#/conexoes/ml/ads?periodo=${per}" title="ver os anúncios com ADS e margem">
+      <span class="l">${n}</span>${x && !x.erro ? `<span class="r"><span class="pill ${cor(ro(x))}">ROAS ${roF(ro(x))}</span></span>
+      <span>${rsES(x.cost || 0)} → <b>${rsES(x.total_amount || 0)}</b></span>${sub ? `<span class="o">${sub}</span>` : ""}` : `<span class="o">${esc((x || {}).erro || "—")}</span>`}</a>`;
+    const diasMes = diasOk.map(x => `<span class="pill ${cor(ro(x))}" title="${esc(x.dia)}: ADS ${rsES(x.cost || 0)} · vendas ${rsES(x.total_amount || 0)}">${esc(x.dia.slice(8, 10))} ${roF(ro(x))}</span>`).join(" ");
+    el.innerHTML = `<div class="dash-cab"><h2>📣 ADS em tempo real</h2><span class="muted">${esc(a.conta || "")} · lido às ${lido} · o ML conta com algumas horas de atraso</span>
         <a class="btn small" href="#/conexoes/ml/ads?periodo=mes">Anúncios com ADS e margem ›</a></div>
-      <div class="dash-ks">
-        ${k("hoje", "⚡ Hoje (até agora)", H, subHoje)}
-        ${k("ontem", "📅 Ontem", O, O.cost && H && !H.erro ? "" : "")}
-        ${k("mes", "🗓️ Mês atual" + (M.soma_dos_dias ? " (soma dos dias)" : ""), M, subMes + (diasMes ? "<br>" + diasMes : ""))}
-        ${k("mes_fechado", "✅ Mês fechado (" + mes((a.mes_fechado || {}).de) + ")", a.mes_fechado)}
-      </div>
-      ${veredito ? `<p class="dash-ads-v">${veredito}</p>` : ""}
-      ${hs.length > 1 ? `<div class="dash-dias">${hs.map(h => `<div class="dash-dia" title="${esc(h.h)}: ADS ${rsES(h.cost || 0)} · vendas ${rsES(h.vendas || 0)}"><span class="mg">${abrev(h.cost || 0)}</span><i style="height:${Math.max(4, (h.cost || 0) / mx * 70).toFixed(0)}px"></i><span>${esc(h.h)}</span></div>`).join("")}</div>` : ""}`;
+      ${veredito ? `<p class="dash-ads-v" style="margin-top:4px">${veredito}</p>` : ""}
+      <div class="ads-grid">
+        <div class="ads-ks">
+          ${kk("hoje", "⚡ Hoje (até agora)", H, aprov ? "aproveitamento " + aprov : (O.cost ? `gastou ${nf0.format((H.cost || 0) / O.cost * 100)}% de ontem` : ""))}
+          ${kk("ontem", "📅 Ontem", O)}
+          ${kk("mes", "🗓️ Mês atual", M, subMes0)}
+          ${kk("mes_fechado", "✅ " + (mes((a.mes_fechado || {}).de) || "mês passado"), a.mes_fechado)}
+        </div>
+        <div class="ads-proj">
+          <h3>🔮 Projeção do mês · meta ROAS ${roF(meta)}</h3>
+          <div class="lin"><span>Gasto médio por dia</span><b>${gastoDia != null ? rsES(gastoDia) : "—"}</b></div>
+          <div class="lin"><span>Gasto previsto no mês</span><b>${projGasto != null ? rsES(projGasto) : "—"}</b></div>
+          <div class="lin"><span>ROAS previsto no mês</span><b class="${projRoas != null && projRoas >= meta ? "pos" : "neg"}">${roF(projRoas)} ${projRoas != null ? (projRoas >= meta ? "✅ bate a meta" : "⚠️ abaixo da meta") : ""}</b></div>
+          ${precisa != null && projRoas != null && projRoas < meta ? `<div class="lin"><span>Para fechar o mês em ${roF(meta)}</span><b>ROAS ${roF(Math.max(0, precisa))} nos dias que faltam</b></div>` : ""}
+          ${diasMes ? `<div><span class="muted">Dia a dia:</span> ${diasMes}</div>` : ""}
+          <div class="ads-baixo" id="ads-baixo"><span class="muted">Procurando quem puxa o ROAS para baixo…</span></div>
+          ${hs.length > 1 ? `<div class="dash-dias">${hs.map(h => `<div class="dash-dia" title="${esc(h.h)}: ADS ${rsES(h.cost || 0)} · vendas ${rsES(h.vendas || 0)}"><span class="mg">${abrev(h.cost || 0)}</span><i style="height:${Math.max(4, (h.cost || 0) / mx * 40).toFixed(0)}px"></i><span>${esc(h.h)}</span></div>`).join("")}</div>` : ""}
+        </div>
+      </div>`;
+    // quem puxa para baixo no mês: gastou sem vender ou ROAS abaixo do mínimo da margem, os que mais gastaram primeiro
+    api("meli_ads_produtos", {periodo: "mes"}).then(r => { const box = $("#ads-baixo"); if (!box) return;
+      const xs = (r.anuncios || []).filter(x => x.nivel === "ruim" || (x.roas != null && x.roas < meta && x.cost >= 20)).sort((x, y) => (y.cost || 0) - (x.cost || 0)).slice(0, 4);
+      box.innerHTML = xs.length ? `<span class="muted">⬇️ Puxando para baixo (mês):</span>` + xs.map(x => `<a href="#/conexoes/ml/ads?periodo=mes" title="${esc(x.sugestao || "")}"><span>${esc((x.titulo || x.anuncio || "").slice(0, 46))}</span><b class="neg">${rsES(x.cost || 0)} · ROAS ${x.roas != null ? roF(x.roas) : "0"}</b></a>`).join("")
+        : `<span class="muted">✅ Nenhum anúncio puxando o ROAS para baixo no mês.</span>`;
+    }).catch(() => { const box = $("#ads-baixo"); if (box) box.innerHTML = ""; });
   }).catch(e => { const el = $("#ds-adsml"); if (el) el.innerHTML = `<h2>📣 ADS em tempo real</h2><p class="muted">${esc(e.message || "sem dados")}</p>`; });
 
   // 💵 dólar, notícias · 🖥️ sistema (mesma consulta da Início antiga)
@@ -1919,15 +1967,29 @@ async function telaInicio() {
   function montarLoja() {
     const el = $("#ds-loja"); if (!el) return;
     const h = S.dashHoje, rp = S.dashRp, m = (S.dashL || {}).meus, fr = [];
+    // 03/10 (Bruno: "a meta é 1,25 mi: quanto por dia temos que vender, se estamos acima ou abaixo"): rota meta_mes
+    if (!S.dashMetaPedida) { S.dashMetaPedida = true; api("meta_mes").then(x => { S.dashMeta = x; montarLoja(); }).catch(() => {}); }
+    const mm = S.dashMeta;
     if (h && h.ate_agora && h.ate_agora.valor != null) { const v = pct(h.ate_agora.valor, (h.ate_agora_comparar || {}).valor);
       fr.push(`Hoje: <b>${rsES(h.ate_agora.valor)}</b> em ${nf0.format(h.ate_agora.pedidos || 0)} pedidos${v != null ? `, ${seta(v)} contra ontem no mesmo horário` : ""}.`); }
     if (rp) { const rs = rp.resumo || {};
-      if (rs.fat_mes) fr.push(`Ritmo do mês: <b>${FMT.moeda(rs.fat_mes)}</b>, ${rs.meta_fat ? Math.round(rs.fat_mes / rs.meta_fat * 100) : 0}% da meta de ${FMT.moeda(rs.meta_fat)}.`);
+      if (rs.fat_mes && !(mm && mm.meta)) fr.push(`Ritmo do mês: <b>${FMT.moeda(rs.fat_mes)}</b>, ${rs.meta_fat ? Math.round(rs.fat_mes / rs.meta_fat * 100) : 0}% da meta de ${FMT.moeda(rs.meta_fat)}.`);
       if (rs.margem_media != null) fr.push(`Margem média pós ADS <b class="${rs.margem_media < rs.meta_margem ? "neg" : "pos"}">${nf1.format(rs.margem_media)}%</b> (meta ${nf0.format(rs.meta_margem)}%)${rs.margem_ruim ? `; <a href="#/estoque/reposicao">${nf0.format(rs.margem_ruim)} campeões abaixo de 10%</a>` : ""}.`);
       if (rs.campeoes_zerados) fr.push(`<a href="#/estoque/reposicao" class="neg">${nf0.format(rs.campeoes_zerados)} campeões zerados</a> sem estoque nem trânsito: repor primeiro.`);
       if (rs.parado_bc) fr.push(`<b>${FMT.moeda(rs.parado_bc)}</b> parados em B, C e sem venda: <a href="#/estoque/reposicao">queimar e levar para os campeões</a>.`); }
     if (m) { const best = m.todos[0]; fr.push(`Mês ${m.inicio?.slice(5, 7)}: <b>${FMT.moeda(m.total)}</b> faturados, lucro pós ADS ${FMT.moeda(m.lucro_pos_ads)} (${m.total ? nf1.format(m.lucro_pos_ads / m.total * 100) : 0}%)${best ? `; campeão: ${esc((best.produto || best.sku || "").slice(0, 40))}` : ""}.`); }
+    const metaBox = mm && mm.meta ? (() => { const pc = Math.min(100, (mm.vendido || 0) / mm.meta * 100);
+      const ok = mm.acima, ritmo = mm.media_dia, prec = mm.precisa_por_dia;
+      return `<div class="meta-box ${ok ? "ok" : "ruim"}"><div class="lin"><b>🎯 Meta de ${mm.mes.slice(5, 7)}/${mm.mes.slice(0, 4)}: ${FMT.moeda(mm.meta)}</b>
+          <span class="pill ${ok ? "pos" : "neg"}">${ok == null ? "sem ritmo ainda" : ok ? "✅ acima da meta" : "⚠️ abaixo da meta"}</span></div>
+        <div class="barra"><i style="width:${pc.toFixed(1)}%"></i></div>
+        <div class="lin"><span>Vendido no mês</span><b>${FMT.moeda(mm.vendido)} (${nf1.format(mm.pct_meta || 0)}%)</b></div>
+        <div class="lin"><span>Ritmo atual</span><b>${ritmo != null ? FMT.moeda(ritmo) + "/dia" : "—"}</b></div>
+        <div class="lin"><span>Precisa vender por dia (${mm.dias_restantes} dias, com hoje)</span><b class="${ritmo != null && prec != null && ritmo < prec ? "neg" : "pos"}">${prec != null ? FMT.moeda(prec) + "/dia" : "—"}</b></div>
+        <div class="lin"><span>Projeção do mês no ritmo atual</span><b>${mm.projecao != null ? FMT.moeda(mm.projecao) : "—"}${mm.projecao != null ? ` (${mm.projecao >= mm.meta ? "+" : ""}${FMT.moeda(mm.projecao - mm.meta)})` : ""}</b></div>
+        ${(mm.dias_sem_dado || []).length ? `<div class="muted" style="font-size:11.5px">sem venda guardada de ${mm.dias_sem_dado.map(d => d.slice(8, 10)).join(", ")}: a conta usa só os dias com dado</div>` : ""}</div>`; })() : "";
     el.innerHTML = `<div class="dash-cab"><h2>🏪 Minha loja</h2><span class="muted">análise direta dos números</span><a class="btn small" href="#/estoque/reposicao">Reposição ›</a></div>
+      ${metaBox}
       ${fr.length ? `<ul class="dash-frases">${fr.map(f => `<li>${f}</li>`).join("")}</ul>` : `<p class="muted">Montando a análise…</p>`}`;
   }
   clearTimeout(S.dashT);
