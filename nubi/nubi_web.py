@@ -645,6 +645,37 @@ def marcas_diarias(repo):
         return []
 
 
+def conferencia_marca(repo, marca):
+    """A última conferência do export × card (nubi.conferir_export) desta marca, ou None."""
+    if not hasattr(repo, "_req"):                   # banco local (testes)
+        return repo.__dict__.get("resumos", {}).get(nubi.CONFERENCIA.format(marca))
+    try:
+        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": repo._eq(nubi.CONFERENCIA.format(marca))}) or [None])[0]
+        return json.loads(r["texto"]) if r and r.get("texto") else None
+    except (ErroNuvem, ValueError, TypeError):
+        return None
+
+
+def explorador_monitoradas(repo):
+    """03/10 (Bruno: "as marcas que eu mais vendo, monitoradas, com a borda verde e separadas das outras"): a lista diária e a
+    última conferência de cada uma com o Nubimetrics."""
+    lista = marcas_diarias(repo)
+    conf = {}
+    if lista:
+        try:
+            for r in repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": "like.explorador|conferencia|*"}) or []:
+                m = r["chave"].split("|", 2)[2]
+                if m in lista:
+                    try:
+                        c = json.loads(r["texto"])
+                        conf[m] = {k: c.get(k) for k in ("em", "inicio", "fim", "bate", "dif_un_hist", "export", "nubi", "fora_do_card")}
+                    except (TypeError, ValueError):
+                        pass
+        except ErroNuvem:
+            pass
+    return {"marcas": lista, "conferencia": conf}
+
+
 def explorador_diario(repo, salvar=None):
     """02/10 (Bruno: "todo dia, só as marcas que eu vendo; se eu quiser uma ou outra, acrescento na mesma regra"): a lista
     de marcas que o coletor exporta no Explorador todo dia (pesquisa expandida + Beleza). Sugestões = marcas do meu estoque
@@ -1084,6 +1115,21 @@ def relatorio(repo, marca, periodo=None):
             "loja_oficial": int(x["loja_oficial"].max()), "vid": str(vid),
             "un_hist": int(uh.sum()), "media_dia_hist": round(media_hist, 3),
             "dias_pub_max": int(dp.max()) if len(dp) else 0})
+    # 03/10 (Bruno, Sospiro: "não bate com o Nubimetrics"): os 30 dias de VERDADE quando o último export da marca (a janela)
+    # termina junto com o card — un30/fat30 por vendedor, pelo ID do anúncio (anúncio fora da janela = não vendeu nela)
+    janela = nubi.ler_janela(repo, marca)
+    if janela and str(janela.get("fim")) == str(atual["fim"])[:10] and janela.get("anuncios"):
+        ja = janela["anuncios"]
+        k = nubi._ids(df)["anuncio"]
+        df["_un30"] = [float((ja.get(x) or [0, 0])[0]) for x in k]
+        df["_fat30"] = [float((ja.get(x) or [0, 0])[1]) for x in k]
+        for (prod, vid), x in df.groupby(["produto", "vendedor_id"]):
+            for v in vend_prod.get(prod) or []:
+                if v["vid"] == str(vid):
+                    v["un30"], v["fat30"] = int(x["_un30"].sum()), float(x["_fat30"].sum())
+        janela = {"inicio": janela["inicio"], "fim": janela["fim"], "dias": int(janela.get("dias") or 0)}
+    else:
+        janela = None
     for lista in vend_prod.values():
         tot = sum(v["un"] for v in lista)
         for v in lista:
@@ -1128,7 +1174,8 @@ def relatorio(repo, marca, periodo=None):
         "anuncios_outras_marcas": int(sum(x["anuncios"] for x in outras_marcas)),
         "un_nao_perfume": int(df.loc[df["tipo"] == nubi.TIPO_FORA, "un"].sum()),
         "un_low_price": int(df.loc[df["tipo"].isin(nubi.TIPOS_LOW), "un"].sum()),
-        "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada}
+        "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada,
+        "janela": janela, "conferencia": conferencia_marca(repo, marca)}
 
     return {
         "marca": marca, "nome": nubi.nome_bonito(marca), "atual": _periodo(atual),
@@ -2491,6 +2538,8 @@ def atender(metodo, rota, q, corpo, token):
             return _json(explorador_diferenca(repo, nubi.chave_marca(q.get("marca") or ""), q.get("de"), q.get("para")))
         if rota == "explorador_dias":                # regra 14: os dias somados no card
             return _json(explorador_dias(repo, nubi.chave_marca(q.get("marca") or "")))
+        if rota == "explorador_monitoradas":         # 03/10: marcas da lista diária + conferência com o Nubimetrics
+            return _json(explorador_monitoradas(repo))
         if rota == "explorador_diario":              # lista das marcas exportadas todo dia (GET) / salvar (POST {marcas})
             if metodo == "POST":
                 return _json(explorador_diario(repo, (json.loads(corpo or b"{}") or {}).get("marcas") or []))

@@ -1963,6 +1963,8 @@ def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes, recem
             avisar(f"    Marca {antiga} renomeada para {marca} (grafia oficial).")
             reconsolidar(repo, cfg, [marca])
     ini_arq, fim_arq = ini.isoformat(), fim.isoformat()
+    df = _ids(df)
+    df_arquivo = df.copy()              # o export como veio (para a janela de 30 dias e a conferência)
     apagar, dia = [], None
     card = card_vivo(repo, marca, ini_arq, fim_arq)
     if card is not None:
@@ -1985,9 +1987,90 @@ def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes, recem
         registrar_dia(repo, marca, df, dia, nome)
     if substituiu:
         avisar("    (substituiu uma importação anterior do mesmo período)")
+    guardar_janela(repo, marca, ini_arq, fim_arq, df_arquivo, nome)
+    conferir_export(repo, marca, ini_arq, fim_arq, df_arquivo, df, str(ini), str(fim))
     avisar(f"    OK: {marca} · {ini:%d/%m/%Y} a {fim:%d/%m/%Y} ({dias} dias) · "
            f"{df['produto'].nunique()} referências")
     return marca
+
+
+# 03/10 (Bruno, Sospiro Vibrato: "não bate o número de venda do meu UpSeller com o nubi nem com o Nubimetrics"): a regra 14
+# junta o export de 30 dias no card de 63 dias e os números do período do ARQUIVO se perdiam; o quadro do produto fazia
+# 63 dias × 30 ÷ 63 (KLASSEYLOJA, anúncio de 29/07: 400 em setembro virou 260). Agora cada export guarda a sua JANELA
+# (un, fat, un_hist, fat_hist por ID de anúncio), e o relatório usa os 30 dias de verdade quando a janela termina junto
+# com o card. A conferência (Bruno: "tem que bater, ou pelas vendas históricas, e guardar os números") compara o export
+# com o que ficou gravado no card.
+JANELA = "explorador|janela|{}"
+CONFERENCIA = "explorador|conferencia|{}"
+
+
+def _da_marca_no_arquivo(df, marca):
+    grupo = _chave_grupo(marca)
+    m = df["marca_anuncio"].fillna("") if "marca_anuncio" in df.columns else pd.Series("", index=df.index)
+    return df[m.map(lambda x: not str(x).strip() or _chave_grupo(x) == grupo)]
+
+
+def _soma(df, c):
+    return float(pd.to_numeric(df[c], errors="coerce").fillna(0).sum()) if c in df.columns else 0.0
+
+
+def _gravar_resumo(repo, chave, valor):
+    if not hasattr(repo, "_req"):          # banco local (SQLite) não tem ia_resumos: fica na memória (testes)
+        repo.__dict__.setdefault("resumos", {})[chave] = valor
+        return
+    try:
+        repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": "nubi (explorador)", "criado_em": datetime.now().astimezone().isoformat(),
+                                                "texto": json.dumps(valor, ensure_ascii=False)}],
+                  prefer="resolution=merge-duplicates,return=minimal")
+    except Exception as e:  # noqa: BLE001 — nunca derruba a importação
+        avisar(f"    (não guardei {chave.split('|')[1]}: {str(e)[:100]})")
+
+
+def guardar_janela(repo, marca, ini, fim, df_arq, arquivo=""):
+    """Os números do PERÍODO DO ARQUIVO, por ID de anúncio: {k: [un, fat, un_hist, fat_hist]}. Fica a última janela."""
+    d = _ids(df_arq)
+    num = lambda c: pd.to_numeric(d[c], errors="coerce").fillna(0) if c in d.columns else pd.Series(0, index=d.index)
+    un, fat, uh, fh = num("un"), num("fat"), num("un_hist"), num("fat_hist")
+    anuncios = {k: [int(a), round(float(b), 2), int(c), round(float(e), 2)] for k, a, b, c, e in zip(d["anuncio"], un, fat, uh, fh)}
+    dias = (date.fromisoformat(fim) - date.fromisoformat(ini)).days + 1
+    _gravar_resumo(repo, JANELA.format(marca), {"inicio": ini, "fim": fim, "dias": dias, "arquivo": arquivo, "anuncios": anuncios})
+
+
+def ler_janela(repo, marca):
+    if not hasattr(repo, "_req"):
+        return repo.__dict__.get("resumos", {}).get(JANELA.format(marca))
+    try:
+        r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{JANELA.format(marca)}"}) or [None])[0]
+        return json.loads(r["texto"]) if r and r.get("texto") else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def conferir_export(repo, marca, ini, fim, df_arq, df_card, ini_card, fim_card):
+    """Confere o export com o que ficou no card, pelo ID do anúncio: as vendas HISTÓRICAS de cada anúncio da marca têm que
+    ser as do arquivo (o card guarda a última leitura); anúncio do arquivo que não está no card só pode ter ido para o card
+    da marca dele (carona) — fica contado em `fora_do_card`. Guarda em ia_resumos `explorador|conferencia|<marca>`."""
+    arq = _ids(_da_marca_no_arquivo(df_arq, marca))
+    card = _ids(df_card)
+    if "tipo" in card.columns:
+        card = card[card["tipo"].fillna("") != TIPO_OUTRA]
+    no_card = card[card["anuncio"].isin(set(arq["anuncio"]))]
+    fora = arq[~arq["anuncio"].isin(set(card["anuncio"]))]
+    exp = {"anuncios": int(len(arq)), "un": _soma(arq, "un"), "fat": _soma(arq, "fat"), "un_hist": _soma(arq, "un_hist"),
+           "fat_hist": _soma(arq, "fat_hist")}
+    nub = {"anuncios": int(len(no_card)), "un_hist": _soma(no_card, "un_hist"), "fat_hist": _soma(no_card, "fat_hist"),
+           "un_card": _soma(card, "un"), "fat_card": _soma(card, "fat")}
+    esperado = exp["un_hist"] - _soma(fora, "un_hist")
+    dif = nub["un_hist"] - esperado
+    conf = {"em": datetime.now().astimezone().isoformat(timespec="seconds"), "inicio": ini, "fim": fim,
+            "card": {"inicio": ini_card, "fim": fim_card}, "export": exp, "nubi": nub,
+            "fora_do_card": {"anuncios": int(len(fora)), "un": _soma(fora, "un"), "un_hist": _soma(fora, "un_hist")},
+            "dif_un_hist": dif, "bate": abs(dif) < 0.5}
+    _gravar_resumo(repo, CONFERENCIA.format(marca), conf)
+    avisar(f"    Conferência com o Nubimetrics: histórico {fmt_int(nub['un_hist'])} un. no nubi × {fmt_int(esperado)} no export "
+           + ("✓ bate" if conf["bate"] else f"✗ diferença de {fmt_int(dif)}")
+           + (f" ({len(fora)} anúncio(s) foram para o card da marca deles)" if len(fora) else ""))
+    return conf
 
 
 def tipo_busca(arquivo):

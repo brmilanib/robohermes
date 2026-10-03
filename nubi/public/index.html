@@ -150,6 +150,8 @@ label.f input,label.f select{border:1px solid var(--line);border-radius:8px;padd
 .bcard:hover{border-color:var(--accent)}
 .bcard .nm{font-weight:700;font-size:16px;padding-right:30px}
 .bcard{position:relative}
+.bcard.mon{border:2px solid var(--good);padding:15px} .bcard.mon:hover{border-color:var(--good);box-shadow:0 0 0 3px var(--good-bg)}
+.sec-mon{font-size:16px;margin:18px 0 0}
 .bdel{position:absolute;top:10px;right:10px;border:1px solid transparent;background:none;border-radius:8px;padding:3px 7px;font-size:14px;opacity:.35;cursor:pointer}
 .bcard:hover .bdel{opacity:.8} .bdel:hover{opacity:1!important;border-color:var(--bad);background:var(--bad-bg)}
 .multi{display:flex;flex-direction:column;gap:4px;margin-top:8px;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
@@ -8497,6 +8499,8 @@ function abrirUploadRanking() {
 // ---------- Painel geral ----------
 async function carregarPainel() {
   S.painel = await api("painel");
+  // 03/10 (Bruno): as marcas que ele mais vende (lista diária) ficam separadas, com a borda verde e a conferência
+  try { S.monitoradas = await api("explorador_monitoradas"); } catch (_) { S.monitoradas = S.monitoradas || {marcas: [], conferencia: {}}; }
 }
 function telaPainel() {
   const q = (S.buscaMarca || "").toUpperCase();
@@ -8518,9 +8522,13 @@ function telaPainel() {
       <div style="flex:1"></div>
       <a class="btn small" href="#/explorador/diario" title="Marcas que o coletor exporta no Explorador todo dia às 05:00 (regra 14: entram no card pela diferença)">📅 Marcas diárias</a>
     </div>
-    <div class="cards">
-      ${p.map(x => `
-      <div class="card bcard" data-m="${esc(x.marca)}">
+    ${(() => { const mon = new Set((S.monitoradas || {}).marcas || []), conf = (S.monitoradas || {}).conferencia || {};
+      const card = x => { const c = conf[x.marca];
+        const selo = !mon.has(x.marca) ? "" : !c ? `<span class="pill" title="ainda sem conferência: entra no próximo export do dia">⏳ conferir</span>`
+          : c.bate ? `<span class="pill good" title="vendas históricas dos ${nf0.format((c.nubi || {}).anuncios || 0)} anúncios iguais às do export do Nubimetrics (${dataBR(c.inicio)} a ${dataBR(c.fim)})">✓ bate com o Nubimetrics</span>`
+          : `<span class="pill bad" title="vendas históricas no nubi × no export do Nubimetrics">✗ diferença de ${nf0.format(c.dif_un_hist || 0)} un.</span>`;
+        return `
+      <div class="card bcard${mon.has(x.marca) ? " mon" : ""}" data-m="${esc(x.marca)}">
         <button class="bdel" data-del="${esc(x.marca)}" title="Excluir os dados desta marca">🗑</button>
         <div class="nm">${esc(nome(x.marca))}</div>
         <div class="muted" style="font-size:12.5px">${dataBR(x.inicio)} a ${dataBR(x.fim)} · ${x.dias} dias · ${x.periodos} período(s)</div>
@@ -8532,8 +8540,13 @@ function telaPainel() {
           <div>Referências<b>${nf0.format(x.referencias)}</b></div>
           <div>GTINs em dúvida<b>${x.duvidas ? `<span class="pill warn">${x.duvidas}</span>` : "0"}</b></div>
         </div>
-      </div>`).join("")}
-    </div>` : `
+        ${selo ? `<div style="margin-top:8px">${selo}</div>` : ""}
+      </div>`; };
+      const minhas = p.filter(x => mon.has(x.marca)), outras = p.filter(x => !mon.has(x.marca));
+      return (minhas.length ? `<h2 class="sec-mon">⭐ Minhas marcas monitoradas <span class="muted" style="font-weight:400;font-size:13px">· ${minhas.length} · Explorador todo dia às 05:00 e conferidas com o Nubimetrics</span></h2>
+      <div class="cards">${minhas.map(card).join("")}</div>
+      <h2 class="sec-mon">Outras marcas <span class="muted" style="font-weight:400;font-size:13px">· ${outras.length}</span></h2>` : "")
+        + `<div class="cards">${outras.map(card).join("")}</div>`; })()}` : `
     <div class="card empty" style="margin-top:16px">
       <h2>Nenhum dado ainda</h2>
       <p>Importe o primeiro export do Nubimetrics para começar.</p>
@@ -10216,7 +10229,12 @@ async function abrirProdutoDeMarca(marca, prod) {
 }
 // ---------- Vendedores de um produto ----------
 function abrirVendedoresProduto(prod) {
-  const lista = (S.rel.vendedores_produto || {})[prod] || [];
+  // 03/10 (Bruno, Sospiro: "não bate com o Nubimetrics"): com a janela do último export (os números do período do ARQUIVO,
+  // por anúncio) o quadro mostra os 30 dias de verdade em vez de "card de 63 dias × 30 ÷ 63"
+  const jan = (S.rel.resumo || {}).janela;
+  const lista = ((S.rel.vendedores_produto || {})[prod] || []).map(v => jan ? {...v, un_card: v.un, un: v.un30 || 0, fat: v.fat30 || 0} : v)
+    .sort((a, b) => b.un - a.un || b.fat - a.fat);
+  if (jan) { const t = lista.reduce((a, v) => a + v.un, 0); lista.forEach(v => v.share = t ? v.un / t : 0); }
   const tot = lista.reduce((a, v) => ({un: a.un + v.un, fat: a.fat + v.fat, an: a.an + v.anuncios}), {un: 0, fat: 0, an: 0});
   const comVenda = lista.filter(v => v.un > 0);
   // 30/09 (Bruno): quadro maior e, no cabeçalho, o mercado deste produto + o MEU lado (vendo? preço, estoque, custo)
@@ -10228,11 +10246,11 @@ function abrirVendedoresProduto(prod) {
   const precos = comVenda.map(v => v.ultimo_preco).filter(x => x > 0).sort((a, b) => a - b);
   const med = precos.length ? precos[Math.floor(precos.length / 2)] : null;
   const lider = comVenda[0];
-  const dias = (S.rel.resumo || {}).dias || 30, mes30 = tot.un / dias * 30;
+  const dias = jan ? jan.dias : (S.rel.resumo || {}).dias || 30, mes30 = tot.un / dias * 30;
   // 02/10 (Bruno: "a gente trata sempre os últimos 30 dias: unidades, faturamento e vendedores dos últimos 30 dias, para
   // comparar mês a mês"): o export do Explorador é de ~60 dias; tudo vira "por 30 dias" (proporcional) até termos o export
   // de 30 dias — com ele (28 a 31 dias) o número é o exato
-  const f30 = dias >= 28 && dias <= 31 ? 1 : 30 / dias, prop = f30 !== 1;
+  const f30 = dias >= 28 && dias <= 33 ? 1 : 30 / dias, prop = f30 !== 1;
   const n30 = v => nf0.format(Math.round((v || 0) * f30));
   // 01/10 (Bruno): média por dia desde a criação dos anúncios (histórico ÷ dias publicados) x média do período exportado
   const mediaHist = lista.reduce((a, v) => a + (v.media_dia_hist || 0), 0), mediaPer = tot.un / dias;
@@ -10246,7 +10264,7 @@ function abrirVendedoresProduto(prod) {
         <div class="muted">${[row.linha && row.linha !== "-" ? "Linha " + esc(row.linha) : "", row.tipo && row.tipo !== "-" ? esc(row.tipo) : "", row.volume && row.volume !== "-" ? esc(row.volume) : "",
           gtins.length ? `${gtins.length} GTIN${gtins.length > 1 ? "s" : ""}: ${gtins.slice(0, 4).map(esc).join(", ")}${gtins.length > 4 ? "…" : ""}` : "sem GTIN",
           row.abc ? "curva " + esc(row.abc) : ""].filter(Boolean).join(" · ")}</div>
-        <div class="muted">período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)} (${dias} dias)
+        <div class="muted">${jan ? `últimos ${dias} dias: export de ${dataBR(jan.inicio)} a ${dataBR(jan.fim)} (números do Nubimetrics, sem proporção)` : `período ${dataBR(S.rel.atual.inicio)} a ${dataBR(S.rel.atual.fim)} (${dias} dias)`}
           · <a href="#" id="pq-ficha" title="Lê o Tipo e o Volume nas características do ML (anúncios das lojas rastreadas e catálogo do GTIN) antes de fixar a ficha da linha">🔎 conferir ficha no ML</a></div>
         <div id="pq-ficha-res" style="font-size:12.5px"></div></div>
       <button class="btn small" data-fechar>Fechar</button>

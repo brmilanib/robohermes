@@ -481,6 +481,18 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   das 05:00 de Brasília: marcas da lista sem snapshot importado hoje com busca do coletor no nome) roda
   `coletar_explorador_marca` uma a uma (falha de uma não derruba as outras). A trava de 10.000 resultados caiu (Bruno: "já
   importei com mais de 10 mil"; silverscent.csv = 15.489): `EXPLORADOR_MAX_EXPORT`=30.000 só avisa no log.
+- **Janela de 30 dias e conferência com o Nubimetrics (03/10, Bruno, Sospiro Vibrato: "não bate o UpSeller com o nubi nem
+  com o Nubimetrics"; "tem que bater, ou pelas vendas históricas, e guardar os números")**: a regra 14 juntava o export de
+  30 dias no card de 63 e o quadro do produto fazia 63 × 30 ÷ 63 (KLASSEYLOJA, anúncio de 29/07: 400 em setembro virou 260).
+  `_gravar_marca` agora chama `guardar_janela` (ia_resumos `explorador|janela|<marca>`: {inicio, fim, dias, anuncios: {ID:
+  [un, fat, un_hist, fat_hist]}} do ARQUIVO, a última) e `conferir_export` (`explorador|conferencia|<marca>`: vendas
+  históricas dos anúncios da marca no card × no export, `bate`, `dif_un_hist`, `fora_do_card`). `relatorio` põe `un30`/`fat30`
+  em cada vendedor de `vendedores_produto` quando a janela termina junto com o card, e `resumo.janela`/`resumo.conferencia`;
+  o quadro do produto usa os 30 dias de verdade (sem "≈ proporcional"). O Nubimetrics arredonda (AURASCENT "+40" = 32
+  reais): a MINHA loja vale pelo UpSeller. Painel geral: marcas da lista diária em "⭐ Minhas marcas monitoradas" (borda
+  verde, `.bcard.mon`) com o selo da conferência (rota `explorador_monitoradas`); as outras embaixo. Lista diária de 03/10:
+  18 marcas por faturamento de 30 dias no UpSeller (Barbours saiu: parou de vender). Explorador só no Mac (fora de
+  `SERVIDOR_PODE`; o vigia do gamdias não roda o diário). Teste `test_explorador_janela.py`.
 - **💰 Financeiro + Estoque → Por marca (02/10, Bruno)**: `financeiro.py`. DRE Simplificado do Gestor Seller (PDF do mês
   fechado: o texto é lido no navegador com pdf.js e vai em `financeiro_importar`; `ler_dre` por blocos) e Resumo analítico
   (`/analytics/invoices`, 4 canais × meses × 7 linhas; o coletor troca as imagens por "[IMG:nome]" e manda o texto:
