@@ -5072,6 +5072,7 @@ def comando_mac(chave, arg=""):
     }
     # 03/10 (Bruno: "pausa o Ollama no gamdias, está usando muita memória da GPU"): desliga o Ollama e o início automático
     # dele; sem o Ollama o atendente usa o gpt-oss grátis do nubi (_modelos_locais volta vazio). "ligar" desfaz.
+    # 03/10: o llama-server.exe (o modelo carregado, dentro da pasta do Ollama) ficava vivo e segurava 7 GB da placa.
     tabela.update({"servidor_ollama_parar": ["/bin/sh", "-c", "/usr/bin/pkill -if '[o]llama'; sleep 2; "
                                              "/usr/bin/pgrep -il ollama || echo 'Ollama parado'"],
                    "servidor_ollama_ligar": ["/bin/sh", "-c", "/usr/bin/open -a Ollama 2>&1; echo 'Ollama ligado'"]})
@@ -5081,8 +5082,9 @@ def comando_mac(chave, arg=""):
         tabela.update({
             "servidor_ollama_parar": [*ps, "$lnk=Join-Path ([Environment]::GetFolderPath('Startup')) 'Ollama.lnk'; "
                                       f"if(Test-Path $lnk){{Move-Item -Force $lnk '{guarda}'; 'inicio automatico do Ollama desligado'}}; "
-                                      "Get-Process | Where-Object {$_.Name -like 'ollama*'} | Stop-Process -Force; Start-Sleep 3; "
-                                      "if(Get-Process | Where-Object {$_.Name -like 'ollama*'}){'Ollama ainda rodando'}else{'Ollama parado'}"],
+                                      "$alvo={$_.Name -like 'ollama*' -or ($_.Name -like 'llama*' -and $_.Path -like '*\\Ollama\\*')}; "
+                                      "Get-Process | Where-Object $alvo | Stop-Process -Force; Start-Sleep 3; "
+                                      "if(Get-Process | Where-Object $alvo){'Ollama ainda rodando'}else{'Ollama parado (com o llama-server)'}"],
             # 03/10 (memória da GPU em 91% com o Ollama parado): quem está usando a placa de vídeo
             "servidor_gpu": [*ps, "nvidia-smi; Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 12 Name,Id,"
                                   "@{n='MB';e={[int]($_.WorkingSet64/1MB)}} | Format-Table -AutoSize"],
