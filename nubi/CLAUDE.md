@@ -484,6 +484,20 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   margem vem da Curva ABC mensal. O Relatório de Movimentação do Estoque do UpSeller (desde 05/07) exportou só "Estoque
   Inicial" (bug do UpSeller): a simulação estima os dias zerados pela venda (Bruno: "na simulação você percebe e marca
   quanto tempo fica zerado um produto"). Teste `test_historico_vendas.py`.
+- **📊 Simulador de Estratégia de Reposição (card #151, 03/10; pedido do Bruno feito com o GPT, texto inteiro no card)**:
+  `simulador.py` (regras e backtest na docstring) + rotas `estoque_simulador` (GET = estado: % atual, pesos, últimas
+  simulações, histórico de alterações; POST = roda) e `estoque_simulador_aplicar` (só com `confirmar`; registra data,
+  anterior, novo, período, confiança, resumo e quem em `reposicao|percentual_hist`; % em `reposicao|config` `pct`, padrão
+  37). Botão "📊 Simular melhor percentual" na Reposição (`simuladorReposicao`/`desenharSim`). Regra: limite semanal = X% do
+  faturamento ATENDIDO dos 7 dias anteriores (seg 40 / qua 34 / sex 26; sobra passa para o próximo dia da semana).
+  Estratégias: "Arrumar o estoque" (só curva A compra; Bruno: "queimar o baixo giro e gerar caixa até o estoque ficar
+  certo"; chegam ~R$ 400 mil de campeões, lançados no UpSeller na segunda 05/10) e "Regra saudável" (todas as curvas).
+  Backtest = repetição da demanda: estoque REAL de hoje + vendas reais do período, decisões só com o passado da própria
+  simulação, chegada no dia do pedido + prazo; ruptura histórica estimada pela venda (e^(−λ·dias) < 5%) ou foto de estoque
+  0 → demanda = "venda potencial estimada" (nunca venda real). Pontuação 0–100 com pesos editáveis (25/25/20/15/10/5),
+  aprendizado 2/3 × validação 1/3, recomendado = menor % a 3 pontos do melhor nos dois; faixa segura = 5 pontos.
+  Confiança no máximo "Média" enquanto não houver estoque diário do período (export de movimentações veio incompleto).
+  SEM caixa. Teste `test_simulador.py` (os 15 pedidos) + passo de tela em `test_estoque_categorias.py`.
 - **Marca "Perfume Árabe" (02/10)**: "árabe", "masculina", "alta fixação"… estão em `categorias.GENERICAS` (palavra de
   anúncio nunca é marca). No Por marca, cada produto tem 🔗 vincular (`estoque_marca_salvar`, vence o título). O KPI de
   custo do Por marca é do DISPONÍVEL sem marcas paradas; a tela Estoque soma o atual (com vendidos aguardando envio e

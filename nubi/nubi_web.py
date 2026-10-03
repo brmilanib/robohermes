@@ -51,6 +51,7 @@ import precos
 import bazar
 import decants
 import financeiro
+import simulador
 import marketing
 import vendas_hoje
 import revisao
@@ -8747,6 +8748,127 @@ def rota_meli(repo, metodo, rota, q, corpo):
     raise ErroNuvem("Rota do Mercado Livre desconhecida.", 404)
 
 
+# ---------------------------------------------------------------------------
+# 📊 Simulador de Estratégia de Reposição (card #151, 03/10). Regras e backtest em simulador.py (docstring). SEM caixa.
+# ---------------------------------------------------------------------------
+SIMULACAO_CHAVE = "reposicao|simulacao|"          # + estrategia (saudavel / arrumar): o último resultado
+PCT_HIST = "reposicao|percentual_hist"             # alterações confirmadas pelo Bruno (nunca automáticas)
+
+
+def simulador_estado(repo):
+    cfg, _ = _ia_json(repo, REPOSICAO_CFG)
+    hist, _ = _ia_json(repo, PCT_HIST)
+    out = {"pct_atual": cfg.get("pct") or simulador.PCT_PADRAO, "pesos": cfg.get("pesos_sim") or simulador.PESOS_PADRAO,
+           "historico": (hist or {}).get("itens", [])[-10:], "ultimas": {}}
+    for e in ("saudavel", "arrumar"):
+        r, em = _ia_json(repo, SIMULACAO_CHAVE + e)
+        if r:
+            out["ultimas"][e] = dict(r, em=em)
+    return out
+
+
+def simulador_rodar(repo, d):
+    """POST {dias (30/60/90/180) | inicio, fim; pmin, pmax, passo, pesos, estrategia}: usa as vendas por dia guardadas
+    (`vendas_anuncio_dia|`), o estoque de hoje (disponível + trânsito, custo médio), as fotos de estoque desde 24/09 e a
+    margem pós ADS da Curva ABC do Gestor. Nada de caixa."""
+    hoje = _agora_br().date()
+    try:
+        if d.get("inicio") and d.get("fim"):
+            ini, fim = date.fromisoformat(d["inicio"]), date.fromisoformat(d["fim"])
+        else:
+            n = max(7, min(400, int(d.get("dias") or 90)))
+            fim = hoje - timedelta(days=1)
+            ini = fim - timedelta(days=n - 1)
+        pmin, pmax = max(1, int(d.get("pmin") or 25)), min(150, int(d.get("pmax") or 60))
+        passo = max(1, int(d.get("passo") or 1))
+    except (TypeError, ValueError):
+        raise ErroNuvem("Período ou percentuais inválidos.")
+    if pmin > pmax or (pmax - pmin) / passo > 150:
+        raise ErroNuvem("Faixa de percentuais inválida.")
+    estrategia = "arrumar" if d.get("estrategia") == "arrumar" else "saudavel"
+    dd = _reposicao_dados(repo, dias=(hoje - ini).days + 31)
+    if not dd:
+        raise ErroNuvem("Sem estoque importado.")
+    todos = sorted(dd["vendas_dia"])
+    dias = [x for x in todos if ini.isoformat() <= x <= fim.isoformat()]
+    # dias sem arquivo no meio do período: entram como dia sem venda só se o arquivo existe; senão ficam fora (aviso)
+    faltando = []
+    cur = ini
+    while cur <= fim:
+        if cur.isoformat() not in dd["vendas_dia"]:
+            faltando.append(cur.isoformat())
+        cur += timedelta(days=1)
+    if not dias:
+        raise ErroNuvem("Sem vendas por dia guardadas nesse período (o coletor ainda está puxando o histórico).")
+    abc = _vendas_atuais(repo, GESTOR_ABC_CHAVE) or {}
+    margens = {estoque._chave(l["sku"]): float(l["mpa_pct"]) for l in abc.get("linhas") or [] if l.get("sku") and l.get("mpa_pct") is not None}
+    precos = {}
+    for v in dd["vendas_dia"].values():
+        for k, x in v.items():
+            if x.get("un") and x.get("valor"):
+                a = precos.setdefault(k, [0.0, 0.0])
+                a[0] += x["valor"]
+                a[1] += x["un"]
+    itens = {}
+    for it in dd["itens"]:
+        k = estoque._chave(it["sku"])
+        itens[k] = {"estoque": float(it.get("disponivel") or 0) + float(it.get("transito") or 0),
+                    "custo": float(it["custo"]) if it.get("custo") else None,
+                    "preco": round(precos[k][0] / precos[k][1], 2) if k in precos and precos[k][1] else None,
+                    "margem": margens.get(k), "titulo": it.get("titulo")}
+    antes = [x for x in todos if x < dias[0]][-30:]
+    hist_antes = {}
+    for x in antes:
+        for k, v in dd["vendas_dia"][x].items():
+            hist_antes.setdefault(k, [0.0] * len(antes))
+    for i, x in enumerate(antes):
+        for k, v in dd["vendas_dia"][x].items():
+            hist_antes[k][i] = float(v.get("un") or 0)
+    cfg, _ = _ia_json(repo, REPOSICAO_CFG)
+    c = {k: cfg[k] for k in ("prazo", "dura_a", "dura_bc") if cfg.get(k) is not None}
+    pesos = {k: float(v) for k, v in (d.get("pesos") or cfg.get("pesos_sim") or {}).items() if k in simulador.PESOS_PADRAO}
+    r = simulador.rodar(dias, dd["vendas_dia"], itens, c, pmin, pmax, passo, pesos, dd.get("estoque_dia"), estrategia,
+                        hist_antes, int(cfg.get("pct") or simulador.PCT_PADRAO))
+    titulos = {k: (v.get("titulo") or k) for k, v in itens.items()}
+    for cen in r["cenarios"]:
+        cen["rupturas_por_sku"] = [{"sku": k, "titulo": titulos.get(k, k), "dias": v} for k, v in cen["rupturas_por_sku"].items()][:15]
+    r.update(dias_faltando=faltando[:60], n_faltando=len(faltando), estoque_hoje=round(sum((x["estoque"] or 0) * (x["custo"] or 0) for x in itens.values()), 2),
+             dados_usados=["vendas por anúncio do UpSeller por dia (só pedidos válidos)", "estoque de hoje (disponível + trânsito) e custo médio do UpSeller",
+                           f"fotos de estoque do nubi ({len(dd.get('estoque_dia') or {})} dias)",
+                           "margem pós ADS da Curva ABC do Gestor" if margens else "sem margem do Gestor (lucro pelo custo)",
+                           f"prazo de entrega {c.get('prazo', 5)} dias (único, da reposição)"])
+    if pesos:
+        cfg["pesos_sim"] = dict(simulador.PESOS_PADRAO, **pesos)
+        _ia_gravar(repo, REPOSICAO_CFG, cfg)
+    _ia_gravar(repo, SIMULACAO_CHAVE + estrategia, r)
+    return r
+
+
+def simulador_aplicar(repo, d):
+    """Só com confirmação do Bruno: grava o novo percentual e registra data, anterior, novo, período, resultado e quem."""
+    if not d.get("confirmar"):
+        return {"ok": False, "cancelado": True}
+    try:
+        novo = int(d.get("pct"))
+    except (TypeError, ValueError):
+        raise ErroNuvem("Percentual inválido.")
+    if not 1 <= novo <= 150:
+        raise ErroNuvem("Percentual fora da faixa.")
+    cfg, _ = _ia_json(repo, REPOSICAO_CFG)
+    anterior = int(cfg.get("pct") or simulador.PCT_PADRAO)
+    cfg["pct"] = novo
+    _ia_gravar(repo, REPOSICAO_CFG, cfg)
+    hist, _ = _ia_json(repo, PCT_HIST)
+    sim, _ = _ia_json(repo, SIMULACAO_CHAVE + ("arrumar" if d.get("estrategia") == "arrumar" else "saudavel"))
+    item = {"em": datetime.now(timezone.utc).isoformat(), "anterior": anterior, "novo": novo,
+            "periodo": [sim.get("inicio"), sim.get("fim")] if sim else None, "confianca": (sim or {}).get("confianca"),
+            "resumo": (sim or {}).get("resumo"), "quem": str(getattr(repo, "email", "") or "Bruno")}
+    hist = hist or {}
+    hist.setdefault("itens", []).append(item)
+    _ia_gravar(repo, PCT_HIST, hist)
+    return {"ok": True, "pct": novo, "registro": item}
+
+
 def rota_estoque(repo, metodo, rota, q, corpo):
     if rota == "estoque_vendas_importar" and metodo == "POST":
         return vendas_importar(repo, corpo, (q.get("arquivo") or "Vendas_por_Produtos.xlsx")[:200],
@@ -8810,6 +8932,10 @@ def rota_estoque(repo, metodo, rota, q, corpo):
         return reposicao_config_salvar(repo, json.loads(corpo or b"{}"))
     if rota == "estoque_reposicao_mercado" and metodo == "POST":
         return reposicao_mercado(repo)
+    if rota == "estoque_simulador":              # card #151: Simulador de Estratégia de Reposição
+        return simulador_rodar(repo, json.loads(corpo or b"{}")) if metodo == "POST" else simulador_estado(repo)
+    if rota == "estoque_simulador_aplicar" and metodo == "POST":
+        return simulador_aplicar(repo, json.loads(corpo or b"{}"))
     if rota == "estoque_markup_salvar" and metodo == "POST":
         return estoque_markup_salvar(repo, json.loads(corpo or b"{}").get("markup"))
     if rota == "estoque_niveis":

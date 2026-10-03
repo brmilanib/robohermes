@@ -786,6 +786,7 @@ header.top{flex-wrap:nowrap;min-height:var(--header-h)}
 .rp-t tr.rp-curva td{font-size:13.5px;padding:9px 10px;border-top:3px solid #94a3b8;background:var(--card)}.rp-t tr.rp-curva-A td{border-top-color:#2563eb}.rp-t tr.rp-curva-B td{border-top-color:#f59e0b}
 .gp-msg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-size:12.5px}.gp-msg label{display:flex;flex-direction:column;gap:3px}.gp-msg textarea{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;background:var(--card);color:inherit;resize:vertical}@media (max-width:640px){.gp-msg{grid-template-columns:1fr}}
 .lc-marca .gp-bts{margin-left:auto;display:inline-flex;gap:6px}.lc-marca{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sim-modal{max-width:1180px!important;width:96vw}.sim-t tr.sim-rec td{background:rgba(16,185,129,.12)}.sim-t tr.sim-atual td{background:rgba(59,130,246,.1)}.sim-grafs{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:12px}.sim-grafs h4{margin:4px 0;font-size:13px}
 .rp-gerar{position:sticky;bottom:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end;padding:10px 0 2px;background:var(--card);border-top:1px solid var(--line);margin-top:8px}.rp-gerar #rp-tot{margin-right:auto}
 .hd-calc{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:999px;border:1px solid rgba(255,255,255,.28);background:transparent;color:#fff;cursor:pointer;flex:none}.hd-calc:hover{background:rgba(255,255,255,.12)}
 .lc-t input.lc-q{width:68px;text-align:right;border:1px solid var(--line);border-radius:7px;padding:4px 6px;background:var(--card);color:inherit;font:inherit;font-weight:700}
@@ -3675,6 +3676,7 @@ async function telaReposicao() {
       <label title="curva B e C vendem mais devagar: menos dinheiro parado">Curva B e C <input type="number" id="rp-dura-bc" value="${cfg.dura_bc}" min="3" max="90" style="width:52px"> dias</label>
       <span class="muted">+ ${g.prazo} de entrega${cfg.caixa ? ` · caixa ${FMT.moeda(cfg.caixa)}` : ""}</span>
       <button class="btn small primary" id="rp-regras">⚙️ Regras da reposição</button>
+      <button class="btn small primary" id="rp-sim" title="testa no histórico de vendas qual % das vendas de 7 dias repor por semana">📊 Simular melhor percentual</button>
       <button class="btn small" id="rp-merc">🔄 Atualizar mercado</button>
       <label class="btn small" title="UpSeller → Produtos → Exportar (export_warehouse_products…xlsx): código de barras e custo de compra">📦 Cadastro UpSeller${r.cadastro ? ` (${r.cadastro.skus})` : ""}<input type="file" id="rp-cad" accept=".xlsx" hidden></label></div>
     <div class="seg" style="margin-bottom:10px;flex-wrap:wrap">${[["pedido", "🛒 Pedido"], ["precos", "📣 Preço (" + r.precos.length + ")"], ["full", "🚚 Full (top " + g.top_full + ")"], ["campeoes", "🏆 Campeões"], ["parado", "💰 Dinheiro parado"], ["mao", "✋ Na mão (" + r.manuais.length + ")"]].map(([k, t]) => `<button data-rpa="${k}" class="${aba === k ? "on" : ""}">${t}</button>`).join("")}</div>
@@ -3690,6 +3692,7 @@ async function telaReposicao() {
   $("#rp-dura-bc").onchange = e => { const v = Math.max(3, Math.min(90, parseInt(e.target.value) || 15)); if (v === cfg.dura_bc) return; setTimeout(() => salvar({dura_bc: v})); };
   main.querySelectorAll("[data-rpc]").forEach(b => b.onclick = () => { S.rpCurva = b.dataset.rpc; telaReposicao(); });
   $("#rp-regras").onclick = () => regrasReposicao(r, salvar);
+  $("#rp-sim").onclick = () => simuladorReposicao();
   const totais = () => { let n = 0, u = 0, v = 0; ped.forEach(l => { const q = +quer(l) || 0; if (q > 0) { n++; u += q; v += q * (ult(l) || 0); } }); return {n, u, v}; };
   const mostraTot = () => { const t = totais(), el = $("#rp-tot"); if (el) el.innerHTML = `${{A: "Campeões", B: "Curva B", C: "Curva C", todos: "Todas as curvas"}[curva]}: <b>${un(t.n)}</b> produtos · <b>${un(t.u)}</b> un. · <b>${FMT.moeda(t.v)}</b> pelo custo médio${rs.caixa && t.v > rs.caixa ? ` <span class="neg">(passa o caixa em ${FMT.moeda(t.v - rs.caixa)})</span>` : ""}`; };
   mostraTot();
@@ -3724,6 +3727,101 @@ function abrirListaCompra() { location.hash = "#/estoque/reposicao"; }
 const lcLer = () => { try { return JSON.parse(localStorage.getItem("nubi-lc") || "{}"); } catch (e) { return {}; } };
 const lcGravar = v => { try { localStorage.setItem("nubi-lc", JSON.stringify(v)); } catch (e) { /* sem armazenamento: segue */ } };
 // 02/10 (Bruno: "as nossas regras num botão que abre no meio, fica mais bonito", como as Regras de Reposição do UpSeller)
+// 📊 Simulador de Estratégia de Reposição (card #151, 03/10; pedido do Bruno). Só operacional: nada de caixa.
+// O backtest roda no servidor (simulador.py): estoque de hoje + as vendas reais do período, dia a dia, sem dado futuro.
+const SIM_PESOS = [["disponibilidade", "Disponibilidade e atendimento"], ["ruptura_a", "Menos ruptura da curva A"], ["giro", "Giro do estoque"],
+  ["excesso", "Menos excesso de estoque"], ["regularidade", "Regularidade das compras"], ["lucro", "Margem/lucro potencial"]];
+async function simuladorReposicao() {
+  let est;
+  try { est = await api("estoque_simulador"); } catch (e) { return toast(e.message); }
+  const P = Object.assign({estrategia: "arrumar", dias: 90, pmin: 25, pmax: 60, passo: 1}, S.simP || {});
+  const pes = Object.assign({}, est.pesos);
+  const bg = modal(`<h2 style="margin-top:0">📊 Simular melhor percentual</h2>
+    <p class="muted" style="margin-top:-6px">Limite semanal de compra = <b>X% do faturamento dos 7 dias anteriores</b>, dividido em segunda 40% · quarta 34% · sexta 26%.
+      Percentual atual: <b>${est.pct_atual}%</b>. A simulação é só operacional (vendas, estoque, giro, ruptura e margem): <b>não existe controle de caixa</b> nesta etapa.</p>
+    <div class="seg" id="sim-est" style="margin-bottom:10px">${[["arrumar", "🧹 Arrumar o estoque (só campeões compram)"], ["saudavel", "🌱 Regra saudável (todas as curvas)"]].map(([k, t]) => `<button data-est="${k}" class="${P.estrategia === k ? "on" : ""}">${t}</button>`).join("")}</div>
+    <div class="rg-g">
+      <label class="rg-c"><span>Período</span><div><select id="sim-dias">${[30, 60, 90, 180].map(d => `<option value="${d}" ${+P.dias === d ? "selected" : ""}>últimos ${d} dias</option>`).join("")}<option value="p" ${P.dias === "p" ? "selected" : ""}>personalizado</option></select></div>
+        <small class="muted" id="sim-per"><input type="date" id="sim-ini" value="${P.inicio || ""}"> a <input type="date" id="sim-fim" value="${P.fim || ""}"></small></label>
+      <label class="rg-c"><span>Percentual mínimo</span><div><input type="number" id="sim-min" value="${P.pmin}" min="1" max="150"></div><small class="muted">%</small></label>
+      <label class="rg-c"><span>Percentual máximo</span><div><input type="number" id="sim-max" value="${P.pmax}" min="1" max="150"></div><small class="muted">%</small></label>
+      <label class="rg-c"><span>Intervalo</span><div><input type="number" id="sim-passo" value="${P.passo}" min="1" max="10"></div><small class="muted">pontos percentuais</small></label>
+    </div>
+    <details style="margin:10px 0"><summary class="muted">⚖️ Pesos da pontuação de equilíbrio (editáveis)</summary>
+      <div class="rg-g" style="margin-top:8px">${SIM_PESOS.map(([k, t]) => `<label class="rg-c"><span>${t}</span><div><input type="number" data-peso="${k}" value="${pes[k]}" min="0" max="100"></div><small class="muted">%</small></label>`).join("")}</div></details>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" data-fechar>Fechar</button><button class="btn primary" id="sim-rodar">▶ Executar simulação</button></div>
+    <div id="sim-res" style="margin-top:14px"></div>`);
+  bg.querySelector(".modal").classList.add("rg-modal", "sim-modal");
+  const per = () => { bg.querySelector("#sim-per").style.display = bg.querySelector("#sim-dias").value === "p" ? "" : "none"; };
+  per(); bg.querySelector("#sim-dias").onchange = per;
+  bg.querySelectorAll("[data-est]").forEach(b => b.onclick = () => { P.estrategia = b.dataset.est; bg.querySelectorAll("[data-est]").forEach(x => x.classList.toggle("on", x === b));
+    const u = est.ultimas[P.estrategia]; u ? desenharSim(bg, u, est) : (bg.querySelector("#sim-res").innerHTML = ""); });
+  if (est.ultimas[P.estrategia]) desenharSim(bg, est.ultimas[P.estrategia], est);
+  bg.querySelector("#sim-rodar").onclick = async () => {
+    const v = id => bg.querySelector("#" + id).value, d = v("sim-dias");
+    Object.assign(P, {dias: d === "p" ? "p" : +d, pmin: +v("sim-min"), pmax: +v("sim-max"), passo: +v("sim-passo"), inicio: v("sim-ini"), fim: v("sim-fim")});
+    S.simP = P;
+    const corpo = {estrategia: P.estrategia, pmin: P.pmin, pmax: P.pmax, passo: P.passo, pesos: {}};
+    if (d === "p") { if (!P.inicio || !P.fim) return toast("Escolha o início e o fim"); corpo.inicio = P.inicio; corpo.fim = P.fim; } else corpo.dias = +d;
+    bg.querySelectorAll("[data-peso]").forEach(i => corpo.pesos[i.dataset.peso] = +i.value || 0);
+    const res = bg.querySelector("#sim-res");
+    res.innerHTML = `<div class="nload" style="position:static;height:auto;padding:20px"><div class="nbarra"></div><div class="nmsg">Simulando ${P.pmax - P.pmin + 1} percentuais no histórico…</div></div>`;
+    try { const r = await api("estoque_simulador", {}, {method: "POST", body: JSON.stringify(corpo)}); est.ultimas[P.estrategia] = r; desenharSim(bg, r, est); }
+    catch (e) { res.innerHTML = `<p class="neg">${esc(e.message)}</p>`; }
+  };
+}
+function desenharSim(bg, r, est) {
+  const res = bg.querySelector("#sim-res"), M = FMT.moeda, n0 = v => v == null ? "—" : nf0.format(v), n1 = v => v == null ? "—" : nf1.format(v);
+  const por = {}; r.cenarios.forEach(c => por[c.pct] = c);
+  const atual = por[r.pct_atual], rec = r.recomendado != null ? por[r.recomendado] : null;
+  const dest = [...new Set([30, 35, r.pct_atual, 40, 45, 50, r.recomendado].filter(p => p != null && por[p]))].sort((a, b) => a - b);
+  const conf = {"Alta": "pos", "Média": "", "Baixa": "neg", "Dados insuficientes": "neg"}[r.confianca] || "";
+  const dif = (c, k, f = M) => rec && atual ? `${rec[k] - atual[k] >= 0 ? "+" : ""}${f(rec[k] - atual[k])}` : "—";
+  const linha = c => `<tr class="${c.pct === r.recomendado ? "sim-rec" : c.pct === r.pct_atual ? "sim-atual" : ""}"><td><b>${c.pct}%</b>${c.pct === r.pct_atual ? " atual" : ""}${c.pct === r.recomendado ? " ⭐ recomendado" : ""}</td>
+    <td class="num">${M(c.comprado)}</td><td class="num">${M(c.compra_media_semana)}</td><td class="num">${M(c.estoque_final)}</td><td class="num">${M(c.estoque_medio)}</td><td class="num">${n1(c.cobertura_dias)} d</td>
+    <td class="num">${n0(c.ruptura_a)}</td><td class="num">${n0(c.ruptura_b)}</td><td class="num">${c.giro == null ? "—" : nf2.format(c.giro)}</td><td class="num">${M(c.vendas_atendidas)}</td>
+    <td class="num muted">${M(c.vendas_perdidas_estimadas)}</td><td class="num">${M(c.lucro_potencial)}</td><td class="num"><b>${n1(c.pontuacao)}</b></td></tr>`;
+  res.innerHTML = `<div class="card pad" style="background:var(--bg2,transparent)">
+      <div class="kpis" style="margin-bottom:8px">
+        ${kpi("Período", `${dataBR(r.inicio)} a ${dataBR(r.fim)}`, `${r.dias} dias · ${r.semanas} semanas · ${n0(r.produtos)} produtos`)}
+        ${kpi("Percentual atual", r.pct_atual + "%", atual ? `pontuação ${n1(atual.pontuacao)}` : "")}
+        ${kpi("Recomendado", r.recomendado != null ? `<span class="pos">${r.recomendado}%</span>` : "—", r.faixa_segura ? `faixa segura ${r.faixa_segura[0]}% a ${r.faixa_segura[1]}%` : "sem faixa segura")}
+        ${kpi("Confiança", `<span class="${conf}">${esc(r.confianca)}</span>`, `estoque de hoje ${M(r.estoque_hoje)}`)}
+      </div>
+      <p>${esc(r.resumo || "")}</p>
+      ${rec && atual && rec !== atual ? `<p class="muted">Diferença do recomendado para o atual: compras ${dif(null, "comprado")} · estoque médio ${dif(null, "estoque_medio")} · rupturas A ${dif(null, "ruptura_a", n0)} · vendas atendidas ${dif(null, "vendas_atendidas")}.</p>` : ""}
+      ${r.falta && r.falta.length ? `<div class="aviso">⚠️ Falta para a confiança subir: ${r.falta.map(esc).join("; ")}.</div>` : ""}
+      ${r.n_faltando ? `<div class="aviso">📅 ${r.n_faltando} dia(s) do período ainda sem vendas guardadas (o coletor está puxando o histórico): ficaram fora da simulação.</div>` : ""}
+      <p class="muted" style="font-size:12px">Rupturas históricas estimadas pela venda: ${n0(r.rupturas_historicas)} dias-produto em ${n0(r.skus_ruptura_historica)} produtos. A venda desses dias entra como <b>venda potencial estimada</b>, nunca como venda real. Aprendizado ${dataBR(r.aprendizado.inicio)}–${dataBR(r.aprendizado.fim)} · validação ${dataBR(r.validacao.inicio)}–${dataBR(r.validacao.fim)}.</p>
+      ${r.recomendado != null && r.recomendado !== r.pct_atual && r.confianca !== "Dados insuficientes" ? `<button class="btn primary" id="sim-aplicar">✔ Aplicar percentual recomendado (${r.recomendado}%)</button>` : ""}
+    </div>
+    <h3>Cenários em destaque</h3>
+    <div class="rolar"><table class="t sim-t" style="font-size:12.5px"><thead><tr><th>%</th><th class="num">Compras</th><th class="num">Média/semana</th><th class="num">Estoque final</th><th class="num">Estoque médio</th><th class="num">Cobertura</th><th class="num">Rupturas A</th><th class="num">Rupturas B</th><th class="num">Giro</th><th class="num">Vendas atendidas</th><th class="num">Venda potencial perdida (estimada)</th><th class="num">Lucro potencial</th><th class="num">Pontuação</th></tr></thead>
+      <tbody>${dest.map(p => linha(por[p])).join("")}</tbody></table></div>
+    <details style="margin-top:8px"><summary class="muted">Todos os ${r.cenarios.length} percentuais</summary><div class="rolar"><table class="t sim-t" style="font-size:12px"><tbody>${r.cenarios.map(linha).join("")}</tbody></table></div></details>
+    <div class="sim-grafs">${[["rup", "% × rupturas (dias-produto)"], ["est", "% × estoque médio (R$)"], ["giro", "% × giro"], ["ven", "% × vendas atendidas (R$)"], ["pts", "% × pontuação de equilíbrio"]].map(([k, t]) => `<div><h4>${t}</h4><div id="sg-${k}"></div></div>`).join("")}</div>
+    ${rec && rec.rupturas_por_sku && rec.rupturas_por_sku.length ? `<h3>Produtos com mais ruptura no recomendado</h3><p class="muted" style="font-size:12px">${rec.rupturas_por_sku.slice(0, 10).map(x => `${esc(x.titulo)} (${x.dias} d)`).join(" · ")}</p>` : ""}
+    <p class="muted" style="font-size:12px">Dados usados: ${(r.dados_usados || []).map(esc).join(" · ")}.</p>`;
+  const rot = r.cenarios.map(c => c.pct + "%");
+  const g = (id, k, fmt, cor = "#3b82f6") => grafLinhas(res.querySelector("#sg-" + id), {rotulos: rot, fmt, fmtEixo: fmt, altura: 180, rotFim: false, zero: false,
+    series: Array.isArray(k) ? k : [{nome: id, cor, v: r.cenarios.map(c => c[k])}]});
+  g("rup", [{nome: "curva A", cor: "#ef4444", v: r.cenarios.map(c => c.ruptura_a)}, {nome: "curva B", cor: "#f59e0b", v: r.cenarios.map(c => c.ruptura_b)}], v => nf0.format(v));
+  g("est", "estoque_medio", abrev, "#8b5cf6"); g("giro", "giro", v => nf2.format(v), "#10b981"); g("ven", "vendas_atendidas", abrev, "#3b82f6"); g("pts", "pontuacao", v => nf0.format(v), "#f97316");
+  const ap = res.querySelector("#sim-aplicar");
+  if (ap) ap.onclick = () => {
+    const c = modal(`<h2 style="margin-top:0">Aplicar ${r.recomendado}%?</h2>
+      <p>Percentual atual: <b>${r.pct_atual}%</b> → novo: <b>${r.recomendado}%</b> · confiança <b>${esc(r.confianca)}</b></p>
+      <p class="muted">Impacto estimado no período simulado: compras ${dif(null, "comprado")}, estoque médio ${dif(null, "estoque_medio")}, rupturas A ${dif(null, "ruptura_a", n0)}, vendas atendidas ${dif(null, "vendas_atendidas")}. Só operacional: o caixa não foi avaliado.</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="ap-nao">Cancelar</button><button class="btn primary" id="ap-sim">Confirmar alteração</button></div>`);
+    c.querySelector("#ap-nao").onclick = async () => { await api("estoque_simulador_aplicar", {}, {method: "POST", body: JSON.stringify({confirmar: false})}).catch(() => {}); c.remove(); toast("Nada mudou"); };
+    c.querySelector("#ap-sim").onclick = async () => {
+      try { await api("estoque_simulador_aplicar", {}, {method: "POST", body: JSON.stringify({confirmar: true, pct: r.recomendado, estrategia: r.estrategia})});
+        c.remove(); toast(`Percentual alterado para ${r.recomendado}%`); r.pct_atual = r.recomendado; est.pct_atual = r.recomendado; desenharSim(bg, r, est); }
+      catch (e) { toast(e.message); }
+    };
+  };
+}
+
 function regrasReposicao(r, salvar) {
   const cfg = r.cfg, g = r.regras, un = v => nf0.format(v || 0);
   const campo = (id, rot, val, ajuda, extra = "") => `<label class="rg-c"><span>${rot}</span><div><input type="number" id="${id}" value="${val ?? ""}" ${extra}></div><small class="muted">${ajuda}</small></label>`;

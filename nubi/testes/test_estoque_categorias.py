@@ -217,6 +217,17 @@ try:
                 pg.wait_for_selector("#rp-dura-a", timeout=20000)
                 pg.click("#rp-regras"); pg.wait_for_selector("#rg-caixa", timeout=8000)
                 pg.fill("#rg-caixa", ""); pg.click("#rg-salvar"); pg.wait_for_timeout(1500)
+                # 03/10 (card #151): 📊 Simular melhor percentual abre, roda pela rota e mostra o resultado (ou o aviso)
+                pg.wait_for_selector("#rp-sim", timeout=20000)
+                pg.click("#rp-sim"); pg.wait_for_selector("#sim-rodar", timeout=15000)
+                assert "não existe controle de caixa" in pg.inner_text(".modal")
+                pg.select_option("#sim-dias", "30"); pg.fill("#sim-min", "30"); pg.fill("#sim-max", "40")
+                with pg.expect_response(lambda r_: "estoque_simulador" in r_.url and r_.request.method == "POST", timeout=60000) as rs_:
+                    pg.click("#sim-rodar")
+                assert rs_.value.status in (200, 400), rs_.value.text()[:400]
+                pg.wait_for_function("() => { const t = (document.querySelector('#sim-res') || {}).innerText || ''; return /Cenários|Sem vendas|inválid|Sem estoque/.test(t); }", timeout=30000)
+                pg.screenshot(path=os.path.join(os.environ.get("TMPDIR", "/tmp"), f"simulador_{nome}.png"), full_page=False)
+                pg.click(".sim-modal [data-fechar]")
             pg.goto(f"http://127.0.0.1:{PORTA}/#/estoque/categorias")
             pg.wait_for_selector("text=Estoque por categoria", timeout=15000); pg.wait_for_selector("#ec-marcas table", timeout=15000)
             txt = pg.inner_text("#main")
