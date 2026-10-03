@@ -756,6 +756,7 @@ select.catsel{border:1px solid var(--line);border-radius:6px;padding:3px 6px;bac
 .nover.feito .nm{animation:none;stroke-dashoffset:0}
 .nover.feito .nbarra{display:none}
 .nover.sai{opacity:0;transition:opacity .25s}
+.nover.leve{background:transparent;backdrop-filter:none}
 .nok{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--good);color:#fff;font-weight:700;font-size:13px;margin-right:4px}
 .nover.feito .nmsg{color:var(--ink);font-weight:600}
 @keyframes ngira{to{transform:rotate(360deg)}}
@@ -1497,7 +1498,25 @@ async function corpoCsv(f) {
     return {body: comp, headers: {"Content-Type": "application/octet-stream", "X-Nubi-Gzip": "1"}};
   } catch { return {body: bruto, headers: {"Content-Type": "text/csv"}}; }
 }
+// 03/10 (Bruno: "essa técnica tem que ir para o sistema inteiro: cache, busca mais rápida"): leitura (GET) guardada por 3
+// min na memória da página; pedido igual em andamento é reaproveitado (sem 2 idas ao servidor); qualquer gravação (POST…)
+// limpa tudo, para nunca mostrar número velho depois de mudar algo. Rotas "ao vivo" ficam fora. F5 zera.
+const API_CACHE = new Map(), API_VOO = new Map(), API_TTL = 180000;
+const API_AO_VIVO = /status|tick|pendente|versao|coletor|vendas_hoje|vendas_tv|agente|whatsapp|mac_|alerta|reuniao|tarefa|monitor|uso|sala|atendimento|chat|log|notificac|pedido|fila|ao_vivo|sessao|login|meli_|ml_|busca|descobrir|ficha|pesquis|agora/;
 async function api(rota, params = {}, opts = {}) {
+  const metodo = (opts.method || "GET").toUpperCase();
+  if (metodo !== "GET") { API_CACHE.clear(); return apiRede(rota, params, opts); }
+  if (opts.blob || opts.semCache || API_AO_VIVO.test(rota)) return apiRede(rota, params, opts);
+  const k = rota + "?" + new URLSearchParams(params).toString();
+  const c = API_CACHE.get(k);
+  if (c && Date.now() - c.t < API_TTL) return structuredClone(c.j);
+  if (API_VOO.has(k)) return structuredClone(await API_VOO.get(k));
+  const p = apiRede(rota, params, opts);
+  API_VOO.set(k, p);
+  try { const j = await p; API_CACHE.set(k, {j, t: Date.now()}); return structuredClone(j); }
+  finally { API_VOO.delete(k); }
+}
+async function apiRede(rota, params = {}, opts = {}) {
   const {data} = await sb.auth.getSession();
   const token = data.session?.access_token;
   const q = new URLSearchParams({r: rota, ...params});
@@ -2127,6 +2146,7 @@ async function rotear() {
   if (base !== rotaAnterior) {          // mudou de tela: fecha janelas abertas e volta ao topo
     if (rotaAnterior !== null) document.querySelectorAll(".modal-bg").forEach(x => x.remove());
     rotaAnterior = base; scrollTo(0, 0);
+    if ($("#main")) $("#main").dataset.tl = "";      // tela nova: o "carregando" ocupa a tela inteira
   }
   if (!location.hash || location.hash === "#") history.replaceState(null, "", "#/inicio");   // tela padrão: Início
   const sec = secaoAtual();
@@ -2204,7 +2224,7 @@ async function telaRanking(cat, mes) {
     desenharMenu(); return;
   }
   cat = cat || S.rankLista[0].categoria;
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o ranking</div></div>`;
+  telaCarregando(main, `Carregando o ranking`);
   let r;
   try { r = await api("ranking_relatorio", mes ? {categoria: cat, mes} : {categoria: cat}); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -2647,7 +2667,7 @@ async function telaCategorias(cat) {
   if (!S.rankLista) await carregarRankLista();
   if (!S.rankLista.length) return telaRanking();
   cat = cat || S.rankLista[0].categoria;
-  if (!$("#cat-raiz")) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Separando as marcas por categoria</div></div>`;
+  if (!$("#cat-raiz")) telaCarregando(main, `Separando as marcas por categoria`);
   let r;
   try { r = await api("ranking_categorias", {categoria: cat}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.cats = r; S.tabelas = S.tabelas || {};
@@ -2797,7 +2817,7 @@ async function telaBI(cat) {
   cat = cat || S.rankLista[0].categoria;
   const f = S.biFiltro && S.biFiltro.categoria === cat ? S.biFiltro : (S.biFiltro = {categoria: cat, desde: "", ate: "", per: "3m"});
   if ($("#bi-raiz")) $("#bi-raiz").style.opacity = .5;
-  else main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando o B.I.</div></div>`;
+  else telaCarregando(main, `Montando o B.I.`);
   let r;
   try { r = await api("ranking_bi", {categoria: cat, ...(f.desde ? {desde: f.desde} : {}), ...(f.ate ? {ate: f.ate} : {})}); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -3079,7 +3099,7 @@ async function telaVendasDia() {
   const main = $("#main");
   const qs = new URLSearchParams((location.hash.split("?")[1]) || "");
   const par = {periodo: qs.get("periodo") || "30d", ...(qs.get("vendedor") ? {vendedor: qs.get("vendedor")} : {}), ...(qs.get("data") ? {data: qs.get("data")} : {})};
-  if (!main.querySelector(".vd-top")) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando as vendas de cada dia</div></div>`;
+  if (!main.querySelector(".vd-top")) telaCarregando(main, `Carregando as vendas de cada dia`);
   let r;
   try { r = await api("vend_diario", par); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const ir = mud => { const n = {...par, ...mud}; Object.keys(n).forEach(k => n[k] == null && delete n[k]); location.hash = "#/vendas-dia?" + new URLSearchParams(n); };
@@ -3180,7 +3200,7 @@ async function telaVendasDia() {
 // ---------- Produtos iguais: títulos diferentes do mesmo perfume que a IA juntou (conferir e separar) ----------
 async function telaProdutosIguais() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando os produtos juntados</div></div>`;
+  telaCarregando(main, `Carregando os produtos juntados`);
   let r;
   try { r = await api("vend_produtos_iguais"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const q = (S.piBusca || "").toLowerCase();
@@ -3274,7 +3294,7 @@ function donut(box, itens, fmt) {
 async function telaConcorrentes() {
   const main = $("#main");
   const qs = new URLSearchParams(location.hash.split("?")[1] || "");
-  if (!main.querySelector("#cc-raiz")) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Comparando os concorrentes</div></div>`;
+  if (!main.querySelector("#cc-raiz")) telaCarregando(main, `Comparando os concorrentes`);
   let r;
   try { r = await api("vend_concorrentes", {...(qs.get("desde") ? {desde: qs.get("desde")} : {}), ...(qs.get("ate") ? {ate: qs.get("ate")} : {})}); }
   catch (e) { main.innerHTML = `<h1>⚖️ Comparar concorrentes</h1><div class="card empty" style="margin-top:14px"><h2>Não foi possível carregar a comparação.</h2><button class="btn" id="cc-retry">Tentar novamente</button></div>`; $("#cc-retry").onclick = telaConcorrentes; desenharMenu(); return; }
@@ -3380,7 +3400,7 @@ async function telaConcorrentes() {
 async function telaConcVendedor(vend) {
   const main = $("#main");
   const qs = new URLSearchParams(location.hash.split("?")[1] || "");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando os produtos de ${esc(vend)}</div></div>`;
+  telaCarregando(main, `Carregando os produtos de ${esc(vend)}`);
   let r;
   try {
     if (!qs.get("ate")) { const c = await api("vend_concorrentes"); qs.set("desde", c.desde); qs.set("ate", c.ate); }
@@ -3480,7 +3500,7 @@ function duracao(a, b) {
 async function telaExecucoes() {
   const main = $("#main");
   const dias = +(new URLSearchParams(location.hash.split("?")[1] || "").get("dias") || 7);
-  main.innerHTML = opsAbas("execucoes") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando as execuções</div></div>`;
+  telaCarregando(main, `Carregando as execuções`, opsAbas("execucoes"));
   let r;
   try { r = await api("ops_execucoes", {dias}); } catch (e) { main.innerHTML = opsAbas("execucoes") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   const filtro = S.opsFiltro || "todas";
@@ -3501,7 +3521,7 @@ async function telaExecucoes() {
 }
 async function telaErros() {
   const main = $("#main");
-  main.innerHTML = opsAbas("erros") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Procurando erros</div></div>`;
+  telaCarregando(main, `Procurando erros`, opsAbas("erros"));
   let r;
   try { r = await api("ops_erros"); } catch (e) { main.innerHTML = opsAbas("erros") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   const fontes = [...new Set(r.erros.map(e => e.fonte))];
@@ -4427,7 +4447,7 @@ function telaCurvaABC(r) {
 // margem"; relatório de vendas do Gestor com data, conta, estado e logística). Rota estoque_analise_lucro; só números.
 async function telaLucroAds() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o lucro e o ADS do Gestor Seller</div></div>`;
+  telaCarregando(main, `Lendo o lucro e o ADS do Gestor Seller`);
   let r;
   try { r = await api("estoque_analise_lucro"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/analises-vendas/lucro")) return;
@@ -4557,7 +4577,7 @@ async function prLevarBazar(xs) {
 }
 async function telaParaPromocao() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Procurando o estoque parado</div></div>`;
+  telaCarregando(main, `Procurando o estoque parado`);
   let r;
   try { r = await api("estoque_para_promocao"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/analises-vendas/promocao")) return;
@@ -4619,7 +4639,7 @@ async function bzCopiar(t, msg) { try { await navigator.clipboard.writeText(t); 
 async function telaBazar() {
   const main = $("#main");
   const aba = (location.hash.split("/")[2] || "sem_caixa").split("?")[0];
-  if (!S.bz) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo o Bazar</div></div>`;
+  if (!S.bz) telaCarregando(main, `Abrindo o Bazar`);
   let r;
   try { r = S.bz = await api("bazar"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/bazar")) return;
@@ -5223,7 +5243,7 @@ function dcEscolherTamanhos(x) {
 }
 async function telaDecants() {
   const main = $("#main");
-  if (!S.dc) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando a planilha de decants</div></div>`;
+  if (!S.dc) telaCarregando(main, `Montando a planilha de decants`);
   let r;
   try { r = S.dc = await api("decants"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/decants")) return;
@@ -5333,7 +5353,7 @@ function vhVar(a, b) {
 }
 async function telaVendasHoje() {
   const main = $("#main"), f = S.vh || (S.vh = {dia: "", comparar: ""});
-  if (!main.querySelector(".vh")) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo as vendas de hoje</div></div>`;
+  if (!main.querySelector(".vh")) telaCarregando(main, `Lendo as vendas de hoje`);
   let r;
   try { r = await api("vendas_hoje", {dia: f.dia || "", comparar: f.comparar || ""}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/analises-vendas/hoje")) return;
@@ -5576,7 +5596,7 @@ async function telaMinhasVendas() {
   if (location.hash.startsWith("#/analises-vendas/lucro")) return telaLucroAds();
   if (location.hash.startsWith("#/analises-vendas/promocao")) return telaParaPromocao();
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo as vendas por anúncio do UpSeller</div></div>`;
+  telaCarregando(main, `Lendo as vendas por anúncio do UpSeller`);
   let r;
   try { r = await api("estoque_vendas_anuncio"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/analises-vendas")) return;
@@ -5679,7 +5699,7 @@ const RK_TIPO = {tecnica: "🛠️ Técnica", hipotese: "💭 Hipótese", experi
 const RK_ST = {nova: ["", "nova"], testando: ["warn", "testando"], comprovada: ["good", "✅ comprovada"], descartada: ["bad", "descartada"]};
 async function telaRankeamento() {
   const main = $("#main");
-  main.innerHTML = esAbas("rank") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo o laboratório</div></div>`;
+  telaCarregando(main, `Abrindo o laboratório`, esAbas("rank"));
   let r;
   try { r = await api("rank_box"); } catch (e) { main.innerHTML = esAbas("rank") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/estoque/rankeamento")) return;
@@ -5967,7 +5987,7 @@ async function telaAtendimento(canal = "tiktok_shop") {
 async function telaBaseSac() {
   if (S.kbVista === "fichas") return telaFichas();
   const main = $("#main"), fo = S.kbOrigem || "";
-  if (!S.kbCarregou) main.innerHTML = sacAbas("base") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a base do SAC</div></div>`;
+  if (!S.kbCarregou) telaCarregando(main, `Abrindo a base do SAC`, sacAbas("base"));
   let kb, prop;
   try { [kb, prop] = await Promise.all([api("atendimento_kb"), api("atendimento_kb", {status: "proposta"})]); }
   catch (e) { main.innerHTML = sacAbas("base") + `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -6030,7 +6050,7 @@ const spEspera = t => { if (!t) return ""; const m = Math.max(0, Math.round((Dat
   return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d`; };
 async function telaPainelSac() {
   const main = $("#main");
-  if (!S.spCarregou) main.innerHTML = sacAbas("painel") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando o painel</div></div>`;
+  if (!S.spCarregou) telaCarregando(main, `Montando o painel`, sacAbas("painel"));
   let d; try { d = await api("atendimento_painel"); } catch (e) { main.innerHTML = sacAbas("painel") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/sac/painel")) { S.spTv = false; return; }
   S.spCarregou = true;
@@ -6161,7 +6181,7 @@ async function telaFichas() {
 // ---------- Minhas Lojas → Posição do anúncio (card #78): posição e página de cada anúncio meu na busca do Mercado Livre ----------
 async function telaPosicoes() {
   const main = $("#main");
-  main.innerHTML = esAbas("posicoes") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando as posições</div></div>`;
+  telaCarregando(main, `Carregando as posições`, esAbas("posicoes"));
   let r;
   try { r = await api("posicoes"); } catch (e) { main.innerHTML = esAbas("posicoes") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/estoque/posicoes")) return;
@@ -6222,7 +6242,7 @@ async function telaPosicoes() {
 async function telaEstoque() {
   const main = $("#main");
   const id = (decodeURIComponent(location.hash).match(/[?&]id=(\d+)/) || [])[1];
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o estoque</div></div>`;
+  telaCarregando(main, `Carregando o estoque`);
   let r;
   try { r = await api("estoque", id ? {id} : {}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (secaoAtual() !== "lojas") return;
@@ -6453,7 +6473,7 @@ function cpTabelaExtra(r, aba, q, max) {
 }
 async function telaCompras() {
   const main = $("#main");
-  main.innerHTML = esAbas("compras") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Cruzando estoque e vendas</div></div>`;
+  telaCarregando(main, `Cruzando estoque e vendas`, esAbas("compras"));
   let r;
   try { r = await api("estoque_compras"); } catch (e) { main.innerHTML = esAbas("compras") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/estoque/compras")) return;
@@ -6580,7 +6600,7 @@ function ligarCpChat(r) {
 // 28/09 (Bruno): anúncios do Mercado Livre perseguidos pelo Apify (1 vez por semana e quando ele pede), com o histórico
 async function telaPerseguir() {
   const main = $("#main");
-  main.innerHTML = esAbas("perseguir") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando</div></div>`;
+  telaCarregando(main, `Carregando`, esAbas("perseguir"));
   let r;
   try { r = await api("estoque_perseguir"); } catch (e) { main.innerHTML = esAbas("perseguir") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/estoque/perseguir")) return;
@@ -6631,7 +6651,7 @@ async function telaPerseguir() {
 const GESTOR_COLS = ["SKU Interno", "SKU externo (opcional)", "Link da Imagem (opcional)", "Título", "Preço de Custo", "Custo Extra (opcional)", "EAN (opcional)"];
 async function telaGestor() {
   const main = $("#main");
-  main.innerHTML = esAbas("gestor") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando a planilha</div></div>`;
+  telaCarregando(main, `Montando a planilha`, esAbas("gestor"));
   let r;
   try { r = await api("estoque"); } catch (e) { main.innerHTML = esAbas("gestor") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/estoque/gestor")) return;
@@ -6753,7 +6773,7 @@ function caixaHtml(txt) {
 }
 async function telaConhecimento() {
   const main = $("#main");
-  main.innerHTML = opsAbas("conhecimento") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a caixa de conhecimento</div></div>`;
+  telaCarregando(main, `Abrindo a caixa de conhecimento`, opsAbas("conhecimento"));
   let r, caixa = "";
   try { [r, caixa] = await Promise.all([api("conhecimento", S.conQ ? {q: S.conQ} : {}), fetch("/coletor/caixa.txt").then(x => x.ok ? x.text() : "").catch(() => "")]); } catch (e) { main.innerHTML = opsAbas("conhecimento") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/central/conhecimento")) return;
@@ -6830,7 +6850,7 @@ function agCard(a, periodo) {
 }
 async function telaAgentes(silencioso) {
   const main = $("#main");
-  if (!silencioso) main.innerHTML = opsAbas("agentes") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando os agentes</div></div>`;
+  if (!silencioso) telaCarregando(main, `Carregando os agentes`, opsAbas("agentes"));
   let r;
   try { r = await api("agentes"); } catch (e) { if (!silencioso) main.innerHTML = opsAbas("agentes") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (silencioso && !location.hash.startsWith("#/central/agentes")) return;
@@ -6888,7 +6908,7 @@ async function telaAgentes(silencioso) {
 // ---------- Custos: teto por provedor, tarefas em espera e custo por tarefa/rotina (card #10) ----------
 async function telaCustos() {
   const main = $("#main");
-  main.innerHTML = opsAbas("custos") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando os custos</div></div>`;
+  telaCarregando(main, `Carregando os custos`, opsAbas("custos"));
   let r;
   try { r = await api("agentes_custos"); } catch (e) { main.innerHTML = opsAbas("custos") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   const v = x => x == null ? `<span class="muted">Sem dados</span>` : usd(x);
@@ -6913,7 +6933,7 @@ async function telaCustos() {
 const MAC_ST = {pendente: ["", "na fila"], rodando: ["warn", "rodando"], ok: ["good", "ok"], erro: ["bad", "erro"], recusado: ["bad", "recusado"]};
 async function telaTerminal(silencioso) {
   const main = $("#main");
-  if (!silencioso) main.innerHTML = opsAbas("terminal") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Conectando ao Mac</div></div>`;
+  if (!silencioso) telaCarregando(main, `Conectando ao Mac`, opsAbas("terminal"));
   let r;
   try { r = await api("mac_painel"); } catch (e) { if (!silencioso) main.innerHTML = opsAbas("terminal") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/central/terminal")) return;
@@ -7175,7 +7195,7 @@ function waDesenhar(msgs, vazio) {
 async function telaReuniao() {
   const main = $("#main");
   const conv = conversaAtual(), direta = conv !== "sala";
-  main.innerHTML = opsAbas("sala") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Abrindo a sala de reunião</div></div>`;
+  telaCarregando(main, `Abrindo a sala de reunião`, opsAbas("sala"));
   let r, rc;
   const perto = S.reu && S.reu.irPara ? {perto: S.reu.irPara} : {}, irPara = S.reu && S.reu.irPara, buscaAnt = S.reu && S.reu.busca;
   try { [r, rc] = await Promise.all([api("reuniao", direta ? {conversa: conv, ...perto} : perto), api("reuniao_conversas")]); }
@@ -7403,7 +7423,7 @@ function devCard(t) {
 }
 async function telaDev(silencioso) {
   const main = $("#main");
-  if (!silencioso) main.innerHTML = opsAbas("dev") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando o desenvolvimento</div></div>`;
+  if (!silencioso) telaCarregando(main, `Carregando o desenvolvimento`, opsAbas("dev"));
   let r;
   try { r = await api("reuniao_tarefas"); } catch (e) { if (!silencioso) main.innerHTML = opsAbas("dev") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (silencioso && !(location.hash === "#/central" || location.hash.startsWith("#/reuniao/dev"))) return;
@@ -7628,7 +7648,7 @@ function detalheAchado(x) {
 }
 async function telaAuditoria(data) {
   const main = $("#main");
-  main.innerHTML = opsAbas("auditoria") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando a auditoria</div></div>`;
+  telaCarregando(main, `Carregando a auditoria`, opsAbas("auditoria"));
   let r;
   try { r = await api("auditoria", data ? {data} : {}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const a = r.atual, dm = d => d.slice(8, 10) + "/" + d.slice(5, 7);
@@ -7667,7 +7687,7 @@ const RESPONSAVEIS = ["Coletor (Mac mini)", "Robô nubi (servidor)", "ChatGPT", 
 const DIAS_NOME = {seg: "Seg", ter: "Ter", qua: "Qua", qui: "Qui", sex: "Sex", sab: "Sáb", dom: "Dom"};
 async function telaRotinas() {
   const main = $("#main");
-  main.innerHTML = opsAbas("rotinas") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando tarefas</div></div>`;
+  telaCarregando(main, `Carregando tarefas`, opsAbas("rotinas"));
   let r;
   try { r = await api("rotinas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const sistema = id => ["coleta", "agente", "produtos_ia", "categorias_lote", "auditoria", "reuniao", "resumo_dia", "resumo_semana", "resumo_marcas"].includes(id);
@@ -7845,7 +7865,7 @@ async function telaVendedores(mes) {
   if (!S.vendLista) await carregarVendLista();
   if (!S.coletor) { try { S.coletor = (await api("coletor_status")).execucoes; } catch { S.coletor = []; } }
   if (!S.vendLista.length) { vendVazio(main); desenharMenu(); return; }
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Comparando vendedores</div></div>`;
+  telaCarregando(main, `Comparando vendedores`);
   if (!mes) {
     let c;
     try { c = await api("vend_periodo"); } catch { c = null; }
@@ -7897,7 +7917,7 @@ async function telaVendedores(mes) {
 }
 async function telaVendedor(nomeV, mes) {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando o relatório de ${esc(nomeV)}</div></div>`;
+  telaCarregando(main, `Montando o relatório de ${esc(nomeV)}`);
   let r;
   try { r = await api("vend_relatorio", mes ? {vendedor: nomeV, mes} : {vendedor: nomeV}); }
   catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
@@ -8040,7 +8060,7 @@ async function telaVendedorExplorador(nomeV) {
 }
 async function telaVendedorAno(nomeV, abaAlertas) {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Montando o ano de ${esc(nomeV)}</div></div>`;
+  telaCarregando(main, `Montando o ano de ${esc(nomeV)}`);
   let r;
   try { r = await api("vend_bi", {vendedor: nomeV}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.vbi = r; S.tabelas = {};
@@ -8125,7 +8145,7 @@ function telaVendedorAlertas(r, main) {
 }
 async function telaAlertas() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Procurando produtos sem estoque nos concorrentes</div></div>`;
+  telaCarregando(main, `Procurando produtos sem estoque nos concorrentes`);
   let r;
   try { r = await api("vend_alertas"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   S.tabelas = {};
@@ -8278,7 +8298,7 @@ function infoMarca(inf) {
 }
 async function telaNomesMarcas() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Procurando grafias parecidas</div></div>`;
+  telaCarregando(main, `Procurando grafias parecidas`);
   let r;
   try { r = await api("apelidos"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   // salva e atualiza só o que mudou na tela (sem recarregar a página)
@@ -8382,7 +8402,7 @@ async function telaNomesMarcas() {
 // ---------- Nomes de vendedores (mesmo vendedor com nomes diferentes) ----------
 async function telaNomesVendedores(silencioso) {
   const main = $("#main");
-  if (!silencioso) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando vendedores</div></div>`;
+  if (!silencioso) telaCarregando(main, `Carregando vendedores`);
   let r;
   try { r = await api("vend_nomes"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   const acao = async (rota, corpo, msg) => {
@@ -8614,9 +8634,10 @@ const LOGO = `<div class="nlogo"><div class="norb"><svg viewBox="0 0 32 32" widt
   <path class="nm" d="M8 22V10l8 8 8-8v12" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
   <div class="nnome">nubi <b>explorer</b></div></div>`;
 // Tela de "carregando" por cima de tudo (ações rápidas: juntar, salvar…); devolve o fecha().
-function carregando(msg) {
+// leve = sem escurecer nem borrar o que está atrás (troca de filtro: a tela continua como está, só o loading no meio)
+function carregando(msg, leve = false) {
   document.querySelectorAll(".nover").forEach(x => x.remove());
-  const o = document.createElement("div"); o.className = "nover";
+  const o = document.createElement("div"); o.className = "nover" + (leve ? " leve" : "");
   o.innerHTML = `<div class="nbox">${LOGO}<div class="nbarra"></div><div class="nmsg">${esc(msg.replace(/…$/, ""))}</div></div>`;
   document.body.appendChild(o);
   return {
@@ -8625,7 +8646,23 @@ function carregando(msg) {
       o.classList.add("feito"); setTimeout(() => { o.classList.add("sai"); setTimeout(() => o.remove(), 250); }, ms);
     },
     erro(txt) { o.remove(); toast(txt, 6000); },
+    fim() { o.classList.add("sai"); setTimeout(() => o.remove(), 250); },
   };
+}
+// 03/10 (Bruno: "quando troco o filtro ele fecha a tela e recarrega inteiro… essa técnica de tela você tem que aplicar no
+// sistema inteiro"): a MESMA tela recarregando (filtro, período, aba com ?parâmetro) fica como está, com o loading no meio
+// por cima, até os números novos chegarem; só a primeira vez (ou tela nova) mostra o "carregando" no lugar do conteúdo.
+function telaCarregando(main, msg, antes = "") {
+  if (!main) return;
+  if (main.dataset.tl === msg && main.firstElementChild && !main.querySelector(".nload")) {
+    const t = document.createElement("textarea"); t.innerHTML = msg;
+    const c = carregando(t.value, true), ate = setTimeout(() => { obs.disconnect(); c.fim(); }, 90000);
+    const obs = new MutationObserver(() => { obs.disconnect(); clearTimeout(ate); c.fim(); });
+    obs.observe(main, {childList: true, subtree: true});
+    return;
+  }
+  main.dataset.tl = msg;
+  main.innerHTML = antes + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">${msg}</div></div>`;   // msg já vem escapada
 }
 const kpi = (l, v, o = "") => `<div class="card kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div>${o ? `<div class="o">${o}</div>` : ""}</div>`;
 
@@ -8641,7 +8678,7 @@ async function relatorioMarca(marca, extra = {}) {
   return r;
 }
 async function abrirMarca(marca, manterAba = false) {
-  $("#main").innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Carregando ${esc(nome(marca))}</div></div>`;
+  telaCarregando($("#main"), `Carregando ${esc(nome(marca))}`);
   S.perMarca = S.perMarca || {};
   const per = S.perMarca[marca];
   // 03/10 (Bruno: "últimos 7 dias, últimos 30 dias"): padrão = 30 dias (o export do dia); 7 dias; ou o card Completo
@@ -8781,6 +8818,15 @@ function telaMarcaAba() {
   const trocada = (S.rel.resumo || {}).un_marca_trocada, ex = {...(EXTRAS[k] || {})};
   if (trocada && (k === "produtos" || k === "anuncios" || k === "vendedores"))
     ex.nota = (ex.nota ? ex.nota + " " : "") + `Inclui ${nf0.format(trocada)} un. de anúncios com a marca trocada no cadastro (mesmo GTIN desta marca, ex.: LIPX).`;
+  // 03/10: marca grande (mais de 1.500 anúncios) traz a tabela Anúncios só quando a aba é aberta
+  if (k === "anuncios" && (S.rel.resumo || {}).anuncios_sob_demanda && !(S.rel.tabelas.anuncios || []).length) {
+    c.innerHTML = `<div class="card pad muted">Carregando os ${nf0.format(S.rel.resumo.anuncios)} anúncios…</div>`;
+    const v = (S.visaoMarca || {})[S.rel.marca] || "30", per = (S.perMarca || {})[S.rel.marca];
+    relatorioMarca(S.rel.marca, {...(per ? {periodo: per} : v === "completo" ? {} : {visao: v}), anuncios: 1}).then(r => {
+      S.rel.tabelas.anuncios = r.tabelas.anuncios; S.rel.colunas_arquivo = r.colunas_arquivo; if (S.aba === "anuncios") telaMarcaAba(); })
+      .catch(e => { c.innerHTML = `<div class="card pad">${esc(e.message)}</div>`; });
+    return;
+  }
   tabela(c, k, S.rel.tabelas[k] || [], k === "anuncios" ? colunasAnuncios() : COLUNAS[k], ex);
 }
 
@@ -9548,7 +9594,7 @@ function tagMonitor(mlb, m) {
 }
 async function telaPrecoDetalhe(mlb) {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o histórico de ${esc(mlb)}</div></div>`;
+  telaCarregando(main, `Lendo o histórico de ${esc(mlb)}`);
   let r;
   try { r = await api("ml_precos_hist", {mlb}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/precos/")) return;
@@ -9775,7 +9821,7 @@ async function telaPrecos() {
   // 01/10 (Bruno: "tela mais organizada: data e hora da última atualização, quantas atualizações, botão mostrar histórico de
   // preços com o gráfico de todas as atualizações e o maior e menor preço do período")
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o monitor de preços</div></div>`;
+  telaCarregando(main, `Lendo o monitor de preços`);
   let r;
   try { r = await api("ml_precos_lista"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/precos")) return;
@@ -9900,7 +9946,7 @@ const varB = (v, fmt = MB) => v == null ? `<span class="muted">—</span>` : v =
 const GRUPO_NOME = {dados: "📊 Dados de mercado", memoria: "🧠 Memória e base de conhecimento", operacao: "⚙️ Operação", outros: "📁 Outros"};
 async function telaMonitor() {
   const main = $("#main");
-  main.innerHTML = opsAbas("monitor") + `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o monitor</div></div>`;
+  telaCarregando(main, `Lendo o monitor`, opsAbas("monitor"));
   let r;
   try { r = await api("monitor_painel"); } catch (e) { main.innerHTML = opsAbas("monitor") + `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/central/monitor")) return;
@@ -9961,7 +10007,7 @@ async function telaMonitor() {
 const SIT_OBS = {seguido: ["seguido", "good"], observado: ["observado", ""], plataforma: ["Mercado Livre", "warn"]};
 async function telaObservados() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo os vendedores dos exports</div></div>`;
+  telaCarregando(main, `Lendo os vendedores dos exports`);
   let r;
   try { r = await api("observados_lista"); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/observados")) return;
@@ -10027,7 +10073,7 @@ async function alternarInteresse(vid, depois) {
 }
 async function telaObservado(vid) {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o vendedor</div></div>`;
+  telaCarregando(main, `Lendo o vendedor`);
   let r;
   try { r = await api("observado", {vendedor_id: vid}); } catch (e) { main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/observados/")) return;
@@ -10097,7 +10143,7 @@ function desenharExplorador(el, r, vid, recarregar) {
 const ETAPA_ST = {feita: ["✅ feita", "good"], em_andamento: ["⏳ em andamento", "warn"], pendente: ["○ pendente", ""]};
 async function telaDesafio(silencioso) {
   const main = $("#main");
-  if (!silencioso) main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo o desafio</div></div>`;
+  if (!silencioso) telaCarregando(main, `Lendo o desafio`);
   let r;
   try { r = await api("desafio"); } catch (e) { if (!silencioso) main.innerHTML = `<div class="card empty">${esc(e.message)}</div>`; return; }
   if (!location.hash.startsWith("#/desafio")) return;
@@ -10171,7 +10217,7 @@ async function telaDesafio(silencioso) {
 // (hash, anúncios, GTIN, catálogo, Full, faturamento…) e o botão "Descobrir loja no ML" em cada um
 async function telaSeguidosML() {
   const main = $("#main");
-  main.innerHTML = `<div class="nload">${LOGO}<div class="nbarra"></div><div class="nmsg">Lendo os vendedores seguidos</div></div>`;
+  telaCarregando(main, `Lendo os vendedores seguidos`);
   let r;
   try { r = await api("meli_seguidos_lista"); } catch (e) { main.innerHTML = mlAviso(e); return; }
   if (!location.hash.startsWith("#/vendedores-ml")) return;
@@ -10359,7 +10405,8 @@ function abrirVendedoresProduto(prod) {
   const row = ((S.rel.tabelas || {}).produtos || []).find(r => r.produto === prod) || {};
   const gtins = ((S.rel.tabelas || {}).gtins || []).filter(g => g.produto === prod).sort((a, b) => (b.un || 0) - (a.un || 0)).map(g => g.gtin);   // o que mais vende primeiro
   const cols = S.rel.colunas_arquivo || [], ct = cols.findIndex(c => /^t[ií]tulo/i.test(c));
-  const titulos = ct < 0 ? [] : ((S.rel.tabelas || {}).anuncios || []).filter(x => x.produto === prod).slice(0, 3).map(x => x["c" + ct]).filter(Boolean);
+  let titulos = ct < 0 ? [] : ((S.rel.tabelas || {}).anuncios || []).filter(x => x.produto === prod).slice(0, 3).map(x => x["c" + ct]).filter(Boolean);
+  if (!titulos.length && row.titulo_top) titulos = [row.titulo_top];        // marca grande: a tabela de anúncios vem depois
   const pm = tot.un ? tot.fat / tot.un : null;
   const precos = comVenda.map(v => v.ultimo_preco).filter(x => x > 0).sort((a, b) => a - b);
   const med = precos.length ? precos[Math.floor(precos.length / 2)] : null;
@@ -10432,17 +10479,19 @@ function abrirVendedoresProduto(prod) {
   // 03/10 (Bruno): os mesmos botões da marca dentro do produto; troca a visão da marca inteira e reabre este produto
   bg.querySelectorAll("[data-pqvisao]").forEach(b => b.onclick = async () => { if (b.disabled || b.classList.contains("on")) return;
     const marca = S.rel.marca, k = b.dataset.pqvisao;
+    // 03/10 (print do Bruno: "buga a tela"): o quadro fica aberto e inteiro; só o nosso loading no meio, por cima
     bg.querySelectorAll("[data-pqvisao]").forEach(x => x.disabled = true);
-    b.innerHTML = `<b>carregando…</b>`;
-    $(".modal", bg).style.opacity = ".6";
+    const c = carregando(k === "completo" ? "Carregando o período completo" : `Carregando os últimos ${k} dias`, true);
     try {
       const r = await relatorioMarca(marca, k === "completo" ? {} : {visao: k});
       S.visaoMarca = S.visaoMarca || {}; S.visaoMarca[marca] = k; S.rel = r; S.tabelas = {};
       telaMarca();                                  // a página de trás acompanha
-      const top = ($(".tw", bg) || {}).scrollTop || 0;
-      bg.remove(); abrirVendedoresProduto(prod);      // o quadro reabre na hora com os números da visão
-      const novo = document.querySelector(".modal-bg:last-child .tw"); if (novo) novo.scrollTop = top;
-    } catch (e) { toast(e.message, 6000); $(".modal", bg).style.opacity = ""; bg.querySelectorAll("[data-pqvisao]").forEach(x => x.disabled = false); }
+      const top = ($(".tw", bg) || {}).scrollTop || 0, topo = ($(".modal", bg) || {}).scrollTop || 0;
+      abrirVendedoresProduto(prod); bg.remove();      // o quadro novo entra no lugar do antigo, no mesmo quadro
+      const novo = document.querySelector(".modal-bg:last-child");
+      if (novo) { const tw = $(".tw", novo); if (tw) tw.scrollTop = top; $(".modal", novo).scrollTop = topo; }
+      c.fim();
+    } catch (e) { c.erro(e.message); bg.querySelectorAll("[data-pqvisao]").forEach(x => x.disabled = false); }
   });
   bg.querySelectorAll(".sp-abrir").forEach(a => a.onclick = e => { e.preventDefault(); const v = lista.find(x => String(x.vid) === a.dataset.vid); if (v) abrirSeriePreco(prod, v); });
   // 01/10 (Bruno: "Sabah Al Ward só existe EDP 100 ml; confirme pela API do ML antes de juntar")

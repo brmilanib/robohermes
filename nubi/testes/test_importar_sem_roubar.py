@@ -216,6 +216,25 @@ def test_regra_14_card_vivo():
     repo.fechar()
 
 
+def test_regra_14_estica_o_card_longo():
+    """03/10 (Bruno, Armaf: "Completo · 32 dias, nem tem os 63 dias"): com um card longo (01/08–29/09) e um de setembro
+    (01/09–30/09), o export diário (01/09–02/10) estica o LONGO; o Completo fica com 63 dias."""
+    repo, cfg = _novo_banco(), {}
+    imp = _importador(repo, cfg)
+    imp("armaf_set.csv", csv(lin("Perfume Armaf Club De Nuit Edt 105ml", "ARMAF", "A1", 300, 1300)), "ARMAF", "2026-09-01", "2026-09-30")
+    imp("armaf_60.csv", csv(lin("Perfume Armaf Club De Nuit Edt 105ml", "ARMAF", "A1", 600, 1290)), "ARMAF", "2026-08-01", "2026-09-29")
+    assert len(repo.snapshots("ARMAF")) == 2
+    imp("armaf_dia.csv", csv(lin("Perfume Armaf Club De Nuit Edt 105ml", "ARMAF", "A1", 330, 1330)), "ARMAF", "2026-09-01", "2026-10-02")
+    s = repo.snapshots("ARMAF")
+    longo = s[s["inicio"].astype(str).str[:10] == "2026-08-01"].iloc[0]
+    assert (str(longo["fim"])[:10], int(longo["dias"])) == ("2026-10-02", 63), s
+    a = repo.anuncios(int(longo["id"]))
+    assert int(a["un"].iloc[0]) == 640                      # 600 + (1.330 − 1.290) de histórico
+    import nubi_web
+    assert nubi_web.escolher_periodo(s)[0]["id"] == longo["id"]   # o Completo é o card longo
+    repo.fechar()
+
+
 def test_rodada_repetida_nao_zera_o_dia():
     """02/10 (produção): a 2ª rodada do encaminhar não tinha nada novo para a Ard Al Zaafaran e gravou o dia 30/09 com 0 un.
     por cima do +61 da 1ª. Dia vazio só entra quando o dia ainda não existe (aí vale para a média de 30 dias)."""
@@ -237,6 +256,8 @@ if __name__ == "__main__":
     print("ok importar sem roubar nem somar")
     test_regra_14_card_vivo()
     print("ok regra 14")
+    test_regra_14_estica_o_card_longo()
+    print("ok regra 14 card longo")
     test_outras_marcas_vao_para_o_card_certo()
     print("ok outras marcas no card certo")
     test_encaminhar_card_importado_antes_da_regra()

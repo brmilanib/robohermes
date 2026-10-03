@@ -538,6 +538,22 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   produto (preço = mediana do dia, un = soma) + as mudanças. No quadro do produto, o "Preço atual 📈" abre
   `abrirSeriePreco`: dois gráficos empilhados com os mesmos dias (preço em degraus em cima, barras de unidades embaixo;
   nunca 2 eixos no mesmo gráfico), ponto cheio + rótulo onde o preço mudou, dica ao passar o mouse.
+  CARD LONGO + EXPORT DA PRÓPRIA MARCA (03/10, Bruno, Armaf: "Completo · 32 dias, nem tem os 63 dias"): a Armaf tinha o
+  card 01/08–29/09 e um de setembro (01/09–30/09); `card_vivo` pegava o que terminava por último e esticava o de setembro.
+  Agora, entre os cards que ALCANÇAM o export (terminam na véspera do início dele ou depois), vale o mais longo
+  (`test_regra_14_estica_o_card_longo`). E `explorador_diario_pendente` só conta como "feita hoje" a marca cujo `arquivo`
+  tem um pedaço `MARCA__expandida…` com o fim do card: a carona do export da Al Wataniah marcava Armaf, Lattafa, Rasasi e
+  Maison Alhambra como feitas e o export delas nunca rodava (`test_carona_nao_conta_como_export_do_dia`).
+- **Velocidade das telas (03/10, Bruno: "tá lento; quando troco o filtro fecha a tela e recarrega inteiro; essa técnica
+  tem que ser no sistema inteiro; melhorar a busca e o cache")**: `api()` guarda cada GET por 3 min (`API_CACHE`, mesma
+  rota+parâmetros devolve na hora; pedido igual em andamento é reaproveitado, `API_VOO`); qualquer POST/PATCH/DELETE limpa
+  tudo; rotas ao vivo (`API_AO_VIVO`: status, vendas de hoje, agentes, WhatsApp, Mercado Livre, buscas…) e `{semCache:
+  true}` vão sempre à rede. `telaCarregando(main, msg, antes)` (no lugar do `main.innerHTML = nload`): na 1ª vez mostra o
+  "carregando" no lugar; a MESMA tela recarregando (mesma mensagem, mesma rota — filtro, período, aba com ?parâmetro) fica
+  como está com `carregando(msg, true)` (o loading do nubi no meio, sem escurecer) até o conteúdo mudar (`MutationObserver`,
+  máx. 90 s). O quadro do produto troca 30/7/Completo assim (o quadro fica aberto e inteiro; o novo entra no lugar). Tabela
+  de anúncios acima de 1.500 linhas vem depois, ao abrir a aba (`relatorio(..., com_anuncios)`, `resumo.anuncios_sob_demanda`).
+  `RepoSupabase.snapshots()` guarda a lista inteira 20 s no pedido (o relatório lia 2–3 vezes); escrita em snapshots limpa.
 - **💰 Financeiro + Estoque → Por marca (02/10, Bruno)**: `financeiro.py`. DRE Simplificado do Gestor Seller (PDF do mês
   fechado: o texto é lido no navegador com pdf.js e vai em `financeiro_importar`; `ler_dre` por blocos) e Resumo analítico
   (`/analytics/invoices`, 4 canais × meses × 7 linhas; o coletor troca as imagens por "[IMG:nome]" e manda o texto:

@@ -98,6 +98,8 @@ class RepoSupabase:
 
     # -- HTTP -----------------------------------------------------------
     def _req(self, metodo, caminho, params=None, corpo=None, prefer=None):
+        if caminho == "snapshots" and metodo != "GET":
+            self.__dict__.pop("_snaps_todos", None)          # mudou um período: a lista guardada não vale mais
         url = f"{SUPABASE_URL}/rest/v1/{caminho}"
         if params:
             url += "?" + urllib.parse.urlencode(params, safe=",.()*:")
@@ -150,10 +152,19 @@ class RepoSupabase:
         return r[0] if r else None
 
     def snapshots(self, marca=None):
-        params = {"select": "*", "order": "marca,fim,inicio,id"}
-        if marca:
-            params["marca"] = self._eq(marca)
-        df = pd.DataFrame(self._todos("snapshots", params))
+        # 03/10 (Bruno: "tá lento"): o relatório pedia a lista de TODOS os períodos 2 a 3 vezes (marca trocada, outras
+        # marcas…); a lista inteira fica guardada 20 s neste pedido e a de uma marca sai dela
+        c = self.__dict__.get("_snaps_todos")
+        if c and time.monotonic() - c[0] < 20:
+            linhas = [r for r in c[1] if not marca or r.get("marca") == marca]
+        else:
+            params = {"select": "*", "order": "marca,fim,inicio,id"}
+            if marca:
+                params["marca"] = self._eq(marca)
+            linhas = self._todos("snapshots", params)
+            if not marca:
+                self.__dict__["_snaps_todos"] = (time.monotonic(), linhas)
+        df = pd.DataFrame([dict(r) for r in linhas])
         if df.empty:
             return pd.DataFrame(columns=["id", "marca", "inicio", "fim", "dias", "arquivo", "hash",
                                          "importado_em"])
@@ -797,10 +808,14 @@ def explorador_diario_pendente(repo, agora=None):
         return {"rodar": False, "motivo": "antes das 05:00", "marcas": []}
     hoje = agora.date().isoformat()
     feitas = set()
-    for s in repo._todos("snapshots", {"select": "marca,arquivo,importado_em", "marca": f"in.({','.join(json.dumps(m) for m in lista)})"}):
+    for s in repo._todos("snapshots", {"select": "marca,arquivo,importado_em,fim", "marca": f"in.({','.join(json.dumps(m) for m in lista)})"}):
         em = str(s.get("importado_em") or "")
+        # 03/10 (Armaf, Lattafa, Rasasi e Maison Alhambra nunca rodavam): o card delas recebia a carona do export da Al
+        # Wataniah e contava como "feita hoje". Só vale o export DA PRÓPRIA marca (o nome do arquivo começa com ela).
+        proprio = str(s["marca"]).upper().replace(" ", "_") + "__"
+        partes = str(s.get("arquivo") or "").split(" + ")
         if em and (datetime.fromisoformat(em.replace("Z", "+00:00")) - timedelta(hours=3)).date().isoformat() == hoje \
-                and nubi.tipo_busca(s.get("arquivo")):
+                and any(x.upper().startswith(proprio) and nubi.tipo_busca(x) and str(s.get("fim") or "")[:10] in x for x in partes):
             feitas.add(s["marca"])
     faltam = [m for m in lista if m not in feitas]
     return {"rodar": bool(faltam), "marcas": faltam, "feitas": sorted(feitas), "total": len(lista)}
@@ -993,7 +1008,10 @@ def _outras_marcas(repo, df, atual, marca):
     return out
 
 
-def relatorio(repo, marca, periodo=None, visao=None):
+ANUNCIOS_JUNTO = 1500        # 03/10 (Bruno: "tá lento"): acima disto a tabela Anúncios vem só quando a aba é aberta
+
+
+def relatorio(repo, marca, periodo=None, visao=None, com_anuncios=False):
     # 03/10 (Bruno: "tá lento"): tempo de cada etapa vai para o log ("relatorio MARCA: etapa 1.2s · …") e para _tempos
     t0, tempos = time.monotonic(), []
     marca_t = lambda nome: tempos.append((nome, round(time.monotonic() - t0, 2)))
@@ -1207,7 +1225,8 @@ def relatorio(repo, marca, periodo=None, visao=None):
         if isinstance(r, dict):
             colunas += [c for c in r if c not in colunas]
     anuncios = []
-    for r in df.sort_values("un", ascending=False).to_dict("records"):
+    sob_demanda = len(df) > ANUNCIOS_JUNTO and not com_anuncios
+    for r in ([] if sob_demanda else df.sort_values("un", ascending=False).to_dict("records")):
         bruto = r.get("bruto") if isinstance(r.get("bruto"), dict) else {}
         anuncios.append({"produto": r["produto"], "confianca": r["confianca"], "codigo": r["cod"],
                          **{f"c{i}": bruto.get(c, "") for i, c in enumerate(colunas)}})
@@ -1339,7 +1358,8 @@ def relatorio(repo, marca, periodo=None, visao=None):
         "anuncios_outras_marcas": int(sum(x["anuncios"] for x in outras_marcas)),
         "un_nao_perfume": int(df.loc[df["tipo"] == nubi.TIPO_FORA, "un"].sum()),
         "un_low_price": int(df.loc[df["tipo"].isin(nubi.TIPOS_LOW), "un"].sum()),
-        "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada}
+        "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada,
+        "anuncios_sob_demanda": sob_demanda}
 
     lojas_ml = _lojas_ml_do(repo, set(df["vendedor_id"].astype(str)))
     marca_t("lojas_ml")
@@ -2725,7 +2745,7 @@ def atender(metodo, rota, q, corpo, token):
             return _json(explorador_diario(repo))
         if rota == "relatorio":
             _preparar(repo)
-            return _json(relatorio(repo, q["marca"], q.get("periodo"), q.get("visao")))
+            return _json(relatorio(repo, q["marca"], q.get("periodo"), q.get("visao"), com_anuncios=q.get("anuncios") == "1"))
         if rota == "explorador_encaminhar" and metodo == "POST":   # 02/10: outras marcas do export → cards delas (mesmo período)
             _preparar(repo)
             cfg = repo.carregar_config()

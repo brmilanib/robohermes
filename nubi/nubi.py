@@ -2334,6 +2334,13 @@ def card_vivo(repo, marca, ini_arq, fim_arq):
     s = s[(s["marca"] == marca) & (s["_i"] <= ini_arq) & ~((s["_i"] == ini_arq) & (s["_f"] == fim_arq))]
     if s.empty:
         return None
+    # 03/10 (Bruno, Armaf "Completo · 32 dias, nem tem os 63 dias"): a Armaf tinha o card longo 01/08–29/09 e um de
+    # setembro 01/09–30/09; o export diário (01/09–02/10) esticava o de setembro e o longo parava. Entre os cards que
+    # ALCANÇAM o export (terminam no dia antes do início dele ou depois), vale o mais longo (começa antes)
+    vespera = (date.fromisoformat(ini_arq) - timedelta(days=1)).isoformat()
+    alcanca = s[s["_f"] >= vespera]
+    if not alcanca.empty:
+        return alcanca.sort_values(["_i", "_f", "id"], ascending=[True, False, False]).iloc[0]
     return s.sort_values(["_f", "_i", "id"]).iloc[-1]
 
 

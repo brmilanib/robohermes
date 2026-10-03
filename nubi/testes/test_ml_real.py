@@ -195,14 +195,9 @@ try:
             # 4) Explorador: quadro do produto com "No Mercado Livre agora" e a loja real na tabela
             PEDIDOS.clear()
             pg.evaluate(f"S.rel = {json.dumps(REL)}; S.marca = 'LATTAFA'; abrirVendedoresProduto({json.dumps(PROD)})")
-            pg.wait_for_selector("#pq-ml-abrir", timeout=15000); pg.wait_for_timeout(300)
-            assert not [x for x in PEDIDOS if x[0] == "meli_gtin"], PEDIDOS             # 29/09: não abre sozinho
-            pg.click("#pq-ml-abrir"); pg.wait_for_selector("#pq-ml .ml-item", timeout=15000)
-            q = pg.inner_text(".modal.pq")
-            assert "ESSENCEPRIMEBR" in q and "FINKE" in q and "= V01 no Nubimetrics" in q, q[:2000]
-            assert "FINKE" in pg.inner_text(f"[data-mlvid='{HA}']")                  # a tabela ganhou o nome real
-            pg.click("#pq-ml-fechar"); assert pg.locator("#pq-ml .ml-item").count() == 0 and pg.is_visible("#pq-ml-abrir")
-            pg.click("#pq-ml-abrir"); assert pg.locator("#pq-ml .ml-item").count() == 2
+            pg.wait_for_selector(".modal.pq", timeout=15000); pg.wait_for_timeout(300)
+            # 03/10 (Bruno: "não está funcionando bem, pode tirar daí"): "No Mercado Livre agora" saiu do quadro do produto
+            assert pg.locator("#pq-ml-abrir").count() == 0 and not [x for x in PEDIDOS if x[0] == "meli_gtin"], PEDIDOS
             larg1 = larg(); assert larg1[0] <= larg1[1] + 1, (nome, "quadro", larg1)
             pg.screenshot(path=f"{tmp}/ml_quadro_{nome}.png")
             pg.evaluate("document.querySelectorAll('.modal-bg').forEach(x => x.remove())")
@@ -257,8 +252,8 @@ try:
         pg.goto(f"http://127.0.0.1:{PORTA}/#/ml/anuncio/MLB1000100"); pg.wait_for_selector(".es-aviso", timeout=15000)
         assert "ainda não está ativa" in pg.inner_text("#main")
         pg.evaluate(f"S.rel = {json.dumps(REL)}; abrirVendedoresProduto({json.dumps(PROD)})")
-        pg.click("#pq-ml-abrir"); pg.wait_for_selector("#pq-ml .es-aviso", timeout=15000)
-        assert "ML_CLIENT_ID" in pg.inner_text("#pq-ml") and "HIMALAIA.INDIGO" in pg.inner_text(".modal.pq")   # o resto do quadro segue igual
+        pg.wait_for_selector(".modal.pq", timeout=15000)
+        assert "HIMALAIA.INDIGO" in pg.inner_text(".modal.pq")   # sem as chaves o quadro abre igual
         assert not erros, erros
     print("ok mercado livre na tela (pc e celular)")
 finally:

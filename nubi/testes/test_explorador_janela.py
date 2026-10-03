@@ -110,6 +110,15 @@ def test_visao_7_e_30_dias():
     assert r30["resumo"]["un"] == 343 and r30["resumo"]["visao"]["dias"] == 30
     rc = nubi_web.relatorio(repo, "SOSPIRO")
     assert rc["resumo"]["visao"] is None and rc["resumo"]["tem_7"] and rc["resumo"]["tem_30"]
+    # 03/10 (Bruno: "tá lento"): marca grande traz a tabela Anúncios só quando a aba é aberta
+    antes = nubi_web.ANUNCIOS_JUNTO
+    nubi_web.ANUNCIOS_JUNTO = 1
+    try:
+        leve = nubi_web.relatorio(repo, "SOSPIRO")
+        assert leve["resumo"]["anuncios_sob_demanda"] and leve["tabelas"]["anuncios"] == []
+        assert len(nubi_web.relatorio(repo, "SOSPIRO", com_anuncios=True)["tabelas"]["anuncios"]) == 3
+    finally:
+        nubi_web.ANUNCIOS_JUNTO = antes
     repo.fechar()
 
 
@@ -142,7 +151,33 @@ def test_rota_do_explorador_diario_chega_no_servidor():
         w.RepoSupabase, w.ligar_registro_uso = antes
 
 
+def test_carona_nao_conta_como_export_do_dia():
+    """03/10: Armaf, Lattafa, Rasasi e Maison Alhambra recebiam a carona do export da Al Wataniah e contavam como "feitas
+    hoje"; o export delas nunca rodava. Só vale o arquivo da própria marca com o fim do card."""
+    from datetime import datetime
+    import nubi_web as w
+
+    class R:
+        def _req(self, *a, **k):
+            return []
+
+        def _todos(self, t, q=None):
+            hoje = "2026-10-03T20:37:45+00:00"
+            return [{"marca": "ARMAF", "fim": "2026-10-02", "importado_em": hoje,
+                     "arquivo": "armaf.csv + AL_WATANIAH__expandida+beleza__2026-09-01_2026-10-02.csv"},
+                    {"marca": "AL WATANIAH", "fim": "2026-10-02", "importado_em": hoje,
+                     "arquivo": "a.csv + AL_WATANIAH__expandida+beleza__2026-09-01_2026-10-02.csv + ARMAF__expandida+beleza__2026-09-01_2026-10-02.csv"}]
+    antes = w.marcas_diarias
+    w.marcas_diarias = lambda repo: ["AL WATANIAH", "ARMAF"]
+    try:
+        r = w.explorador_diario_pendente(R(), datetime(2026, 10, 3, 19, 0))
+        assert r["marcas"] == ["ARMAF"] and r["feitas"] == ["AL WATANIAH"], r
+    finally:
+        w.marcas_diarias = antes
+
+
 if __name__ == "__main__":
+    test_carona_nao_conta_como_export_do_dia()
     test_visao_7_e_30_dias()
     test_rota_do_explorador_diario_chega_no_servidor()
     test_janela_de_30_dias_e_conferencia()
