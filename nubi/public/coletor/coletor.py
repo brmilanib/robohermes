@@ -10345,7 +10345,14 @@ JS_WA_CONVERSA = """() => {
       const bolha = (sel && (sel.closest('[class*="message-"]') || sel.parentElement)) || d;
       const r = bolha.getBoundingClientRect();
       const tique = d.querySelector('[data-icon^="msg-"], [data-icon*="dblcheck"], [data-icon*="check"], [aria-label*="Lida" i], [aria-label*="Entregue" i], [aria-label*="Enviada" i]');
-      const out = !!d.querySelector('.message-out') || d.classList.contains('message-out') || !!tique || (r.width > 0 && r.left + r.width / 2 > meio);
+      // 03/10 (tela real): data-pre-plain-text = "[15:53, 03/10/2026] +55 44 9881-2871: " diz QUEM mandou; quem é o
+      // título da conversa (o outro lado) é cliente, qualquer outro nome é o chip
+      const preEl = d.querySelector('[data-pre-plain-text]');
+      const quem = preEl ? ((preEl.getAttribute('data-pre-plain-text') || '').match(/\]\s*([^:]+):/) || [])[1] : null;
+      const so = x => (x || '').replace(/\D/g, ''), nor = x => (x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const doOutro = quem ? (nor(quem) === nor(titulo) || (so(quem).length >= 8 && so(quem) === so(titulo))) : null;
+      const out = doOutro !== null ? !doOutro
+        : (!!d.querySelector('.message-out') || d.classList.contains('message-out') || !!tique || (r.width > 0 && r.left + r.width / 2 > meio));
       vistos.add(id);
       msgs.push({id, de: out ? 'loja' : 'cliente', texto: texto.trim(), chat: '', n: n++});
     }
