@@ -5037,7 +5037,7 @@ def comando_mac(chave, arg=""):
     ol = _ollama_bin()
     tabela = {
         "status": [*c, "status"], "diario": [*c, "diario"], "atualizar": [*c, "atualizar"], "backup": [*c, "backup"],
-        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"], "painel_instalar": [*c, "painel-instalar"], "whatsapp_instalar": [*c, "whatsapp-instalar"], "revisao_coletor": [*c, "revisao-coletor"],
+        "parar_coleta": [*c, "parar"], "vigia_reativar": [*c, "vigia-reativar"], "painel_instalar": [*c, "painel-instalar"], "whatsapp_instalar": [*c, "whatsapp-instalar"], "cofre_teste": [*c, "cofre-teste"], "revisao_coletor": [*c, "revisao-coletor"],
         "hermes": [*c, "hermes"], "qwen": [*c, "qwen"], "estoque": [*c, "estoque"], "gestor": [*c, "gestor"],
         "entrar": [*c, "entrar"], "entrar_upseller": [*c, "entrar-upseller"], "entrar_gestor": [*c, "entrar-gestor"],
         "entrar_auto_nubimetrics": [*c, "entrar-auto", "nubimetrics"], "entrar_auto_upseller": [*c, "entrar-auto", "upseller"],
@@ -6905,6 +6905,27 @@ def cmd_guardar_senha(args, cfg):
     print(f"OK: login do {nome} guardado {onde}. Nunca vai para o nubi.")
     return 0
 
+
+
+def cmd_cofre_teste(args, cfg):
+    """03/10 (Gestor: "sem senha salva no Chaveiro" mesmo depois do guardar-senha): mostra o que o Chaveiro responde para
+    cada site (código, aviso e o TAMANHO da senha), nunca a senha."""
+    if sys.platform != "darwin":
+        print("só no Mac")
+        return 1
+    login_kc = Path.home() / "Library" / "Keychains" / "login.keychain-db"
+    for site in ("gestor", "upseller", "nubimetrics", "gmail"):
+        usuario = (cfg.get("logins") or {}).get(site, "")
+        print(f"== {site}: usuário no config = {'sim (' + usuario[:3] + '…)' if usuario else 'NÃO'}")
+        for conta in ([usuario] if usuario else []) + [""]:
+            for kc in ([], [str(login_kc)]):
+                cmd = ["security", "find-generic-password", "-s", f"{SERVICO_CHAVEIRO}-{site}"] + (["-a", conta] if conta else []) + ["-w"] + kc
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                print(f"   conta={'usuário' if conta else '(qualquer)'} chaveiro={'login' if kc else 'padrão'}: código {r.returncode}, "
+                      f"senha com {len(r.stdout.strip())} letras, aviso: {(r.stderr or '').strip()[:120] or '-'}")
+    r = subprocess.run(["security", "list-keychains"], capture_output=True, text=True, timeout=30)
+    print("chaveiros na busca:", " ".join(r.stdout.split()))
+    return 0
 
 def _botao_enviar(pg):
     b = pg.locator("button[type=submit]:visible, input[type=submit]:visible")
@@ -10573,6 +10594,7 @@ def main():
     sub.add_parser("painel-instalar", help="deixa o Painel do coletor sempre ligado e põe o atalho na Mesa")
     sub.add_parser("whatsapp", help="WhatsApp do chip da loja no Mac: o Banguela atende, o Bruno aprova no privado (fica ligado)")
     sub.add_parser("whatsapp-instalar", help="deixa o WhatsApp do chip sempre ligado no Mac (launchd)")
+    sub.add_parser("cofre-teste", help="mostra o que o Chaveiro responde para cada site (nunca a senha)")
     cv = sub.add_parser("conversar", help="conversa com o Hermes no Terminal, com o contexto do projeto")
     cv.add_argument("--modelo", default=None)
     gsn = sub.add_parser("guardar-senha", help="guarda no Chaveiro do Mac o login de um site (para o coletor entrar sozinho)")
@@ -10680,6 +10702,8 @@ def main():
         return cmd_whatsapp(args, cfg)
     if args.cmd == "whatsapp-instalar":
         return instalar_whatsapp()
+    if args.cmd == "cofre-teste":
+        return cmd_cofre_teste(args, cfg)
     if args.cmd == "programar":
         return cmd_programar(args, cfg)
     if args.cmd == "ferreiro-conversa":
