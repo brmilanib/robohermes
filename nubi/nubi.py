@@ -2001,6 +2001,7 @@ def _gravar_marca(repo, cfg, nome, hash_, df, marca, ini, fim, existentes, recem
 # com o card. A conferência (Bruno: "tem que bater, ou pelas vendas históricas, e guardar os números") compara o export
 # com o que ficou gravado no card.
 JANELA = "explorador|janela|{}"
+HISTORICO = "explorador|historico|{}"           # + "|AAAA-MM-DD" (fim do export): resumo de cada export, para sempre
 CONFERENCIA = "explorador|conferencia|{}"
 
 
@@ -2033,7 +2034,21 @@ def guardar_janela(repo, marca, ini, fim, df_arq, arquivo=""):
     un, fat, uh, fh = num("un"), num("fat"), num("un_hist"), num("fat_hist")
     anuncios = {k: [int(a), round(float(b), 2), int(c), round(float(e), 2)] for k, a, b, c, e in zip(d["anuncio"], un, fat, uh, fh)}
     dias = (date.fromisoformat(fim) - date.fromisoformat(ini)).days + 1
-    _gravar_resumo(repo, JANELA.format(marca), {"inicio": ini, "fim": fim, "dias": dias, "arquivo": arquivo, "anuncios": anuncios})
+    jan = {"inicio": ini, "fim": fim, "dias": dias, "arquivo": arquivo, "anuncios": anuncios}
+    _gravar_resumo(repo, JANELA.format(marca), jan)
+    # 03/10 (Bruno: "vai guardar os números para eu ver um mês contra outro?"): a janela por anúncio fica também por MÊS
+    # (a última do mês = os ~30 dias que terminam no fim dele) e um resumo pequeno de CADA export fica para sempre
+    _gravar_resumo(repo, f"{JANELA.format(marca)}|{fim[:7]}", jan)
+    da = _da_marca_no_arquivo(d, marca)
+    vend = []
+    if "vendedor" in da.columns and len(da):
+        g = da.assign(_u=pd.to_numeric(da["un"], errors="coerce").fillna(0), _f=pd.to_numeric(da["fat"], errors="coerce").fillna(0))
+        v = g.groupby("vendedor").agg(un=("_u", "sum"), fat=("_f", "sum"), anuncios=("_u", "size")).sort_values("un", ascending=False)
+        vend = [{"vendedor": str(k), "un": int(r["un"]), "fat": round(float(r["fat"]), 2), "anuncios": int(r["anuncios"])} for k, r in v.head(40).iterrows()]
+    _gravar_resumo(repo, f"{HISTORICO.format(marca)}|{fim}", {
+        "inicio": ini, "fim": fim, "dias": dias, "arquivo": arquivo, "anuncios": int(len(da)), "un": _soma(da, "un"),
+        "fat": _soma(da, "fat"), "un_hist": _soma(da, "un_hist"), "vendedores": int(da["vendedor"].nunique()) if "vendedor" in da.columns else None,
+        "top_vendedores": vend})
 
 
 def ler_janela(repo, marca):
@@ -2101,6 +2116,7 @@ def calibrar_com_upseller(repo, marca, ini, fim, arq):
            "anuncios": len(itens), "un_nubimetrics": nm, "un_real": round(rl, 1),
            "percentual": round(nm / rl, 4) if rl else None, "itens": sorted(itens, key=lambda x: -x["real"])[:40]}
     _gravar_resumo(repo, CALIBRAGEM.format(marca), cal)
+    _gravar_resumo(repo, f"{CALIBRAGEM.format(marca)}|{fim}", cal)
     if itens:
         avisar(f"    Calibragem com o UpSeller ({len(itens)} anúncio(s) meus): Nubimetrics {fmt_int(nm)} un. × real {fmt_int(rl)}"
                + (f" = {cal['percentual'] * 100:.0f}% da realidade" if rl else ""))
@@ -2128,6 +2144,7 @@ def conferir_export(repo, marca, ini, fim, df_arq, df_card, ini_card, fim_card):
             "fora_do_card": {"anuncios": int(len(fora)), "un": _soma(fora, "un"), "un_hist": _soma(fora, "un_hist")},
             "dif_un_hist": dif, "bate": abs(dif) < 0.5}
     _gravar_resumo(repo, CONFERENCIA.format(marca), conf)
+    _gravar_resumo(repo, f"{CONFERENCIA.format(marca)}|{fim}", conf)          # a de cada dia fica guardada
     try:
         calibrar_com_upseller(repo, marca, ini, fim, arq)
     except Exception as e:  # noqa: BLE001 — nunca derruba a importação

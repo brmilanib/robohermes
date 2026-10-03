@@ -507,6 +507,11 @@ Modelos novos só entram depois do mini-benchmark interno (#15).
   real levado para os dias do export. Guarda `explorador|calibragem|<marca>` (percentual = Nubimetrics ÷ real, itens);
   `explorador_monitoradas` soma tudo em `calibragem_geral`; o Painel mostra "Nubimetrics mostra X% das vendas reais" e o
   selo 📏 por marca.
+  HISTÓRICO (03/10, Bruno: "vai guardar os números para eu ver um mês contra outro?"): cada export guarda também
+  `explorador|historico|<marca>|<fim>` (un, fat, un_hist, anúncios, vendedores e top 40 vendedores da janela),
+  `explorador|conferencia|<marca>|<fim>`, `explorador|calibragem|<marca>|<fim>` e a janela por anúncio por MÊS
+  (`explorador|janela|<marca>|AAAA-MM`, a última do mês); junto com `explorador|dia|…` (regra 14). Rota
+  `explorador_historico?marca=` devolve tudo por data. As chaves sem data continuam sendo "a última".
 - **💰 Financeiro + Estoque → Por marca (02/10, Bruno)**: `financeiro.py`. DRE Simplificado do Gestor Seller (PDF do mês
   fechado: o texto é lido no navegador com pdf.js e vai em `financeiro_importar`; `ler_dre` por blocos) e Resumo analítico
   (`/analytics/invoices`, 4 canais × meses × 7 linhas; o coletor troca as imagens por "[IMG:nome]" e manda o texto:

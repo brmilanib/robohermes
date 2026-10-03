@@ -33,6 +33,12 @@ def test_janela_de_30_dias_e_conferencia():
     conf = repo.resumos[nubi.CONFERENCIA.format("SOSPIRO")]
     assert conf["bate"] and conf["export"]["un_hist"] == 946 and conf["nubi"]["un_hist"] == 946, conf
     assert conf["export"]["anuncios"] == 2                                 # o anúncio da Lattafa não é da marca
+    # 03/10 (Bruno: "vai guardar os números para ver um mês contra outro?"): cada export fica guardado por data, e a janela
+    # por anúncio fica por mês
+    h = repo.resumos[nubi.HISTORICO.format("SOSPIRO") + "|2026-10-02"]
+    assert (h["un"], h["anuncios"], h["top_vendedores"][0]["vendedor"]) == (432, 2, "VEND.S1"), h
+    assert repo.resumos[nubi.JANELA.format("SOSPIRO") + "|2026-10"]["inicio"] == "2026-09-01"
+    assert repo.resumos[nubi.CONFERENCIA.format("SOSPIRO") + "|2026-10-02"]["bate"]
     # o relatório da marca leva os 30 dias de verdade a cada vendedor do produto (o quadro usa no lugar da proporção)
     import nubi_web
     rel = nubi_web.relatorio(repo, "SOSPIRO")

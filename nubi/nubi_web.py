@@ -663,8 +663,9 @@ def explorador_monitoradas(repo):
     conf, cal = {}, {}
     if lista:
         for tipo, destino in (("conferencia", conf), ("calibragem", cal)):
-            try:
-                linhas = repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": f"like.explorador|{tipo}|*"}) or []
+            try:                                        # só a última de cada marca (as datadas "|AAAA-MM-DD" ficam no histórico)
+                chaves = ",".join(json.dumps(f"explorador|{tipo}|{m}") for m in lista)
+                linhas = repo._req("GET", "ia_resumos", {"select": "chave,texto", "chave": f"in.({chaves})"}) or []
             except ErroNuvem:
                 continue
             for r in linhas:
@@ -683,6 +684,37 @@ def explorador_monitoradas(repo):
     geral = {"un_nubimetrics": nm, "un_real": round(rl, 1), "percentual": round(nm / rl, 4) if rl else None,
              "anuncios": sum(c.get("anuncios") or 0 for c in cal.values()), "marcas": sum(1 for c in cal.values() if c.get("un_real"))}
     return {"marcas": lista, "conferencia": conf, "calibragem": cal, "calibragem_geral": geral}
+
+
+def explorador_historico(repo, marca):
+    """03/10 (Bruno: "vai guardar os números para eu ver um mês contra outro?"): tudo o que ficou guardado da marca, por data —
+    o resumo de cada export (un, fat, vendedores, top vendedores), a conferência e a calibragem de cada dia, os meses com a
+    janela por anúncio e os dias somados da regra 14."""
+    marca = nubi.chave_marca(marca)
+    linhas = repo._todos("ia_resumos", {"select": "chave,texto", "chave": f"like.explorador|*|{marca}|*"}) or []
+    out = {"marca": marca, "exports": [], "conferencias": [], "calibragens": [], "meses_com_janela": [], "dias": []}
+    for r in linhas:
+        partes = r["chave"].split("|")
+        if len(partes) != 4 or partes[2] != marca:
+            continue
+        tipo, quando = partes[1], partes[3]
+        try:
+            v = json.loads(r["texto"])
+        except (TypeError, ValueError):
+            continue
+        if tipo == "historico":
+            out["exports"].append(v)
+        elif tipo == "conferencia":
+            out["conferencias"].append({k: v.get(k) for k in ("fim", "bate", "dif_un_hist", "export", "nubi")})
+        elif tipo == "calibragem":
+            out["calibragens"].append({k: v.get(k) for k in ("nubimetrics_periodo", "upseller_periodo", "anuncios", "un_nubimetrics", "un_real", "percentual")} | {"fim": quando})
+        elif tipo == "janela":
+            out["meses_com_janela"].append({"mes": quando, "inicio": v.get("inicio"), "fim": v.get("fim"), "anuncios": len(v.get("anuncios") or {})})
+        elif tipo == "dia":
+            out["dias"].append({k: v.get(k) for k in ("de", "ate", "un", "fat", "vendedores", "anuncios_novos")})
+    for k, campo in (("exports", "fim"), ("conferencias", "fim"), ("calibragens", "fim"), ("meses_com_janela", "mes"), ("dias", "ate")):
+        out[k].sort(key=lambda x: str(x.get(campo) or ""))
+    return out
 
 
 def explorador_diario(repo, salvar=None):
@@ -2549,6 +2581,8 @@ def atender(metodo, rota, q, corpo, token):
             return _json(explorador_diferenca(repo, nubi.chave_marca(q.get("marca") or ""), q.get("de"), q.get("para")))
         if rota == "explorador_dias":                # regra 14: os dias somados no card
             return _json(explorador_dias(repo, nubi.chave_marca(q.get("marca") or "")))
+        if rota == "explorador_historico":           # 03/10: o que ficou guardado da marca, por data (mês contra mês)
+            return _json(explorador_historico(repo, q.get("marca") or ""))
         if rota == "explorador_monitoradas":         # 03/10: marcas da lista diária + conferência com o Nubimetrics
             return _json(explorador_monitoradas(repo))
         if rota == "explorador_diario":              # lista das marcas exportadas todo dia (GET) / salvar (POST {marcas})
