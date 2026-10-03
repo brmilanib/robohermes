@@ -113,6 +113,9 @@ d = nubi_web.ads_tempo_real(ra, agora=datetime(2026, 10, 3, 14, tzinfo=timezone.
 assert ("2026-10-03", "2026-10-03") in datas and ("2026-10-02", "2026-10-02") in datas
 assert ("2026-10-01", "2026-10-03") in datas and ("2026-09-01", "2026-09-30") in datas
 assert d["hoje"]["cost"] == 80.5 and d["mes_fechado"]["acos"] == 8.9 and d["horas"] == [{"h": "11:00", "cost": 80.5, "vendas": 900}]
+# 03/10 (Bruno: "ontem 22, hoje 22, mês 15? impossível"): o mês é a soma dos dias pedidos um a um, e cada dia aparece
+assert [x["dia"] for x in d["dias"]] == ["2026-10-01", "2026-10-02", "2026-10-03"] and d["mes"]["soma_dos_dias"]
+assert d["mes"]["cost"] == round(sum(x["cost"] for x in d["dias"]), 2) and "mes_ml" in d
 d = nubi_web.ads_tempo_real(ra, agora=datetime(2026, 10, 3, 15, tzinfo=timezone.utc))
 assert [h["h"] for h in d["horas"]] == ["11:00", "12:00"]                    # um ponto por hora no dia
 d = nubi_web.ads_tempo_real(ra, agora=datetime(2026, 10, 4, 12, tzinfo=timezone.utc))

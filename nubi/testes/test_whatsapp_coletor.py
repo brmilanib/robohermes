@@ -72,6 +72,24 @@ def test_mesmo_fone_sem_o_9():
     assert "entrar_auto_gestor" not in c.SERVIDOR_PODE                       # a senha do Gestor só está no Mac
 
 
+def test_le_pelos_baloes_sem_data_id():
+    from playwright.sync_api import sync_playwright
+    html = """<div id="main"><header><span title="+55 44 9881-2871">+55 44 9881-2871</span></header>
+      <div role="row"><div class="message-out"><div data-pre-plain-text="[14:40, 03/10/2026] Loja: "><span class="selectable-text">Oi</span></div></div></div>
+      <div role="row"><div class="message-in"><div data-pre-plain-text="[15:04, 03/10/2026] Bruno: "><span class="selectable-text">Ferreiro, oi! Está me ouvindo?</span></div></div></div>
+      <footer><div contenteditable="true"></div></footer></div>"""
+    with sync_playwright() as p:
+        b = p.chromium.launch(**({"executable_path": "/opt/pw-browsers/chromium"} if Path("/opt/pw-browsers/chromium").is_file() else {}))
+        pg = b.new_page()
+        pg.set_content(html)
+        conv = pg.evaluate(c.JS_WA_CONVERSA)
+        assert [(m["de"], m["texto"]) for m in conv["msgs"]] == [("loja", "Oi"), ("cliente", "Ferreiro, oi! Está me ouvindo?")]
+        assert c._wa_fone(conv) == "554498812871" and c.wa_mesmo_fone(c._wa_fone(conv), "5544998812871")
+        assert [m["texto"] for m in c.wa_novas(conv, set())] == ["Ferreiro, oi! Está me ouvindo?"]
+        assert pg.evaluate(c.JS_WA_DIAG_CONVERSA)["msg_in"] == 1
+        b.close()
+
+
 def test_comandos():
     assert c.comando_mac("whatsapp_instalar")[-1] == "whatsapp-instalar"
     assert c._wa_fone({"titulo": "Maria Cliente", "msgs": [{"chat": "123@lid"}]}) == ""
@@ -80,5 +98,6 @@ def test_comandos():
 if __name__ == "__main__":
     test_comandos()
     test_mesmo_fone_sem_o_9()
+    test_le_pelos_baloes_sem_data_id()
     test_ler_e_digitar()
     print("ok whatsapp coletor")

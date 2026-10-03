@@ -8471,6 +8471,19 @@ def ads_tempo_real(repo, agora=None):
         except meli.ErroMeli as e:
             d[k] = {"erro": str(e)[:160]}
     antes = _ler_json(repo, ADS_TEMPO_REAL)
+    # 03/10 (Bruno: "ontem 22, hoje 22, como o mês dá 15? impossível"): o mês é a SOMA dos dias (cada dia pedido sozinho ao
+    # ML, os dias com mais de 3 dias ficam guardados) e cada dia aparece no card; o número do período inteiro do ML fica em
+    # mes_ml só para conferência (o ML atribui venda com atraso e o período inteiro pode não bater com a soma).
+    try:
+        d["dias"] = _ads_dias(adv, ini_mes, hoje, antes.get("dias") or [], hoje)
+        d["dias_mes_passado"] = _ads_dias(adv, fim_ant.replace(day=1), fim_ant.replace(day=mesmo_dia),
+                                          antes.get("dias_mes_passado") or [], hoje)
+        if d["dias"]:
+            d["mes_ml"], d["mes"] = d.get("mes"), _ads_somar(d["dias"], ini_mes, hoje)
+        if d["dias_mes_passado"]:
+            d["mes_passado_ate"] = _ads_somar(d["dias_mes_passado"], fim_ant.replace(day=1), fim_ant.replace(day=mesmo_dia))
+    except meli.ErroMeli:
+        pass
     horas = antes.get("horas") if antes.get("dia") == d["dia"] else []
     # a curva de ontem fica guardada para comparar "hoje até agora" com "ontem até a mesma hora"
     if antes.get("dia") == d["dia"]:
@@ -8486,6 +8499,31 @@ def ads_tempo_real(repo, agora=None):
     repo._req("POST", "ia_resumos", corpo=[{"chave": ADS_TEMPO_REAL, "ia": "ADS do ML (tempo real)", "texto": json.dumps(d, ensure_ascii=False)}],
               prefer="resolution=merge-duplicates,return=minimal")
     return d
+
+
+def _ads_dias(adv, a, b, guardados, hoje):
+    """ADS de cada dia de a até b (pedido dia a dia ao ML). Dia com mais de 3 dias já guardado não é pedido de novo."""
+    velhos = {x["dia"]: x for x in guardados if x.get("dia") and not x.get("erro")}
+    dias = [(a + timedelta(days=i)).isoformat() for i in range((b - a).days + 1)]
+    faltam = [x for x in dias if x not in velhos or (hoje - date.fromisoformat(x)).days <= 3]
+
+    def um(dia):
+        try:
+            r = meli.ads_periodo(adv, dia, dia)
+            return {"dia": dia, **{k: r.get(k) for k in ("cost", "total_amount", "clicks", "prints", "roas", "acos")}}
+        except meli.ErroMeli as e:
+            return {"dia": dia, "erro": str(e)[:120]}
+    novos = {x["dia"]: x for x in meli._em_paralelo(um, faltam, 6)} if faltam else {}
+    return [novos.get(x) or velhos[x] for x in dias if novos.get(x) or velhos.get(x)]
+
+
+def _ads_somar(dias, a, b):
+    ok = [x for x in dias if not x.get("erro")]
+    soma = {k: round(sum(float(x.get(k) or 0) for x in ok), 2) for k in ("cost", "total_amount", "clicks", "prints")}
+    soma["roas"] = round(soma["total_amount"] / soma["cost"], 2) if soma["cost"] else None
+    soma["acos"] = round(soma["cost"] / soma["total_amount"] * 100, 2) if soma["total_amount"] else None
+    return dict(soma, de=a.isoformat(), ate=b.isoformat(), dias=len(ok), soma_dos_dias=True,
+                **({"dias_com_erro": len(dias) - len(ok)} if len(ok) < len(dias) else {}))
 
 
 ADS_PERIODOS = {"hoje": "Hoje (até agora)", "ontem": "Ontem", "mes": "Mês atual", "mes_fechado": "Mês fechado",

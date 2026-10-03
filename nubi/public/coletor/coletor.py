@@ -10307,7 +10307,35 @@ JS_WA_CONVERSA = """() => {
     }
     msgs.push({id, de: id.startsWith('true_') ? 'loja' : 'cliente', texto: (texto || '').trim(), chat: id.split('_')[1] || ''});
   }
+  if (!msgs.length) {
+    // 03/10 (tela real: 0 mensagens com data-id true_/false_): lê pelos balões .message-in / .message-out
+    let n = 0;
+    for (const b of main.querySelectorAll('.message-in, .message-out')) {
+      const dono = b.closest('[data-id]') || b.querySelector('[data-id]');
+      const pre = b.querySelector('[data-pre-plain-text]');
+      const sel = b.querySelector('span.selectable-text, span[data-testid="selectable-text"], [data-pre-plain-text] span[dir]');
+      let texto = sel ? sel.innerText : '';
+      if (!texto) {
+        if (b.querySelector('audio, [data-icon*="audio"], [data-icon*="ptt"], button[aria-label*="eproduzir" i]')) texto = '[áudio]';
+        else if (b.querySelector('img[src^="blob:"]')) texto = '[foto]';
+      }
+      const id = (dono && dono.getAttribute('data-id')) || ((pre && pre.getAttribute('data-pre-plain-text')) || '') + '|' + (texto || '').slice(0, 40) + '|' + (n++);
+      if (vistos.has(id)) continue;
+      vistos.add(id);
+      msgs.push({id, de: b.classList.contains('message-out') ? 'loja' : 'cliente', texto: (texto || '').trim(), chat: (id.match(/_([^_]+@[^_]+)_/) || [])[1] || ''});
+    }
+  }
   return {titulo, msgs: msgs.slice(-30)};
+}"""
+
+JS_WA_DIAG_CONVERSA = """() => {
+  const main = document.querySelector('#main'); if (!main) return null;
+  const c = q => main.querySelectorAll(q).length;
+  const ex = main.querySelector('.message-in, .message-out, [role="row"]');
+  return {rows: c('[role="row"]'), data_id: c('[data-id]'), msg_in: c('.message-in'), msg_out: c('.message-out'),
+    pre: c('[data-pre-plain-text]'), selectable: c('span.selectable-text'),
+    exemplo_ids: [...main.querySelectorAll('[data-id]')].slice(-3).map(d => d.getAttribute('data-id').slice(0, 50)),
+    exemplo_html: ex ? ex.outerHTML.replace(/>[^<]{3,}</g, '>…<').slice(0, 700) : ''};
 }"""
 
 
@@ -10515,6 +10543,8 @@ def cmd_whatsapp(args, cfg):
                     novas = wa_novas(conv, set(vistos.get(chave) or []))
                     log(f"whatsapp: '{titulo}' número …{fone[-4:] if fone else '?'}: {len(conv.get('msgs') or [])} mensagens lidas, {len(novas)} novas"
                         + (" (Bruno)" if wa_mesmo_fone(fone, dono) else ""))
+                    if not conv.get("msgs"):
+                        log("whatsapp: conversa sem mensagens lidas; estrutura " + json.dumps(pg.evaluate(JS_WA_DIAG_CONVERSA), ensure_ascii=False)[:1200])
                     if not novas:
                         continue
                     vistos[chave] = ((vistos.get(chave) or []) + [m["id"] for m in novas])[-200:]

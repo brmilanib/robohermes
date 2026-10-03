@@ -1817,6 +1817,8 @@ async function telaInicio() {
     const subHoje = baseOntem ? `vs ontem até ${esc(hAgora.h)}: gasto ${delta(H.cost, baseOntem.cost, false)} · ROAS ${delta(ro(H), ro(baseOntem), true)}`
       : (O.cost ? `já gastou ${nf0.format((H.cost || 0) / O.cost * 100)}% do dia de ontem` : "");
     const subMes = !P.erro && P.cost ? `vs ${mes(P.de)} até dia ${(P.ate || "").slice(8, 10)}: gasto ${delta(M.cost, P.cost, false)} · ROAS ${delta(ro(M), ro(P), true)}` : "";
+    // 03/10 (Bruno: "ontem 22, hoje 22, como o mês dá 15?"): o mês é a soma dos dias; cada dia aparece com o ROAS dele
+    const diasMes = (a.dias || []).filter(x => !x.erro).map(x => `<span class="pill ${cor(ro(x))}" title="${esc(x.dia)}: ADS ${rsES(x.cost || 0)} · vendas ${rsES(x.total_amount || 0)}">${esc(x.dia.slice(8, 10))}/${esc(x.dia.slice(5, 7))} ${roF(ro(x))}</span>`).join(" ");
     const veredito = !P.erro && ro(M) != null && ro(P) != null ? (ro(M) >= ro(P) ? `✅ O ADS do mês está <b>melhor</b> que no mesmo período de ${mes(P.de)} (ROAS ${roF(ro(M))} × ${roF(ro(P))}).`
       : `⚠️ O ADS do mês está <b>pior</b> que no mesmo período de ${mes(P.de)} (ROAS ${roF(ro(M))} × ${roF(ro(P))}): veja os anúncios que dão prejuízo.`) : "";
     el.innerHTML = `<div class="dash-cab"><h2>📣 ADS em tempo real</h2><span class="muted">Mercado Livre · ${esc(a.conta || "")} · lido às ${lido} · atualiza de hora em hora · o ML conta o ADS com algumas horas de atraso</span>
@@ -1824,7 +1826,7 @@ async function telaInicio() {
       <div class="dash-ks">
         ${k("hoje", "⚡ Hoje (até agora)", H, subHoje)}
         ${k("ontem", "📅 Ontem", O, O.cost && H && !H.erro ? "" : "")}
-        ${k("mes", "🗓️ Mês atual", M, subMes)}
+        ${k("mes", "🗓️ Mês atual" + (M.soma_dos_dias ? " (soma dos dias)" : ""), M, subMes + (diasMes ? "<br>" + diasMes : ""))}
         ${k("mes_fechado", "✅ Mês fechado (" + mes((a.mes_fechado || {}).de) + ")", a.mes_fechado)}
       </div>
       ${veredito ? `<p class="dash-ads-v">${veredito}</p>` : ""}
