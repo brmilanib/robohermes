@@ -994,16 +994,22 @@ def _outras_marcas(repo, df, atual, marca):
 
 
 def relatorio(repo, marca, periodo=None, visao=None):
+    # 03/10 (Bruno: "tá lento"): tempo de cada etapa vai para o log ("relatorio MARCA: etapa 1.2s · …") e para _tempos
+    t0, tempos = time.monotonic(), []
+    marca_t = lambda nome: tempos.append((nome, round(time.monotonic() - t0, 2)))
     snaps = repo.snapshots(marca)
     if snaps.empty:
         raise ErroNuvem(f"Nenhum período importado para {marca}.", 404)
     atual, anterior = escolher_periodo(snaps, periodo)
     df = nubi.ler_snapshot(repo, atual["id"], marca)
+    marca_t("card")
     df, un_trocada = _com_marca_trocada(repo, df, atual, marca)
+    marca_t("marca_trocada")
     # 02/10 (Bruno, Al Wataniah set/26: "faturamento total da marca no Ranking 6,4 mi, o Explorador mostrando 12; tem algo
     # erradíssimo"): a pesquisa expandida traz anúncios de OUTRAS marcas (2.576 dos 4.497; Lattafa 953…). Eles ficam
     # guardados no card (Observados, Outras marcas) mas NÃO contam nos números da marca: tudo abaixo é só da marca.
     outras_marcas = _outras_marcas(repo, df, atual, marca)
+    marca_t("outras_marcas")
     df = _so_da_marca(df).copy()
     dias = int(atual["dias"])
     # 03/10 (Bruno: "últimos 7 dias, últimos 30 dias"): a marca inteira nos números da janela — 30 = o export do dia (o
@@ -1026,7 +1032,9 @@ def relatorio(repo, marca, periodo=None, visao=None):
         else:
             visao_info = {"tipo": str(visao), "falta": True}
     df.attrs["dias"] = dias
+    marca_t("visao")
     df_ant = _so_da_marca(nubi.ler_snapshot(repo, anterior["id"], marca)).copy() if anterior is not None else None
+    marca_t("anterior")
     attrs = nubi.atributos_produto(df)
     vend = nubi.codigos_vendedor(df)
     df["cod"] = df["vendedor_id"].map(vend["cod"])
@@ -1074,6 +1082,7 @@ def relatorio(repo, marca, periodo=None, visao=None):
     for i, linha in enumerate(sorted(produtos, key=lambda x: -x["fat"]), 1):
         linha["pos_fat"] = i
 
+    marca_t("produtos")
     # Oportunidades
     oport = []
     for x in nubi.calcular_oportunidades(df, attrs, df_ant,
@@ -1171,6 +1180,7 @@ def relatorio(repo, marca, periodo=None, visao=None):
                               df_ant.loc[df_ant["produto"] == prod, "cat"].iloc[0])})
         evolucao.sort(key=lambda x: (-x["giro"], -x["giro_ant"]))
 
+    marca_t("oportunidades_vendedores_precos_gtins")
     # Histórico (até os 30 últimos períodos)
     historico = {"periodos": [], "linhas": []}
     if len(snaps) >= 2:
@@ -1190,6 +1200,7 @@ def relatorio(repo, marca, periodo=None, visao=None):
                 "com_venda": sum(1 for v in serie if v > 0)})
         historico["linhas"].sort(key=lambda x: -x["serie"][-1])
 
+    marca_t("historico")
     # Anúncios: produto consolidado + a linha original do arquivo, com as colunas do export.
     colunas = list(nubi.COLUNAS_NUBIMETRICS)
     for r in df["bruto"]:
@@ -1245,6 +1256,7 @@ def relatorio(repo, marca, periodo=None, visao=None):
             v["eu"] = v["vid"] in meus_ids
         lista.sort(key=lambda v: (-v["un"], -v["fat"], v["codigo"]))
 
+    marca_t("anuncios_vendedores_do_produto")
     # 03/10 (Bruno: "mostra se tá caindo ou crescendo; o arredondamento a gente pega na média com o tempo"): média por dia
     # dos últimos 7 dias × a dos últimos 30 (exports diários), por produto e por vendedor do produto
     tendencias = {"crescendo": [], "caindo": [], "periodo_7": None, "periodo_30": None}
@@ -1288,6 +1300,7 @@ def relatorio(repo, marca, periodo=None, visao=None):
         mudancas.sort(key=lambda m: (str(m["dia"]), abs(m["var"] or 0)), reverse=True)
     except Exception:  # noqa: BLE001
         mudancas = []
+    marca_t("tendencias_precos")
     # Produtos de cada vendedor (janela que abre ao clicar no vendedor), pelo código V01…
     prod_vend = {}
     for prod, lista in vend_prod.items():
@@ -1326,12 +1339,17 @@ def relatorio(repo, marca, periodo=None, visao=None):
         "anuncios_outras_marcas": int(sum(x["anuncios"] for x in outras_marcas)),
         "un_nao_perfume": int(df.loc[df["tipo"] == nubi.TIPO_FORA, "un"].sum()),
         "un_low_price": int(df.loc[df["tipo"].isin(nubi.TIPOS_LOW), "un"].sum()),
-        "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada,
-        "janela": janela, "conferencia": conferencia_marca(repo, marca), "visao": visao_info,
-        "tem_7": bool((nubi.janela_7_dias(repo, marca, str(atual["fim"])[:10]) or (None, None))[1]),
-        "tem_30": str((nubi.ler_janela(repo, marca) or {}).get("fim")) == str(atual["fim"])[:10]}
+        "gtins_duvida": len(duvidas), "un_sem_gtin": un_sem_gtin, "un_marca_trocada": un_trocada}
 
+    lojas_ml = _lojas_ml_do(repo, set(df["vendedor_id"].astype(str)))
+    marca_t("lojas_ml")
+    tem_7 = bool((nubi.janela_7_dias(repo, marca, str(atual["fim"])[:10]) or (None, None))[1])
+    resumo.update({"janela": janela, "conferencia": conferencia_marca(repo, marca), "visao": visao_info, "tem_7": tem_7,
+                   "tem_30": str((nubi.ler_janela(repo, marca) or {}).get("fim")) == str(atual["fim"])[:10]})
+    marca_t("fim")
+    print(f"relatorio {marca}{' visao=' + str(visao) if visao else ''}: " + " · ".join(f"{n} {t}s" for n, t in tempos), flush=True)
     return {
+        "_tempos": tempos,
         "marca": marca, "nome": nubi.nome_bonito(marca), "atual": _periodo(atual),
         "anterior": _periodo(anterior), "periodos": [_periodo(s) for _, s in snaps.iloc[::-1].iterrows()],
         "resumo": resumo, "concentracao": conc,
@@ -1345,7 +1363,7 @@ def relatorio(repo, marca, periodo=None, visao=None):
         "produtos_vendedor": {k: _registros(v) for k, v in prod_vend.items()},
         "colunas_arquivo": colunas,
         # 29/09: a loja real (Mercado Livre) dos vendedores embaralhados que o nubi já identificou (meli|hash_lojas)
-        "lojas_ml": _lojas_ml_do(repo, set(df["vendedor_id"].astype(str))),
+        "lojas_ml": lojas_ml,
     }
 
 

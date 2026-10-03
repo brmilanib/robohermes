@@ -2020,6 +2020,7 @@ def _gravar_resumo(repo, chave, valor):
     if not hasattr(repo, "_req"):          # banco local (SQLite) não tem ia_resumos: fica na memória (testes)
         repo.__dict__.setdefault("resumos", {})[chave] = valor
         return
+    repo.__dict__.setdefault("_cache_resumos", {})[chave] = valor
     try:
         repo._req("POST", "ia_resumos", corpo=[{"chave": chave, "ia": "nubi (explorador)", "criado_em": datetime.now().astimezone().isoformat(),
                                                 "texto": json.dumps(valor, ensure_ascii=False)}],
@@ -2112,11 +2113,18 @@ def registrar_serie(repo, marca, fim, datas):
 def ler_resumo(repo, chave):
     if not hasattr(repo, "_req"):
         return repo.__dict__.get("resumos", {}).get(chave)
+    # 03/10 (Bruno: "tá lento"): a mesma chave era lida 5–6 vezes na abertura de uma marca; agora 1 vez por pedido (o repo é
+    # criado a cada pedido; quem grava atualiza a cópia)
+    cache = repo.__dict__.setdefault("_cache_resumos", {})
+    if chave in cache:
+        return cache[chave]
     try:
         r = (repo._req("GET", "ia_resumos", {"select": "texto", "chave": f"eq.{chave}"}) or [None])[0]
-        return json.loads(r["texto"]) if r and r.get("texto") else None
+        v = json.loads(r["texto"]) if r and r.get("texto") else None
     except Exception:  # noqa: BLE001
         return None
+    cache[chave] = v
+    return v
 
 
 def ler_janela(repo, marca):
