@@ -10441,15 +10441,22 @@ JS_WA_LINHA = """(titulo) => {
 
 
 def _wa_abrir_titulo(pg, titulo):
-    """03/10 (tela real): o span do título não recebe o clique; clica com o mouse no meio da linha da conversa."""
-    pos = pg.evaluate(JS_WA_LINHA, titulo)
-    if not pos:
-        raise Falha(f"conversa '{titulo}' não está na lista")
-    pg.mouse.click(pos["x"], pos["y"])
-    try:
-        pg.wait_for_selector('#main footer div[contenteditable="true"]', timeout=8000)
-    except Exception:  # noqa: BLE001
-        raise Falha(f"cliquei em '{titulo}' mas a conversa não abriu")
+    """03/10 (tela real): o span do título não recebe o clique; clica com o mouse no meio da linha da conversa.
+    A lista rola ao trazer a linha para o centro: espera assentar e mede de novo. Às vezes o 1º clique não abre
+    (a lista se reorganiza quando chega mensagem): tenta 2 vezes."""
+    for tentativa in range(2):
+        pos = pg.evaluate(JS_WA_LINHA, titulo)
+        if not pos:
+            raise Falha(f"conversa '{titulo}' não está na lista")
+        pg.wait_for_timeout(400)
+        pos = pg.evaluate(JS_WA_LINHA, titulo) or pos
+        pg.mouse.click(pos["x"], pos["y"])
+        try:
+            pg.wait_for_selector('#main footer div[contenteditable="true"]', timeout=8000)
+            break
+        except Exception:  # noqa: BLE001
+            if tentativa:
+                raise Falha(f"cliquei em '{titulo}' mas a conversa não abriu")
     pg.wait_for_timeout(random.randint(1500, 2600))
 
 
