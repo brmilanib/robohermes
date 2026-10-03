@@ -42,7 +42,7 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
 - Cópia de segurança (02/10, Bruno: "uma cópia aqui no meu Mac e uma no meu Drive"): `coletor backup` (comando `backup`
   da Central). 03/10: o Google Drive para computador está no PC gamdias (G:), não no Mac; rotina em dias separados
   (Bruno: "não os dois no mesmo dia"): Mac `backup` no domingo, gamdias `servidor_backup` (cópia local + Drive) na quarta,
-  depois das 3 h; o Dell entra num 3º dia quando for ligado. Banco inteiro com o login do Bruno (só leitura,
+  só de madrugada (3h às 7h, Bruno: "coloca pra fazer de madrugada"); o Dell entra num 3º dia quando for ligado. Banco inteiro com o login do Bruno (só leitura,
   `BACKUP_TABELAS` + tabelas novas pelo OpenAPI; tabela nova com chave composta: pôr na lista) em `banco/<t>.jsonl.gz`,
   código com todo o histórico em `codigo.bundle`, num arquivo `~/nubi-backup/nubi-AAAA-MM-DD.tar.gz` + cópia em
   `<Google Drive>/nubi-backup`; guarda as 8 últimas. O token do ML (`meli|conta`) nunca entra. Além disso o Supabase Pro
