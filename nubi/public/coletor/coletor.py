@@ -9452,7 +9452,7 @@ button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6
  <div class="card"><h2>🕘 Últimos comandos</h2><div id="recentes"></div></div>
 </section><aside>
  <div class="card" id="chat"><h2>💬 Conversar com o coletor</h2>
- <div class="ag"><button type="button" data-a="claude" class="on">Claude</button><button type="button" data-a="codex">Codex</button><button type="button" data-a="hermes">Hermes (grátis)</button></div>
+ <div class="ag"><button type="button" data-a="claude" class="on">🔨 Ferreiro</button><button type="button" data-a="codex">Codex</button><button type="button" data-a="hermes">Hermes (grátis)</button></div>
  <div id="msgs"><div class="m h">Oi, Bruno! Fale, cole um print ou peça uma mudança. O Claude (Ferreiro) e o Codex leem o coletor, os logs e o projeto, buscam na internet e programam quando você clicar em 🔨. O Hermes é grátis, para tarefas simples. Nada roda sem o seu clique.</div></div>
  <div id="anx" class="anx"></div>
  <form id="f"><label class="ic" title="anexar print"><input type="file" id="arq" accept="image/*" multiple hidden>📎</label>
@@ -9494,7 +9494,7 @@ document.querySelectorAll(".ag button").forEach(b=>b.onclick=()=>{agente=b.datas
 function bolha(c,t){const e=document.createElement("div");e.className="m "+c;e.textContent=t;$("#msgs").appendChild(e);$("#msgs").scrollTop=1e9;return e}
 $("#q").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#f").requestSubmit()}});
 $("#f").onsubmit=async e=>{e.preventDefault();const q=$("#q").value.trim();if(!q)return;$("#q").value="";bolha("eu",q);hist.push({role:"user",content:q});
-  const nome={claude:"Claude",codex:"Codex",hermes:"Hermes"}[agente];const b=bolha("h",nome+" pensando…");$("#env").disabled=true;let txt="";
+  const nome={claude:"Ferreiro",codex:"Codex",hermes:"Hermes"}[agente];const b=bolha("h",nome+" pensando…");$("#env").disabled=true;let txt="";
   const t0=Date.now(),rel=setInterval(()=>{if(!txt)b.textContent=`${nome} lendo o coletor… ${Math.round((Date.now()-t0)/1000)} s`},1000);
   try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20),agente,anexos,nova})});enviados=anexos;anexos=[];nova=false;$("#anx").innerHTML="";
     const rd=r.body.getReader(),dec=new TextDecoder();for(;;){const {value,done}=await rd.read();if(done)break;txt+=dec.decode(value,{stream:true});b.textContent=txt;$("#msgs").scrollTop=1e9}
@@ -9543,7 +9543,7 @@ def _painel_modelo(cfg):
     return pref if pref in locais or not locais else (next((m for m in locais if m.startswith("hermes")), locais[0]))
 
 
-PAINEL_AGENTES = {"claude": "Claude (Ferreiro)", "codex": "Codex", "hermes": "Hermes (grátis)"}
+PAINEL_AGENTES = {"claude": "Ferreiro (Claude Code)", "codex": "Codex", "hermes": "Hermes (grátis)"}
 
 
 PAINEL_SESSAO = PASTA / "painel_sessao.json"
@@ -9556,7 +9556,7 @@ def _painel_cli(cfg, agente, sistema, msgs, anexos=(), nova=False):
     conversa = "\n\n".join(f"{'Bruno' if m['role'] == 'user' else 'Você'}: {m['content']}" for m in msgs[-12:])
     if anexos:
         conversa += "\n\n(O Bruno anexou imagem(ns); abra e olhe antes de responder: " + ", ".join(anexos) + ")"
-    pedido = (sistema.replace("Você é o Hermes", "Você é o assistente do coletor").replace("(Ollama, grátis, no Mac mini)", "")
+    pedido = (sistema.replace("Você é o Hermes", "Você é o Ferreiro (Claude Code no Mac do Bruno)" if agente == "claude" else "Você é o Codex no Mac do Bruno").replace("(Ollama, grátis, no Mac mini)", "")
               + "\n\nVocê roda no Mac do Bruno, na pasta do coletor: pode LER arquivos (coletor.py, coletor.log, vigia.log, "
               "comandos/*.log, o clone do projeto em projeto/) para investigar, mas NÃO edite, NÃO faça commit nem push e NÃO "
               "rode coletas. Se o Bruno pedir algo da internet (preço, notícia, concorrente, documentação), pesquise na web (só ler) "
