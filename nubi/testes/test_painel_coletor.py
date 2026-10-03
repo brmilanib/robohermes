@@ -157,7 +157,12 @@ coletor._gasto_ferreiro = lambda cfg, somar=0.0: 0.0
 rodadas.clear()
 _run_ant = coletor.subprocess.run
 coletor.subprocess.run = lambda argv, **k: rodadas.append(argv) or R(json.dumps({"result": "ok", "session_id": "S1", "total_cost_usd": 0}))
+coletor.buscar_conhecimento = lambda token, texto, n=5: [{"titulo": "Regra do Explorador", "texto": "perfumaria pela categoria final"}]
+_api_ant = coletor.api
+coletor.api = lambda token, rota, params=None, corpo=None, **k: {"itens": [{"titulo": "Item A", "texto": "texto A", "fixo": True}]} if rota == "conhecimento" else _api_ant(token, rota, params, corpo, **k)
+coletor.PAINEL_BASE.unlink(missing_ok=True)
 coletor._painel_cli({}, "claude", "S", [{"role": "user", "content": "primeira"}], nova=True)
+assert "Regra do Explorador" in rodadas[0][2] and str(coletor.PAINEL_BASE) in rodadas[0][2] and "Item A" in coletor.PAINEL_BASE.read_text()
 anexo = str(coletor.PASTA / "painel_anexos" / "a.png")
 coletor._painel_cli({}, "claude", "S", [{"role": "user", "content": "primeira"}, {"role": "assistant", "content": "ok"},
                                         {"role": "user", "content": "e agora?"}], [anexo])

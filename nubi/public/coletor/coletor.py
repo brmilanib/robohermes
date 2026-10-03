@@ -180,10 +180,15 @@ def _keyring():
         return None
 
 
+COFRE_ERRO = [""]
+
+
 def cofre_ler(servico, conta):
     if sys.platform == "darwin":
         cmd = ["security", "find-generic-password", "-s", servico] + (["-a", conta] if conta else []) + ["-w"]
         r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode:                              # 03/10: o motivo do Chaveiro (nunca a senha) para o log
+            COFRE_ERRO[0] = f"{servico}/{conta or '-'}: {(r.stderr or '').strip()[:140]} (código {r.returncode})"
         return r.stdout.strip() if r.returncode == 0 else ""
     kr = _keyring()
     try:
@@ -7089,7 +7094,8 @@ def entrar_sozinho(p, cfg, site, visivel=True, prazo=180):
                         break
                     logins += 1
                     if not _preencher_login(pg, site, cfg):
-                        log(f"  {nome}: sem senha salva no navegador do coletor nem no Chaveiro")
+                        log(f"  {nome}: sem senha salva no navegador do coletor nem no Chaveiro"
+                            + (f" (Chaveiro: {COFRE_ERRO[0]})" if COFRE_ERRO[0] else ""))
                         break
                     inicio = datetime.now(timezone.utc)
                     continue
@@ -9547,6 +9553,21 @@ PAINEL_AGENTES = {"claude": "Ferreiro (Claude Code)", "codex": "Codex", "hermes"
 
 
 PAINEL_SESSAO = PASTA / "painel_sessao.json"
+PAINEL_BASE = PASTA / "conhecimento_nubi.md"
+
+
+def _painel_base(token):
+    """03/10 (Bruno: "você consegue saber de toda a base de conhecimento do projeto?"): a caixa de conhecimento INTEIRA
+    num arquivo do Mac (refeito a cada 30 min) para o Ferreiro/Codex procurarem (Grep/Read)."""
+    try:
+        if PAINEL_BASE.exists() and time.time() - PAINEL_BASE.stat().st_mtime < 1800:
+            return str(PAINEL_BASE)
+        itens = api(token, "conhecimento", timeout=60).get("itens") or []
+        PAINEL_BASE.write_text("# Caixa de conhecimento do nubi (cópia de leitura)\n\n" + "\n\n".join(
+            f"## {it.get('titulo') or ''}{' (fixo)' if it.get('fixo') else ''}\n{it.get('texto') or ''}" for it in itens), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+    return str(PAINEL_BASE) if PAINEL_BASE.exists() else ""
 
 
 def _painel_cli(cfg, agente, sistema, msgs, anexos=(), nova=False):
@@ -9556,11 +9577,22 @@ def _painel_cli(cfg, agente, sistema, msgs, anexos=(), nova=False):
     conversa = "\n\n".join(f"{'Bruno' if m['role'] == 'user' else 'Você'}: {m['content']}" for m in msgs[-12:])
     if anexos:
         conversa += "\n\n(O Bruno anexou imagem(ns); abra e olhe antes de responder: " + ", ".join(anexos) + ")"
+    extra = ""
+    try:
+        token = token_nubi(cfg)
+        base = _painel_base(token)
+        ligados = buscar_conhecimento(token, msgs[-1]["content"], 8) if msgs else []
+        extra = ((f"\n\nA CAIXA DE CONHECIMENTO INTEIRA do projeto está em {base} (procure nela com Grep/Read antes de dizer que "
+                  "não sabe). O código e o CLAUDE.md do projeto estão na pasta atual." if base else "")
+                 + ("\n\nITENS DA CAIXA MAIS LIGADOS À PERGUNTA:\n" + "\n".join(f"- {it.get('titulo')}: {str(it.get('texto'))[:600]}"
+                                                                         for it in ligados) if ligados else ""))
+    except Exception:  # noqa: BLE001
+        pass
     pedido = (sistema.replace("Você é o Hermes", "Você é o Ferreiro (Claude Code no Mac do Bruno)" if agente == "claude" else "Você é o Codex no Mac do Bruno").replace("(Ollama, grátis, no Mac mini)", "")
               + "\n\nVocê roda no Mac do Bruno, na pasta do coletor: pode LER arquivos (coletor.py, coletor.log, vigia.log, "
               "comandos/*.log, o clone do projeto em projeto/) para investigar, mas NÃO edite, NÃO faça commit nem push e NÃO "
-              "rode coletas. Se o Bruno pedir algo da internet (preço, notícia, concorrente, documentação), pesquise na web (só ler) "
-              "e cite os links. Responda à última mensagem do Bruno em português, curto e direto.\n\nCONVERSA:\n" + conversa)
+              "rode coletas (mudança de código: proponha o botão [[programar:…]]). Se o Bruno pedir algo da internet (preço, notícia, concorrente, documentação), pesquise na web (só ler) "
+              "e cite os links. Responda à última mensagem do Bruno em português, curto e direto." + extra + "\n\nCONVERSA:\n" + conversa)
     projeto = PASTA / "projeto"
     cwd = str(projeto) if (projeto / ".git").exists() else str(PASTA)
     if agente == "claude":
@@ -9578,7 +9610,7 @@ def _painel_cli(cfg, agente, sistema, msgs, anexos=(), nova=False):
             ses = {}
         cont = ["--resume", ses["claude"]] if ses.get("claude") else []
         if cont:
-            pedido = "Bruno: " + msgs[-1]["content"] + ("\n\n(anexos: " + ", ".join(anexos) + ")" if anexos else "")
+            pedido = "Bruno: " + msgs[-1]["content"] + ("\n\n(anexos: " + ", ".join(anexos) + ")" if anexos else "") + extra
         r = subprocess.run([_claude_bin(), "-p", pedido, *cont, "--output-format", "json", "--model", FERREIRO_MODELO,
                             "--max-turns", "20", "--add-dir", str(PASTA), "--allowedTools",
                             "Read,Glob,Grep,WebSearch,WebFetch,Bash(git log:*),Bash(git diff:*),Bash(git status:*),Bash(ls:*),Bash(tail:*)"],
