@@ -549,6 +549,26 @@ def test_nossa_resposta_lida_como_do_cliente_nao_vira_pergunta_nova():
     assert conv["status"] == "respondida"
 
 
+def test_reinterpretar_refaz_so_uma_vez():
+    # 03/10: 1.680 refeitas em 2 dias nas mesmas 3 conversas (a nova voltava à fila a cada 2 min)
+    r = Repo()
+    a.receber(r, "tiktok_shop", "", cliente="ana", externo_id="ana",
+              historico=[{"de": "cliente", "texto": "vocês tem o Club de Nuit?"}], gerar=_ia(iter(["Temos sim!"] * 5)))
+    conv = r.t["atendimento_conversas"][0]
+    for x in r.t["atendimento_rascunhos"]:
+        x["status"], x["fontes"] = "pendente", {}           # rascunho antigo, sem a marca de interpretado
+    antes = a.gerar_qualidade
+    a.gerar_qualidade = lambda repo, modelo=None: _ia(iter(["Temos sim!"] * 20))
+    try:
+        voltas = [a.reinterpretar_pendentes(r, a_cada_min=0) for _ in range(5)]
+    finally:
+        a.gerar_qualidade = antes
+    refeitas = [x for x in r.t["atendimento_rascunhos"] if x.get("motivo") == "refeito com a conversa inteira interpretada"]
+    assert len(refeitas) <= 1, voltas
+    assert not [v for v in voltas[2:] if v and any(f[1] not in ("ja_refeita",) for f in v)], voltas
+    assert conv
+
+
 def test_mensagens_antigas_do_cliente_lidas_de_novo_nao_viram_pergunta():
     msgs = [{"de": "cliente", "texto": "Ainda tem??"}, {"de": "cliente", "texto": "Consigo comprar?"}, {"de": "loja", "texto": "Tem sim."},
             {"de": "cliente", "texto": "ainda tem??\nconsigo comprar?"}]

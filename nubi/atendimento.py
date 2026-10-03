@@ -230,7 +230,7 @@ def buscar_dados(repo, can, conversa, texto, resposta_operador=None, interp=None
     fatos = {"intencao": intento, "loja": LOJA_NOMES.get(loja, loja), "canal": can.nome}
     if LOJA_INFO.get(loja):
         fatos["sobre_a_loja"] = LOJA_INFO[loja]
-    if interp:
+    if interp is not None:   # 03/10: mesmo vazia marca "já interpretada" (sem a marca, reinterpretar_pendentes refazia sem parar)
         fatos["interpretacao"] = {k: interp[k] for k in ("pergunta_resumida", "produto", "motivo") if interp.get(k)}
         if interp.get("pergunta_resumida"):
             texto = f"{texto}\n{interp['pergunta_resumida']}"
@@ -1768,6 +1768,14 @@ def reinterpretar_pendentes(repo, lote=3, a_cada_min=2):
             if not texto:
                 continue
             ult = next((m for m in reversed(msgs) if m["de"] == "cliente"), {})
+            # 03/10: 1.680 refeitas em 2 dias nas MESMAS 3 conversas (a nova saía sem a marca de interpretada e voltava à
+            # fila a cada 2 min, gastando IA e trocando o número da sugestão). Cada conversa é refeita UMA vez por mensagem.
+            if repo._req("GET", "atendimento_rascunhos", {"select": "id", "conversa_id": f"eq.{conv['id']}", "status": "eq.substituido",
+                                                          "motivo": "eq.refeito com a conversa inteira interpretada", "limit": 1}):
+                repo._req("PATCH", "atendimento_rascunhos", {"id": f"eq.{x['id']}"}, prefer="return=minimal",
+                          corpo={"fontes": {**(x.get("fontes") or {}), "interpretacao": {}}})
+                feitas.append((x["id"], "ja_refeita"))
+                continue
             if not msgs or msgs[-1]["de"] != "cliente" or _ja_respondida(repo, conv["id"], ult.get("id")):
                 # 27/09 (print do Bruno): já foi respondida (a "pergunta" era eco da nossa resposta): marca como respondida
                 repo._req("PATCH", "atendimento_rascunhos", {"id": f"eq.{x['id']}"}, prefer="return=minimal",
