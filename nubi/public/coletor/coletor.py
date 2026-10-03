@@ -4989,7 +4989,8 @@ SERVIDOR_PODE = ("importar_sac", "hermes", "qwen", "servidor_processos", "servid
                  "diario", "estoque", "gestor", "parar_coleta", "status", "log_coleta", "entrar", "entrar_upseller",
                  "entrar_gestor", "entrar_auto_nubimetrics", "entrar_auto_upseller",
                  "ml_lojas", "ml_posicoes", "ml_pagina", "entrar_ml", "atender_tiktok", "vend_fotos", "vitrine_seguidos", "ml_precos",
-                 "ml_busca_foto", "explorador_marca", "explorador_diario", "rodizio_seguidos")
+                 "ml_busca_foto", "rodizio_seguidos")
+# 03/10: explorador_marca/explorador_diario ficam no Mac (o Mac é o principal; no gamdias o Nubimetrics pedia login de novo)
 # 02/10: gestor_financeiro e gestor_painel ficam no Mac (a senha do Gestor está no Chaveiro do Mac; no PC não há)
 # 03/10: entrar_auto_gestor também (o gamdias pegava o comando e dizia "sem senha no Chaveiro")
 COLETAS = ("diario", "estoque", "gestor")
@@ -5564,7 +5565,7 @@ def cmd_vigiar():
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Financeiro do Gestor Seller (Resumo e DRE)", flush=True)
             return _soltar("gestor-financeiro")
         # 02/10 (Bruno): Explorador das marcas que ele vende, todo dia a partir das 05:00 (regra 14: entra no card pela diferença)
-        if not motivo and not _outra_rodando() and _na_hora(cfg, token, "explorador_diario_pendente", "explorador_diario_tentativas"):
+        if not motivo and not _eh_servidor(cfg) and not _outra_rodando() and _na_hora(cfg, token, "explorador_diario_pendente", "explorador_diario_tentativas"):
             print(f"{datetime.now():%d/%m %H:%M} vigia: hora do Explorador diário das marcas da lista", flush=True)
             return _soltar("explorador-diario")
         # 01/10 (Bruno): vendas de hoje do UpSeller a cada ~10 min (só lê a tela; se o Chrome estiver ocupado, pula)
@@ -10353,8 +10354,8 @@ JS_WA_CONVERSA = """() => {
       // 03/10 (tela real): data-pre-plain-text = "[15:53, 03/10/2026] +55 44 9881-2871: " diz QUEM mandou; quem é o
       // título da conversa (o outro lado) é cliente, qualquer outro nome é o chip
       const preEl = d.querySelector('[data-pre-plain-text]');
-      const quem = preEl ? ((preEl.getAttribute('data-pre-plain-text') || '').match(/\]\s*([^:]+):/) || [])[1] : null;
-      const so = x => (x || '').replace(/\D/g, ''), nor = x => (x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const quem = preEl ? ((preEl.getAttribute('data-pre-plain-text') || '').match(/\\]\\s*([^:]+):/) || [])[1] : null;
+      const so = x => (x || '').replace(/\\D/g, ''), nor = x => (x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const doOutro = quem ? (nor(quem) === nor(titulo) || (so(quem).length >= 8 && so(quem) === so(titulo))) : null;
       const out = doOutro !== null ? !doOutro
         : (!!d.querySelector('.message-out') || d.classList.contains('message-out') || !!tique || (r.width > 0 && r.left + r.width / 2 > meio));
