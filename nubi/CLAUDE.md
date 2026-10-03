@@ -123,6 +123,13 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   mostra tudo. Aba SAC → 💚 WhatsApp (`#/sac/whatsapp`, situação pela rota
   `whatsapp_estado`). Depois (Bruno): aniversário da base antiga (5–10 por dia, devagar, com "responda SAIR"), e a
   API oficial da Meta para clientes. Testes `test_whatsapp_atendimento.py`, `test_whatsapp_coletor.py`.
+- WhatsApp: áudio, fila e ações (03/10, prints do Bruno): áudio do Bruno e do cliente vira texto: `JS_WA_AUDIO_CEDO`
+  (init script do perfil do WhatsApp: guarda os blobs de áudio de `URL.createObjectURL` e o src de `play()`), `JS_WA_AUDIO`
+  aperta o play da mensagem (data-id) e devolve o arquivo em base64, `_wa_transcrever` manda à rota `whatsapp_transcrever`
+  (corpo = bytes, `?ext=ogg`; `ia.transcrever`, OpenAI; nada fica guardado; até 8 MB) e a mensagem vira "🎤 (áudio) …";
+  falha = "[áudio — não consegui transcrever: motivo]". Até 3 áudios por volta. Agente ocupado: a mensagem entra na FILA
+  (mensagens seguidas ao mesmo agente viram uma) e um aviso "⏳ Recebi…" uma vez — antes pedia "mande de novo" e perdia.
+  Ações `[[…]]` (WhatsApp, Painel e Banguela) vão até o "]]": a de 03/10 tinha "[áudio]" dentro e saía crua.
 - Máquinas (03/10, Bruno): por enquanto o Mac é o principal e o gamdias continua como está (SAC do UpSeller, atendente
   Shopee/TikTok, parte das coletas e leituras do ML) até o Dell ficar pronto. Depois: Dell = servidor dedicado (principal),
   Mac = reserva que assume quando o servidor cair. Não mudar a divisão antes do Bruno configurar o Dell.
