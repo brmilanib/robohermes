@@ -21,8 +21,8 @@ DONO_PADRAO = "5544998812871"           # número pessoal do Bruno (03/10)
 CHIP = "5547991388777"                  # o chip da loja (o mesmo do botão do site da Via Brazil Global)
 AVISADOS = "whatsapp|avisados"          # ids de rascunho já mandados ao Bruno (para não repetir)
 LOJAS = [(re.compile(r"via\s*braz[il]{1,2}\s*global", re.I), "via_brazil")]
-AGENTES = {"ferreiro": "claude", "claude": "claude", "codex": "codex", "hermes": "hermes"}
-RE_AGENTE = re.compile(r"^\s*(ferreiro|claude|codex|hermes)\b[\s,:;.!-]*(.*)$", re.I | re.S)
+AGENTES = {"ferreiro": "claude", "claude": "claude", "codex": "codex", "hermes": "hermes", "banguela": "banguela"}
+RE_AGENTE = re.compile(r"^\s*(ferreiro|claude|codex|hermes|banguela)\b[\s,:;.!-]*(.*)$", re.I | re.S)
 RE_OK = re.compile(r"^\s*(ok|okay|sim|pode|manda|envia|aprovad[oa]|isso|👍|✅)(?:\s|[,.!:-])*#?(\d+)?\s*[.!]*\s*$", re.I)
 RE_NAO = re.compile(r"^\s*(n[ãa]o|rejeit[ao]|ignora|cancela|deixa)(?:\s|[,.!:-])*#?(\d+)?\s*[.!]*\s*$", re.I)
 RE_NUM = re.compile(r"^\s*#?(\d{1,7})(?:\s*[:,.\-–]\s*|\s+)(.+)$", re.S)
@@ -139,7 +139,18 @@ def comando_dono(repo, texto):
         return {"resposta": None}
     ag = RE_AGENTE.match(t)
     if ag:
+        if AGENTES[ag.group(1).lower()] == "banguela":      # o Banguela responde aqui mesmo (servidor), sem passar pelo Mac
+            return {"resposta": "🦷 Banguela:\n" + banguela(repo, ag.group(2).strip() or t)}
         return {"agente": AGENTES[ag.group(1).lower()], "texto": ag.group(2).strip() or t}
+    res = _aprovacao(repo, t)
+    if res is not None:
+        return res
+    return {"agente": "claude", "texto": t}              # nada esperando: é conversa com o Ferreiro
+
+
+def _aprovacao(repo, t, so_explicito=False):
+    """ok / ok N / não N / N texto / (texto com algo esperando). None = não é aprovação. so_explicito (Painel): texto sem
+    número nunca vira resposta ao cliente."""
     ok, nao, num = RE_OK.match(t), RE_NAO.match(t), RE_NUM.match(t)
     if ok or nao:
         r, _ = _alvo(repo, (ok or nao).group(2))
@@ -153,14 +164,18 @@ def comando_dono(repo, texto):
         at.decidir(repo, r["id"], "aprovar", operador="Bruno (WhatsApp)")
         return {"resposta": f"✅ #{r['id']} aprovado: envio para {_quem(r)} em instantes."}
     numero, corpo = (num.group(1), num.group(2)) if num else (None, t)
+    if so_explicito and not numero:
+        return None
     r, _ = _alvo(repo, numero)
     if not r and numero:
         if t.lstrip().startswith("#"):
             return {"resposta": f"Não achei a #{numero} esperando você (já foi respondida?)."}
+        if so_explicito:
+            return None
         numero, corpo = None, t                                # "500 unidades…": o número era parte do texto
         r, _ = _alvo(repo, None)
     if not r:
-        return {"agente": "claude", "texto": t}              # nada esperando: é conversa com o Ferreiro
+        return None
     corpo = corpo.strip()
     if r["status"] == "precisa_info":
         novo = at.responder_operador(repo, r["id"], corpo, operador="Bruno (WhatsApp)")
@@ -169,6 +184,40 @@ def comando_dono(repo, texto):
                                else "Vou montar a resposta com isso.")}
     at.decidir(repo, r["id"], "editar", corpo, operador="Bruno (WhatsApp)")
     return {"resposta": f"✅ #{r['id']}: mando o seu texto para {_quem(r)}."}
+
+
+PAPEL_BANGUELA = """Você é o Banguela, o atendente das lojas do Bruno (Pure Perfumaria, Essence Prime e a importadora Via Brazil
+Global), no WhatsApp do chip, no TikTok Shop e na Shopee. Agora você conversa com o BRUNO (dono), não com cliente.
+Responda em português, curto e direto, como colega de trabalho. Use SÓ o CONTEXTO (fila do atendimento agora): o que está
+esperando ele, de quem, o que o cliente quer e o que você sugeriu. Não invente número nem conversa.
+Para aprovar, lembre o jeito: "ok N" envia a sugestão, "N texto" manda o texto dele, "não N" não responde.
+Se ele pedir algo que não é do atendimento (código, coleta, estoque), diga para chamar o Ferreiro ou o Codex."""
+
+
+def banguela(repo, texto, historico=None):
+    """O Banguela conversando com o Bruno (Painel do coletor ou "Banguela, …" no WhatsApp): aprova pelo jeito curto ou
+    responde sobre a fila do atendimento com o Sonnet do atendimento (teto do dia; senão a IA grátis)."""
+    t = str(texto or "").strip()
+    res = _aprovacao(repo, t, so_explicito=True)
+    if res is not None:
+        return res.get("resposta") or ""
+    abertos = _abertos(repo, 20)
+    try:
+        resumo = at.painel(repo, dias=1)
+    except Exception:  # noqa: BLE001
+        resumo = {}
+    ctx = {"esperando_voce_no_whatsapp": [{"n": r["id"], "cliente": _quem(r), "tipo": "aprovar" if r["status"] == "pendente" else "precisa_de_voce",
+                                           "mensagem": _msg_cliente(repo, r)[:300], "sugestao": str(r.get("texto_gerado") or "")[:400],
+                                           "pergunta": str(r.get("pergunta_operador") or "")[:300]} for r in abertos[:10]],
+           "painel_do_sac_hoje": resumo}
+    conversa = "\n".join(f"{'BRUNO' if h.get('role') == 'user' else 'BANGUELA'}: {str(h.get('content'))[:600]}"
+                         for h in (historico or [])[-8:])
+    pedido = f"CONTEXTO:\n{json.dumps(ctx, ensure_ascii=False, default=str)[:7000]}\n\nCONVERSA:\n{conversa}\nBRUNO: {t}"
+    try:
+        txt, _ = at.gerar_qualidade(repo)(pedido, PAPEL_BANGUELA)
+    except Exception as e:  # noqa: BLE001
+        return f"(não consegui pensar agora: {str(e)[:150]})"
+    return str(txt or "").strip()[:3000]
 
 
 def tick(repo, d):
@@ -204,6 +253,8 @@ def rota(repo, metodo, nome, q, corpo):
     d = json.loads(corpo or b"{}") if metodo == "POST" else {}
     if nome == "whatsapp_tick" and metodo == "POST":
         return tick(repo, d)
+    if nome == "whatsapp_banguela" and metodo == "POST":     # chat do Painel do coletor com o Banguela
+        return {"texto": banguela(repo, d.get("texto"), d.get("historico") if isinstance(d.get("historico"), list) else None)}
     if nome == "whatsapp_estado" and metodo == "POST":       # o Mac conta como está o WhatsApp (conectado, QR, erro)
         repo._req("POST", "ia_resumos", corpo=[{"chave": "whatsapp|estado", "texto": json.dumps(d)[:4000], "ia": "whatsapp",
                                                 "criado_em": at._agora()}], prefer="resolution=merge-duplicates,return=minimal")

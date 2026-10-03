@@ -109,7 +109,9 @@ Toda correção publicada é aplicada na hora, sem esperar a coleta das 7h:
   NADA sai sozinho (`atendimento.SEMPRE_APROVAR`) → o rascunho vai ao Bruno no privado ("🦷 Banguela · #N"). Ele
   responde: "ok"/"ok N" = envia; "N texto" (ou só o texto) = manda o dele (ou, se o Banguela perguntou, vira resposta do
   lojista + base); "não N" = não responde; "Ferreiro, …"/"Codex, …"/"Hermes, …" (ou texto sem nada esperando) = o agente
-  responde no WhatsApp com a memória do Painel (`_wa_agente`; ações [[…]] só no Painel). `para_enviar` sem canal NUNCA
+  responde no WhatsApp com a memória do Painel (`_wa_agente`; ações [[…]] só no Painel). "Banguela, …" (ou o agente 🦷
+  Banguela no chat do Painel, rota `whatsapp_banguela`) = ele fala da fila do atendimento e aprova só pelo jeito explícito
+  ("ok N", "N texto", "não N"; texto solto no Painel nunca vai ao cliente). `para_enviar` sem canal NUNCA
   devolve o WhatsApp (o atendente do PC não mexe nele). Aba SAC → 💚 WhatsApp (`#/sac/whatsapp`, situação pela rota
   `whatsapp_estado`). Depois (Bruno): aniversário da base antiga (5–10 por dia, devagar, com "responda SAIR"), e a
   API oficial da Meta para clientes. Testes `test_whatsapp_atendimento.py`, `test_whatsapp_coletor.py`.

@@ -9537,7 +9537,7 @@ button.acao{display:inline-block;margin-top:8px;padding:7px 12px;background:#1f6
  <div class="card"><h2>📋 Revisão diária (Codex)</h2><div id="rev" class="vazio">A primeira revisão sai hoje às 23h.</div></div>
 </section><aside>
  <div class="card" id="chat"><h2>💬 Conversar com o coletor</h2>
- <div class="ag"><button type="button" data-a="claude" class="on">🔨 Ferreiro</button><button type="button" data-a="codex">Codex</button><button type="button" data-a="hermes">Hermes (grátis)</button></div>
+ <div class="ag"><button type="button" data-a="claude" class="on">🔨 Ferreiro</button><button type="button" data-a="codex">Codex</button><button type="button" data-a="hermes">Hermes (grátis)</button><button type="button" data-a="banguela">🦷 Banguela</button></div>
  <div id="msgs"><div class="m h">Oi, Bruno! Fale, cole um print ou peça uma mudança. O Claude (Ferreiro) e o Codex leem o coletor, os logs e o projeto, buscam na internet e programam quando você clicar em 🔨. O Hermes é grátis, para tarefas simples. Nada roda sem o seu clique.</div></div>
  <div id="anx" class="anx"></div>
  <form id="f"><label class="ic" title="anexar print"><input type="file" id="arq" accept="image/*" multiple hidden>📎</label>
@@ -9589,7 +9589,7 @@ carregarHist();
 function bolha(c,t){const e=document.createElement("div");e.className="m "+c;e.textContent=t;$("#msgs").appendChild(e);$("#msgs").scrollTop=1e9;return e}
 $("#q").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#f").requestSubmit()}});
 $("#f").onsubmit=async e=>{e.preventDefault();const q=$("#q").value.trim();if(!q)return;$("#q").value="";bolha("eu",q);hist.push({role:"user",content:q});
-  const nome={claude:"Ferreiro",codex:"Codex",hermes:"Hermes"}[agente];const b=bolha("h",nome+" pensando…");$("#env").disabled=true;let txt="";
+  const nome={claude:"Ferreiro",codex:"Codex",hermes:"Hermes",banguela:"Banguela"}[agente];const b=bolha("h",nome+" pensando…");$("#env").disabled=true;let txt="";
   const t0=Date.now(),rel=setInterval(()=>{if(!txt)b.textContent=`${nome} lendo o coletor… ${Math.round((Date.now()-t0)/1000)} s`},1000);
   try{const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mensagens:hist.slice(-20),agente,anexos,nova})});enviados=anexos;anexos=[];nova=false;$("#anx").innerHTML="";
     const rd=r.body.getReader(),dec=new TextDecoder();for(;;){const {value,done}=await rd.read();if(done)break;txt+=dec.decode(value,{stream:true});b.textContent=txt;$("#msgs").scrollTop=1e9}
@@ -9638,7 +9638,7 @@ def _painel_modelo(cfg):
     return pref if pref in locais or not locais else (next((m for m in locais if m.startswith("hermes")), locais[0]))
 
 
-PAINEL_AGENTES = {"claude": "Ferreiro (Claude Code)", "codex": "Codex", "hermes": "Hermes (grátis)"}
+PAINEL_AGENTES = {"claude": "Ferreiro (Claude Code)", "codex": "Codex", "hermes": "Hermes (grátis)", "banguela": "Banguela (atendimento)"}
 
 
 PAINEL_SESSAO = PASTA / "painel_sessao.json"
@@ -9834,7 +9834,7 @@ def cmd_painel(args, cfg):
                 return self._enviar(PAINEL_HTML, "text/html; charset=utf-8")
             if rota == "/historico":
                 ag = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("agente") or ["claude"])[0]
-                if ag not in ("claude", "codex", "hermes"):
+                if ag not in ("claude", "codex", "hermes", "banguela"):
                     return self._enviar("[]")
                 return self._enviar(json.dumps(_conversa_ler(ag, 40), ensure_ascii=False))
             if rota == "/estado":
@@ -9877,6 +9877,18 @@ def cmd_painel(args, cfg):
             base = [{"role": "system", "content": _painel_contexto(cfg) + "\n\n" + agora}]
             agente = str(d.get("agente") or "claude")
             anexos = [a for a in (d.get("anexos") or [])[:6] if str(a).startswith(str(PASTA / "painel_anexos"))]
+            if agente == "banguela":
+                # 03/10 (Bruno: "põe o Banguela no painel também"): ele responde pelo nubi sobre a fila do atendimento e
+                # aprova pelo jeito curto ("ok 12", "12 texto", "não 12"), igual ao WhatsApp
+                if msgs and msgs[-1]["role"] == "user":
+                    _conversa_guardar("banguela", "user", msgs[-1]["content"])
+                try:
+                    txt = api(token_nubi(cfg), "whatsapp_banguela", corpo={"texto": msgs[-1]["content"] if msgs else "",
+                                                                          "historico": msgs[:-1]}, metodo="POST", timeout=180).get("texto") or ""
+                except Exception as e:  # noqa: BLE001
+                    txt = f"(não deu: {str(e)[:300]})"
+                _conversa_guardar("banguela", "assistant", txt)
+                return self._enviar(txt, "text/plain; charset=utf-8")
             if agente in ("claude", "codex"):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")

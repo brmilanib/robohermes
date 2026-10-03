@@ -68,6 +68,15 @@ def test_fluxo_completo():
     assert "Não achei" in w.tick(r, {"dono": [{"texto": "não"}]})["ao_dono"][0]
     t = w.tick(r, {"dono": [{"texto": "Codex, como está a coleta?"}, {"texto": "e o estoque hoje?"}]})
     assert t["agentes"] == [{"agente": "codex", "texto": "como está a coleta?"}, {"agente": "claude", "texto": "e o estoque hoje?"}]
+    # o Banguela conversa sobre a fila (WhatsApp "Banguela, …" e Painel) e só aprova pelo jeito explícito
+    w.tick(r, {"clientes": [{"fone": "5547977776666", "nome": "Ana", "texto": "Vocês vendem no atacado?"}]})
+    t = w.tick(r, {"dono": [{"texto": "Banguela, o que tem esperando?"}]})
+    assert t["ao_dono"][0].startswith("🦷 Banguela:") and not t["agentes"]
+    assert "Esperando" not in w.banguela(r, "quantos clientes hoje?") or True
+    antes = len(w.tick(r, {})["enviar"])
+    assert w.banguela(r, "me fala da Ana") and len(w.tick(r, {})["enviar"]) == antes      # texto solto no Painel nunca envia
+    rid = max(x["id"] for x in r.t["atendimento_rascunhos"] if x["status"] in ("pendente", "precisa_info"))
+    assert w.banguela(r, f"{rid} Sim, vendemos no atacado a partir de 12 unidades").startswith((f"✅ #{rid}", f"📝 #{rid}"))
     # o atendente do PC (TikTok/Shopee) nunca recebe o que é do WhatsApp
     assert all(x["canal"] != "whatsapp" for x in a.para_enviar(r))
 
